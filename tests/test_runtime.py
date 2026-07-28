@@ -14,7 +14,7 @@ from orion.runtime import OrionRuntime
 from orion.store import Store
 from orion.tasks import TaskManager
 from orion.registry import RegisteredTool, ToolRegistry
-from orion.server import OrionServer
+from orion.server import OrionHandler, OrionServer
 from orion.timers import TimerManager
 from orion.planner import LocalPlanner
 from orion.planner import ActionPlan, PlannedAction
@@ -41,12 +41,25 @@ class FakeProvider:
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_cloud_router_stays_local_by_default_and_gates_high_tier(self):
-        self.assertFalse(CloudRouter(False, "any-model").decide("Analyze this").use_cloud)
-        lower = CloudRouter(True, "lower-tier")
-        self.assertTrue(lower.decide("Please analyze this complex task").use_cloud)
-        high = CloudRouter(True, "opus-tier")
-        self.assertTrue(high.decide("Analyze this").requires_approval)
+    def test_router_picks_cheapest_workable_tier_and_respects_budget(self):
+        disabled = CloudRouter(False, "fast-model", "deep-model", budget_usd=15)
+        self.assertEqual(disabled.decide("Analyze this").tier, "local")
+
+        router = CloudRouter(True, "fast-model", "deep-model", budget_usd=15)
+        self.assertEqual(router.decide("what's up").tier, "fast")
+        self.assertEqual(router.decide("Please analyze this in detail").tier, "deep")
+        self.assertEqual(router.decide("hi", local_failed=True).tier, "fast")
+
+        # A spent budget must force everything back to local rather than overspend.
+        self.assertEqual(router.decide("Please analyze this", spent_this_month=15.01).tier, "local")
+
+    def test_cost_estimate_uses_published_token_pricing(self):
+        from orion.cloud import estimate_cost
+
+        # Haiku 4.5 is $1/M in, $5/M out.
+        cost = estimate_cost("claude-haiku-4-5-20251001", {"input_tokens": 1_000_000, "output_tokens": 1_000_000})
+        self.assertAlmostEqual(cost, 6.0)
+        self.assertAlmostEqual(estimate_cost("claude-haiku-4-5-20251001", {"input_tokens": 1000, "output_tokens": 500}), 0.0035)
 
     def test_restart_marks_inflight_task_and_scheduler_runs_persisted_job(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -135,9 +148,77 @@ class RuntimeTests(unittest.TestCase):
             runtime.memory.remember("preference", "Keep Orion replies concise.")
             runtime.respond("Can you keep this concise?")
             prompt = runtime.provider.calls[0][0]["content"]
-            self.assertIn("Relevant local memory", prompt)
+            self.assertIn("Relevant saved memory", prompt)
             self.assertIn("Keep Orion replies concise.", prompt)
             runtime.store.close()
+
+    def test_conversation_history_is_replayed_to_the_model(self):
+        """Regression guard: Orion used to answer every turn with no memory of the last one."""
+        with tempfile.TemporaryDirectory() as directory, patch("orion.runtime.OllamaProvider", FakeProvider):
+            runtime = OrionRuntime(Path(directory) / "orion.db")
+            conversation_id, _ = runtime.respond("My rabbit is named Clover.")
+            runtime.provider.calls.clear()
+            runtime.respond("What is my rabbit's name?", conversation_id)
+
+            replayed = " ".join(str(m.get("content", "")) for m in runtime.provider.calls[0])
+            self.assertIn("Clover", replayed)
+            runtime.store.close()
+
+    def test_agent_loop_chains_tools_and_stops_at_the_iteration_limit(self):
+        """The old runtime did exactly one tool round trip; search-then-read needs several."""
+
+        class ChainProvider:
+            model = "fake"
+
+            def __init__(self, *_args, **_kwargs):
+                self.rounds = 0
+
+            def chat(self, _messages, _tools):
+                self.rounds += 1
+                if self.rounds <= 2:
+                    name = "web_search" if self.rounds == 1 else "fetch_url"
+                    args = {"query": "x"} if self.rounds == 1 else {"url": "http://example.com"}
+                    return {"message": {"role": "assistant", "content": "",
+                                        "tool_calls": [{"id": f"t{self.rounds}", "function": {"name": name, "arguments": args}}]}}
+                return {"message": {"role": "assistant", "content": "Chained answer."}}
+
+        with tempfile.TemporaryDirectory() as directory, patch("orion.runtime.OllamaProvider", ChainProvider):
+            runtime = OrionRuntime(Path(directory) / "orion.db")
+            _, answer = runtime.respond("Look something up for me please")
+            self.assertEqual(answer, "Chained answer.")
+            self.assertEqual(runtime.provider.rounds, 3)
+            runtime.store.close()
+
+    def test_registry_exposes_only_read_only_tools_to_the_model(self):
+        from orion.tools import build_registry
+
+        registry = build_registry(brave_api_key=None)
+        names = {schema["function"]["name"] for schema in registry.schemas(max_permission_level=0)}
+        self.assertEqual(names, {"get_current_time", "web_search", "fetch_url"})
+        for schema in registry.schemas():
+            self.assertTrue(schema["function"]["description"], "every tool needs a description the model can act on")
+
+    def test_web_search_degrades_honestly_without_a_key(self):
+        from orion.web import web_search
+
+        result = web_search("who won last night", api_key=None)
+        self.assertEqual(result["error"], "web_search_unavailable")
+        self.assertIn("do not answer", result["guidance"].lower())
+
+    def test_fetch_url_refuses_non_web_and_loopback_targets(self):
+        from orion.web import fetch_url
+
+        self.assertIn("error", fetch_url("file:///etc/passwd"))
+        self.assertIn("error", fetch_url("http://127.0.0.1:8765/health"))
+
+    def test_html_is_reduced_to_readable_text(self):
+        from orion.web import _TextExtractor
+
+        parser = _TextExtractor()
+        parser.feed("<html><head><title>Hi</title></head><body><script>evil()</script><p>Real text.</p></body></html>")
+        self.assertEqual(parser.title, "Hi")
+        self.assertIn("Real text.", parser.text())
+        self.assertNotIn("evil", parser.text())
 
     def test_time_question_is_grounded_without_model_guessing(self):
         with tempfile.TemporaryDirectory() as directory, patch("orion.runtime.OllamaProvider") as provider:
@@ -333,9 +414,17 @@ class RuntimeTests(unittest.TestCase):
             )
             result = json.load(urlopen(request, timeout=3))
             worker.join()
-            self.assertIn("permitted Desktop workspace", result["answer"])
+            # It must ask what to name them, not claim it lacks access.
+            self.assertIn("what should I name", result["answer"])
+            self.assertNotIn("cannot", result["answer"].lower())
             server.server_close()
             server.runtime.store.close()
+
+    def test_a_question_mentioning_folders_still_reaches_the_model(self):
+        """The old handler swallowed every message containing the word 'folder'."""
+        self.assertFalse(OrionHandler._looks_like_local_action("what folder should I use for tax documents?"))
+        self.assertFalse(OrionHandler._looks_like_local_action("write me an essay about the civil war"))
+        self.assertTrue(OrionHandler._looks_like_local_action("create a folder called taxes"))
 
     def test_timer_is_persistent_and_can_be_cancelled(self):
         with tempfile.TemporaryDirectory() as directory:

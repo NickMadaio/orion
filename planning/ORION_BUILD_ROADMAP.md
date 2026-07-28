@@ -2,583 +2,219 @@
 
 **ORION — Organized Reasoning and Information Operating Network**
 
-A local-first personal AI system that can communicate through multiple interfaces, understand long-term context, operate the computer, interact with external services, monitor ongoing situations, and escalate difficult work to cloud models when necessary.
-
-## Core architectural principle
-
-Orion is not the desktop interface, chatbot, local model, or Claude integration.
-
-Orion is the persistent background system coordinating:
-
-- Models
-- Tools
-- Memory
-- Permissions
-- Tasks
-- Events
-- Connectors
-- Communication channels
-
-The desktop app, terminal, text messages, voice, and phone calls are different ways of communicating with the same Orion runtime.
+*Revised July 28, 2026. The original roadmap is in git history. This revision
+reorients the plan around the actual goal — the closest achievable thing to
+Jarvis — and corrects one architectural decision that was capping answer
+quality. See `ORION_STATE_AUDIT.md` for the reasoning.*
 
 ---
 
-## Phase -1 — Development intelligence
+## Mission
 
-Set up Claude API access for researching, designing, debugging, and testing Orion.
+A personal assistant you talk to like a person, that gives comprehensive
+answers about anything including current events, operates your Mac completely,
+remembers you, acts on its own within limits you set, and reaches you wherever
+you are.
 
-This is separate from Orion’s eventual cloud escalation system. During development, Claude can help build Orion. Later, Orion itself will invoke Claude through a controlled provider and routing layer.
+Concretely, Orion is finished enough when you can say *"what's on my plate
+today, move those tax PDFs into a folder, remind me at 4, and tell me if my
+sleep score tanked"* out loud, and it just does it.
 
-### Completion milestone
+## Core principle — rent the brain, own the body
 
-- Anthropic API key is secured.
-- Claude requests work through the development interface.
-- Spending can be monitored and limited.
-- API credentials are excluded from Git.
+The previous roadmap made a local model the default intelligence and treated
+cloud as an exception. That caps Orion's quality at whatever a 20B model can do,
+which your own benchmark measured at 4/8.
 
-**Status: complete.**
+Invert it. Frontier intelligence is a cheap metered commodity you rent by the
+token. What nobody will sell you is a trusted, permission-gated agent wired
+deeply into *your* Mac, *your* files, and *your* accounts. That is the asset.
+Build the body. Rent the brain. Keep the local model for the high-frequency,
+private, low-value work where it is genuinely the right tool.
+
+### Routing tiers
+
+| Tier | Model | Handles | Approx. cost |
+|---|---|---|---|
+| 0 | none | Deterministic actions with explicit arguments | free |
+| 1 | gpt-oss:20b (local) | Intent classification, tool selection, argument extraction | free |
+| 2 | Haiku 4.5 | Conversation, summarizing, everyday questions | ~$0.0035 / exchange |
+| 3 | Sonnet 5 | Hard reasoning, code, research, multi-step planning | ~$0.02 / exchange |
+
+A hard monthly ceiling (`ORION_MONTHLY_BUDGET_USD`) forces a fallback to local
+rather than overspending. Privacy-sensitive categories can be pinned to tier 1
+regardless of complexity.
+
+### Rules that do not change
+
+- The model proposes; deterministic code authorizes. Never use model output as
+  proof of permission.
+- Filesystem scopes stay explicit. Never the whole home directory by default.
+- Content from files, web pages, and messages is untrusted data, never
+  instructions.
+- Destructive, financial, account-changing, publishing, and
+  speaking-on-your-behalf actions always require explicit approval.
+- Every tool execution is audited: timestamp, tool, arguments, permission
+  decision, result, model, cost.
+- Separate "can propose" from "can execute."
 
 ---
 
-## Phase 0 — Architecture contract
+## Status summary
 
-Define the rules Orion’s entire system will follow before implementing the local agent.
-
-### Decisions
-
-#### Runtime
-
-Orion will have a persistent Python background runtime.
-
-The interface will communicate with this runtime rather than directly communicating with models or tools.
-
-#### Model independence
-
-Models will be accessed through interchangeable providers.
-
-Initial providers:
-
-- Ollama for local inference
-- Claude API for cloud escalation
-
-Future providers can include OpenAI, Gemini, or specialized local models without rewriting Orion’s core.
-
-#### Local-first behavior
-
-Orion uses local models and local storage by default.
-
-Cloud models are invoked only when:
-
-- The user explicitly requests one
-- The local model reports low confidence
-- A structured response repeatedly fails
-- The task crosses a configurable complexity threshold
-- A specialized cloud capability is required
-
-#### Tools
-
-Every capability Orion can execute is represented as a registered tool with:
-
-- A name
-- Description
-- Structured input schema
-- Permission level
-- Execution handler
-- Timeout
-- Result schema
-- Audit entry
-
-Tools may initially be native Python functions. MCP adapters can later expose compatible external tools, resources, and services.
-
-#### Permission levels
-
-**Level 0 — Read-only**
-
-May run automatically.
-
-Examples:
-
-- List files
-- Read notes
-- View calendar
-- Read system information
-- Search indexed content
-
-**Level 1 — Reversible local change**
-
-May require preview or approval depending on the tool.
-
-Examples:
-
-- Create a file
-- Rename a file
-- Move a file
-- Write a note
-- Create a draft
-
-**Level 2 — External communication or meaningful system change**
-
-Requires approval initially.
-
-Examples:
-
-- Send an email
-- Send a text
-- Create a calendar event
-- Run a terminal command that changes state
-- Install software
-
-**Level 3 — Destructive, financial, private, or high-impact action**
-
-Always requires explicit approval.
-
-Examples:
-
-- Delete files
-- Make purchases
-- Change account settings
-- Publish content
-- Execute privileged commands
-- Speak to someone on the user’s behalf
-
-#### Auditability
-
-Every tool execution records:
-
-- Timestamp
-- Requesting user or task
-- Model and provider
-- Tool name
-- Arguments
-- Permission decision
-- Result
-- Error, if any
-- API cost, if applicable
-
-#### Background operation
-
-Orion will eventually operate as a macOS background service.
-
-The graphical app is a client and dashboard. Closing the app must not necessarily stop Orion’s scheduler, watches, or task queue.
-
-#### State
-
-SQLite will initially hold structured runtime information:
-
-- Conversations
-- Tasks
-- Tool executions
-- Approval requests
-- Events
-- Watches
-- Provider usage
-- Configuration
-
-Long-form human-readable knowledge may later live in an Obsidian vault.
-
-#### Communication
-
-Orion must support multiple channels without tying its core to any one channel.
-
-Possible channels:
-
-- Terminal
-- Desktop app
-- Push notifications
-- SMS
-- iMessage
-- Voice
-- Phone calls
-
-Each channel communicates with the same agent runtime.
-
-### Completion milestone
-
-Phase 0 is complete when these decisions are documented and the initial repository structure reflects them.
-
-### Decision record — confirmed July 2026
-
-The following decisions refine and confirm the Phase 0 architecture contract.
-
-#### Runtime and interfaces
-
-- Orion will run as a persistent local Python runtime.
-- The desktop application is Orion's first and primary interface, but it is a client of the runtime rather than the runtime itself.
-- Terminal, notifications, messaging, and voice are future interface adapters. They must use the same runtime, task system, memory, permissions, and audit history as the desktop app.
-- Voice is an explicit future requirement. It will begin with push-to-talk, then may add wake-word activation, interruption handling, speech-to-text, and text-to-speech. Voice input must not bypass the normal permission or approval system.
-
-#### Model routing
-
-- Orion will define a thin, provider-independent model interface from the beginning.
-- Ollama is the first implemented provider and is the default for local, private work.
-- Claude is a later cloud escalation provider; Orion is not intended to replace specialized coding products such as Claude Code.
-- Orion may automatically escalate to an approved lower-cost cloud model when task type, local confidence, repeated structured-output failures, or a required capability warrants it.
-- Higher-cost or premium model tiers require explicit approval unless the user later creates a trusted policy for them.
-- Every escalation records its reason, selected tier, and cost, and is subject to budget limits.
-- Fresh information is obtained through permission-controlled data tools, rather than granting an underlying model unrestricted internet access.
-
-#### Tools and permissions
-
-- Orion should be capable of creating and editing files, using terminal tools, and operating approved services, but models never receive unrestricted authority.
-- Every capability is a registered tool with a structured input and output, scope, timeout, permission policy, and audit record.
-- Permissions are standing and scoped rather than repeatedly requested. Orion can act autonomously inside explicitly approved boundaries, such as a designated workspace or safe read-only services.
-- Orion asks for confirmation when an action crosses a scope boundary, has meaningful risk, is ambiguous, or requires a higher-cost model tier.
-- Destructive, financial, account-changing, publishing, privileged, or representative actions always require explicit approval.
-- Local execution improves privacy but is not a substitute for security. Tool access must remain sandboxed and scoped, and instructions discovered in files, webpages, or other external content are untrusted.
-
-#### State, reporting, and auditability
-
-- SQLite is the initial local store for conversations, tasks, permissions, tool executions, schedules, configuration, and concise audit records.
-- An Obsidian-compatible Markdown vault may later hold longer, human-readable knowledge such as project briefs, decisions, and notes.
-- Default status reporting is short and conversational. Orion provides deeper task history, reasoning context, and execution detail only when the user asks for it or it is needed to explain a problem.
-- Compact internal records retain actions, approvals, outcomes, and costs for safety, troubleshooting, and away-task follow-up.
+| Phase | State |
+|---|---|
+| 0. Architecture contract | Complete, revised today |
+| 1. Local conversational core | Complete |
+| 2. Agent runtime | Substantially complete |
+| 3. Memory | Basic; needs summarization and decay |
+| 4. Local computer tools | Complete for files; needs app control |
+| 5. Tiered routing | **Implemented today, needs live verification** |
+| 6. Web access | **Implemented today, needs a Brave key** |
+| 7. Background service | Partial — companion app runs, launchd untested |
+| 8. MCP client | Not started — highest leverage remaining work |
+| 9. Full Mac control | Not started |
+| 10. Voice | Not started |
+| 11+ | Not started |
 
 ---
 
-## Phase 1 — Local conversational core
+## Phase 5 — Tiered routing *(implemented, unverified)*
 
-Create the smallest functional version of Orion that uses no cloud services.
+Replaces the old "Phase 5 — Cloud escalation."
 
-### Build
+Done: `ModelRouter` with local/fast/deep tiers, Anthropic tool-use support,
+prompt caching on the system prefix, per-call cost estimation, monthly budget
+enforcement, provider audit in SQLite.
 
-- Install Ollama.
-- Install one capable local tool-calling model.
-- Create an `OllamaProvider`.
-- Stream responses into the existing interface.
-- Store basic conversation sessions.
-- Register one harmless tool.
-- Execute one complete model → tool → result → model loop.
-- Record the tool call in the audit log.
+**Remaining:** verify live against the API. Add per-category pinning so
+anything touching a sensitive scope stays local. Surface running spend in the UI.
 
-The first tool should be deterministic and safe, such as:
+**Milestone:** a trivial question is answered by Haiku for a fraction of a cent,
+a hard one goes to Sonnet, both are logged with cost, and hitting the budget
+ceiling degrades to local instead of failing or overspending.
 
-- Get the current date
-- Perform a calculation
-- Return basic system information
+## Phase 6 — Fresh information *(implemented, needs a key)*
 
-### Completion milestone
+Was buried inside old Phase 7. Promoted, because "answers about current things"
+is a primary requirement and had zero implementation.
 
-Orion can hold a conversation through the interface, recognize when it needs a tool, call that tool, incorporate the result, and log the operation without using Claude.
+Done: `web_search` (Brave API, free tier 2,000/month), `fetch_url` with HTML
+text extraction, a real agent loop so Orion can search *then* read *then*
+answer, and a system prompt that instructs it to search rather than guess.
 
----
+**Remaining:** add `BRAVE_SEARCH_API_KEY` to `.env`. Then consider result
+caching, and citation formatting in replies.
 
-## Phase 2 — Agent runtime
+**Milestone:** ask about something from this week and get a correct, sourced
+answer. Ask with no key configured and get an honest "I can't search right now"
+instead of a hallucination.
 
-Build the machinery required for Orion to perform more than one simple model response.
+## Phase 7 — Always-on background service
 
-### Build
+The companion app starts the runtime; `native/launchd/` exists but is unproven.
 
-- Agent loop
-- Tool registry
-- Structured tool calls
-- Permission enforcement
-- Approval requests
-- Task state machine
-- Timeouts
-- Cancellation
-- Retry policies
-- Failure reporting
-- Event log
+**Build:** verified launch-at-login, crash recovery, health endpoint monitoring,
+clean startup and shutdown, and confirmation that scheduled jobs fire with the
+window closed.
 
-Suggested task states:
+**Milestone:** reboot the Mac, touch nothing, and a reminder set yesterday still
+fires today.
 
-- Created
-- Planning
-- Waiting for approval
-- Running
-- Waiting for external input
-- Completed
-- Failed
-- Cancelled
+## Phase 8 — MCP client *(highest leverage remaining work)*
 
-### Completion milestone
+**This one phase replaces the old Phases 7 and 14 entirely.**
 
-Orion can receive a multi-step request, create a task, call allowed tools, pause for approval when necessary, recover from a manageable failure, and clearly report the result.
+Rather than hand-writing a Gmail connector, then a Calendar connector, then
+GitHub, then Whoop — implement the Model Context Protocol client once. Every
+MCP server ever written becomes an Orion capability, and the ecosystem grows
+without you.
 
----
+**Build:** MCP client (stdio and HTTP transports), server config in `.env` or a
+config file, dynamic tool registration into the existing `ToolRegistry`, and —
+critically — mapping every discovered MCP tool into Orion's existing permission
+levels. An MCP tool must not bypass the approval path just because it arrived
+dynamically. Default unknown tools to "requires approval."
 
-## Phase 3 — Memory layer
+**Milestone:** add a Gmail MCP server to config, restart, and Orion can search
+and summarize your inbox without a line of Gmail-specific code — but still
+cannot send anything without approval.
 
-Give Orion durable knowledge beyond individual conversations.
+## Phase 9 — Full Mac control
 
-### Build
+Files already work. This is the "open anything, control anything" layer.
 
-- Structured personal and project memory
-- Conversation summaries
-- Source attribution
-- Timestamps
-- Confidence and relevance metadata
-- Retrieval
-- Memory-editing rules
-- Obsidian vault integration
-- Root navigation document such as `ORION.md`
+**Build, in order of preference:**
 
-Memory categories should include:
+1. **Apple Shortcuts** — `shortcuts run <name>` reaches an enormous amount of
+   macOS and iOS with no private APIs. You already proved the pattern with the
+   Clock timer. Generalize it: a shortcut registry Orion can enumerate and call.
+2. **AppleScript / JXA** — scriptable apps: Mail, Notes, Music, Finder, Safari.
+3. **`open` and URL schemes** — launching apps and deep links. Cheap, covers
+   "open Spotify."
+4. **Accessibility API** — last resort, for apps with no scripting interface.
+   Powerful and brittle; gate it behind approval.
 
-- Stable user information
-- Preferences
-- People
-- Projects
-- Decisions
-- Current goals
-- Temporary context
-- Scheduled watches
-- Past task outcomes
+**Milestone:** "open Spotify and play my focus playlist, then set a 25 minute
+timer" works end to end, by voice or text.
 
-### Completion milestone
+## Phase 10 — Voice
 
-You can discuss a project, close Orion, return later, mention the project naturally, and Orion retrieves the correct relevant context without requiring a full explanation.
+Moved up sharply. Voice is the single feature that makes this *feel* like
+Jarvis rather than a chat window, and the pieces are now cheap and local.
 
----
+**Build:** push-to-talk first, `whisper.cpp` locally for speech-to-text
+(fast on an M5 Pro, free, private), macOS `AVSpeechSynthesizer` or a hosted
+voice for output, short spoken responses, interruption handling, then optional
+wake word.
 
-## Phase 4 — Local computer tools
+Voice is another client of the same runtime. It must not bypass approvals — a
+spoken "yes, do it" is a valid approval; silence is not.
 
-Allow Orion to interact with the Mac under strict scope and permission controls.
+**Milestone:** hold a key, speak, Orion acts and answers aloud.
 
-### Build
+## Phase 11 — Remote channels
 
-- Scoped file listing
-- File reading
-- File creation
-- File editing
-- File moving and renaming
-- Folder organization proposals
-- Read-only terminal commands
-- Approval-gated state-changing terminal commands
-- Diffs and previews
-- Rollback where possible
+Reach Orion from your phone. Telegram is the easiest first channel; iMessage is
+the nicest and the most fragile.
 
-Begin with one sandboxed folder, such as a dedicated Orion test directory. Expand to Downloads or Desktop only after the safety model works.
+**Milestone:** text Orion from class, get an authenticated answer from the same
+runtime, approve a queued action from your phone.
 
-### Completion milestone
+## Phase 12 — Proactive watches
 
-Orion can propose a folder cleanup, show the planned changes, receive approval, execute them, and produce an audit record without accessing anything outside the permitted directory.
+Bounded monitoring with explicit scope, thresholds, quiet hours, and expiration.
+A casual mention must never create an indefinite watch.
 
----
+**Milestone:** define a trip and a weather threshold; get alerted only when it
+matters.
 
-## Phase 5 — Cloud escalation
+## Phase 13 — Autonomous away-tasks
 
-Connect Orion’s model router to the already-created Claude provider.
+Bounded work while you are gone, with checkpoints, runtime limits, approval
+pauses, and no silent failure.
 
-### Build
+## Phase 14+ — Everything else
 
-- Escalation policies
-- Complexity and confidence signals
-- Local failure detection
-- Provider selection
-- API cost estimation
-- Per-request and monthly spending limits
-- Prompt caching
-- Usage logging
-- Local fallback when cloud access fails
-
-Anthropic prompt caching should be used for stable prefixes such as Orion’s system instructions and frequently reused context because it reduces repeated input processing, latency, and cost.
-
-### Completion milestone
-
-A simple task remains entirely local. A genuinely difficult task escalates to Claude, returns successfully, records why it escalated, and logs the exact API usage.
+Wearables (Whoop), school systems, smart home, phone calls. Each follows the
+same progression: read-only → summarize → propose → approval-gated write →
+narrow trusted automation. If an MCP server exists, use it instead of building
+a connector.
 
 ---
 
-## Phase 6 — Persistent background service
-
-Turn Orion from an app into an always-available system.
-
-### Build
-
-- Background daemon
-- Local API between the interface and runtime
-- Event bus
-- Scheduler
-- Job persistence
-- Crash recovery
-- Notifications
-- Health status
-- Startup and shutdown behavior
-- macOS launch integration
-
-### Completion milestone
-
-A scheduled task executes even when the desktop interface is closed, and Orion reports the outcome when the interface is reopened.
-
----
-
-## Phase 7 — Email and calendar
-
-Add Orion’s first external personal-data connectors.
-
-### Build order
-
-1. Read-only access
-2. Search and summarization
-3. Draft creation
-4. Approval-gated changes
-5. Narrow, policy-based automation
-
-Initial abilities:
-
-- Read and summarize inbox activity
-- Identify important messages
-- Search old email
-- View calendar
-- Explain schedule conflicts
-- Draft responses
-- Propose calendar events
-
-### Completion milestone
-
-Orion can summarize relevant email and calendar information without opening either application, but cannot send or modify anything without the required approval.
-
----
-
-## Phase 8 — Remote messaging
-
-Allow communication with Orion while away from the Mac.
-
-### Possible first channels
-
-- Telegram
-- Discord
-- SMS
-- iMessage
-
-A channel gateway such as OpenClaw may be evaluated here as an adapter. It should not replace Orion’s core runtime.
-
-### Completion milestone
-
-You can message Orion remotely, receive an authenticated response from the same runtime used by the desktop app, and approve or reject a queued action.
-
----
-
-## Phase 9 — Proactive watches and alerts
-
-Allow Orion to monitor specifically defined situations.
-
-### Build
-
-- Watch definitions
-- Data-source polling
-- Trigger thresholds
-- Deduplication
-- Quiet hours
-- Expiration
-- Notification routing
-- Cost limits
-
-A casual mention must not create an indefinite watch. Watches require explicit scope, conditions, frequency, and expiration.
-
-### Completion milestone
-
-You define a trip and a weather threshold. Orion checks at an appropriate interval and alerts you only when the threshold becomes relevant.
-
----
-
-## Phase 10 — Autonomous away-tasks
-
-Allow Orion to continue bounded tasks while you leave.
-
-### Build
-
-- Persistent task queue
-- Resource limits
-- Progress checkpoints
-- Maximum runtime
-- Approval pauses
-- Clear completion reports
-- Clear blocked-task reports
-- No silent failure
-
-### Completion milestone
-
-You assign a bounded task, leave, and return to either a completed result or an explicit explanation of the decision Orion needs from you.
-
----
-
-## Phase 11 — Voice assistant
-
-Add Alexa-like interaction without yet answering external phone calls.
-
-### Build
-
-- Push-to-talk first
-- Speech-to-text
-- Text-to-speech
-- Interruption handling
-- Short spoken responses
-- Optional wake-word detection
-- Device and room routing later
-
-### Completion milestone
-
-You can speak a request, Orion performs the same permission-controlled workflow as the desktop interface, and it responds aloud.
-
----
-
-## Phase 12 — Phone calls, voicemail tier
-
-Create a dedicated phone number and handle missed calls asynchronously.
-
-### Build
-
-- Incoming call handling
-- Voicemail recording
-- Transcription
-- Caller identification where possible
-- Summary
-- Suggested response
-- Text notification
-- Approval before replying
-
-### Completion milestone
-
-A caller leaves a message and Orion sends you an accurate summary and suggested response without pretending to be you.
-
----
-
-## Phase 13 — Phone calls, live tier
-
-Add a live AI receptionist.
-
-### Build
-
-- Real-time duplex audio
-- Voice activity detection
-- Streaming speech recognition
-- Streaming speech synthesis
-- Contact-aware call policy
-- Transfer rules
-- Explicit disclosure that the caller is speaking with Orion
-- Emergency and uncertainty handling
-- Call summaries and logs
-
-### Completion milestone
-
-Orion can answer a permitted category of calls, clearly identify itself, either handle the bounded interaction or transfer the caller, and produce an accurate summary.
-
----
-
-## Phase 14 — Additional connectors
-
-Add integrations only when real use demonstrates a need.
-
-Examples:
-
-- Whoop and wearable data
-- GitHub
-- School systems
-- Business tools
-- Smart-home devices
-- Financial read-only dashboards
-- Media and entertainment services
-
-Each connector follows the same progression:
-
-1. Read-only
-2. Search and summarize
-3. Draft or propose
-4. Approval-gated writes
-5. Narrow trusted automation
-
-### Completion milestone
-
-There is no final milestone. This remains Orion’s ongoing expansion phase.
+## Recommended order from here
+
+1. Verify today's changes on your Mac; get a Brave key; rotate the Anthropic key.
+2. Finish Phase 7 so Orion is genuinely always on.
+3. **Build the MCP client (Phase 8).** Nothing else comes close on leverage.
+4. Shortcuts bridge (Phase 9) — this is where it starts feeling like Jarvis.
+5. Voice (Phase 10) — this is where it stops feeling like a chat app.
+
+## Open decision
+
+Whether to keep building the runtime yourself or adopt an existing one
+(OpenClaw, Hermes Agent, OpenJarvis) and contribute Orion's macOS permission
+layer as an MCP server. Section 5 of `ORION_STATE_AUDIT.md` lays out the
+tradeoff. Decide before Phase 8, because Phase 8 is where the duplicated effort
+becomes expensive.

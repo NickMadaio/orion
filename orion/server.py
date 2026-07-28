@@ -109,11 +109,16 @@ class OrionHandler(BaseHTTPRequestHandler):
         self.server.tasks.transition(task, "running", "completed", proposal_id=result["id"], permission="automatic_low_risk")
         return result
 
-    @staticmethod
-    def _looks_like_local_action(message: str) -> bool:
-        return bool(re.search(r"\b(?:create|make|add|move|rename|write|edit|delete|remove|set|start)\b", message, re.IGNORECASE)) and bool(
-            re.search(r"\b(?:folder|file|timer|alarm|desktop|move|rename|delete|remove|write|edit)\b", message, re.IGNORECASE)
-        )
+    # Verbs and nouns are checked separately so a verb can never satisfy both
+    # halves. "Write me an essay about X" used to match on `write` twice and get
+    # routed into the filesystem planner, where it failed. A local action now
+    # requires an actual filesystem or timer noun.
+    _ACTION_VERB = re.compile(r"\b(?:create|make|add|move|rename|edit|delete|remove|set|start|organize|clean up)\b", re.IGNORECASE)
+    _ACTION_NOUN = re.compile(r"\b(?:folders?|subfolders?|files?|directory|directories|timers?|alarms?|desktop)\b", re.IGNORECASE)
+
+    @classmethod
+    def _looks_like_local_action(cls, message: str) -> bool:
+        return bool(cls._ACTION_VERB.search(message)) and bool(cls._ACTION_NOUN.search(message))
 
     def _execute_structured_plan(self, message: str) -> tuple[str, dict | None]:
         plan = self.server.planner.plan(message)
@@ -202,7 +207,26 @@ class OrionHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if self.path == "/health":
-            self._json(HTTPStatus.OK, {"status": "ready", "provider": "ollama", "model": self.server.runtime.provider.model})
+            runtime = self.server.runtime
+            self._json(HTTPStatus.OK, {
+                "status": "ready",
+                "provider": "ollama",
+                "model": runtime.provider.model,
+                "cloud_enabled": runtime.router.enabled,
+                "tools": runtime.registry.names(),
+                "spend_this_month_usd": round(runtime.store.spend_this_month(), 4),
+                "monthly_budget_usd": runtime.router.budget_usd,
+            })
+            return
+        if path == "/conversations":
+            self._json(HTTPStatus.OK, {"conversations": self.server.runtime.store.recent_conversations()})
+            return
+        if path == "/conversations/messages":
+            conversation_id = parse_qs(parsed.query).get("id", [""])[0]
+            if not conversation_id.isdigit():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "A numeric conversation id is required."})
+                return
+            self._json(HTTPStatus.OK, {"messages": self.server.runtime.store.conversation_messages(int(conversation_id))})
             return
         if path in {"/", "/index.html"}:
             self._static_file("index.html", "text/html; charset=utf-8")
@@ -426,8 +450,11 @@ class OrionHandler(BaseHTTPRequestHandler):
                 answer = f"Done — I created {description} on your Desktop. You can roll that action back from Workspace if you want to undo it."
                 self._json(HTTPStatus.OK, {"conversation_id": conversation_id, "answer": answer, "proposal": proposal})
                 return
-            if re.search(r"\b(?:folder|folders|subfolder|subfolders)\b", message, re.IGNORECASE):
-                answer = "I can create folders in your permitted Desktop workspace. Tell me the folder name or names, and I’ll do it."
+            # A folder request with no extractable names is a clarification case,
+            # not a capability question. Narrow on purpose: it must look like an
+            # action, so "which folder should I use?" still reaches the model.
+            if self._looks_like_local_action(message) and re.search(r"\bfolders?\b", message, re.IGNORECASE):
+                answer = "Sure — what should I name them, and should they go on your Desktop?"
                 self._json(HTTPStatus.OK, {"conversation_id": conversation_id, "answer": answer})
                 return
             timer_match = re.search(r"(?:set|start)\s+(?:a\s+)?(?:timer\s+for\s+)?(\d+)\s*(second|seconds|minute|minutes|hour|hours)\s*(?:timer)?", message, re.IGNORECASE)

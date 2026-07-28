@@ -137,6 +137,46 @@ class Store:
             )
             self.connection.commit()
 
+    def conversation_messages(self, conversation_id: int, limit: int = 40) -> list[dict]:
+        """The recent turns of one conversation, oldest first.
+
+        Without this the model was re-answering every message with no idea what
+        was said a moment earlier. `limit` bounds context growth; summarizing
+        older turns is the next improvement here.
+        """
+        with self._lock:
+            rows = self.connection.execute(
+                """SELECT role, content FROM messages WHERE conversation_id=?
+                   ORDER BY id DESC LIMIT ?""",
+                (conversation_id, limit),
+            ).fetchall()
+            return [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
+
+    def recent_conversations(self, limit: int = 20) -> list[dict]:
+        with self._lock:
+            rows = self.connection.execute(
+                """SELECT c.id, c.created_at,
+                          (SELECT content FROM messages m WHERE m.conversation_id=c.id
+                            AND m.role='user' ORDER BY m.id LIMIT 1) AS opening
+                   FROM conversations c ORDER BY c.id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows if row["opening"]]
+
+    def spend_this_month(self) -> float:
+        """Total estimated cloud cost since the first of the current month."""
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT usage_json FROM provider_executions WHERE created_at >= strftime('%Y-%m-01', 'now')"
+            ).fetchall()
+        total = 0.0
+        for row in rows:
+            try:
+                total += float(json.loads(row["usage_json"]).get("estimated_cost_usd", 0.0))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+        return total
+
     def audit_tool(self, conversation_id: int, name: str, arguments: dict, result: dict) -> None:
         with self._lock:
             self.connection.execute(

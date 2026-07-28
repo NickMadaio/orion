@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Swift build artifacts (~266MB)
+.build/
+*.dSYM/
+
+# Vendored runtime — reinstall Ollama from ollama.com instead of committing it (~561MB)
+archive/orion-ui-prototype/runtime/
+
+# Local runtime state — machine-specific, contains conversation history
+data/orion.db
+data/*.log
+data/computer_sandbox/
+data/computer_controls/
+orion/data/
+
+# macOS
+.DS_Store

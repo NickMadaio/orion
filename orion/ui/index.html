@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Orion</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app" aria-label="Orion chat">
+      <header>
+        <div>
+          <p class="eyebrow">LOCAL PERSONAL ASSISTANT</p>
+          <h1>Orion</h1>
+        </div>
+        <span id="connection" class="status">Checking connection</span>
+      </header>
+      <nav class="tabs" aria-label="Orion sections">
+        <button class="tab active" data-view="chat">Chat</button>
+        <button class="tab" data-view="workspace">Workspace</button>
+        <button class="tab" data-view="memory">Memory</button>
+        <button class="tab" data-view="timers">Timers</button>
+        <button class="tab" data-view="activity">Activity</button>
+      </nav>
+
+      <section id="chat" class="view active">
+        <div id="messages" class="messages" aria-live="polite"><article class="message orion"><p>Hi, I’m Orion. What would you like help with?</p></article></div>
+        <form id="chat-form" class="composer"><label class="sr-only" for="message">Message Orion</label><textarea id="message" rows="1" placeholder="Message Orion" autocomplete="off" required></textarea><button id="send" type="submit">Send</button></form>
+        <p class="hint">Local chat. Enter sends; Shift + Enter adds a line.</p>
+      </section>
+
+      <section id="workspace" class="view">
+        <div class="panel-head"><div><h2>Workspace</h2><p>Changes always start as proposals. Desktop access is approval-gated.</p></div><label class="small">Location <select id="workspace-scope"><option value="sandbox">Orion sandbox</option><option value="desktop">Desktop</option></select></label><button id="refresh-files" class="secondary">Refresh</button></div>
+        <div id="files" class="file-list"></div>
+        <div class="grid">
+          <form id="file-form" class="card"><h3>Create or edit file</h3><input id="file-path" placeholder="notes/todo.txt" required><textarea id="file-content" rows="4" placeholder="File contents"></textarea><button>Preview change</button></form>
+          <form id="move-form" class="card"><h3>Move or rename</h3><input id="move-source" placeholder="Current path" required><input id="move-destination" placeholder="New path" required><button>Preview move</button></form>
+          <form id="terminal-form" class="card"><h3>Terminal</h3><input id="terminal-command" placeholder="ls" required><p class="small">Read-only: pwd, ls, find, cat. Changes: mkdir, touch, mv, then approval.</p><button>Run or preview</button></form>
+        </div>
+        <section><h3>Pending and recent proposals</h3><div id="proposals" class="proposal-list"><p class="muted">Create a change preview to see it here.</p></div></section>
+      </section>
+
+      <section id="memory" class="view">
+        <div class="grid"><form id="memory-form" class="card"><h2>Remember something</h2><select id="memory-category"><option value="preference">Preference</option><option value="project">Project</option><option value="decision">Decision</option><option value="goal">Goal</option><option value="temporary">Temporary context</option></select><textarea id="memory-content" rows="4" placeholder="What should Orion remember?" required></textarea><button>Save locally</button></form>
+        <form id="memory-search-form" class="card"><h2>Search memory</h2><input id="memory-query" placeholder="Search a word or phrase" required><button>Search</button><div id="memory-results" class="results"></div></form></div>
+      </section>
+
+      <section id="timers" class="view"><div class="panel-head"><div><h2>Native Mac</h2><p>Timers and system capabilities stay local to this Mac.</p></div><button id="refresh-timers" class="secondary">Refresh</button></div><div class="grid"><form id="timer-form" class="card"><h3>Start a Clock timer</h3><input id="timer-minutes" type="number" min="1" max="1440" placeholder="Minutes" required><input id="timer-label" placeholder="Optional label"><button>Start in Clock</button></form><article class="card"><h3>Mac permissions</h3><p class="small">Accessibility is only for future screen-level app control. It is not needed for files, Clock timers, Calendar, or Reminders.</p><div id="native-status" class="results"><p class="muted">Checking native capabilities…</p></div></article></div><div class="grid"><article class="card"><h3>Upcoming Calendar</h3><button id="load-calendar" class="secondary">Load read-only schedule</button><div id="calendar-events" class="results"></div></article><article class="card"><h3>Incomplete Reminders</h3><button id="load-reminders" class="secondary">Load read-only reminders</button><div id="reminder-items" class="results"></div></article></div><div class="grid"><form id="reminder-form" class="card"><h3>Create Reminder</h3><input id="reminder-title" placeholder="Reminder title" required><input id="reminder-due" type="datetime-local"><button>Preview for approval</button></form><form id="calendar-form" class="card"><h3>Create Calendar event</h3><input id="calendar-title" placeholder="Event title" required><input id="calendar-start" type="datetime-local" required><input id="calendar-end" type="datetime-local" required><button>Preview for approval</button></form></div><div id="native-proposals" class="proposal-list"></div><div id="timer-list" class="task-list"></div></section>
+
+      <section id="activity" class="view"><div class="panel-head"><div><h2>Activity</h2><p>Compact task, approval, and scheduled-item history stored locally.</p></div><button id="refresh-tasks" class="secondary">Refresh</button></div><div id="tasks" class="task-list"></div><section><h3>Scheduled items</h3><div id="jobs" class="task-list"></div></section></section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

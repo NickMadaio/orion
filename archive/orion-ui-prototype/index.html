@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ORION</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="glow one"></div><div class="glow two"></div>
+  <main>
+    <header>
+      <div class="brand"><div class="logo">✦</div><div><h1>ORION</h1><p>ORGANIZED REASONING & INFORMATION OPERATING NETWORK</p></div></div>
+      <span class="online"><i></i> Local system online</span>
+    </header>
+    <div class="layout">
+      <aside>
+        <small>WORKSPACE</small>
+        <button class="active">✦ &nbsp; Conversation</button>
+        <button disabled>◫ &nbsp; Context <em>Soon</em></button>
+        <button disabled>⌁ &nbsp; Automations <em>Soon</em></button>
+        <section><div><span>Claude API</span><b>Connected</b></div><hr><p>Your key stays on this Mac.</p></section>
+      </aside>
+      <article class="chat">
+        <div id="messages">
+          <div class="welcome">
+            <div class="core">✦</div><small>ORION CORE</small>
+            <h2>What should we work on?</h2>
+            <p>Ask a question, plan a project, or reason through an idea.</p>
+            <nav>
+              <button data-prompt="Help me plan my top three priorities today.">Plan my day</button>
+              <button data-prompt="Help me think through the next phase of ORION.">Design ORION</button>
+              <button data-prompt="Explain a difficult concept clearly.">Explain something</button>
+            </nav>
+          </div>
+        </div>
+        <form id="form">
+          <textarea id="prompt" rows="1" placeholder="Message ORION..." required></textarea>
+          <button id="send" aria-label="Send">↑</button>
+          <small>Enter to send · Shift + Enter for a new line</small>
+        </form>
+      </article>
+    </div>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

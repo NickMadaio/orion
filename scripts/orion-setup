@@ -135,6 +135,35 @@ sys.exit(0 if s.makefile("r").readline().strip() else 1)
 PY
 }
 
+# A daemon that is alive but older than the code is worse than no daemon: it
+# keeps serving from whatever it loaded at startup, so a fix you just made is
+# invisible and you conclude the fix did not work. Restart when the source has
+# moved on.
+daemon_is_stale() {
+  local pid started file_m
+  pid="$(pgrep -f orion_tts_daemon.py 2>/dev/null | head -1)"
+  [[ -n "$pid" ]] || return 1
+
+  # `ps -o lstart=` gives e.g. "Thu Jul 30 18:44:18 2026"; turn it into epoch
+  # seconds and compare against the daemon source's mtime.
+  started="$(ps -o lstart= -p "$pid" 2>/dev/null)"
+  [[ -n "$started" ]] || return 1
+  started="$(date -j -f "%a %b %d %T %Y" "$started" +%s 2>/dev/null)"
+  file_m="$(stat -f %m "$repo/scripts/orion_tts_daemon.py" 2>/dev/null)"
+  [[ -n "$started" && -n "$file_m" ]] || return 1
+
+  (( file_m > started ))
+}
+
+if daemon_alive && daemon_is_stale; then
+  warn "running, but started before the current code — restarting it"
+  launchctl unload "$HOME/Library/LaunchAgents/com.nickmadaio.orion.tts.plist" 2>/dev/null
+  rm -f "$HOME/Library/LaunchAgents/com.nickmadaio.orion.tts.plist"
+  pkill -f orion_tts_daemon.py 2>/dev/null
+  sleep 1
+  rm -f "$socket"
+fi
+
 if daemon_alive; then
   ok "already running and answering"
 else
@@ -144,32 +173,37 @@ else
   fi
   mkdir -p "$HOME/.openclaw/logs"
 
-  # Prefer launchd. A daemon started from this shell is a child of the
-  # Terminal window and dies with it (SIGHUP), which is not a property you
-  # want in the thing that gives Orion its voice. launchd also restarts it
-  # after a crash and brings it back at login.
-  plist_src="$repo/native/launchd/com.nickmadaio.orion.tts.plist"
+  # NOT launchd — at least not while the repo lives on the Desktop.
+  #
+  # `~/Desktop` is TCC-protected. A LaunchAgent runs without the Desktop
+  # access that Terminal inherits, so it cannot even read `orion-python`:
+  #
+  #   shell-init: getcwd: cannot access parent directories: Operation not permitted
+  #   /bin/zsh: can't open input file: …/ORION/scripts/orion-python
+  #
+  # KeepAlive then restarts it, forever, several times a second. A crash-loop
+  # is worse than no daemon. It would also be unable to read `.env`, so the
+  # ElevenLabs key would be invisible to it even if it did start.
+  #
+  # Any previously installed agent is unloaded here so an old install stops
+  # spinning.
   plist_dst="$HOME/Library/LaunchAgents/com.nickmadaio.orion.tts.plist"
-  if [[ -f "$plist_src" ]]; then
-    mkdir -p "$HOME/Library/LaunchAgents"
-    cp "$plist_src" "$plist_dst"
+  if [[ -f "$plist_dst" ]]; then
     launchctl unload "$plist_dst" >/dev/null 2>&1
-    launchctl load -w "$plist_dst" >/dev/null 2>&1
+    rm -f "$plist_dst"
+    warn "removed a LaunchAgent that could not read ~/Desktop (it was crash-looping)"
   fi
 
+  # A detached child of this shell instead. `nohup` plus a closed stdin is
+  # what makes it survive the Terminal window closing — the earlier SIGHUP
+  # death was a missing </dev/null, not a missing launchd.
+  export ORION_TTS_CLOUD_VOICE="${ORION_TTS_CLOUD_VOICE:-1}"
+  export ORION_ENV_FILE="${ORION_ENV_FILE:-$repo/.env}"
+  nohup "$py" scripts/orion_tts_daemon.py \
+    >>"$HOME/.openclaw/logs/orion-tts.out.log" \
+    2>>"$HOME/.openclaw/logs/orion-tts.err.log" </dev/null &
+  disown
   for _ in {1..60}; do daemon_alive && break; sleep 0.25; done
-
-  if ! daemon_alive; then
-    # launchd did not take; fall back to a detached child so voice still works
-    # for this session.
-    export ORION_TTS_CLOUD_VOICE="${ORION_TTS_CLOUD_VOICE:-1}"
-    export ORION_ENV_FILE="${ORION_ENV_FILE:-$repo/.env}"
-    nohup "$py" scripts/orion_tts_daemon.py \
-      >>"$HOME/.openclaw/logs/orion-tts.out.log" \
-      2>>"$HOME/.openclaw/logs/orion-tts.err.log" </dev/null &
-    disown
-    for _ in {1..60}; do daemon_alive && break; sleep 0.25; done
-  fi
 
   if daemon_alive; then
     ok "started (managed by launchd — survives this window closing)"
@@ -179,8 +213,38 @@ else
   fi
 fi
 
+# --------------------------------------------------------------- providers
+step "6. Voice providers"
+# If the keys are there, use them. The local MLX voice and Apple's on-device
+# recogniser are the offline floor, not the target -- ElevenLabs and Deepgram
+# are what the voice is supposed to sound and feel like. These are ordinary
+# app preferences, so they can be set here; the keys themselves stay in .env
+# and are never written anywhere else.
+env_file="${ORION_ENV_FILE:-$repo/.env}"
+have_key() {
+  [[ -n "$(printenv "$1" 2>/dev/null)" ]] && return 0
+  [[ -f "$env_file" ]] || return 1
+  grep -qE "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]#]" "$env_file"
+}
+
+if have_key ELEVENLABS_API_KEY; then
+  defaults write com.nickmadaio.orion.app OrionTTSProvider -string elevenlabs 2>/dev/null
+  ok "speaking with ElevenLabs (local MLX stays as the offline fallback)"
+else
+  defaults write com.nickmadaio.orion.app OrionTTSProvider -string local 2>/dev/null
+  print "        no ELEVENLABS_API_KEY — using the local voice"
+fi
+
+if have_key DEEPGRAM_API_KEY; then
+  defaults write com.nickmadaio.orion.app OrionSTTProvider -string deepgram 2>/dev/null
+  ok "listening with Deepgram (Apple on-device stays as the offline fallback)"
+else
+  defaults write com.nickmadaio.orion.app OrionSTTProvider -string apple 2>/dev/null
+  print "        no DEEPGRAM_API_KEY — using Apple's on-device recogniser"
+fi
+
 # ------------------------------------------------------------------ gateway
-step "6. Gateway"
+step "7. Gateway"
 gw="$("$py" -c "
 import json
 try: print(json.load(open('$HOME/.openclaw/openclaw.json'))['gateway']['port'])
@@ -202,7 +266,7 @@ else
 fi
 
 # ------------------------------------------------------------------- launch
-step "7. Launch"
+step "8. Launch"
 app="/Applications/Orion.app"
 [[ -d "$app" ]] || app="$repo/native/Orion/.build/Orion.app"
 open "$app" && ok "launched — look for the Orion icon in your menu bar"

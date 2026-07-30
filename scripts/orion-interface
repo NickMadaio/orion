@@ -33,13 +33,17 @@ for arg in "$@"; do
   esac
 done
 
-python_bin="${ORION_TTS_PYTHON:-}"
+# Resolve the interpreter that can import mlx_audio, not merely the first
+# python3 on PATH. Picking the wrong one doesn't fail — it silently drops the
+# daemon to a per-chunk cold model load, which is the exact cost this whole
+# design exists to avoid. See scripts/orion-python.
+python_bin="$("$repo/scripts/orion-python" 2>/dev/null)"
 if [[ -z "$python_bin" || ! -x "$python_bin" ]]; then
-  if [[ -x "$repo/.venv/bin/python3" ]]; then
-    python_bin="$repo/.venv/bin/python3"
-  else
-    python_bin="${commands[python3]:-/usr/bin/python3}"
-  fi
+  python_bin="${ORION_TTS_PYTHON:-${commands[python3]:-/usr/bin/python3}}"
+fi
+if ! "$python_bin" -c 'import mlx_audio' >/dev/null 2>&1; then
+  print -u2 "warning: $python_bin cannot import mlx_audio — the voice will be slow."
+  print -u2 "         run ./scripts/orion-doctor for the fix."
 fi
 
 gateway_port() {

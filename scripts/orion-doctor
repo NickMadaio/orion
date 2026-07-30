@@ -1,0 +1,163 @@
+#!/bin/zsh
+#
+# ORION — diagnose the whole stack in one command.
+#
+# Written after a failure that took log archaeology to find: the TTS daemon was
+# running and answering, but under a Python without `mlx_audio`, so it had
+# quietly degraded to reloading the model on every chunk. Everything "worked".
+# It was just slow, for a reason nothing surfaced.
+#
+# The rule here: report what is ACTUALLY true at runtime, not what is
+# configured. Configuration lies; a live probe does not.
+#
+emulate -L zsh
+set -u
+setopt pipefail
+
+repo="${0:A:h:h}"
+socket="${ORION_TTS_SOCKET:-$HOME/.openclaw/orion-tts.sock}"
+config="$HOME/.openclaw/openclaw.json"
+openclaw_bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+app_paths=(/Applications/Orion.app "$repo/native/Orion/.build/Orion.app")
+
+fail=0
+py="$("$repo/scripts/orion-python" 2>/dev/null)"
+[[ -z "$py" ]] && py="${commands[python3]:-/usr/bin/python3}"
+
+ok()   { print "  \033[32mok\033[0m    $1" }
+warn() { print "  \033[33mwarn\033[0m  $1"; }
+bad()  { print "  \033[31mFAIL\033[0m  $1"; fail=1; }
+
+print ""
+print "ORION doctor"
+print ""
+
+# --- python / MLX ---------------------------------------------------------
+print "voice engine"
+if [[ -x "$py" ]]; then
+  ver="$("$py" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])' 2>/dev/null)"
+  if "$py" -c 'import mlx_audio' >/dev/null 2>&1; then
+    ok "python $ver at $py can import mlx_audio"
+    ok "engine will be mlx-warm (model loaded once, stays resident)"
+  else
+    bad "python $ver at $py CANNOT import mlx_audio"
+    print "        The daemon still runs, but degrades to the mlx-cli engine,"
+    print "        which reloads the 250M model on every chunk. That is the"
+    print "        exact cold-start cost the warm daemon exists to remove."
+    print "        Fix:  $py -m pip install mlx-audio"
+    print "        Or point ORION_TTS_PYTHON at the interpreter that has it."
+    print "        Diagnose: ./scripts/orion-python --why"
+  fi
+else
+  bad "no usable python3 found"
+fi
+
+# --- TTS daemon -----------------------------------------------------------
+print ""
+print "tts daemon"
+if [[ -S "$socket" ]]; then
+  reply="$("$py" - "$socket" <<'PY' 2>/dev/null
+import json, socket, sys
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(3)
+    s.connect(sys.argv[1])
+    s.sendall(b'{"op":"status"}\n')
+    print(s.makefile("r").readline().strip())
+except Exception as exc:
+    print(json.dumps({"error": str(exc)}))
+PY
+)"
+  if [[ -n "$reply" ]]; then
+    engine="$(print -r -- "$reply" | "$py" -c 'import json,sys;print(json.load(sys.stdin).get("engine","?"))' 2>/dev/null)"
+    case "$engine" in
+      mlx-warm) ok "responding, engine=mlx-warm" ;;
+      mlx-cli|mlx-generate-fn)
+        bad "responding, but engine=$engine — reloads the model per chunk"
+        print "        This is the slow path. See 'voice engine' above." ;;
+      say) warn "responding, but engine=say — MLX unavailable, quality degraded" ;;
+      *)   warn "responding, engine=$engine" ;;
+    esac
+  else
+    bad "socket exists but the daemon did not answer a status probe"
+  fi
+else
+  warn "not running (no socket at $socket)"
+  print "        Start it:  ./scripts/orion-interface"
+  print "        Or load:   launchctl load -w ~/Library/LaunchAgents/com.nickmadaio.orion.tts.plist"
+fi
+
+# --- gateway --------------------------------------------------------------
+print ""
+print "gateway"
+gw_port="$("$py" - "$config" <<'PY' 2>/dev/null
+import json, sys
+try: print(json.load(open(sys.argv[1]))["gateway"]["port"])
+except Exception: print(18789)
+PY
+)"
+[[ -z "$gw_port" ]] && gw_port=18789
+if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1, s.connect_ex(('127.0.0.1',$gw_port))))" 2>/dev/null; then
+  ok "listening on 127.0.0.1:$gw_port"
+  if [[ -x "$openclaw_bin" ]]; then
+    if "$openclaw_bin" agent --session-key orion-doctor --message "reply with the single word: ok" \
+        --json --timeout 45 >/dev/null 2>&1; then
+      ok "completed a live agent turn"
+    else
+      bad "gateway is listening but an agent turn failed"
+      print "        Try:  $openclaw_bin agent --session-key t --message hi --json"
+    fi
+  fi
+else
+  bad "nothing listening on 127.0.0.1:$gw_port"
+  print "        Start it:  $openclaw_bin daemon start"
+fi
+
+# --- Orion.app ------------------------------------------------------------
+print ""
+print "Orion.app"
+found=""
+for candidate in $app_paths; do
+  [[ -d "$candidate" ]] && { found="$candidate"; break }
+done
+if [[ -z "$found" ]]; then
+  warn "not built — cd native/Orion && ./make_app_bundle.sh"
+else
+  ok "bundle at $found"
+  ident="$(codesign -dv "$found" 2>&1 | grep -i '^Identifier=' | head -1)"
+  auth="$(codesign -dv "$found" 2>&1 | grep -i '^Authority=' | head -1)"
+  [[ -n "$ident" ]] && print "        ${ident}"
+  if [[ -z "$auth" ]]; then
+    warn "ad-hoc signed — macOS assigns a NEW identity on every rebuild"
+    print "        That is why duplicate 'Orion' rows appear in Privacy settings,"
+    print "        and why push-to-talk stops working after a rebuild: the"
+    print "        permission is attached to the previous build, not this one."
+    print "        Fix once:  ./scripts/orion-sign-setup"
+  else
+    ok "signed with a stable identity — ${auth#Authority=}"
+  fi
+  if [[ "$found" != /Applications/* ]]; then
+    warn "running from .build — TCC also keys on path; install to /Applications"
+    print "        cp -R '$found' /Applications/"
+  fi
+  running=$(pgrep -x Orion >/dev/null 2>&1 && print yes || print no)
+  [[ "$running" == yes ]] && ok "process is running" || warn "not currently running"
+fi
+
+# --- permissions ----------------------------------------------------------
+print ""
+print "permissions (grant these yourself — System Settings owns them, not this script)"
+print "        Accessibility        needed for global Right-Option push-to-talk"
+print "        Microphone           prompted on first press"
+print "        Speech Recognition   prompted on first press"
+print "        Open: System Settings -> Privacy & Security"
+print "        If you see TWO 'Orion' rows, remove BOTH with the (-) button,"
+print "        then relaunch Orion and re-add the one it prompts for."
+
+print ""
+if (( fail )); then
+  print "  \033[31msomething above is broken — start at the first FAIL\033[0m"
+else
+  print "  \033[32mall clear\033[0m"
+fi
+print ""
+exit $fail

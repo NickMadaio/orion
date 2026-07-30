@@ -1,0 +1,108 @@
+#!/bin/zsh
+#
+# ORION — create a stable local code-signing identity, once.
+#
+# The problem this solves
+# ----------------------
+# `make_app_bundle.sh` was ad-hoc signing (`codesign -s -`). Ad-hoc signatures
+# carry no identity, so macOS identifies the app by its cdhash -- a hash of the
+# binary. Every rebuild produces a different binary, therefore a different
+# cdhash, therefore what TCC considers a *different application*.
+#
+# The visible symptom is a growing list of identical "Orion" rows in
+# System Settings -> Privacy & Security -> Accessibility, and push-to-talk that
+# works until the next build and then silently stops: the permission is still
+# attached to the previous build's identity, and the running binary is not it.
+#
+# With a real signing certificate, TCC keys on the certificate instead, so the
+# grant survives every rebuild. A self-signed certificate is enough -- this app
+# is never leaving this Mac, so there is nothing for a paid Developer ID to add.
+#
+# Run this ONCE:   ./scripts/orion-sign-setup
+# Then rebuild:    cd native/Orion && ./make_app_bundle.sh
+#
+emulate -L zsh
+set -u
+setopt pipefail
+
+CN="Orion Local Signing"
+keychain="$HOME/Library/Keychains/login.keychain-db"
+
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CN"; then
+  print "Signing identity \"$CN\" already exists — nothing to do."
+  print "Rebuild with: cd native/Orion && ./make_app_bundle.sh"
+  exit 0
+fi
+
+print "Creating a self-signed code-signing certificate: \"$CN\""
+print "It stays in your login keychain and never leaves this Mac."
+print ""
+
+workdir="$(mktemp -d)"
+trap 'rm -rf -- "$workdir"' EXIT
+
+# codeSigning EKU is the part that matters — without it `codesign` refuses the
+# certificate even though it is otherwise valid.
+cat > "$workdir/openssl.cnf" <<'CONF'
+[ req ]
+distinguished_name = dn
+x509_extensions    = ext
+prompt             = no
+
+[ dn ]
+CN = Orion Local Signing
+
+[ ext ]
+basicConstraints       = critical,CA:false
+keyUsage               = critical,digitalSignature
+extendedKeyUsage       = critical,codeSigning
+subjectKeyIdentifier   = hash
+CONF
+
+if ! /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes \
+      -keyout "$workdir/key.pem" -out "$workdir/cert.pem" \
+      -days 3650 -config "$workdir/openssl.cnf" >/dev/null 2>&1; then
+  print -u2 "openssl failed to generate the certificate."
+  exit 1
+fi
+
+/usr/bin/openssl pkcs12 -export -inkey "$workdir/key.pem" -in "$workdir/cert.pem" \
+  -out "$workdir/orion.p12" -passout pass: -name "$CN" >/dev/null 2>&1
+
+print "Importing into your login keychain."
+print "macOS will ask for your login password — that is the keychain unlocking,"
+print "not something being sent anywhere."
+print ""
+
+if ! security import "$workdir/orion.p12" -k "$keychain" -P "" \
+      -T /usr/bin/codesign -T /usr/bin/security >/dev/null 2>&1; then
+  print -u2 "Import failed. You can do this by hand instead:"
+  print -u2 "  Keychain Access -> Certificate Assistant -> Create a Certificate…"
+  print -u2 "  Name: $CN   Identity Type: Self Signed Root"
+  print -u2 "  Certificate Type: Code Signing"
+  exit 1
+fi
+
+# Let codesign use the key without prompting on every single build.
+security set-key-partition-list -S apple-tool:,apple:,codesign: \
+  -s -k "" "$keychain" >/dev/null 2>&1 || \
+  print "  (could not set the partition list — you may get a keychain prompt per build)"
+
+print ""
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CN"; then
+  print "Done. \"$CN\" is now available to codesign."
+  print ""
+  print "Next:"
+  print "  1. System Settings -> Privacy & Security -> Accessibility"
+  print "     Remove EVERY existing 'Orion' row with the (-) button."
+  print "     They point at old builds and will never work again."
+  print "  2. cd native/Orion && ./make_app_bundle.sh"
+  print "  3. cp -R .build/Orion.app /Applications/"
+  print "  4. open /Applications/Orion.app  — then grant Accessibility once."
+  print ""
+  print "From here rebuilds keep the grant."
+else
+  print -u2 "The certificate imported but codesign does not see it as a valid identity."
+  print -u2 "Check: security find-identity -v -p codesigning"
+  exit 1
+fi

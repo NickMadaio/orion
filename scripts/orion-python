@@ -1,0 +1,116 @@
+#!/bin/zsh
+#
+# ORION — resolve the Python interpreter that can actually import `mlx_audio`.
+#
+# Why this exists: on 2026-07-30 the TTS daemon came up under Homebrew's
+# python 3.13.14, which has no `mlx_audio` in its site-packages. The daemon did
+# what it was told to do on failure -- it degraded, loudly, to the `mlx-cli`
+# engine and logged a warning. But `mlx-cli` spawns a fresh process and reloads
+# the 250M model *per chunk*, which is precisely the cold-start cost the warm
+# daemon exists to eliminate. Voice worked, so nothing looked broken; it was
+# just slow, for a reason buried in a log nobody reads.
+#
+# `python3` on PATH is not a meaningful answer to "which Python has MLX". The
+# authoritative answer is the shebang of the `mlx_audio` console script, since
+# pip wrote that line pointing at the exact interpreter it installed into.
+#
+#   ./scripts/orion-python           # print the interpreter, exit 0
+#   ./scripts/orion-python --why     # also explain how it was chosen
+#   ./scripts/orion-python --check   # exit 1 if no interpreter has mlx_audio
+#
+emulate -L zsh
+set -u
+setopt pipefail
+
+explain=0
+check=0
+for arg in "$@"; do
+  case "$arg" in
+    --why)   explain=1 ;;
+    --check) check=1 ;;
+    -h|--help) print "usage: orion-python [--why] [--check]"; exit 0 ;;
+    *) print -u2 "unknown option: $arg"; exit 64 ;;
+  esac
+done
+
+repo="${0:A:h:h}"
+mlx_cli="${ORION_TTS_MLX_CLI:-$HOME/.local/bin/mlx_audio.tts.generate}"
+
+note() { (( explain )) && print -u2 "  $1"; }
+
+# Does this interpreter actually have the module? The only test that matters.
+has_mlx() {
+  [[ -n "${1:-}" && -x "$1" ]] || return 1
+  "$1" -c 'import mlx_audio' >/dev/null 2>&1
+}
+
+candidates=()
+
+# 1. Explicit override always wins.
+if [[ -n "${ORION_TTS_PYTHON:-}" ]]; then
+  candidates+=("$ORION_TTS_PYTHON")
+  note "candidate from ORION_TTS_PYTHON: $ORION_TTS_PYTHON"
+fi
+
+# 2. The shebang of the mlx_audio console script -- the highest-signal source.
+#    pip writes `#!/path/to/python` as the first line of every console script.
+if [[ -r "$mlx_cli" ]]; then
+  shebang="$(head -n 1 -- "$mlx_cli" 2>/dev/null)"
+  if [[ "$shebang" == '#!'* ]]; then
+    interp="${shebang#\#!}"
+    interp="${interp# }"
+    # Handle `#!/usr/bin/env python3` as well as a direct path.
+    if [[ "$interp" == */env\ * ]]; then
+      interp="${commands[${interp##*/env }]:-}"
+    else
+      interp="${interp%% *}"
+    fi
+    if [[ -n "$interp" ]]; then
+      candidates+=("$interp")
+      note "candidate from mlx_audio shebang: $interp"
+    fi
+  fi
+fi
+
+# 3. Common local environments, then whatever PATH offers.
+candidates+=(
+  "$repo/.venv/bin/python3"
+  "$HOME/.local/bin/python3"
+  "${commands[python3]:-}"
+  /opt/homebrew/bin/python3
+  /usr/local/bin/python3
+  /usr/bin/python3
+)
+
+seen=()
+for candidate in $candidates; do
+  [[ -z "$candidate" ]] && continue
+  (( ${seen[(Ie)$candidate]} )) && continue
+  seen+=("$candidate")
+  if has_mlx "$candidate"; then
+    note "selected (has mlx_audio): $candidate"
+    print -r -- "$candidate"
+    exit 0
+  fi
+  note "rejected (no mlx_audio): $candidate"
+done
+
+# Nothing has MLX. Say so plainly rather than silently handing back a Python
+# that will make the daemon fall back to per-chunk cold loads.
+if (( check )); then
+  print -u2 "orion-python: no interpreter can import mlx_audio"
+  print -u2 "  install it into one of them, e.g.:"
+  print -u2 "    ${seen[1]:-python3} -m pip install mlx-audio"
+  exit 1
+fi
+
+for candidate in $seen; do
+  if [[ -x "$candidate" ]]; then
+    note "no interpreter has mlx_audio; falling back to $candidate"
+    print -r -- "$candidate"
+    exit 0
+  fi
+done
+
+print -u2 "orion-python: no usable python3 found"
+exit 1

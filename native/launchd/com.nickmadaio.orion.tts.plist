@@ -14,7 +14,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>exec "${ORION_TTS_PYTHON:-python3}" /Users/nickmadaio/Desktop/ORION/scripts/orion_tts_daemon.py</string>
+    <string>exec "$(/Users/nickmadaio/Desktop/ORION/scripts/orion-python)" /Users/nickmadaio/Desktop/ORION/scripts/orion_tts_daemon.py</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/nickmadaio/Desktop/ORION</string>

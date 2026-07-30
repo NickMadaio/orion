@@ -230,6 +230,88 @@ global hotkey), **Microphone**, and **Speech Recognition**.
 
 ---
 
+## 5. Two failures found after the first run — both fixed
+
+Orion.app **built cleanly** (28.7s, only `#selector` style warnings). It looked
+right and didn't work. Two causes, neither in the Swift.
+
+### `mlx_audio` was never importable — the warm daemon was never warm
+
+From `~/.openclaw/logs/orion-tts.err.log`:
+
+```
+warn: mlx-warm unavailable: No module named 'mlx_audio'
+warn: mlx-generate-fn unavailable: No module named 'mlx_audio'
+warn: engine=mlx-cli (cold model load per chunk)
+```
+
+The daemon launched under Homebrew's **python 3.13.14**, which has no
+`mlx_audio` in its site-packages. It did exactly what it was designed to do on
+failure — degraded and logged — and landed on `mlx-cli`, which spawns a process
+and reloads the 250M model **per chunk**. That is precisely the cold-start cost
+the entire warm-daemon design exists to remove. Voice worked, so nothing looked
+broken. It was just slow, for a reason buried in a log nobody reads.
+
+The launcher's interpreter choice was the bug: it took the first `python3` on
+`PATH`. That is not a meaningful answer to "which Python has MLX".
+
+`scripts/orion-python` (new) resolves it properly — the authoritative source is
+the **shebang of the `mlx_audio` console script**, since pip writes that line
+pointing at the exact interpreter it installed into. It then *verifies* `import
+mlx_audio` actually succeeds before selecting, and refuses to pretend otherwise.
+`orion-interface` and the LaunchAgent plist both use it, and the launcher now
+warns loudly if no interpreter has the module.
+
+**You may still need:** `<that python> -m pip install mlx-audio`. Run
+`./scripts/orion-python --why` to see exactly which interpreters were tried.
+
+### Duplicate "Orion" rows in Accessibility — why push-to-talk died
+
+System Settings showed **two identical "Orion" entries**, both toggled on. That
+is the ad-hoc signature. `codesign -s -` carries no identity, so macOS falls back
+to identifying the app by its cdhash — a hash of the binary. Every rebuild
+changes the binary, so every rebuild is a *different application* to TCC. The
+grant stays attached to the previous build while the running one has nothing.
+
+`scripts/orion-sign-setup` (new) creates a self-signed code-signing certificate
+once. With a real certificate, TCC keys on the certificate instead of the cdhash,
+so the grant survives rebuilds. Self-signed is sufficient — this app is never
+leaving your Mac, so a paid Developer ID would add nothing.
+`make_app_bundle.sh` now uses that identity when present and prints a clear
+warning when it falls back to ad-hoc.
+
+### `scripts/orion-doctor` (new)
+
+The real lesson is that a silent degradation cost an afternoon. One command now
+reports what is **actually true at runtime** rather than what is configured:
+which interpreter, which TTS engine the daemon is *really* using (it asks the
+daemon via `{"op":"status"}` rather than trusting config), gateway reachability
+plus a live agent turn, bundle signing state, and whether you're running from
+`.build` instead of `/Applications`.
+
+```bash
+./scripts/orion-doctor
+```
+
+### Fix sequence
+
+```bash
+cd ~/Desktop/ORION
+./scripts/orion-doctor                    # see what is actually wrong
+
+./scripts/orion-sign-setup                # once — stable signing identity
+# then remove EVERY existing "Orion" row in
+# System Settings -> Privacy & Security -> Accessibility
+
+cd native/Orion && ./make_app_bundle.sh   # should now say "stable identity"
+cp -R .build/Orion.app /Applications/
+open /Applications/Orion.app              # grant Accessibility once
+
+cd ~/Desktop/ORION && ./scripts/orion-doctor   # expect engine=mlx-warm
+```
+
+---
+
 ## Do this first, in this order
 
 ```bash

@@ -18,17 +18,50 @@ cp .build/release/Orion "$bundle/Contents/MacOS/Orion"
 cp Resources/Info.plist "$bundle/Contents/Info.plist"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
 
-# Ad-hoc signature with a fixed identifier. The identifier is what keeps the
-# bundle recognisable across rebuilds; the signature itself still changes every
-# time the binary does, so macOS may re-ask for permissions after a rebuild.
-codesign --force --sign - --identifier com.nickmadaio.orion.app "$bundle"
+# Signing.
+#
+# Prefer a real signing identity over an ad-hoc signature. This is not
+# ceremony: an ad-hoc signature carries no identity, so macOS identifies the app
+# by its cdhash, which changes on every rebuild. TCC then treats each build as a
+# different application — you get duplicate "Orion" rows in Privacy settings and
+# push-to-talk silently stops working after every rebuild, because the grant is
+# still attached to the previous binary.
+#
+# A self-signed certificate fixes it: TCC keys on the certificate, which is
+# stable. Create one once with ../../scripts/orion-sign-setup.
+identity="Orion Local Signing"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$identity"; then
+  codesign --force --sign "$identity" --identifier com.nickmadaio.orion.app \
+           --options runtime "$bundle"
+  signed="stable identity ($identity) — permissions survive rebuilds"
+else
+  codesign --force --sign - --identifier com.nickmadaio.orion.app "$bundle"
+  signed="AD-HOC — macOS will treat the next rebuild as a different app"
+fi
 
 echo "Built $bundle"
+echo "Signed:  $signed"
 echo
 echo "Run it:            open $(pwd)/$bundle"
 echo "Install it:        cp -R $(pwd)/$bundle /Applications/"
 echo
+
+if [[ "$signed" == AD-HOC* ]]; then
+  cat <<'WARN'
+⚠  Ad-hoc signed. If push-to-talk works now but stops after your next build,
+   or you see more than one "Orion" in Privacy & Security → Accessibility,
+   that is this. Fix it once:
+
+     ../../scripts/orion-sign-setup
+
+   Then remove every existing "Orion" row in Accessibility and rebuild.
+
+WARN
+fi
+
 echo "First launch needs three permissions — see README.md:"
 echo "  Accessibility        (Right Option push-to-talk, granted by hand)"
 echo "  Microphone           (prompted on first press)"
 echo "  Speech Recognition   (prompted on first press)"
+echo
+echo "Check everything:    ../../scripts/orion-doctor"

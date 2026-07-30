@@ -117,22 +117,62 @@ else
 fi
 
 socket="$HOME/.openclaw/orion-tts.sock"
-if [[ -S "$socket" ]]; then
-  ok "already running"
+
+# A socket FILE existing is not the same as a daemon listening on it. An
+# unclean exit leaves the file behind, and every "is it running?" check that
+# only tests for the file then reports a healthy daemon that is not there.
+# That is exactly what happened: the daemon took a SIGHUP when its Terminal
+# window closed, the stale socket stayed, and voice silently stopped working.
+# So: actually connect.
+daemon_alive() {
+  [[ -S "$socket" ]] || return 1
+  "$py" - "$socket" <<'PY' >/dev/null 2>&1
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(3)
+s.connect(sys.argv[1])
+s.sendall(b'{"op":"ping"}\n')
+sys.exit(0 if s.makefile("r").readline().strip() else 1)
+PY
+}
+
+if daemon_alive; then
+  ok "already running and answering"
 else
+  if [[ -e "$socket" ]]; then
+    warn "stale socket from a daemon that died — clearing it"
+    rm -f "$socket"
+  fi
   mkdir -p "$HOME/.openclaw/logs"
-  # Use the ElevenLabs voice when a key is present. The daemon still falls
-  # back to the local model on any network or quota error, so this only ever
-  # changes which voice you get, never whether you get one.
-  export ORION_TTS_CLOUD_VOICE="${ORION_TTS_CLOUD_VOICE:-1}"
-  export ORION_ENV_FILE="${ORION_ENV_FILE:-$repo/.env}"
-  nohup "$py" scripts/orion_tts_daemon.py \
-    >>"$HOME/.openclaw/logs/orion-tts.out.log" \
-    2>>"$HOME/.openclaw/logs/orion-tts.err.log" &
-  disown
-  for _ in {1..40}; do [[ -S "$socket" ]] && break; sleep 0.25; done
-  if [[ -S "$socket" ]]; then
-    ok "started"
+
+  # Prefer launchd. A daemon started from this shell is a child of the
+  # Terminal window and dies with it (SIGHUP), which is not a property you
+  # want in the thing that gives Orion its voice. launchd also restarts it
+  # after a crash and brings it back at login.
+  plist_src="$repo/native/launchd/com.nickmadaio.orion.tts.plist"
+  plist_dst="$HOME/Library/LaunchAgents/com.nickmadaio.orion.tts.plist"
+  if [[ -f "$plist_src" ]]; then
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cp "$plist_src" "$plist_dst"
+    launchctl unload "$plist_dst" >/dev/null 2>&1
+    launchctl load -w "$plist_dst" >/dev/null 2>&1
+  fi
+
+  for _ in {1..60}; do daemon_alive && break; sleep 0.25; done
+
+  if ! daemon_alive; then
+    # launchd did not take; fall back to a detached child so voice still works
+    # for this session.
+    export ORION_TTS_CLOUD_VOICE="${ORION_TTS_CLOUD_VOICE:-1}"
+    export ORION_ENV_FILE="${ORION_ENV_FILE:-$repo/.env}"
+    nohup "$py" scripts/orion_tts_daemon.py \
+      >>"$HOME/.openclaw/logs/orion-tts.out.log" \
+      2>>"$HOME/.openclaw/logs/orion-tts.err.log" </dev/null &
+    disown
+    for _ in {1..60}; do daemon_alive && break; sleep 0.25; done
+  fi
+
+  if daemon_alive; then
+    ok "started (managed by launchd — survives this window closing)"
   else
     warn "did not come up — see ~/.openclaw/logs/orion-tts.err.log"
     print "        Orion still talks, using macOS system speech."

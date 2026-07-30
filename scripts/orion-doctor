@@ -93,7 +93,11 @@ PY
       print "        tail -50 ~/.openclaw/logs/orion-tts.log"
     fi
   else
-    bad "socket exists but the daemon did not answer a status probe"
+    bad "STALE SOCKET — the file is there but nothing is listening"
+    print "        A daemon died without cleaning up. Every check that only"
+    print "        looks for the file will tell you voice is fine while it is"
+    print "        silently falling back to system speech."
+    print "        Fix:  rm -f '$socket' && ./scripts/orion-setup"
   fi
 else
   warn "not running (no socket at $socket)"

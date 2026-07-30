@@ -69,12 +69,41 @@ try:
     print(f'      tier {s.get(\"tier\",\"?\")}' + (f', {u}/{l} characters used' if u is not None and l else ''))
 except Exception: pass" 2>/dev/null
       ;;
-    401) print "${red}rejected (401)${off}" ;;
+    401)
+      # 401 means two very different things here and the body says which.
+      # Printing only the status sent us chasing the wrong one for hours.
+      local detail
+      detail="$(python3 -c "
+import json
+try:
+    d=json.load(open('/tmp/orion-k.json'))
+    dt=d.get('detail')
+    print((dt or {}).get('status','') if isinstance(dt,dict) else str(dt or ''))
+except Exception: print('')" 2>/dev/null)"
+      case "$detail" in
+        detected_unusual_activity)
+          print "${red}401 — free tier disabled for this account${off}"
+          print "      ${dim}The KEY is fine. ElevenLabs' abuse detector has blocked"
+          print "      free-tier use — usually a VPN or proxy, or more than one"
+          print "      free account. This is the one case where paying actually"
+          print "      fixes it. Turning the VPN off may also clear it.${off}"
+          ;;
+        invalid_api_key|"")
+          print "${red}401 — key not accepted${off}"
+          print "      ${dim}This is authentication, not billing. Adding credits"
+          print "      will not change it. The key is wrong, revoked, or was"
+          print "      pasted incompletely.${off}"
+          ;;
+        *) print "${red}401 — ${detail}${off}" ;;
+      esac
+      ;;
+    402) print "${yel}402 — billing/quota. THIS is the one credits fix.${off}" ;;
     429) print "${yel}valid but rate limited / quota used up (429)${off}" ;;
     "")  print "${yel}no response — offline?${off}" ;;
     *)   print "${yel}HTTP $code${off}" ;;
   esac
   rm -f /tmp/orion-k.json
+  
 }
 
 test_deepgram() {

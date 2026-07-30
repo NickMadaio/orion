@@ -1,0 +1,115 @@
+#!/bin/zsh
+#
+# ORION — why is orion_task_run failing?
+#
+# The prime suspect is the trust hardening. Trust is now minted from harness
+# provenance hooks rather than supplied by the model, and it FAILS CLOSED: no
+# authenticated user turn means no authorization, for every action. If the
+# channel Orion is talking on does not emit `message_received`, that is exactly
+# what happens, and the model reports it as a broken tool binding because from
+# where it sits that is what it looks like.
+#
+# This asks the plugin directly instead of asking the model to guess.
+# Writes data/tools-probe.log.
+#
+emulate -L zsh
+set -u
+
+repo="${0:A:h:h}"
+cd "$repo"
+mkdir -p data
+out="$repo/data/tools-probe.log"
+: > "$out"
+
+bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+say() { print -- "$@" | tee -a "$out"; }
+
+ask() {  # ask <session> <message>
+  "$bin" agent --session-key "$1" --message "$2" --json --timeout 90 2>&1
+}
+
+say "ORION tool probe — $(date)"
+say ""
+
+# --- 1. what tools does Orion think it has -------------------------------
+say "=== 1. tool inventory ==="
+ask orion-probe-tools "List the exact names of every tool you can call. Just the names, one per line, nothing else." \
+  | python3 -c '
+import json,sys,re
+raw=re.sub(r"\x1b\[[0-9;]*[A-Za-z]","",sys.stdin.read())
+try:
+    d=json.loads(raw[raw.index("{"):])
+    r=d.get("result",d)
+    print("\n".join(p.get("text","") for p in r.get("payloads",[])))
+except Exception as e:
+    print("could not parse:",e); print(raw[:600])
+' | tee -a "$out"
+
+# --- 2. permission + provenance state ------------------------------------
+say ""
+say "=== 2. orion_permission_status (the real answer) ==="
+say "Asking Orion to call it and return the RAW json…"
+ask orion-probe-tools "Call the orion_permission_status tool now and reply with its complete raw JSON output and nothing else. Do not summarise it." \
+  | python3 -c '
+import json,sys,re
+raw=re.sub(r"\x1b\[[0-9;]*[A-Za-z]","",sys.stdin.read())
+try:
+    d=json.loads(raw[raw.index("{"):])
+    r=d.get("result",d)
+    text="\n".join(p.get("text","") for p in r.get("payloads",[]))
+    print(text)
+    # Pull the fields that decide whether actions can ever be authorized.
+    for key in ("channelMessageHookFired","promptHookFired","toolCallHookFired",
+                "retainedTurns","lastBinding","trustProvenance","profile"):
+        for m in re.finditer(rf'"{key}"\s*:\s*([^,}}\n]+)', text):
+            print(f"  >> {key}: {m.group(1).strip()}")
+except Exception as e:
+    print("could not parse:",e); print(raw[:800])
+' | tee -a "$out"
+
+# --- 3. the actual failing action ----------------------------------------
+say ""
+say "=== 3. a real gated action, with the error verbatim ==="
+ask orion-probe-tools "Create a folder named awesome-probe on my Desktop. If the tool returns an error, reply with the COMPLETE raw error object verbatim — every field, no summary, no interpretation." \
+  | python3 -c '
+import json,sys,re
+raw=re.sub(r"\x1b\[[0-9;]*[A-Za-z]","",sys.stdin.read())
+try:
+    d=json.loads(raw[raw.index("{"):])
+    r=d.get("result",d)
+    print("\n".join(p.get("text","") for p in r.get("payloads",[])))
+except Exception as e:
+    print("could not parse:",e); print(raw[:800])
+' | tee -a "$out"
+
+# --- 4. what the gateway logged ------------------------------------------
+say ""
+say "=== 4. gateway log, last tool errors ==="
+for f in "$HOME/.openclaw/logs/"*.log; do
+  [[ -f "$f" ]] || continue
+  hits="$(grep -iE 'orion_task_run|taskgraph|trusted_user|untrusted|no_authenticated|verification_mismatch|provenance' "$f" 2>/dev/null | tail -12)"
+  [[ -n "$hits" ]] && { say "--- ${f:t} ---"; print -- "$hits" | tee -a "$out"; }
+done
+
+# --- 5. the audit ledger -------------------------------------------------
+say ""
+say "=== 5. orion-control ledger, last 5 entries ==="
+ledger="$HOME/.openclaw/orion-controlled/task-ledger.jsonl"
+[[ -f "$ledger" ]] || ledger="$(ls -t "$HOME/.openclaw/orion-controlled/"*.jsonl 2>/dev/null | head -1)"
+if [[ -f "$ledger" ]]; then
+  tail -5 "$ledger" | python3 -c '
+import json,sys
+for line in sys.stdin:
+    line=line.strip()
+    if not line: continue
+    try: d=json.loads(line)
+    except Exception: print("  <unparseable>"); continue
+    print(f"  {d.get(\"status\",\"?\")}  action={d.get(\"action\",\"?\")}  "
+          f"code={d.get(\"code\") or d.get(\"error\") or \"-\"}")
+' | tee -a "$out"
+else
+  say "  no ledger found"
+fi
+
+say ""
+say "Done. Full log: $out"

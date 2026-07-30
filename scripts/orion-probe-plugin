@@ -1,0 +1,95 @@
+#!/bin/zsh
+#
+# ORION — is the orion-control plugin actually loaded, and why is `exec` there?
+#
+# The tool probe found Orion's tool list to be: exec, tool_call, tool_describe,
+# tool_search. Two possibilities, and they need very different fixes:
+#
+#   a) OpenClaw is using dynamic tool discovery -- the orion_* tools exist but
+#      have to be found via tool_search and invoked via tool_call, and the model
+#      simply is not looking. Fix: tell it to, in AGENTS.md.
+#
+#   b) The plugin failed to load (it was rebuilt to 0.7.0 with the provenance
+#      changes; a throw at registration would remove every tool it provides).
+#      Fix: whatever the load error says.
+#
+# Either way `exec` is a problem on its own. It comes from tools.profile
+# "coding" and it lets the model touch the filesystem WITHOUT the gate, without
+# a proposal, and without a ledger entry. That is the whole architecture
+# bypassed by a tool nobody chose deliberately.
+#
+emulate -L zsh
+set -u
+
+repo="${0:A:h:h}"
+cd "$repo"
+mkdir -p data
+out="$repo/data/plugin-probe.log"
+: > "$out"
+
+bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+say() { print -- "$@" | tee -a "$out"; }
+reply() {
+  "$bin" agent --session-key orion-probe-plugin --message "$1" --json --timeout 90 2>&1 \
+  | python3 -c '
+import json,sys,re
+raw=re.sub(r"\x1b\[[0-9;]*[A-Za-z]","",sys.stdin.read())
+try:
+    d=json.loads(raw[raw.index("{"):]); r=d.get("result",d)
+    print("\n".join(p.get("text","") for p in r.get("payloads",[])))
+except Exception as e:
+    print("unparseable:",e); print(raw[:500])
+'
+}
+
+say "ORION plugin probe — $(date)"
+
+say ""
+say "=== 1. does tool_search find the orion tools? ==="
+reply "Use the tool_search tool to search for tools matching 'orion'. Reply with the complete raw result, no summary." | tee -a "$out"
+
+say ""
+say "=== 2. describe orion_task_run ==="
+reply "Use tool_describe on 'orion_task_run' and reply with its complete raw output. If it does not exist, say exactly: NOT FOUND." | tee -a "$out"
+
+say ""
+say "=== 3. plugin list from the CLI ==="
+"$bin" plugins list 2>&1 | head -30 | tee -a "$out"
+
+say ""
+say "=== 4. anything the gateway logged about orion-control ==="
+found=0
+for f in "$HOME/.openclaw/logs/"**/*.log(N) "$HOME/.openclaw/logs/"*.log(N); do
+  hits="$(grep -iE 'orion-control|plugin.*(load|error|fail)|provenance' "$f" 2>/dev/null | tail -15)"
+  if [[ -n "$hits" ]]; then
+    found=1
+    say "--- ${f:t} ---"
+    print -- "$hits" | tee -a "$out"
+  fi
+done
+(( found )) || say "  nothing found in ~/.openclaw/logs"
+
+say ""
+say "=== 5. what tool policy is configured ==="
+python3 - <<'PY' 2>&1 | tee -a "$out"
+import json, os
+cfg = json.load(open(os.path.expanduser("~/.openclaw/openclaw.json")))
+t = cfg.get("tools", {})
+print("  profile:    ", t.get("profile"))
+print("  alsoAllow:  ", t.get("alsoAllow"))
+print("  byProvider: ", json.dumps(t.get("byProvider", {})))
+print("  elevated:   ", json.dumps(t.get("elevated", {})))
+p = cfg.get("plugins", {}).get("entries", {}).get("orion-control", {})
+print("  orion-control enabled:", p.get("enabled"))
+print("  orion-control config keys:", sorted((p.get("config") or {}).keys()))
+PY
+
+say ""
+say "=== 6. installed plugin version ==="
+for f in "$HOME/.openclaw/extensions/orion-control/package.json" \
+         "$HOME/.openclaw/extensions/orion-control/openclaw.plugin.json"; do
+  [[ -f "$f" ]] && say "  ${f:t}: $(python3 -c "import json,sys;print(json.load(open('$f')).get('version'))")"
+done
+
+say ""
+say "Done. Full log: $out"

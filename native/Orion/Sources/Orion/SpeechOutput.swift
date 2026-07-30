@@ -1,0 +1,312 @@
+import AVFoundation
+import Foundation
+
+/*
+ Text in, voice out.
+
+ Chunks are played the moment their frame arrives, queued in order, instead of
+ waiting for the daemon's `done`. That is the entire reason stream mode exists
+ and it is the single biggest perceived-latency win available: the first
+ sentence starts speaking while the last one is still being synthesised.
+
+ `AVAudioEngine` + `AVAudioPlayerNode` rather than `AVAudioPlayer` so the output
+ can be tapped for a playback level, which is what makes the hologram's core
+ pulse in time with Orion's own voice.
+
+ If the daemon is missing or errors before a single chunk plays, we fall back to
+ `AVSpeechSynthesizer`. Orion is never mute.
+
+ Everything on this class is main-thread only; the audio taps hop back.
+ */
+final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
+
+    var onLevel: ((Double) -> Void)?
+    var onFinished: (() -> Void)?
+    var onNotice: ((String) -> Void)?
+
+    private(set) var isSpeaking = false
+
+    private let engine = AVAudioEngine()
+    private let player = AVAudioPlayerNode()
+    private let tts = TTSClient()
+
+    /// The daemon renders 24 kHz mono. Connecting the player at that rate lets
+    /// the main mixer do the one sample-rate conversion to the hardware rate,
+    /// so the common case needs no conversion of our own.
+    private let playbackFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                               sampleRate: 24000,
+                                               channels: 1,
+                                               interleaved: false)
+
+    private var engineConfigured = false
+    private var currentText = ""
+    private var pendingBuffers = 0
+    private var streamComplete = false
+    private var playedAnything = false
+
+    private var synthesizer: AVSpeechSynthesizer?
+    private var fallbackTimer: Timer?
+    private var fallbackPhase: Double = 0
+
+    // MARK: Public API
+
+    func speak(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        stop()
+        guard !trimmed.isEmpty else {
+            onFinished?()
+            return
+        }
+
+        isSpeaking = true
+        streamComplete = false
+        playedAnything = false
+        pendingBuffers = 0
+        currentText = trimmed
+
+        tts.stream(
+            text: trimmed,
+            onChunk: { [weak self] url, _ in
+                self?.enqueue(url)
+            },
+            onDone: { [weak self] outcome in
+                self?.handle(outcome, originalText: trimmed)
+            }
+        )
+    }
+
+    /// Barge-in. Tells the daemon to drop everything and silences the queue in
+    /// the same breath — a cancel that only reached the daemon would still let
+    /// already-scheduled buffers finish playing.
+    func stop() {
+        tts.cancelAll()
+        stopFallback()
+
+        if engineConfigured {
+            player.stop()
+            player.reset()
+        }
+        if engine.isRunning {
+            engine.pause()
+        }
+
+        isSpeaking = false
+        pendingBuffers = 0
+        streamComplete = false
+        playedAnything = false
+        onLevel?(0)
+    }
+
+    static func isDaemonReachable() -> Bool {
+        TTSClient.isReachable()
+    }
+
+    // MARK: Streaming playback
+
+    private func enqueue(_ url: URL) {
+        guard isSpeaking else { return }
+        guard let buffer = loadBuffer(url) else { return }
+
+        do {
+            try startEngineIfNeeded()
+        } catch {
+            // Nothing has played yet, so the whole reply can still go to the
+            // fallback voice.
+            failToFallback(reason: "audio output is unavailable — \(error.localizedDescription)",
+                           text: currentText)
+            return
+        }
+
+        pendingBuffers += 1
+        playedAnything = true
+        player.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.bufferFinished()
+            }
+        }
+        if !player.isPlaying {
+            player.play()
+        }
+    }
+
+    private func bufferFinished() {
+        guard isSpeaking else { return }
+        pendingBuffers = max(0, pendingBuffers - 1)
+        finishIfDrained()
+    }
+
+    private func handle(_ outcome: TTSOutcome, originalText: String) {
+        guard isSpeaking else { return }
+        switch outcome {
+        case .cancelled:
+            return
+        case .finished(let chunks):
+            streamComplete = true
+            if chunks == 0 && !playedAnything {
+                failToFallback(reason: nil, text: originalText)
+                return
+            }
+            finishIfDrained()
+        case .failed(let message):
+            if playedAnything {
+                // Partial speech already went out; do not double-speak it.
+                streamComplete = true
+                onNotice?("Voice stream ended early: \(message)")
+                finishIfDrained()
+            } else {
+                failToFallback(reason: message, text: originalText)
+            }
+        }
+    }
+
+    private func finishIfDrained() {
+        guard isSpeaking, streamComplete, pendingBuffers == 0 else { return }
+        isSpeaking = false
+        if engineConfigured {
+            player.stop()
+        }
+        if engine.isRunning {
+            engine.pause()
+        }
+        onLevel?(0)
+        onFinished?()
+    }
+
+    private func startEngineIfNeeded() throws {
+        if !engineConfigured {
+            guard let playbackFormat = playbackFormat else {
+                throw NSError(domain: "Orion", code: 20, userInfo: [
+                    NSLocalizedDescriptionKey: "Could not build the playback audio format."
+                ])
+            }
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
+            // nil format = "whatever this bus is already running at", which
+            // survives the user changing output device mid-session.
+            engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+                let level = orionNormalisedLevel(buffer)
+                DispatchQueue.main.async {
+                    guard let self, self.isSpeaking else { return }
+                    self.onLevel?(level)
+                }
+            }
+            engineConfigured = true
+        }
+        if !engine.isRunning {
+            engine.prepare()
+            try engine.start()
+        }
+    }
+
+    private func loadBuffer(_ url: URL) -> AVAudioPCMBuffer? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let frames = AVAudioFrameCount(file.length)
+        guard frames > 0 else { return nil }
+        guard let source = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frames) else {
+            return nil
+        }
+        do {
+            try file.read(into: source)
+        } catch {
+            return nil
+        }
+        guard let target = self.playbackFormat else { return source }
+        if source.format.sampleRate == target.sampleRate,
+           source.format.channelCount == target.channelCount,
+           source.format.commonFormat == target.commonFormat {
+            return source
+        }
+        return convert(source, to: target)
+    }
+
+    /// Only runs if the daemon ever renders at something other than 24 kHz mono
+    /// (its `say` fallback engine is configurable), but a format mismatch on
+    /// `scheduleBuffer` is a hard crash, so it is worth the twenty lines.
+    private func convert(_ source: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let converter = AVAudioConverter(from: source.format, to: format) else { return nil }
+        let ratio = format.sampleRate / source.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(source.frameLength) * ratio) + 4096
+        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+
+        var supplied = false
+        var conversionError: NSError?
+        let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
+            if supplied {
+                inputStatus.pointee = .endOfStream
+                return nil
+            }
+            supplied = true
+            inputStatus.pointee = .haveData
+            return source
+        }
+        if status == .error || conversionError != nil { return nil }
+        guard output.frameLength > 0 else { return nil }
+        return output
+    }
+
+    // MARK: Fallback voice
+
+    private func failToFallback(reason: String?, text: String? = nil) {
+        if let reason {
+            onNotice?("Warm voice unavailable (\(reason)) — using the built-in voice.")
+        }
+        guard let text, !text.isEmpty else {
+            isSpeaking = false
+            onLevel?(0)
+            onFinished?()
+            return
+        }
+        speakWithSystemVoice(text)
+    }
+
+    private func speakWithSystemVoice(_ text: String) {
+        let synthesizer = self.synthesizer ?? AVSpeechSynthesizer()
+        synthesizer.delegate = self
+        self.synthesizer = synthesizer
+
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        isSpeaking = true
+
+        // The system synthesiser plays straight to the output device, so there
+        // is no buffer for us to tap. Rather than freeze the hologram mid-reply,
+        // drive it with a gentle synthetic envelope. It is honestly fake, and
+        // only ever used on the fallback path.
+        fallbackPhase = 0
+        fallbackTimer?.invalidate()
+        fallbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.fallbackPhase += 0.05
+            let value = 0.34 + 0.18 * sin(self.fallbackPhase * 7.3) + 0.08 * sin(self.fallbackPhase * 2.1)
+            self.onLevel?(max(0, min(1, value)))
+        }
+
+        synthesizer.speak(utterance)
+    }
+
+    private func stopFallback() {
+        fallbackTimer?.invalidate()
+        fallbackTimer = nil
+        synthesizer?.stopSpeaking(at: .immediate)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.fallbackTimer?.invalidate()
+            self.fallbackTimer = nil
+            self.isSpeaking = false
+            self.onLevel?(0)
+            self.onFinished?()
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.fallbackTimer?.invalidate()
+            self.fallbackTimer = nil
+            self.onLevel?(0)
+        }
+    }
+}

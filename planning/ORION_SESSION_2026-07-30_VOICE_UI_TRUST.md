@@ -153,6 +153,83 @@ copy at `~/.openclaw/extensions/orion-control` are byte-identical (`diff -rq`).
 
 ---
 
+## 4. Orion.app — the native interface (added after the browser UI was rejected)
+
+The browser interface shipped broken, and the cause was mine: `server.py` sent a
+`Content-Security-Policy` of `script-src 'self'`, which blocks **inline** scripts.
+All the interface JS lived in an inline `<script type="module">` block, so the
+browser refused to execute any of it — no hologram, and no way to reach the
+gateway. Both reported symptoms, one cause. Fixed by extracting the script to
+`orion/interface/app.js` and serving it as a real asset, so the CSP stays strict.
+The browser UI now works and is kept as a fallback.
+
+But the interface should not have been a browser tab in the first place, so:
+
+`native/Orion/` — a real menu-bar app. Swift Package Manager, `swift-tools-version 6.0`,
+macOS 14+, Apple frameworks only, no third-party dependencies. 16 source files,
+~3,060 lines. Bundle id `com.nickmadaio.orion.app`, distinct from OrionCompanion's.
+
+- **Menu-bar resident**, `LSUIElement` / `.accessory` — no Dock icon.
+- **Floating non-activating `NSPanel`** so the hologram can sit over other apps
+  without stealing focus.
+- **Global push-to-talk on Right Option** (keyCode 61, checked alongside the
+  `.option` flag since left and right Option share it). Works while any app is
+  frontmost. Needs Accessibility; the app detects the absence with
+  `AXIsProcessTrustedWithOptions`, shows a banner, and opens the right pane in
+  System Settings rather than silently doing nothing.
+- **`SFSpeechRecognizer` with `requiresOnDeviceRecognition`** where supported —
+  streaming interim transcripts, and local, which is the point of this project.
+- **Talks to the TTS daemon directly over the unix socket** in `mode: "stream"`,
+  and **plays each chunk the moment its frame arrives** rather than waiting for
+  `done`. This is the streaming-playback win that item 5 under "Still open" was
+  describing; the native app gets it because it isn't bound by the OpenClaw
+  provider's one-file-in-one-file-out contract. Barge-in sends `{"op":"cancel"}`
+  on a second connection (the stream connection is parked in a blocking read)
+  and stops playback in the same breath.
+- **Hologram ported to SwiftUI `Canvas` + `TimelineView`**, preserving the
+  Fibonacci distribution, two-pass depth ordering, additive blending, and the
+  fast-attack/slow-release level smoothing. Quality defaults to `automatic`: it
+  starts at full density and steps down once to a stride-2 subsample if frame
+  intervals stay above ~20ms after a 120-frame warmup.
+
+**Verified:** all 16 files have balanced delimiters, the Info.plist parses and
+carries the three required usage strings, no secret is referenced anywhere in the
+sources, and the other two `native/` packages are untouched.
+
+**NOT verified — and this matters:** *none of it was compiled.* There is no Swift
+toolchain in the sandbox this was written from, and AppKit/SwiftUI do not exist
+on Linux regardless, so a clean first build is not something anyone has observed.
+Expect to fix compile errors. The likeliest candidates, in order:
+
+1. `.swiftLanguageMode(.v5)` in `Package.swift` — if the toolchain rejects it,
+   the older spelling is `.swiftLanguageVersion(.v5)` (noted in a comment there).
+2. `AVAudioConverter.convert(to:error:withInputFrom:)` in `SpeechOutput` — only
+   executes if the daemon renders at something other than 24 kHz mono.
+3. `GraphicsContext.Shading` held in an array property.
+4. `&context` forwarding into the hologram draw call.
+
+The hologram's **frame budget is unmeasured**, and the visual result of the port
+has never been rendered — fidelity to `hologram.js` is by line-by-line
+correspondence only.
+
+### Build and run
+
+```bash
+cd ~/Desktop/ORION/native/Orion
+./make_app_bundle.sh
+open .build/Orion.app          # must run from the bundle, not .build/release/Orion
+```
+
+It has to run from the `.app` bundle: macOS attaches microphone, speech, and
+accessibility permissions to a bundle identity, so a bare executable gets asked
+for nothing and then silently does nothing. Ad-hoc signing means macOS may
+re-prompt for permissions after each rebuild.
+
+Then grant, in System Settings → Privacy & Security: **Accessibility** (for the
+global hotkey), **Microphone**, and **Speech Recognition**.
+
+---
+
 ## Do this first, in this order
 
 ```bash

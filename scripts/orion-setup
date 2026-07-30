@@ -67,8 +67,33 @@ fi
 
 # -------------------------------------------------------------------- build
 step "3. Build Orion.app"
+
+# Only rebuild when something actually changed.
+#
+# This matters far more than build time. While the app is ad-hoc signed, macOS
+# identifies it by its cdhash, so EVERY rebuild is a new application to the
+# privacy database — a fresh "Orion" row in Accessibility and a fresh prompt,
+# with the previous grant orphaned. Rebuilding unconditionally on every launch
+# meant re-granting Accessibility on every launch.
+needs_build=0
+built="native/Orion/.build/Orion.app/Contents/MacOS/Orion"
+if [[ ! -x "$built" || ! -d /Applications/Orion.app ]]; then
+  needs_build=1
+elif [[ -n "$(find native/Orion/Sources native/Orion/Resources native/Orion/Package.swift \
+                   -newer "$built" -print -quit 2>/dev/null)" ]]; then
+  needs_build=1
+fi
+
+if (( ! needs_build )); then
+  ok "unchanged since the last build — not rebuilding"
+  print "        ${dim}(a rebuild would reset Accessibility while ad-hoc signed)${off}"
+  print "        Force one with: touch native/Orion/Package.swift"
+fi
+
 build_log="$(mktemp -t orion-build)"
-if (cd native/Orion && ./make_app_bundle.sh) > "$build_log" 2>&1; then
+if (( ! needs_build )); then
+  : > "$build_log"
+elif (cd native/Orion && ./make_app_bundle.sh) > "$build_log" 2>&1; then
   ok "built and signed"
   grep -E '^Signed:' "$build_log" | sed 's/^/        /'
 else
@@ -89,16 +114,24 @@ rm -f "$build_log"
 
 # ------------------------------------------------------------------ install
 step "4. Install to /Applications"
-# TCC keys on path as well as identity, so a stable home matters.
-if [[ -d /Applications/Orion.app ]]; then
-  # Quit a running copy first or the copy silently half-succeeds.
-  pkill -x Orion 2>/dev/null && sleep 1
-  rm -rf /Applications/Orion.app
-fi
-if cp -R native/Orion/.build/Orion.app /Applications/ 2>/dev/null; then
-  ok "/Applications/Orion.app"
+# TCC keys on path as well as identity, so a stable home matters — and
+# replacing the bundle is only worth doing when the bundle actually changed.
+# Swapping an identical copy in still quits the running app for no reason.
+if (( ! needs_build )) && [[ -d /Applications/Orion.app ]]; then
+  ok "already installed and unchanged"
 else
-  warn "could not write to /Applications — running from .build instead"
+  if [[ -d /Applications/Orion.app ]]; then
+    # Quit a running copy first or the copy silently half-succeeds.
+    pkill -x Orion 2>/dev/null && sleep 1
+    rm -rf /Applications/Orion.app
+  fi
+  if cp -R native/Orion/.build/Orion.app /Applications/ 2>/dev/null; then
+    ok "/Applications/Orion.app"
+    warn "new build — macOS will treat this as a new app and re-ask for Accessibility"
+    print "        That is the ad-hoc signature. ./scripts/orion-permissions explains it."
+  else
+    warn "could not write to /Applications — running from .build instead"
+  fi
 fi
 
 # -------------------------------------------------------------------- voice

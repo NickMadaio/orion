@@ -53,6 +53,7 @@ testable on any platform. See ``tests/test_tts_daemon.py``.
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import errno
 import io
 import json
@@ -743,8 +744,29 @@ class MlxWarmEngine(Engine):
     def __init__(self, model_path: str, sample_rate: int) -> None:
         self.model_path = model_path
         self.default_sample_rate = sample_rate
-        self.model = self._load(model_path)
         self._signature: Optional[dict[str, bool]] = None
+
+        # MLX streams are THREAD-LOCAL.
+        #
+        # Load the model on one thread and call generate() from another and
+        # every call dies with "There is no Stream(gpu, N) in current thread",
+        # which this daemon dutifully caught and degraded from -- straight to
+        # `say`, at 3.2s to first audio, for every single reply. The warm
+        # engine was never actually used.
+        #
+        # So the model is confined to exactly one thread: this executor loads
+        # it, generates on it, and converts its output to plain PCM bytes on
+        # it. Nothing holding an mx.array ever crosses a thread boundary.
+        #
+        # Serialising synthesis costs nothing here anyway -- there is one GPU
+        # and the jobs were already queued.
+        self._mlx = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="orion-mlx"
+        )
+        self.model = self._mlx.submit(self._load, model_path).result()
+
+    def close(self) -> None:
+        self._mlx.shutdown(wait=False)
 
     @staticmethod
     def _load(model_path: str) -> Any:
@@ -802,6 +824,20 @@ class MlxWarmEngine(Engine):
     ) -> bytes:
         if cancel.is_set():
             raise Cancelled("cancelled before synthesis")
+        # Everything that touches the model or its arrays runs on the one MLX
+        # thread and comes back as bytes. See the note in __init__.
+        pcm, sample_rate = self._mlx.submit(
+            self._synth_on_mlx_thread, text, voice, speed, cancel
+        ).result()
+        return wav_bytes_from_pcm(pcm, sample_rate)
+
+    def _synth_on_mlx_thread(
+        self,
+        text: str,
+        voice: str,
+        speed: float,
+        cancel: threading.Event,
+    ) -> tuple[bytes, int]:
         result = self._generate(text, voice, speed)
         pcm_parts: list[bytes] = []
         sample_rate = self.default_sample_rate
@@ -817,7 +853,7 @@ class MlxWarmEngine(Engine):
 
         if not pcm_parts:
             raise EngineError("model produced no audio")
-        return wav_bytes_from_pcm(b"".join(pcm_parts), sample_rate)
+        return b"".join(pcm_parts), sample_rate
 
     @staticmethod
     def _iter_results(result: Any) -> Iterable[Any]:

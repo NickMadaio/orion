@@ -147,6 +147,76 @@ export function instructionNamesTarget(
 }
 
 /**
+ * Words that show the user is talking about files and folders at all.
+ * Used only to tell "make me a note" apart from a request that never
+ * mentioned the filesystem.
+ */
+const FILESYSTEM_NOUNS = [
+  "file", "files", "folder", "folders", "directory", "note", "notes",
+  "document", "doc", "txt", "text", "desktop", "workspace", "subfolder",
+];
+
+/**
+ * Is this action inside the scope the user asked for?
+ *
+ * The strict rule — every path segment present in the user's words — made
+ * Orion demand you recite filenames back to it:
+ *
+ *   "make a text file of some sort"
+ *   → "I need you to explicitly name the file you want created."
+ *
+ * That is not a security boundary, it is a spelling test. The things actually
+ * protecting you are elsewhere and are untouched: authorization still requires
+ * a real user turn recovered from the host transcript, actions are confined to
+ * approved roots, there is no delete/move/rename, and every action is
+ * ledgered. Specificity was never what stopped an injected instruction — the
+ * injected text is not in your turn at all, which is the boundary that matters.
+ *
+ * So: you may be vague. Orion may fill in a detail you left open, provided the
+ * action lands somewhere you did point at.
+ *
+ * Authorized when EITHER:
+ *   - you named it — every path segment appears in your words (strict path); or
+ *   - you named the place — the parent folder appears in your words, so Orion
+ *     choosing `notes.txt` inside the `cooler` folder you asked for is fine; or
+ *   - you asked generically for a file or folder and the target sits directly
+ *     in an approved root, so "make me a text file" can land on the Desktop.
+ *
+ * Still refused: a target whose parent you never mentioned and which is not a
+ * top-level create — Orion cannot wander into `Desktop/private/keys.txt` off
+ * the back of "make me a note".
+ */
+export function instructionAuthorizesTarget(
+  content: string,
+  relativePath: string,
+): boolean {
+  if (instructionNamesTarget(content, relativePath)) return true;
+
+  const haystack = content.toLowerCase();
+  const segments = relativePath
+    .split("/")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  if (segments.length === 0) return false;
+
+  const parents = segments.slice(0, -1);
+
+  // You named the containing folder: the leaf is Orion's to choose.
+  if (parents.length > 0 && parents.every((p) => haystack.includes(p))) {
+    return true;
+  }
+
+  // Top-level inside an approved root, and you were talking about files.
+  if (parents.length === 0) {
+    return FILESYSTEM_NOUNS.some((noun) =>
+      new RegExp(`\\b${noun}\\b`).test(haystack),
+    );
+  }
+
+  return false;
+}
+
+/**
  * Does the user's own sentence ask for this operation?
  *
  * The old check looked for the catalog's own verb ("create"), so "make a
@@ -159,9 +229,15 @@ export function instructionNamesTarget(
  * the target to be named explicitly — that is the part doing the real work.
  */
 const OPERATION_SYNONYMS: Record<string, readonly string[]> = {
-  create: ["create", "make", "new", "add", "put", "save", "write", "start"],
-  append: ["append", "add", "put", "attach", "write"],
-  replace: ["replace", "overwrite", "update", "change", "set", "rewrite"],
+  create: [
+    "create", "make", "new", "add", "put", "save", "write", "start", "build",
+    "generate", "draft", "note", "jot", "record", "set", "give", "need", "want",
+  ],
+  append: ["append", "add", "put", "attach", "write", "note", "record", "stick"],
+  replace: [
+    "replace", "overwrite", "update", "change", "set", "rewrite", "fix",
+    "edit", "correct", "swap",
+  ],
   open: ["open", "launch", "start", "run"],
   quit: ["quit", "close", "exit", "stop"],
 };
@@ -331,7 +407,7 @@ export function validateTaskGraph(
           return false;
         }
         return (
-          instructionNamesTarget(source.content, relativePath) &&
+          instructionAuthorizesTarget(source.content, relativePath) &&
           instructionNamesOperation(source.content, operation)
         );
       });

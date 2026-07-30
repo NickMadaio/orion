@@ -33,6 +33,23 @@
     <string>1.0</string>
     <key>ORION_TTS_WARMUP</key>
     <string>1</string>
+    <!--
+      Voice provider. "auto" uses the local MLX model unless ORION_TTS_CLOUD_VOICE
+      is on AND an ELEVENLABS_API_KEY is found; "elevenlabs" asks for the cloud
+      voice explicitly. Either way a missing key, a network failure or a quota
+      error falls back to the local engine, and the daemon logs which one
+      actually served. Orion.app also sends a per-request provider, so the
+      Preferences picker takes effect without restarting this daemon.
+
+      The key itself is NEVER set here. It is read from the environment or from
+      /Users/nickmadaio/Desktop/ORION/.env, which is gitignored.
+    -->
+    <key>ORION_TTS_ENGINE</key>
+    <string>auto</string>
+    <key>ORION_TTS_CLOUD_VOICE</key>
+    <string>0</string>
+    <key>ORION_ENV_FILE</key>
+    <string>/Users/nickmadaio/Desktop/ORION/.env</string>
     <key>ORION_TTS_RUNTIME_DIR</key>
     <string>/Users/nickmadaio/.openclaw/tmp/orion-tts</string>
     <key>ORION_TTS_LOG</key>

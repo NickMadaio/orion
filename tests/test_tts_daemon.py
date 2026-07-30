@@ -340,6 +340,10 @@ def make_config(**overrides) -> daemon.Config:
     config.gap_ms = 0
     config.first_chunk_chars = 40
     config.chunk_chars = 120
+    # Never let the developer's own ELEVENLABS_API_KEY change what these tests
+    # exercise. Cloud behaviour is tested with an explicit fake key instead.
+    config.eleven_api_key = None
+    config.eleven_opt_in = False
     for key, value in overrides.items():
         setattr(config, key, value)
     return config
@@ -1184,6 +1188,685 @@ class ShippedFilesTests(unittest.TestCase):
         self.assertIn("/.openclaw/logs/", data["StandardOutPath"])
         self.assertIn("/.openclaw/logs/", data["StandardErrorPath"])
         self.assertEqual(data["EnvironmentVariables"]["ORION_TTS_SPEED"], "1.0")
+
+
+# ---------------------------------------------------------------------------
+# Voice providers: ElevenLabs (cloud) alongside the local engines
+# ---------------------------------------------------------------------------
+
+
+class SecretReadingTests(unittest.TestCase):
+    """Keys come from the environment or the gitignored .env, and nowhere else.
+
+    No test in this file may ever assert on a key's value -- only on whether one
+    was found. That rule is the point of `secret_present`.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env_file = os.path.join(self.tmp.name, ".env")
+
+    def write(self, body: str) -> str:
+        with open(self.env_file, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        return self.env_file
+
+    def test_environment_wins_over_the_file(self):
+        path = self.write("EXAMPLE_KEY=from-file\n")
+        os.environ["EXAMPLE_KEY"] = "from-env"
+        self.addCleanup(os.environ.pop, "EXAMPLE_KEY", None)
+        self.assertEqual(daemon.read_secret("EXAMPLE_KEY", [path]), "from-env")
+
+    def test_falls_back_to_the_env_file(self):
+        path = self.write("OTHER=x\nEXAMPLE_KEY=from-file\n")
+        os.environ.pop("EXAMPLE_KEY", None)
+        self.assertEqual(daemon.read_secret("EXAMPLE_KEY", [path]), "from-file")
+
+    def test_quotes_and_whitespace_are_stripped(self):
+        path = self.write('EXAMPLE_KEY = "spaced"  \n')
+        os.environ.pop("EXAMPLE_KEY", None)
+        self.assertEqual(daemon.read_secret("EXAMPLE_KEY", [path]), "spaced")
+
+    def test_comments_and_blanks_are_ignored(self):
+        path = self.write("# EXAMPLE_KEY=commented\n\n   \nEXAMPLE_KEY=real\n")
+        os.environ.pop("EXAMPLE_KEY", None)
+        self.assertEqual(daemon.read_secret("EXAMPLE_KEY", [path]), "real")
+
+    def test_blank_value_reads_as_absent(self):
+        path = self.write("EXAMPLE_KEY=\n")
+        os.environ.pop("EXAMPLE_KEY", None)
+        self.assertIsNone(daemon.read_secret("EXAMPLE_KEY", [path]))
+        self.assertFalse(daemon.secret_present("EXAMPLE_KEY", [path]))
+
+    def test_only_the_requested_key_comes_back(self):
+        path = self.write("EXAMPLE_KEY=a\nSOMETHING_ELSE=b\n")
+        os.environ.pop("SOMETHING_ELSE", None)
+        self.assertEqual(daemon.read_env_file(path, "EXAMPLE_KEY"), "a")
+        self.assertIsNone(daemon.read_env_file(path, "MISSING"))
+
+    def test_missing_file_is_not_an_error(self):
+        self.assertIsNone(daemon.read_secret("EXAMPLE_KEY", ["/nonexistent/.env"]))
+
+    def test_presence_check_never_needs_the_value(self):
+        path = self.write("EXAMPLE_KEY=secret-value\n")
+        os.environ.pop("EXAMPLE_KEY", None)
+        self.assertTrue(daemon.secret_present("EXAMPLE_KEY", [path]))
+
+
+class OutputFormatTests(unittest.TestCase):
+    def test_matches_the_daemon_sample_rate_exactly(self):
+        self.assertEqual(daemon.elevenlabs_output_format(24000), ("pcm_24000", 24000))
+        self.assertEqual(daemon.elevenlabs_output_format(16000), ("pcm_16000", 16000))
+        self.assertEqual(daemon.elevenlabs_output_format(44100), ("pcm_44100", 44100))
+
+    def test_unsupported_rate_snaps_to_the_nearest_pcm_rate(self):
+        self.assertEqual(daemon.elevenlabs_output_format(48000), ("pcm_44100", 44100))
+        self.assertEqual(daemon.elevenlabs_output_format(11025), ("pcm_8000", 8000))
+        self.assertEqual(daemon.elevenlabs_output_format(23800), ("pcm_24000", 24000))
+        self.assertEqual(daemon.elevenlabs_output_format(22000), ("pcm_22050", 22050))
+
+    def test_explicit_pcm_override_is_honoured(self):
+        self.assertEqual(
+            daemon.elevenlabs_output_format(24000, "PCM_16000"), ("pcm_16000", 16000)
+        )
+
+    def test_mp3_is_refused_rather_than_silently_accepted(self):
+        # There is no decoder in the audio path. Accepting mp3 here would mean
+        # discovering the missing decode step at the worst possible moment.
+        with self.assertRaises(ValueError):
+            daemon.elevenlabs_output_format(24000, "mp3_44100_128")
+        with self.assertRaises(ValueError):
+            daemon.elevenlabs_output_format(24000, "ulaw_8000")
+
+    def test_malformed_override_is_refused(self):
+        for value in ("pcm_", "pcm_abc", "pcm_0"):
+            with self.assertRaises(ValueError, msg=value):
+                daemon.elevenlabs_output_format(24000, value)
+
+
+class VoiceIdTests(unittest.TestCase):
+    def test_a_local_model_voice_name_never_becomes_a_voice_id(self):
+        self.assertEqual(
+            daemon.elevenlabs_voice_id("conversational_b", "DEFAULTVOICEID12345"),
+            "DEFAULTVOICEID12345",
+        )
+
+    def test_an_elevenlabs_shaped_id_overrides(self):
+        self.assertEqual(
+            daemon.elevenlabs_voice_id("21m00Tcm4TlvDq8ikWAM", "other"),
+            "21m00Tcm4TlvDq8ikWAM",
+        )
+
+    def test_blank_falls_back_to_the_default(self):
+        self.assertEqual(daemon.elevenlabs_voice_id("", "fallback"), "fallback")
+        self.assertEqual(daemon.elevenlabs_voice_id("   ", "fallback"), "fallback")
+
+
+class SegmentationTests(unittest.TestCase):
+    def test_segment_bytes_is_whole_samples(self):
+        self.assertEqual(daemon.segment_bytes(24000, 100), 2400 * 2)
+        self.assertEqual(daemon.segment_bytes(16000, 250), 4000 * 2)
+
+    def test_nothing_is_emitted_below_the_threshold(self):
+        self.assertEqual(daemon.emit_length(100, 200), 0)
+
+    def test_emission_never_splits_a_sample(self):
+        # An odd byte count would end the WAV data chunk mid-sample, which is an
+        # audible click on every frame boundary.
+        self.assertEqual(daemon.emit_length(4801, 100), 4800)
+        self.assertEqual(daemon.emit_length(4800, 100), 4800)
+
+    def test_a_single_stray_byte_is_held_back(self):
+        self.assertEqual(daemon.emit_length(1, 1), 0)
+
+
+class ProviderResolutionTests(unittest.TestCase):
+    def test_auto_stays_local_until_the_user_opts_in(self):
+        self.assertEqual(daemon.resolve_provider("auto", True, False), "local")
+
+    def test_auto_uses_the_cloud_once_opted_in_and_keyed(self):
+        self.assertEqual(daemon.resolve_provider("auto", True, True), "elevenlabs")
+
+    def test_auto_without_a_key_is_local_even_when_opted_in(self):
+        self.assertEqual(daemon.resolve_provider("auto", False, True), "local")
+
+    def test_explicit_cloud_request_does_not_need_the_opt_in(self):
+        self.assertEqual(daemon.resolve_provider("elevenlabs", True, False), "elevenlabs")
+
+    def test_explicit_cloud_request_without_a_key_degrades_quietly(self):
+        # It must resolve, not raise: a missing key is a reason to speak
+        # locally, never a reason for Orion to go silent.
+        self.assertEqual(daemon.resolve_provider("elevenlabs", False, False), "local")
+
+    def test_aliases(self):
+        for alias in ("eleven", "11labs", "cloud", "ElevenLabs", " CLOUD "):
+            self.assertEqual(daemon.resolve_provider(alias, True, False), "elevenlabs", alias)
+
+    def test_local_preferences_stay_local(self):
+        for alias in ("say", "mlx", "mlx-warm", "local", "nonsense"):
+            self.assertEqual(daemon.resolve_provider(alias, True, True), "local", alias)
+
+    def test_blank_and_none_mean_auto(self):
+        for alias in ("", None, "   "):
+            self.assertEqual(daemon.resolve_provider(alias, True, True), "elevenlabs", alias)
+            self.assertEqual(daemon.resolve_provider(alias, True, False), "local", alias)
+
+
+class FakeResponse:
+    """Stands in for the HTTP body of a streaming ElevenLabs response."""
+
+    def __init__(self, blocks, error=None):
+        self.blocks = list(blocks)
+        self.error = error
+        self.closed = False
+
+    def read(self, _size):
+        if self.error is not None and not self.blocks:
+            raise self.error
+        if not self.blocks:
+            return b""
+        return self.blocks.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+def eleven_config(**overrides) -> daemon.Config:
+    config = make_config(sample_rate=24000, **overrides)
+    config.eleven_api_key = "test-key-not-a-real-credential"
+    config.eleven_first_segment_ms = 50
+    config.eleven_segment_ms = 100
+    config.eleven_stall_s = 0.4
+    return config
+
+
+def pcm(ms: int, rate: int = 24000) -> bytes:
+    return b"\x00\x01" * int(rate * ms / 1000)
+
+
+class ElevenLabsEngineTests(unittest.TestCase):
+    def engine(self, response, config=None):
+        config = config or eleven_config()
+        self.opened = []
+
+        def opener(text, voice_id, speed):
+            self.opened.append((text, voice_id, speed))
+            if isinstance(response, BaseException):
+                raise response
+            return response
+
+        return daemon.ElevenLabsEngine(config, config.eleven_api_key, opener=opener)
+
+    def test_no_key_is_refused_at_construction(self):
+        with self.assertRaises(daemon.EngineError):
+            daemon.ElevenLabsEngine(eleven_config(), None)
+
+    def test_audio_is_released_before_the_body_finishes(self):
+        # This is the whole reason for the streaming endpoint: the first frame
+        # must be playable while later bytes are still on the wire.
+        engine = self.engine(FakeResponse([pcm(60), pcm(200), pcm(200)]))
+        frames = list(engine.stream("Hello.", "conversational_b", 1.0, threading.Event()))
+        self.assertGreater(len(frames), 1)
+        for frame in frames:
+            self.assertTrue(frame.startswith(b"RIFF"))
+        params, _ = daemon.read_wav(frames[0])
+        self.assertEqual(params, (1, 2, 24000))
+
+    def test_no_audio_is_lost_across_frames(self):
+        body = pcm(300)
+        engine = self.engine(FakeResponse([body[:1000], body[1000:]]))
+        frames = list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+        recovered = b"".join(daemon.read_wav(f)[1] for f in frames)
+        self.assertEqual(recovered, body)
+
+    def test_an_odd_trailing_byte_still_comes_out(self):
+        body = pcm(60) + b"\x07"
+        engine = self.engine(FakeResponse([body]))
+        frames = list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+        recovered = b"".join(daemon.read_wav(f)[1] for f in frames)
+        # The stray half-sample is dropped rather than clicking, but every whole
+        # sample survives.
+        self.assertEqual(recovered, body[:-1])
+
+    def test_synth_joins_the_stream_into_one_wav(self):
+        engine = self.engine(FakeResponse([pcm(100), pcm(100)]))
+        data = engine.synth("Hi.", "v", 1.0, threading.Event())
+        self.assertTrue(data.startswith(b"RIFF"))
+        self.assertGreater(daemon.wav_duration_ms(data), 150)
+
+    def test_empty_body_is_an_error_not_silence(self):
+        engine = self.engine(FakeResponse([]))
+        with self.assertRaises(daemon.EngineError):
+            list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+
+    def test_transport_failure_becomes_an_engine_error(self):
+        engine = self.engine(OSError("connection reset"))
+        with self.assertRaises(daemon.EngineError):
+            list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+
+    def test_mid_stream_failure_becomes_an_engine_error(self):
+        engine = self.engine(FakeResponse([pcm(60)], error=OSError("reset")))
+        with self.assertRaises(daemon.EngineError):
+            list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+
+    def test_a_stalled_server_does_not_hang_the_daemon(self):
+        class Stalled:
+            closed = False
+
+            def read(self, _size):
+                time.sleep(5)
+                return b""
+
+            def close(self):
+                self.closed = True
+
+        engine = self.engine(Stalled())
+        started = time.monotonic()
+        with self.assertRaises(daemon.EngineError):
+            list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+        self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_cancel_before_the_request_never_opens_a_connection(self):
+        engine = self.engine(FakeResponse([pcm(100)]))
+        cancel = threading.Event()
+        cancel.set()
+        with self.assertRaises(daemon.Cancelled):
+            list(engine.stream("Hi.", "v", 1.0, cancel))
+        self.assertEqual(self.opened, [])
+
+    def test_barge_in_aborts_an_in_flight_stream(self):
+        response = FakeResponse([pcm(60)] * 200)
+        engine = self.engine(response)
+        cancel = threading.Event()
+        produced = 0
+        with self.assertRaises(daemon.Cancelled):
+            for _ in engine.stream("Hi.", "v", 1.0, cancel):
+                produced += 1
+                if produced == 2:
+                    cancel.set()
+        self.assertEqual(produced, 2)
+        self.assertTrue(response.closed)
+
+    def test_the_configured_voice_is_used_not_the_local_model_voice(self):
+        config = eleven_config()
+        config.eleven_voice_id = "ABCDEFGHIJKLMNOPQRST"
+        engine = self.engine(FakeResponse([pcm(100)]), config)
+        list(engine.stream("Hi.", "conversational_b", 1.0, threading.Event()))
+        self.assertEqual(self.opened[0][1], "ABCDEFGHIJKLMNOPQRST")
+
+    def test_voice_settings_omit_speed_at_the_natural_rate(self):
+        engine = self.engine(FakeResponse([pcm(100)]))
+        self.assertNotIn("speed", engine._voice_settings(1.0))
+        self.assertEqual(engine._voice_settings(0.9)["speed"], 0.9)
+        # Outside the API's accepted band, clamped rather than rejected.
+        self.assertEqual(engine._voice_settings(3.0)["speed"], 1.2)
+
+    def test_errors_never_leak_the_key(self):
+        secret = "sk-do-not-log-me-12345"
+        config = eleven_config()
+        config.eleven_api_key = secret
+        engine = self.engine(RuntimeError(f"bad auth for {secret}"), config)
+        with self.assertRaises(daemon.EngineError) as caught:
+            list(engine.stream("Hi.", "v", 1.0, threading.Event()))
+        self.assertNotIn(secret, str(caught.exception))
+        self.assertIn("<redacted>", str(caught.exception))
+
+    def test_describe_carries_no_credential(self):
+        engine = self.engine(FakeResponse([pcm(50)]))
+        described = engine.describe()
+        self.assertNotIn("test-key-not-a-real-credential", json.dumps(described))
+        self.assertEqual(described["output_format"], "pcm_24000")
+
+
+class LocalFallbackEngineTests(unittest.TestCase):
+    def test_the_local_engine_is_not_built_until_it_is_needed(self):
+        built = []
+
+        def builder(config):
+            built.append(config)
+            return StubEngine()
+
+        fallback = daemon.LocalFallbackEngine(make_config(), builder=builder)
+        self.assertEqual(built, [])
+        self.assertEqual(fallback.resolved_name, "local:not-yet-built")
+        fallback.synth("hi", "v", 1.0, threading.Event())
+        self.assertEqual(len(built), 1)
+        self.assertEqual(fallback.resolved_name, "stub")
+
+    def test_it_is_built_once_and_reused(self):
+        built = []
+        fallback = daemon.LocalFallbackEngine(
+            make_config(), builder=lambda c: built.append(c) or StubEngine()
+        )
+        cancel = threading.Event()
+        fallback.synth("a", "v", 1.0, cancel)
+        fallback.synth("b", "v", 1.0, cancel)
+        self.assertEqual(len(built), 1)
+
+    def test_a_failing_local_build_still_produces_a_voice(self):
+        def builder(_config):
+            raise RuntimeError("no mlx here")
+
+        fallback = daemon.LocalFallbackEngine(make_config(), builder=builder)
+        self.assertIsInstance(fallback.resolve(), daemon.SayEngine)
+
+    def test_a_failing_local_engine_drops_to_say(self):
+        fallback = daemon.LocalFallbackEngine(
+            make_config(), builder=lambda c: StubEngine(fail=True)
+        )
+        floor = StubEngine()
+        fallback._floor = floor
+        fallback.synth("hi", "v", 1.0, threading.Event())
+        self.assertEqual(len(floor.calls), 1)
+
+
+class ProviderStackTests(unittest.TestCase):
+    def test_no_key_means_no_cloud_engine(self):
+        cloud, local, provider = daemon.build_stack(
+            make_config(engine_pref="say")
+        )
+        self.assertIsNone(cloud)
+        self.assertEqual(provider, "local")
+        self.assertIsInstance(local, daemon.SayEngine)
+
+    def test_cloud_selected_gets_a_lazy_local_fallback(self):
+        config = eleven_config(engine_pref="elevenlabs")
+        cloud, local, provider = daemon.build_stack(config)
+        self.assertIsInstance(cloud, daemon.ElevenLabsEngine)
+        self.assertEqual(provider, "elevenlabs")
+        # Lazy: selecting the cloud voice must not pay an MLX model load.
+        self.assertIsInstance(local, daemon.LocalFallbackEngine)
+
+    def test_a_key_alone_does_not_switch_the_voice(self):
+        config = eleven_config(engine_pref="auto", model_path="/nonexistent",
+                               mlx_cli="/nonexistent")
+        _, _, provider = daemon.build_stack(config)
+        self.assertEqual(provider, "local")
+
+    def test_build_engine_still_answers_with_one_engine(self):
+        config = eleven_config(engine_pref="elevenlabs")
+        self.assertIsInstance(daemon.build_engine(config), daemon.ElevenLabsEngine)
+
+
+class CloudFallbackTests(unittest.TestCase):
+    """A network failure must never be audible as silence."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def run_job(self, synth, request):
+        frames = []
+        synth.run(request, frames.append)
+        return frames
+
+    def make(self, cloud):
+        config = eleven_config(runtime_dir=os.path.join(self.tmp.name, "rt"))
+        local = StubEngine()
+        synth = daemon.Synthesizer(config, cloud, cloud=cloud, local=local)
+        return synth, local
+
+    def test_a_dead_cloud_voice_is_served_locally_instead(self):
+        cloud = StubEngine(fail=True)
+        cloud.name = "elevenlabs"
+        synth, local = self.make(cloud)
+        frames = self.run_job(
+            synth, {"op": "synth", "mode": "stream", "text": "Hello there."}
+        )
+        self.assertTrue(frames[-1]["ok"], frames)
+        self.assertEqual(frames[-1]["engine"], "stub")
+        self.assertEqual(synth.served_by, "stub")
+        self.assertEqual(len(local.calls), 1)
+
+    def test_the_engine_that_actually_served_is_reported(self):
+        cloud = StubEngine()
+        cloud.name = "elevenlabs"
+        synth, _ = self.make(cloud)
+        frames = self.run_job(
+            synth, {"op": "synth", "mode": "stream", "text": "Hello there."}
+        )
+        self.assertEqual(frames[-1]["engine"], "elevenlabs")
+        self.assertEqual(frames[-1]["provider"], "elevenlabs")
+        self.assertEqual(synth.provider_status()["tts_active"], "elevenlabs")
+
+    def test_a_request_can_pin_the_local_voice(self):
+        cloud = StubEngine()
+        cloud.name = "elevenlabs"
+        synth, local = self.make(cloud)
+        frames = self.run_job(
+            synth,
+            {"op": "synth", "mode": "stream", "text": "Hello there.",
+             "provider": "local"},
+        )
+        self.assertEqual(frames[-1]["provider"], "local")
+        self.assertEqual(frames[-1]["engine"], "stub")
+        self.assertEqual(len(cloud.calls), 0)
+
+    def test_a_request_can_pin_the_cloud_voice(self):
+        cloud = StubEngine()
+        cloud.name = "elevenlabs"
+        synth, local = self.make(cloud)
+        frames = self.run_job(
+            synth,
+            {"op": "synth", "mode": "stream", "text": "Hello there.",
+             "provider": "elevenlabs"},
+        )
+        self.assertEqual(frames[-1]["engine"], "elevenlabs")
+        self.assertEqual(len(local.calls), 0)
+
+    def test_pinning_a_cloud_voice_that_does_not_exist_stays_local(self):
+        local = StubEngine()
+        synth = daemon.Synthesizer(eleven_config(), local)
+        frames = self.run_job(
+            synth,
+            {"op": "synth", "mode": "stream", "text": "Hi.",
+             "provider": "elevenlabs"},
+        )
+        self.assertTrue(frames[-1]["ok"])
+        self.assertEqual(frames[-1]["provider"], "local")
+
+    def test_status_reports_presence_not_the_key(self):
+        cloud = StubEngine()
+        cloud.name = "elevenlabs"
+        synth, _ = self.make(cloud)
+        status = synth.provider_status()
+        self.assertTrue(status["elevenlabs_key_present"])
+        self.assertTrue(status["elevenlabs_available"])
+        self.assertNotIn(
+            "test-key-not-a-real-credential", json.dumps(status)
+        )
+
+    def test_a_partially_delivered_chunk_is_not_respoken(self):
+        # Half a sentence already reached the speakers; re-synthesising it on
+        # the fallback would stutter, so the chunk simply ends there.
+        class HalfDead:
+            name = "elevenlabs"
+
+            def stream(self, text, voice, speed, cancel):
+                yield wav(0.02)
+                raise daemon.EngineError("socket died")
+
+            def synth(self, text, voice, speed, cancel):
+                raise daemon.EngineError("socket died")
+
+        cloud = HalfDead()
+        config = eleven_config(runtime_dir=os.path.join(self.tmp.name, "rt2"))
+        local = StubEngine()
+        synth = daemon.Synthesizer(config, cloud, cloud=cloud, local=local)
+        frames = self.run_job(
+            synth, {"op": "synth", "mode": "stream", "text": "Hello."}
+        )
+        self.assertTrue(frames[-1]["ok"], frames)
+        self.assertEqual(len(local.calls), 0)
+
+    def test_warmup_does_not_bill_a_cloud_request(self):
+        cloud = StubEngine()
+        cloud.name = "elevenlabs"
+        config = eleven_config(warmup=True, warmup_text="hi")
+        synth = daemon.Synthesizer(config, cloud, cloud=cloud, local=StubEngine())
+        synth.warmup()
+        self.assertEqual(len(cloud.calls), 0)
+
+
+class ElevenLabsWireTests(unittest.TestCase):
+    """The real urllib path, against a local stand-in for the API.
+
+    Everything else about the cloud voice is tested with a fake opener, which
+    proves the logic but not the request. This proves the request: that the key
+    is a header and not a query parameter, that the streaming body is consumed
+    incrementally, and that the URL is shaped the way the API reference says.
+
+    It does NOT talk to ElevenLabs. Nothing in this suite ever does.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server
+
+        cls.seen: list[dict] = []
+        seen = cls.seen
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler contract
+                length = int(self.headers.get("content-length", 0))
+                body = self.rfile.read(length)
+                seen.append({
+                    "path": self.path,
+                    "headers": {k.lower(): v for k, v in self.headers.items()},
+                    "body": json.loads(body.decode("utf-8")),
+                })
+                if "reject" in self.path:
+                    payload = b'{"detail": {"status": "quota_exceeded"}}'
+                    self.send_response(401)
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                # 12000 int16 samples at 24kHz = 500ms of audio.
+                audio = b"\x00\x01" * 12000
+                self.send_response(200)
+                self.send_header("content-type", "audio/pcm")
+                self.send_header("content-length", str(len(audio)))
+                self.end_headers()
+                # Written in pieces, as a streaming endpoint would.
+                for offset in range(0, len(audio), 2048):
+                    self.wfile.write(audio[offset:offset + 2048])
+                    self.wfile.flush()
+
+            def log_message(self, *_args):
+                pass
+
+        cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        host, port = cls.server.server_address
+        cls.base = f"http://{host}:{port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        type(self).seen.clear()
+
+    def engine(self, **overrides):
+        config = eleven_config(eleven_base_url=self.base, **overrides)
+        config.eleven_voice_id = "TESTVOICEID000000001"
+        return daemon.ElevenLabsEngine(config, config.eleven_api_key)
+
+    def test_the_key_is_a_header_and_never_in_the_url(self):
+        engine = self.engine()
+        frames = list(engine.stream("Hello.", "conversational_b", 1.0, threading.Event()))
+        self.assertTrue(frames)
+        request = self.seen[0]
+        self.assertEqual(request["headers"]["xi-api-key"],
+                         "test-key-not-a-real-credential")
+        self.assertNotIn("test-key-not-a-real-credential", request["path"])
+        self.assertNotIn("api_key", request["path"])
+        self.assertNotIn("xi-api-key", request["path"])
+
+    def test_the_request_matches_the_documented_shape(self):
+        engine = self.engine()
+        list(engine.stream("Hello.", "v", 1.0, threading.Event()))
+        request = self.seen[0]
+        self.assertIn("/v1/text-to-speech/TESTVOICEID000000001/stream", request["path"])
+        self.assertIn("output_format=pcm_24000", request["path"])
+        self.assertEqual(request["body"]["text"], "Hello.")
+        self.assertEqual(request["body"]["model_id"], "eleven_flash_v2_5")
+        self.assertIn("stability", request["body"]["voice_settings"])
+
+    def test_audio_arrives_as_playable_wav_frames(self):
+        engine = self.engine()
+        frames = list(engine.stream("Hello.", "v", 1.0, threading.Event()))
+        self.assertGreater(len(frames), 1, "the body should be released in pieces")
+        total = sum(daemon.wav_duration_ms(frame) for frame in frames)
+        self.assertGreater(total, 400)
+
+    def test_an_http_error_becomes_a_fallback_not_a_crash(self):
+        config = eleven_config(eleven_base_url=self.base + "/reject")
+        engine = daemon.ElevenLabsEngine(config, config.eleven_api_key)
+        with self.assertRaises(daemon.EngineError) as caught:
+            list(engine.stream("Hello.", "v", 1.0, threading.Event()))
+        self.assertIn("quota_exceeded", str(caught.exception))
+        self.assertNotIn("test-key-not-a-real-credential", str(caught.exception))
+
+    def test_the_synthesizer_serves_the_local_voice_when_the_api_refuses(self):
+        config = eleven_config(eleven_base_url=self.base + "/reject")
+        cloud = daemon.ElevenLabsEngine(config, config.eleven_api_key)
+        local = StubEngine()
+        synth = daemon.Synthesizer(config, cloud, cloud=cloud, local=local)
+        frames = []
+        synth.run({"op": "synth", "mode": "stream", "text": "Hello."}, frames.append)
+        self.assertTrue(frames[-1]["ok"], frames)
+        self.assertEqual(frames[-1]["engine"], "stub")
+        self.assertEqual(len(local.calls), 1)
+
+
+class CacheIsolationTests(unittest.TestCase):
+    """Cached audio must not survive a provider switch.
+
+    "Yes." spoken by ElevenLabs and "Yes." spoken by the local model are
+    different audio. Keying the cache on text alone would replay the cloud voice
+    after the user had explicitly switched back.
+    """
+
+    def test_the_same_text_is_cached_per_engine(self):
+        cloud = StubEngine()
+        cloud.name = "elevenlabs"
+        local = StubEngine()
+        config = eleven_config(cache_entries=8)
+        synth = daemon.Synthesizer(config, cloud, cloud=cloud, local=local)
+        cancel = threading.Event()
+
+        synth._synth_chunk("Yes.", "v", 1.0, cancel, cloud)
+        _, cached = synth._synth_chunk("Yes.", "v", 1.0, cancel, cloud)
+        self.assertTrue(cached, "the same engine should hit the cache")
+
+        _, cached = synth._synth_chunk("Yes.", "v", 1.0, cancel, local)
+        self.assertFalse(cached, "a different engine must not reuse that audio")
+        self.assertEqual(len(local.calls), 1)
+
+    def test_the_cache_still_works_within_one_engine(self):
+        engine = StubEngine()
+        synth = daemon.Synthesizer(make_config(cache_entries=8), engine)
+        cancel = threading.Event()
+        synth._synth_chunk("Done.", "v", 1.0, cancel)
+        synth._synth_chunk("Done.", "v", 1.0, cancel)
+        self.assertEqual(len(engine.calls), 1)
+
+    def test_different_text_is_not_confused(self):
+        engine = StubEngine()
+        synth = daemon.Synthesizer(make_config(cache_entries=8), engine)
+        cancel = threading.Event()
+        synth._synth_chunk("One.", "v", 1.0, cancel)
+        _, cached = synth._synth_chunk("Two.", "v", 1.0, cancel)
+        self.assertFalse(cached)
+        self.assertEqual(len(engine.calls), 2)
 
 
 if __name__ == "__main__":

@@ -19,10 +19,18 @@ import Foundation
  Stream mode is the whole point: the first chunk is playable in ~170ms, long
  before the full reply has been synthesised. We hand each chunk to the player
  the moment its frame arrives.
+
+ The request carries a `provider` field so the voice picked in Preferences takes
+ effect on the very next reply, with no daemon restart. The daemon treats it as
+ a preference, not an order: if the cloud voice has no key or the network is
+ down it speaks locally anyway and reports which engine really served.
  */
 
 enum TTSOutcome {
-    case finished(chunks: Int)
+    /// `engine` is the one that ACTUALLY served, after any fallback inside the
+    /// daemon — not the one that was configured. Surfacing the configured name
+    /// is how a silent degradation goes unnoticed for an afternoon.
+    case finished(chunks: Int, engine: String)
     case failed(String)
     case cancelled
 }
@@ -174,6 +182,7 @@ final class TTSClient {
     /// Streams `text`. `onChunk` fires on the main thread the instant a chunk
     /// frame lands; `onDone` fires once, also on the main thread.
     func stream(text: String,
+                provider: String = VoiceSettings.tts.daemonProvider,
                 onChunk: @escaping (URL, Int) -> Void,
                 onDone: @escaping (TTSOutcome) -> Void) {
         generation += 1
@@ -203,7 +212,8 @@ final class TTSClient {
                     "op": "synth",
                     "text": text,
                     "mode": "stream",
-                    "preempt": true
+                    "preempt": true,
+                    "provider": provider
                 ])
             } catch {
                 let message = (error as? TTSError)?.errorDescription ?? error.localizedDescription
@@ -231,8 +241,9 @@ final class TTSClient {
                 guard let frame else {
                     DispatchQueue.main.async {
                         guard let self, self.generation == job else { return }
-                        onDone(delivered > 0 ? .finished(chunks: delivered)
-                                             : .failed("the voice daemon closed the connection"))
+                        onDone(delivered > 0
+                               ? .finished(chunks: delivered, engine: "unknown")
+                               : .failed("the voice daemon closed the connection"))
                     }
                     return
                 }
@@ -254,10 +265,11 @@ final class TTSClient {
                 if event == "done" {
                     let ok = frame["ok"] as? Bool ?? true
                     let chunks = frame["chunks"] as? Int ?? delivered
+                    let engine = frame["engine"] as? String ?? "unknown"
                     DispatchQueue.main.async {
                         guard let self, self.generation == job else { return }
                         if ok {
-                            onDone(.finished(chunks: chunks))
+                            onDone(.finished(chunks: chunks, engine: engine))
                         } else {
                             onDone(.failed(frame["error"] as? String ?? "synthesis failed"))
                         }

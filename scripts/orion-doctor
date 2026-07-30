@@ -18,6 +18,8 @@ repo="${0:A:h:h}"
 socket="${ORION_TTS_SOCKET:-$HOME/.openclaw/orion-tts.sock}"
 config="$HOME/.openclaw/openclaw.json"
 openclaw_bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+env_file="${ORION_ENV_FILE:-$repo/.env}"
+app_domain="com.nickmadaio.orion.app"
 app_paths=(/Applications/Orion.app "$repo/native/Orion/.build/Orion.app")
 
 fail=0
@@ -26,6 +28,10 @@ py="$("$repo/scripts/orion-python" 2>/dev/null)"
 
 ok()   { print "  \033[32mok\033[0m    $1" }
 warn() { print "  \033[33mwarn\033[0m  $1"; }
+# Neutral. For things that are off but were never meant to be on -- an unset
+# optional key is not a problem, and colouring it yellow trains the eye to
+# ignore the yellow that matters.
+note() { print "  ----  $1"; }
 bad()  { print "  \033[31mFAIL\033[0m  $1"; fail=1; }
 
 print ""
@@ -69,14 +75,23 @@ PY
 )"
   if [[ -n "$reply" ]]; then
     engine="$(print -r -- "$reply" | "$py" -c 'import json,sys;print(json.load(sys.stdin).get("engine","?"))' 2>/dev/null)"
+    # The engine that ACTUALLY served last, which is the only one worth
+    # trusting. It differs from `engine` exactly when something degraded.
+    active="$(print -r -- "$reply" | "$py" -c 'import json,sys;print(json.load(sys.stdin).get("active_engine","") or "")' 2>/dev/null)"
     case "$engine" in
       mlx-warm) ok "responding, engine=mlx-warm" ;;
+      elevenlabs) ok "responding, engine=elevenlabs (cloud voice)" ;;
       mlx-cli|mlx-generate-fn)
         bad "responding, but engine=$engine — reloads the model per chunk"
         print "        This is the slow path. See 'voice engine' above." ;;
       say) warn "responding, but engine=say — MLX unavailable, quality degraded" ;;
       *)   warn "responding, engine=$engine" ;;
     esac
+    if [[ -n "$active" && "$active" != "$engine" ]]; then
+      warn "but the last reply was actually spoken by: $active"
+      print "        The configured voice fell back. The reason is in the log:"
+      print "        tail -50 ~/.openclaw/logs/orion-tts.log"
+    fi
   else
     bad "socket exists but the daemon did not answer a status probe"
   fi
@@ -85,6 +100,97 @@ else
   print "        Start it:  ./scripts/orion-interface"
   print "        Or load:   launchctl load -w ~/Library/LaunchAgents/com.nickmadaio.orion.tts.plist"
 fi
+
+# --- voice providers ------------------------------------------------------
+#
+# Presence only, never the value. A key must never be printed, logged or shown
+# by anything in this repo -- least of all by the tool you run when something
+# is already going wrong.
+print ""
+print "voice providers"
+
+key_source() {
+  local name="$1"
+  if [[ -n "$(printenv "$name" 2>/dev/null)" ]]; then
+    print "environment"
+    return 0
+  fi
+  [[ -f "$env_file" ]] || return 1
+  local found
+  found="$("$py" - "$env_file" "$name" <<'DOCTOR_PY' 2>/dev/null
+import sys
+name = sys.argv[2]
+try:
+    for line in open(sys.argv[1], encoding="utf-8"):
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() == name and value.strip().strip('"').strip("'"):
+            print("yes")
+            break
+except OSError:
+    pass
+DOCTOR_PY
+)"
+  [[ "$found" == "yes" ]] || return 1
+  print "$env_file"
+}
+
+if [[ -n "${reply:-}" ]]; then
+  providers="$(print -r -- "$reply" | "$py" -c 'import json,sys
+d = json.load(sys.stdin).get("providers", {})
+print(d.get("tts_configured", "?"))
+print(d.get("tts_default", "?"))
+print(d.get("tts_active", "?"))
+print("yes" if d.get("elevenlabs_available") else "no")' 2>/dev/null)"
+  if [[ -n "$providers" ]]; then
+    tts_pref="$(print -r -- "$providers" | sed -n 1p)"
+    tts_default="$(print -r -- "$providers" | sed -n 2p)"
+    tts_active="$(print -r -- "$providers" | sed -n 3p)"
+    cloud_built="$(print -r -- "$providers" | sed -n 4p)"
+    ok "tts: configured=$tts_pref  resolved=$tts_default  serving=$tts_active"
+    if [[ "$tts_default" == "elevenlabs" && "$tts_active" != "elevenlabs" ]]; then
+      warn "ElevenLabs is selected but $tts_active is serving — it fell back"
+      print "        Why: tail -50 ~/.openclaw/logs/orion-tts.log"
+    fi
+    if [[ "$tts_default" == "local" && "$cloud_built" == "yes" ]]; then
+      print "        An ElevenLabs key is present but not selected."
+      print "        Turn it on in Orion ▸ Preferences ▸ Voice, or set"
+      print "        ORION_TTS_CLOUD_VOICE=1 in the LaunchAgent plist."
+    fi
+  fi
+else
+  warn "tts provider unknown — the daemon did not answer a status probe"
+fi
+
+if src="$(key_source ELEVENLABS_API_KEY)"; then
+  ok "ELEVENLABS_API_KEY present (from $src)"
+else
+  note "ELEVENLABS_API_KEY not set — the local MLX voice is the only voice"
+  print "        Put it in $env_file, which is gitignored. Never in openclaw.json."
+fi
+
+# The STT choice lives in the app's own defaults: the app is what opens the
+# microphone, so the app is what owns that preference.
+stt_pref="$(defaults read "$app_domain" OrionSTTProvider 2>/dev/null)"
+[[ -z "$stt_pref" ]] && stt_pref="apple (default)"
+ok "stt: configured=$stt_pref"
+if src="$(key_source DEEPGRAM_API_KEY)"; then
+  ok "DEEPGRAM_API_KEY present (from $src)"
+  if [[ "$stt_pref" != "deepgram" ]]; then
+    print "        Present but not selected — Orion ▸ Preferences ▸ Voice ▸ Listening."
+  fi
+else
+  if [[ "$stt_pref" == "deepgram" ]]; then
+    bad "Deepgram is selected but has no key — every utterance falls back to Apple"
+    print "        Put DEEPGRAM_API_KEY in $env_file, or switch back to Apple."
+  else
+    note "DEEPGRAM_API_KEY not set — Apple on-device dictation is the only ear"
+  fi
+fi
+print "        Orion shows the ear ACTUALLY serving in the panel and the menu;"
+print "        this line is only what it was asked to use."
 
 # --- gateway --------------------------------------------------------------
 print ""

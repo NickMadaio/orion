@@ -61,20 +61,50 @@ final class PanelController {
 
         _ = panel.setFrameAutosaveName(PanelController.frameAutosaveName)
         if !panel.setFrameUsingName(PanelController.frameAutosaveName) {
-            positionBottomRight(panel)
+            moveToConfiguredCorner(panel)
         }
         return panel
     }
 
-    private func positionBottomRight(_ panel: NSPanel) {
-        guard let screen = NSScreen.main else { return }
-        let visible = screen.visibleFrame
-        let margin: CGFloat = 24
-        let origin = NSPoint(
-            x: visible.maxX - PanelController.defaultSize.width - margin,
-            y: visible.minY + margin
+    /// The screen the user is actually looking at.
+    ///
+    /// Mouse position rather than `NSScreen.main`: on a multi-display Mac the
+    /// "main" screen is the one with the menu bar, which is frequently not the
+    /// one being worked on. Summoning Orion onto a different monitor than the
+    /// one you are looking at reads as a bug even though it is documented
+    /// behaviour. Falls back to main, then to whatever exists.
+    private func activeScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+    }
+
+    /// Move the panel to the user's chosen corner on the active screen.
+    ///
+    /// `visibleFrame` is already inset for the menu bar and the Dock, so a
+    /// panel placed from it cannot land underneath either.
+    private func moveToConfiguredCorner(_ panel: NSPanel) {
+        guard let screen = activeScreen() else { return }
+        let origin = SummonSettings.corner.origin(
+            for: panel.frame.size,
+            in: screen.visibleFrame
         )
         panel.setFrameOrigin(origin)
+    }
+
+    /// Summon: always arrive in the configured corner, on the active screen,
+    /// without taking focus.
+    ///
+    /// Distinct from `show()` on purpose. `show()` honours wherever the panel
+    /// was last dragged, because a position the user chose by hand should
+    /// survive. A summon is Orion arriving unbidden — it belongs where the
+    /// user said Orion should appear, not where it happened to be left.
+    func summon() {
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
+        moveToConfiguredCorner(panel)
+        show(makeKey: false)
     }
 
     // MARK: Show / hide

@@ -133,6 +133,13 @@ struct PanelView: View {
             Text("hold ⌥ right option to talk · esc to stop")
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Color.white.opacity(0.22))
+
+            // The providers that are REALLY serving, after any fallback —
+            // never the ones merely configured.
+            Text(state.voiceSummary)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.22))
+                .help("The voice and ears actually serving right now")
         }
     }
 

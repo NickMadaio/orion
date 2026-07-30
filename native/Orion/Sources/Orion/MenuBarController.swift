@@ -16,6 +16,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let gatewayItem = NSMenuItem(title: "Gateway: checking…", action: nil, keyEquivalent: "")
     private let voiceItem = NSMenuItem(title: "Voice: checking…", action: nil, keyEquivalent: "")
     private let talkItem = NSMenuItem(title: "Push-to-talk: checking…", action: nil, keyEquivalent: "")
+    /// The providers that are ACTUALLY serving, not the ones configured.
+    private let providerItem = NSMenuItem(title: "Providers: checking…", action: nil, keyEquivalent: "")
+
+    /// Left-click on the status item. Set by `AppDelegate`.
+    var onToggleTextWindow: (() -> Void)?
 
     init(state: AppState,
          onTogglePanel: @escaping () -> Void,
@@ -46,6 +51,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         voiceItem.isEnabled = false
         menu.addItem(gatewayItem)
         menu.addItem(voiceItem)
+        providerItem.isEnabled = false
+        menu.addItem(providerItem)
 
         talkItem.target = self
         talkItem.action = #selector(fixPushToTalk)
@@ -61,9 +68,41 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         quit.target = self
         menu.addItem(quit)
 
-        item.menu = menu
+        // Deliberately NOT `item.menu = menu`.
+        //
+        // Assigning a menu makes every click open it, which costs the most
+        // valuable target on the screen: one click on the menu bar should put a
+        // caret in front of you, not present a list of things to read. So the
+        // button gets an action instead, and the menu is attached only for the
+        // instant a right-click needs it (see `statusClicked`).
+        item.button?.target = self
+        item.button?.action = #selector(statusClicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+
         statusItem = item
         refresh()
+    }
+
+    /// Left-click opens the text window; right-click (or control-click, which
+    /// is the same gesture on a trackpad) opens the menu.
+    @objc private func statusClicked() {
+        let event = NSApp.currentEvent
+        let wantsMenu = event.map { ev in
+            ev.type == .rightMouseUp || ev.modifierFlags.contains(.control)
+        } ?? false
+
+        guard let item = statusItem else { return }
+
+        if wantsMenu {
+            // The documented way to show a status menu on demand: attach it,
+            // re-send the click so AppKit positions and tracks it correctly,
+            // then detach so the next left-click reaches our action again.
+            item.menu = menu
+            item.button?.performClick(nil)
+            item.menu = nil
+        } else {
+            onToggleTextWindow?()
+        }
     }
 
     // MARK: Menu
@@ -84,6 +123,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         voiceItem.title = state.voiceUp
             ? "Voice: warm daemon connected"
             : "Voice: daemon not running (built-in voice will be used)"
+        providerItem.title = "Providers: \(state.voiceSummary)"
         if state.accessibilityTrusted {
             talkItem.title = "Push-to-talk: Right Option ready"
             talkItem.isEnabled = false

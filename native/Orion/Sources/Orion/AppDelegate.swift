@@ -7,18 +7,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let state = AppState()
     private var panelController: PanelController!
+    private var textWindowController: TextWindowController!
     private var menuBarController: MenuBarController!
     private var preferencesController: PreferencesWindowController!
     private let pushToTalk = PushToTalkMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panelController = PanelController(state: state)
+        textWindowController = TextWindowController(state: state)
         preferencesController = PreferencesWindowController(state: state)
         menuBarController = MenuBarController(
             state: state,
             onTogglePanel: { [weak self] in self?.togglePanel() },
             onOpenPreferences: { [weak self] in self?.preferencesController.show() }
         )
+        // Left-click the menu bar: the typing surface, focused and ready.
+        // Right-click still gets the menu.
+        menuBarController.onToggleTextWindow = { [weak self] in
+            self?.textWindowController.toggle()
+        }
         menuBarController.install()
 
         state.onWantsPanel = { [weak self] in
@@ -29,6 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.panelController.show(makeKey: false)
                 self.menuBarController.refresh(panelVisible: true)
             }
+        }
+        // Summoned by name. Always arrives in the configured corner on the
+        // screen the user is looking at, and never takes focus — you can say
+        // "Orion" mid-sentence in another app and keep typing.
+        state.onWantsSummon = { [weak self] in
+            guard let self else { return }
+            self.panelController.summon()
+            self.menuBarController.refresh(panelVisible: true)
         }
         state.onSpeakingChanged = { [weak self] speaking in
             self?.pushToTalk.setGlobalEscapeWatch(speaking)

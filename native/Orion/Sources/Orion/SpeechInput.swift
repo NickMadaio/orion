@@ -5,13 +5,36 @@ import Speech
 /*
  Microphone in, text out.
 
+ Two ears, one microphone.
+
  `SFSpeechRecognizer` with an audio-buffer request, forced on-device where the
  installed locale supports it: lower latency, and nothing about what is said in
  this room leaves the machine. Orion is local-first and that is not a detail.
 
- The same `AVAudioEngine` input tap feeds two consumers — the recogniser and the
- hologram's level meter — so the sphere reacts to the voice that is actually
- being transcribed rather than to a second, separately-opened microphone.
+ Deepgram is the optional alternative, chosen in Preferences. What it buys is
+ server-side endpointing: Apple's recogniser has no fast end-of-utterance signal,
+ so a released push-to-talk key waits up to `appleFinalGrace` for the last
+ partial to be promoted. Deepgram answers a `Finalize` within a couple of
+ hundred milliseconds. That gap is most of the delay between "I stopped talking"
+ and "Orion started thinking".
+
+ Whichever is active, there is exactly ONE `AVAudioEngine` and exactly ONE input
+ tap. It feeds four consumers — the recogniser in use, the hologram's level
+ meter, a short replay buffer that makes the Deepgram→Apple fallback seamless,
+ and `onMonitor`, the passive hook the wake word reads. Orion never opens a
+ second microphone session, and `WakeWordListener` has no engine of its own to
+ open one with.
+
+ The tap has two modes. Push-to-talk starts it and stops it around an utterance,
+ as it always has. `startMonitoring()` holds the same tap open indefinitely with
+ no recogniser attached, which is what the wake word needs; `stopEngine` then
+ declines to close a session something else is still using. The level only
+ reaches the hologram while Orion is genuinely listening, so an idle Orion does
+ not sit there shimmering at an empty room.
+
+ If Deepgram has no key, cannot connect, or dies mid-utterance, the captured
+ audio is replayed into `SFSpeechRecognizer` and the user is told which ear is
+ actually listening. Dictation never just stops working.
 
  Callbacks are always delivered on the main thread.
  */
@@ -21,18 +44,50 @@ final class SpeechInput {
     var onFinal: ((String) -> Void)?
     var onLevel: ((Double) -> Void)?
     var onError: ((String) -> Void)?
+    /// Fires when the ear actually serving is settled or changes, with an
+    /// optional note for the transcript. Reports what IS listening, never what
+    /// was merely configured.
+    var onActiveProvider: ((STTProvider, String?) -> Void)?
+    /// Passive observer of the one input tap: every buffer, with its level, on
+    /// the main thread, in every mode. The wake word is the only consumer, and
+    /// this is the only way audio reaches it — it cannot open a microphone.
+    var onMonitor: ((AVAudioPCMBuffer, Double) -> Void)?
 
     private(set) var isRunning = false
+    /// What is REALLY listening, after any fallback.
+    private(set) var activeProvider: STTProvider = .apple
 
     private let engine = AVAudioEngine()
     private let recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
 
+    private var deepgram: DeepgramStream?
+    private let converter = LinearPCMConverter()
+    /// Audio captured before a route is settled. Replayed into whichever
+    /// recogniser wins, so the fallback costs no words.
+    private var replay: [AVAudioPCMBuffer] = []
+    private var replaying = true
+
     private var latestText = ""
     private var awaitingFinal = false
     private var finalTimer: Timer?
     private var startGeneration = 0
+
+    /// Someone (the wake word) needs the microphone session held open between
+    /// utterances. While true, stopping an utterance leaves the tap in place.
+    private var monitoring = false
+    /// There is no API to ask a node whether it has a tap, so track it.
+    private var tapInstalled = false
+    private var configurationObserver: NSObjectProtocol?
+
+    /// How long to let Apple promote its last partial to a final result.
+    private static let appleFinalGrace: TimeInterval = 1.2
+    /// Deepgram answers a `Finalize` fast; this is only the safety net.
+    private static let deepgramFinalGrace: TimeInterval = 0.8
+    /// ~3 seconds at 48 kHz in 1024-frame buffers. Enough to cover a failed
+    /// connect without letting a long hold grow the buffer without bound.
+    private static let replayLimit = 140
 
     init() {
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) ?? SFSpeechRecognizer()
@@ -60,6 +115,10 @@ final class SpeechInput {
 
     /// Asks for both permissions in the order the user will understand them.
     /// Denial produces a real message, never a silent no-op.
+    ///
+    /// Speech Recognition is requested even when Deepgram is the configured ear,
+    /// because Apple is the fallback and a permission dialog in the middle of a
+    /// network failure is the worst possible moment for one.
     func requestPermissions(_ completion: @escaping (Bool, String?) -> Void) {
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
@@ -119,6 +178,151 @@ final class SpeechInput {
     private func begin(_ recognizer: SFSpeechRecognizer) {
         guard !isRunning else { return }
 
+        latestText = ""
+        awaitingFinal = false
+        replay.removeAll(keepingCapacity: true)
+        replaying = true
+
+        // Decide the ear before opening the microphone, so the tap knows where
+        // buffers are going the moment they start arriving.
+        let wanted = VoiceSettings.stt
+        if wanted == .deepgram, let key = Secrets.deepgramKey {
+            startDeepgram(key: key)
+        } else {
+            if wanted == .deepgram {
+                announce(.apple, "Deepgram is selected but no \(Secrets.deepgramVariable) was found — listening on-device instead.")
+            } else {
+                announce(.apple, nil)
+            }
+            startApple(recognizer)
+        }
+
+        guard startMicrophone() else {
+            teardownRecognisers()
+            return
+        }
+        isRunning = true
+    }
+
+    // MARK: Monitoring
+    //
+    // The wake word needs the microphone open when nothing is being dictated.
+    // Rather than let it have an engine of its own, it borrows this one: the tap
+    // stays installed, no recogniser is attached, and buffers reach `onMonitor`
+    // and nowhere else.
+
+    /// Holds the single microphone session open with no recogniser attached.
+    /// Returns false if the microphone is unavailable or unpermitted, so the
+    /// caller can say so rather than listening to nothing.
+    @discardableResult
+    func startMonitoring() -> Bool {
+        guard SpeechInput.microphoneAuthorized else { return false }
+        monitoring = true
+        guard startMicrophone() else {
+            monitoring = false
+            return false
+        }
+        observeConfigurationChanges()
+        return true
+    }
+
+    func stopMonitoring() {
+        guard monitoring else { return }
+        monitoring = false
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        configurationObserver = nil
+        // An utterance in flight keeps the session; it will close it itself.
+        if !isRunning && !awaitingFinal {
+            stopEngine()
+        }
+    }
+
+    /// A long-lived session outlives device changes. Plugging in AirPods tears
+    /// the engine's graph down, and without this the wake word would go quietly
+    /// deaf until the next push-to-talk re-opened the microphone.
+    private func observeConfigurationChanges() {
+        guard configurationObserver == nil else { return }
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.monitoring, !self.isRunning, !self.awaitingFinal else { return }
+            self.stopEngine(force: true)
+            _ = self.startMicrophone()
+        }
+    }
+
+    /// The one microphone session. Everything else is a consumer of this tap.
+    /// Idempotent: a push-to-talk press during monitoring reuses the tap that is
+    /// already running rather than tearing it down and building another.
+    private func startMicrophone() -> Bool {
+        if engine.isRunning && tapInstalled { return true }
+
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            onError?("No microphone input is available right now.")
+            return false
+        }
+
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            // The level is computed on the audio thread; everything downstream
+            // of it happens on the main thread.
+            let level = orionNormalisedLevel(buffer)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // The wake word sees every buffer in every mode. The hologram
+                // sees the level only while Orion is genuinely listening — an
+                // idle Orion should not shimmer at the room.
+                self.onMonitor?(buffer, level)
+                if self.isRunning { self.onLevel?(level) }
+                self.route(buffer)
+            }
+        }
+        tapInstalled = true
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            tapInstalled = false
+            onError?("Could not start the microphone: \(error.localizedDescription)")
+            return false
+        }
+        return true
+    }
+
+    /// Main thread. Sends one buffer wherever it needs to go.
+    ///
+    /// Only while an utterance is open: in monitoring-only mode there is no
+    /// recogniser to feed and nothing to replay, so buffers stop here.
+    private func route(_ buffer: AVAudioPCMBuffer) {
+        guard isRunning else { return }
+        if let request {
+            request.append(buffer)
+            return
+        }
+        if let deepgram, deepgram.isOpen {
+            if let data = converter?.data(from: buffer) {
+                deepgram.send(audio: data)
+            }
+            return
+        }
+        // Nothing is ready to receive audio yet — Deepgram is still shaking
+        // hands. Hold it so the fallback, if it happens, loses no words.
+        if replaying, replay.count < SpeechInput.replayLimit {
+            replay.append(buffer)
+        }
+    }
+
+    // MARK: Apple
+
+    private func startApple(_ recognizer: SFSpeechRecognizer) {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         // On-device keeps the audio local and removes the network round trip,
@@ -127,39 +331,6 @@ final class SpeechInput {
             request.requiresOnDeviceRecognition = true
         }
         self.request = request
-
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            onError?("No microphone input is available right now.")
-            self.request = nil
-            return
-        }
-
-        input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            // `request` is captured strongly on purpose: the tap owns it for as
-            // long as it is installed, so there is nothing to race against.
-            request.append(buffer)
-            let level = orionNormalisedLevel(buffer)
-            DispatchQueue.main.async {
-                self?.onLevel?(level)
-            }
-        }
-
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            self.request = nil
-            onError?("Could not start the microphone: \(error.localizedDescription)")
-            return
-        }
-
-        isRunning = true
-        latestText = ""
-        awaitingFinal = false
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async {
@@ -188,7 +359,87 @@ final class SpeechInput {
                 }
             }
         }
+
+        // Replay anything captured while a previous route was being decided.
+        flushReplay { request.append($0) }
+        replaying = false
     }
+
+    // MARK: Deepgram
+
+    private func startDeepgram(key: String) {
+        let stream = DeepgramStream(apiKey: key)
+        deepgram = stream
+
+        stream.onOpen = { [weak self] in
+            guard let self, self.deepgram === stream else { return }
+            self.announce(.deepgram, nil)
+            self.flushReplay { buffer in
+                if let data = self.converter?.data(from: buffer) {
+                    stream.send(audio: data)
+                }
+            }
+            self.replaying = false
+        }
+        stream.onPartial = { [weak self] text in
+            guard let self, self.deepgram === stream else { return }
+            self.latestText = text
+            self.onPartial?(text)
+        }
+        stream.onSegment = { [weak self] text in
+            guard let self, self.deepgram === stream else { return }
+            self.latestText = text
+        }
+        stream.onEndOfSpeech = { [weak self] in
+            guard let self, self.deepgram === stream else { return }
+            // Only acted on once the key is up: while it is held, the user is
+            // still in charge of where the utterance ends.
+            if self.awaitingFinal { self.deliverFinal() }
+        }
+        stream.onFailure = { [weak self] message in
+            guard let self, self.deepgram === stream else { return }
+            self.fallBackToApple(reason: message)
+        }
+        stream.connect()
+    }
+
+    /// Deepgram could not serve. Move this utterance to Apple without losing the
+    /// audio already captured, and say so in the transcript.
+    private func fallBackToApple(reason: String) {
+        deepgram?.abort()
+        deepgram = nil
+
+        guard let recognizer, recognizer.isAvailable else {
+            if isRunning || awaitingFinal {
+                onError?("Deepgram is unavailable (\(reason)) and on-device dictation is not ready.")
+            }
+            return
+        }
+        announce(.apple, "Deepgram unavailable (\(reason)) — listening on-device instead.")
+        startApple(recognizer)
+
+        // The key may already be up: finish the utterance rather than stranding
+        // it on a recogniser that will never be told the audio ended.
+        if awaitingFinal {
+            request?.endAudio()
+            scheduleFinal(after: SpeechInput.appleFinalGrace)
+        }
+    }
+
+    private func flushReplay(_ sink: (AVAudioPCMBuffer) -> Void) {
+        for buffer in replay { sink(buffer) }
+        replay.removeAll(keepingCapacity: false)
+    }
+
+    private func announce(_ provider: STTProvider, _ note: String?) {
+        let changed = provider != activeProvider
+        activeProvider = provider
+        if changed || note != nil {
+            onActiveProvider?(provider, note)
+        }
+    }
+
+    // MARK: Stopping
 
     /// Release of push-to-talk: close the audio stream and give the recogniser a
     /// brief moment to promote the last partial to a final result.
@@ -198,34 +449,59 @@ final class SpeechInput {
         awaitingFinal = true
 
         stopEngine()
-        request?.endAudio()
         onLevel?(0)
 
-        finalTimer?.invalidate()
-        finalTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async { self?.deliverFinal() }
+        if let deepgram {
+            // `Finalize` flushes what the server is still holding; the grace
+            // period is only a safety net, not the expected path.
+            deepgram.finish()
+            scheduleFinal(after: SpeechInput.deepgramFinalGrace)
+            return
         }
+        request?.endAudio()
+        scheduleFinal(after: SpeechInput.appleFinalGrace)
     }
 
-    /// Hard stop with no result — used when the panel closes or the app quits.
+    /// Hard stop with no result — used when the app quits. Unlike `stop()`, this
+    /// closes the microphone even if the wake word was holding it open, so the
+    /// caller should stop monitoring first if it wants it back.
     func abort() {
         cancelPendingFinal()
         awaitingFinal = false
         isRunning = false
-        stopEngine()
+        stopEngine(force: true)
         request?.endAudio()
-        task?.cancel()
-        task = nil
-        request = nil
+        teardownRecognisers()
         latestText = ""
+        replay.removeAll(keepingCapacity: false)
         onLevel?(0)
     }
 
-    private func stopEngine() {
+    private func teardownRecognisers() {
+        task?.cancel()
+        task = nil
+        request = nil
+        deepgram?.abort()
+        deepgram = nil
+    }
+
+    /// Ends the utterance's claim on the microphone. If the wake word still has
+    /// one, the session stays up and the tap stays installed — `route` simply
+    /// has nowhere to send audio now. Only `force` actually closes it.
+    private func stopEngine(force: Bool = false) {
+        if monitoring && !force { return }
         if engine.isRunning {
             engine.stop()
         }
         engine.inputNode.removeTap(onBus: 0)
+        tapInstalled = false
+    }
+
+    private func scheduleFinal(after seconds: TimeInterval) {
+        finalTimer?.invalidate()
+        finalTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async { self?.deliverFinal() }
+        }
     }
 
     private func cancelPendingFinal() {
@@ -243,6 +519,9 @@ final class SpeechInput {
         task?.finish()
         task = nil
         request = nil
+        deepgram?.abort()
+        deepgram = nil
+        replay.removeAll(keepingCapacity: false)
 
         onFinal?(text)
     }

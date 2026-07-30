@@ -16,6 +16,11 @@ import Foundation
  If the daemon is missing or errors before a single chunk plays, we fall back to
  `AVSpeechSynthesizer`. Orion is never mute.
 
+ Which voice the daemon uses — local MLX or ElevenLabs — is chosen in
+ Preferences and sent with each request. The daemon reports back the engine that
+ ACTUALLY served, and that is what `onActiveEngine` publishes: a configured
+ provider that quietly fell back is exactly the failure worth surfacing.
+
  Everything on this class is main-thread only; the audio taps hop back.
  */
 final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
@@ -23,6 +28,8 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
     var onLevel: ((Double) -> Void)?
     var onFinished: (() -> Void)?
     var onNotice: ((String) -> Void)?
+    /// The engine that really spoke, as reported by the daemon.
+    var onActiveEngine: ((String) -> Void)?
 
     private(set) var isSpeaking = false
 
@@ -140,8 +147,9 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         switch outcome {
         case .cancelled:
             return
-        case .finished(let chunks):
+        case .finished(let chunks, let engine):
             streamComplete = true
+            onActiveEngine?(engine)
             if chunks == 0 && !playedAnything {
                 failToFallback(reason: nil, text: originalText)
                 return
@@ -247,6 +255,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
     // MARK: Fallback voice
 
     private func failToFallback(reason: String?, text: String? = nil) {
+        onActiveEngine?("system")
         if let reason {
             onNotice?("Warm voice unavailable (\(reason)) — using the built-in voice.")
         }

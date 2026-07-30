@@ -57,6 +57,7 @@ import errno
 import io
 import json
 import os
+import queue
 import re
 import shutil
 import signal
@@ -66,10 +67,13 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 import wave
 from collections import OrderedDict
 from typing import Any, Callable, Iterable, Optional
+from urllib.parse import quote
 
 # --------------------------------------------------------------------------
 # Configuration (all env-overridable so the user can tune without editing code)
@@ -115,6 +119,67 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+# --------------------------------------------------------------------------
+# Credentials  (env first, then the gitignored .env -- never logged)
+# --------------------------------------------------------------------------
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_ENV_FILE = os.path.join(REPO_ROOT, ".env")
+
+
+def env_file_candidates() -> list[str]:
+    """Where a key may live, best first. `.env` is gitignored by design."""
+    explicit = os.environ.get("ORION_ENV_FILE", "").strip()
+    if explicit:
+        return [explicit]
+    return [DEFAULT_ENV_FILE, os.path.join(HOME, "Desktop/ORION/.env")]
+
+
+def read_env_file(path: str, name: str) -> Optional[str]:
+    """Return `name` from a dotenv file, or None.
+
+    Only the key that was asked for is ever returned, so a caller cannot walk
+    the file and collect unrelated secrets by accident.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() != name:
+            continue
+        value = value.strip().strip('"').strip("'")
+        return value or None
+    return None
+
+
+def read_secret(name: str, candidates: Optional[list[str]] = None) -> Optional[str]:
+    """Environment first, then `.env`.
+
+    The return value is a live credential. It is passed straight into a request
+    header and is never logged, never echoed into a frame, and never written
+    into openclaw.json.
+    """
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    for path in (candidates if candidates is not None else env_file_candidates()):
+        found = read_env_file(path, name)
+        if found:
+            return found
+    return None
+
+
+def secret_present(name: str, candidates: Optional[list[str]] = None) -> bool:
+    """Presence only. This is the ONLY thing any diagnostic may report."""
+    return read_secret(name, candidates) is not None
+
+
 class Config:
     """Snapshot of tunables, read once at startup."""
 
@@ -143,6 +208,30 @@ class Config:
         self.chunk_ttl_s = max(5, _env_int("ORION_TTS_CHUNK_TTL_S", 120))
         self.engine_pref = _env("ORION_TTS_ENGINE", "auto").lower()
         self.log_path = os.environ.get("ORION_TTS_LOG", "")
+
+        # --- ElevenLabs (cloud voice) ---
+        # Opt-in on purpose: with ORION_TTS_ENGINE=auto and this off, the daemon
+        # stays entirely local even if a key happens to be present.
+        self.eleven_opt_in = _env_bool("ORION_TTS_CLOUD_VOICE", False)
+        self.eleven_base_url = _env("ORION_ELEVEN_BASE_URL", "https://api.elevenlabs.io")
+        # Rachel, the account-independent default voice. Override per taste.
+        self.eleven_voice_id = _env("ORION_ELEVEN_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+        # Flash is the low-latency model (~75ms model time, per ElevenLabs);
+        # eleven_multilingual_v2 is the higher-fidelity, slower alternative.
+        self.eleven_model = _env("ORION_ELEVEN_MODEL", "eleven_flash_v2_5")
+        self.eleven_stability = _env_float("ORION_ELEVEN_STABILITY", 0.4)
+        self.eleven_similarity = _env_float("ORION_ELEVEN_SIMILARITY", 0.75)
+        self.eleven_style = _env_float("ORION_ELEVEN_STYLE", 0.0)
+        self.eleven_speaker_boost = _env_bool("ORION_ELEVEN_SPEAKER_BOOST", True)
+        # Blank => pcm at the daemon's own sample rate, so nothing resamples.
+        self.eleven_output_format = _env("ORION_ELEVEN_OUTPUT_FORMAT", "")
+        self.eleven_timeout_s = _env_float("ORION_ELEVEN_TIMEOUT_S", 10.0)
+        self.eleven_stall_s = _env_float("ORION_ELEVEN_STALL_S", 6.0)
+        # Small first segment => audio leaves the daemon sooner.
+        self.eleven_first_segment_ms = _env_int("ORION_ELEVEN_FIRST_SEGMENT_MS", 120)
+        self.eleven_segment_ms = _env_int("ORION_ELEVEN_SEGMENT_MS", 400)
+        # Read once, held in memory, never logged and never written anywhere.
+        self.eleven_api_key = read_secret("ELEVENLABS_API_KEY")
 
 
 CONFIG = Config()
@@ -534,6 +623,78 @@ def _pcm16_from_iterable(audio: Any) -> bytes:
 
 
 # --------------------------------------------------------------------------
+# ElevenLabs helpers  (pure, unit tested -- no network)
+# --------------------------------------------------------------------------
+
+# The `output_format` enum's PCM rates, per the ElevenLabs API reference.
+# 44.1kHz PCM needs a Pro subscription; the rest are broadly available.
+ELEVEN_PCM_RATES = (8000, 16000, 22050, 24000, 44100)
+
+# An ElevenLabs voice id: 20-ish opaque alphanumerics. Deliberately strict so a
+# local model voice name ("conversational_b") can never be mistaken for one.
+_ELEVEN_VOICE_ID = re.compile(r"^[A-Za-z0-9]{16,64}$")
+
+
+def elevenlabs_output_format(sample_rate: int, override: str = "") -> tuple[str, int]:
+    """Return (output_format, the rate the bytes will actually arrive at).
+
+    Raw PCM on purpose. The daemon's frames are WAV, so a `pcm_*` response only
+    needs a 44-byte header glued on -- no decoder, no subprocess, no extra
+    buffering. MP3 would put a decode step in the exact hot path this daemon
+    exists to shorten, so it is refused rather than silently accepted.
+    """
+    if override:
+        cleaned = override.strip().lower()
+        if not cleaned.startswith("pcm_"):
+            raise ValueError(
+                f"unsupported ORION_ELEVEN_OUTPUT_FORMAT {cleaned!r}: only pcm_* "
+                "is supported, because anything else needs a decoder in the "
+                "audio path"
+            )
+        try:
+            rate = int(cleaned.split("_", 1)[1])
+        except (IndexError, ValueError) as exc:
+            raise ValueError(f"malformed output format {cleaned!r}") from exc
+        if rate <= 0:
+            raise ValueError(f"malformed output format {cleaned!r}")
+        return cleaned, rate
+    # Ask for the rate the rest of the pipeline already runs at, so nothing
+    # downstream has to resample.
+    rate = min(ELEVEN_PCM_RATES, key=lambda candidate: (abs(candidate - sample_rate), candidate))
+    return f"pcm_{rate}", rate
+
+
+def elevenlabs_voice_id(requested: str, default: str) -> str:
+    """Pick the voice id for one request.
+
+    Requests carry the *local* model's voice name, which means nothing to
+    ElevenLabs. Only an override actually shaped like an ElevenLabs voice id is
+    honoured; everything else falls back to the configured voice.
+    """
+    candidate = (requested or "").strip()
+    if candidate and _ELEVEN_VOICE_ID.match(candidate):
+        return candidate
+    return default
+
+
+def segment_bytes(sample_rate: int, milliseconds: int, frame_bytes: int = 2) -> int:
+    """Bytes of int16 mono PCM that hold `milliseconds` of audio."""
+    frames = max(1, int(sample_rate * max(1, milliseconds) / 1000))
+    return frames * frame_bytes
+
+
+def emit_length(pending: int, minimum: int, frame_bytes: int = 2) -> int:
+    """How many buffered PCM bytes to release as a frame; 0 means keep waiting.
+
+    Always a whole number of samples: a WAV whose data chunk ends mid-sample
+    plays as a click, and the frames are concatenated on the other side.
+    """
+    if pending < minimum or pending < frame_bytes:
+        return 0
+    return pending - (pending % frame_bytes)
+
+
+# --------------------------------------------------------------------------
 # Synthesis engines
 # --------------------------------------------------------------------------
 
@@ -557,6 +718,21 @@ class Engine:
         cancel: threading.Event,
     ) -> bytes:
         raise NotImplementedError
+
+    def stream(
+        self,
+        text: str,
+        voice: str,
+        speed: float,
+        cancel: threading.Event,
+    ) -> Iterable[bytes]:
+        """Audio for `text` in playable pieces, earliest first.
+
+        One piece by default: a local model hands back the whole chunk at once,
+        so there is nothing to release early. Network engines override this so
+        the first frame can leave the daemon while the rest is still arriving.
+        """
+        yield self.synth(text, voice, speed, cancel)
 
 
 class MlxWarmEngine(Engine):
@@ -790,6 +966,301 @@ class SayEngine(Engine):
                 return handle.read()
 
 
+_STREAM_DONE = object()
+
+
+class ElevenLabsEngine(Engine):
+    """Cloud voice: ElevenLabs streaming text-to-speech.
+
+    Ears and mouth only. This engine sends TEXT THAT IS ALREADY GOING TO BE
+    SPOKEN and receives audio bytes. It never carries a user request to a model,
+    never runs a tool, and never touches the gateway. If you are ever tempted to
+    put anything else on this socket, don't -- that is the whole architecture.
+
+    Why the streaming endpoint and not the batch one: `POST .../stream` starts
+    returning audio while the sentence is still being generated, so the first
+    frame can leave the daemon (and start playing in Orion.app) long before the
+    request finishes. The batch endpoint would give up exactly the latency this
+    provider exists to win.
+
+    Why PCM and not MP3: `output_format=pcm_<rate>` is raw int16 little-endian
+    at a rate we choose, so producing a WAV frame is a 44-byte header. MP3 would
+    need a decoder in the hot path.
+
+    The API key travels in the `xi-api-key` header. It is never put in the URL,
+    never logged, and is scrubbed out of any error text before that text is
+    logged.
+    """
+
+    name = "elevenlabs"
+
+    def __init__(
+        self,
+        config: "Config",
+        api_key: Optional[str],
+        opener: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        if not api_key:
+            raise EngineError("no ElevenLabs API key")
+        self._api_key = api_key
+        self.base_url = config.eleven_base_url.rstrip("/")
+        self.voice_id = config.eleven_voice_id
+        self.model = config.eleven_model
+        self.stability = config.eleven_stability
+        self.similarity = config.eleven_similarity
+        self.style = config.eleven_style
+        self.speaker_boost = config.eleven_speaker_boost
+        self.connect_timeout = config.eleven_timeout_s
+        self.stall_timeout = config.eleven_stall_s
+        self.first_segment_ms = config.eleven_first_segment_ms
+        self.segment_ms = config.eleven_segment_ms
+        self.output_format, self.sample_rate = elevenlabs_output_format(
+            config.sample_rate, config.eleven_output_format
+        )
+        self._opener = opener or self._open
+
+    # -- description (safe to log; contains no credential) ----------------
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "voice_id": self.voice_id,
+            "model": self.model,
+            "output_format": self.output_format,
+            "sample_rate": self.sample_rate,
+        }
+
+    # -- request ----------------------------------------------------------
+
+    def _voice_settings(self, speed: float) -> dict[str, Any]:
+        settings: dict[str, Any] = {
+            "stability": self.stability,
+            "similarity_boost": self.similarity,
+            "use_speaker_boost": self.speaker_boost,
+        }
+        if self.style > 0:
+            settings["style"] = self.style
+        # Only sent when the user actually changed it: `speed` is rejected by
+        # some models, and a 422 here would knock the cloud voice out entirely.
+        if abs(speed - 1.0) > 0.01:
+            settings["speed"] = max(0.7, min(1.2, speed))
+        return settings
+
+    def _open(self, text: str, voice_id: str, speed: float) -> Any:
+        url = (
+            f"{self.base_url}/v1/text-to-speech/{quote(voice_id, safe='')}/stream"
+            f"?output_format={quote(self.output_format, safe='')}"
+        )
+        payload = json.dumps({
+            "text": text,
+            "model_id": self.model,
+            "voice_settings": self._voice_settings(speed),
+        }).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, method="POST")
+        # Header only. Never a query parameter -- URLs end up in logs and
+        # proxies, and this one must not.
+        request.add_header("xi-api-key", self._api_key)
+        request.add_header("content-type", "application/json")
+        request.add_header("accept", "audio/*")
+        return urllib.request.urlopen(request, timeout=self.connect_timeout)
+
+    def _redact(self, value: Any) -> str:
+        text = str(value)
+        if self._api_key:
+            text = text.replace(self._api_key, "<redacted>")
+        return text[:300]
+
+    def _describe_http_error(self, exc: "urllib.error.HTTPError") -> str:
+        detail = ""
+        try:
+            body = exc.read().decode("utf-8", "replace")
+            parsed = json.loads(body)
+            status = parsed.get("detail")
+            if isinstance(status, dict):
+                detail = str(status.get("status") or status.get("message") or "")
+            elif status:
+                detail = str(status)
+            if not detail:
+                detail = body
+        except Exception:  # noqa: BLE001 - error reporting must not raise
+            detail = ""
+        message = f"http {exc.code}"
+        if detail:
+            message = f"{message} {detail}"
+        return self._redact(message)
+
+    # -- synthesis --------------------------------------------------------
+
+    def stream(
+        self,
+        text: str,
+        voice: str,
+        speed: float,
+        cancel: threading.Event,
+    ) -> Iterable[bytes]:
+        if cancel.is_set():
+            raise Cancelled("cancelled before synthesis")
+
+        voice_id = elevenlabs_voice_id(voice, self.voice_id)
+        try:
+            response = self._opener(text, voice_id, speed)
+        except urllib.error.HTTPError as exc:
+            raise EngineError(f"elevenlabs {self._describe_http_error(exc)}") from None
+        except Exception as exc:  # noqa: BLE001 - any transport failure degrades
+            raise EngineError(f"elevenlabs request failed: {self._redact(exc)}") from None
+
+        # The body is read on its own thread so a cancel (barge-in) is noticed
+        # within a poll interval instead of after a socket timeout, and so a
+        # server that simply stops sending cannot wedge the synthesis lock.
+        inbox: "queue.Queue[Any]" = queue.Queue(maxsize=64)
+
+        def pump() -> None:
+            try:
+                while True:
+                    data = response.read(4096)
+                    if not data:
+                        inbox.put(_STREAM_DONE, timeout=5)
+                        return
+                    inbox.put(data, timeout=5)
+            except BaseException as exc:  # noqa: BLE001 - reported to the consumer
+                try:
+                    inbox.put(exc, timeout=1)
+                except queue.Full:
+                    pass
+
+        reader = threading.Thread(target=pump, name="orion-eleven-read", daemon=True)
+        reader.start()
+
+        pending = bytearray()
+        emitted = 0
+        first_bytes = segment_bytes(self.sample_rate, self.first_segment_ms)
+        later_bytes = segment_bytes(self.sample_rate, self.segment_ms)
+        deadline = time.monotonic() + self.stall_timeout
+        try:
+            while True:
+                if cancel.is_set():
+                    raise Cancelled("cancelled mid-stream")
+                try:
+                    item = inbox.get(timeout=0.05)
+                except queue.Empty:
+                    if time.monotonic() > deadline:
+                        raise EngineError(
+                            f"elevenlabs stopped sending after {self.stall_timeout:.0f}s"
+                        )
+                    continue
+                deadline = time.monotonic() + self.stall_timeout
+                if item is _STREAM_DONE:
+                    break
+                if isinstance(item, BaseException):
+                    if isinstance(item, urllib.error.HTTPError):
+                        raise EngineError(
+                            f"elevenlabs {self._describe_http_error(item)}"
+                        ) from None
+                    raise EngineError(
+                        f"elevenlabs stream failed: {self._redact(item)}"
+                    ) from None
+
+                pending += item
+                want = first_bytes if emitted == 0 else later_bytes
+                take = emit_length(len(pending), want)
+                if take:
+                    yield wav_bytes_from_pcm(bytes(pending[:take]), self.sample_rate)
+                    del pending[:take]
+                    emitted += 1
+
+            tail = emit_length(len(pending), 1)
+            if tail:
+                yield wav_bytes_from_pcm(bytes(pending[:tail]), self.sample_rate)
+                emitted += 1
+            if emitted == 0:
+                raise EngineError("elevenlabs returned no audio")
+        finally:
+            # Closing the body is what unblocks the reader thread, so this runs
+            # on every exit -- normal, cancelled, or failed.
+            try:
+                response.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def synth(
+        self,
+        text: str,
+        voice: str,
+        speed: float,
+        cancel: threading.Event,
+    ) -> bytes:
+        blobs = list(self.stream(text, voice, speed, cancel))
+        if not blobs:
+            raise EngineError("elevenlabs returned no audio")
+        return join_wav_bytes(blobs)
+
+
+class LocalFallbackEngine(Engine):
+    """The local voice, built on first use, with /usr/bin/say as the floor.
+
+    When ElevenLabs is the primary voice there is no reason to pay the MLX model
+    load before anything needs it -- but a network blip must not drop Orion to
+    robot-voice for the rest of the session either. So the first fallback builds
+    the real local engine and every later one reuses it. `prewarm()` does that
+    build on a background thread at startup, which makes the first fallback as
+    fast as every other one.
+    """
+
+    name = "local"
+
+    def __init__(
+        self,
+        config: "Config",
+        builder: Optional[Callable[["Config"], Engine]] = None,
+    ) -> None:
+        self.config = config
+        self._builder = builder or build_local_engine
+        self._engine: Optional[Engine] = None
+        self._floor = SayEngine(config.sample_rate)
+        self._lock = threading.Lock()
+
+    @property
+    def resolved_name(self) -> str:
+        engine = self._engine
+        return engine.name if engine is not None else "local:not-yet-built"
+
+    def resolve(self) -> Engine:
+        with self._lock:
+            if self._engine is None:
+                started = time.monotonic()
+                try:
+                    self._engine = self._builder(self.config)
+                except Exception as exc:  # noqa: BLE001 - degrade, never die
+                    log(f"local fallback unavailable: {exc}", level="warn")
+                    self._engine = self._floor
+                else:
+                    elapsed = int((time.monotonic() - started) * 1000)
+                    log(f"local fallback ready engine={self._engine.name} ms={elapsed}")
+            return self._engine
+
+    def prewarm(self) -> None:
+        threading.Thread(
+            target=self.resolve, name="orion-local-prewarm", daemon=True
+        ).start()
+
+    def synth(
+        self,
+        text: str,
+        voice: str,
+        speed: float,
+        cancel: threading.Event,
+    ) -> bytes:
+        engine = self.resolve()
+        try:
+            return engine.synth(text, voice, speed, cancel)
+        except Cancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if engine is self._floor:
+                raise
+            log(f"local engine {engine.name} failed: {exc}", level="warn")
+            return self._floor.synth(text, voice, speed, cancel)
+
+
 def _find_wav(directory: str, prefix: str) -> Optional[str]:
     try:
         names = sorted(os.listdir(directory))
@@ -804,15 +1275,47 @@ def _find_wav(directory: str, prefix: str) -> Optional[str]:
     return None
 
 
-def build_engine(config: Config) -> Engine:
-    """Pick the best available engine, loudest-win first, `say` as the floor."""
+# Provider names. `local` covers the whole MLX -> say chain; the daemon does not
+# make the caller care which rung of it answered.
+PROVIDER_CLOUD = "elevenlabs"
+PROVIDER_LOCAL = "local"
+
+_CLOUD_ALIASES = frozenset({"elevenlabs", "eleven", "11labs", "cloud"})
+_LOCAL_ALIASES = frozenset({
+    "local", "mlx", "mlx-warm", "mlx-generate-fn", "mlx-cli", "say", "offline",
+})
+
+
+def resolve_provider(pref: str, cloud_available: bool, opted_in: bool) -> str:
+    """Decide which voice serves. Pure, because this is the decision that has
+    to be right and has to be checkable without a network or a model.
+
+    - An explicit `elevenlabs` preference uses the cloud voice IF a key was
+      found. Asking for it without a key does not fail the request; it resolves
+      to local and the daemon says so in the log.
+    - `auto` only reaches for the cloud voice when the user has opted in AND a
+      key is present. Silence-by-default is deliberate: nobody should discover
+      they enabled a paid network call by accident.
+    - Anything else is local.
+    """
+    choice = (pref or "auto").strip().lower()
+    if choice in _CLOUD_ALIASES:
+        return PROVIDER_CLOUD if cloud_available else PROVIDER_LOCAL
+    if choice in ("auto", ""):
+        return PROVIDER_CLOUD if (cloud_available and opted_in) else PROVIDER_LOCAL
+    return PROVIDER_LOCAL
+
+
+def build_local_engine(config: Config) -> Engine:
+    """Pick the best available LOCAL engine, best first, `say` as the floor."""
     pref = config.engine_pref
 
-    if pref in ("say",):
+    if pref == "say":
         log("engine forced to say", level="warn")
         return SayEngine(config.sample_rate)
 
-    if pref in ("auto", "mlx", "mlx-warm"):
+    if pref in ("auto", "local", "mlx", "mlx-warm", PROVIDER_CLOUD, "eleven",
+                "11labs", "cloud"):
         started = time.monotonic()
         try:
             engine = MlxWarmEngine(config.model_path, config.sample_rate)
@@ -822,7 +1325,8 @@ def build_engine(config: Config) -> Engine:
         except Exception as exc:  # noqa: BLE001 - degrade, never die
             log(f"mlx-warm unavailable: {exc}", level="warn")
 
-    if pref in ("auto", "mlx-generate-fn"):
+    if pref in ("auto", "local", "mlx-generate-fn", PROVIDER_CLOUD, "eleven",
+                "11labs", "cloud"):
         try:
             engine = MlxGenerateFnEngine(config.model_path)
             log("engine=mlx-generate-fn (model reload per chunk)", level="warn")
@@ -830,12 +1334,71 @@ def build_engine(config: Config) -> Engine:
         except Exception as exc:  # noqa: BLE001
             log(f"mlx-generate-fn unavailable: {exc}", level="warn")
 
-    if pref in ("auto", "mlx-cli") and os.access(config.mlx_cli, os.X_OK):
+    if pref in ("auto", "local", "mlx-cli", PROVIDER_CLOUD, "eleven", "11labs",
+                "cloud") and os.access(config.mlx_cli, os.X_OK):
         log("engine=mlx-cli (cold model load per chunk)", level="warn")
         return MlxCliEngine(config.mlx_cli, config.model_path)
 
     log("falling back to /usr/bin/say -- voice quality degraded", level="warn")
     return SayEngine(config.sample_rate)
+
+
+def build_cloud_engine(config: Config) -> Optional[Engine]:
+    """The ElevenLabs engine, or None with a reason in the log.
+
+    Never raises: a missing key or a bad voice id must not stop the daemon from
+    starting, it must just leave Orion on the local voice.
+    """
+    if not config.eleven_api_key:
+        return None
+    try:
+        engine = ElevenLabsEngine(config, config.eleven_api_key)
+    except Exception as exc:  # noqa: BLE001 - degrade, never die
+        log(f"elevenlabs unavailable: {exc}", level="warn")
+        return None
+    described = engine.describe()
+    log(
+        "elevenlabs ready "
+        f"model={described['model']} voice={described['voice_id']} "
+        f"format={described['output_format']}"
+    )
+    return engine
+
+
+def build_engine(config: Config) -> Engine:
+    """The engine that serves by default. Kept for callers that want one engine.
+
+    `build_stack` is the richer entry point; this stays so `--selftest` and the
+    existing tests keep a one-call way to ask "what will speak?".
+    """
+    cloud, local, provider = build_stack(config)
+    return cloud if provider == PROVIDER_CLOUD and cloud is not None else local
+
+
+def build_stack(config: Config) -> tuple[Optional[Engine], Engine, str]:
+    """Return (cloud engine or None, local engine, the provider that serves).
+
+    Both engines exist up front when the cloud voice is in play, so the user can
+    flip providers in Preferences and have the very next reply honour it without
+    restarting the daemon. The local one is lazy: it is a several-second model
+    load that should not be paid until something needs it.
+    """
+    cloud = build_cloud_engine(config)
+    provider = resolve_provider(
+        config.engine_pref, cloud is not None, config.eleven_opt_in
+    )
+    if provider == PROVIDER_CLOUD:
+        local: Engine = LocalFallbackEngine(config)
+    else:
+        local = build_local_engine(config)
+        if cloud is not None:
+            log(
+                "elevenlabs key found but not selected "
+                f"(ORION_TTS_ENGINE={config.engine_pref}, "
+                f"ORION_TTS_CLOUD_VOICE={'1' if config.eleven_opt_in else '0'})"
+            )
+    log(f"voice provider={provider}")
+    return cloud, local, provider
 
 
 # --------------------------------------------------------------------------
@@ -973,10 +1536,35 @@ class Stats:
 
 
 class Synthesizer:
-    def __init__(self, config: Config, engine: Engine) -> None:
+    def __init__(
+        self,
+        config: Config,
+        engine: Engine,
+        cloud: Optional[Engine] = None,
+        local: Optional[Engine] = None,
+    ) -> None:
         self.config = config
+        # `engine` is what serves unless a request asks for something else.
         self.engine = engine
-        self.fallback = SayEngine(config.sample_rate)
+        self.cloud = cloud
+        self.local = local if local is not None else (
+            None if cloud is not None and engine is cloud else engine
+        )
+        if self.local is None:
+            self.local = LocalFallbackEngine(config)
+        self.default_provider = (
+            PROVIDER_CLOUD if cloud is not None and engine is cloud else PROVIDER_LOCAL
+        )
+        # The floor. Local engines fall back to `say`; the cloud engine falls
+        # back to the whole local chain, because dropping from a studio voice
+        # straight to `say` over one dropped packet would be absurd.
+        self.fallback = self.local if self.default_provider == PROVIDER_CLOUD \
+            else SayEngine(config.sample_rate)
+        # What ACTUALLY served last, after any fallback. Reported by `status`
+        # and by orion-doctor, because a silent degradation already cost an
+        # afternoon once.
+        self.served_by = engine.name
+        self.served_counts: dict[str, int] = {}
         self.cache = ChunkCache(config.cache_entries)
         self.registry = Registry()
         self.stats = Stats()
@@ -985,7 +1573,130 @@ class Synthesizer:
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(config.queue_max)
 
+    # -- provider selection ----------------------------------------------
+
+    def engine_for(self, requested: Optional[str]) -> tuple[Engine, str]:
+        """Resolve one request's voice provider to a concrete engine."""
+        if not requested:
+            return self.engine, self.default_provider
+        provider = resolve_provider(requested, self.cloud is not None, True)
+        if provider == PROVIDER_CLOUD and self.cloud is not None:
+            return self.cloud, PROVIDER_CLOUD
+        assert self.local is not None
+        return self.local, PROVIDER_LOCAL
+
+    def fallback_for(self, engine: Engine) -> Engine:
+        if self.cloud is not None and engine is self.cloud:
+            assert self.local is not None
+            return self.local
+        return self.fallback
+
+    def _record(self, name: str) -> None:
+        self.served_by = name
+        with self.stats.lock:
+            self.served_counts[name] = self.served_counts.get(name, 0) + 1
+
+    def provider_status(self) -> dict[str, Any]:
+        """Presence and identity only. Never a key, never any part of one."""
+        local = self.local
+        status: dict[str, Any] = {
+            "tts_configured": self.config.engine_pref,
+            "tts_default": self.default_provider,
+            "tts_active": self.served_by,
+            "tts_fallback": (
+                local.resolved_name if isinstance(local, LocalFallbackEngine)
+                else (local.name if local is not None else self.fallback.name)
+            ),
+            "elevenlabs_key_present": bool(self.config.eleven_api_key),
+            "elevenlabs_available": self.cloud is not None,
+            "elevenlabs_opt_in": self.config.eleven_opt_in,
+            "served_counts": dict(self.served_counts),
+        }
+        if isinstance(self.cloud, ElevenLabsEngine):
+            status["elevenlabs"] = self.cloud.describe()
+        return status
+
     # -- chunk level -----------------------------------------------------
+
+    def _stream_chunk(
+        self,
+        text: str,
+        voice: str,
+        speed: float,
+        cancel: threading.Event,
+        engine: Optional[Engine] = None,
+        used: Optional[list[str]] = None,
+    ) -> Iterable[tuple[bytes, bool]]:
+        """Yield (wav_bytes, was_cached) for one text chunk, earliest first.
+
+        Local engines produce the whole chunk in one piece. A network engine
+        yields several, so the first one can be on its way to the speakers while
+        the rest of the sentence is still arriving.
+
+        Fallback rule: if the engine fails BEFORE any audio was handed out, the
+        chunk is re-synthesised on the fallback engine and the listener hears
+        nothing unusual. If it fails AFTER, the partial audio has already been
+        played, so re-speaking it would stutter -- the chunk ends there and the
+        failure is logged.
+        """
+        engine = engine or self.engine
+        fallback = self.fallback_for(engine)
+        # The cache is keyed per engine as well as per voice. Without that, a
+        # short acknowledgement synthesised by ElevenLabs would be replayed in
+        # the cloud voice after the user switched back to the local one.
+        key_voice = f"{engine.name}:{voice}"
+
+        cached = self.cache.get(text, key_voice, speed)
+        if cached is not None:
+            self._record(engine.name)
+            if used is not None:
+                used.append(engine.name)
+            yield cached, True
+            return
+
+        blobs: list[bytes] = []
+        try:
+            for blob in engine.stream(text, voice, speed, cancel):
+                blobs.append(blob)
+                yield blob, False
+        except Cancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - degrade, never go silent
+            if blobs:
+                log(
+                    f"engine {engine.name} failed after {len(blobs)} segment(s), "
+                    f"keeping the partial chunk: {exc}",
+                    level="warn",
+                )
+                self._record(engine.name)
+                if used is not None:
+                    used.append(engine.name)
+                return
+            log(
+                f"engine {engine.name} failed: {exc} -- "
+                f"falling back to {fallback.name}",
+                level="warn",
+            )
+            data = fallback.synth(text, voice, speed, cancel)
+            served = (
+                fallback.resolved_name
+                if isinstance(fallback, LocalFallbackEngine) else fallback.name
+            )
+            self._record(served)
+            if used is not None:
+                used.append(served)
+            self.cache.put(text, f"{served}:{voice}", speed, data)
+            yield data, False
+            return
+
+        if blobs:
+            self._record(engine.name)
+            if used is not None:
+                used.append(engine.name)
+            self.cache.put(
+                text, key_voice, speed,
+                blobs[0] if len(blobs) == 1 else join_wav_bytes(blobs),
+            )
 
     def _synth_chunk(
         self,
@@ -993,20 +1704,18 @@ class Synthesizer:
         voice: str,
         speed: float,
         cancel: threading.Event,
+        engine: Optional[Engine] = None,
     ) -> tuple[bytes, bool]:
-        """Return (wav_bytes, was_cached)."""
-        cached = self.cache.get(text, voice, speed)
-        if cached is not None:
-            return cached, True
-        try:
-            data = self.engine.synth(text, voice, speed, cancel)
-        except Cancelled:
-            raise
-        except Exception as exc:  # noqa: BLE001 - degrade to say per chunk
-            log(f"engine {self.engine.name} failed: {exc}", level="warn")
-            data = self.fallback.synth(text, voice, speed, cancel)
-        self.cache.put(text, voice, speed, data)
-        return data, False
+        """Return (wav_bytes, was_cached) for one chunk, all of it."""
+        blobs: list[bytes] = []
+        cached = False
+        for blob, was_cached in self._stream_chunk(text, voice, speed, cancel, engine):
+            blobs.append(blob)
+            cached = cached or was_cached
+        if not blobs:
+            raise EngineError("engine produced no audio")
+        return (blobs[0] if len(blobs) == 1 else join_wav_bytes(blobs)), cached
+
 
     # -- request level ---------------------------------------------------
 
@@ -1025,6 +1734,9 @@ class Synthesizer:
         play = bool(request.get("play"))
         preempt = bool(request.get("preempt"))
         allow_partial = bool(request.get("allow_partial"))
+        # Which voice serves this reply. Absent => the daemon's default, so an
+        # old client keeps behaving exactly as it did.
+        requested_provider = request.get("provider") or request.get("engine")
         deadline_ms = request.get("deadline_ms")
         deadline_at = (
             time.monotonic() + float(deadline_ms) / 1000.0
@@ -1060,6 +1772,7 @@ class Synthesizer:
                 mode=mode, voice=voice, speed=speed, encode=encode,
                 output=output, play=play, allow_partial=allow_partial,
                 deadline_at=deadline_at, started=started,
+                provider=str(requested_provider) if requested_provider else None,
             )
         except Cancelled as exc:
             with self.stats.lock:
@@ -1089,7 +1802,10 @@ class Synthesizer:
         allow_partial: bool,
         deadline_at: Optional[float],
         started: float,
+        provider: Optional[str] = None,
     ) -> None:
+        engine, provider_name = self.engine_for(provider)
+        used: list[str] = []
         chunks = chunk_text(
             job.text,
             first_max=self.config.first_chunk_chars,
@@ -1120,6 +1836,9 @@ class Synthesizer:
             cached_count = 0
             first_chunk_ms: Optional[int] = None
             truncated = False
+            # Frames are counted, not chunks: a network engine hands back a
+            # sentence in several pieces and each one is playable on arrival.
+            frame_index = 0
 
             for index, chunk in enumerate(chunks):
                 if job.cancel.is_set():
@@ -1128,53 +1847,69 @@ class Synthesizer:
                     if allow_partial and blobs:
                         truncated = True
                         log(f"{job.id}: deadline hit, returning "
-                            f"{len(blobs)}/{len(chunks)} chunks", level="warn")
+                            f"{index}/{len(chunks)} chunks", level="warn")
                         break
                     raise EngineError("deadline exceeded before completion")
 
                 chunk_started = time.monotonic()
-                data, was_cached = self._synth_chunk(chunk, voice, speed, job.cancel)
-                elapsed = int((time.monotonic() - chunk_started) * 1000)
-                if index == 0:
-                    first_chunk_ms = elapsed
-                if was_cached:
-                    cached_count += 1
-                blobs.append(data)
+                for data, was_cached in self._stream_chunk(
+                    chunk, voice, speed, job.cancel, engine, used
+                ):
+                    elapsed = int((time.monotonic() - chunk_started) * 1000)
+                    if frame_index == 0:
+                        first_chunk_ms = elapsed
+                    if was_cached:
+                        cached_count += 1
+                    blobs.append(data)
 
-                if player is not None:
-                    player.enqueue(data)
+                    if player is not None:
+                        player.enqueue(data)
 
-                if mode == "stream":
-                    frame: dict[str, Any] = {
-                        "event": "chunk",
-                        "id": job.id,
-                        "index": index,
-                        "total": len(chunks),
-                        "text": chunk,
-                        "ms": elapsed,
-                        "cached": was_cached,
-                        "duration_ms": wav_duration_ms(data),
-                    }
-                    if encode == "base64":
-                        frame["audio_b64"] = base64.b64encode(data).decode("ascii")
-                    else:
-                        assert chunk_dir is not None
-                        path = os.path.join(chunk_dir, f"chunk_{index:03d}.wav")
-                        _atomic_write(path, data)
-                        frame["path"] = path
-                    emit(frame)
+                    if mode == "stream":
+                        frame: dict[str, Any] = {
+                            "event": "chunk",
+                            "id": job.id,
+                            "index": frame_index,
+                            "total": len(chunks),
+                            "chunk": index,
+                            "text": chunk,
+                            "ms": elapsed,
+                            "cached": was_cached,
+                            "duration_ms": wav_duration_ms(data),
+                        }
+                        if encode == "base64":
+                            frame["audio_b64"] = base64.b64encode(data).decode("ascii")
+                        else:
+                            assert chunk_dir is not None
+                            path = os.path.join(
+                                chunk_dir, f"chunk_{frame_index:03d}.wav"
+                            )
+                            _atomic_write(path, data)
+                            frame["path"] = path
+                        emit(frame)
+                    frame_index += 1
 
             total_ms = int((time.monotonic() - started) * 1000)
             self.stats.record(total_ms, first_chunk_ms)
+            served = used[-1] if used else engine.name
+            engines = sorted(set(used))
 
             if mode == "stream":
                 if player is not None:
                     player.finish()
+                log(
+                    f"{job.id}: ok provider={provider_name} engine={served} "
+                    f"frames={len(blobs)} cached={cached_count} "
+                    f"first_ms={first_chunk_ms} total_ms={total_ms} "
+                    f"text=\"{preview(job.text)}\""
+                )
                 emit({
                     "event": "done", "ok": True, "id": job.id,
                     "chunks": len(blobs), "ms": total_ms,
                     "first_chunk_ms": first_chunk_ms,
-                    "engine": self.engine.name,
+                    "engine": served,
+                    "engines": engines,
+                    "provider": provider_name,
                     "cached_chunks": cached_count,
                     "truncated": truncated,
                     **({"dir": chunk_dir} if chunk_dir else {}),
@@ -1187,13 +1922,15 @@ class Synthesizer:
             if player is not None:
                 player.finish()
             log(
-                f"{job.id}: ok engine={self.engine.name} chunks={len(blobs)} "
-                f"cached={cached_count} first_ms={first_chunk_ms} "
-                f"total_ms={total_ms} text=\"{preview(job.text)}\""
+                f"{job.id}: ok provider={provider_name} engine={served} "
+                f"chunks={len(blobs)} cached={cached_count} "
+                f"first_ms={first_chunk_ms} total_ms={total_ms} "
+                f"text=\"{preview(job.text)}\""
             )
             emit({
                 "ok": True, "id": job.id, "output": output,
-                "engine": self.engine.name, "chunks": len(blobs),
+                "engine": served, "engines": engines,
+                "provider": provider_name, "chunks": len(blobs),
                 "cached_chunks": cached_count, "ms": total_ms,
                 "first_chunk_ms": first_chunk_ms,
                 "duration_ms": wav_duration_ms(joined),
@@ -1209,6 +1946,16 @@ class Synthesizer:
     def warmup(self) -> None:
         if not self.config.warmup:
             return
+        if self.default_provider == PROVIDER_CLOUD:
+            # Nothing to warm: there is no model to load, and a warmup call
+            # would be a billed request on every daemon start. Build the local
+            # fallback in the background instead, so the first network failure
+            # does not also pay a model load.
+            local = self.local
+            if isinstance(local, LocalFallbackEngine):
+                local.prewarm()
+            log(f"warmup skipped engine={self.engine.name} (no local model to load)")
+            return
         started = time.monotonic()
         cancel = threading.Event()
         try:
@@ -1220,8 +1967,11 @@ class Synthesizer:
             if not isinstance(self.engine, SayEngine):
                 log("demoting to /usr/bin/say after warmup failure", level="warn")
                 self.engine = SayEngine(self.config.sample_rate)
+                self.local = self.engine
+                self.served_by = self.engine.name
             return
         elapsed = int((time.monotonic() - started) * 1000)
+        self.served_by = self.engine.name
         log(f"warmup ok engine={self.engine.name} ms={elapsed}")
 
 
@@ -1494,12 +2244,17 @@ class Server:
 
         if op == "ping":
             emit({"ok": True, "pong": True, "engine": self.synth.engine.name,
-                  "pid": os.getpid()})
+                  "active_engine": self.synth.served_by, "pid": os.getpid()})
             return
         if op == "status":
             emit({
                 "ok": True,
+                # `engine` is what is CONFIGURED to serve; `active_engine` is
+                # what actually did. They differ exactly when something
+                # degraded, which is the thing worth surfacing.
                 "engine": self.synth.engine.name,
+                "active_engine": self.synth.served_by,
+                "providers": self.synth.provider_status(),
                 "model": self.config.model_path,
                 "voice": self.config.voice,
                 "speed": self.config.speed,
@@ -1653,8 +2408,9 @@ def main(argv: list[str]) -> int:
         f"starting pid={os.getpid()} python={sys.version.split()[0]} "
         f"voice={CONFIG.voice} speed={CONFIG.speed}"
     )
-    engine = build_engine(CONFIG)
-    synth = Synthesizer(CONFIG, engine)
+    cloud, local, provider = build_stack(CONFIG)
+    engine = cloud if provider == PROVIDER_CLOUD and cloud is not None else local
+    synth = Synthesizer(CONFIG, engine, cloud=cloud, local=local)
     synth.warmup()
 
     server = Server(CONFIG, synth)

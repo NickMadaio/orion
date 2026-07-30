@@ -195,29 +195,60 @@ enum GatewayClient {
     /// The documented shape is {"payloads": [{"text": ...}], "meta": {...}}, but
     /// older and newer builds have also used `text`, `reply` and `message`. We
     /// accept any of them rather than hard-failing on a field rename.
+    /// Pull the assistant's text out of an `openclaw agent --json` response.
+    ///
+    /// The observed shape from OpenClaw 2026.7.1-2 is:
+    ///
+    ///     { "runId": …, "status": "ok", "summary": "completed",
+    ///       "result": { "payloads": [ { "text": "pong", "mediaUrl": null } ],
+    ///                   "meta": { … } } }
+    ///
+    /// The reply is under **`result.payloads`**, not top-level `payloads` —
+    /// which is what produced "the agent returned nothing this app could read"
+    /// while the CLI was in fact answering perfectly. The documentation shows
+    /// the inner object, so it is an easy level to lose.
+    ///
+    /// Both nestings are accepted, and so are several older field names, because
+    /// this shape has moved across releases and a rename should degrade into a
+    /// missing reply rather than a broken app.
     static func extractReply(_ payload: [String: Any]) -> String {
-        var parts: [String] = []
-        if let items = payload["payloads"] as? [Any] {
-            for item in items {
-                if let dict = item as? [String: Any],
-                   let text = dict["text"] as? String,
-                   !text.isEmpty {
-                    parts.append(text)
-                }
-            }
-        }
-        if !parts.isEmpty {
-            return parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        // Search the wrapper and the inner result, in that order of specificity.
+        var scopes: [[String: Any]] = []
+        if let result = payload["result"] as? [String: Any] { scopes.append(result) }
+        scopes.append(payload)
+        if let data = payload["data"] as? [String: Any] { scopes.append(data) }
 
-        for key in ["text", "reply", "message", "content", "output"] {
-            if let value = payload[key] as? String,
-               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        for scope in scopes {
+            var parts: [String] = []
+            for key in ["payloads", "messages", "outputs"] {
+                guard let items = scope[key] as? [Any] else { continue }
+                for item in items {
+                    if let dict = item as? [String: Any],
+                       let text = dict["text"] as? String,
+                       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        parts.append(text)
+                    } else if let text = item as? String,
+                              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        parts.append(text)
+                    }
+                }
+                if !parts.isEmpty { break }
             }
-            if let nested = payload[key] as? [String: Any],
-               let text = nested["text"] as? String {
-                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !parts.isEmpty {
+                return parts.joined(separator: "\n\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            for key in ["text", "reply", "message", "content", "output"] {
+                if let value = scope[key] as? String,
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return value.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if let nested = scope[key] as? [String: Any],
+                   let text = nested["text"] as? String,
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
             }
         }
         return ""

@@ -101,23 +101,45 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 def _extract_reply(payload: dict) -> str:
     """Pull the assistant text out of an `openclaw agent --json` response.
 
-    The documented shape is {"payloads": [{"text": ...}], "meta": {...}}, but
-    older and newer builds have also used `text`, `reply`, and `message`. We
-    accept any of them rather than hard-failing on a field rename.
-    """
-    parts = []
-    for item in payload.get("payloads") or []:
-        if isinstance(item, dict) and item.get("text"):
-            parts.append(str(item["text"]))
-    if parts:
-        return "\n\n".join(parts).strip()
+    Observed shape from OpenClaw 2026.7.1-2:
 
-    for key in ("text", "reply", "message", "content", "output"):
-        val = payload.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-        if isinstance(val, dict) and isinstance(val.get("text"), str):
-            return val["text"].strip()
+        {"runId": ..., "status": "ok", "summary": "completed",
+         "result": {"payloads": [{"text": "pong", "mediaUrl": null}],
+                    "meta": {...}}}
+
+    The reply lives under `result.payloads`, NOT top-level `payloads`. Reading
+    only the top level is what made Orion report that the agent returned
+    nothing readable while the CLI was in fact answering fine.
+
+    Both nestings are accepted, along with several older field names, so a
+    future rename degrades into a missing reply rather than a broken app.
+    """
+    scopes = []
+    if isinstance(payload.get("result"), dict):
+        scopes.append(payload["result"])
+    scopes.append(payload)
+    if isinstance(payload.get("data"), dict):
+        scopes.append(payload["data"])
+
+    for scope in scopes:
+        parts = []
+        for key in ("payloads", "messages", "outputs"):
+            for item in scope.get(key) or []:
+                if isinstance(item, dict) and str(item.get("text") or "").strip():
+                    parts.append(str(item["text"]))
+                elif isinstance(item, str) and item.strip():
+                    parts.append(item)
+            if parts:
+                break
+        if parts:
+            return "\n\n".join(parts).strip()
+
+        for key in ("text", "reply", "message", "content", "output"):
+            val = scope.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            if isinstance(val, dict) and str(val.get("text") or "").strip():
+                return val["text"].strip()
     return ""
 
 

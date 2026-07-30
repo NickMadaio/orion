@@ -1,0 +1,148 @@
+#!/bin/zsh
+#
+# ORION — capture exactly what `openclaw agent --json` returns.
+#
+# "The agent returned nothing this app could read" means the CLI answered but
+# the reply was not where the app looked for it. The field has moved between
+# OpenClaw releases (payloads[].text, text, reply, message, content…), so
+# rather than guess, this records the raw bytes and we read them.
+#
+# Writes data/agent-probe.log. Nothing here is parsed or interpreted -- that is
+# the entire point.
+#
+emulate -L zsh
+set -u
+
+repo="${0:A:h:h}"
+cd "$repo"
+mkdir -p data
+out="$repo/data/agent-probe.log"
+: > "$out"
+
+bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+msg="${1:-Reply with exactly the word: pong}"
+
+say() { print -- "$@" | tee -a "$out"; }
+
+say "ORION agent probe — $(date)"
+say "binary: $bin"
+say ""
+
+if [[ ! -x "$bin" ]]; then
+  say "FAIL: $bin is not executable"
+  exit 1
+fi
+
+say "openclaw version: $("$bin" --version 2>&1 | head -1)"
+say ""
+
+# ---------------------------------------------------------------- the call
+say "=== 1. exactly what Orion.app runs ==="
+say "\$ openclaw agent --session-key orion-app --message '<msg>' --json --timeout 60"
+say ""
+
+stdout_f="$(mktemp)"; stderr_f="$(mktemp)"
+"$bin" agent --session-key orion-app --message "$msg" --json --timeout 60 \
+  >"$stdout_f" 2>"$stderr_f"
+rc=$?
+
+say "exit code: $rc"
+say ""
+say "--- STDOUT (raw, first 4000 bytes) ---"
+head -c 4000 "$stdout_f" | tee -a "$out"
+say ""
+say "--- STDERR (first 2000 bytes) ---"
+head -c 2000 "$stderr_f" | tee -a "$out"
+say ""
+
+# ------------------------------------------------------------ the shape
+say "=== 2. top-level JSON keys ==="
+python3 - "$stdout_f" <<'PY' 2>&1 | tee -a "$out"
+import json, sys, re
+raw = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+raw = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", raw).strip()
+if not raw:
+    print("stdout was EMPTY — the CLI printed nothing at all")
+    raise SystemExit
+obj = None
+for cand in [raw, *reversed(raw.splitlines())]:
+    cand = cand.strip()
+    if not cand.startswith("{"):
+        continue
+    try:
+        obj = json.loads(cand); break
+    except json.JSONDecodeError:
+        continue
+if obj is None:
+    print("stdout is NOT json. First 300 chars:")
+    print(repr(raw[:300]))
+    raise SystemExit
+
+def walk(o, path=""):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            walk(v, f"{path}.{k}" if path else k)
+    elif isinstance(o, list):
+        print(f"  {path}[]  ({len(o)} items)")
+        if o:
+            walk(o[0], f"{path}[0]")
+    else:
+        s = str(o)
+        if len(s) > 90:
+            s = s[:90] + "…"
+        print(f"  {path} = {s!r}")
+
+print("full structure:")
+walk(obj)
+
+print("")
+print("where the reply text probably is:")
+hits = []
+def find(o, path=""):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            find(v, f"{path}.{k}" if path else k)
+    elif isinstance(o, list):
+        for i, v in enumerate(o):
+            find(v, f"{path}[{i}]")
+    elif isinstance(o, str) and len(o.strip()) > 1:
+        hits.append((path, o))
+for p, v in sorted(hits, key=lambda h: -len(h[1]))[:6]:
+    print(f"  {p}  ->  {v[:120]!r}")
+PY
+
+# ------------------------------------------------------------ tts check
+say ""
+say "=== 3. voice daemon ==="
+sock="$HOME/.openclaw/orion-tts.sock"
+if [[ -S "$sock" ]]; then
+  python3 - "$sock" <<'PY' 2>&1 | tee -a "$out"
+import json, socket, sys
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(5)
+    s.connect(sys.argv[1])
+    s.sendall(b'{"op":"status"}\n')
+    print(s.makefile("r").readline().strip()[:900])
+except Exception as e:
+    print("status probe failed:", e)
+PY
+else
+  say "no socket at $sock — daemon not running"
+fi
+
+say ""
+say "=== 4. can the daemon actually make a wav? ==="
+tmpwav="$(mktemp -t orionprobe).wav"
+if ./scripts/orion-local-tts "$tmpwav" "Probe one two three." 2>>"$out"; then
+  if [[ -s "$tmpwav" ]]; then
+    say "wav written: $(stat -f%z "$tmpwav" 2>/dev/null || stat -c%s "$tmpwav") bytes"
+  else
+    say "FAIL: script succeeded but the wav is empty"
+  fi
+else
+  say "FAIL: orion-local-tts returned non-zero"
+fi
+rm -f "$tmpwav" "$stdout_f" "$stderr_f"
+
+say ""
+say "Done. Full log: $out"

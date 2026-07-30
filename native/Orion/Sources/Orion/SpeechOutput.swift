@@ -46,6 +46,22 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
                                                interleaved: false)
 
     private var engineConfigured = false
+
+    /// Releases the audio device a moment after Orion stops talking.
+    ///
+    /// This matters more than it looks. A *running* `AVAudioEngine` holds the
+    /// shared output device open at the engine's format — 24 kHz mono here —
+    /// and everything else on the Mac gets dragged down to it. The symptom is
+    /// that music sounds muffled the whole time Orion is open, which is a
+    /// miserable thing for an always-resident menu-bar app to do.
+    ///
+    /// `pause()` is not enough: it stops rendering but keeps the device. Only
+    /// `stop()` gives it back.
+    ///
+    /// The delay exists so that back-to-back replies do not tear the device
+    /// down and rebuild it between every sentence.
+    private var deviceReleaseTimer: Timer?
+    private static let deviceReleaseDelay: TimeInterval = 1.5
     private var currentText = ""
     private var pendingBuffers = 0
     private var streamComplete = false
@@ -93,15 +109,39 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
             player.stop()
             player.reset()
         }
-        if engine.isRunning {
-            engine.pause()
-        }
 
         isSpeaking = false
         pendingBuffers = 0
         streamComplete = false
         playedAnything = false
         onLevel?(0)
+        scheduleDeviceRelease()
+    }
+
+    // MARK: Audio device lifetime
+
+    private func scheduleDeviceRelease() {
+        deviceReleaseTimer?.invalidate()
+        deviceReleaseTimer = Timer.scheduledTimer(
+            withTimeInterval: SpeechOutput.deviceReleaseDelay, repeats: false
+        ) { [weak self] _ in
+            self?.releaseDevice()
+        }
+    }
+
+    private func releaseDevice() {
+        deviceReleaseTimer?.invalidate()
+        deviceReleaseTimer = nil
+        guard !isSpeaking, engine.isRunning else { return }
+        // Drop the mixer tap too — it exists only to drive the hologram while
+        // Orion is speaking, and a tap is a reason for the graph to stay live.
+        if engineConfigured {
+            engine.mainMixerNode.removeTap(onBus: 0)
+        }
+        engine.stop()
+        // The tap has to be reinstalled next time, so make the configure step
+        // run again rather than silently losing the level meter.
+        engineConfigured = false
     }
 
     static func isDaemonReachable() -> Bool {
@@ -173,10 +213,10 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         if engineConfigured {
             player.stop()
         }
-        if engine.isRunning {
-            engine.pause()
-        }
         onLevel?(0)
+        // Hand the audio device back shortly, so the rest of the Mac stops
+        // being held at Orion's 24 kHz mono playback format.
+        scheduleDeviceRelease()
         onFinished?()
     }
 
@@ -187,7 +227,12 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
                     NSLocalizedDescriptionKey: "Could not build the playback audio format."
                 ])
             }
-            engine.attach(player)
+            // Idempotent: the device is released between replies, which clears
+            // `engineConfigured`, but the node stays attached to the engine.
+            // Attaching twice is a hard error, so ask first.
+            if player.engine !== engine {
+                engine.attach(player)
+            }
             engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
             // nil format = "whatever this bus is already running at", which
             // survives the user changing output device mid-session.

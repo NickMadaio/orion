@@ -1,0 +1,171 @@
+#!/bin/zsh
+#
+# ORION — why does the CLI work but the app not?
+#
+# The gate test passes end to end through `openclaw agent`, and the same
+# request from Orion.app reportedly does nothing. Those two paths differ in
+# exactly one way that matters, so this runs the app's OWN invocation verbatim
+# and shows what comes back.
+#
+# Also checks the ElevenLabs key by asking ElevenLabs, since the last one
+# returned 401. The key is read from .env and never printed.
+#
+emulate -L zsh
+set -u
+
+repo="${0:A:h:h}"
+cd "$repo"
+mkdir -p data
+out="$repo/data/app-probe.log"
+: > "$out"
+
+bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+say() { print -- "$@" | tee -a "$out"; }
+
+say "ORION app probe — $(date)"
+
+# ---------------------------------------------------------------- the app path
+say ""
+say "=== 1. the EXACT command Orion.app runs ==="
+say '  openclaw agent --session-key orion-app --message "…" --json --timeout 180'
+say ""
+raw="$("$bin" agent --session-key orion-app \
+        --message 'make a folder called apptest on my Desktop' \
+        --json --timeout 120 2>&1)"
+print -r -- "$raw" | head -c 2500 | tee -a "$out"
+say ""
+say "  exists afterwards: $([[ -d "$HOME/Desktop/apptest" ]] && print yes || print NO)"
+
+# --------------------------------------------------------------- is app alive
+say ""
+say "=== 2. is Orion.app actually running, and which build? ==="
+pids=(${(f)"$(pgrep -x Orion 2>/dev/null)"})
+if (( ${#pids} )); then
+  for pid in $pids; do
+    say "  pid $pid  started $(ps -o lstart= -p $pid 2>/dev/null)"
+    say "    binary: $(ps -o comm= -p $pid 2>/dev/null)"
+  done
+else
+  say "  NOT RUNNING — that alone would explain 'nothing works'."
+  say "  Launch it:  open /Applications/Orion.app"
+fi
+
+say ""
+say "=== 3. can the app reach the gateway at all? ==="
+if [[ -x "$bin" ]]; then
+  port="$(python3 -c "
+import json,os
+try: print(json.load(open(os.path.expanduser('~/.openclaw/openclaw.json')))['gateway']['port'])
+except Exception: print(18789)")"
+  python3 -c "
+import socket,sys
+s=socket.socket(); s.settimeout(1)
+sys.exit(min(1,s.connect_ex(('127.0.0.1',$port))))" 2>/dev/null \
+    && say "  gateway listening on 127.0.0.1:$port" \
+    || say "  GATEWAY DOWN on 127.0.0.1:$port"
+fi
+say "  openclaw binary: $([[ -x "$bin" ]] && print present || print MISSING at $bin)"
+
+# ------------------------------------------------------------------ elevenlabs
+say ""
+say "=== 4. ElevenLabs key ==="
+key="$(python3 - "$repo/.env" <<'PY' 2>/dev/null
+import sys
+try:
+    for line in open(sys.argv[1], encoding="utf-8"):
+        line = line.strip()
+        if line.startswith("ELEVENLABS_API_KEY="):
+            print(line.split("=", 1)[1].strip().strip('"').strip("'"))
+            break
+except OSError:
+    pass
+PY
+)"
+
+if [[ -z "$key" ]]; then
+  say "  no ELEVENLABS_API_KEY in $repo/.env"
+  print ""
+  print "  Paste the key to test it now (input is hidden, nothing is saved"
+  print "  unless you say so). Press return alone to skip."
+  print -n "  key: "
+  read -rs key
+  print ""
+  if [[ -n "$key" ]]; then
+    print -n "  Save it to .env so Orion can use it? [y/N] "
+    read -r save
+    if [[ "$save" == [yY]* ]]; then
+      # .env is gitignored. Replace any existing line rather than appending a
+      # second one, which would leave two and silently use the wrong one.
+      python3 - "$repo/.env" "$key" <<'PY'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1]); key = sys.argv[2]
+lines = p.read_text().splitlines() if p.exists() else []
+lines = [l for l in lines if not l.strip().startswith("ELEVENLABS_API_KEY=")]
+lines.append(f"ELEVENLABS_API_KEY={key}")
+p.write_text("\n".join(lines) + "\n")
+PY
+      chmod 600 "$repo/.env" 2>/dev/null
+      print "  saved to $repo/.env (gitignored, mode 600)"
+    fi
+  fi
+fi
+
+if [[ -z "$key" ]]; then
+  say "  skipped — no key to test"
+else
+  say "  key found (${#key} chars, value never printed)"
+  # /v1/user is the cheapest authenticated endpoint: it charges nothing and
+  # answers the only question that matters — does this key work.
+  code="$(curl -s -o /tmp/orion-el.json -w '%{http_code}' \
+          -H "xi-api-key: $key" https://api.elevenlabs.io/v1/user 2>/dev/null)"
+  case "$code" in
+    200)
+      say "  HTTP 200 — the key is VALID"
+      python3 -c "
+import json
+d=json.load(open('/tmp/orion-el.json'))
+s=d.get('subscription') or {}
+print('  tier:      ', s.get('tier','?'))
+used=s.get('character_count'); lim=s.get('character_limit')
+if used is not None and lim: print(f'  characters: {used}/{lim} used')
+" 2>/dev/null | tee -a "$out"
+      ;;
+    401) say "  HTTP 401 — key REJECTED (invalid, revoked, or mistyped)" ;;
+    429) say "  HTTP 429 — key valid but rate limited / quota exhausted" ;;
+    "")  say "  no response — no network, or the request was blocked" ;;
+    *)   say "  HTTP $code"; head -c 300 /tmp/orion-el.json | sed 's/^/    /' | tee -a "$out" ;;
+  esac
+  rm -f /tmp/orion-el.json
+fi
+
+# ------------------------------------------------------------------- deepgram
+say ""
+say "=== 5. Deepgram key ==="
+dkey="$(python3 - "$repo/.env" <<'PY' 2>/dev/null
+import sys
+try:
+    for line in open(sys.argv[1], encoding="utf-8"):
+        line = line.strip()
+        if line.startswith("DEEPGRAM_API_KEY="):
+            print(line.split("=", 1)[1].strip().strip('"').strip("'"))
+            break
+except OSError:
+    pass
+PY
+)"
+if [[ -z "$dkey" ]]; then
+  say "  no DEEPGRAM_API_KEY in .env"
+else
+  say "  key found (${#dkey} chars, value never printed)"
+  code="$(curl -s -o /dev/null -w '%{http_code}' \
+          -H "Authorization: Token $dkey" https://api.deepgram.com/v1/projects 2>/dev/null)"
+  case "$code" in
+    200) say "  HTTP 200 — the key is VALID" ;;
+    401|403) say "  HTTP $code — key REJECTED" ;;
+    "")  say "  no response — no network, or blocked" ;;
+    *)   say "  HTTP $code" ;;
+  esac
+fi
+
+say ""
+say "Done. Full log: $out"

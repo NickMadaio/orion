@@ -1,0 +1,104 @@
+#!/bin/zsh
+#
+# ORION — retire a poisoned session.
+#
+# Why this exists
+# ---------------
+# The `orion-app` session accumulated 56 messages while `orion_task_run` was
+# genuinely broken (no user text reached the gate, so everything failed closed).
+# Once the bug was fixed, Orion kept refusing anyway — not because the tool
+# failed, but because its own transcript was full of it failing. It answered
+# "Still the same error. The tool binding is consistently broken" without
+# calling the tool at all.
+#
+# That is ordinary in-context learning doing exactly what it should: the most
+# reliable pattern in 56 messages was "this tool does not work". A fresh session
+# with the same fixed code succeeded on the first attempt.
+#
+# So: archive the transcript rather than deleting it — it is the evidence — and
+# let the next turn start clean.
+#
+#   ./scripts/orion-reset-session            # resets orion-app
+#   ./scripts/orion-reset-session main other # resets agent "main", key "other"
+#
+emulate -L zsh
+set -u
+
+agent="${1:-main}"
+key="${2:-orion-app}"
+sessions="$HOME/.openclaw/agents/$agent/sessions"
+archive="$HOME/.openclaw/agents/$agent/sessions-archive"
+bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+
+print ""
+print "Resetting session '$key' for agent '$agent'"
+
+if [[ ! -d "$sessions" ]]; then
+  print -u2 "  no sessions directory at $sessions"
+  exit 1
+fi
+
+# The gateway's own command is the correct way to do this when it exists; it
+# updates the index rather than leaving a dangling reference.
+if "$bin" sessions --help >/dev/null 2>&1; then
+  if "$bin" sessions reset "agent:$agent:$key" >/dev/null 2>&1 \
+     || "$bin" sessions delete "agent:$agent:$key" >/dev/null 2>&1; then
+    print "  retired via the gateway"
+    print ""
+    print "  Ask Orion to create a folder again — it starts with no memory of"
+    print "  the tool ever having been broken."
+    exit 0
+  fi
+fi
+
+# Fallback: move the transcript aside. The host creates a fresh one on the next
+# turn. Archived, not deleted — this file is the evidence of what happened.
+mkdir -p "$archive"
+stamp="$(date +%Y%m%d-%H%M%S)"
+
+# A session is TWO files: `<id>.jsonl` (the conversation) and
+# `<id>.trajectory.jsonl` (the run log). The session key appears in the
+# trajectory but usually not in the conversation, so matching on the key alone
+# archives the trajectory and leaves the poisoned conversation in place —
+# which looks like a successful reset and changes nothing.
+#
+# So: find which session IDS reference this key, then archive every file
+# belonging to those ids.
+typeset -A ids
+for f in "$sessions"/*.jsonl(N); do
+  base="${f:t:r}"
+  base="${base%.trajectory}"
+  if grep -q -- "$key" "$f" 2>/dev/null || [[ "${f:t}" == *"$key"* ]]; then
+    ids[$base]=1
+  fi
+done
+
+# Nothing referenced the key: the live session is the most recently written
+# conversation file.
+if (( ${#ids} == 0 )); then
+  newest=("$sessions"/*.jsonl(N.om))
+  for f in $newest; do
+    [[ "${f:t}" == *.trajectory.jsonl ]] && continue
+    ids[${f:t:r}]=1
+    break
+  done
+fi
+
+moved=0
+for id in ${(k)ids}; do
+  for f in "$sessions/$id.jsonl"(N) "$sessions/$id.trajectory.jsonl"(N); do
+    mv "$f" "$archive/${f:t:r}.$stamp.jsonl"
+    print "  archived ${f:t}"
+    moved=1
+  done
+done
+
+if (( moved )); then
+  print "  archived to $archive"
+  print ""
+  print "  Restart the gateway so it drops the in-memory copy:"
+  print "    $bin daemon restart"
+else
+  print "  nothing to archive — session may already be clean"
+fi
+print ""

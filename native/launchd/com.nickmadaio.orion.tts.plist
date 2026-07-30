@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nickmadaio.orion.tts</string>
+  <!--
+    Run through a login shell so the daemon inherits the same PATH the user
+    has in Terminal. That is where mlx_audio was installed, and it is the only
+    reliable way for launchd to find the right interpreter. Override the
+    interpreter explicitly with ORION_TTS_PYTHON below if PATH is not enough.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>exec "${ORION_TTS_PYTHON:-python3}" /Users/nickmadaio/Desktop/ORION/scripts/orion_tts_daemon.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/nickmadaio/Desktop/ORION</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ORION_TTS_SOCKET</key>
+    <string>/Users/nickmadaio/.openclaw/orion-tts.sock</string>
+    <key>ORION_TTS_MODEL</key>
+    <string>/Users/nickmadaio/.cache/huggingface/hub/mlx-audio/Marvis-AI_marvis-tts-250m-v0.2-MLX-8bit</string>
+    <key>ORION_TTS_MLX_CLI</key>
+    <string>/Users/nickmadaio/.local/bin/mlx_audio.tts.generate</string>
+    <key>ORION_TTS_VOICE</key>
+    <string>conversational_b</string>
+    <!-- 1.0 is the model's natural rate. The old script forced 0.94. -->
+    <key>ORION_TTS_SPEED</key>
+    <string>1.0</string>
+    <key>ORION_TTS_WARMUP</key>
+    <string>1</string>
+    <key>ORION_TTS_RUNTIME_DIR</key>
+    <string>/Users/nickmadaio/.openclaw/tmp/orion-tts</string>
+    <key>ORION_TTS_LOG</key>
+    <string>/Users/nickmadaio/.openclaw/logs/orion-tts.log</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!--
+    Adaptive, not Background: Background caps CPU/IO priority, which is exactly
+    wrong for a service whose entire purpose is answering in under 300 ms.
+  -->
+  <key>ProcessType</key>
+  <string>Adaptive</string>
+  <key>LowPriorityIO</key>
+  <false/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/nickmadaio/.openclaw/logs/orion-tts.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/nickmadaio/.openclaw/logs/orion-tts.err.log</string>
+</dict>
+</plist>

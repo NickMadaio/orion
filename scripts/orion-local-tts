@@ -1,0 +1,114 @@
+#!/bin/zsh
+#
+# ORION local text-to-speech -- thin client.
+#
+# OpenClaw's `tts-local-cli` provider spawns this once per spoken reply with
+#
+#     orion-local-tts OUTPUT_PATH TEXT
+#
+# and then reads OUTPUT_PATH. The previous version of this script invoked
+# `mlx_audio.tts.generate` directly, which reloaded the 250M Marvis model from
+# disk on EVERY reply -- seconds of dead air before a single word was spoken.
+#
+# This version talks to `orion_tts_daemon.py`, which holds that model warm in
+# memory, and autostarts it if it is not running yet. The overriding rule is:
+# NEVER hang and never exit without audio. Anything that is slow, broken, or
+# missing degrades to /usr/bin/say, which sounds worse but is instant.
+#
+# Env (all optional):
+#   ORION_TTS_DISABLE=1        skip the daemon entirely, always use `say`
+#   ORION_TTS_SPEED=1.0        model speech rate (1.0 == natural)
+#   ORION_TTS_VOICE=...        model voice id
+#   ORION_TTS_SOCKET=...       daemon socket (default ~/.openclaw/orion-tts.sock)
+#   ORION_TTS_PYTHON=...       interpreter used to run the client/daemon
+#   ORION_SAY_VOICE=...        macOS voice for the fallback path
+#   ORION_TTS_CLIENT_BUDGET_MS total client budget before falling back
+#
+# Exit codes: 0 audio written, 64 wrong usage, otherwise `say`'s status.
+
+emulate -L zsh
+# No `-e`: this script's whole job is to inspect failures and recover from them.
+set -u
+setopt pipefail
+
+if (( $# != 2 )); then
+  print -u2 "usage: orion-local-tts OUTPUT_PATH TEXT"
+  exit 64
+fi
+
+output_path="$1"
+text="$2"
+
+script_dir="${0:A:h}"
+client_py="${ORION_TTS_CLIENT:-$script_dir/orion_tts_client.py}"
+
+# --- fallback -------------------------------------------------------------
+# Text goes in on stdin, not argv: `say` has no `--` terminator, so a reply
+# that happens to start with "-" would otherwise be parsed as an option.
+say_fallback() {
+  local reason="$1"
+  print -u2 "orion-local-tts: ${reason}; using macOS system speech."
+  rm -f -- "$output_path" 2>/dev/null
+  local -a say_args
+  say_args=(--file-format=WAVE --data-format=LEI16@24000 -o "$output_path")
+  if [[ -n "${ORION_SAY_VOICE:-}" ]]; then
+    say_args+=(-v "$ORION_SAY_VOICE")
+  fi
+  if [[ -n "${ORION_SAY_RATE:-}" ]]; then
+    say_args+=(-r "$ORION_SAY_RATE")
+  fi
+  printf '%s' "$text" | /usr/bin/say "${say_args[@]}"
+  exit $?
+}
+
+if [[ "${ORION_TTS_DISABLE:-0}" == "1" ]]; then
+  say_fallback "daemon disabled by ORION_TTS_DISABLE"
+fi
+
+if [[ ! -r "$client_py" ]]; then
+  say_fallback "client missing at $client_py"
+fi
+
+# --- interpreter ----------------------------------------------------------
+# The client is stdlib-only, so any python3 will do; prefer the fastest one
+# that certainly exists. /usr/bin/python3 goes last because on a Mac without
+# Command Line Tools it is a stub that pops an installer dialog.
+find_python() {
+  local candidate
+  for candidate in \
+    "${ORION_TTS_PYTHON:-}" \
+    "${script_dir:h}/.venv/bin/python3" \
+    "${script_dir:h}/.venv/bin/python"; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      print -r -- "$candidate"
+      return 0
+    fi
+  done
+  candidate="${commands[python3]:-}"
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    print -r -- "$candidate"
+    return 0
+  fi
+  if [[ -x /usr/bin/python3 ]]; then
+    print -r -- /usr/bin/python3
+    return 0
+  fi
+  return 1
+}
+
+if ! python_bin="$(find_python)"; then
+  say_fallback "no python3 interpreter found"
+fi
+
+# --- daemon path ----------------------------------------------------------
+# The client bounds itself with its own budget and a SIGALRM watchdog, so this
+# call cannot hang; a non-zero status simply means "use say".
+# NB: not named `status` -- that is a zsh alias for `$?`.
+"$python_bin" "$client_py" "$output_path" "$text"
+client_status=$?
+
+if (( client_status == 0 )); then
+  exit 0
+fi
+
+say_fallback "daemon path failed (client exit ${client_status})"

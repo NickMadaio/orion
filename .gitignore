@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Node — 439MB of plugin dependencies. `npm ci` restores them.
+# dist/ IS tracked: it is what gets deployed to ~/.openclaw/extensions.
+node_modules/
+
 # Python
 .venv/
 __pycache__/

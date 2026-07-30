@@ -1,0 +1,104 @@
+{
+  "id": "orion-control",
+  "name": "Orion Control",
+  "description": "Validate, guard, independently verify, and durably record typed Orion TaskGraphs.",
+  "version": "0.7.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "ledgerPath": {
+        "type": "string",
+        "description": "Absolute or gateway-relative path for the append-only JSONL task ledger."
+      },
+      "enableTestWorkspaceActions": {
+        "type": "boolean",
+        "description": "Enable only the fixed-root Tier 1 test-workspace action catalog."
+      },
+      "testWorkspaceRoot": {
+        "type": "string",
+        "description": "Dedicated Orion-controlled root used only by Tier 1 test actions."
+      },
+      "enableScratchWorkspaceActions": {
+        "type": "boolean"
+      },
+      "scratchWorkspaceRoot": {
+        "type": "string"
+      },
+      "enableDesktopReadActions": {
+        "type": "boolean"
+      },
+      "enableDesktopTestWorkspaceActions": {
+        "type": "boolean"
+      },
+      "enableDesktopModifyActions": {
+        "type": "boolean"
+      },
+      "enableDesktopDirectWriteActions": {
+        "type": "boolean"
+      },
+      "enableScratchDirectWriteActions": {
+        "type": "boolean"
+      },
+      "enableAppControlActions": {
+        "type": "boolean",
+        "description": "Enable opening or gracefully quitting an explicitly named installed app."
+      },
+      "desktopRoot": {
+        "type": "string"
+      },
+      "trustAllowPromptSource": {
+        "type": "boolean",
+        "description": "Accept the host-assembled turn prompt (llm_input) as an authenticated user turn when no raw channel message is available. Default true."
+      },
+      "trustAllowSessionBinding": {
+        "type": "boolean",
+        "description": "Accept a same-session authenticated turn when host run ids do not match. Default true."
+      },
+      "trustAllowRecentBinding": {
+        "type": "boolean",
+        "description": "Accept the newest authenticated user turn when the host did not bind this tool call to a run. Default true."
+      },
+      "trustTtlMs": {
+        "type": "integer",
+        "description": "Age limit in milliseconds for run/session-bound authenticated turns. Default 900000."
+      },
+      "trustRecentWindowMs": {
+        "type": "integer",
+        "description": "Age limit in milliseconds for the unbound recent-turn tier. Default 120000."
+      },
+      "permissionStatePath": {
+        "type": "string",
+        "description": "Private JSON state file for Orion's active permission profile."
+      },
+      "permissionAuditPath": {
+        "type": "string",
+        "description": "Private append-only JSONL audit file for permission changes."
+      }
+    }
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "orion_task_run",
+      "orion_task_status",
+      "orion_permission_status",
+      "orion_permission_change"
+    ]
+  },
+  "toolMetadata": {
+    "orion_task_run": {
+      "optional": true
+    },
+    "orion_task_status": {
+      "optional": true
+    },
+    "orion_permission_status": {
+      "optional": true
+    },
+    "orion_permission_change": {
+      "optional": true
+    }
+  }
+}

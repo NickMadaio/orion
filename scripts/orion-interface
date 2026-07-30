@@ -1,0 +1,127 @@
+#!/bin/zsh
+#
+# ORION — launch the standalone interface.
+#
+# Brings up (or reuses) the warm TTS daemon, checks the OpenClaw gateway, then
+# starts the interface bridge and opens it. Safe to run repeatedly: nothing is
+# started twice.
+#
+#   ./scripts/orion-interface            # start and open
+#   ./scripts/orion-interface --no-open  # start, print the URL only
+#   ./scripts/orion-interface --status   # report what is up, change nothing
+#
+emulate -L zsh
+set -u
+setopt pipefail
+
+repo="${0:A:h:h}"
+port="${ORION_UI_PORT:-8770}"
+socket="${ORION_TTS_SOCKET:-$HOME/.openclaw/orion-tts.sock}"
+openclaw_bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"
+logdir="$HOME/.openclaw/logs"
+open_browser=1
+status_only=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --no-open) open_browser=0 ;;
+    --status)  status_only=1 ;;
+    -h|--help)
+      print "usage: orion-interface [--no-open] [--status]"
+      exit 0 ;;
+    *) print -u2 "unknown option: $arg"; exit 64 ;;
+  esac
+done
+
+python_bin="${ORION_TTS_PYTHON:-}"
+if [[ -z "$python_bin" || ! -x "$python_bin" ]]; then
+  if [[ -x "$repo/.venv/bin/python3" ]]; then
+    python_bin="$repo/.venv/bin/python3"
+  else
+    python_bin="${commands[python3]:-/usr/bin/python3}"
+  fi
+fi
+
+gateway_port() {
+  "$python_bin" - "$HOME/.openclaw/openclaw.json" <<'PY' 2>/dev/null || print 18789
+import json, sys
+try:
+    print(json.load(open(sys.argv[1]))["gateway"]["port"])
+except Exception:
+    print(18789)
+PY
+}
+
+port_open() {  # port_open <port>
+  "$python_bin" - "$1" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket(); s.settimeout(0.4)
+sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0 else 1)
+PY
+}
+
+gw_port="$(gateway_port)"
+
+# --- status ---------------------------------------------------------------
+report() {
+  print ""
+  print "  ORION"
+  if port_open "$gw_port"; then
+    print "  gateway    up      127.0.0.1:${gw_port}"
+  else
+    print "  gateway    DOWN    start it with: $openclaw_bin daemon start"
+  fi
+  if [[ -S "$socket" ]]; then
+    print "  voice      warm    $socket"
+  else
+    print "  voice      cold    first reply falls back to system speech"
+  fi
+  if port_open "$port"; then
+    print "  interface  up      http://127.0.0.1:${port}/"
+  else
+    print "  interface  down"
+  fi
+  print ""
+}
+
+if (( status_only )); then
+  report
+  exit 0
+fi
+
+# --- TTS daemon -----------------------------------------------------------
+mkdir -p "$logdir"
+if [[ ! -S "$socket" ]]; then
+  print "starting TTS daemon (loads the voice model once, then stays warm)…"
+  nohup "$python_bin" "$repo/scripts/orion_tts_daemon.py" \
+    >>"$logdir/orion-tts.out.log" 2>>"$logdir/orion-tts.err.log" &
+  disown
+  # The model load dominates; poll rather than sleeping a fixed guess.
+  for _ in {1..40}; do
+    [[ -S "$socket" ]] && break
+    sleep 0.25
+  done
+  if [[ -S "$socket" ]]; then
+    print "  voice ready"
+  else
+    print -u2 "  voice daemon did not come up; check $logdir/orion-tts.err.log"
+    print -u2 "  (the interface still works — replies use system speech)"
+  fi
+fi
+
+# --- gateway --------------------------------------------------------------
+if ! port_open "$gw_port"; then
+  print -u2 "gateway is not listening on 127.0.0.1:${gw_port}"
+  print -u2 "  start it with: $openclaw_bin daemon start"
+fi
+
+# --- interface ------------------------------------------------------------
+if port_open "$port"; then
+  print "interface already running at http://127.0.0.1:${port}/"
+  (( open_browser )) && open "http://127.0.0.1:${port}/"
+  exit 0
+fi
+
+args=(--port "$port")
+(( open_browser )) && args+=(--open)
+exec "$python_bin" "$repo/orion/interface/server.py" "${args[@]}"

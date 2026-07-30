@@ -15,7 +15,10 @@ import type { TaskGraph, TaskInput, TaskStep, TrustProvenance } from "./types.js
  */
 
 export type TrustBinding = "run" | "session" | "recent" | "none";
-export type TrustTurnSource = "channel_message" | "agent_prompt";
+export type TrustTurnSource =
+  | "channel_message"
+  | "agent_prompt"
+  | "session_transcript";
 
 /** Reserved input-id prefix. Only the harness may mint inputs with this prefix. */
 export const HARNESS_INPUT_PREFIX = "orion_user_turn_";
@@ -46,6 +49,15 @@ export interface ProvenancePolicy {
   allowSessionBinding?: boolean;
   /** Accept the newest authenticated turn when no tool-call binding exists. */
   allowRecentBinding?: boolean;
+  /**
+   * Accept the host-written session transcript as a source of the user turn.
+   *
+   * On this gateway neither `message_received` nor `llm_input` fires for
+   * locally-initiated runs, so without this there is no user text at all and
+   * every action fails closed. The model cannot author a `role: "user"` entry,
+   * so the transcript is a genuine harness source, not a relaxation.
+   */
+  allowTranscriptSource?: boolean;
   /** Age limit for run/session bound turns. */
   ttlMs?: number;
   /** Age limit for the unbound `recent` tier. */
@@ -53,6 +65,7 @@ export interface ProvenancePolicy {
 }
 
 const DEFAULT_POLICY: Required<ProvenancePolicy> = {
+  allowTranscriptSource: true,
   allowPromptSource: true,
   allowSessionBinding: true,
   allowRecentBinding: true,
@@ -64,6 +77,7 @@ export interface ProvenanceHealth {
   channelMessageHookFired: boolean;
   promptHookFired: boolean;
   toolCallHookFired: boolean;
+  transcriptTurnsUsed: number;
   retainedTurns: number;
   pendingToolCallBindings: number;
   lastTurnSource?: TrustTurnSource;
@@ -85,6 +99,7 @@ export class HarnessProvenance {
     prompt: false,
     toolCall: false,
   };
+  private transcriptTurnsUsed = 0;
   private lastBinding: TrustBinding | undefined;
 
   constructor(
@@ -138,6 +153,43 @@ export class HarnessProvenance {
     });
   }
 
+  /**
+   * A user turn recovered from the host-written session transcript.
+   *
+   * Only ever called with text the HOST attributed to `role: "user"`. See
+   * `transcript.ts` for why that attribution is unforgeable by the model.
+   */
+  recordTranscriptTurn(record: {
+    content?: unknown;
+    sessionId?: unknown;
+    receivedAt?: number;
+  }): void {
+    const content = normalizeText(record.content);
+    if (!content) return;
+    this.transcriptTurnsUsed += 1;
+    this.push({
+      content,
+      receivedAt: record.receivedAt ?? this.now(),
+      source: "session_transcript",
+      ...optionalText("sessionId", record.sessionId),
+    });
+  }
+
+  /**
+   * Did any hook already supply user text for a turn still inside the TTL?
+   *
+   * Used to skip the transcript read on gateways where `message_received` or
+   * `llm_input` do fire — the transcript is a fallback, never a substitute for
+   * a stronger source.
+   */
+  hasUsableTurn(withinMs = DEFAULT_POLICY.ttlMs): boolean {
+    const at = this.now();
+    return this.turns.some(
+      (turn) =>
+        turn.source !== "session_transcript" && at - turn.receivedAt <= withinMs,
+    );
+  }
+
   /** Bind a host-generated tool call id to the run that issued it. */
   bindToolCall(record: {
     toolCallId?: unknown;
@@ -169,9 +221,13 @@ export class HarnessProvenance {
     const binding = toolCallId ? this.bindings.get(toolCallId) : undefined;
     if (toolCallId) this.bindings.delete(toolCallId);
 
-    const usable = this.turns.filter(
-      (turn) => turn.source === "channel_message" || effective.allowPromptSource,
-    );
+    const usable = this.turns.filter((turn) => {
+      if (turn.source === "channel_message") return true;
+      if (turn.source === "session_transcript") {
+        return effective.allowTranscriptSource;
+      }
+      return effective.allowPromptSource;
+    });
     const fresh = (turn: AuthenticatedUserTurn, windowMs: number) =>
       at - turn.receivedAt <= windowMs;
 
@@ -234,6 +290,7 @@ export class HarnessProvenance {
       channelMessageHookFired: this.fired.channelMessage,
       promptHookFired: this.fired.prompt,
       toolCallHookFired: this.fired.toolCall,
+      transcriptTurnsUsed: this.transcriptTurnsUsed,
       retainedTurns: this.turns.length,
       pendingToolCallBindings: this.bindings.size,
       ...(newest ? { lastTurnSource: newest.source } : {}),

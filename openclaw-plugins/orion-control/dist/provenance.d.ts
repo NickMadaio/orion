@@ -12,7 +12,7 @@ import type { TaskGraph, TrustProvenance } from "./types.js";
  * hard deny: there is no model-writable path that can produce one.
  */
 export type TrustBinding = "run" | "session" | "recent" | "none";
-export type TrustTurnSource = "channel_message" | "agent_prompt";
+export type TrustTurnSource = "channel_message" | "agent_prompt" | "session_transcript";
 /** Reserved input-id prefix. Only the harness may mint inputs with this prefix. */
 export declare const HARNESS_INPUT_PREFIX = "orion_user_turn_";
 export interface AuthenticatedUserTurn {
@@ -36,6 +36,15 @@ export interface ProvenancePolicy {
     allowSessionBinding?: boolean;
     /** Accept the newest authenticated turn when no tool-call binding exists. */
     allowRecentBinding?: boolean;
+    /**
+     * Accept the host-written session transcript as a source of the user turn.
+     *
+     * On this gateway neither `message_received` nor `llm_input` fires for
+     * locally-initiated runs, so without this there is no user text at all and
+     * every action fails closed. The model cannot author a `role: "user"` entry,
+     * so the transcript is a genuine harness source, not a relaxation.
+     */
+    allowTranscriptSource?: boolean;
     /** Age limit for run/session bound turns. */
     ttlMs?: number;
     /** Age limit for the unbound `recent` tier. */
@@ -45,6 +54,7 @@ export interface ProvenanceHealth {
     channelMessageHookFired: boolean;
     promptHookFired: boolean;
     toolCallHookFired: boolean;
+    transcriptTurnsUsed: number;
     retainedTurns: number;
     pendingToolCallBindings: number;
     lastTurnSource?: TrustTurnSource;
@@ -58,6 +68,7 @@ export declare class HarnessProvenance {
     private readonly turns;
     private readonly bindings;
     private readonly fired;
+    private transcriptTurnsUsed;
     private lastBinding;
     constructor(maxTurns?: number, maxBindings?: number, now?: () => number);
     private push;
@@ -75,6 +86,25 @@ export declare class HarnessProvenance {
         sessionKey?: unknown;
         sessionId?: unknown;
     }): void;
+    /**
+     * A user turn recovered from the host-written session transcript.
+     *
+     * Only ever called with text the HOST attributed to `role: "user"`. See
+     * `transcript.ts` for why that attribution is unforgeable by the model.
+     */
+    recordTranscriptTurn(record: {
+        content?: unknown;
+        sessionId?: unknown;
+        receivedAt?: number;
+    }): void;
+    /**
+     * Did any hook already supply user text for a turn still inside the TTL?
+     *
+     * Used to skip the transcript read on gateways where `message_received` or
+     * `llm_input` do fire — the transcript is a fallback, never a substitute for
+     * a stronger source.
+     */
+    hasUsableTurn(withinMs?: number): boolean;
     /** Bind a host-generated tool call id to the run that issued it. */
     bindToolCall(record: {
         toolCallId?: unknown;

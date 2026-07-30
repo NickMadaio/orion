@@ -88,6 +88,55 @@ function validateNestedFolders(graph, issues) {
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */
 export const MAX_STEPS = 32;
 export const MAX_INPUTS = 64;
+/**
+ * Does the user's own sentence name this target?
+ *
+ * The old check was `content.includes(relativePath)`, which required the user
+ * to have typed the joined path verbatim. Nobody says "awesome/orion.txt" out
+ * loud; they say "a folder called awesome, and in it a file called orion.txt".
+ * That rejected a perfectly explicit instruction.
+ *
+ * Every path segment must still appear in the user's words. So "awesome" plus
+ * "orion.txt" authorizes `awesome/orion.txt`, while an instruction naming only
+ * "awesome" cannot authorize `awesome/secrets.txt` — the basename is absent.
+ * The guarantee is unchanged: the user must have named the thing.
+ */
+export function instructionNamesTarget(content, relativePath) {
+    const haystack = content.toLowerCase();
+    const segments = relativePath
+        .split("/")
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
+    if (segments.length === 0)
+        return false;
+    return segments.every((segment) => haystack.includes(segment));
+}
+/**
+ * Does the user's own sentence ask for this operation?
+ *
+ * The old check looked for the catalog's own verb ("create"), so "make a
+ * folder" failed. Requiring the user to speak the schema's vocabulary is a
+ * usability bug wearing a security costume: it rejects clear instructions
+ * without stopping a single unclear one.
+ *
+ * These are synonyms for the same intent, matched on word boundaries so
+ * "created" or "remake" cannot smuggle one in. Authorization still requires
+ * the target to be named explicitly — that is the part doing the real work.
+ */
+const OPERATION_SYNONYMS = {
+    create: ["create", "make", "new", "add", "put", "save", "write", "start"],
+    append: ["append", "add", "put", "attach", "write"],
+    replace: ["replace", "overwrite", "update", "change", "set", "rewrite"],
+    open: ["open", "launch", "start", "run"],
+    quit: ["quit", "close", "exit", "stop"],
+};
+export function instructionNamesOperation(content, operation) {
+    const words = new Set(content.toLowerCase().match(/[a-z]+/g) ?? []);
+    const wanted = OPERATION_SYNONYMS[operation.toLowerCase()] ?? [
+        operation.toLowerCase(),
+    ];
+    return wanted.some((verb) => words.has(verb));
+}
 export function validateTaskGraph(graph, options = {}) {
     const issues = [];
     const planHash = hash(graph);
@@ -222,8 +271,8 @@ export function validateTaskGraph(graph, options = {}) {
                     typeof operation !== "string") {
                     return false;
                 }
-                return (source.content.includes(relativePath) &&
-                    source.content.toLowerCase().includes(operation.toLowerCase()));
+                return (instructionNamesTarget(source.content, relativePath) &&
+                    instructionNamesOperation(source.content, operation));
             });
             if (!authorized) {
                 issues.push({

@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { readLatestUserTurn } from "./transcript.js";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import os from "node:os";
 import path from "node:path";
@@ -69,6 +70,12 @@ const ConfigSchema = Type.Object({
     trustAllowRecentBinding: Type.Optional(Type.Boolean({
         description: "Accept the newest authenticated user turn when the host did not bind this tool call to a run. Default true.",
     })),
+    trustAllowTranscriptSource: Type.Optional(Type.Boolean({
+        description: "Recover the user turn from the host-written session transcript when no hook supplied one. The model cannot author a role:user entry there, so this is a harness source, not a relaxation. Default true; without it, locally-initiated runs have no user text and every action fails closed.",
+    })),
+    trustTranscriptAgent: Type.Optional(Type.String({
+        description: "Agent whose session transcripts carry the user turn. Default \"main\".",
+    })),
     trustTtlMs: Type.Optional(Type.Integer({ minimum: 1000 })),
     trustRecentWindowMs: Type.Optional(Type.Integer({ minimum: 1000 })),
     permissionStatePath: Type.Optional(Type.String({
@@ -128,6 +135,9 @@ function intersectTiers(configured, allowed) {
 }
 function trustPolicy(config) {
     return {
+        ...(config.trustAllowTranscriptSource !== undefined
+            ? { allowTranscriptSource: config.trustAllowTranscriptSource }
+            : {}),
         ...(config.trustAllowPromptSource !== undefined
             ? { allowPromptSource: config.trustAllowPromptSource }
             : {}),
@@ -172,6 +182,37 @@ async function resolveProfile(statePath) {
         };
     }
 }
+/**
+ * Top up the trust store from the host-written session transcript.
+ *
+ * Only runs when the hooks produced no user text for this turn, which on this
+ * gateway is the normal case for locally-initiated runs. Never throws: a
+ * missing or unreadable transcript has to fail closed like any other absent
+ * provenance source rather than error out of the tool call.
+ */
+async function hydrateFromTranscript(config) {
+    if (config.trustAllowTranscriptSource === false)
+        return;
+    if (provenance.hasUsableTurn())
+        return;
+    try {
+        const turn = await readLatestUserTurn({
+            ...(config.trustTranscriptAgent
+                ? { agent: config.trustTranscriptAgent }
+                : {}),
+        });
+        if (!turn)
+            return;
+        provenance.recordTranscriptTurn({
+            content: turn.content,
+            sessionId: turn.sessionId,
+            receivedAt: turn.at,
+        });
+    }
+    catch {
+        /* fail closed, silently: absence is already handled downstream */
+    }
+}
 const entry = defineToolPlugin({
     id: "orion-control",
     name: "Orion Control",
@@ -191,6 +232,12 @@ const entry = defineToolPlugin({
                 // field: model-supplied inputs become untrusted_external, and the only
                 // trusted_user inputs are minted from harness provenance bound to this
                 // host tool call. No authenticated turn means every action fails closed.
+                // Neither `message_received` nor `llm_input` fires for locally
+                // initiated runs on this gateway, so on those turns the hooks supply a
+                // binding but no user text. Recover the text from the transcript the
+                // HOST wrote — the model cannot author a `role: "user"` entry there.
+                // Skipped entirely when a hook already provided a turn.
+                await hydrateFromTranscript(config);
                 const anchor = provenance.resolve(context.toolCallId, trustPolicy(config));
                 const authorized = authorizeTaskGraph(graph, anchor);
                 const record = await runTaskGraph(authorized.graph, {

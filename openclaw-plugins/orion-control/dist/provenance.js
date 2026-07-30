@@ -4,6 +4,7 @@ export const HARNESS_INPUT_PREFIX = "orion_user_turn_";
 /** Hard ceiling on the text length retained per authenticated turn. */
 const MAX_TURN_CHARACTERS = 8192;
 const DEFAULT_POLICY = {
+    allowTranscriptSource: true,
     allowPromptSource: true,
     allowSessionBinding: true,
     allowRecentBinding: true,
@@ -21,6 +22,7 @@ export class HarnessProvenance {
         prompt: false,
         toolCall: false,
     };
+    transcriptTurnsUsed = 0;
     lastBinding;
     constructor(maxTurns = 64, maxBindings = 64, now = () => Date.now()) {
         this.maxTurns = maxTurns;
@@ -62,6 +64,35 @@ export class HarnessProvenance {
             ...optionalText("sessionId", record.sessionId),
         });
     }
+    /**
+     * A user turn recovered from the host-written session transcript.
+     *
+     * Only ever called with text the HOST attributed to `role: "user"`. See
+     * `transcript.ts` for why that attribution is unforgeable by the model.
+     */
+    recordTranscriptTurn(record) {
+        const content = normalizeText(record.content);
+        if (!content)
+            return;
+        this.transcriptTurnsUsed += 1;
+        this.push({
+            content,
+            receivedAt: record.receivedAt ?? this.now(),
+            source: "session_transcript",
+            ...optionalText("sessionId", record.sessionId),
+        });
+    }
+    /**
+     * Did any hook already supply user text for a turn still inside the TTL?
+     *
+     * Used to skip the transcript read on gateways where `message_received` or
+     * `llm_input` do fire — the transcript is a fallback, never a substitute for
+     * a stronger source.
+     */
+    hasUsableTurn(withinMs = DEFAULT_POLICY.ttlMs) {
+        const at = this.now();
+        return this.turns.some((turn) => turn.source !== "session_transcript" && at - turn.receivedAt <= withinMs);
+    }
     /** Bind a host-generated tool call id to the run that issued it. */
     bindToolCall(record) {
         this.fired.toolCall = true;
@@ -90,7 +121,14 @@ export class HarnessProvenance {
         const binding = toolCallId ? this.bindings.get(toolCallId) : undefined;
         if (toolCallId)
             this.bindings.delete(toolCallId);
-        const usable = this.turns.filter((turn) => turn.source === "channel_message" || effective.allowPromptSource);
+        const usable = this.turns.filter((turn) => {
+            if (turn.source === "channel_message")
+                return true;
+            if (turn.source === "session_transcript") {
+                return effective.allowTranscriptSource;
+            }
+            return effective.allowPromptSource;
+        });
         const fresh = (turn, windowMs) => at - turn.receivedAt <= windowMs;
         const pick = (candidates, tier) => {
             if (candidates.length === 0)
@@ -133,6 +171,7 @@ export class HarnessProvenance {
             channelMessageHookFired: this.fired.channelMessage,
             promptHookFired: this.fired.prompt,
             toolCallHookFired: this.fired.toolCall,
+            transcriptTurnsUsed: this.transcriptTurnsUsed,
             retainedTurns: this.turns.length,
             pendingToolCallBindings: this.bindings.size,
             ...(newest ? { lastTurnSource: newest.source } : {}),

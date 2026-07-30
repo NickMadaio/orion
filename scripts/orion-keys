@@ -1,0 +1,180 @@
+#!/bin/zsh
+#
+# ORION — set and check the API keys.
+#
+# Keys live in ~/Desktop/ORION/.env, which is gitignored. Editing that by hand
+# is easy to get subtly wrong — a trailing space, a truncated paste, or two
+# lines for the same variable where the wrong one silently wins. That is
+# probably what happened here: ELEVENLABS_API_KEY held a 40-character value
+# when an ElevenLabs key is ~51, which is exactly the length of the Deepgram
+# key sitting next to it.
+#
+# So this asks the vendor whether each key works, rather than assuming.
+#
+#   ./scripts/orion-keys            # show status, offer to change each
+#   ./scripts/orion-keys --check    # status only, change nothing
+#
+emulate -L zsh
+set -u
+
+repo="${0:A:h:h}"
+env_file="${ORION_ENV_FILE:-$repo/.env}"
+check_only=0
+[[ "${1:-}" == "--check" ]] && check_only=1
+
+bold=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; red=$'\033[31m'; yel=$'\033[33m'; off=$'\033[0m'
+
+read_key() {  # read_key VARNAME
+  [[ -f "$env_file" ]] || return 1
+  python3 - "$env_file" "$1" <<'PY'
+import sys
+name = sys.argv[2]
+try:
+    for line in open(sys.argv[1], encoding="utf-8"):
+        line = line.strip()
+        if line.startswith(f"{name}="):
+            print(line.split("=", 1)[1].strip().strip('"').strip("'"))
+            break
+except OSError:
+    pass
+PY
+}
+
+write_key() {  # write_key VARNAME VALUE
+  python3 - "$env_file" "$1" "$2" <<'PY'
+import pathlib, sys
+path, name, value = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+lines = path.read_text().splitlines() if path.exists() else []
+# Drop EVERY existing line for this variable. Two lines for one variable is a
+# silent, miserable bug: the file looks right and the wrong value is used.
+lines = [l for l in lines if not l.strip().startswith(f"{name}=")]
+lines.append(f"{name}={value}")
+path.write_text("\n".join(l for l in lines if l.strip()) + "\n")
+PY
+  chmod 600 "$env_file" 2>/dev/null
+}
+
+test_eleven() {  # test_eleven KEY -> prints verdict
+  local code
+  code="$(curl -s -o /tmp/orion-k.json -w '%{http_code}' --max-time 15 \
+          -H "xi-api-key: $1" https://api.elevenlabs.io/v1/user 2>/dev/null)"
+  case "$code" in
+    200)
+      print "${grn}valid${off}"
+      python3 -c "
+import json
+try:
+    d=json.load(open('/tmp/orion-k.json')); s=d.get('subscription') or {}
+    u,l=s.get('character_count'),s.get('character_limit')
+    print(f'      tier {s.get(\"tier\",\"?\")}' + (f', {u}/{l} characters used' if u is not None and l else ''))
+except Exception: pass" 2>/dev/null
+      ;;
+    401) print "${red}rejected (401)${off}" ;;
+    429) print "${yel}valid but rate limited / quota used up (429)${off}" ;;
+    "")  print "${yel}no response — offline?${off}" ;;
+    *)   print "${yel}HTTP $code${off}" ;;
+  esac
+  rm -f /tmp/orion-k.json
+}
+
+test_deepgram() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+          -H "Authorization: Token $1" https://api.deepgram.com/v1/projects 2>/dev/null)"
+  case "$code" in
+    200)     print "${grn}valid${off}" ;;
+    401|403) print "${red}rejected ($code)${off}" ;;
+    "")      print "${yel}no response — offline?${off}" ;;
+    *)       print "${yel}HTTP $code${off}" ;;
+  esac
+}
+
+status() {  # status LABEL VARNAME TESTFN EXPECTED_LEN
+  local label="$1" var="$2" fn="$3" expect="$4" key verdict
+  key="$(read_key "$var")"
+  print -n "  ${bold}${label}${off}  "
+  if [[ -z "$key" ]]; then
+    print "${yel}not set${off}"
+    return 1
+  fi
+  verdict="$($fn "$key")"
+  print "$verdict"
+  print "      ${dim}${#key} characters${off}$( [[ -n "$expect" && ${#key} -ne $expect ]] \
+        && print " ${yel}(expected about $expect — looks wrong)${off}" )"
+  [[ "$verdict" == *valid* && "$verdict" != *"but"* ]]
+}
+
+print ""
+print "${bold}ORION — API keys${off}"
+print "  ${dim}$env_file${off}"
+print ""
+
+status "ElevenLabs (voice)" ELEVENLABS_API_KEY test_eleven 51; eleven_ok=$?
+print ""
+status "Deepgram (hearing)" DEEPGRAM_API_KEY test_deepgram 40; deepgram_ok=$?
+print ""
+
+if (( check_only )); then
+  exit 0
+fi
+
+offer() {  # offer LABEL VARNAME TESTFN CURRENT_OK URL
+  local label="$1" var="$2" fn="$3" ok="$4" url="$5"
+  if (( ok == 0 )); then
+    print -n "  ${label} works. Replace it anyway? [y/N] "
+    read -r ans
+    [[ "$ans" == [yY]* ]] || return 0
+  else
+    print "  ${label} needs a working key."
+    print "  ${dim}Get one: $url${off}"
+    print -n "  Set it now? [Y/n] "
+    read -r ans
+    [[ "$ans" == [nN]* ]] && return 0
+  fi
+
+  print -n "  Paste the key (hidden, press return alone to cancel): "
+  read -rs value
+  print ""
+  value="${value## }"; value="${value%% }"
+  if [[ -z "$value" ]]; then
+    print "  cancelled"
+    return 0
+  fi
+
+  print -n "  Checking with the vendor… "
+  local verdict; verdict="$($fn "$value")"
+  print "$verdict"
+  if [[ "$verdict" != *valid* ]]; then
+    print -n "  That key did not work. Save it anyway? [y/N] "
+    read -r save
+    [[ "$save" == [yY]* ]] || { print "  not saved"; return 0; }
+  fi
+  write_key "$var" "$value"
+  print "  ${grn}saved${off} to $env_file"
+}
+
+offer "ElevenLabs" ELEVENLABS_API_KEY test_eleven $eleven_ok \
+      "https://elevenlabs.io/app/settings/api-keys"
+print ""
+offer "Deepgram" DEEPGRAM_API_KEY test_deepgram $deepgram_ok \
+      "https://console.deepgram.com/"
+
+print ""
+print "${bold}Applying${off}"
+print "  Restarting the voice daemon so it picks the keys up…"
+pkill -f orion_tts_daemon.py 2>/dev/null
+rm -f "$HOME/.openclaw/orion-tts.sock"
+py="$("$repo/scripts/orion-python" 2>/dev/null)"; [[ -z "$py" ]] && py=python3
+mkdir -p "$HOME/.openclaw/logs"
+ORION_TTS_CLOUD_VOICE=1 ORION_ENV_FILE="$env_file" nohup "$py" \
+  "$repo/scripts/orion_tts_daemon.py" \
+  >>"$HOME/.openclaw/logs/orion-tts.out.log" \
+  2>>"$HOME/.openclaw/logs/orion-tts.err.log" </dev/null &
+disown
+for _ in {1..60}; do [[ -S "$HOME/.openclaw/orion-tts.sock" ]] && break; sleep 0.25; done
+print "  $( [[ -S "$HOME/.openclaw/orion-tts.sock" ]] && print "${grn}voice daemon back up${off}" \
+        || print "${yel}daemon slow to start — check ~/.openclaw/logs/orion-tts.err.log${off}" )"
+print ""
+print "  Which voice actually served the last line:"
+grep -E 'provider=|engine=' "$HOME/.openclaw/logs/orion-tts.err.log" 2>/dev/null | tail -2 | sed 's/^/    /'
+print ""

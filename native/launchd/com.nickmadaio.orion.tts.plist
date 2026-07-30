@@ -47,7 +47,7 @@
     <key>ORION_TTS_ENGINE</key>
     <string>auto</string>
     <key>ORION_TTS_CLOUD_VOICE</key>
-    <string>0</string>
+    <string>1</string>
     <key>ORION_ENV_FILE</key>
     <string>/Users/nickmadaio/Desktop/ORION/.env</string>
     <key>ORION_TTS_RUNTIME_DIR</key>

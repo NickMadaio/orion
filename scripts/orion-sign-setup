@@ -61,32 +61,86 @@ CONF
 
 if ! /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes \
       -keyout "$workdir/key.pem" -out "$workdir/cert.pem" \
-      -days 3650 -config "$workdir/openssl.cnf" >/dev/null 2>&1; then
-  print -u2 "openssl failed to generate the certificate."
+      -days 3650 -config "$workdir/openssl.cnf" 2>"$workdir/req.err"; then
+  print -u2 "openssl failed to generate the certificate:"
+  sed 's/^/  /' "$workdir/req.err" >&2
   exit 1
 fi
 
-/usr/bin/openssl pkcs12 -export -inkey "$workdir/key.pem" -in "$workdir/cert.pem" \
-  -out "$workdir/orion.p12" -passout pass: -name "$CN" >/dev/null 2>&1
+# The PKCS#12 has to be written with the OLD encryption algorithms.
+#
+# This is the part that fails silently if you let it default. Modern OpenSSL
+# and LibreSSL bundle PKCS#12 with AES-256/PBKDF2, which macOS's Security
+# framework cannot read — `security import` just returns an error with no
+# useful text. PBE-SHA1-3DES and a SHA-1 MAC are what it expects.
+#
+# The passphrase is non-empty for the same class of reason: some versions of
+# `security import` reject an empty one. It is random, used once, and lives
+# only in this shell.
+pass="$(/usr/bin/openssl rand -hex 16)"
+
+p12_ok=0
+if /usr/bin/openssl pkcs12 -export \
+      -inkey "$workdir/key.pem" -in "$workdir/cert.pem" \
+      -out "$workdir/orion.p12" -passout "pass:$pass" -name "$CN" \
+      -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
+      2>"$workdir/p12.err"; then
+  p12_ok=1
+else
+  # `-legacy` is the OpenSSL 3 spelling of the same intent; try it if the
+  # explicit algorithm flags were not understood.
+  if /usr/bin/openssl pkcs12 -export -legacy \
+        -inkey "$workdir/key.pem" -in "$workdir/cert.pem" \
+        -out "$workdir/orion.p12" -passout "pass:$pass" -name "$CN" \
+        2>>"$workdir/p12.err"; then
+    p12_ok=1
+  fi
+fi
+
+if (( ! p12_ok )); then
+  print -u2 "Could not package the certificate:"
+  sed 's/^/  /' "$workdir/p12.err" >&2
+  exit 1
+fi
 
 print "Importing into your login keychain."
-print "macOS will ask for your login password — that is the keychain unlocking,"
+print "macOS may ask for your login password — that is the keychain unlocking,"
 print "not something being sent anywhere."
 print ""
 
-if ! security import "$workdir/orion.p12" -k "$keychain" -P "" \
-      -T /usr/bin/codesign -T /usr/bin/security >/dev/null 2>&1; then
-  print -u2 "Import failed. You can do this by hand instead:"
-  print -u2 "  Keychain Access -> Certificate Assistant -> Create a Certificate…"
-  print -u2 "  Name: $CN   Identity Type: Self Signed Root"
-  print -u2 "  Certificate Type: Code Signing"
+# A locked keychain is another silent failure — but `security unlock-keychain`
+# prompts on stdin *unconditionally*, even when the keychain is already open,
+# which just hangs the script for no reason. Your login keychain is normally
+# unlocked the moment you log in, so ask first and only prompt if it is
+# genuinely locked.
+if ! security show-keychain-info "$keychain" >/dev/null 2>&1; then
+  print "Your login keychain is locked. macOS will ask for your password."
+  security unlock-keychain "$keychain" || {
+    print -u2 "Could not unlock the keychain — nothing was changed."
+    exit 1
+  }
+fi
+
+if ! security import "$workdir/orion.p12" -k "$keychain" -P "$pass" \
+      -T /usr/bin/codesign -T /usr/bin/security 2>"$workdir/import.err"; then
+  print -u2 "Import failed:"
+  sed 's/^/  /' "$workdir/import.err" >&2
+  print -u2 ""
+  print -u2 "Do it by hand instead — it takes about a minute:"
+  print -u2 "  1. Open Keychain Access"
+  print -u2 "  2. Menu: Keychain Access -> Certificate Assistant -> Create a Certificate…"
+  print -u2 "  3. Name: $CN"
+  print -u2 "     Identity Type: Self Signed Root"
+  print -u2 "     Certificate Type: Code Signing"
+  print -u2 "  4. Create, then re-run ./scripts/orion-setup"
   exit 1
 fi
 
 # Let codesign use the key without prompting on every single build.
 security set-key-partition-list -S apple-tool:,apple:,codesign: \
   -s -k "" "$keychain" >/dev/null 2>&1 || \
-  print "  (could not set the partition list — you may get a keychain prompt per build)"
+  print "  (could not set the partition list — macOS may prompt once per build;"
+  print "   tick \"Always Allow\" the first time and it will stop asking)"
 
 print ""
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CN"; then

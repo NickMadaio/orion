@@ -18,6 +18,18 @@ cp .build/release/Orion "$bundle/Contents/MacOS/Orion"
 cp Resources/Info.plist "$bundle/Contents/Info.plist"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
 
+# Icon. `Orion.iconset` is rendered from the same geometry as the live
+# hologram by scripts/orion_make_icon.py; `iconutil` is macOS-only, so the
+# iconset is what gets committed and the .icns is assembled here.
+if [[ -d Resources/Orion.iconset ]]; then
+  iconutil -c icns Resources/Orion.iconset -o Resources/Orion.icns 2>/dev/null || true
+fi
+if [[ -f Resources/Orion.icns ]]; then
+  cp Resources/Orion.icns "$bundle/Contents/Resources/Orion.icns"
+else
+  echo "  (no icon — run: python3 ../../scripts/orion_make_icon.py)"
+fi
+
 # Signing.
 #
 # Prefer a real signing identity over an ad-hoc signature. This is not

@@ -1,0 +1,73 @@
+#!/bin/zsh
+#
+# ORION — start at login, so you never open it at all.
+#
+# Orion is a menu-bar app: the right steady state is that it is simply always
+# there, like Jarvis. This adds it to your Login Items.
+#
+#   ./scripts/orion-login-item          # add
+#   ./scripts/orion-login-item --remove # take it back out
+#   ./scripts/orion-login-item --status
+#
+# This changes a system setting, so it is deliberately opt-in and never done
+# for you by the setup script.
+#
+emulate -L zsh
+set -u
+
+app="/Applications/Orion.app"
+name="Orion"
+
+action="add"
+for arg in "$@"; do
+  case "$arg" in
+    --remove) action="remove" ;;
+    --status) action="status" ;;
+    -h|--help) print "usage: orion-login-item [--remove|--status]"; exit 0 ;;
+    *) print -u2 "unknown option: $arg"; exit 64 ;;
+  esac
+done
+
+listed() {
+  osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null \
+    | tr ',' '\n' | sed 's/^ *//' | grep -qx "$name"
+}
+
+case "$action" in
+  status)
+    if listed; then print "Orion starts at login."; else print "Orion does not start at login."; fi
+    ;;
+
+  remove)
+    osascript -e "tell application \"System Events\" to delete login item \"$name\"" >/dev/null 2>&1
+    if listed; then
+      print -u2 "Could not remove it. Do it in System Settings ▸ General ▸ Login Items."
+      exit 1
+    fi
+    print "Removed. Orion no longer starts at login."
+    ;;
+
+  add)
+    if [[ ! -d "$app" ]]; then
+      print -u2 "$app does not exist yet — run ./scripts/orion-setup first."
+      exit 1
+    fi
+    if listed; then
+      print "Orion already starts at login."
+      exit 0
+    fi
+    # `hidden:true` so it comes up as a menu-bar item without flashing a window.
+    osascript -e "tell application \"System Events\" to make login item at end \
+      with properties {path:\"$app\", hidden:true, name:\"$name\"}" >/dev/null 2>&1
+
+    if listed; then
+      print "Done — Orion will be in your menu bar from now on, every login."
+    else
+      print -u2 "Could not add it automatically."
+      print -u2 "macOS may have asked for permission to control System Events; if you"
+      print -u2 "declined, add it by hand instead:"
+      print -u2 "  System Settings ▸ General ▸ Login Items ▸ (+) ▸ /Applications/Orion.app"
+      exit 1
+    fi
+    ;;
+esac

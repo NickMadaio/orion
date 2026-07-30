@@ -1,0 +1,196 @@
+#!/bin/zsh
+#
+# ORION — one command that gets everything running.
+#
+# Build the app, sign it with a stable identity, install it, start the voice
+# daemon, check the gateway, launch. Safe to re-run: nothing is done twice, and
+# anything already correct is left alone.
+#
+# The point of this script is that a failure should tell you what to do next,
+# not just that something went wrong.
+#
+emulate -L zsh
+set -u
+setopt pipefail
+
+repo="${0:A:h:h}"
+cd "$repo"
+
+# Everything printed here also lands in a file, so a run that scrolled past can
+# still be read afterwards — by you, or by me when you paste the path.
+mkdir -p "$repo/data"
+setup_log="$repo/data/last-setup.log"
+if [[ -z "${ORION_SETUP_TEEING:-}" ]]; then
+  export ORION_SETUP_TEEING=1
+  # `script` keeps the output a TTY so colours and progress survive the tee.
+  "$0" "$@" 2>&1 | tee "$setup_log"
+  exit ${pipestatus[1]}
+fi
+
+bold=$'\033[1m'; dim=$'\033[2m'; red=$'\033[31m'; grn=$'\033[32m'; yel=$'\033[33m'; off=$'\033[0m'
+step() { print ""; print "${bold}$1${off}"; }
+ok()   { print "  ${grn}ok${off}    $1"; }
+warn() { print "  ${yel}warn${off}  $1"; }
+bad()  { print "  ${red}FAIL${off}  $1"; }
+
+print "${bold}ORION setup${off}  ${dim}$repo${off}"
+
+# ---------------------------------------------------------------- toolchain
+step "1. Toolchain"
+if ! command -v swift >/dev/null 2>&1; then
+  bad "swift not found."
+  print "        Install Xcode or the Command Line Tools:  xcode-select --install"
+  exit 1
+fi
+ok "swift $(swift --version 2>/dev/null | head -1 | sed 's/.*version \([0-9.]*\).*/\1/')"
+
+# ------------------------------------------------------------------ signing
+step "2. Signing identity"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "Orion Local Signing"; then
+  ok "stable identity present — permissions will survive rebuilds"
+else
+  warn "no stable identity yet"
+  print "        Without one, macOS treats every rebuild as a NEW app: you get"
+  print "        duplicate 'Orion' rows in Privacy settings and push-to-talk"
+  print "        stops working after each build."
+  print ""
+  print "        Creating one now (you may be asked for your login password —"
+  print "        that is macOS unlocking your keychain, nothing is sent anywhere)."
+  print ""
+  if ./scripts/orion-sign-setup; then
+    ok "identity created"
+  else
+    warn "could not create one — continuing with an ad-hoc signature"
+    print "        Push-to-talk will need re-granting after each rebuild."
+  fi
+fi
+
+# -------------------------------------------------------------------- build
+step "3. Build Orion.app"
+build_log="$(mktemp -t orion-build)"
+if (cd native/Orion && ./make_app_bundle.sh) > "$build_log" 2>&1; then
+  ok "built and signed"
+  grep -E '^Signed:' "$build_log" | sed 's/^/        /'
+else
+  bad "build failed"
+  print ""
+  print "${dim}--- compiler errors ---${off}"
+  # Only the errors. A Swift build log is mostly noise and the errors are
+  # what you need; warnings are not worth reading right now.
+  grep -E 'error:' "$build_log" | head -40 | sed 's/^/  /'
+  local_count=$(grep -c 'error:' "$build_log")
+  print ""
+  print "  ${red}${local_count} error(s).${off} Full log: $build_log"
+  print ""
+  print "  Send me that list and I'll fix them."
+  exit 1
+fi
+rm -f "$build_log"
+
+# ------------------------------------------------------------------ install
+step "4. Install to /Applications"
+# TCC keys on path as well as identity, so a stable home matters.
+if [[ -d /Applications/Orion.app ]]; then
+  # Quit a running copy first or the copy silently half-succeeds.
+  pkill -x Orion 2>/dev/null && sleep 1
+  rm -rf /Applications/Orion.app
+fi
+if cp -R native/Orion/.build/Orion.app /Applications/ 2>/dev/null; then
+  ok "/Applications/Orion.app"
+else
+  warn "could not write to /Applications — running from .build instead"
+fi
+
+# -------------------------------------------------------------------- voice
+step "5. Voice daemon"
+py="$(./scripts/orion-python 2>/dev/null)"
+[[ -z "$py" ]] && py="${commands[python3]:-/usr/bin/python3}"
+
+if "$py" -c 'import mlx_audio' >/dev/null 2>&1; then
+  ok "mlx_audio available to $py"
+else
+  warn "$py cannot import mlx_audio"
+  print "        The daemon still runs, but reloads the voice model on every"
+  print "        chunk instead of keeping it warm — noticeably slower."
+  print "        Fix:  $py -m pip install mlx-audio"
+  print "        (Or set ELEVENLABS_API_KEY in .env and use the cloud voice.)"
+fi
+
+socket="$HOME/.openclaw/orion-tts.sock"
+if [[ -S "$socket" ]]; then
+  ok "already running"
+else
+  mkdir -p "$HOME/.openclaw/logs"
+  # Use the ElevenLabs voice when a key is present. The daemon still falls
+  # back to the local model on any network or quota error, so this only ever
+  # changes which voice you get, never whether you get one.
+  export ORION_TTS_CLOUD_VOICE="${ORION_TTS_CLOUD_VOICE:-1}"
+  export ORION_ENV_FILE="${ORION_ENV_FILE:-$repo/.env}"
+  nohup "$py" scripts/orion_tts_daemon.py \
+    >>"$HOME/.openclaw/logs/orion-tts.out.log" \
+    2>>"$HOME/.openclaw/logs/orion-tts.err.log" &
+  disown
+  for _ in {1..40}; do [[ -S "$socket" ]] && break; sleep 0.25; done
+  if [[ -S "$socket" ]]; then
+    ok "started"
+  else
+    warn "did not come up — see ~/.openclaw/logs/orion-tts.err.log"
+    print "        Orion still talks, using macOS system speech."
+  fi
+fi
+
+# ------------------------------------------------------------------ gateway
+step "6. Gateway"
+gw="$("$py" -c "
+import json
+try: print(json.load(open('$HOME/.openclaw/openclaw.json'))['gateway']['port'])
+except Exception: print(18789)" 2>/dev/null)"
+[[ -z "$gw" ]] && gw=18789
+
+if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1,s.connect_ex(('127.0.0.1',$gw))))" 2>/dev/null; then
+  ok "listening on 127.0.0.1:$gw"
+else
+  warn "not running — starting it"
+  "$HOME/.openclaw/bin/openclaw" daemon start >/dev/null 2>&1
+  sleep 3
+  if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1,s.connect_ex(('127.0.0.1',$gw))))" 2>/dev/null; then
+    ok "started"
+  else
+    bad "gateway will not start — Orion cannot think without it"
+    print "        Try by hand:  ~/.openclaw/bin/openclaw daemon start"
+  fi
+fi
+
+# ------------------------------------------------------------------- launch
+step "7. Launch"
+app="/Applications/Orion.app"
+[[ -d "$app" ]] || app="$repo/native/Orion/.build/Orion.app"
+open "$app" && ok "launched — look for the Orion icon in your menu bar"
+
+# -------------------------------------------------------------------- using
+cat <<'USING'
+
+────────────────────────────────────────────────────────────
+  HOW TO USE IT
+
+  Hold Right Option      talk (works in any app)
+  Click the menu bar     text window, cursor ready to type
+  Right-click menu bar   status, preferences, quit
+  Escape                 stop Orion mid-sentence
+
+  Say "Orion" to summon it hands-free — off by default,
+  turn it on in Preferences ▸ Voice.
+
+  FIRST RUN needs three permissions:
+    Accessibility        System Settings ▸ Privacy & Security
+                         (required for Right Option to work at all)
+    Microphone           prompted on first press
+    Speech Recognition   prompted on first press
+
+  If you see MORE THAN ONE "Orion" in Accessibility, remove
+  them all with (−), then relaunch and grant the one it asks for.
+
+  Something wrong?   ./scripts/orion-doctor
+────────────────────────────────────────────────────────────
+
+USING

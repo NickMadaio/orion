@@ -97,6 +97,18 @@ SAY_BIN = "/usr/bin/say"
 def _env(name: str, default: str) -> str:
     value = os.environ.get(name)
     if value is None or value.strip() == "":
+        # Fall back to the dotenv file for ORION_* settings.
+        #
+        # Without this, only the API keys were read from .env (via read_secret)
+        # while every other setting had to be an environment variable. Choosing
+        # a voice by writing ORION_ELEVEN_VOICE_ID into .env would have looked
+        # like it worked and changed nothing — the worst kind of bug, and the
+        # same silent-no-op shape that has cost hours already today.
+        if name.startswith("ORION_"):
+            for path in env_file_candidates():
+                found = read_env_file(path, name)
+                if found and found.strip():
+                    return found.strip()
         return default
     return value.strip()
 
@@ -711,6 +723,19 @@ class Cancelled(RuntimeError):
 class Engine:
     name = "base"
 
+    #: Does this engine stream a whole utterance itself?
+    #:
+    #: The local model does not, so we split text into chunks and synthesise
+    #: them one at a time to get first audio out quickly. That is the right
+    #: trade for a model running on this Mac.
+    #:
+    #: It is the WRONG trade for a cloud engine that already streams. Chunking
+    #: there means a separate HTTP request per fragment, each with its own
+    #: independently-chosen prosody, joined with inserted silence — which is
+    #: exactly what "super choppy" sounds like. Engines that stream natively
+    #: get the whole text in one request.
+    streams_natively = False
+
     def synth(
         self,
         text: str,
@@ -1029,6 +1054,7 @@ class ElevenLabsEngine(Engine):
     """
 
     name = "elevenlabs"
+    streams_natively = True
 
     def __init__(
         self,
@@ -1842,11 +1868,15 @@ class Synthesizer:
     ) -> None:
         engine, provider_name = self.engine_for(provider)
         used: list[str] = []
-        chunks = chunk_text(
-            job.text,
-            first_max=self.config.first_chunk_chars,
-            max_chars=self.config.chunk_chars,
-        )
+        if getattr(engine, "streams_natively", False):
+            # One request, one continuous utterance, no seams to hear.
+            chunks = [job.text.strip()] if job.text.strip() else []
+        else:
+            chunks = chunk_text(
+                job.text,
+                first_max=self.config.first_chunk_chars,
+                max_chars=self.config.chunk_chars,
+            )
         if not chunks:
             raise EngineError("nothing to synthesize after chunking")
 
@@ -1952,7 +1982,12 @@ class Synthesizer:
                 })
                 return
 
-            joined = join_wav_bytes(blobs, gap_ms=self.config.gap_ms)
+            # The gap exists to stop the local model's separately-synthesised
+            # sentences running into each other. An engine that produced the
+            # whole utterance in one pass has no seams, so inserting silence
+            # into it only chops up speech that was already continuous.
+            gap = 0 if getattr(engine, "streams_natively", False) else self.config.gap_ms
+            joined = join_wav_bytes(blobs, gap_ms=gap)
             assert output is not None
             _atomic_write(output, joined)
             if player is not None:

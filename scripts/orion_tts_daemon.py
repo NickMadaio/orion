@@ -2490,11 +2490,27 @@ def main(argv: list[str]) -> int:
         log(f"signal {signum} -> shutting down")
         server.stop_event.set()
 
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    # SIGTERM and SIGINT mean "stop". SIGHUP does not.
+    #
+    # SIGHUP is what a terminal sends its children when its window closes. This
+    # daemon is started from a shell, so treating SIGHUP as shutdown meant
+    # Orion lost its voice every single time a Terminal window was closed —
+    # which happened repeatedly, and each time looked like a fresh unrelated
+    # bug. `nohup` already sets SIGHUP to SIG_IGN; installing a handler for it
+    # deliberately undid that protection.
+    #
+    # For a long-lived daemon SIGHUP conventionally means "reload", never
+    # "die". Explicitly ignored so nothing can hang up on Orion.
+    for sig in (signal.SIGTERM, signal.SIGINT):
         try:
             signal.signal(sig, _on_signal)
         except (OSError, ValueError):
             pass
+
+    try:
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    except (OSError, ValueError, AttributeError):
+        pass
 
     server.serve_forever()
     return 0

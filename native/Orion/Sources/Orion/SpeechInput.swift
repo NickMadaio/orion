@@ -377,6 +377,9 @@ final class SpeechInput {
                 }
                 return
             }
+            // Empty is fine — the resampler is accumulating, not failing.
+            guard !data.isEmpty else { return }
+            conversionFailures = 0
             bytesSentToDeepgram += data.count
             deepgram.send(audio: data)
             return

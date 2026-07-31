@@ -107,16 +107,28 @@ final class LinearPCMConverter {
         var conversionError: NSError?
         let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
             if supplied {
-                inputStatus.pointee = .endOfStream
+                // `.noDataNow`, NOT `.endOfStream`.
+                //
+                // This converter is cached across buffers so the resampler
+                // keeps its state. Reporting `.endOfStream` retires it after
+                // the very first buffer: every later call then produces zero
+                // frames, `data(from:)` returns nil, and the audio is dropped
+                // in silence. Deepgram stayed connected and heard nothing.
+                //
+                // `.noDataNow` means "that is all I have this instant" and
+                // leaves the converter alive for the next buffer.
+                inputStatus.pointee = .noDataNow
                 return nil
             }
             supplied = true
             inputStatus.pointee = .haveData
             return buffer
         }
-        guard status != .error, conversionError == nil, output.frameLength > 0 else {
-            return nil
-        }
+        // With `.noDataNow`, a call can legitimately produce zero frames while
+        // the resampler accumulates. That is not a failure — returning nil
+        // there would look identical to the bug above.
+        guard status != .error, conversionError == nil else { return nil }
+        guard output.frameLength > 0 else { return Data() }
         guard let channel = output.int16ChannelData else { return nil }
         return Data(bytes: channel[0], count: Int(output.frameLength) * MemoryLayout<Int16>.size)
     }

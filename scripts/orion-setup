@@ -82,6 +82,15 @@ if [[ ! -x "$built" || ! -d /Applications/Orion.app ]]; then
 elif [[ -n "$(find native/Orion/Sources native/Orion/Resources native/Orion/Package.swift \
                    -newer "$built" -print -quit 2>/dev/null)" ]]; then
   needs_build=1
+elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Orion Local Signing"; then
+  # A signing identity exists now. If the installed bundle is still ad-hoc it
+  # predates the certificate, so it must be rebuilt and re-signed — otherwise
+  # you create the certificate, nothing changes, and it looks like the
+  # certificate did not help.
+  if ! codesign -dvvv /Applications/Orion.app 2>&1 | grep -qi '^Authority='; then
+    needs_build=1
+    print "  ${dim}signing identity is new since this bundle was built — re-signing${off}"
+  fi
 fi
 
 if (( ! needs_build )); then

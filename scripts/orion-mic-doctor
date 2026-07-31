@@ -1,0 +1,133 @@
+#!/bin/zsh
+#
+# ORION — why can't it hear me?
+#
+# Push-to-talk has four separate things that must all be true, and when it
+# fails they are indistinguishable from the outside: nothing happens either
+# way. This checks each one and says which is missing.
+#
+#   1. Orion.app is running, and is the copy you think it is
+#   2. Accessibility is granted TO THAT BINARY (not to a previous build)
+#   3. Microphone is granted
+#   4. Speech Recognition is granted
+#
+# 2 is the usual culprit while the app is ad-hoc signed: macOS identifies it by
+# a hash of the binary, so every rebuild is a different app and the old grant
+# is orphaned. System Settings still shows "Orion" with the toggle on — just
+# attached to a binary that no longer exists.
+#
+set -u
+
+cd "$(dirname "$0")/.." || exit 1
+bold=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; red=$'\033[31m'; yel=$'\033[33m'; off=$'\033[0m'
+app="/Applications/Orion.app"
+[[ -d "$app" ]] || app="$PWD/native/Orion/.build/Orion.app"
+
+print ""
+print "${bold}Orion — why can't it hear you${off}"
+
+# ------------------------------------------------------------- 1. running
+print ""
+print "${bold}1. Is Orion running?${off}"
+pids=(${(f)"$(pgrep -x Orion 2>/dev/null)"})
+if (( ${#pids} == 0 )); then
+  print "  ${red}NOT RUNNING${off} — nothing can hear you."
+  print "  Launch it:  open $app"
+else
+  for pid in $pids; do
+    print "  ${grn}running${off}  pid $pid"
+    print "    ${dim}$(ps -o comm= -p "$pid" 2>/dev/null)${off}"
+  done
+  (( ${#pids} > 1 )) && print "  ${yel}more than one copy — quit them all: pkill -x Orion${off}"
+fi
+
+# ------------------------------------------------------------- 2. identity
+print ""
+print "${bold}2. Which binary is macOS being asked about?${off}"
+if [[ -d "$app" ]]; then
+  info="$(codesign -dvvv "$app" 2>&1)"
+  ident="$(print -r -- "$info" | grep -i '^Identifier=' | head -1 | cut -d= -f2-)"
+  cdh="$(print -r -- "$info"  | grep -i '^CDHash='     | head -1 | cut -d= -f2-)"
+  auth="$(print -r -- "$info" | grep -i '^Authority='  | head -1 | cut -d= -f2-)"
+  print "  bundle     $app"
+  print "  identifier ${ident:-<none>}"
+  print "  cdhash     ${cdh:-<none>}"
+  if [[ -n "$auth" ]]; then
+    print "  signed by  ${grn}${auth}${off}  ${dim}(grants survive rebuilds)${off}"
+  else
+    print "  signed by  ${yel}ad-hoc — no identity${off}"
+    print "             ${dim}Every rebuild changes the cdhash, so every rebuild is a${off}"
+    print "             ${dim}NEW app to macOS and the old grant is orphaned.${off}"
+  fi
+else
+  print "  ${red}no bundle found${off} — run Start Orion first"
+fi
+
+# ------------------------------------------------------------- 3. TCC
+print ""
+print "${bold}3. What has actually been granted?${off}"
+db="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+if [[ ! -r "$db" ]]; then
+  print "  ${dim}Cannot read the permission database (needs Full Disk Access for"
+  print "  Terminal). Falling back to what the app itself reports.${off}"
+else
+  rows="$(sqlite3 "$db" "
+    select service, client, auth_value
+    from access
+    where client like '%orion%' collate nocase
+       or client like '%Orion%';" 2>/dev/null)"
+  if [[ -z "$rows" ]]; then
+    print "  ${red}No Orion entries at all.${off}"
+    print "  macOS has never been told to trust this app — or the rows were removed."
+  else
+    print -r -- "$rows" | while IFS='|' read -r svc client val; do
+      case "$svc" in
+        kTCCServiceAccessibility)    label="Accessibility     " ;;
+        kTCCServiceMicrophone)       label="Microphone        " ;;
+        kTCCServiceSpeechRecognition) label="Speech Recognition" ;;
+        kTCCServiceListenEvent)      label="Input Monitoring  " ;;
+        *) label="$svc" ;;
+      esac
+      if [[ "$val" == "2" ]]; then
+        print "  ${grn}granted${off}  $label  ${dim}$client${off}"
+      elif [[ "$val" == "0" ]]; then
+        print "  ${red}DENIED${off}   $label  ${dim}$client${off}"
+      else
+        print "  ${yel}unset($val)${off} $label  ${dim}$client${off}"
+      fi
+    done
+  fi
+fi
+
+# --------------------------------------------------------- 4. what to do
+cat <<ADVICE
+
+${bold}What to do${off}
+
+  If Accessibility is missing or points at an old build, push-to-talk cannot
+  work — the global key monitor never fires, so Orion never even learns you
+  pressed anything. That is silent by nature; there is nothing to see.
+
+  Fix it in this order:
+
+    1. pkill -x Orion
+    2. System Settings > Privacy & Security > Accessibility
+       Remove EVERY row named "Orion" with the (-) button.
+       Removing matters more than toggling: a toggled-off stale row still
+       occupies the slot and macOS will not re-prompt while it is there.
+    3. Also check Microphone and Speech Recognition in the same pane.
+    4. open $app
+    5. Press and hold Right Option. macOS should prompt. Approve it.
+       If no prompt appears, add it by hand with (+) and pick
+       $app
+
+  To stop this recurring on every rebuild, give the app a stable signing
+  identity — two minutes, once:
+
+    Keychain Access > Certificate Assistant > Create a Certificate...
+      Name:              Orion Local Signing
+      Identity Type:     Self Signed Root
+      Certificate Type:  Code Signing
+    then re-run Start Orion.
+
+ADVICE

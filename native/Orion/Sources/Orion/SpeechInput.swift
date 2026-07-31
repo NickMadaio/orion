@@ -157,6 +157,21 @@ final class SpeechInput {
         }
     }
 
+    private var lastAudioLog = Date.distantPast
+    private var peakLevel: Double = 0
+
+    /// Throttled evidence that the tap is alive. Silence here means the
+    /// microphone never opened; sound here means the problem is downstream.
+    private func logAudio(_ level: Double) {
+        peakLevel = max(peakLevel, level)
+        let now = Date()
+        guard now.timeIntervalSince(lastAudioLog) >= 1.0 else { return }
+        lastAudioLog = now
+        OrionLog.write(String(format: "[audio] level=%.3f peak=%.3f ear=%@",
+                              level, peakLevel, activeProvider.rawValue))
+        peakLevel = 0
+    }
+
     // MARK: Lifecycle
 
     func start() {
@@ -208,9 +223,11 @@ final class SpeechInput {
         // buffers are going the moment they start arriving.
         let wanted = VoiceSettings.stt
         if wanted == .deepgram, let key = Secrets.deepgramKey {
+            OrionLog.write("[ear] Deepgram selected, key present — connecting")
             startDeepgram(key: key)
         } else {
             if wanted == .deepgram {
+                OrionLog.write("[ear] Deepgram selected but NO KEY — falling back to Apple")
                 announce(.apple, "Deepgram is selected but no \(Secrets.deepgramVariable) was found — listening on-device instead.")
             } else {
                 announce(.apple, nil)
@@ -302,6 +319,9 @@ final class SpeechInput {
                 // idle Orion should not shimmer at the room.
                 self.onMonitor?(buffer, level)
                 if self.isRunning { self.onLevel?(level) }
+                // One line per second while listening: proves whether the
+                // microphone is producing audio at all, before blaming an ear.
+                self.logAudio(level)
                 self.route(buffer)
             }
         }
@@ -360,6 +380,7 @@ final class SpeechInput {
                 if let result {
                     let text = result.bestTranscription.formattedString
                     if !text.isEmpty {
+                        OrionLog.write("[apple] heard: \(text)")
                         self.latestText = text
                         self.onPartial?(text)
                     }
@@ -395,6 +416,7 @@ final class SpeechInput {
 
         stream.onOpen = { [weak self] in
             guard let self, self.deepgram === stream else { return }
+            OrionLog.write("[deepgram] socket OPEN — listening via Deepgram")
             self.announce(.deepgram, nil)
             self.flushReplay { buffer in
                 if let data = self.converter?.data(from: buffer) {
@@ -404,6 +426,7 @@ final class SpeechInput {
             self.replaying = false
         }
         stream.onPartial = { [weak self] text in
+            OrionLog.write("[deepgram] heard something")
             guard let self, self.deepgram === stream else { return }
             self.latestText = text
             self.onPartial?(text)
@@ -419,6 +442,7 @@ final class SpeechInput {
             if self.awaitingFinal { self.deliverFinal() }
         }
         stream.onFailure = { [weak self] message in
+            OrionLog.write("[deepgram] FAILED — falling back to Apple")
             guard let self, self.deepgram === stream else { return }
             self.fallBackToApple(reason: message)
         }

@@ -46,7 +46,7 @@ ok "swift $(swift --version 2>/dev/null | head -1 | sed 's/.*version \([0-9.]*\)
 
 # ------------------------------------------------------------------ signing
 step "2. Signing identity"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "Orion Local Signing"; then
+if [[ -n "$(security find-identity -v -p codesigning 2>/dev/null | grep 'Orion Local Signing' | tail -1)" ]]; then
   ok "stable identity present — permissions will survive rebuilds"
 else
   warn "no stable identity yet"
@@ -54,15 +54,36 @@ else
   print "        duplicate 'Orion' rows in Privacy settings and push-to-talk"
   print "        stops working after each build."
   print ""
-  print "        Creating one now (you may be asked for your login password —"
-  print "        that is macOS unlocking your keychain, nothing is sent anywhere)."
-  print ""
-  if ./scripts/orion-sign-setup; then
-    ok "identity created"
+  # Deliberately does NOT create one any more.
+  #
+  # The scripted route imports a certificate fine but cannot mark it TRUSTED,
+  # and codesign refuses an untrusted identity. Running it repeatedly just
+  # accumulated certificates that all report CSSMERR_TP_NOT_TRUSTED — seven of
+  # them on this Mac before anyone noticed. Making the problem look busy is
+  # worse than leaving it alone.
+  existing="$(security find-identity -p codesigning 2>/dev/null \
+              | grep -c 'Orion Local Signing')"
+  if (( existing > 0 )); then
+    print "        ${yel}${existing} \"Orion Local Signing\" certificate(s) exist but are"
+    print "        NOT TRUSTED, which is why codesign will not use them.${off}"
+    print ""
+    print "        One manual step fixes it — trust must be granted by you,"
+    print "        visibly, not by a script editing your keychain:"
+    print ""
+    print "          1. Keychain Access ▸ login ▸ My Certificates"
+    print "          2. Double-click a \"Orion Local Signing\" certificate"
+    print "          3. Expand the ▸ Trust section"
+    print "          4. Set ${bold}Code Signing${off} to ${bold}Always Trust${off}"
+    print "          5. Close the window, confirm with your login password"
+    print "          6. Re-run this script"
   else
-    warn "could not create one — continuing with an ad-hoc signature"
-    print "        Push-to-talk will need re-granting after each rebuild."
+    print "        Create one: Keychain Access ▸ Certificate Assistant ▸"
+    print "        Create a Certificate… (Self Signed Root, Code Signing),"
+    print "        then set its Trust ▸ Code Signing to Always Trust."
   fi
+  print ""
+  print "        Until then Orion is ad-hoc signed. It runs fine; the only cost"
+  print "        is re-granting Accessibility after each rebuild."
 fi
 
 # -------------------------------------------------------------------- build
@@ -82,7 +103,7 @@ if [[ ! -x "$built" || ! -d /Applications/Orion.app ]]; then
 elif [[ -n "$(find native/Orion/Sources native/Orion/Resources native/Orion/Package.swift \
                    -newer "$built" -print -quit 2>/dev/null)" ]]; then
   needs_build=1
-elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Orion Local Signing"; then
+elif [[ -n "$(security find-identity -v -p codesigning 2>/dev/null | grep 'Orion Local Signing' | tail -1)" ]]; then
   # A signing identity exists now. If the installed bundle is still ad-hoc it
   # predates the certificate, so it must be rebuilt and re-signed — otherwise
   # you create the certificate, nothing changes, and it looks like the

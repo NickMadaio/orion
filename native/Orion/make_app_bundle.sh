@@ -42,10 +42,25 @@ fi
 # A self-signed certificate fixes it: TCC keys on the certificate, which is
 # stable. Create one once with ../../scripts/orion-sign-setup.
 identity="Orion Local Signing"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "$identity"; then
-  codesign --force --sign "$identity" --identifier com.nickmadaio.orion.app \
+
+# Resolve to the identity's SHA-1 rather than its name.
+#
+# Several certificates can share a name — this Mac has six "Orion Local
+# Signing" certs, five of them failed scripted imports that were never trusted.
+# `codesign -s <name>` against duplicates is ambiguous: it errors, or worse,
+# picks an untrusted one and silently produces a signature that TCC will not
+# honour.
+#
+# `find-identity -v -p codesigning` lists only identities VALID for code
+# signing, newest last, and its hash is unambiguous. So: take the last valid
+# match by name and sign with its hash.
+identity_hash="$(security find-identity -v -p codesigning 2>/dev/null \
+                 | grep "$identity" | tail -1 | awk '{print $2}')"
+
+if [[ -n "$identity_hash" ]]; then
+  codesign --force --sign "$identity_hash" --identifier com.nickmadaio.orion.app \
            --options runtime "$bundle"
-  signed="stable identity ($identity) — permissions survive rebuilds"
+  signed="stable identity ($identity, ${identity_hash:0:8}…) — permissions survive rebuilds"
 else
   codesign --force --sign - --identifier com.nickmadaio.orion.app "$bundle"
   signed="AD-HOC — macOS will treat the next rebuild as a different app"

@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import Speech
@@ -120,6 +121,23 @@ final class SpeechInput {
     /// because Apple is the fallback and a permission dialog in the middle of a
     /// network failure is the worst possible moment for one.
     func requestPermissions(_ completion: @escaping (Bool, String?) -> Void) {
+        // Come to the front before asking.
+        //
+        // Orion is LSUIElement and its panel is deliberately non-activating, so
+        // when push-to-talk fires while another app is frontmost, Orion has no
+        // UI context in which macOS can present a permission prompt. It does
+        // not queue the request — it denies it outright, instantly, and records
+        // the denial. The log showed the whole thing inside one second:
+        //
+        //   [press]         microphone=not-yet-asked
+        //   [permissions]   REFUSED
+        //   [after-refusal] microphone=DENIED
+        //
+        // Activating first is what gives the prompt somewhere to appear. This
+        // only runs on the path where a permission is still undecided, so it
+        // costs one focus change once, not on every press.
+        NSApp.activate(ignoringOtherApps: true)
+
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
                 guard status == .authorized else {
@@ -168,8 +186,11 @@ final class SpeechInput {
         requestPermissions { [weak self] granted, message in
             guard let self, self.startGeneration == generation else { return }
             if granted {
+                OrionLog.write("[permissions] granted — starting")
                 self.begin(recognizer)
             } else {
+                OrionLog.write("[permissions] REFUSED: \(message ?? "no reason given")")
+                OrionLog.permissionSnapshot("after-refusal")
                 self.onError?(message ?? "Orion could not get permission to listen.")
             }
         }
@@ -216,6 +237,7 @@ final class SpeechInput {
     /// caller can say so rather than listening to nothing.
     @discardableResult
     func startMonitoring() -> Bool {
+        OrionLog.write("[monitor] starting passive tap")
         guard SpeechInput.microphoneAuthorized else { return false }
         monitoring = true
         guard startMicrophone() else {

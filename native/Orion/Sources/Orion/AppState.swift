@@ -240,6 +240,8 @@ final class AppState: ObservableObject {
     }
 
     func start() {
+        OrionLog.write("---- Orion launched ----")
+        OrionLog.permissionSnapshot("launch")
         refreshPermissions()
         refreshStatus()
         // Honour a wake preference carried over from the last run.
@@ -396,7 +398,11 @@ final class AppState: ObservableObject {
         if phase == .speaking {
             bargeIn()
         }
-        guard !speechInput.isRunning else { return }
+        guard !speechInput.isRunning else {
+            OrionLog.write("[press] ignored — already listening")
+            return
+        }
+        OrionLog.permissionSnapshot("press")
         onWantsPanel?()
         heard = ""
         setPhase(.listening)

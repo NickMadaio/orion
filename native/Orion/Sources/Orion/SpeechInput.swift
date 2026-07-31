@@ -159,6 +159,16 @@ final class SpeechInput {
 
     private var lastAudioLog = Date.distantPast
     private var peakLevel: Double = 0
+    private var conversionFailures = 0
+    private var bytesSentToDeepgram = 0
+
+    /// Deepgram is connected but is being fed nothing. Say so and hand the
+    /// utterance to Apple rather than listening to silence.
+    private func deepgramStarved(_ reason: String) {
+        guard deepgram != nil else { return }
+        OrionLog.write("[deepgram] STARVED: \(reason) — switching to Apple")
+        fallBackToApple(reason: "Deepgram could not be fed audio")
+    }
 
     /// Throttled evidence that the tap is alive. Silence here means the
     /// microphone never opened; sound here means the problem is downstream.
@@ -167,8 +177,9 @@ final class SpeechInput {
         let now = Date()
         guard now.timeIntervalSince(lastAudioLog) >= 1.0 else { return }
         lastAudioLog = now
-        OrionLog.write(String(format: "[audio] level=%.3f peak=%.3f ear=%@",
-                              level, peakLevel, activeProvider.rawValue))
+        OrionLog.write(String(format: "[audio] level=%.3f peak=%.3f ear=%@ sent=%dB",
+                              level, peakLevel, activeProvider.rawValue,
+                              bytesSentToDeepgram))
         peakLevel = 0
     }
 
@@ -350,9 +361,24 @@ final class SpeechInput {
             return
         }
         if let deepgram, deepgram.isOpen {
-            if let data = converter?.data(from: buffer) {
-                deepgram.send(audio: data)
+            // `LinearPCMConverter` has a FAILABLE init, so `converter` is an
+            // Optional. Written as `converter?.data(...)` this silently dropped
+            // every buffer when the converter was nil or a conversion failed —
+            // Deepgram held an open socket and received no audio at all, which
+            // looks exactly like "the API is broken".
+            guard let converter else {
+                deepgramStarved("audio converter unavailable")
+                return
             }
+            guard let data = converter.data(from: buffer) else {
+                conversionFailures += 1
+                if conversionFailures == 5 {
+                    deepgramStarved("audio conversion failed repeatedly")
+                }
+                return
+            }
+            bytesSentToDeepgram += data.count
+            deepgram.send(audio: data)
             return
         }
         // Nothing is ready to receive audio yet — Deepgram is still shaking

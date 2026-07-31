@@ -56,18 +56,24 @@ PY
 
 test_eleven() {  # test_eleven KEY -> prints verdict
   local code
-  code="$(curl -s -o /tmp/orion-k.json -w '%{http_code}' --max-time 15 \
-          -H "xi-api-key: $1" https://api.elevenlabs.io/v1/user 2>/dev/null)"
+  # Test the endpoint Orion ACTUALLY uses, not a convenient one.
+  #
+  # ElevenLabs keys carry per-endpoint permissions. Testing /v1/user needs the
+  # "User: Read" scope, which a key can perfectly well lack while still being
+  # able to synthesise speech — so that test reported failure for keys that
+  # would have worked fine. It cost hours. Synthesise two characters instead:
+  # it is the only question that matters and it answers itself.
+  code="$(curl -s -o /tmp/orion-k.json -w '%{http_code}' --max-time 20 \
+          -X POST \
+          -H "xi-api-key: $1" \
+          -H "Content-Type: application/json" \
+          -d '{"text":"ok","model_id":"eleven_flash_v2_5"}' \
+          "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM?output_format=pcm_24000" \
+          2>/dev/null)"
   case "$code" in
     200)
-      print "${grn}valid${off}"
-      python3 -c "
-import json
-try:
-    d=json.load(open('/tmp/orion-k.json')); s=d.get('subscription') or {}
-    u,l=s.get('character_count'),s.get('character_limit')
-    print(f'      tier {s.get(\"tier\",\"?\")}' + (f', {u}/{l} characters used' if u is not None and l else ''))
-except Exception: pass" 2>/dev/null
+      print "${grn}valid — it can synthesise speech${off}"
+      print "      ${dim}$(wc -c < /tmp/orion-k.json | tr -d ' ') bytes of audio returned${off}"
       ;;
     401)
       # 401 means two very different things here and the body says which.
@@ -87,6 +93,16 @@ except Exception: print('')" 2>/dev/null)"
           print "      free-tier use — usually a VPN or proxy, or more than one"
           print "      free account. This is the one case where paying actually"
           print "      fixes it. Turning the VPN off may also clear it.${off}"
+          ;;
+        missing_permissions)
+          print "${red}401 — the key lacks the right permissions${off}"
+          print "      ${dim}The key and the account are FINE. When you created it,"
+          print "      ElevenLabs let you pick which endpoints it may use, and"
+          print "      text-to-speech was not among them."
+          print ""
+          print "      Fix: elevenlabs.io -> Settings -> API Keys -> create a key"
+          print "      with 'Text to Speech' enabled (or just give it full access)."
+          print "      Then run this again.${off}"
           ;;
         invalid_api_key|"")
           print "${red}401 — key not accepted${off}"
@@ -183,7 +199,7 @@ offer() {  # offer LABEL VARNAME TESTFN CURRENT_OK URL
 }
 
 offer "ElevenLabs" ELEVENLABS_API_KEY test_eleven $eleven_ok \
-      "https://elevenlabs.io/app/settings/api-keys"
+      "https://elevenlabs.io/app/settings/api-keys  (enable Text to Speech)"
 print ""
 offer "Deepgram" DEEPGRAM_API_KEY test_deepgram $deepgram_ok \
       "https://console.deepgram.com/"

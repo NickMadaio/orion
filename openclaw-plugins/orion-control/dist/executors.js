@@ -2,10 +2,11 @@ import { constants } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { chmod, lstat, mkdir, open, readdir, realpath, rename, unlink, } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { isVisibleNonSensitiveName } from "./catalog.js";
-import { canonicalActionHash, hash } from "./validator.js";
+import { clampVolume, browserUrlIssues, isMutableRoot, isObservationPolicy, isSafeRelativePath, isSafeSegment, isVisibleNonSensitiveName, resolveBrowserName, resolvePlayerName, SUPPORTED_BROWSERS, SUPPORTED_PLAYERS, } from "./catalog.js";
+import { canonicalActionHash, hash, instructionNamesTarget } from "./validator.js";
 export class ActionExecutionError extends Error {
     retryable;
     constructor(message, retryable = false) {
@@ -61,11 +62,527 @@ async function controlApplication(operation, application, idempotencyKey) {
     await execFileAsync("/usr/bin/osascript", ["-e", `tell application id "${target.bundleId}" to quit`], { timeout: 10000 });
     return { mode: "quit", idempotencyKey, target: target.path, output: target };
 }
+/**
+ * macOS Automation refusal. The user has to grant this once per browser, and a
+ * raw "-1743" tells them nothing, so it is translated into the exact steps.
+ */
+const AUTOMATION_DENIED = /-1743|not authoriz(?:ed|ised) to send apple events|not allowed to send apple events/i;
+const JAVASCRIPT_DENIED = /javascript.*(?:turned off|not allowed|disabled)|allow javascript from apple events|-2740/i;
+const APPLICATION_NOT_RUNNING = /-600\b|(?:isn't|is not) running/i;
+function automationGuidance(application) {
+    return (`macOS has not granted permission to control ${application}. ` +
+        "Open System Settings > Privacy & Security > Automation, find the app that runs OpenClaw " +
+        "(Terminal, iTerm, or the OpenClaw app), and switch on " +
+        `${application}. macOS asks once per app; retry after granting it.`);
+}
+function javascriptGuidance(application) {
+    return (`${application} is refusing to run JavaScript from AppleScript, which is how page text is read. ` +
+        (application === "Safari"
+            ? "Enable Safari > Settings > Advanced > Show features for web developers, then Develop > Allow JavaScript from Apple Events."
+            : `Enable ${application}'s View > Developer > Allow JavaScript from Apple Events.`) +
+        " Without it Orion cannot read the page.");
+}
+async function runAppleScript(script, options) {
+    try {
+        const { stdout } = await execFileAsync("/usr/bin/osascript", ["-e", script], {
+            timeout: options.timeoutMs ?? 10000,
+            maxBuffer: 8 * 1024 * 1024,
+        });
+        return stdout;
+    }
+    catch (error) {
+        const detail = [
+            error.stderr ?? "",
+            error instanceof Error ? error.message : "",
+        ]
+            .join(" ")
+            .trim();
+        if (AUTOMATION_DENIED.test(detail)) {
+            throw new ActionExecutionError(automationGuidance(options.application));
+        }
+        if (JAVASCRIPT_DENIED.test(detail)) {
+            throw new ActionExecutionError(javascriptGuidance(options.application));
+        }
+        if (APPLICATION_NOT_RUNNING.test(detail)) {
+            throw new ActionExecutionError(`${options.application} is not running, so there is no window to act on.`);
+        }
+        if (error.killed === true) {
+            throw new ActionExecutionError(`${options.application} did not respond in time.`, true);
+        }
+        throw new ActionExecutionError(`${options.application} refused the request: ${detail.slice(0, 200) || "no diagnostic"}`);
+    }
+}
+const BROWSER_ENGINE = {
+    "Opera Air": "chromium",
+    Opera: "chromium",
+    Safari: "safari",
+    "Google Chrome": "chromium",
+};
+async function describeBrowser(name) {
+    const resolved = await resolveApplication(name);
+    return {
+        name,
+        bundleId: resolved.bundleId,
+        engine: BROWSER_ENGINE[name],
+        path: resolved.path,
+    };
+}
+/** The https handler LaunchServices records, read-only and best-effort. */
+async function defaultBrowserBundleId() {
+    const plist = path.join(os.homedir(), "Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist");
+    try {
+        const { stdout } = await execFileAsync("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist], { timeout: 5000 });
+        const parsed = JSON.parse(stdout);
+        const handler = parsed.LSHandlers?.find((entry) => entry.LSHandlerURLScheme === "https");
+        const bundleId = handler?.LSHandlerRoleAll;
+        return typeof bundleId === "string" ? bundleId : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+/**
+ * Which browser to drive: the caller's explicit choice, else the configured
+ * preference, else whichever supported browser is already running, else the
+ * system default browser, else the first one installed. The chosen browser is
+ * named in the ledger for every browser action.
+ */
+async function resolveBrowser(policy, step, context) {
+    const requested = resolveBrowserName(step.arguments[policy.browserArgument]) ??
+        resolveBrowserName(context.browserPreference);
+    if (requested)
+        return describeBrowser(requested);
+    const installed = [];
+    for (const name of SUPPORTED_BROWSERS) {
+        const described = await describeBrowser(name).catch(() => undefined);
+        if (described)
+            installed.push(described);
+    }
+    if (installed.length === 0) {
+        throw new ActionExecutionError(`No supported browser is installed. Orion drives one of: ${SUPPORTED_BROWSERS.join(", ")}.`);
+    }
+    for (const browser of installed) {
+        const running = await applicationIsRunning(browser.bundleId).catch(() => false);
+        if (running)
+            return browser;
+    }
+    const fallbackId = await defaultBrowserBundleId();
+    const preferred = fallbackId
+        ? installed.find((browser) => browser.bundleId.toLowerCase() === fallbackId.toLowerCase())
+        : undefined;
+    return preferred ?? installed[0];
+}
+/** AppleScript's `character id 1`: cannot occur in a URL or a window title. */
+const TAB_FIELD_SEPARATOR = "\u0001";
+function tabListScript(browser) {
+    if (browser.engine === "safari") {
+        return `tell application id "${browser.bundleId}"
+  set sep to character id 1
+  set out to ""
+  set wi to 0
+  repeat with w in windows
+    set wi to wi + 1
+    set act to 0
+    try
+      set act to index of current tab of w
+    end try
+    set ti to 0
+    repeat with t in tabs of w
+      set ti to ti + 1
+      set flag to "0"
+      if ti = act then set flag to "1"
+      set out to out & wi & sep & ti & sep & flag & sep & (URL of t) & sep & (name of t) & linefeed
+    end repeat
+  end repeat
+  return out
+end tell`;
+    }
+    return `tell application id "${browser.bundleId}"
+  set sep to character id 1
+  set out to ""
+  set wi to 0
+  repeat with w in windows
+    set wi to wi + 1
+    set act to 0
+    try
+      set act to active tab index of w
+    end try
+    set ti to 0
+    repeat with t in tabs of w
+      set ti to ti + 1
+      set flag to "0"
+      if ti = act then set flag to "1"
+      set out to out & wi & sep & ti & sep & flag & sep & (URL of t) & sep & (title of t) & linefeed
+    end repeat
+  end repeat
+  return out
+end tell`;
+}
+function parseTabs(raw, maxTabs) {
+    const tabs = [];
+    for (const line of raw.split("\n")) {
+        if (line.trim().length === 0)
+            continue;
+        const fields = line.split(TAB_FIELD_SEPARATOR);
+        if (fields.length < 5)
+            continue;
+        const windowIndex = Number.parseInt(fields[0] ?? "", 10);
+        const tabIndex = Number.parseInt(fields[1] ?? "", 10);
+        if (!Number.isInteger(windowIndex) || !Number.isInteger(tabIndex))
+            continue;
+        tabs.push({
+            windowIndex,
+            tabIndex,
+            active: fields[2] === "1",
+            url: (fields[3] ?? "").trim(),
+            title: fields.slice(4).join(TAB_FIELD_SEPARATOR).trim().slice(0, 300),
+        });
+        if (tabs.length >= maxTabs)
+            break;
+    }
+    return tabs;
+}
+async function listBrowserTabs(browser, maxTabs = 200) {
+    const raw = await runAppleScript(tabListScript(browser), {
+        application: browser.name,
+    });
+    return parseTabs(raw, maxTabs);
+}
+function activeTab(tabs) {
+    return tabs.find((tab) => tab.active && tab.windowIndex === 1) ??
+        tabs.find((tab) => tab.active) ??
+        tabs[0];
+}
+/** Same site, allowing for the redirects and trailing-slash normalisation any real page does. */
+function urlsAgree(requested, observed) {
+    if (requested === observed)
+        return true;
+    try {
+        const left = new URL(requested);
+        const right = new URL(observed);
+        if (left.href === right.href)
+            return true;
+        return left.hostname.toLowerCase() === right.hostname.toLowerCase();
+    }
+    catch {
+        return false;
+    }
+}
+function pageTextScript(browser) {
+    return browser.engine === "safari"
+        ? `tell application id "${browser.bundleId}" to do JavaScript "document.body.innerText" in current tab of front window`
+        : `tell application id "${browser.bundleId}" to execute front window's active tab javascript "document.body.innerText"`;
+}
+function newTabScript(browser) {
+    return browser.engine === "safari"
+        ? `tell application id "${browser.bundleId}"
+  if (count of windows) = 0 then
+    make new document
+  else
+    tell front window to set current tab to (make new tab)
+  end if
+  return "ok"
+end tell`
+        : `tell application id "${browser.bundleId}"
+  if (count of windows) = 0 then
+    make new window
+  else
+    make new tab at end of tabs of front window
+    set active tab index of front window to (count of tabs of front window)
+  end if
+  return "ok"
+end tell`;
+}
+function closeTabScript(browser) {
+    return browser.engine === "safari"
+        ? `tell application id "${browser.bundleId}" to close current tab of front window`
+        : `tell application id "${browser.bundleId}" to close active tab of front window`;
+}
+function activateTabScript(browser, windowIndex, tabIndex) {
+    return browser.engine === "safari"
+        ? `tell application id "${browser.bundleId}"
+  set current tab of window ${windowIndex} to tab ${tabIndex} of window ${windowIndex}
+  set index of window ${windowIndex} to 1
+  return "ok"
+end tell`
+        : `tell application id "${browser.bundleId}"
+  set active tab index of window ${windowIndex} to ${tabIndex}
+  set index of window ${windowIndex} to 1
+  return "ok"
+end tell`;
+}
+function selectTab(tabs, selector) {
+    if (typeof selector === "number") {
+        return tabs.find((tab) => tab.windowIndex === 1 && tab.tabIndex === selector);
+    }
+    const needle = selector.trim().toLowerCase();
+    return tabs.find((tab) => tab.title.toLowerCase().includes(needle) ||
+        tab.url.toLowerCase().includes(needle));
+}
+async function controlBrowser(policy, step, context, idempotencyKey) {
+    const browser = await resolveBrowser(policy, step, context);
+    const maxTabs = policy.maxTabs ?? 200;
+    const describe = (output) => ({
+        browser: browser.name,
+        bundleId: browser.bundleId,
+        ...output,
+    });
+    if (policy.operation === "open_url") {
+        const url = step.arguments[policy.urlArgument ?? "url"];
+        // Re-validate at the boundary: the executor never trusts that validation
+        // already ran. A non-http(s) scheme, a credentialed URL, or anything with a
+        // quote in it dies here too.
+        const issues = browserUrlIssues(url);
+        if (issues.length > 0 || typeof url !== "string") {
+            throw new ActionExecutionError(`Refused URL: ${issues.join("; ")}`);
+        }
+        // LaunchServices, not AppleScript: no Automation prompt, and the URL is an
+        // argv element rather than anything interpolated into a script.
+        await execFileAsync("/usr/bin/open", ["-b", browser.bundleId, url], {
+            timeout: 15000,
+        });
+        return {
+            mode: "controlled",
+            idempotencyKey,
+            target: url,
+            output: describe({ operation: policy.operation, url }),
+        };
+    }
+    if (policy.operation === "new_tab" || policy.operation === "close_tab") {
+        const before = await listBrowserTabs(browser, maxTabs);
+        if (policy.operation === "close_tab" && before.length === 0) {
+            throw new ActionExecutionError(`${browser.name} has no open tab to close.`);
+        }
+        const closing = policy.operation === "close_tab" ? activeTab(before) : undefined;
+        await runAppleScript(policy.operation === "new_tab"
+            ? newTabScript(browser)
+            : closeTabScript(browser), { application: browser.name });
+        return {
+            mode: "controlled",
+            idempotencyKey,
+            target: browser.name,
+            output: describe({
+                operation: policy.operation,
+                tabCountBefore: before.length,
+                ...(closing ? { closedUrl: closing.url, closedTitle: closing.title } : {}),
+            }),
+        };
+    }
+    if (policy.operation === "list_tabs") {
+        const tabs = await listBrowserTabs(browser, maxTabs);
+        return {
+            mode: "observed",
+            idempotencyKey,
+            target: browser.name,
+            output: describe({
+                operation: policy.operation,
+                tabCount: tabs.length,
+                tabs,
+            }),
+        };
+    }
+    if (policy.operation === "switch_tab") {
+        const rawSelector = step.arguments[policy.selectorArgument ?? "tab"];
+        const selector = typeof rawSelector === "number"
+            ? rawSelector
+            : typeof rawSelector === "string"
+                ? rawSelector
+                : undefined;
+        if (selector === undefined) {
+            throw new ActionExecutionError("Validated tab selector is missing.");
+        }
+        const tabs = await listBrowserTabs(browser, maxTabs);
+        const chosen = selectTab(tabs, selector);
+        if (!chosen) {
+            throw new ActionExecutionError(typeof selector === "number"
+                ? `${browser.name} has no tab ${selector} in its front window.`
+                : `No open ${browser.name} tab matches "${selector}".`);
+        }
+        await runAppleScript(activateTabScript(browser, chosen.windowIndex, chosen.tabIndex), { application: browser.name });
+        return {
+            mode: "controlled",
+            idempotencyKey,
+            target: chosen.url,
+            output: describe({
+                operation: policy.operation,
+                selectedUrl: chosen.url,
+                selectedTitle: chosen.title,
+                windowIndex: chosen.windowIndex,
+                tabIndex: chosen.tabIndex,
+            }),
+        };
+    }
+    // read_page
+    const tabs = await listBrowserTabs(browser, maxTabs);
+    const current = activeTab(tabs);
+    if (!current) {
+        throw new ActionExecutionError(`${browser.name} has no open tab to read.`);
+    }
+    const raw = await runAppleScript(pageTextScript(browser), {
+        application: browser.name,
+        timeoutMs: 20000,
+    });
+    const maxBytes = policy.maxBytes ?? 102400;
+    const full = Buffer.from(raw.replace(/\s+$/, ""), "utf8");
+    const truncated = full.byteLength > maxBytes;
+    const text = truncated
+        ? full.subarray(0, maxBytes).toString("utf8")
+        : full.toString("utf8");
+    return {
+        mode: "observed",
+        idempotencyKey,
+        target: current.url,
+        // The ledger records that a page read happened, of which URL, how much text
+        // came back, and a hash of it. Orion seeing the open tab is auditable
+        // rather than invisible.
+        output: describe({
+            operation: policy.operation,
+            url: current.url,
+            title: current.title,
+            bytes: Buffer.byteLength(text, "utf8"),
+            truncated,
+            textSha256: contentHash(text),
+            text,
+        }),
+    };
+}
+async function runningPlayer(policy, step) {
+    const requested = resolvePlayerName(step.arguments[policy.playerArgument ?? "player"]);
+    const candidates = requested
+        ? [requested]
+        : SUPPORTED_PLAYERS;
+    for (const name of candidates) {
+        const resolved = await resolveApplication(name).catch(() => undefined);
+        if (!resolved)
+            continue;
+        const running = await applicationIsRunning(resolved.bundleId).catch(() => false);
+        if (running)
+            return { name, bundleId: resolved.bundleId };
+    }
+    throw new ActionExecutionError(requested
+        ? `${requested} is not running, so there is nothing to control.`
+        : `No supported media player is running (${SUPPORTED_PLAYERS.join(", ")}).`);
+}
+async function playerSnapshot(player) {
+    const raw = await runAppleScript(`tell application id "${player.bundleId}"
+  set s to "unknown"
+  try
+    if player state is playing then
+      set s to "playing"
+    else
+      set s to "not_playing"
+    end if
+  end try
+  set t to ""
+  try
+    set t to (id of current track) as text
+  end try
+  set p to "0"
+  try
+    set p to (player position) as text
+  end try
+  return s & character id 1 & t & character id 1 & p
+end tell`, { application: player.name });
+    const [state = "unknown", trackId = "", position = "0"] = raw
+        .trim()
+        .split(TAB_FIELD_SEPARATOR);
+    return {
+        state,
+        trackId,
+        position: Number.parseFloat(position) || 0,
+    };
+}
+async function volumeSettings() {
+    const raw = await runAppleScript('set s to (get volume settings)\nreturn ((output volume of s) as text) & character id 1 & ((output muted of s) as text)', { application: "the system volume" });
+    const [level = "", muted = ""] = raw.trim().split(TAB_FIELD_SEPARATOR);
+    return {
+        level: Number.parseInt(level, 10),
+        muted: muted.trim().toLowerCase() === "true",
+    };
+}
+async function controlMedia(policy, step, idempotencyKey) {
+    if (policy.operation === "volume_set") {
+        const requested = step.arguments[policy.levelArgument ?? "level"];
+        if (typeof requested !== "number" || !Number.isFinite(requested)) {
+            throw new ActionExecutionError("Validated volume level is missing.");
+        }
+        const level = clampVolume(requested);
+        const before = await volumeSettings();
+        await runAppleScript(`set volume output volume ${level}`, {
+            application: "the system volume",
+        });
+        return {
+            mode: "controlled",
+            idempotencyKey,
+            target: "system volume",
+            output: {
+                operation: policy.operation,
+                requestedLevel: requested,
+                level,
+                previousLevel: before.level,
+            },
+        };
+    }
+    if (policy.operation === "volume_mute" || policy.operation === "volume_unmute") {
+        const before = await volumeSettings();
+        await runAppleScript(policy.operation === "volume_mute"
+            ? "set volume with output muted"
+            : "set volume without output muted", { application: "the system volume" });
+        return {
+            mode: "controlled",
+            idempotencyKey,
+            target: "system volume",
+            output: {
+                operation: policy.operation,
+                previouslyMuted: before.muted,
+            },
+        };
+    }
+    if (policy.operation === "display_sleep") {
+        await execFileAsync("/usr/bin/pmset", ["displaysleepnow"], {
+            timeout: 10000,
+        });
+        return {
+            mode: "controlled",
+            idempotencyKey,
+            target: "display",
+            output: { operation: policy.operation },
+        };
+    }
+    const player = await runningPlayer(policy, step);
+    const before = await playerSnapshot(player);
+    const command = policy.operation === "play_pause"
+        ? "playpause"
+        : policy.operation === "next_track"
+            ? "next track"
+            : "previous track";
+    await runAppleScript(`tell application id "${player.bundleId}" to ${command}`, { application: player.name });
+    return {
+        mode: "controlled",
+        idempotencyKey,
+        target: player.name,
+        output: {
+            operation: policy.operation,
+            player: player.name,
+            previousState: before.state,
+            previousTrackId: before.trackId,
+            previousPosition: before.position,
+        },
+    };
+}
 function isWithin(root, target) {
     return target === root || target.startsWith(`${root}${path.sep}`);
 }
 async function assertRealDirectory(directory) {
-    const stats = await lstat(directory);
+    let stats;
+    try {
+        stats = await lstat(directory);
+    }
+    catch (error) {
+        // A missing or unreadable root must be a controlled, diagnosable failure
+        // rather than a bare errno surfaced as "Unexpected executor failure."
+        throw new ActionExecutionError(`Controlled root is unavailable (${error.code ?? "unknown"}): ${directory}`);
+    }
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
         throw new ActionExecutionError(`Controlled root is not a real directory: ${directory}`);
     }
@@ -517,6 +1034,175 @@ async function mutateText(policy, step, context) {
         output: describe(resultHash),
     };
 }
+/**
+ * Is this file open in another process? Cheap best-effort via lsof: if it is
+ * not cheaply detectable (lsof absent, slow, or unhelpful) the mutation
+ * proceeds, because a guess is not a reason to refuse the user's own request.
+ */
+async function assertNotOpenElsewhere(target) {
+    let stdout;
+    try {
+        ({ stdout } = await execFileAsync("/usr/sbin/lsof", ["-t", target], {
+            timeout: 3000,
+        }));
+    }
+    catch {
+        // lsof exits non-zero when nothing has the file open, and may be absent.
+        return;
+    }
+    const holders = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => /^\d+$/.test(line) && line !== String(process.pid));
+    if (holders.length > 0) {
+        throw new ActionExecutionError(`${path.basename(target)} is currently open by another process (pid ${holders
+            .slice(0, 3)
+            .join(", ")}); refusing to move or delete it.`);
+    }
+}
+/**
+ * Collision-safe Trash naming, matching what Finder does: `note.txt`, then
+ * `note 2.txt`, `note 3.txt`, and finally a timestamped name.
+ */
+async function trashPath(trashRoot, name) {
+    const extension = path.extname(name);
+    const stem = extension ? name.slice(0, -extension.length) : name;
+    const candidates = [
+        name,
+        ...Array.from({ length: 99 }, (_, index) => `${stem} ${index + 2}${extension}`),
+        `${stem} ${new Date().toISOString().replace(/[:.]/g, "-")}${extension}`,
+    ];
+    for (const candidate of candidates) {
+        const absolute = path.join(trashRoot, candidate);
+        try {
+            await lstat(absolute);
+        }
+        catch (error) {
+            if (error.code === "ENOENT")
+                return absolute;
+            throw error;
+        }
+    }
+    throw new ActionExecutionError("Could not find a free name in the Trash.");
+}
+async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
+    const root = step.arguments[policy.rootArgument];
+    const relativePath = step.arguments[policy.relativePathArgument];
+    if (!isMutableRoot(root)) {
+        throw new ActionExecutionError("Validated root is missing.");
+    }
+    if (!isSafeRelativePath(relativePath)) {
+        throw new ActionExecutionError("Validated relativePath is missing.");
+    }
+    const rootPath = context.roots[root];
+    const resolved = await resolveExistingPath(rootPath, relativePath);
+    if (resolved.target === resolved.realRoot) {
+        throw new ActionExecutionError("The configured root itself cannot be moved, renamed, or deleted.");
+    }
+    const stats = await lstat(resolved.target);
+    if (stats.isSymbolicLink()) {
+        throw new ActionExecutionError("Symlink access is forbidden.");
+    }
+    if (!stats.isFile() && !stats.isDirectory()) {
+        throw new ActionExecutionError("Only regular files and directories can be moved, renamed, or deleted.");
+    }
+    const name = path.posix.basename(relativePath);
+    if (stats.isDirectory()) {
+        const entries = await readdir(resolved.target);
+        if (entries.length > 0 &&
+            !instructionNamesTarget(context.trustedInstruction ?? "", name)) {
+            throw new ActionExecutionError(`'${name}' is not empty (${entries.length} entries). Your own instruction must name that folder explicitly before Orion will move or delete it.`);
+        }
+    }
+    else {
+        await assertNotOpenElsewhere(resolved.target);
+    }
+    let destination;
+    if (policy.operation === "delete") {
+        const trashRoot = context.trashRoot ?? path.join(os.homedir(), ".Trash");
+        await mkdir(trashRoot, { recursive: true, mode: 0o700 });
+        destination = await trashPath(await assertRealDirectory(trashRoot), name);
+    }
+    else if (policy.operation === "rename") {
+        const newName = step.arguments[policy.destinationArgument ?? "newName"];
+        if (!isSafeSegment(newName)) {
+            throw new ActionExecutionError("Validated newName is missing.");
+        }
+        destination = path.join(path.dirname(resolved.target), newName);
+    }
+    else {
+        const destinationPath = step.arguments[policy.destinationArgument ?? "destinationPath"];
+        if (!isSafeRelativePath(destinationPath)) {
+            throw new ActionExecutionError("Validated destinationPath is missing.");
+        }
+        const parentRelative = path.posix.dirname(destinationPath);
+        const parent = await resolveExistingPath(rootPath, parentRelative === "." ? "." : parentRelative);
+        if (!(await lstat(parent.target)).isDirectory()) {
+            throw new ActionExecutionError("Move destination parent is not a directory.");
+        }
+        destination = path.join(parent.target, path.posix.basename(destinationPath));
+    }
+    if (policy.operation !== "delete" &&
+        !isWithin(resolved.realRoot, destination)) {
+        throw new ActionExecutionError("Destination escaped the configured root.");
+    }
+    if (destination === resolved.target) {
+        throw new ActionExecutionError("Destination is the same as the source.");
+    }
+    // Never clobber: a move or rename onto an existing path is refused outright.
+    try {
+        await lstat(destination);
+        throw new ActionExecutionError(`Destination already exists: ${path.basename(destination)}`);
+    }
+    catch (error) {
+        if (error instanceof ActionExecutionError)
+            throw error;
+        if (error.code !== "ENOENT")
+            throw error;
+    }
+    try {
+        await rename(resolved.target, destination);
+    }
+    catch (error) {
+        const code = error.code;
+        throw new ActionExecutionError(code === "EXDEV"
+            ? "Source and destination are on different volumes; refusing to copy rather than move."
+            : `Filesystem mutation failed${code ? ` (${code})` : ""}.`, code === "EBUSY" || code === "EINTR");
+    }
+    const undo = policy.operation === "delete"
+        ? {
+            operation: "restore_from_trash",
+            from: destination,
+            to: resolved.target,
+            description: `Move ${destination} back to ${resolved.target} to undo this delete.`,
+            root,
+            relativePath,
+        }
+        : {
+            operation: policy.operation,
+            from: destination,
+            to: resolved.target,
+            description: `Move ${destination} back to ${resolved.target} to undo this ${policy.operation}.`,
+            root,
+            relativePath,
+        };
+    return {
+        mode: policy.operation === "delete" ? "trashed" : "moved",
+        idempotencyKey,
+        target: destination,
+        output: {
+            operation: policy.operation,
+            root,
+            relativePath,
+            from: resolved.target,
+            to: destination,
+            entryType: stats.isDirectory() ? "directory" : "file",
+            inode: stats.ino,
+            ...(policy.operation === "delete" ? { trashPath: destination } : {}),
+        },
+        undo,
+    };
+}
 async function observe(policy, step, context) {
     const relativePath = step.arguments[policy.relativePathArgument];
     if (typeof relativePath !== "string") {
@@ -591,6 +1277,15 @@ export async function executeAction(definition, step, context) {
         }
         return controlApplication(definition.execution.operation, application, idempotencyKey);
     }
+    if (definition.execution.kind === "browser_control") {
+        return controlBrowser(definition.execution, step, context, idempotencyKey);
+    }
+    if (definition.execution.kind === "media_control") {
+        return controlMedia(definition.execution, step, idempotencyKey);
+    }
+    if (definition.execution.kind === "file_mutate") {
+        return mutateFilesystemEntry(definition.execution, step, context, idempotencyKey);
+    }
     if (definition.execution.kind === "create_only_text") {
         return createOnlyText(definition.execution, step, context);
     }
@@ -607,8 +1302,162 @@ export async function executeAction(definition, step, context) {
         }
         return createDirectory(definition.execution.root, relativePath, context, step);
     }
+    if (!isObservationPolicy(definition.execution)) {
+        throw new ActionExecutionError("No executor is installed for this action.");
+    }
     const observation = await observe(definition.execution, step, context);
     return { mode: "observed", idempotencyKey, ...observation };
+}
+function outputField(output, key) {
+    return output !== null && typeof output === "object"
+        ? output[key]
+        : undefined;
+}
+/**
+ * Browser verification re-observes the browser through a second AppleScript
+ * round trip rather than trusting the command's own return value.
+ */
+async function verifyBrowser(policy, step, execution, context) {
+    const browser = await resolveBrowser(policy, step, context);
+    const maxTabs = policy.maxTabs ?? 200;
+    if (policy.operation === "open_url") {
+        const requested = outputField(execution.output, "url");
+        if (typeof requested !== "string")
+            return { observed: false };
+        const tabs = await listBrowserTabs(browser, maxTabs);
+        const match = tabs.find((tab) => urlsAgree(requested, tab.url));
+        return {
+            observed: match !== undefined,
+            evidence: `${browser.name}:${match?.url ?? "not_found"}`,
+        };
+    }
+    if (policy.operation === "new_tab" || policy.operation === "close_tab") {
+        const before = outputField(execution.output, "tabCountBefore");
+        const after = (await listBrowserTabs(browser, maxTabs)).length;
+        if (typeof before !== "number")
+            return { observed: false };
+        return {
+            observed: policy.operation === "new_tab" ? after > before : after < before,
+            evidence: `${browser.name}:tabs ${before}->${after}`,
+        };
+    }
+    if (policy.operation === "switch_tab") {
+        const expected = outputField(execution.output, "selectedUrl");
+        const current = activeTab(await listBrowserTabs(browser, maxTabs));
+        return {
+            observed: typeof expected === "string" &&
+                current !== undefined &&
+                current.url === expected,
+            evidence: `${browser.name}:${current?.url ?? "no_active_tab"}`,
+        };
+    }
+    if (policy.operation === "read_page") {
+        // Confirm the text that was captured really belongs to the tab the ledger
+        // names, without pulling the page contents a second time.
+        const expected = outputField(execution.output, "url");
+        const current = activeTab(await listBrowserTabs(browser, maxTabs));
+        const digest = outputField(execution.output, "textSha256");
+        return {
+            observed: typeof expected === "string" &&
+                current !== undefined &&
+                current.url === expected,
+            evidence: `${browser.name}:${current?.url ?? "no_active_tab"}:${typeof digest === "string" ? `sha256:${digest}` : "no_text"}`,
+        };
+    }
+    // list_tabs: re-list and compare the observed set.
+    const tabs = await listBrowserTabs(browser, maxTabs);
+    const expectedHash = hash(outputField(execution.output, "tabs"));
+    const observedHash = hash(tabs);
+    return {
+        observed: expectedHash === observedHash,
+        evidence: `${browser.name}:sha256:${observedHash}`,
+    };
+}
+async function verifyMedia(policy, step, execution) {
+    if (policy.operation === "volume_set") {
+        const requested = outputField(execution.output, "level");
+        const settings = await volumeSettings();
+        if (typeof requested !== "number" || !Number.isFinite(settings.level)) {
+            return { observed: false, evidence: "volume_unreadable" };
+        }
+        // macOS quantises output volume into sixteenths, so an exact match is not
+        // available; anything within one step counts as observed.
+        return {
+            observed: Math.abs(settings.level - requested) <= 4,
+            evidence: `output_volume:${settings.level}`,
+        };
+    }
+    if (policy.operation === "volume_mute" || policy.operation === "volume_unmute") {
+        const settings = await volumeSettings();
+        return {
+            observed: policy.operation === "volume_mute" ? settings.muted : !settings.muted,
+            evidence: `output_muted:${settings.muted}`,
+        };
+    }
+    if (policy.operation === "display_sleep") {
+        // The post-sleep display power state is not readable on every Mac (notably
+        // Apple Silicon, where IODisplayWrangler is absent), so this records that
+        // the command was accepted and says so rather than pretending to observe.
+        try {
+            const { stdout } = await execFileAsync("/usr/bin/pmset", ["-g", "powerstate", "IODisplayWrangler"], { timeout: 5000 });
+            const state = /IODisplayWrangler\s+(\d+)/.exec(stdout)?.[1];
+            if (state !== undefined) {
+                return {
+                    observed: Number.parseInt(state, 10) <= 3,
+                    evidence: `display_power_state:${state}`,
+                };
+            }
+        }
+        catch {
+            /* fall through to the accepted-command evidence */
+        }
+        return {
+            observed: true,
+            evidence: "display_sleep_command_accepted:power_state_unverifiable",
+        };
+    }
+    const player = await runningPlayer(policy, step);
+    const after = await playerSnapshot(player);
+    const previousState = outputField(execution.output, "previousState");
+    const previousTrackId = outputField(execution.output, "previousTrackId");
+    if (policy.operation === "play_pause") {
+        return {
+            observed: typeof previousState === "string" &&
+                previousState !== "unknown" &&
+                after.state !== "unknown" &&
+                after.state !== previousState,
+            evidence: `${player.name}:${previousState}->${after.state}`,
+        };
+    }
+    // next/previous: either the track changed, or the player restarted the
+    // current one, which is what "previous" does a few seconds into a track.
+    const changed = typeof previousTrackId === "string" &&
+        previousTrackId.length > 0 &&
+        after.trackId !== previousTrackId;
+    return {
+        observed: changed || after.position <= 3,
+        evidence: `${player.name}:track ${String(previousTrackId)}->${after.trackId}@${after.position}`,
+    };
+}
+/**
+ * A move, rename, or trash is verified by inode: the source must be gone and
+ * the destination must be the very same filesystem object that was moved.
+ */
+async function verifyFileMutation(execution) {
+    const from = outputField(execution.output, "from");
+    const to = outputField(execution.output, "to");
+    const inode = outputField(execution.output, "inode");
+    if (typeof from !== "string" || typeof to !== "string") {
+        return { observed: false };
+    }
+    const sourceGone = await lstat(from).then(() => false, (error) => error.code === "ENOENT");
+    const destination = await lstat(to).catch(() => undefined);
+    return {
+        observed: sourceGone &&
+            destination !== undefined &&
+            (typeof inode !== "number" || destination.ino === inode),
+        evidence: `${to}:ino=${destination?.ino ?? "absent"}:source_gone=${sourceGone}`,
+    };
 }
 /** The result hash the executor committed, as recorded in the execution output. */
 function committedResultHash(output) {
@@ -634,6 +1483,15 @@ export async function verifyAction(definition, step, execution, context) {
             observed: definition.execution.operation === "open" ? running : !running,
             evidence: `${target.bundleId}:${running ? "running" : "not_running"}`,
         };
+    }
+    if (definition.execution.kind === "browser_control") {
+        return verifyBrowser(definition.execution, step, execution, context);
+    }
+    if (definition.execution.kind === "media_control") {
+        return verifyMedia(definition.execution, step, execution);
+    }
+    if (definition.execution.kind === "file_mutate") {
+        return verifyFileMutation(execution);
     }
     if (definition.execution.kind === "create_only_text" && execution.target) {
         const expected = createRequest(definition.execution, step).content;
@@ -667,10 +1525,7 @@ export async function verifyAction(definition, step, execution, context) {
             evidence: execution.target,
         };
     }
-    if (definition.execution.kind !== "create_only_text" &&
-        definition.execution.kind !== "mutate_text" &&
-        definition.execution.kind !== "mutate_file" &&
-        definition.execution.kind !== "create_directory" &&
+    if (isObservationPolicy(definition.execution) &&
         execution.output !== undefined) {
         const independentlyObserved = await observe(definition.execution, step, context);
         const expectedHash = hash(execution.output);

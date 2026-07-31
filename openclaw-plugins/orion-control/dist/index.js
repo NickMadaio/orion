@@ -60,6 +60,27 @@ const ConfigSchema = Type.Object({
     enableAppControlActions: Type.Optional(Type.Boolean({
         description: "Enable opening or gracefully quitting an explicitly named installed app.",
     })),
+    enableBrowserControlActions: Type.Optional(Type.Boolean({
+        description: "Enable AppleScript browser control: open an http/https URL in a new tab, open/close/switch tabs, list tabs, and read the active tab's visible text. Default off.",
+    })),
+    browserPreference: Type.Optional(Type.String({
+        description: "Browser to drive: Opera Air, Opera, Safari, or Google Chrome. Default: whichever supported browser is running, else the system default browser.",
+    })),
+    enableMediaControlActions: Type.Optional(Type.Boolean({
+        description: "Enable play/pause, next/previous track, output volume, mute/unmute, and display sleep. Never system sleep, restart, shutdown, or logout. Default off.",
+    })),
+    enableHomeReadActions: Type.Optional(Type.Boolean({
+        description: "Enable READ-ONLY listing, metadata, and plain-text reads inside the home directory. Dotfiles, credential-shaped names, keychains, cookies, symlinks, and anything outside $HOME stay refused. Never grants any home write. Default off.",
+    })),
+    homeRoot: Type.Optional(Type.String({
+        description: "Home directory used by home_read actions. Defaults to the OS home directory.",
+    })),
+    enableFileMutateActions: Type.Optional(Type.Boolean({
+        description: "Enable move, rename, and delete-to-Trash inside configured mutable roots. Requires the consequential_local permission profile as well. Default off.",
+    })),
+    trashRoot: Type.Optional(Type.String({
+        description: "Trash directory used by file_delete. Defaults to ~/.Trash so deletes stay recoverable from Finder.",
+    })),
     desktopRoot: Type.Optional(Type.String()),
     trustAllowPromptSource: Type.Optional(Type.Boolean({
         description: "Accept the host-assembled turn prompt (llm_input) as an authenticated user turn when no raw channel message is available. Default true.",
@@ -105,10 +126,24 @@ function defaultPermissionAuditPath(configured) {
         ? path.resolve(configured)
         : path.resolve(".orion-control", "permission-audit.jsonl");
 }
+function defaultHomeRoot(configured) {
+    return configured ? path.resolve(configured) : os.homedir();
+}
+function defaultTrashRoot(configured) {
+    return configured ? path.resolve(configured) : path.join(os.homedir(), ".Trash");
+}
 function configuredTiers(config) {
     const tiers = new Set(["simulation"]);
     if (config.enableAppControlActions === true)
         tiers.add("app_control");
+    if (config.enableBrowserControlActions === true)
+        tiers.add("browser_control");
+    if (config.enableMediaControlActions === true)
+        tiers.add("media_control");
+    if (config.enableHomeReadActions === true)
+        tiers.add("home_read");
+    if (config.enableFileMutateActions === true)
+        tiers.add("file_mutate");
     if (config.enableTestWorkspaceActions === true)
         tiers.add("test_workspace");
     if (config.enableScratchWorkspaceActions === true)

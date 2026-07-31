@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   ACTION_CATALOG,
+  type ActionDefinition,
   type CapabilityTier,
 } from "./catalog.js";
 import type {
@@ -240,6 +241,62 @@ const OPERATION_SYNONYMS: Record<string, readonly string[]> = {
   ],
   open: ["open", "launch", "start", "run"],
   quit: ["quit", "close", "exit", "stop"],
+  // Reads. Widening the map is not widening the mechanism: the target check is
+  // unchanged and still does the real work.
+  read: [
+    "read", "show", "view", "display", "see", "look", "open", "check", "print",
+    "tell", "summarize", "summarise", "what",
+  ],
+  list: [
+    "list", "ls", "show", "see", "what", "inside", "contents", "browse",
+    "look", "display", "enumerate", "which",
+  ],
+  metadata: [
+    "metadata", "info", "details", "size", "modified", "stat", "when", "how",
+    "check", "about", "look", "big", "old",
+  ],
+  // Browser.
+  open_url: [
+    "open", "go", "visit", "browse", "load", "navigate", "launch", "pull",
+    "show", "bring", "take",
+  ],
+  new_tab: ["new", "open", "tab", "add", "create", "make", "start", "blank"],
+  close_tab: ["close", "shut", "dismiss", "kill", "quit", "drop"],
+  list_tabs: [
+    "list", "what", "which", "show", "tabs", "see", "tell", "check", "open",
+  ],
+  switch_tab: [
+    "switch", "go", "change", "select", "focus", "jump", "flip", "move",
+    "show", "activate", "back",
+  ],
+  read_page: [
+    "read", "show", "summarize", "summarise", "what", "extract", "grab",
+    "get", "tell", "see", "check", "look", "scrape", "page",
+  ],
+  // Media.
+  play_pause: ["play", "pause", "resume", "unpause", "stop", "toggle", "hold"],
+  next_track: ["next", "skip", "forward", "advance", "another"],
+  previous_track: [
+    "previous", "prev", "back", "backward", "restart", "replay", "last",
+    "again",
+  ],
+  volume_set: [
+    "volume", "set", "turn", "make", "change", "adjust", "loud", "louder",
+    "quiet", "quieter", "down", "up", "lower", "raise",
+  ],
+  volume_mute: ["mute", "silence", "quiet", "shush", "off", "kill"],
+  volume_unmute: ["unmute", "unsilence", "sound", "audio", "on", "back", "restore"],
+  display_sleep: [
+    "sleep", "off", "dim", "blank", "screen", "display", "lock", "turn",
+    "asleep",
+  ],
+  // Destructive file mutations.
+  move: ["move", "relocate", "put", "shift", "transfer", "drag", "file", "stick"],
+  rename: ["rename", "name", "call", "retitle", "relabel", "change"],
+  delete: [
+    "delete", "remove", "trash", "bin", "discard", "erase", "chuck", "toss",
+    "junk", "ditch", "scrap",
+  ],
 };
 
 export function instructionNamesOperation(
@@ -253,6 +310,171 @@ export function instructionNamesOperation(
     operation.toLowerCase(),
   ];
   return wanted.some((verb) => words.has(verb));
+}
+
+/** Did the user's own sentence use any of these words? */
+export function instructionMentionsAny(
+  content: string,
+  words: readonly string[],
+): boolean {
+  const tokens = new Set(content.toLowerCase().match(/[a-z]+/g) ?? []);
+  return words.some((word) => tokens.has(word.toLowerCase()));
+}
+
+/**
+ * Did the user point at this site?
+ *
+ * The instruction must contain the URL, its host, or the registrable label of
+ * that host ("github" for github.com). A URL that appears only inside page
+ * content or a quoted observation is not in the user's turn at all, so it
+ * cannot send the browser somewhere new — which is the property that matters
+ * for exfiltration.
+ */
+export function instructionAuthorizesUrl(
+  content: string,
+  rawUrl: string,
+): boolean {
+  const haystack = content.toLowerCase();
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (haystack.includes(rawUrl.toLowerCase())) return true;
+  const host = parsed.hostname.toLowerCase();
+  if (host.length > 0 && haystack.includes(host)) return true;
+  const bare = host.replace(/^www\./, "");
+  if (bare.length > 0 && haystack.includes(bare)) return true;
+  const labels = bare.split(".").filter(Boolean);
+  const registrable = labels.length >= 2 ? labels[labels.length - 2] : labels[0];
+  if (registrable === undefined || registrable.length < 3) return false;
+  return new RegExp(`\\b${registrable.replace(/[^a-z0-9]/g, "")}\\b`).test(
+    haystack,
+  );
+}
+
+export function instructionAuthorizesTabSelector(
+  content: string,
+  selector: unknown,
+): boolean {
+  if (typeof selector === "number") {
+    return new RegExp(`(?:^|[^0-9])${selector}(?:[^0-9]|$)`).test(content);
+  }
+  if (typeof selector !== "string") return false;
+  const needle = selector.trim().toLowerCase();
+  return needle.length > 0 && content.toLowerCase().includes(needle);
+}
+
+/** Words that show the user is talking about a browser at all. */
+const BROWSER_NOUNS = [
+  "tab", "tabs", "browser", "page", "pages", "window", "site", "website",
+  "url", "link", "web", "opera", "safari", "chrome", "chromium",
+];
+
+interface DirectAuthorization {
+  operation: string;
+  authorizes: (content: string) => boolean;
+}
+
+/**
+ * What a direct trusted_user instruction has to say for this action to run.
+ *
+ * Returning `undefined` fails closed: an action whose arguments are not in an
+ * authorizable shape is never authorized.
+ */
+function directAuthorization(
+  definition: ActionDefinition,
+  step: TaskStep,
+): DirectAuthorization | undefined {
+  const policy = definition.execution;
+
+  if (policy.kind === "app_control") {
+    const application = step.arguments[policy.applicationArgument];
+    if (typeof application !== "string") return undefined;
+    return {
+      operation: policy.operation,
+      authorizes: (content) =>
+        instructionAuthorizesTarget(content, application) &&
+        instructionNamesOperation(content, policy.operation),
+    };
+  }
+
+  if (policy.kind === "browser_control") {
+    if (policy.operation === "open_url") {
+      const url = step.arguments[policy.urlArgument ?? "url"];
+      if (typeof url !== "string") return undefined;
+      return {
+        operation: policy.operation,
+        authorizes: (content) =>
+          instructionAuthorizesUrl(content, url) &&
+          instructionNamesOperation(content, policy.operation),
+      };
+    }
+    if (policy.operation === "switch_tab") {
+      const selector = step.arguments[policy.selectorArgument ?? "tab"];
+      return {
+        operation: policy.operation,
+        authorizes: (content) =>
+          instructionAuthorizesTabSelector(content, selector) &&
+          instructionNamesOperation(content, policy.operation),
+      };
+    }
+    return {
+      operation: policy.operation,
+      authorizes: (content) =>
+        instructionMentionsAny(content, BROWSER_NOUNS) &&
+        instructionNamesOperation(content, policy.operation),
+    };
+  }
+
+  if (policy.kind === "media_control") {
+    return {
+      operation: policy.operation,
+      authorizes: (content) =>
+        instructionMentionsAny(content, policy.targetWords) &&
+        instructionNamesOperation(content, policy.operation),
+    };
+  }
+
+  if (policy.kind === "file_mutate") {
+    const relativePath = step.arguments[policy.relativePathArgument];
+    if (typeof relativePath !== "string") return undefined;
+    return {
+      operation: policy.operation,
+      // Destructive tier: the loose "you named the place" allowance does not
+      // apply. Every segment of the target must appear in the user's own words.
+      authorizes: (content) =>
+        instructionNamesTarget(content, relativePath) &&
+        instructionNamesOperation(content, policy.operation),
+    };
+  }
+
+  if (!("relativePathArgument" in policy)) return undefined;
+  const relativePath = step.arguments[policy.relativePathArgument];
+  const operation =
+    policy.kind === "create_directory"
+      ? "create"
+      : policy.kind === "mutate_text"
+        ? policy.operation
+        : policy.kind === "mutate_file"
+          ? step.arguments[policy.operationArgument]
+          : policy.kind === "list_directory"
+            ? "list"
+            : policy.kind === "path_metadata"
+              ? "metadata"
+              : policy.kind === "read_text"
+                ? "read"
+                : undefined;
+  if (typeof relativePath !== "string" || typeof operation !== "string") {
+    return undefined;
+  }
+  return {
+    operation,
+    authorizes: (content) =>
+      instructionAuthorizesTarget(content, relativePath) &&
+      instructionNamesOperation(content, operation),
+  };
 }
 
 export function validateTaskGraph(
@@ -380,36 +602,17 @@ export function validateTaskGraph(
       });
     }
     if (definition.directUserAuthorizationRequired) {
-      const relativePath =
-        definition.execution.kind === "app_control"
-          ? step.arguments[definition.execution.applicationArgument]
-          : "relativePathArgument" in definition.execution
-          ? step.arguments[definition.execution.relativePathArgument]
-          : undefined;
-      const operation =
-        definition.execution.kind === "app_control"
-          ? definition.execution.operation
-          : definition.execution.kind === "create_directory"
-          ? "create"
-          : definition.execution.kind === "mutate_text"
-            ? definition.execution.operation
-            : definition.execution.kind === "mutate_file"
-              ? step.arguments[definition.execution.operationArgument]
-              : undefined;
+      const requirement = directAuthorization(definition, step);
       const authorized = sources.some((source) => {
         if (
           source?.kind !== "instruction" ||
           source.trust !== "trusted_user" ||
           typeof source.content !== "string" ||
-          typeof relativePath !== "string" ||
-          typeof operation !== "string"
+          requirement === undefined
         ) {
           return false;
         }
-        return (
-          instructionAuthorizesTarget(source.content, relativePath) &&
-          instructionNamesOperation(source.content, operation)
-        );
+        return requirement.authorizes(source.content);
       });
       if (!authorized) {
         issues.push({

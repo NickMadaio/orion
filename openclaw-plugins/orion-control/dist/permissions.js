@@ -9,52 +9,32 @@ export const PERMISSION_PROFILES = [
     "consequential_local",
     "external_connected",
 ];
+/**
+ * Reading, browsing, and media sit at `approved_root_edit`. The destructive
+ * `file_mutate` tier deliberately does NOT: move, rename, and delete require
+ * raising the profile to `consequential_local` on purpose, even though they
+ * were explicitly asked for.
+ */
+const EDIT_TIERS = [
+    "simulation",
+    "app_control",
+    "browser_control",
+    "media_control",
+    "desktop_read",
+    "home_read",
+    "test_workspace",
+    "scratch_workspace",
+    "desktop_test_workspace",
+    "desktop_modify",
+    "desktop_direct_write",
+    "scratch_direct_write",
+];
 const PROFILE_TIERS = {
     restricted_read_only: new Set(["simulation", "desktop_read"]),
-    approved_root_edit: new Set([
-        "simulation",
-        "app_control",
-        "desktop_read",
-        "test_workspace",
-        "scratch_workspace",
-        "desktop_test_workspace",
-        "desktop_modify",
-        "desktop_direct_write",
-        "scratch_direct_write",
-    ]),
-    broad_local_filesystem: new Set([
-        "simulation",
-        "app_control",
-        "desktop_read",
-        "test_workspace",
-        "scratch_workspace",
-        "desktop_test_workspace",
-        "desktop_modify",
-        "desktop_direct_write",
-        "scratch_direct_write",
-    ]),
-    consequential_local: new Set([
-        "simulation",
-        "app_control",
-        "desktop_read",
-        "test_workspace",
-        "scratch_workspace",
-        "desktop_test_workspace",
-        "desktop_modify",
-        "desktop_direct_write",
-        "scratch_direct_write",
-    ]),
-    external_connected: new Set([
-        "simulation",
-        "app_control",
-        "desktop_read",
-        "test_workspace",
-        "scratch_workspace",
-        "desktop_test_workspace",
-        "desktop_modify",
-        "desktop_direct_write",
-        "scratch_direct_write",
-    ]),
+    approved_root_edit: new Set(EDIT_TIERS),
+    broad_local_filesystem: new Set(EDIT_TIERS),
+    consequential_local: new Set([...EDIT_TIERS, "file_mutate"]),
+    external_connected: new Set([...EDIT_TIERS, "file_mutate"]),
 };
 export const PROFILE_MATRIX = {
     restricted_read_only: {
@@ -62,20 +42,20 @@ export const PROFILE_MATRIX = {
         separatelyGated: "All writes, delete, move/rename, bulk operations, permissions, external/account actions, credentials, communications, browser/web/network, and elevated macOS control.",
     },
     approved_root_edit: {
-        enabled: "Direct-user-authorized create/update within configured approved roots, plus opening or gracefully quitting an explicitly named installed app, with target and audit guards.",
-        separatelyGated: "Delete, move/rename, bulk operations, permissions, external/account actions, credentials, communications, browser/web/network, and elevated macOS control.",
+        enabled: "Direct-user-authorized create/update within configured approved roots; opening or gracefully quitting an explicitly named installed app; when separately enabled in config, http/https browser tab control and page reads, media and volume control, and read-only listing/metadata/text reads inside the home directory.",
+        separatelyGated: "Delete, move/rename, bulk operations, any home-directory write, permissions, external/account actions, credentials, communications, network requests outside a browser tab, and elevated macOS control.",
     },
     broad_local_filesystem: {
-        enabled: "Only catalog actions for separately configured local roots; selecting this profile does not create new roots or broad home-directory authority.",
-        separatelyGated: "Each new root, delete, move/rename, bulk operations, permissions, external/account actions, credentials, communications, browser/web/network, and elevated macOS control.",
+        enabled: "Only catalog actions for separately configured local roots, plus everything approved_root_edit allows; selecting this profile does not create new roots or grant home-directory writes.",
+        separatelyGated: "Each new root, delete, move/rename, bulk operations, permissions, external/account actions, credentials, communications, network requests outside a browser tab, and elevated macOS control.",
     },
     consequential_local: {
-        enabled: "Only installed consequential-local catalog actions with their own canonical confirmation; none are currently installed.",
-        separatelyGated: "Every consequential action, OS permission, external/account action, credential, communication, browser/web/network, and elevated macOS control.",
+        enabled: "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation.",
+        separatelyGated: "Permanent deletion, mutations outside configured roots or anywhere in the home directory, bulk operations, OS permissions, external/account actions, credentials, communications, and elevated macOS control.",
     },
     external_connected: {
         enabled: "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.",
-        separatelyGated: "Credentials, account connections, every delivery/communication, browser/web/network use, destructive actions, OS permissions, and elevated macOS control.",
+        separatelyGated: "Credentials, account connections, every delivery/communication, network use outside a browser tab, permanent deletion, OS permissions, and elevated macOS control.",
     },
 };
 function stable(value) {

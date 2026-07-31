@@ -61,6 +61,20 @@ export interface ValidationResult {
     executionOrder: string[];
     planHash: string;
 }
+/**
+ * The exact inverse of a mutation, recorded in the ledger so a move, rename, or
+ * trash can be undone by hand from the audit trail alone. `from` is where the
+ * thing is now (for a delete, its resulting Trash path); `to` is where it came
+ * from. Both are absolute.
+ */
+export interface UndoRecord {
+    operation: "move" | "rename" | "restore_from_trash";
+    from: string;
+    to: string;
+    description: string;
+    root?: string;
+    relativePath?: string;
+}
 export interface StepRecord {
     stepId: string;
     status: "verified" | "failed_permanent";
@@ -72,10 +86,12 @@ export interface StepRecord {
         sourceRefs: string[];
     };
     execution: {
-        mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "failed";
+        mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "moved" | "trashed" | "failed";
         target?: string;
         output?: unknown;
     };
+    /** Present for every file mutation: the exact reverse operation. */
+    undo?: UndoRecord;
     verification: {
         method: string;
         observed: boolean;

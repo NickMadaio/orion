@@ -54,4 +54,17 @@ export declare function instructionNamesTarget(content: string, relativePath: st
  */
 export declare function instructionAuthorizesTarget(content: string, relativePath: string): boolean;
 export declare function instructionNamesOperation(content: string, operation: string): boolean;
+/** Did the user's own sentence use any of these words? */
+export declare function instructionMentionsAny(content: string, words: readonly string[]): boolean;
+/**
+ * Did the user point at this site?
+ *
+ * The instruction must contain the URL, its host, or the registrable label of
+ * that host ("github" for github.com). A URL that appears only inside page
+ * content or a quoted observation is not in the user's turn at all, so it
+ * cannot send the browser somewhere new — which is the property that matters
+ * for exfiltration.
+ */
+export declare function instructionAuthorizesUrl(content: string, rawUrl: string): boolean;
+export declare function instructionAuthorizesTabSelector(content: string, selector: unknown): boolean;
 export declare function validateTaskGraph(graph: TaskGraph, options?: ValidationOptions): ValidationResult;

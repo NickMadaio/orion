@@ -6,6 +6,12 @@ export interface RunOptions {
     testWorkspaceRoot?: string;
     scratchWorkspaceRoot?: string;
     desktopRoot?: string;
+    /** Read-only root for the `home_read` tier. */
+    homeRoot?: string;
+    /** Overridable for tests; defaults to the user's ~/.Trash. */
+    trashRoot?: string;
+    /** Configured browser for the `browser_control` tier. */
+    browserPreference?: string;
     enabledTiers?: ReadonlySet<CapabilityTier>;
     /** Harness-derived trust provenance recorded on the durable run record. */
     authorization?: TrustProvenance;

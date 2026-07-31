@@ -39,6 +39,15 @@ export async function runTaskGraph(graph, options) {
         return finish();
     const simulatedState = new Map();
     const writeMemo = new Map();
+    // The authenticated user text, passed to executors that need it to add a
+    // refusal (never to grant one). Authorization has already been decided by
+    // `validateTaskGraph` before any of this runs.
+    const trustedInstruction = graph.inputs
+        .filter((input) => input.kind === "instruction" &&
+        input.trust === "trusted_user" &&
+        typeof input.content === "string")
+        .map((input) => input.content)
+        .join("\n");
     const stepById = new Map(graph.steps.map((step) => [step.id, step]));
     for (const stepId of validation.executionOrder) {
         const step = stepById.get(stepId);
@@ -51,10 +60,17 @@ export async function runTaskGraph(graph, options) {
                     path.resolve(".orion-control", "scratch-workspace"),
                 desktop: options.desktopRoot ??
                     path.resolve(".orion-control", "disabled-desktop"),
+                home: options.homeRoot ??
+                    path.resolve(".orion-control", "disabled-home"),
             },
             workingContext: graph.workingContext,
             simulatedState,
             writeMemo,
+            ...(trustedInstruction ? { trustedInstruction } : {}),
+            ...(options.trashRoot ? { trashRoot: options.trashRoot } : {}),
+            ...(options.browserPreference
+                ? { browserPreference: options.browserPreference }
+                : {}),
         };
         let lastError = "Action failed without a diagnostic.";
         let stepStatus;
@@ -84,6 +100,9 @@ export async function runTaskGraph(graph, options) {
                             ? { output: execution.output }
                             : {}),
                     },
+                    // The exact inverse, so the ledger alone is enough to undo a move,
+                    // rename, or trash by hand.
+                    ...(execution.undo ? { undo: execution.undo } : {}),
                     verification: {
                         method: step.verify,
                         observed: verification.observed,

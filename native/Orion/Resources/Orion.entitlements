@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Required because the bundle is signed with the hardened runtime.
+
+    Under the hardened runtime an Info.plist usage string is NOT enough: the
+    binary must also be entitled to reach the device, or macOS denies the
+    request outright. No prompt appears, no TCC row is created, and
+    AVCaptureDevice.authorizationStatus reports .denied for a permission the
+    user was never asked about. That is exactly what happened here, and it
+    began the moment the hardened runtime was switched on alongside the new
+    signing identity.
+  -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
+  <!--
+    Orion shells out to the openclaw CLI for every agent turn. The hardened
+    runtime restricts a signed process from loading or spawning code signed by
+    a different authority without these.
+  -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

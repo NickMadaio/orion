@@ -58,9 +58,17 @@ identity_hash="$(security find-identity -v -p codesigning 2>/dev/null \
                  | grep "$identity" | tail -1 | awk '{print $2}')"
 
 if [[ -n "$identity_hash" ]]; then
+  # `--options runtime` (hardened runtime) requires entitlements for device
+  # access. Without com.apple.security.device.audio-input the microphone is
+  # denied outright — no prompt, no row in System Settings, and
+  # authorizationStatus reports .denied for something the user was never asked.
+  # Turning the hardened runtime on without the entitlements is what broke
+  # push-to-talk after the signing change.
   codesign --force --sign "$identity_hash" --identifier com.nickmadaio.orion.app \
-           --options runtime "$bundle"
-  signed="stable identity ($identity, ${identity_hash:0:8}…) — permissions survive rebuilds"
+           --options runtime \
+           --entitlements Resources/Orion.entitlements \
+           "$bundle"
+  signed="stable identity ($identity, ${identity_hash:0:8}…) + entitlements"
 else
   codesign --force --sign - --identifier com.nickmadaio.orion.app "$bundle"
   signed="AD-HOC — macOS will treat the next rebuild as a different app"

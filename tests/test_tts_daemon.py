@@ -1375,6 +1375,13 @@ class FakeResponse:
 def eleven_config(**overrides) -> daemon.Config:
     config = make_config(sample_rate=24000, **overrides)
     config.eleven_api_key = "test-key-not-a-real-credential"
+    # Pin every setting the assertions depend on.
+    #
+    # `_env` falls back to the dotenv file for ORION_* keys, which is right for
+    # the daemon and wrong for a test: this suite started failing the moment a
+    # real ORION_ELEVEN_MODEL was written to ~/Desktop/ORION/.env. A unit test
+    # that reads the developer's live configuration is not testing anything.
+    config.eleven_model = "eleven_flash_v2_5"
     config.eleven_first_segment_ms = 50
     config.eleven_segment_ms = 100
     config.eleven_stall_s = 0.4

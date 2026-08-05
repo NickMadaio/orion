@@ -80,9 +80,14 @@ final class OAuthFlow: NSObject {
             URLQueryItem(name: "redirect_uri", value: redirect),
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "code_challenge", value: challenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
+        // Instagram's authorize endpoint rejects the PKCE parameters outright
+        // rather than ignoring them, so it is the one flow that goes without.
+        // Everything else gets it whether or not the provider asks.
+        if connector != .instagram {
+            items.append(URLQueryItem(name: "code_challenge", value: challenge))
+            items.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+        }
         if !scopes.isEmpty {
             items.append(URLQueryItem(name: "scope", value: scopes.joined(separator: " ")))
         }
@@ -215,6 +220,17 @@ final class OAuthFlow: NSObject {
                 completion(.failure(OAuthError.noToken))
                 return
             }
+            // Instagram hands back a one-hour token and a user id, and expects
+            // a second call to trade it for a sixty-day one. Without that the
+            // connection dies within the hour and looks like it never worked.
+            if connector == .instagram {
+                if let userID = json["user_id"] {
+                    SecretStore.set(String(describing: userID),
+                                    connector: connector, field: SecretStore.Field.accountID)
+                }
+                Self.upgradeInstagramToken(accessToken, clientSecret: clientSecret, completion: completion)
+                return
+            }
             SecretStore.set(accessToken, connector: connector, field: SecretStore.Field.accessToken)
             if let refresh = json["refresh_token"] as? String {
                 SecretStore.set(refresh, connector: connector, field: SecretStore.Field.refreshToken)
@@ -222,6 +238,43 @@ final class OAuthFlow: NSObject {
             if let expiresIn = json["expires_in"] as? Double {
                 let expiry = Date().addingTimeInterval(expiresIn).timeIntervalSince1970
                 SecretStore.set(String(expiry), connector: connector, field: SecretStore.Field.expiresAt)
+            }
+            completion(.success(()))
+        }.resume()
+    }
+
+    /// Trade Instagram's one-hour token for the sixty-day one.
+    ///
+    /// Stored either way: a short token that works now beats a failed connect,
+    /// and the expiry recorded below is what tells the UI to reconnect.
+    private static func upgradeInstagramToken(
+        _ shortLived: String,
+        clientSecret: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        func store(_ token: String, seconds: Double) {
+            SecretStore.set(token, connector: .instagram, field: SecretStore.Field.accessToken)
+            SecretStore.set(String(Date().addingTimeInterval(seconds).timeIntervalSince1970),
+                            connector: .instagram, field: SecretStore.Field.expiresAt)
+        }
+        var components = URLComponents(string: "https://graph.instagram.com/access_token")
+        components?.queryItems = [
+            URLQueryItem(name: "grant_type", value: "ig_exchange_token"),
+            URLQueryItem(name: "client_secret", value: clientSecret),
+            URLQueryItem(name: "access_token", value: shortLived),
+        ]
+        guard let url = components?.url else {
+            store(shortLived, seconds: 3600)
+            completion(.success(()))
+            return
+        }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let long = json["access_token"] as? String {
+                store(long, seconds: (json["expires_in"] as? Double) ?? 5_184_000)
+            } else {
+                store(shortLived, seconds: 3600)
             }
             completion(.success(()))
         }.resume()

@@ -102,10 +102,10 @@ struct ConnectorSpec {
             auth: .hostedLink,
             registerURL: "https://dashboard.plaid.com/signup",
             setupSteps: [
-                "Create a Plaid account — Sandbox works immediately with fake data.",
-                "Copy the client_id and the Sandbox secret into the fields here.",
-                "Connect opens Plaid Link, where you pick Chase or Fidelity.",
-                "Production access needs Plaid's approval; Sandbox does not.",
+                "Nothing to do yet — Orion cannot use Plaid credentials at the moment, so registering an app would be wasted effort.",
+                "Plaid does not use a browser redirect like the others. It needs a link token minted from your secret, then its own hosted widget, then a public-token exchange.",
+                "That is a different flow from the OAuth one every other connector here shares, and it has not been written.",
+                "When it is: one Plaid account covers both Chase and Fidelity, Sandbox works immediately with fake data, and it stays read-only.",
             ],
             readOnly: true
         ),
@@ -130,18 +130,27 @@ struct ConnectorSpec {
         ConnectorSpec(
             id: .instagram,
             name: "Instagram",
-            purpose: "Follower count and reel performance.",
+            purpose: "Follower count and reel performance. Needs a Professional (Business or Creator) account.",
+            // "Instagram API with Instagram Login", which replaced Basic Display
+            // when Meta shut that down on 4 December 2024. Different host for
+            // authorize (instagram.com) than for the token exchange
+            // (api.instagram.com) -- they are genuinely different domains, and
+            // it is not a typo.
             auth: .oauth2(
-                authorize: "https://api.instagram.com/oauth/authorize",
+                authorize: "https://www.instagram.com/oauth/authorize",
                 token: "https://api.instagram.com/oauth/access_token",
-                scopes: ["user_profile", "user_media"]
+                // The `instagram_business_*` names replaced the older bare
+                // `business_*` ones in January 2025.
+                scopes: ["instagram_business_basic"]
             ),
             registerURL: "https://developers.facebook.com/apps",
             setupSteps: [
-                "Create a Meta app and add the Instagram Basic Display product.",
-                "Set the redirect URI to exactly: orion://oauth/instagram",
-                "Copy the App ID and App Secret into the fields here.",
-                "Follower counts need a Business account and Meta's app review.",
+                "Your Instagram account must be Professional — in the Instagram app: Settings ▸ Account type ▸ Switch to professional. Personal accounts cannot use this API at all.",
+                "At developers.facebook.com/apps, create an app and pick the Business use case.",
+                "In the app, Add Product ▸ Instagram ▸ set up API with Instagram Login.",
+                "Under Instagram ▸ API setup, set the redirect URI to exactly: orion://oauth/instagram",
+                "Copy the Instagram App ID and Instagram App Secret — the ones on the Instagram product page, NOT the Meta app ID at the top of the dashboard.",
+                "Add yourself under Roles ▸ Instagram Testers, then accept the invite in the Instagram app under Settings ▸ Website permissions.",
             ],
             readOnly: true
         ),
@@ -215,6 +224,12 @@ enum SecretStore {
 // MARK: - State
 
 enum ConnectionState: Equatable {
+    /// The client exists but Orion has no implementation for it yet. Its own
+    /// state rather than a failure, because offering a Connect button that
+    /// always fails wastes the user's time twice: once registering an app they
+    /// cannot use, and again working out whether they did it wrong. They did
+    /// not.
+    case notBuilt(String)
     /// Nothing registered yet.
     case needsCredentials
     /// Client id and secret present, but no grant.
@@ -230,6 +245,7 @@ enum ConnectionState: Equatable {
 
     var label: String {
         switch self {
+        case .notBuilt: return "not built yet"
         case .needsCredentials: return "needs setup"
         case .readyToConnect: return "ready"
         case .connected(let expires):
@@ -259,6 +275,11 @@ final class ConnectionsModel: ObservableObject {
     /// Derived from what is actually in the Keychain, never from a stored flag.
     /// A connector cannot claim to be connected without a token to show for it.
     private func derive(_ id: ConnectorID) -> ConnectionState {
+        // Checked before credentials, so a connector with no implementation
+        // never shows "ready" and never invites a sign-in that cannot work.
+        if case .hostedLink = ConnectorSpec.spec(for: id).auth {
+            return .notBuilt("Plaid Link needs a hosted widget flow, not a browser redirect. Orion does not have it yet.")
+        }
         let hasCredentials = SecretStore.get(connector: id, field: SecretStore.Field.clientID) != nil
             && SecretStore.get(connector: id, field: SecretStore.Field.clientSecret) != nil
         guard hasCredentials else { return .needsCredentials }

@@ -98,6 +98,13 @@ private struct ConnectorCard: View {
                     .foregroundStyle(OrionTheme.ink)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Capsule().fill(OrionTheme.green))
+            case .notBuilt:
+                Button(expanded ? "Hide" : "Why not?") { expanded.toggle() }
+                    .buttonStyle(.plain)
+                    .font(OrionTheme.mono(10, .semibold))
+                    .foregroundStyle(OrionTheme.textDim)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().stroke(OrionTheme.line, lineWidth: 1))
             case .needsCredentials:
                 Button(expanded ? "Hide" : "Set up") { expanded.toggle() }
                     .buttonStyle(.plain)
@@ -150,6 +157,14 @@ private struct ConnectorCard: View {
                 }
             }
 
+            if case .notBuilt(let why) = state {
+                Text(why)
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !isNotBuilt {
             HStack(spacing: 8) {
                 secureField("Client ID", text: $clientID, secure: false)
                 secureField("Client Secret", text: $clientSecret, secure: true)
@@ -173,6 +188,7 @@ private struct ConnectorCard: View {
             Text("Stored in your Keychain, never in the project folder and never in a git diff.")
                 .font(OrionTheme.mono(9))
                 .foregroundStyle(OrionTheme.textDim)
+            }
         }
     }
 
@@ -194,12 +210,17 @@ private struct ConnectorCard: View {
         )
     }
 
+    private var isNotBuilt: Bool {
+        if case .notBuilt = state { return true }
+        return false
+    }
+
     private var dotColor: Color {
         switch state {
         case .connected: return OrionTheme.green
         case .expired, .failed: return OrionTheme.red
         case .readyToConnect: return OrionTheme.orange
-        case .needsCredentials: return OrionTheme.textDim
+        case .needsCredentials, .notBuilt: return OrionTheme.textDim
         }
     }
 

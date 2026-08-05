@@ -306,6 +306,85 @@ else
   print "        no DEEPGRAM_API_KEY — using Apple's on-device recogniser"
 fi
 
+# ---------------------------------------------------------------- voice id
+step "5b. Speaker verification"
+# Optional, and its absence is not a failure: without it the wake word simply
+# answers anyone, exactly as it always has. Lives in its own venv so PyTorch
+# never lands in a Homebrew or system site-packages.
+vid_venv="$HOME/.openclaw/venvs/voiceid"
+vid_py="$vid_venv/bin/python3"
+vid_sock="$HOME/.openclaw/orion-voiceid.sock"
+
+vid_ping() {
+  [[ -x "$vid_py" ]] || return 1
+  "$vid_py" -c "
+import socket,sys
+s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(2)
+try:
+    s.connect('$vid_sock'); s.sendall(b'{\"op\":\"ping\"}\n')
+    sys.exit(0 if s.recv(4096) else 1)
+except Exception: sys.exit(1)" >/dev/null 2>&1
+}
+
+if [[ -x "$vid_py" ]] && "$vid_py" -c 'import resemblyzer' >/dev/null 2>&1; then
+  if vid_ping; then
+    ok "voice daemon running"
+  else
+    nohup "$vid_py" "$repo/scripts/orion_voiceid_daemon.py" \
+      >> "$HOME/.openclaw/logs/orion-voiceid.log" 2>&1 &
+    # Poll rather than sleep: loading the model takes far longer than any
+    # fixed wait, and announcing success before the socket exists is how the
+    # first version of this shipped a lie.
+    vid_ready=0
+    for _ in {1..40}; do
+      sleep 1
+      if vid_ping; then vid_ready=1; break; fi
+    done
+    if (( vid_ready )); then
+      ok "voice daemon started"
+    else
+      warn "voice daemon did not come up — the wake word is unfiltered"
+      print "        Log: ~/.openclaw/logs/orion-voiceid.log"
+    fi
+  fi
+  if [[ -f "$HOME/.openclaw/orion-voiceid.json" ]]; then
+    ok "your voice is enrolled — the wake word is filtered to you"
+  else
+    warn "no voice enrolled yet — the wake word answers anyone"
+    print "        Run:  ./scripts/orion-enroll-voice"
+  fi
+else
+  warn "speaker verification not set up — the wake word is unfiltered"
+  print "        Optional. To enable:  ./scripts/orion-enroll-voice"
+fi
+
+# ------------------------------------------------------------- self-knowledge
+step "6b. Self-knowledge"
+# TOOLS.md is generated, never hand-written. It was wrong for days -- telling
+# Orion he had no shell and no app control after both shipped -- and he believed
+# it and said so out loud. Regenerating here means it cannot lag a deploy.
+if "$HOME/.openclaw/tools/node-v24.15.0/bin/node" "$repo/scripts/orion-selfdoc" 2>/dev/null \
+   || node "$repo/scripts/orion-selfdoc" 2>/dev/null; then
+  ok "TOOLS.md regenerated from the live catalog"
+else
+  warn "could not regenerate TOOLS.md — Orion may describe himself wrongly"
+fi
+
+# --------------------------------------------------------------- daily memory
+step "6c. Daily memory"
+daily_plist="$HOME/Library/LaunchAgents/com.nickmadaio.orion.daily.plist"
+node_bin="$HOME/.openclaw/tools/node-v24.15.0/bin/node"
+[[ -x "$node_bin" ]] || node_bin="${commands[node]:-/usr/bin/env node}"
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.openclaw/logs"
+sed -e "s#__NODE__#$node_bin#" -e "s#__REPO__#$repo#" -e "s#__HOME__#$HOME#" \
+    "$repo/native/launchd/com.nickmadaio.orion.daily.plist" > "$daily_plist"
+launchctl unload "$daily_plist" >/dev/null 2>&1
+if launchctl load "$daily_plist" >/dev/null 2>&1; then
+  ok "end-of-day summary scheduled (00:20, catches up after sleep)"
+else
+  warn "could not schedule the daily summary"
+fi
+
 # ------------------------------------------------------------------ gateway
 step "7. Gateway"
 gw="$("$py" -c "
@@ -314,13 +393,56 @@ try: print(json.load(open('$HOME/.openclaw/openclaw.json'))['gateway']['port'])
 except Exception: print(18789)" 2>/dev/null)"
 [[ -z "$gw" ]] && gw=18789
 
-if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1,s.connect_ex(('127.0.0.1',$gw))))" 2>/dev/null; then
-  ok "listening on 127.0.0.1:$gw"
+gw_alive() {
+  "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1,s.connect_ex(('127.0.0.1',$gw))))" 2>/dev/null
+}
+
+# Is the running gateway older than the plugin it is supposed to be running?
+#
+# The gateway loads plugin code once, at start. So deploying a new build while
+# it is up changes the files on disk and nothing else — and because the port
+# still answers, every check here passes and this script prints green. You
+# double-click, see "listening", and get the OLD behaviour with no hint why.
+#
+# That is the failure mode this whole project keeps re-learning: not a crash,
+# a silent fallback that looks like success. So compare the two ages and say so.
+plugin_is_newer_than_gateway() {
+  local pid entry
+  entry="$HOME/.openclaw/extensions/orion-control/dist/index.js"
+  [[ -f "$entry" ]] || return 1
+  pid="$(lsof -ti "tcp:$gw" -sTCP:LISTEN 2>/dev/null | head -1)"
+  [[ -n "$pid" ]] || return 1
+  # etimes is the process's age in seconds; compare against the build's age.
+  local up
+  up="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [[ -n "$up" ]] || return 1
+  "$py" -c "
+import os, sys, time
+age = time.time() - os.path.getmtime('$entry')
+sys.exit(0 if age < $up else 1)"
+}
+
+if gw_alive; then
+  if plugin_is_newer_than_gateway; then
+    warn "running an older build of orion-control — restarting so it loads"
+    "$HOME/.openclaw/bin/openclaw" daemon stop >/dev/null 2>&1
+    sleep 1
+    "$HOME/.openclaw/bin/openclaw" daemon start >/dev/null 2>&1
+    sleep 3
+    if gw_alive; then
+      ok "restarted on 127.0.0.1:$gw with the current plugin"
+    else
+      bad "gateway did not come back after restart"
+      print "        Try by hand:  ~/.openclaw/bin/openclaw daemon start"
+    fi
+  else
+    ok "listening on 127.0.0.1:$gw"
+  fi
 else
   warn "not running — starting it"
   "$HOME/.openclaw/bin/openclaw" daemon start >/dev/null 2>&1
   sleep 3
-  if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1,s.connect_ex(('127.0.0.1',$gw))))" 2>/dev/null; then
+  if gw_alive; then
     ok "started"
   else
     bad "gateway will not start — Orion cannot think without it"

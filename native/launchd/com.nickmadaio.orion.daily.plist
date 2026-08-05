@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly end-of-day summary.
+
+  RunAtLoad is deliberately true as well as the 00:20 calendar entry: a laptop
+  that was asleep at 00:20 never fires a StartCalendarInterval, and the whole
+  point of the summary is that it exists for every day. Running once at load
+  catches up the previous day on the next wake, and orion-daily is a no-op when
+  the day is already summarised.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.nickmadaio.orion.daily</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>__NODE__</string>
+      <string>__REPO__/scripts/orion-daily</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key><integer>0</integer>
+      <key>Minute</key><integer>20</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.openclaw/logs/orion-daily.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.openclaw/logs/orion-daily.log</string>
+  </dict>
+</plist>

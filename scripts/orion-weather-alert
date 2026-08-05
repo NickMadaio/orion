@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+/* Fetch a concise local forecast and deliver it through Orion's Discord alert. */
+import { execFile, spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const place = process.argv[2] || "Montvale, New Jersey";
+const curl = (url) => new Promise((resolve, reject) => {
+  execFile(
+    "/usr/bin/curl",
+    ["--fail", "--silent", "--show-error", "--max-time", "10", url],
+    { maxBuffer: 512 * 1024 },
+    (error, stdout) => error ? reject(error) : resolve(stdout),
+  );
+});
+
+async function json(url) {
+  return JSON.parse(await curl(url));
+}
+
+const geo = await json(
+  `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&format=json`,
+);
+const hit = geo.results?.[0];
+if (!hit || typeof hit.latitude !== "number" || typeof hit.longitude !== "number") {
+  throw new Error(`could not find ${place}`);
+}
+const forecast = await json(
+  `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}` +
+  "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m" +
+  "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max" +
+  "&forecast_days=3&timezone=auto",
+);
+const conditions = { 0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45: "foggy", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow", 80: "showers", 81: "showers", 82: "heavy showers", 95: "thunderstorms", 96: "thunderstorms with hail", 99: "thunderstorms with heavy hail" };
+const c = forecast.current ?? {};
+const d = forecast.daily ?? {};
+const name = [hit.name, hit.admin1].filter(Boolean).join(", ");
+const toF = (celsius) => Math.round((Number(celsius) * 9) / 5 + 32);
+const day = (index) => `${d.time?.[index] ?? "Upcoming"}: ${toF(d.temperature_2m_min?.[index])}–${toF(d.temperature_2m_max?.[index])}°F, ${conditions[d.weather_code?.[index]] ?? "unsettled"}, ${Math.round(Number(d.precipitation_probability_max?.[index] ?? 0))}% precip.`;
+const message = [
+  `Weather update for ${name}: ${conditions[c.weather_code] ?? "unsettled"}, ${toF(c.temperature_2m)}°F (feels ${toF(c.apparent_temperature)}°F), wind ${Math.round(Number(c.wind_speed_10m ?? 0))} km/h.`,
+  day(0), day(1), day(2),
+].join(" ");
+
+const sender = spawn(process.execPath, [join(root, "scripts/orion-discord-alert"), message], { stdio: "inherit" });
+sender.once("exit", (code) => process.exit(code ?? 1));

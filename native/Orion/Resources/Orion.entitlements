@@ -17,6 +17,18 @@
   <true/>
 
   <!--
+    Apple Reminders, for the task list.
+
+    Same trap as the microphone above, and worth repeating because it cost real
+    hours there: under the hardened runtime the Info.plist usage string alone
+    is not enough. Without this entitlement the request is denied outright —
+    no prompt, no TCC row, and an authorization status that reports "denied"
+    for a permission the user was never actually asked about.
+  -->
+  <key>com.apple.security.personal-information.calendars</key>
+  <true/>
+
+  <!--
     Orion shells out to the openclaw CLI for every agent turn. The hardened
     runtime restricts a signed process from loading or spawning code signed by
     a different authority without these.

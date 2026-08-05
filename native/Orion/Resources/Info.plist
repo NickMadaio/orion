@@ -28,6 +28,10 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Orion listens only while you hold the Right Option key. Your voice is transcribed on this Mac and is never recorded to disk.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Orion turns what you say into text so it can answer you. Transcription runs on this Mac whenever your language supports it, so your speech stays local.</string>
 	<key>CFBundleIconFile</key>

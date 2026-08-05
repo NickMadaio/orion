@@ -18,6 +18,10 @@ struct DashboardView: View {
     @State private var quickOpenEditorVisible = false
     @State private var quickOpenAppPickerVisible = false
     @State private var newFocusTask = ""
+    /// The task list lives in Apple Reminders, not in AppState — see
+    /// AppleRemindersSync for why a task Orion can only show on this Mac is a
+    /// worse to-do list than the one already on your phone.
+    @StateObject private var reminders = AppleRemindersSync()
     @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "blackHole"
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
@@ -46,7 +50,13 @@ struct DashboardView: View {
         }
         .background(OrionTheme.ink)
         .preferredColorScheme(.dark)
-        .onAppear { composerFocused = true }
+        .onAppear {
+            composerFocused = true
+            // Prompts for Reminders access the first time, then keeps the list
+            // live off EKEventStoreChanged.
+            reminders.start()
+        }
+        .onDisappear { reminders.stop() }
         .onChange(of: state.focusComposerToken) { _, _ in composerFocused = true }
         .sheet(isPresented: $quickOpenEditorVisible) { QuickOpenEditor(settings: quickOpen) }
         .sheet(isPresented: $quickOpenAppPickerVisible) {
@@ -145,7 +155,7 @@ struct DashboardView: View {
             DayProgressSurface(progress: dayProgress, title: energyTitle, hoursLeft: hoursLeft, cyan: cyan)
                 .frame(width: 260)
 
-            FocusSurface(state: state, newTask: $newFocusTask, cyan: cyan)
+            FocusSurface(reminders: reminders, newTask: $newFocusTask, cyan: cyan)
                 .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 16)
@@ -187,8 +197,8 @@ struct DashboardView: View {
             // needed to catch up to it.
             hero
         case .focus:
-            GoalmaxxingTab(state: state, newTask: $newFocusTask, dayProgress: dayProgress,
-                           hoursLeft: hoursLeft, energyTitle: energyTitle)
+            TasksTab(reminders: reminders, newTask: $newFocusTask, dayProgress: dayProgress,
+                     hoursLeft: hoursLeft, energyTitle: energyTitle)
         case .health:
             HealthTab(state: state)
         case .finance:
@@ -210,8 +220,13 @@ struct DashboardView: View {
                      value: state.workoutLogged ? "done" : "—",
                      tint: state.workoutLogged ? OrionTheme.green : OrionTheme.textDim)
             StatChip(icon: "checkmark.circle",
-                     value: "\(state.focusTasks.filter(\.isComplete).count)/\(state.focusTasks.count)",
+                     value: "\(reminders.doneCount)/\(reminders.tasks.count)",
                      tint: OrionTheme.orange)
+            if reminders.overdueCount > 0 {
+                StatChip(icon: "exclamationmark.triangle.fill",
+                         value: "\(reminders.overdueCount) overdue",
+                         tint: OrionTheme.red)
+            }
             Spacer()
             StatChip(icon: state.gatewayUp ? "bolt.fill" : "bolt.slash.fill",
                      value: state.gatewayUp ? "online" : "offline",
@@ -294,20 +309,22 @@ struct DashboardView: View {
 // switch. The switch had grown to the point where the tabs could only be
 // compared by scrolling, which is a large part of how they ended up identical.
 
-/// Goals, the way the reference frames them: how much day is left, how much of
-/// it you have used, and the short list you said you would do with it.
-private struct GoalmaxxingTab: View {
-    @ObservedObject var state: AppState
+/// Tasks. Added, ticked and deleted here; stored in Apple Reminders, so the
+/// same list is on the phone and a dated one actually interrupts you.
+private struct TasksTab: View {
+    @ObservedObject var reminders: AppleRemindersSync
     @Binding var newTask: String
     let dayProgress: Double
     let hoursLeft: Int
     let energyTitle: String
 
-    private var done: Int { state.focusTasks.filter(\.isComplete).count }
+    @State private var dueDate = Date().addingTimeInterval(3600)
+    @State private var wantsDueDate = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SectionRule(title: "The day", trailing: Date().formatted(.dateTime.weekday(.wide).month().day()))
+            SectionRule(title: "The day",
+                        trailing: Date().formatted(.dateTime.weekday(.wide).month().day()))
             OrionPanel {
                 HStack(alignment: .center, spacing: 20) {
                     RingMeter(progress: dayProgress,
@@ -322,83 +339,73 @@ private struct GoalmaxxingTab: View {
                         Text("\(hoursLeft)h of awake time left")
                             .font(OrionTheme.mono(12))
                             .foregroundStyle(OrionTheme.textSoft)
-                        Text(done == state.focusTasks.count && !state.focusTasks.isEmpty
-                             ? "Everything you set out to do is done."
-                             : "\(state.focusTasks.count - done) still open.")
+                        Text(summary)
                             .font(OrionTheme.mono(11))
-                            .foregroundStyle(done == state.focusTasks.count && !state.focusTasks.isEmpty
-                                             ? OrionTheme.green : OrionTheme.textDim)
+                            .foregroundStyle(summaryTint)
                     }
                     Spacer()
                 }
             }
 
-            SectionRule(title: "Goalmaxxing", trailing: "\(done) / \(state.focusTasks.count) complete")
+            SectionRule(title: "Tasks",
+                        trailing: "\(reminders.doneCount) / \(reminders.tasks.count) done")
+
+            if !reminders.access.isGranted {
+                OrionPanel { accessNotice }
+            }
+
             OrionPanel {
-                // Segmented progress: one dash per goal. Reads as "how much is
-                // left" without having to count the list.
+                // One dash per task. "How much is left" without counting.
                 HStack(spacing: 4) {
-                    if state.focusTasks.isEmpty {
+                    if reminders.tasks.isEmpty {
                         Capsule().fill(Color.white.opacity(0.07)).frame(height: 4)
                     } else {
-                        ForEach(state.focusTasks) { task in
+                        ForEach(reminders.tasks) { task in
                             Capsule()
                                 .fill(task.isComplete ? OrionTheme.green : Color.white.opacity(0.10))
                                 .frame(height: 4)
                         }
                     }
                 }
-                .animation(.easeOut(duration: 0.3), value: done)
+                .animation(.easeOut(duration: 0.3), value: reminders.doneCount)
 
-                if state.focusTasks.isEmpty {
-                    Text("Nothing set for today yet.")
+                if reminders.tasks.isEmpty {
+                    Text(reminders.access.isGranted
+                         ? "Nothing on the list. Add one below, or just tell Orion."
+                         : "Waiting on Reminders access.")
                         .font(.system(size: 13))
                         .foregroundStyle(OrionTheme.textDim)
                         .padding(.vertical, 6)
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(state.focusTasks) { task in
-                            DataRow(label: task.title,
-                                    value: "",
-                                    tickable: true,
-                                    ticked: task.isComplete,
-                                    onTick: { state.toggleFocusTask(task.id) })
-                            if task.id != state.focusTasks.last?.id {
+                        ForEach(reminders.tasks) { task in
+                            TaskRow(task: task,
+                                    onToggle: { reminders.setComplete(task.id, !task.isComplete) },
+                                    onDelete: { reminders.remove(task.id) })
+                            if task.id != reminders.tasks.last?.id {
                                 Divider().overlay(OrionTheme.line)
                             }
                         }
                     }
                 }
 
-                HStack(spacing: 9) {
-                    TextField("Add a goal for today…", text: $newTask)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundStyle(OrionTheme.text)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10).fill(OrionTheme.cardRaised)
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(OrionTheme.line, lineWidth: 1))
-                        )
-                        .onSubmit(add)
-                    Button(action: add) {
-                        Text("Add")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(OrionTheme.ink)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(Capsule().fill(.white))
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
+                composer
             }
 
-            SectionRule(title: "Calendar & reminders")
+            SectionRule(title: "Sync", trailing: reminders.access.isGranted ? "two-way" : "not connected")
             OrionPanel {
-                NotConnected(what: "Apple Reminders",
-                             detail: "Orion can already set timers and alarms; two-way sync with the Reminders app is the next step.")
+                DataRow(label: "Apple Reminders",
+                        sublabel: "list “\(AppleRemindersSync.listTitle)” · edits on your phone appear here",
+                        value: reminders.access.isGranted ? "ON" : "OFF",
+                        valueTint: reminders.access.isGranted ? OrionTheme.green : OrionTheme.textDim)
+                Text(reminders.statusLine)
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+                if let error = reminders.lastError {
+                    Text(error)
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.red)
+                }
                 Divider().overlay(OrionTheme.line)
                 NotConnected(what: "Apple Calendar",
                              detail: "Read-only agenda, so the day ring knows what is actually in it.")
@@ -406,11 +413,171 @@ private struct GoalmaxxingTab: View {
         }
     }
 
+    private var composer: some View {
+        VStack(spacing: 9) {
+            HStack(spacing: 9) {
+                TextField("Add a task…", text: $newTask)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .foregroundStyle(OrionTheme.text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10).fill(OrionTheme.cardRaised)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(OrionTheme.line, lineWidth: 1))
+                    )
+                    .onSubmit(add)
+                Button { wantsDueDate.toggle() } label: {
+                    Image(systemName: wantsDueDate ? "bell.fill" : "bell")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(wantsDueDate ? OrionTheme.orange : OrionTheme.textDim)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10).fill(OrionTheme.cardRaised)
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(OrionTheme.line, lineWidth: 1))
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+                .help("Remind me at a time")
+                Button(action: add) {
+                    Text("Add")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(OrionTheme.ink)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(.white))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!reminders.access.isGranted)
+            }
+            if wantsDueDate {
+                HStack(spacing: 8) {
+                    Image(systemName: "alarm")
+                        .font(.system(size: 11))
+                        .foregroundStyle(OrionTheme.orange)
+                    DatePicker("", selection: $dueDate)
+                        .labelsHidden()
+                        .datePickerStyle(.compact)
+                    Text("Reminders will notify you on every device.")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.textDim)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var accessNotice: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(OrionTheme.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Reminders access is needed for the task list")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(OrionTheme.text)
+                Text(reminders.statusLine)
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+            Spacer(minLength: 8)
+            Button {
+                // Straight to the exact pane. Telling someone to "check
+                // Privacy settings" and leaving them to find it is most of why
+                // a denied permission stays denied.
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Text("Open Settings")
+                    .font(OrionTheme.mono(10, .semibold))
+                    .foregroundStyle(OrionTheme.blue)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Capsule().stroke(OrionTheme.blue.opacity(0.4), lineWidth: 1))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var summary: String {
+        if reminders.overdueCount > 0 { return "\(reminders.overdueCount) overdue." }
+        if reminders.tasks.isEmpty { return "Nothing on the list." }
+        if reminders.openCount == 0 { return "Everything on the list is done." }
+        return "\(reminders.openCount) still open."
+    }
+
+    private var summaryTint: Color {
+        if reminders.overdueCount > 0 { return OrionTheme.red }
+        if reminders.openCount == 0 && !reminders.tasks.isEmpty { return OrionTheme.green }
+        return OrionTheme.textDim
+    }
+
     private func add() {
         let trimmed = newTask.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        state.addFocusTask(trimmed)
+        reminders.add(trimmed, due: wantsDueDate ? dueDate : nil)
         newTask = ""
+        wantsDueDate = false
+    }
+}
+
+/// One task line: tick, title, when it is due, and a delete that only appears
+/// on hover so the list is not a wall of destructive buttons.
+private struct TaskRow: View {
+    let task: SyncedTask
+    let onToggle: () -> Void
+    let onDelete: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Button(action: onToggle) {
+                Image(systemName: task.isComplete ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(task.isComplete ? OrionTheme.green : OrionTheme.textDim)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(task.isComplete ? OrionTheme.textDim : OrionTheme.text)
+                    .strikethrough(task.isComplete, color: OrionTheme.textDim)
+                if let due = task.dueDate {
+                    HStack(spacing: 5) {
+                        Image(systemName: task.hasAlarm ? "bell.fill" : "calendar")
+                            .font(.system(size: 8))
+                        Text(due.formatted(date: .abbreviated, time: .shortened))
+                            .font(OrionTheme.mono(10))
+                    }
+                    .foregroundStyle(task.isOverdue ? OrionTheme.red : OrionTheme.textDim)
+                }
+            }
+            Spacer(minLength: 8)
+
+            if task.isOverdue {
+                Text("OVERDUE")
+                    .font(OrionTheme.mono(9, .semibold))
+                    .tracking(1)
+                    .foregroundStyle(OrionTheme.red)
+            }
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(OrionTheme.textDim)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(hovering ? 1 : 0)
+        }
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 }
 
@@ -602,10 +769,29 @@ private struct SettingsTab: View {
 private enum DashboardTab: String, CaseIterable, Identifiable {
     case home, focus, health, finance, brand, settings
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+
+    /// Spelled out rather than derived from `rawValue`. The focus tab is a task
+    /// list backed by Apple Reminders now, and "Focus" described the thing it
+    /// used to be — a scratch list that lived and died in this window.
+    var title: String {
+        switch self {
+        case .home: "Home"
+        case .focus: "Tasks"
+        case .health: "Health"
+        case .finance: "Finances"
+        case .brand: "Brand"
+        case .settings: "Settings"
+        }
+    }
+
     var icon: String {
         switch self {
-        case .home: "house.fill"; case .focus: "target"; case .health: "heart.fill"; case .finance: "dollarsign.circle"; case .brand: "megaphone.fill"; case .settings: "gearshape.fill"
+        case .home: "house.fill"
+        case .focus: "checklist"
+        case .health: "heart.fill"
+        case .finance: "dollarsign.circle"
+        case .brand: "megaphone.fill"
+        case .settings: "gearshape.fill"
         }
     }
 }
@@ -762,8 +948,15 @@ private struct DayProgressSurface: View {
     }
 }
 
+/// Home's compact task list.
+///
+/// Same visual design as before -- Home was the surface that already worked and
+/// was explicitly not to be restyled. What changed is underneath: it reads the
+/// same Apple Reminders list the Tasks tab does, rather than the local scratch
+/// list it used to own. Two task lists that disagree is a bug, not a feature,
+/// and it would have been one the moment the Tasks tab shipped.
 private struct FocusSurface: View {
-    @ObservedObject var state: AppState
+    @ObservedObject var reminders: AppleRemindersSync
     @Binding var newTask: String
     let cyan: Color
     var body: some View {
@@ -772,15 +965,15 @@ private struct FocusSurface: View {
                 Label("TODAY'S FOCUS", systemImage: "target")
                     .font(.system(size: 10, weight: .semibold)).tracking(1.5).foregroundStyle(.white.opacity(0.52))
                 Spacer()
-                Text("\(state.focusTasks.filter(\.isComplete).count)/\(state.focusTasks.count)")
+                Text("\(reminders.doneCount)/\(reminders.tasks.count)")
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(cyan)
             }
-            if state.focusTasks.isEmpty {
+            if reminders.tasks.isEmpty {
                 Text("Add the one thing that matters next.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.43))
             } else {
-                ForEach(state.focusTasks) { task in
+                ForEach(reminders.tasks) { task in
                     HStack(spacing: 9) {
-                        Button { state.toggleFocusTask(task.id) } label: {
+                        Button { reminders.setComplete(task.id, !task.isComplete) } label: {
                             Image(systemName: task.isComplete ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(task.isComplete ? cyan : .white.opacity(0.42))
                                 .font(.system(size: 17))
@@ -792,7 +985,7 @@ private struct FocusSurface: View {
                             .foregroundStyle(task.isComplete ? .white.opacity(0.35) : .white.opacity(0.75))
                             .lineLimit(1)
                         Spacer()
-                        Button { state.removeFocusTask(task.id) } label: {
+                        Button { reminders.remove(task.id) } label: {
                             Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 22, height: 22).contentShape(Rectangle())
                         }.buttonStyle(.plain).foregroundStyle(.white.opacity(0.28))
                     }
@@ -811,7 +1004,7 @@ private struct FocusSurface: View {
         .padding(18)
         .background(RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.025)))
     }
-    private func addTask() { state.addFocusTask(newTask); newTask = "" }
+    private func addTask() { reminders.add(newTask); newTask = "" }
 }
 
 private struct MetricTile: View {

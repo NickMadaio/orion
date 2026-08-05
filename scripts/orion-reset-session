@@ -94,29 +94,6 @@ for id in ${(k)ids}; do
 done
 
 if (( moved )); then
-  # The fallback path must also remove the key -> session-id pointer. Otherwise
-  # OpenClaw can recreate the archived transcript on the next app request.
-  index="$sessions/sessions.json"
-  if [[ -f "$index" ]]; then
-    index_tmp="$sessions/.sessions.$$.json"
-    if /usr/bin/python3 - "$index" "$index_tmp" "agent:$agent:$key" <<'PY'
-import json, os, sys
-source, destination, session_key = sys.argv[1:]
-with open(source, encoding="utf-8") as handle:
-    data = json.load(handle)
-data.pop(session_key, None)
-with open(destination, "w", encoding="utf-8") as handle:
-    json.dump(data, handle, indent=2)
-    handle.write("\n")
-os.replace(destination, source)
-PY
-    then
-      print "  removed stale session index entry"
-    else
-      rm -f "$index_tmp"
-      print -u2 "  warning: could not remove stale session index entry"
-    fi
-  fi
   print "  archived to $archive"
   print ""
   print "  Restart the gateway so it drops the in-memory copy:"

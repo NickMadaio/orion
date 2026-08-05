@@ -50,6 +50,39 @@ struct PreferencesView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Live while dragging. A brightness control that only applies
+                // on release is useless for this, because the whole job is
+                // matching the orb to whatever happens to be behind it right
+                // now — you have to see it move.
+                HStack {
+                    Text("Brightness")
+                    Slider(value: $state.hologramBrightness, in: 0.6...4.0)
+                    Text(String(format: "%.1f×", state.hologramBrightness))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 38, alignment: .trailing)
+                }
+                Text("How strongly the projection reads against what is behind it. Higher over bright windows.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("Size")
+                    Slider(
+                        value: $state.orbSize,
+                        in: SummonSettings.orbSizeRange
+                    )
+                    Text("\(Int(state.orbSize))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 38, alignment: .trailing)
+                }
+                Text("Resizes live, about its centre. Drag the orb itself to move it; closing it only hides it, and push-to-talk or the wake word brings it back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()

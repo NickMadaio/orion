@@ -83,7 +83,9 @@ final class SpeechInput {
     private var configurationObserver: NSObjectProtocol?
 
     /// How long to let Apple promote its last partial to a final result.
-    private static let appleFinalGrace: TimeInterval = 1.2
+    /// Tunable for the same reason as Deepgram's endpointing: too short and a
+    /// trailing word is dropped. See `VoiceTuning.appleFinalGrace`.
+    private static var appleFinalGrace: TimeInterval { VoiceTuning.appleFinalGrace }
     /// Deepgram answers a `Finalize` fast; this is only the safety net.
     private static let deepgramFinalGrace: TimeInterval = 0.8
     /// ~3 seconds at 48 kHz in 1024-frame buffers. Enough to cover a failed
@@ -535,6 +537,32 @@ final class SpeechInput {
         }
         request?.endAudio()
         scheduleFinal(after: SpeechInput.appleFinalGrace)
+    }
+
+    /// Drop the current utterance without delivering a result, but leave the
+    /// microphone session alone.
+    ///
+    /// The difference from `abort()` is who keeps the microphone: `abort()`
+    /// forces it shut, which is right when the app is quitting and wrong when a
+    /// conversation simply lapsed — there, the wake word is still supposed to
+    /// be listening, and forcing the engine down would leave `monitoring` true
+    /// with nothing running behind it, which is deafness that reports itself as
+    /// health.
+    ///
+    /// The difference from `stop()` is that nothing is delivered: a follow-up
+    /// window that timed out has heard silence, and announcing "nothing heard"
+    /// for a question the user never asked is noise.
+    func discardUtterance() {
+        cancelPendingFinal()
+        awaitingFinal = false
+        isRunning = false
+        request?.endAudio()
+        teardownRecognisers()
+        latestText = ""
+        replay.removeAll(keepingCapacity: false)
+        // Not forced: if the wake word is monitoring, the tap stays installed.
+        stopEngine()
+        onLevel?(0)
     }
 
     /// Hard stop with no result — used when the app quits. Unlike `stop()`, this

@@ -37,7 +37,13 @@ enum SummonCorner: String, CaseIterable, Identifiable {
     /// `visible` is always `NSScreen.visibleFrame`, which is already inset for
     /// the menu bar and the Dock — so a panel placed here can never land under
     /// either of them, on any screen arrangement.
-    func origin(for size: NSSize, in visible: NSRect, margin: CGFloat = 22) -> NSPoint {
+    /// The panel is a 300pt square that only ever draws the disc inscribed in
+    /// it, so there is already ~20pt of transparent padding between the frame
+    /// edge and any lit pixel. A 22pt margin on top of that put the orb closer
+    /// to the middle of the screen than to the corner. 4pt lets it sit in the
+    /// corner the way it looks like it should, still clear of the menu bar and
+    /// the Dock because `visibleFrame` is already inset for both.
+    func origin(for size: NSSize, in visible: NSRect, margin: CGFloat = 4) -> NSPoint {
         let left = visible.minX + margin
         let right = visible.maxX - size.width - margin
         let bottom = visible.minY + margin
@@ -90,6 +96,60 @@ enum SummonSettings {
     static let wakeSensitivityKey = "OrionWakeSensitivity"
     static let cornerKey = "OrionSummonCorner"
     static let autoDismissKey = "OrionAutoDismissSeconds"
+    static let brightnessKey = "OrionHologramBrightness"
+    static let orbSizeKey = "OrionOrbSize"
+
+    /// Edge length of the square the orb is drawn in.
+    ///
+    /// Stored rather than fixed for the same reason as `brightness`: how big it
+    /// should be depends on the screen it is on and how much of it Nick wants
+    /// to give up, and neither is knowable from here. It was a hardcoded 300,
+    /// and the restore path actively wrote that value back over any other, so
+    /// the panel could not be resized even by editing its saved frame.
+    ///
+    /// The drawn disc is inscribed in this square, and the panel's hit region
+    /// is derived from the same bounds, so the two cannot disagree at any size.
+    static let orbSizeRange: ClosedRange<Double> = 160...560
+    static let defaultOrbSize: Double = 300
+
+    static var orbSize: Double {
+        get {
+            let stored = UserDefaults.standard.double(forKey: orbSizeKey)
+            guard stored > 0 else { return defaultOrbSize }
+            return min(orbSizeRange.upperBound,
+                       max(orbSizeRange.lowerBound, stored))
+        }
+        set {
+            UserDefaults.standard.set(
+                min(orbSizeRange.upperBound,
+                    max(orbSizeRange.lowerBound, newValue)),
+                forKey: orbSizeKey
+            )
+        }
+    }
+
+    /// How strongly the projection reads against whatever is behind it.
+    ///
+    /// A stored setting rather than a constant because "bright enough" is not a
+    /// fact about the code, it is a fact about the desktop it happens to be
+    /// sitting on — a dark editor and a white document want different numbers,
+    /// and the only way to find the right one is to move the slider while
+    /// looking at it. It was a compile-time constant, which meant every attempt
+    /// to tune it cost a rebuild and a re-grant of Accessibility.
+    ///
+    /// 1.0 is the original tuning. Default is well above it because the honest
+    /// answer to "is it bright enough" has been no twice.
+    static var brightness: Double {
+        get {
+            let stored = UserDefaults.standard.double(forKey: brightnessKey)
+            return stored > 0 ? stored : 2.6
+        }
+        set {
+            UserDefaults.standard.set(
+                min(4.0, max(0.6, newValue)), forKey: brightnessKey
+            )
+        }
+    }
 
     /// Off by default, deliberately. An always-on microphone is a decision the
     /// user makes, not one the app makes for them.

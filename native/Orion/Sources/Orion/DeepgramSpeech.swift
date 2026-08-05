@@ -38,11 +38,17 @@ enum DeepgramConfig {
     static let model = "nova-3"
     static let language = "en-US"
     /// Milliseconds of silence before Deepgram calls the utterance finished.
-    /// 300ms is responsive without clipping a speaker who pauses to think.
-    static let endpointingMs = 300
+    ///
+    /// Read live from `VoiceTuning` rather than fixed here. It was 300, which
+    /// is shorter than the pause a person leaves mid-sentence, so Orion
+    /// answered half-questions. The value is now a preference because the right
+    /// number depends on how the speaker talks, and the only way to find it is
+    /// to change it while talking. See `VoiceTuning.endpointingMs`.
+    static var endpointingMs: Int { VoiceTuning.endpointingMs }
     /// Backstop for the case where endpointing does not fire. Deepgram's floor
-    /// is 1000ms and values below it buy nothing.
-    static let utteranceEndMs = 1000
+    /// is 1000ms and values below it buy nothing. Always kept behind
+    /// `endpointingMs` so it cannot pre-empt the primary signal.
+    static var utteranceEndMs: Int { VoiceTuning.resolvedUtteranceEndMs }
     /// How long to wait for the socket to open before giving up on the cloud
     /// ear and handing this utterance to Apple's recogniser.
     static let openTimeout: TimeInterval = 1.5

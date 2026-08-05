@@ -75,7 +75,8 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
 
     func speak(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        stop()
+        stop(reason: "new reply starting")
+        OrionLog.write("[speech] speaking \(trimmed.count) chars")
         guard !trimmed.isEmpty else {
             onFinished?()
             return
@@ -101,7 +102,13 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
     /// Barge-in. Tells the daemon to drop everything and silences the queue in
     /// the same breath — a cancel that only reached the daemon would still let
     /// already-scheduled buffers finish playing.
-    func stop() {
+    func stop(reason: String = "unspecified") {
+        // "Sometimes he just doesn't say it" is a CANCELLED utterance, not a
+        // failed one — every synthesis in the log succeeded. Naming the caller
+        // is the difference between diagnosing that in one line and guessing.
+        if isSpeaking {
+            OrionLog.write("[speech] CUT OFF mid-sentence by: \(reason)")
+        }
         tts.cancelAll()
         stopFallback()
 
@@ -209,6 +216,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
 
     private func finishIfDrained() {
         guard isSpeaking, streamComplete, pendingBuffers == 0 else { return }
+        OrionLog.write("[speech] finished cleanly")
         isSpeaking = false
         if engineConfigured {
             player.stop()

@@ -26,10 +26,14 @@ final class TextWindowController: NSObject, NSWindowDelegate {
     private let state: AppState
     private var window: NSWindow?
 
-    private static let size = NSSize(width: 460, height: 560)
-    private static let frameAutosaveName = "OrionTextWindow"
+    private static let size = NSSize(width: 1280, height: 820)
+    private static let frameAutosaveName = "OrionDashboardWindow"
 
     var isVisible: Bool { window?.isVisible ?? false }
+    /// The app delegate owns the floating hologram, so this controller reports
+    /// dashboard visibility instead of reaching into that other window.
+    var onShown: (() -> Void)?
+    var onHidden: (() -> Void)?
 
     init(state: AppState) {
         self.state = state
@@ -45,26 +49,43 @@ final class TextWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Orion"
+        window.title = "Orion Command Center"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(calibratedRed: 0.02, green: 0.03, blue: 0.05, alpha: 1)
+        // Home is deliberately a fixed desktop surface. A drag on its
+        // wallpaper should never move the hub a few pixels out of place.
+        window.isMovableByWindowBackground = false
+        window.isMovable = false
+        // The dashboard is a desktop overlay, not a black document window.
+        // SwiftUI paints the tinted translucency; AppKit must leave the window
+        // itself clear so the wallpaper can be felt underneath it.
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.minSize = NSSize(width: 380, height: 320)
+        window.minSize = NSSize(width: 980, height: 640)
+
+        // The dashboard supplies its own controls, so document-window traffic
+        // lights are visual noise on this desktop-like surface.
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
 
         // Follow the user across Spaces rather than yanking them back to
         // whichever desktop Orion happened to be opened on.
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
 
-        let root = TextWindowView(state: state) { [weak self] in
+        let root = DashboardView(state: state) { [weak self] in
             self?.hide()
         }
         window.contentView = NSHostingView(rootView: root)
 
         window.setFrameAutosaveName(TextWindowController.frameAutosaveName)
-        if !window.setFrameUsingName(TextWindowController.frameAutosaveName) {
+        // Home acts as the desktop hub, so it is fixed flush to the display's
+        // top-left corner. This is not a separate macOS full-screen Space.
+        if let screen = NSScreen.main {
+            window.setFrame(screen.frame, display: true)
+        } else {
             window.center()
         }
         return window
@@ -82,10 +103,12 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         state.focusComposerToken &+= 1
+        onShown?()
     }
 
     func hide() {
         window?.orderOut(nil)
+        onHidden?()
     }
 
     func toggle() {

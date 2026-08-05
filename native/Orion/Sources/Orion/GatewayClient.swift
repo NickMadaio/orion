@@ -45,7 +45,10 @@ struct GatewayReply {
 enum GatewayClient {
     static let binaryPath = "/Users/nickmadaio/.openclaw/bin/openclaw"
     static let configPath = "/Users/nickmadaio/.openclaw/openclaw.json"
-    static let sessionKey = "orion-app"
+    // A previous browser-open request left the original conversation with an
+    // unresolved tool call.  Start the desktop app on a clean durable thread;
+    // otherwise every later turn inherits that broken tool history.
+    static let sessionKey = "orion-app-v2"
     static let timeoutSeconds = 180
 
     // MARK: Reachability
@@ -113,6 +116,13 @@ enum GatewayClient {
         let existingPath = environment["PATH"] ?? ""
         let required = "/usr/bin:/bin:/usr/sbin:/sbin:/Users/nickmadaio/.openclaw/bin"
         environment["PATH"] = existingPath.isEmpty ? required : existingPath + ":" + required
+        // Gog stores the OAuth token in its encrypted local keyring.  The
+        // desktop app does not inherit the user's shell environment, so pass
+        // only this one already-configured value to the agent process.  It is
+        // never logged, displayed, or added to the gateway configuration.
+        if let keyringPassword = Secrets.value("GOG_KEYRING_PASSWORD") {
+            environment["GOG_KEYRING_PASSWORD"] = keyringPassword
+        }
         process.environment = environment
 
         let outPipe = Pipe()

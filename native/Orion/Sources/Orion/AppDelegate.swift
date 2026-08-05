@@ -28,13 +28,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menuBarController.install()
 
+        // The dashboard has its own large hologram. Showing a second, floating
+        // copy at the same time breaks the whole "Orion is the center" idea.
+        // Closing the dashboard deliberately does not restore the small one;
+        // voice or push-to-talk is the next intentional activation.
+        textWindowController.onShown = { [weak self] in
+            self?.panelController.hide()
+            self?.menuBarController.refresh(panelVisible: false)
+            self?.refreshEscapeWatch()
+        }
+
         state.onWantsPanel = { [weak self] in
             guard let self else { return }
+            // When the full dashboard is already visible, its central hologram
+            // is the voice surface. Do not layer the small orb over it.
+            guard !self.textWindowController.isVisible else { return }
             if !self.panelController.isVisible {
                 // Wake without stealing focus: the user is mid-sentence in
                 // another app and should stay there.
-                self.panelController.show(makeKey: false)
+                self.panelController.show()
                 self.menuBarController.refresh(panelVisible: true)
+                self.refreshEscapeWatch()
             }
         }
         // Summoned by name. Always arrives in the configured corner on the
@@ -42,13 +56,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "Orion" mid-sentence in another app and keep typing.
         state.onWantsSummon = { [weak self] in
             guard let self else { return }
+            guard !self.textWindowController.isVisible else { return }
             self.panelController.summon()
             self.menuBarController.refresh(panelVisible: true)
+            self.refreshEscapeWatch()
         }
-        state.onSpeakingChanged = { [weak self] speaking in
-            self?.pushToTalk.setGlobalEscapeWatch(speaking)
+        state.onSizeChanged = { [weak self] in
+            self?.panelController.applySize()
+        }
+        // Scrolling on the orb changes the same value the slider does, so push
+        // it back into state or Preferences would show a stale number.
+        panelController.onSizeChangedByGesture = { [weak self] size in
+            guard let self else { return }
+            if self.state.orbSize != size { self.state.orbSize = size }
+        }
+        panelController.onHiddenByGesture = { [weak self] in
+            self?.menuBarController.refresh(panelVisible: false)
+            self?.refreshEscapeWatch()
+        }
+        state.onSpeakingChanged = { [weak self] _ in
+            self?.refreshEscapeWatch()
         }
 
+        // Note: this does NOT need to re-show the panel itself. `beginListening`
+        // fires `onWantsPanel`, which brings a dismissed orb back at wherever it
+        // was last dragged to -- and honouring that position is the point, so
+        // summoning it to the configured corner here would be a regression.
         pushToTalk.onPressed = { [weak self] in self?.state.beginListening() }
         pushToTalk.onReleased = { [weak self] in self?.state.endListening() }
         pushToTalk.onEscape = { [weak self] in self?.handleEscape() }
@@ -63,12 +96,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         installEditMenu()
-        panelController.show()
-        menuBarController.refresh(panelVisible: true)
+        // The desktop app opens into the command center now. The separate orb
+        // appears only for a later wake-word or push-to-talk activation.
+        textWindowController.show()
+        menuBarController.refresh(panelVisible: false)
+        refreshEscapeWatch()
     }
 
     /// An accessory app shows no menu bar, but without a main menu the standard
-    /// editing shortcuts never reach the panel's text field. This restores
+    /// editing shortcuts never reach the text window's field. This restores
     /// ⌘X/⌘C/⌘V/⌘A for the composer.
     private func installEditMenu() {
         let main = NSMenu()
@@ -104,6 +140,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func togglePanel() {
         panelController.toggle()
         menuBarController.refresh(panelVisible: panelController.isVisible)
+        refreshEscapeWatch()
+    }
+
+    /// Escape listens whenever there is something to dismiss.
+    ///
+    /// It used to be installed only while Orion was speaking, which meant an orb
+    /// sitting idle in the corner could not be dismissed from the keyboard at
+    /// all -- the only way out was the menu-bar menu, which is not where anyone
+    /// looks. Driven from one place so no future path can forget it.
+    private func refreshEscapeWatch() {
+        pushToTalk.setGlobalEscapeWatch(
+            panelController.isVisible || state.phase == .speaking
+        )
     }
 
     private func handleEscape() {
@@ -114,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if panelController.isVisible {
             panelController.hide()
             menuBarController.refresh(panelVisible: false)
+            refreshEscapeWatch()
         }
     }
 }

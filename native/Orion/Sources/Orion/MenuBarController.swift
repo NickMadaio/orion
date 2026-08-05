@@ -18,6 +18,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let talkItem = NSMenuItem(title: "Push-to-talk: checking…", action: nil, keyEquivalent: "")
     /// The providers that are ACTUALLY serving, not the ones configured.
     private let providerItem = NSMenuItem(title: "Providers: checking…", action: nil, keyEquivalent: "")
+    /// Hands-free listening. A checkbox rather than a status readout: this is
+    /// the one setting a person changes situationally — on at the desk, off in
+    /// a meeting — and burying it in Preferences would mean it is never used.
+    private let wakeItem = NSMenuItem(title: "Listen for “Orion”", action: nil, keyEquivalent: "")
 
     /// Left-click on the status item. Set by `AppDelegate`.
     var onToggleTextWindow: (() -> Void)?
@@ -57,6 +61,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         talkItem.target = self
         talkItem.action = #selector(fixPushToTalk)
         menu.addItem(talkItem)
+
+        menu.addItem(.separator())
+
+        wakeItem.target = self
+        wakeItem.action = #selector(toggleWakeWord)
+        menu.addItem(wakeItem)
 
         menu.addItem(.separator())
 
@@ -131,6 +141,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             talkItem.title = "Push-to-talk: grant Accessibility…"
             talkItem.isEnabled = true
         }
+        wakeItem.state = state.wakeWordEnabled ? .on : .off
+        // Say the cost out loud, where the switch is. Hands-free means the
+        // microphone session stays open, and on Bluetooth headphones an open
+        // microphone is what forces the headset audio profile — the thing that
+        // makes music sound thin. Better to read that here than to rediscover
+        // it as a mystery a week from now.
+        wakeItem.toolTip = state.wakeWordEnabled
+            ? "Orion is holding the microphone open. On Bluetooth headphones this can lower playback quality."
+            : "Wake on hearing your name. Holds the microphone open, which can lower Bluetooth playback quality."
     }
 
     // MARK: Actions
@@ -141,6 +160,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func fixPushToTalk() {
         state.requestAccessibility()
+    }
+
+    /// `AppState` may refuse — no microphone permission, no on-device
+    /// recogniser — and it says so by setting the flag back to false. Reading
+    /// the flag again rather than the click is what keeps the checkmark honest.
+    @objc private func toggleWakeWord() {
+        state.wakeWordEnabled.toggle()
+        refresh()
     }
 
     @objc private func openPreferences() {

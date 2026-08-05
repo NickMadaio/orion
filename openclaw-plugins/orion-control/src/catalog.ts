@@ -12,7 +12,26 @@ export type CapabilityTier =
   | "desktop_modify"
   | "desktop_direct_write"
   | "scratch_direct_write"
-  | "file_mutate";
+  | "file_mutate"
+  // Reads of the world rather than of the disk: weather, the clock, how the
+  // machine is doing. No filesystem root, nothing mutable, and only the weather
+  // leaves the machine — to one keyless endpoint given a place name.
+  | "ambient_info"
+  // Timers and alarms. Writes only to Orion's own reminder store, never to a
+  // user file, and the worst outcome of a mistake is being told the time.
+  | "reminders"
+  // Orion adjusting Orion. Reads and writes a fixed, validated set of keys in
+  // his own app's preference domain -- how long he waits before deciding you
+  // stopped talking, and how long he may believe he is still speaking.
+  //
+  // This is the smallest honest version of "he should be able to fix himself".
+  // The alternative on the table was a general "edit your own config" power,
+  // which is really "write arbitrary preferences to any domain" and would have
+  // included every other app on the machine. Here the key list is closed, every
+  // value is range-checked against the same bounds the Swift side enforces, and
+  // the blast radius of a mistake is that his ears are badly tuned until he is
+  // told to put them back.
+  | "self_tuning";
 
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
@@ -132,6 +151,18 @@ export type ExecutionPolicy =
     }
   | BrowserControlPolicy
   | MediaControlPolicy
+  | {
+      kind: "ambient_read";
+      operation: "weather" | "clock" | "system_status";
+    }
+  | {
+      kind: "reminder";
+      operation: "timer_set" | "alarm_set" | "reminder_list" | "reminder_cancel";
+    }
+  | {
+      kind: "self_tuning";
+      operation: "read" | "write";
+    }
   | FileMutationPolicy
   | CreateOnlyTextPolicy
   | DesktopTextMutationPolicy
@@ -176,6 +207,70 @@ export function isObservationPolicy(
   );
 }
 
+/**
+ * The closed set of things Orion may retune about himself.
+ *
+ * Deliberately a table and not a pass-through to `defaults write`. The ask was
+ * "he should be able to fix himself"; the safe reading of that is a fixed list
+ * of his own knobs with the bounds written down, not the ability to write any
+ * key into any preference domain on the machine.
+ *
+ * `domain` is his own app bundle and nothing else. The ranges are the same ones
+ * `VoiceTuning.swift` clamps to — duplicated rather than shared because the two
+ * processes have no common language, and a value out of range here would be
+ * silently clamped there, which reads as "the setting didn't take".
+ */
+export const ORION_APP_DOMAIN = "com.nickmadaio.orion.app";
+
+export interface TunableSetting {
+  /** The `UserDefaults` key, as spelled in `VoiceTuning.swift`. */
+  key: string;
+  min: number;
+  max: number;
+  integer: boolean;
+  unit: string;
+  description: string;
+}
+
+export const TUNABLE_SETTINGS: Record<string, TunableSetting> = {
+  endpointing_ms: {
+    key: "OrionVoiceEndpointingMs",
+    min: 100,
+    max: 4000,
+    integer: true,
+    unit: "ms",
+    description:
+      "Silence before Orion decides you have finished a sentence. Raise it if he interrupts you mid-thought; lower it if he feels slow to answer.",
+  },
+  utterance_end_ms: {
+    key: "OrionVoiceUtteranceEndMs",
+    min: 1000,
+    max: 8000,
+    integer: true,
+    unit: "ms",
+    description:
+      "Backstop for when the primary end-of-speech signal never arrives. Always held at least 600ms behind endpointing_ms.",
+  },
+  apple_final_grace: {
+    key: "OrionVoiceAppleFinalGrace",
+    min: 0.4,
+    max: 4,
+    integer: false,
+    unit: "s",
+    description:
+      "How long the on-device recogniser may take to promote its last partial to a final result after the key comes up.",
+  },
+  speaking_stall_timeout: {
+    key: "OrionSpeakingStallTimeout",
+    min: 4,
+    max: 60,
+    integer: false,
+    unit: "s",
+    description:
+      "Seconds of no audio before a speaking phase is presumed wedged and force-ended. This is the guard against Orion believing he is still talking when he is not.",
+  },
+};
+
 export interface ActionDefinition {
   risk: Risk;
   requiredArguments: string[];
@@ -184,7 +279,6 @@ export interface ActionDefinition {
   reversible: boolean;
   capabilityTier: CapabilityTier;
   execution: ExecutionPolicy;
-  directUserAuthorizationRequired?: boolean;
   validateArguments?: (arguments_: Record<string, unknown>) => string[];
 }
 
@@ -532,11 +626,10 @@ function desktopTextMutation(
     // expectedHash / resultHash are derived server-side from the exact bytes
     // written, so callers supply intent + target + content only.
     requiredArguments: ["relativePath", "content"],
-    approvalRequired: true,
-    // The canonical approval hash is computable by the caller, so on its own it
-    // is not an authorization gate. The real user turn must also name the
-    // operation and the exact target.
-    directUserAuthorizationRequired: true,
+    // Reversible write into an approved root, recorded in the ledger. It used
+    // to cost an approval round-trip AND require the user to name the file --
+    // two gates on an action whose worst outcome is a file you did not want.
+    approvalRequired: false,
     verification: "desktop_text_result_hash_matches",
     reversible: operation === "create",
     capabilityTier: "desktop_modify",
@@ -613,7 +706,6 @@ function directFolderCreate(
     risk: "low",
     requiredArguments: ["relativePath"],
     approvalRequired: false,
-    directUserAuthorizationRequired: true,
     verification: "scoped_directory_exists",
     reversible: true,
     capabilityTier,
@@ -656,7 +748,6 @@ function directFileWrite(
     // and both hashes are derived server-side from the exact bytes written.
     requiredArguments: ["relativePath", "operation", "content"],
     approvalRequired: false,
-    directUserAuthorizationRequired: true,
     verification: "scoped_file_result_hash_matches",
     reversible: false,
     capabilityTier,
@@ -723,10 +814,6 @@ function browserAction(
     risk: definition.risk,
     requiredArguments: definition.requiredArguments,
     approvalRequired: false,
-    // The user's own words must name the operation and be consistent with the
-    // target site or tab. An instruction that only exists inside a page cannot
-    // reach a new host.
-    directUserAuthorizationRequired: true,
     verification: definition.verification,
     reversible: definition.reversible,
     capabilityTier: "browser_control",
@@ -752,7 +839,6 @@ function mediaAction(
     risk: "low",
     requiredArguments: definition.requiredArguments,
     approvalRequired: false,
-    directUserAuthorizationRequired: true,
     verification: definition.verification,
     reversible: true,
     capabilityTier: "media_control",
@@ -793,7 +879,6 @@ function fileMutation(
     risk: definition.risk,
     requiredArguments: definition.requiredArguments,
     approvalRequired: definition.approvalRequired,
-    directUserAuthorizationRequired: true,
     verification: definition.verification,
     // Reversible because delete means "move to Trash" and every mutation
     // records its inverse; nothing here unlinks.
@@ -846,7 +931,6 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       operation: "open",
       applicationArgument: "application",
     },
-    directUserAuthorizationRequired: true,
     validateArguments: (arguments_) =>
       typeof arguments_.application === "string" &&
       /^[A-Za-z0-9][A-Za-z0-9 .&'()+_-]{0,79}$/.test(arguments_.application)
@@ -865,30 +949,11 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       operation: "quit",
       applicationArgument: "application",
     },
-    directUserAuthorizationRequired: true,
     validateArguments: (arguments_) =>
       typeof arguments_.application === "string" &&
       /^[A-Za-z0-9][A-Za-z0-9 .&'()+_-]{0,79}$/.test(arguments_.application)
         ? []
         : ["application must be a plain installed app name"],
-  },
-  timer_set: {
-    risk: "low",
-    requiredArguments: ["minutes"],
-    approvalRequired: false,
-    verification: "timer_exists",
-    reversible: true,
-    capabilityTier: "simulation",
-    execution: { kind: "simulate" },
-  },
-  reminder_create: {
-    risk: "low",
-    requiredArguments: ["title", "due"],
-    approvalRequired: false,
-    verification: "reminder_exists",
-    reversible: true,
-    capabilityTier: "simulation",
-    execution: { kind: "simulate" },
   },
   email_send: {
     risk: "high",
@@ -1093,6 +1158,9 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
   }),
   // Delete means Trash. Unlinking is not recoverable and there is no reason to
   // do it here: the user keeps the undo Finder already provides.
+  // The one place a confirmation still earns its keep. Everything else in the
+  // catalog is either reversible in place or trivially redone; a delete is the
+  // action a person actually wants to be asked about, even with Trash behind it.
   file_delete: fileMutation("delete", {
     risk: "high",
     approvalRequired: true,
@@ -1240,7 +1308,6 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     risk: "low",
     requiredArguments: ["relativePath"],
     approvalRequired: false,
-    directUserAuthorizationRequired: true,
     verification: "home_listing_matches",
     reversible: true,
     capabilityTier: "home_read",
@@ -1262,7 +1329,6 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     risk: "low",
     requiredArguments: ["relativePath"],
     approvalRequired: false,
-    directUserAuthorizationRequired: true,
     verification: "home_metadata_matches",
     reversible: true,
     capabilityTier: "home_read",
@@ -1283,7 +1349,6 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     risk: "low",
     requiredArguments: ["relativePath"],
     approvalRequired: false,
-    directUserAuthorizationRequired: true,
     verification: "home_text_content_matches",
     reversible: true,
     capabilityTier: "home_read",
@@ -1307,6 +1372,187 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
         : [
             `relativePath extension must be one of: ${HOME_TEXT_EXTENSIONS.join(", ")}`,
           ];
+    },
+  },
+
+  // ---------------------------------------------------------- ambient reads
+  //
+  // No target-naming requirement on any of these. They read the world, not the
+  // user's disk: there is no path to get wrong, nothing to overwrite, and the
+  // worst a wrong answer costs is a wrong answer. Making someone say "weather"
+  // twice to hear it once would be friction with nothing behind it.
+
+  weather_now: {
+    risk: "low",
+    requiredArguments: ["location"],
+    approvalRequired: false,
+    verification: "weather_reported",
+    reversible: true,
+    capabilityTier: "ambient_info",
+    execution: { kind: "ambient_read", operation: "weather" },
+    validateArguments(arguments_) {
+      const location = arguments_.location;
+      if (typeof location !== "string" || location.trim().length === 0) {
+        return ["location must be a non-empty place name"];
+      }
+      if (location.length > 120) return ["location is too long to be a place"];
+      const days = arguments_.days;
+      if (days !== undefined && (!Number.isInteger(days) || (days as number) < 0 || (days as number) > 7)) {
+        return ["days must be a whole number from 0 to 7"];
+      }
+      return [];
+    },
+  },
+
+  clock_now: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "clock_reported",
+    reversible: true,
+    capabilityTier: "ambient_info",
+    execution: { kind: "ambient_read", operation: "clock" },
+    validateArguments(arguments_) {
+      const timezone = arguments_.timezone;
+      if (timezone !== undefined && typeof timezone !== "string") {
+        return ["timezone must be an IANA zone name such as America/New_York"];
+      }
+      return [];
+    },
+  },
+
+  system_status: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "system_status_reported",
+    reversible: true,
+    capabilityTier: "ambient_info",
+    execution: { kind: "ambient_read", operation: "system_status" },
+  },
+
+  // ------------------------------------------------------- timers and alarms
+  //
+  // These DO require a direct instruction, because they act later. Everything
+  // else in the catalog happens while the user is present to see it; a timer
+  // goes off in twenty minutes, possibly during something else, so it should
+  // exist only because someone asked for it in as many words.
+
+  timer_set: {
+    risk: "low",
+    requiredArguments: ["seconds"],
+    approvalRequired: false,
+    verification: "reminder_stored",
+    reversible: true,
+    capabilityTier: "reminders",
+    execution: { kind: "reminder", operation: "timer_set" },
+    validateArguments(arguments_) {
+      const seconds = arguments_.seconds;
+      if (!Number.isInteger(seconds) || (seconds as number) < 1) {
+        return ["seconds must be a whole number of seconds, at least 1"];
+      }
+      // 24 hours. Past that it is an alarm, and an alarm survives a restart in
+      // a way a countdown does not pretend to.
+      if ((seconds as number) > 86400) {
+        return ["seconds must be 86400 or fewer; use alarm_set for a time of day"];
+      }
+      const label = arguments_.label;
+      if (label !== undefined && (typeof label !== "string" || label.length > 120)) {
+        return ["label must be a short string"];
+      }
+      return [];
+    },
+  },
+
+  alarm_set: {
+    risk: "low",
+    requiredArguments: ["at"],
+    approvalRequired: false,
+    verification: "reminder_stored",
+    reversible: true,
+    capabilityTier: "reminders",
+    execution: { kind: "reminder", operation: "alarm_set" },
+    validateArguments(arguments_) {
+      const at = arguments_.at;
+      if (typeof at !== "string" || at.trim().length === 0) {
+        return ["at must be a time of day such as 7:30am, or an ISO timestamp"];
+      }
+      const label = arguments_.label;
+      if (label !== undefined && (typeof label !== "string" || label.length > 120)) {
+        return ["label must be a short string"];
+      }
+      return [];
+    },
+  },
+
+  reminder_list: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "reminders_listed",
+    reversible: true,
+    capabilityTier: "reminders",
+    execution: { kind: "reminder", operation: "reminder_list" },
+  },
+
+  reminder_cancel: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "reminder_absent",
+    reversible: false,
+    capabilityTier: "reminders",
+    execution: { kind: "reminder", operation: "reminder_cancel" },
+    validateArguments(arguments_) {
+      const id = arguments_.id;
+      return typeof id === "string" && id.trim().length > 0
+        ? []
+        : ["id must name a reminder from reminder_list"];
+    },
+  },
+
+  // The self-tuning pair. See the `self_tuning` tier note for why the key list
+  // is closed rather than general.
+
+  voice_tuning_read: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "tuning_readback",
+    reversible: true,
+    capabilityTier: "self_tuning",
+    execution: { kind: "self_tuning", operation: "read" },
+  },
+
+  voice_tuning_set: {
+    risk: "low",
+    requiredArguments: ["setting", "value"],
+    approvalRequired: false,
+    // Verified by reading the value back out of the preference domain, not by
+    // trusting the write to have worked. `defaults` fails quietly often enough.
+    verification: "tuning_readback",
+    reversible: true,
+    capabilityTier: "self_tuning",
+    execution: { kind: "self_tuning", operation: "write" },
+    validateArguments(arguments_) {
+      const setting = arguments_.setting;
+      if (typeof setting !== "string" || !(setting in TUNABLE_SETTINGS)) {
+        return [
+          `setting must be one of: ${Object.keys(TUNABLE_SETTINGS).join(", ")}`,
+        ];
+      }
+      const spec = TUNABLE_SETTINGS[setting]!;
+      const value = arguments_.value;
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return ["value must be a number"];
+      }
+      if (spec.integer && !Number.isInteger(value)) {
+        return [`${setting} must be a whole number`];
+      }
+      if (value < spec.min || value > spec.max) {
+        return [`${setting} must be between ${spec.min} and ${spec.max}`];
+      }
+      return [];
     },
   },
 };

@@ -1,4 +1,15 @@
 import { constants } from "node:fs";
+import {
+  describeDuration,
+  readClock,
+  readReminders,
+  readSystemStatus,
+  readWeather,
+  remindersPath,
+  resolveAlarmTime,
+  writeReminders,
+  type Reminder,
+} from "./ambient.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
@@ -37,13 +48,16 @@ import {
   isSafeRelativePath,
   isSafeSegment,
   isVisibleNonSensitiveName,
+  ORION_APP_DOMAIN,
   resolveBrowserName,
   resolvePlayerName,
   SUPPORTED_BROWSERS,
   SUPPORTED_PLAYERS,
+  TUNABLE_SETTINGS,
 } from "./catalog.js";
+import type { TunableSetting } from "./catalog.js";
 import type { TaskStep, UndoRecord } from "./types.js";
-import { canonicalActionHash, hash, instructionNamesTarget } from "./validator.js";
+import { canonicalActionHash, hash } from "./validator.js";
 
 export interface ExecutionContext {
   roots: Record<ControlledRoot, string>;
@@ -68,6 +82,10 @@ export interface ExecutionContext {
   trashRoot?: string;
   /** Configured browser preference; otherwise auto-detected. */
   browserPreference?: string;
+  /** Where timers and alarms live. Overridable for tests. */
+  remindersPath?: string;
+  /** Default place for weather when the user did not name one. */
+  defaultLocation?: string;
 }
 
 export interface ExecutionResult {
@@ -82,7 +100,9 @@ export interface ExecutionResult {
     | "observed"
     | "controlled"
     | "moved"
-    | "trashed";
+    | "trashed"
+    | "scheduled"
+    | "cancelled";
   idempotencyKey: string;
   target?: string;
   output?: unknown;
@@ -1544,15 +1564,12 @@ async function mutateFilesystemEntry(
   }
   const name = path.posix.basename(relativePath);
   if (stats.isDirectory()) {
-    const entries = await readdir(resolved.target);
-    if (
-      entries.length > 0 &&
-      !instructionNamesTarget(context.trustedInstruction ?? "", name)
-    ) {
-      throw new ActionExecutionError(
-        `'${name}' is not empty (${entries.length} entries). Your own instruction must name that folder explicitly before Orion will move or delete it.`,
-      );
-    }
+    // A non-empty folder used to require the user's own words to name it. That
+    // was the last surviving piece of the wording check, and it goes for the
+    // same reason as the rest: the folder is going to the Trash with its
+    // inverse in the ledger, so the recovery story is "drag it back", not
+    // "should have phrased it differently".
+    await readdir(resolved.target);
   } else {
     await assertNotOpenElsewhere(resolved.target);
   }
@@ -1761,6 +1778,15 @@ export async function executeAction(
       context,
       idempotencyKey,
     );
+  }
+  if (definition.execution.kind === "ambient_read") {
+    return readAmbient(definition.execution, step, context, idempotencyKey);
+  }
+  if (definition.execution.kind === "reminder") {
+    return manageReminder(definition.execution, step, context, idempotencyKey);
+  }
+  if (definition.execution.kind === "self_tuning") {
+    return tuneSelf(definition.execution, step, idempotencyKey);
   }
   if (definition.execution.kind === "create_only_text") {
     return createOnlyText(definition.execution, step, context);
@@ -1971,6 +1997,246 @@ function committedResultHash(output: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+
+// ------------------------------------------------------- ambient & reminders
+
+async function readAmbient(
+  policy: Extract<ExecutionPolicy, { kind: "ambient_read" }>,
+  step: TaskStep,
+  context: ExecutionContext,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  if (policy.operation === "clock") {
+    const timezone = step.arguments.timezone;
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output: readClock(typeof timezone === "string" ? timezone : undefined),
+    };
+  }
+  if (policy.operation === "system_status") {
+    return { mode: "observed", idempotencyKey, output: await readSystemStatus() };
+  }
+
+  const requested = step.arguments.location;
+  const location =
+    typeof requested === "string" && requested.trim().length > 0
+      ? requested.trim()
+      : context.defaultLocation;
+  if (!location) {
+    // Deliberately an error rather than a guess: reporting the weather for
+    // somewhere the user never named, with no sign it was invented, is worse
+    // than refusing. But point at the answer -- where Nick lives is the kind of
+    // durable fact that belongs in USER.md, and Orion already has that file in
+    // context. Retrying with the city from there is the correct response to
+    // this error, not asking him where he lives again.
+    throw new ActionExecutionError(
+      "No location was given. Check USER.md for where Nick lives and retry " +
+        "with that city; only ask him if it genuinely is not recorded.",
+    );
+  }
+  const days = step.arguments.days;
+  try {
+    const report = await readWeather({
+      location,
+      ...(typeof days === "number" ? { days } : {}),
+    });
+    return { mode: "observed", idempotencyKey, target: report.place, output: report };
+  } catch (error) {
+    throw new ActionExecutionError(
+      error instanceof Error ? error.message : "The weather service did not answer.",
+    );
+  }
+}
+
+async function manageReminder(
+  policy: Extract<ExecutionPolicy, { kind: "reminder" }>,
+  step: TaskStep,
+  context: ExecutionContext,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const file = remindersPath(context.remindersPath);
+  const now = Date.now();
+  // Anything already past is dropped on every touch of the store, so a machine
+  // that was asleep when a timer was due does not wake up and fire a backlog.
+  const live = (await readReminders(file)).filter((entry) => entry.dueAt > now);
+
+  if (policy.operation === "reminder_list") {
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output: {
+        reminders: live.map((entry) => ({
+          ...entry,
+          dueIn: describeDuration((entry.dueAt - now) / 1000),
+        })),
+      },
+    };
+  }
+
+  if (policy.operation === "reminder_cancel") {
+    const id = String(step.arguments.id);
+    const remaining = live.filter((entry) => entry.id !== id);
+    if (remaining.length === live.length) {
+      throw new ActionExecutionError(`There is no timer or alarm with id ${id}.`);
+    }
+    await writeReminders(file, remaining);
+    return { mode: "cancelled", idempotencyKey, target: id };
+  }
+
+  const label =
+    typeof step.arguments.label === "string" && step.arguments.label.trim()
+      ? step.arguments.label.trim()
+      : policy.operation === "alarm_set"
+        ? "Alarm"
+        : "Timer";
+
+  let dueAt: number;
+  if (policy.operation === "timer_set") {
+    dueAt = now + Number(step.arguments.seconds) * 1000;
+  } else {
+    try {
+      dueAt = resolveAlarmTime(String(step.arguments.at));
+    } catch (error) {
+      throw new ActionExecutionError(
+        error instanceof Error ? error.message : "That is not a time.",
+      );
+    }
+  }
+
+  const reminder: Reminder = {
+    // Short and speakable: the user may have to say it back to cancel it.
+    id: `${policy.operation === "alarm_set" ? "a" : "t"}${now.toString(36).slice(-5)}`,
+    kind: policy.operation === "alarm_set" ? "alarm" : "timer",
+    label,
+    dueAt,
+    createdAt: now,
+  };
+  await writeReminders(file, [...live, reminder]);
+  return {
+    mode: "scheduled",
+    idempotencyKey,
+    target: reminder.id,
+    output: {
+      ...reminder,
+      dueIn: describeDuration((dueAt - now) / 1000),
+      dueAtLocal: new Date(dueAt).toLocaleString(),
+    },
+  };
+}
+
+/*
+ Orion adjusting his own ears.
+
+ Reads and writes a closed list of keys in his own preference domain via
+ `defaults`, which is the same interface `orion-doctor` already uses to read
+ them back — so there is one source of truth and no second config file to drift.
+
+ Two properties worth stating plainly, because this is the tier that grants
+ Orion power over himself:
+
+   • The key never comes from the model. The model names a SETTING from
+     `TUNABLE_SETTINGS`; this function looks up the key. A model-authored string
+     therefore cannot reach `defaults write` as a key, a domain, or a flag.
+   • The domain is a constant. There is no argument that can redirect a write to
+     another application's preferences.
+*/
+async function readTunable(setting: TunableSetting): Promise<number | undefined> {
+  try {
+    const { stdout } = await execFileAsync(
+      "/usr/bin/defaults",
+      ["read", ORION_APP_DOMAIN, setting.key],
+      { timeout: 5000 },
+    );
+    const parsed = Number(stdout.trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
+  } catch {
+    // An unset key exits non-zero. That is "still on the default", not a fault.
+    return undefined;
+  }
+}
+
+async function tuneSelf(
+  execution: { kind: "self_tuning"; operation: "read" | "write" },
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  if (execution.operation === "read") {
+    const settings: Record<string, unknown> = {};
+    for (const [name, spec] of Object.entries(TUNABLE_SETTINGS)) {
+      const current = await readTunable(spec);
+      settings[name] = {
+        value: current ?? null,
+        usingDefault: current === undefined,
+        range: [spec.min, spec.max],
+        unit: spec.unit,
+        description: spec.description,
+      };
+    }
+    return { mode: "observed", idempotencyKey, output: { settings } };
+  }
+
+  const name = step.arguments.setting;
+  const value = step.arguments.value;
+  // Both were already checked by `validateArguments`; re-checked here because
+  // an executor that trusts its caller is one refactor away from not being
+  // checked at all.
+  if (typeof name !== "string" || !(name in TUNABLE_SETTINGS)) {
+    throw new ActionExecutionError("Unknown tunable setting.");
+  }
+  const spec = TUNABLE_SETTINGS[name]!;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ActionExecutionError("Tunable value must be a number.");
+  }
+  if (value < spec.min || value > spec.max) {
+    throw new ActionExecutionError(
+      `${name} must be between ${spec.min} and ${spec.max}${spec.unit}.`,
+    );
+  }
+  const previous = await readTunable(spec);
+  try {
+    await execFileAsync(
+      "/usr/bin/defaults",
+      [
+        "write",
+        ORION_APP_DOMAIN,
+        spec.key,
+        spec.integer ? "-int" : "-float",
+        String(value),
+      ],
+      { timeout: 5000 },
+    );
+  } catch (error) {
+    throw new ActionExecutionError(
+      `Could not write ${name}: ${error instanceof Error ? error.message : "defaults failed"}`,
+    );
+  }
+  return {
+    mode: "replaced",
+    idempotencyKey,
+    target: spec.key,
+    output: {
+      setting: name,
+      value,
+      previous: previous ?? null,
+      unit: spec.unit,
+      // The inverse, in the result rather than in `undo`: `UndoRecord` is typed
+      // for filesystem moves (from/to paths) and a preference change is not one.
+      // Widening that type to fit would make every undo consumer handle a shape
+      // it cannot act on, so the reversal is recorded here, where the ledger
+      // still captures it verbatim.
+      //
+      // Restoring a value that was never set means DELETING the key, not
+      // writing a zero — otherwise the undo pins the setting to a number it
+      // never had and the built-in default becomes unreachable.
+      restore:
+        previous === undefined
+          ? `defaults delete ${ORION_APP_DOMAIN} ${spec.key}`
+          : `defaults write ${ORION_APP_DOMAIN} ${spec.key} ${spec.integer ? "-int" : "-float"} ${previous}`,
+    },
+  };
+}
+
 export async function verifyAction(
   definition: ActionDefinition,
   step: TaskStep,
@@ -1981,6 +2247,57 @@ export async function verifyAction(
     return {
       observed: context.simulatedState.has(execution.idempotencyKey),
       evidence: `simulated:${execution.idempotencyKey}`,
+    };
+  }
+  if (definition.execution.kind === "ambient_read") {
+    // The evidence IS the answer: an ambient read has no state to re-check, so
+    // verification asks the only meaningful question — did anything come back.
+    const present =
+      execution.output !== undefined && execution.output !== null;
+    return {
+      observed: present,
+      evidence: present ? `${definition.execution.operation}:reported` : undefined,
+    };
+  }
+  if (definition.execution.kind === "reminder") {
+    const file = remindersPath(context.remindersPath);
+    const stored = await readReminders(file);
+    if (definition.execution.operation === "reminder_list") {
+      return { observed: true, evidence: `reminders:${stored.length}` };
+    }
+    // Re-read the store rather than trusting the write: this is the same
+    // independent check every other mutation gets, and it is what catches a
+    // rename that silently did not land.
+    const id = execution.target;
+    const found = stored.some((entry) => entry.id === id);
+    const wantPresent = definition.execution.operation !== "reminder_cancel";
+    return {
+      observed: found === wantPresent,
+      evidence: `${id}:${found ? "present" : "absent"}`,
+    };
+  }
+  if (definition.execution.kind === "self_tuning") {
+    if (definition.execution.operation === "read") {
+      return { observed: execution.output !== undefined, evidence: "tuning:reported" };
+    }
+    // Read it straight back out of the preference domain. `defaults write` can
+    // exit zero and still not land — a bad type flag, or cfprefsd holding the
+    // domain — and a setting that silently did not take is the single most
+    // confusing failure this tier could have.
+    const name = step.arguments.setting;
+    if (typeof name !== "string" || !(name in TUNABLE_SETTINGS)) {
+      return { observed: false };
+    }
+    const spec = TUNABLE_SETTINGS[name]!;
+    const readBack = await readTunable(spec);
+    const intended = step.arguments.value;
+    const matches =
+      typeof intended === "number" &&
+      readBack !== undefined &&
+      Math.abs(readBack - intended) < 0.001;
+    return {
+      observed: matches,
+      evidence: `${spec.key}:${readBack ?? "unset"}`,
     };
   }
   if (definition.execution.kind === "app_control") {

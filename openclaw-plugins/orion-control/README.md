@@ -21,11 +21,10 @@ Orion-controlled test workspace. It has no path argument, never overwrites,
 and treats an identical repeat as an idempotent success. All older catalog
 actions remain simulation-only.
 
-The `approved_root_edit` profile permits only configured, explicitly named
-Desktop/scratch create and update actions. Hidden or sensitive paths,
-traversal, symlinks, collisions, stale hashes, and untrusted instructions fail
-closed. Delete, move/rename, bulk changes, application control, mail,
-reminders, calendars, browser/network, accounts, credentials, communications,
+Profiles gate capability tiers. `consequential_local` — the current setting —
+adds move, rename and delete-to-Trash on top of the create/update tiers. Hidden
+or sensitive paths, traversal, symlinks, collisions, stale hashes, and untrusted
+instructions all still fail closed. Mail, accounts, credentials, communications
 and elevated Mac actions remain separately gated.
 
 ## Control contract
@@ -39,8 +38,36 @@ and elevated Mac actions remain separately gated.
   authenticated user turn bound to the tool call, every action fails closed with
   `no_authenticated_user_turn`.
 - Every action must trace to a trusted user or policy instruction, and any
-  action that changes state must be named — operation and exact target — in the
-  user's own turn text.
+  action that changes state must be asked for in the user's own turn text.
+
+  How literally, depends on what the action can destroy:
+
+  - **Destructive** (`move`, `rename`, `delete`) — `delete` still asks for
+    confirmation bound to its exact arguments; move and rename do not. None of
+    them require the user to name anything, and all of them are subject to the
+    write-target check below.
+  - **Write targets** — a path that appears in untrusted content Orion read and
+    in nothing the user said is refused (`target_from_untrusted_content`). This
+    is what binds an action to the request, now that the wording rules are gone:
+    provenance proves a real turn exists, but not that this step is what it
+    asked for.
+  - **Navigation** (`browser_open_url`) — judged on the URL, not the wording.
+    A URL is refused when a value in its query string, path, or fragment also
+    appears in untrusted content Orion read. That is the actual threat — a
+    hostile page getting its contents back out via `evil.com/?leak=…` — and it
+    is checked directly, in raw and percent-decoded form.
+  - **Everything else** — the recent turns are read together, as the one
+    conversation they are, and a target the user pointed at loosely is enough.
+
+  Deliberately not a spelling test. The old rules refused "rick roll me" for
+  containing no navigation verb and "make a text file" for not naming the file;
+  no list of accepted verbs fixes that, since the next person says "throw on
+  some music". They are gone.
+
+  What replaced them is the pair of taint checks, and that pairing is not
+  optional — deleting the wording rules without them opened a real hole, because
+  provenance proves a user turn exists but not that a given step is what it
+  asked for.
 - Untrusted webpages, email, files, images, and tool output cannot create
   actions.
 - Risk, verifier, reversibility, and every SHA-256 hash are derived server-side

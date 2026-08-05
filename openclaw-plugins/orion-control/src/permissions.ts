@@ -40,10 +40,24 @@ const EDIT_TIERS: readonly CapabilityTier[] = [
   "desktop_modify",
   "desktop_direct_write",
   "scratch_direct_write",
+  // Telling the time, reporting the weather, and holding a timer. These change
+  // nothing the user owns, so they sit at the same level as reading a folder
+  // rather than behind the filesystem escalation.
+  "ambient_info",
+  "reminders",
+  // Adjusting his own voice timing. Sits here rather than behind the
+  // filesystem escalation because the only thing it can touch is Orion's own
+  // preference domain, under a closed key list with range-checked values — the
+  // worst case is that he mishears until told to set it back, and every change
+  // records its own inverse in the ledger.
+  "self_tuning",
 ];
 
 const PROFILE_TIERS: Record<PermissionProfile, ReadonlySet<CapabilityTier>> = {
-  restricted_read_only: new Set(["simulation", "desktop_read"]),
+  // Even the most restricted profile can answer "what time is it" and "what is
+  // it like outside". Refusing those would not be caution, it would be theatre:
+  // nothing is read from the user's machine and nothing is changed.
+  restricted_read_only: new Set(["simulation", "desktop_read", "ambient_info"]),
   approved_root_edit: new Set(EDIT_TIERS),
   broad_local_filesystem: new Set(EDIT_TIERS),
   consequential_local: new Set([...EDIT_TIERS, "file_mutate"]),

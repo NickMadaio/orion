@@ -86,7 +86,7 @@ export interface StepRecord {
         sourceRefs: string[];
     };
     execution: {
-        mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "moved" | "trashed" | "failed";
+        mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "moved" | "trashed" | "scheduled" | "cancelled" | "failed";
         target?: string;
         output?: unknown;
     };

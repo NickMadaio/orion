@@ -12,9 +12,20 @@ export interface RunOptions {
     trashRoot?: string;
     /** Configured browser for the `browser_control` tier. */
     browserPreference?: string;
+    remindersPath?: string;
+    defaultLocation?: string;
     enabledTiers?: ReadonlySet<CapabilityTier>;
     /** Harness-derived trust provenance recorded on the durable run record. */
     authorization?: TrustProvenance;
+    /** Paths Orion already wrote under an authenticated turn (see provenance). */
+    isSelfAuthored?: (candidate: string) => boolean;
+    /**
+     * Called with the resolved target of every step that executed AND verified.
+     *
+     * Placed after verification on purpose: an attempted write that failed or
+     * could not be observed does not earn the file a place in the registry.
+     */
+    onArtifact?: (target: string) => void;
     /** Uniqueness source for the task id; defaults to a fresh UUID. */
     nonce?: string;
     now?: () => Date;

@@ -4,12 +4,28 @@ import { ACTION_CATALOG } from "./catalog.js";
 import { ActionExecutionError, executeAction, verifyAction, } from "./executors.js";
 import { TaskLedger } from "./ledger.js";
 import { hash, validateTaskGraph } from "./validator.js";
+/**
+ * Execution modes that leave Orion holding a file he wrote.
+ *
+ * `observed` and `opened` are reads, `simulated` never touched a disk, and
+ * `trashed` removed the thing — none of them should make a path self-authored.
+ */
+const AUTHORING_MODES = new Set([
+    "created",
+    "already_present",
+    "appended",
+    "replaced",
+    "moved",
+]);
 export async function runTaskGraph(graph, options) {
     const now = options.now ?? (() => new Date());
     const enabledTiers = options.enabledTiers ?? new Set(["simulation"]);
     const execute = options.execute ?? executeAction;
     const verify = options.verify ?? verifyAction;
-    const validation = validateTaskGraph(graph, { enabledTiers });
+    const validation = validateTaskGraph(graph, {
+        enabledTiers,
+        ...(options.isSelfAuthored ? { isSelfAuthored: options.isSelfAuthored } : {}),
+    });
     const createdAt = now().toISOString();
     // A nonce keeps task ids unique: two identical graphs submitted inside the
     // same millisecond previously collided, so a status lookup could return the
@@ -68,6 +84,12 @@ export async function runTaskGraph(graph, options) {
             writeMemo,
             ...(trustedInstruction ? { trustedInstruction } : {}),
             ...(options.trashRoot ? { trashRoot: options.trashRoot } : {}),
+            ...(options.remindersPath
+                ? { remindersPath: options.remindersPath }
+                : {}),
+            ...(options.defaultLocation
+                ? { defaultLocation: options.defaultLocation }
+                : {}),
             ...(options.browserPreference
                 ? { browserPreference: options.browserPreference }
                 : {}),
@@ -114,6 +136,14 @@ export async function runTaskGraph(graph, options) {
                 };
                 record.steps.push(stepRecord);
                 stepStatus = stepRecord.status;
+                // A file Orion just wrote on Nick's authority stops being "content he
+                // merely read about". Registering it here is what lets the next turn
+                // say "add a line to it" without naming the file again.
+                if (verification.observed &&
+                    typeof execution.target === "string" &&
+                    AUTHORING_MODES.has(execution.mode)) {
+                    options.onArtifact?.(execution.target);
+                }
                 if (verification.observed)
                     break;
             }

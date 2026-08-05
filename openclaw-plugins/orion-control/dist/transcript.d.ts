@@ -20,10 +20,17 @@ export interface TranscriptOptions {
  */
 export declare function userTextFromLine(line: string): string | undefined;
 /**
- * The most recent user-authored turn in the bound session.
+ * The most recent user-authored turns in the bound session, oldest first.
  *
- * Returns undefined rather than throwing: a missing or unreadable transcript
- * must fail closed like every other absent provenance source, not error out of
- * a tool call.
+ * Returns an empty array rather than throwing: a missing or unreadable
+ * transcript must fail closed like every other absent provenance source, not
+ * error out of a tool call.
+ */
+export declare function readRecentUserTurns(options?: TranscriptOptions & {
+    limit?: number;
+}): Promise<TranscriptTurn[]>;
+/**
+ * The single most recent user-authored turn. Retained because the trust
+ * provenance health readout and its tests speak in terms of one turn.
  */
 export declare function readLatestUserTurn(options?: TranscriptOptions): Promise<TranscriptTurn | undefined>;

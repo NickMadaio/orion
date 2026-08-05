@@ -23,9 +23,13 @@ export interface ExecutionContext {
     trashRoot?: string;
     /** Configured browser preference; otherwise auto-detected. */
     browserPreference?: string;
+    /** Where timers and alarms live. Overridable for tests. */
+    remindersPath?: string;
+    /** Default place for weather when the user did not name one. */
+    defaultLocation?: string;
 }
 export interface ExecutionResult {
-    mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "moved" | "trashed";
+    mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "moved" | "trashed" | "scheduled" | "cancelled";
     idempotencyKey: string;
     target?: string;
     output?: unknown;

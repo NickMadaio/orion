@@ -57,14 +57,56 @@ export interface ProvenanceHealth {
     transcriptTurnsUsed: number;
     retainedTurns: number;
     pendingToolCallBindings: number;
+    /** Files Orion wrote himself this session and may edit without renaming. */
+    selfAuthoredArtifacts: number;
     lastTurnSource?: TrustTurnSource;
     lastTurnAgeMs?: number;
     lastBinding?: TrustBinding;
 }
+export declare function isUntrustedResultTool(toolName: string): boolean;
 export declare class HarnessProvenance {
     private readonly maxTurns;
     private readonly maxBindings;
     private readonly now;
+    private readonly observed;
+    /** Per entry. Enough to catch a smuggled path, not a whole page of prose. */
+    private static readonly maxObservedChars;
+    /** Total across entries. */
+    private static readonly maxObservedEntries;
+    /** Older than this and it is not what the current request is about. */
+    private static readonly observedTtlMs;
+    /**
+     * Record text a tool brought in from outside.
+     *
+     * Deliberately indiscriminate about shape: results differ per tool and a
+     * missed field means a missed check, so anything string-ish in the payload is
+     * flattened and kept.
+     */
+    recordUntrustedResult(toolName: string, payload: unknown, now?: number): void;
+    /** Everything read recently, for the validator to compare targets against. */
+    untrustedContent(now?: number): string;
+    private readonly authored;
+    private static readonly maxAuthoredEntries;
+    /** A session, generously. Long enough to keep working, short enough to end. */
+    private static readonly authoredTtlMs;
+    /** Record a target Orion successfully wrote under an authenticated turn. */
+    recordAuthoredArtifact(target: unknown, now?: number): void;
+    /**
+     * Is this path something Orion already created on Nick's authority?
+     *
+     * Matched on the full path or on a trailing path segment, because the two
+     * sides speak different dialects: the executor records an absolute target
+     * (`/Users/nick/ws/notes.txt`) while the model's argument is usually relative
+     * to a workspace root (`notes.txt`, `sub/notes.txt`).
+     *
+     * A suffix and not a basename, deliberately. Basename matching would excuse
+     * `~/.ssh/notes.txt` on the strength of an unrelated `notes.txt` Orion once
+     * wrote in a scratch folder. A suffix match cannot: the leading directories
+     * still have to be the ones he actually wrote to.
+     */
+    isSelfAuthored(candidate: string, now?: number): boolean;
+    /** Count of live self-authored artifacts, for diagnosis. */
+    authoredArtifactCount(now?: number): number;
     private readonly turns;
     private readonly bindings;
     private readonly fired;

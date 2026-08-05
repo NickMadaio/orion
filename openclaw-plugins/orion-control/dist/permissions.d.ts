@@ -50,7 +50,7 @@ export declare function changePermissionProfile(request: PermissionChangeRequest
     reason: string;
     current: PermissionState;
     delta: {
-        direction: "lower" | "raise" | "same";
+        direction: "raise" | "lower" | "same";
         from: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         to: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         added: ("Simulation and configured visible non-sensitive read/list/metadata actions." | "Direct-user-authorized create/update within configured approved roots; opening or gracefully quitting an explicitly named installed app; when separately enabled in config, http/https browser tab control and page reads, media and volume control, and read-only listing/metadata/text reads inside the home directory." | "Only catalog actions for separately configured local roots, plus everything approved_root_edit allows; selecting this profile does not create new roots or grant home-directory writes." | "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation." | "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.")[];
@@ -64,7 +64,7 @@ export declare function changePermissionProfile(request: PermissionChangeRequest
     reason: string;
     current: PermissionState;
     delta: {
-        direction: "lower" | "raise" | "same";
+        direction: "raise" | "lower" | "same";
         from: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         to: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         added: ("Simulation and configured visible non-sensitive read/list/metadata actions." | "Direct-user-authorized create/update within configured approved roots; opening or gracefully quitting an explicitly named installed app; when separately enabled in config, http/https browser tab control and page reads, media and volume control, and read-only listing/metadata/text reads inside the home directory." | "Only catalog actions for separately configured local roots, plus everything approved_root_edit allows; selecting this profile does not create new roots or grant home-directory writes." | "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation." | "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.")[];
@@ -77,7 +77,7 @@ export declare function changePermissionProfile(request: PermissionChangeRequest
     status: "needs_approval";
     current: PermissionState;
     delta: {
-        direction: "lower" | "raise" | "same";
+        direction: "raise" | "lower" | "same";
         from: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         to: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         added: ("Simulation and configured visible non-sensitive read/list/metadata actions." | "Direct-user-authorized create/update within configured approved roots; opening or gracefully quitting an explicitly named installed app; when separately enabled in config, http/https browser tab control and page reads, media and volume control, and read-only listing/metadata/text reads inside the home directory." | "Only catalog actions for separately configured local roots, plus everything approved_root_edit allows; selecting this profile does not create new roots or grant home-directory writes." | "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation." | "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.")[];
@@ -91,7 +91,7 @@ export declare function changePermissionProfile(request: PermissionChangeRequest
     status: "unchanged";
     current: PermissionState;
     delta: {
-        direction: "lower" | "raise" | "same";
+        direction: "raise" | "lower" | "same";
         from: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         to: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         added: ("Simulation and configured visible non-sensitive read/list/metadata actions." | "Direct-user-authorized create/update within configured approved roots; opening or gracefully quitting an explicitly named installed app; when separately enabled in config, http/https browser tab control and page reads, media and volume control, and read-only listing/metadata/text reads inside the home directory." | "Only catalog actions for separately configured local roots, plus everything approved_root_edit allows; selecting this profile does not create new roots or grant home-directory writes." | "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation." | "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.")[];
@@ -106,7 +106,7 @@ export declare function changePermissionProfile(request: PermissionChangeRequest
     current: PermissionState;
     previous: PermissionState;
     delta: {
-        direction: "lower" | "raise" | "same";
+        direction: "raise" | "lower" | "same";
         from: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         to: "restricted_read_only" | "approved_root_edit" | "broad_local_filesystem" | "consequential_local" | "external_connected";
         added: ("Simulation and configured visible non-sensitive read/list/metadata actions." | "Direct-user-authorized create/update within configured approved roots; opening or gracefully quitting an explicitly named installed app; when separately enabled in config, http/https browser tab control and page reads, media and volume control, and read-only listing/metadata/text reads inside the home directory." | "Only catalog actions for separately configured local roots, plus everything approved_root_edit allows; selecting this profile does not create new roots or grant home-directory writes." | "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation." | "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.")[];

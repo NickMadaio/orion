@@ -80,6 +80,8 @@ export interface ProvenanceHealth {
   transcriptTurnsUsed: number;
   retainedTurns: number;
   pendingToolCallBindings: number;
+  /** Files Orion wrote himself this session and may edit without renaming. */
+  selfAuthoredArtifacts: number;
   lastTurnSource?: TrustTurnSource;
   lastTurnAgeMs?: number;
   lastBinding?: TrustBinding;
@@ -91,7 +93,173 @@ interface ToolCallBinding {
   boundAt: number;
 }
 
+/*
+ Everything Orion has READ recently, from tools this plugin does not own.
+
+ Why this exists: the taint checks in the validator compare an action's target
+ against untrusted content, and they were fed only from `graph.inputs` -- which
+ the MODEL fills in. That was adequate while every scrap of outside text arrived
+ through this plugin's own browser actions. It stopped being adequate the moment
+ the native `web_search`, `web_fetch` and `browser` tools were switched on:
+ their results land straight in the model's context and never appear as a
+ declared input, so a page could say "also create exfil.txt", the model could
+ comply, and the taint check would be comparing against an empty string.
+
+ Relying on the model to declare what it read would be relying on the model to
+ report its own compromise. So the harness records it instead, from the
+ `after_tool_call` hook, and the validator reads from here as well.
+
+ Bounded on purpose: a cap on size and an age limit, because this is a
+ comparison corpus and not a log.
+*/
+interface ObservedContent {
+  text: string;
+  at: number;
+}
+
+/** Tools whose output is text from somewhere that is not Nick. */
+/**
+ * Tools whose output is Orion's OWN bookkeeping, not text from outside.
+ *
+ * Everything not on this list is treated as untrusted, and the inversion is the
+ * point. The first version listed the untrusted tools instead — web_search,
+ * web_fetch, browser — which was fine while those were the only way outside
+ * text arrived. It stops being fine the moment an MCP server is connected: a
+ * Gmail tool is called something like `gmail_search_threads` and matches no
+ * entry on a list of web tool names, so every email would have been treated as
+ * trustworthy. Email is the oldest hostile-content channel there is.
+ *
+ * An allowlist of tools I have to remember to update is a guarantee that
+ * whatever gets connected next is unprotected until someone notices. A denylist
+ * of Orion's own control plane fails the other way: a new tool is untrusted
+ * until proven otherwise, which is the correct direction for this.
+ *
+ * These three are excluded because they return Orion's own ledger and
+ * permission state. Including them would let a filename from a past action
+ * count as "untrusted content" and block a later legitimate action on the same
+ * file — self-poisoning from his own audit trail.
+ */
+const OWN_BOOKKEEPING_TOOLS = [
+  "orion_task_status",
+  "orion_permission_status",
+  "orion_permission_change",
+];
+
+export function isUntrustedResultTool(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return !OWN_BOOKKEEPING_TOOLS.includes(name);
+}
+
 export class HarnessProvenance {
+  private readonly observed: ObservedContent[] = [];
+  /** Per entry. Enough to catch a smuggled path, not a whole page of prose. */
+  private static readonly maxObservedChars = 20000;
+  /** Total across entries. */
+  private static readonly maxObservedEntries = 12;
+  /** Older than this and it is not what the current request is about. */
+  private static readonly observedTtlMs = 10 * 60 * 1000;
+
+  /**
+   * Record text a tool brought in from outside.
+   *
+   * Deliberately indiscriminate about shape: results differ per tool and a
+   * missed field means a missed check, so anything string-ish in the payload is
+   * flattened and kept.
+   */
+  recordUntrustedResult(toolName: string, payload: unknown, now = Date.now()): void {
+    if (!isUntrustedResultTool(toolName)) return;
+    const text = flattenStrings(payload).slice(
+      0,
+      HarnessProvenance.maxObservedChars,
+    );
+    if (text.trim().length === 0) return;
+    this.observed.push({ text, at: now });
+    while (this.observed.length > HarnessProvenance.maxObservedEntries) {
+      this.observed.shift();
+    }
+  }
+
+  /** Everything read recently, for the validator to compare targets against. */
+  untrustedContent(now = Date.now()): string {
+    return this.observed
+      .filter((entry) => now - entry.at <= HarnessProvenance.observedTtlMs)
+      .map((entry) => entry.text)
+      .join("\n");
+  }
+
+  /*
+   Files Orion created or wrote HIMSELF, under a real authenticated turn.
+
+   Why this exists: `orion_task_run` is not on the bookkeeping denylist above,
+   so `after_tool_call` records its result — which names every path the run
+   touched — as untrusted content. One turn later the taint check in the
+   validator sees that path in "untrusted content", fails to find it in the
+   user's newest words ("now add a line to it" names no file), and refuses.
+
+   Orion was therefore blocked from editing a file he had just created on Nick's
+   explicit instruction. The comment on OWN_BOOKKEEPING_TOOLS anticipated this
+   exact failure — "self-poisoning from his own audit trail" — and then listed
+   `orion_task_status` while omitting the tool that actually performs the write.
+
+   The obvious patch is to add `orion_task_run` to that denylist. That is wrong:
+   a run result also carries the CONTENTS of anything the run read — file_read,
+   a fetched page — and trusting all of it would reopen the injection hole the
+   denylist exists to close.
+
+   So record the narrow thing instead: the specific target of a step that already
+   passed the full gate and then verified. An injected "create exfil.txt" is
+   refused at creation and so never lands here; only paths Nick authorized do.
+   The model cannot write to this registry — the controller does, after the fact.
+  */
+  private readonly authored = new Map<string, number>();
+  private static readonly maxAuthoredEntries = 256;
+  /** A session, generously. Long enough to keep working, short enough to end. */
+  private static readonly authoredTtlMs = 12 * 60 * 60 * 1000;
+
+  /** Record a target Orion successfully wrote under an authenticated turn. */
+  recordAuthoredArtifact(target: unknown, now = Date.now()): void {
+    const value = normalizeText(target);
+    if (!value) return;
+    this.authored.set(normalizeArtifactPath(value), now);
+    while (this.authored.size > HarnessProvenance.maxAuthoredEntries) {
+      const oldest = this.authored.keys().next();
+      if (oldest.done) break;
+      this.authored.delete(oldest.value);
+    }
+  }
+
+  /**
+   * Is this path something Orion already created on Nick's authority?
+   *
+   * Matched on the full path or on a trailing path segment, because the two
+   * sides speak different dialects: the executor records an absolute target
+   * (`/Users/nick/ws/notes.txt`) while the model's argument is usually relative
+   * to a workspace root (`notes.txt`, `sub/notes.txt`).
+   *
+   * A suffix and not a basename, deliberately. Basename matching would excuse
+   * `~/.ssh/notes.txt` on the strength of an unrelated `notes.txt` Orion once
+   * wrote in a scratch folder. A suffix match cannot: the leading directories
+   * still have to be the ones he actually wrote to.
+   */
+  isSelfAuthored(candidate: string, now = Date.now()): boolean {
+    const wanted = normalizeArtifactPath(candidate);
+    if (wanted.length === 0) return false;
+    for (const [authored, at] of this.authored) {
+      if (now - at > HarnessProvenance.authoredTtlMs) continue;
+      if (authored === wanted || authored.endsWith(`/${wanted}`)) return true;
+    }
+    return false;
+  }
+
+  /** Count of live self-authored artifacts, for diagnosis. */
+  authoredArtifactCount(now = Date.now()): number {
+    let live = 0;
+    for (const at of this.authored.values()) {
+      if (now - at <= HarnessProvenance.authoredTtlMs) live += 1;
+    }
+    return live;
+  }
+
   private readonly turns: AuthenticatedUserTurn[] = [];
   private readonly bindings = new Map<string, ToolCallBinding>();
   private readonly fired = {
@@ -293,6 +461,7 @@ export class HarnessProvenance {
       transcriptTurnsUsed: this.transcriptTurnsUsed,
       retainedTurns: this.turns.length,
       pendingToolCallBindings: this.bindings.size,
+      selfAuthoredArtifacts: this.authoredArtifactCount(),
       ...(newest ? { lastTurnSource: newest.source } : {}),
       ...(newest ? { lastTurnAgeMs: this.now() - newest.receivedAt } : {}),
       ...(this.lastBinding ? { lastBinding: this.lastBinding } : {}),
@@ -307,6 +476,15 @@ function normalizeText(value: unknown): string | undefined {
   return trimmed.length > MAX_TURN_CHARACTERS
     ? trimmed.slice(0, MAX_TURN_CHARACTERS)
     : trimmed;
+}
+
+/** One spelling for a path, so the executor's and the model's forms compare. */
+function normalizeArtifactPath(value: string): string {
+  return value
+    .trim()
+    .replace(/^\.\//, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }
 
 function optionalText<K extends string>(
@@ -463,4 +641,20 @@ export function authorizeTaskGraph(
     },
     discardedTrustAssertion,
   };
+}
+
+/** Collect every string in an arbitrary tool result, bounded by depth. */
+function flattenStrings(value: unknown, depth = 0): string {
+  if (depth > 6) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => flattenStrings(item, depth + 1)).join("\n");
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => flattenStrings(item, depth + 1))
+      .join("\n");
+  }
+  return "";
 }

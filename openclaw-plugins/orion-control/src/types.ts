@@ -108,6 +108,8 @@ export interface StepRecord {
       | "controlled"
       | "moved"
       | "trashed"
+      | "scheduled"
+      | "cancelled"
       | "failed";
     target?: string;
     output?: unknown;

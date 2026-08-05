@@ -26,15 +26,40 @@ export interface RunOptions {
   trashRoot?: string;
   /** Configured browser for the `browser_control` tier. */
   browserPreference?: string;
+  remindersPath?: string;
+  defaultLocation?: string;
   enabledTiers?: ReadonlySet<CapabilityTier>;
   /** Harness-derived trust provenance recorded on the durable run record. */
   authorization?: TrustProvenance;
+  /** Paths Orion already wrote under an authenticated turn (see provenance). */
+  isSelfAuthored?: (candidate: string) => boolean;
+  /**
+   * Called with the resolved target of every step that executed AND verified.
+   *
+   * Placed after verification on purpose: an attempted write that failed or
+   * could not be observed does not earn the file a place in the registry.
+   */
+  onArtifact?: (target: string) => void;
   /** Uniqueness source for the task id; defaults to a fresh UUID. */
   nonce?: string;
   now?: () => Date;
   execute?: typeof executeAction;
   verify?: typeof verifyAction;
 }
+
+/**
+ * Execution modes that leave Orion holding a file he wrote.
+ *
+ * `observed` and `opened` are reads, `simulated` never touched a disk, and
+ * `trashed` removed the thing — none of them should make a path self-authored.
+ */
+const AUTHORING_MODES = new Set([
+  "created",
+  "already_present",
+  "appended",
+  "replaced",
+  "moved",
+]);
 
 export async function runTaskGraph(
   graph: TaskGraph,
@@ -45,7 +70,10 @@ export async function runTaskGraph(
     options.enabledTiers ?? new Set<CapabilityTier>(["simulation"]);
   const execute = options.execute ?? executeAction;
   const verify = options.verify ?? verifyAction;
-  const validation = validateTaskGraph(graph, { enabledTiers });
+  const validation = validateTaskGraph(graph, {
+    enabledTiers,
+    ...(options.isSelfAuthored ? { isSelfAuthored: options.isSelfAuthored } : {}),
+  });
   const createdAt = now().toISOString();
   // A nonce keeps task ids unique: two identical graphs submitted inside the
   // same millisecond previously collided, so a status lookup could return the
@@ -111,6 +139,12 @@ export async function runTaskGraph(
       writeMemo,
       ...(trustedInstruction ? { trustedInstruction } : {}),
       ...(options.trashRoot ? { trashRoot: options.trashRoot } : {}),
+      ...(options.remindersPath
+        ? { remindersPath: options.remindersPath }
+        : {}),
+      ...(options.defaultLocation
+        ? { defaultLocation: options.defaultLocation }
+        : {}),
       ...(options.browserPreference
         ? { browserPreference: options.browserPreference }
         : {}),
@@ -165,6 +199,16 @@ export async function runTaskGraph(
         };
         record.steps.push(stepRecord);
         stepStatus = stepRecord.status;
+        // A file Orion just wrote on Nick's authority stops being "content he
+        // merely read about". Registering it here is what lets the next turn
+        // say "add a line to it" without naming the file again.
+        if (
+          verification.observed &&
+          typeof execution.target === "string" &&
+          AUTHORING_MODES.has(execution.mode)
+        ) {
+          options.onArtifact?.(execution.target);
+        }
         if (verification.observed) break;
       } catch (error) {
         const controlled =

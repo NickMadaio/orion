@@ -162,11 +162,76 @@ async function newestSessionFile(dir, now) {
     return best ? { path: best.path, sessionId: best.sessionId } : undefined;
 }
 /**
- * The most recent user-authored turn in the bound session.
+ * How many recent user turns are treated as "the conversation".
  *
- * Returns undefined rather than throwing: a missing or unreadable transcript
- * must fail closed like every other absent provenance source, not error out of
- * a tool call.
+ * One is not enough, and that was a real bug rather than a tuning choice.
+ * People give standing instructions — "when I say lights out, close everything"
+ * — and then, later, say the phrase. With only the newest turn visible, the
+ * sentence that DEFINED the phrase is not there, so the trigger arrives with no
+ * meaning attached and gets refused. The user experiences agreeing to something
+ * and then being told it never happened.
+ *
+ * Eight turns is enough for that to work while still being a window: an
+ * instruction from far enough back has scrolled out, and destructive actions
+ * ignore this window entirely (see `perTurnOnly` in the validator) so a stale
+ * turn can never be spliced onto a fresh "do it".
+ */
+const RECENT_TURN_LIMIT = 8;
+/**
+ * The most recent user-authored turns in the bound session, oldest first.
+ *
+ * Returns an empty array rather than throwing: a missing or unreadable
+ * transcript must fail closed like every other absent provenance source, not
+ * error out of a tool call.
+ */
+export async function readRecentUserTurns(options = {}) {
+    const limit = Math.max(1, options.limit ?? RECENT_TURN_LIMIT);
+    const now = (options.now ?? Date.now)();
+    const root = options.agentsRoot ?? agentsRootDefault();
+    const agent = options.agent ?? "main";
+    const dir = join(root, agent, "sessions");
+    let target;
+    if (options.sessionId) {
+        target = {
+            path: join(dir, `${options.sessionId}.jsonl`),
+            sessionId: options.sessionId,
+        };
+        try {
+            await stat(target.path);
+        }
+        catch {
+            target = undefined;
+        }
+    }
+    target ??= await newestSessionFile(dir, now);
+    if (!target)
+        return [];
+    let tail;
+    try {
+        tail = await readTail(target.path);
+    }
+    catch {
+        return [];
+    }
+    const lines = tail.split("\n");
+    const found = [];
+    // Backwards, so "recent" is measured from the end; reversed before returning
+    // so callers see the conversation in the order it was spoken.
+    for (let i = lines.length - 1; i >= 0 && found.length < limit; i--) {
+        const text = userTextFromLine(lines[i]);
+        if (!text)
+            continue;
+        found.push({
+            content: text.slice(0, MAX_TEXT),
+            at: timestampOf(lines[i], now),
+            sessionId: target.sessionId,
+        });
+    }
+    return found.reverse();
+}
+/**
+ * The single most recent user-authored turn. Retained because the trust
+ * provenance health readout and its tests speak in terms of one turn.
  */
 export async function readLatestUserTurn(options = {}) {
     const now = (options.now ?? Date.now)();

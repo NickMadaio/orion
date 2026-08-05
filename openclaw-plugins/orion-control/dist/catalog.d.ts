@@ -1,5 +1,5 @@
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "ambient_info" | "reminders" | "self_tuning";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -90,7 +90,16 @@ export type ExecutionPolicy = {
     kind: "app_control";
     operation: "open" | "quit";
     applicationArgument: string;
-} | BrowserControlPolicy | MediaControlPolicy | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
+} | BrowserControlPolicy | MediaControlPolicy | {
+    kind: "ambient_read";
+    operation: "weather" | "clock" | "system_status";
+} | {
+    kind: "reminder";
+    operation: "timer_set" | "alarm_set" | "reminder_list" | "reminder_cancel";
+} | {
+    kind: "self_tuning";
+    operation: "read" | "write";
+} | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;
     relativePathArgument: string;
@@ -115,6 +124,30 @@ export type ObservationPolicy = Extract<ExecutionPolicy, {
     kind: "list_directory" | "path_metadata" | "read_text";
 }>;
 export declare function isObservationPolicy(policy: ExecutionPolicy): policy is ObservationPolicy;
+/**
+ * The closed set of things Orion may retune about himself.
+ *
+ * Deliberately a table and not a pass-through to `defaults write`. The ask was
+ * "he should be able to fix himself"; the safe reading of that is a fixed list
+ * of his own knobs with the bounds written down, not the ability to write any
+ * key into any preference domain on the machine.
+ *
+ * `domain` is his own app bundle and nothing else. The ranges are the same ones
+ * `VoiceTuning.swift` clamps to — duplicated rather than shared because the two
+ * processes have no common language, and a value out of range here would be
+ * silently clamped there, which reads as "the setting didn't take".
+ */
+export declare const ORION_APP_DOMAIN = "com.nickmadaio.orion.app";
+export interface TunableSetting {
+    /** The `UserDefaults` key, as spelled in `VoiceTuning.swift`. */
+    key: string;
+    min: number;
+    max: number;
+    integer: boolean;
+    unit: string;
+    description: string;
+}
+export declare const TUNABLE_SETTINGS: Record<string, TunableSetting>;
 export interface ActionDefinition {
     risk: Risk;
     requiredArguments: string[];
@@ -123,7 +156,6 @@ export interface ActionDefinition {
     reversible: boolean;
     capabilityTier: CapabilityTier;
     execution: ExecutionPolicy;
-    directUserAuthorizationRequired?: boolean;
     validateArguments?: (arguments_: Record<string, unknown>) => string[];
 }
 export declare function isSafeRelativePath(value: unknown, allowRoot?: boolean): value is string;

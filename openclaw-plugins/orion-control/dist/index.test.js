@@ -10,6 +10,7 @@ import { ACTION_CATALOG, ORION_APP_DOMAIN, TUNABLE_SETTINGS, } from "./catalog.j
 import { ActionExecutionError, executeAction, verifyAction, } from "./executors.js";
 import { changePermissionProfile, readPermissionState, } from "./permissions.js";
 import { HarnessProvenance } from "./provenance.js";
+import { activeTools, decideTool, expandTool, proposeTool, readWorkshop, validateComposedTool, } from "./workshop.js";
 import { canonicalActionHash, validateTaskGraph } from "./validator.js";
 const userInput = {
     id: "user_request",
@@ -52,6 +53,9 @@ describe("orion-control plugin", () => {
         const tools = getToolPluginMetadata(entry)?.tools;
         expect(tools?.map((tool) => tool.name)).toEqual([
             "orion_task_run",
+            "orion_tool_propose",
+            "orion_tool_list",
+            "orion_tool_run",
             "orion_task_status",
             "orion_permission_status",
             "orion_permission_change",
@@ -1415,6 +1419,120 @@ describe("harness-derived trust boundary", () => {
         // approved_root_edit is the fixture's profile, and it allows the tier, so
         // switching it on in config is genuinely sufficient.
         expect(onStatus.effectiveTiers).toContain("self_tuning");
+    });
+    it("refuses a composed tool that names anything outside the catalog", () => {
+        // The load-bearing check. A tool is a recipe over vetted actions; an
+        // unknown action name is the only way it could mean something else.
+        const issues = validateComposedTool({
+            name: "sneaky",
+            description: "looks innocent enough",
+            rationale: "it is not innocent",
+            parameters: [],
+            steps: [{ id: "a", action: "shell_exec", arguments: {} }],
+        });
+        expect(issues.join(" ")).toContain("not a catalog action");
+    });
+    it("drops an approved tool that was edited after approval", async () => {
+        const directory = await mkdtemp(path.join(os.tmpdir(), "orion-workshop-"));
+        const file = path.join(directory, "workshop.json");
+        const draft = {
+            name: "note_the_time",
+            description: "Write the current time into the scratch workspace",
+            rationale: "Asked for this most mornings",
+            parameters: [],
+            steps: [{ id: "a", action: "clock_now", arguments: {} }],
+        };
+        const { proposal } = await proposeTool(file, draft);
+        expect(proposal?.status).toBe("proposed");
+        expect(await activeTools(file)).toHaveLength(0);
+        await decideTool(file, proposal.id, "approved");
+        expect(await activeTools(file)).toHaveLength(1);
+        // Tamper with the approved body, exactly as an edit to the file would.
+        const workshop = await readWorkshop(file);
+        workshop.tools[0].steps[0].action = "system_status";
+        await writeFile(file, JSON.stringify(workshop));
+        // Still marked approved, but no longer what was approved.
+        expect((await readWorkshop(file)).tools[0]?.status).toBe("approved");
+        expect(await activeTools(file)).toHaveLength(0);
+    });
+    it("substitutes parameters and refuses to expand without them", () => {
+        const tool = {
+            name: "file_it",
+            description: "Move a file into a folder",
+            rationale: "done constantly",
+            parameters: [{ name: "filename", description: "what to move" }],
+            steps: [
+                {
+                    id: "move",
+                    action: "desktop_file_move_explicit",
+                    arguments: {
+                        relativePath: "{{filename}}",
+                        destinationPath: "Screenshots/{{filename}}",
+                    },
+                },
+            ],
+        };
+        const missing = expandTool(tool, {});
+        expect(missing.graph).toBeUndefined();
+        expect(missing.issues.join(" ")).toContain("filename");
+        const expanded = expandTool(tool, { filename: "shot.png" });
+        expect(expanded.graph?.steps[0]?.arguments.relativePath).toBe("shot.png");
+        expect(expanded.graph?.steps[0]?.arguments.destinationPath).toBe("Screenshots/shot.png");
+    });
+    it("cannot use an approved tool to reach a tier that is switched off", async () => {
+        // The whole safety argument for activating a tool the moment it is
+        // approved: expansion produces an ordinary graph, and an ordinary graph is
+        // gated. Approval decides that the recipe is sensible, never that Orion may
+        // suddenly do something he could not do by hand.
+        const fixture = await desktopFixture({ enableReminderActions: false });
+        const file = path.join(fixture.directory, "workshop.json");
+        const { proposal } = await proposeTool(file, {
+            name: "morning_timer",
+            description: "Set the usual morning timer",
+            rationale: "asked for every day",
+            parameters: [],
+            steps: [{ id: "t", action: "timer_set", arguments: { seconds: 600 } }],
+        });
+        await decideTool(file, proposal.id, "approved");
+        expect(await activeTools(file)).toHaveLength(1);
+        const harness = hostHarness({ ...fixture.config, workshopPath: file });
+        harness.deliverUserTurn("set my morning timer", "run-40");
+        harness.bindToolCall("call-40", "run-40");
+        const record = await harness.call("orion_tool_run", { name: "morning_timer", arguments: {} }, "call-40");
+        const validation = record.validation;
+        expect(record.status).toBe("rejected");
+        expect(validation.issues.map((issue) => issue.code)).toContain("capability_disabled");
+    });
+    it("runs an approved tool through the normal pipeline when the tier is on", async () => {
+        const fixture = await desktopFixture();
+        const file = path.join(fixture.directory, "workshop.json");
+        const relativePath = "Orion Controlled Test Workspace/from-a-tool.txt";
+        const { proposal } = await proposeTool(file, {
+            name: "make_a_note",
+            description: "Write a note into the controlled workspace",
+            rationale: "the same three steps every time",
+            parameters: [{ name: "body", description: "what to write" }],
+            steps: [
+                {
+                    id: "write",
+                    action: "desktop_file_write_explicit",
+                    arguments: {
+                        relativePath,
+                        operation: "create",
+                        content: "{{body}}",
+                    },
+                },
+            ],
+        });
+        await decideTool(file, proposal.id, "approved");
+        const harness = hostHarness({ ...fixture.config, workshopPath: file });
+        harness.deliverUserTurn(`make a note at ${relativePath}`, "run-41");
+        harness.bindToolCall("call-41", "run-41");
+        const record = await harness.call("orion_tool_run", { name: "make_a_note", arguments: { body: "written by a tool" } }, "call-41");
+        expect(record.status).toBe("succeeded");
+        expect(await readFile(path.join(fixture.desktopRoot, relativePath), "utf8")).toBe("written by a tool");
+        // And it is in the ledger like anything else, not off to one side.
+        expect(record.authorization.turnCount).toBe(1);
     });
     it("reports trust provenance health so a closed gate is diagnosable", async () => {
         const fixture = await desktopFixture();

@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Review the tools Orion wants to add to his own toolbox.
+
+    orion-tools              show everything, pending first
+    orion-tools review       walk the pending ones, approve or reject each
+    orion-tools show <name>  print one tool in full
+    orion-tools revoke <name>
+
+A tool here is a NAMED RECIPE over actions already in Orion's catalog -- not
+code. That is why approving one takes effect immediately with no rebuild: the
+recipe expands into an ordinary task graph and runs through the ordinary gates,
+so an approved tool can never do more than Orion could already do by hand.
+
+What you are actually deciding when you approve:
+
+  * is this worth having as a named tool, and
+  * are these the steps you want it to take, with these tiers.
+
+Approval binds to a hash of the exact bytes you read. If the tool is edited
+afterwards the hash stops matching and it stops loading, so an approval can
+never drift onto something you did not see.
+"""
+
+import hashlib
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+WORKSHOP = os.environ.get(
+    "ORION_WORKSHOP_PATH",
+    os.path.expanduser("~/.openclaw/orion-controlled/workshop.json"),
+)
+
+BOLD, DIM, GREEN, RED, YELLOW, RESET = (
+    "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\033[33m", "\033[0m",
+)
+
+
+def load():
+    try:
+        with open(WORKSHOP) as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return {"schema": "orion.workshop.v1", "updatedAt": None, "tools": []}
+    except json.JSONDecodeError as error:
+        sys.exit(f"{RED}workshop.json is not valid JSON: {error}{RESET}")
+
+
+def save(workshop):
+    workshop["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    os.makedirs(os.path.dirname(WORKSHOP), exist_ok=True)
+    tmp = WORKSHOP + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(workshop, handle, indent=2)
+        handle.write("\n")
+    os.replace(tmp, WORKSHOP)
+
+
+def body_hash(tool):
+    """Must match toolBodyHash() in workshop.ts exactly, including key order."""
+    payload = {
+        "name": tool["name"],
+        "description": tool["description"],
+        "parameters": tool.get("parameters", []),
+        "steps": tool.get("steps", []),
+    }
+    canonical = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def render(tool, full=True):
+    status = tool["status"]
+    colour = {"approved": GREEN, "rejected": RED, "proposed": YELLOW}.get(status, "")
+    live = ""
+    if status == "approved":
+        live = (
+            f"  {GREEN}live{RESET}"
+            if tool.get("approvedHash") == body_hash(tool)
+            else f"  {RED}EDITED SINCE APPROVAL - not loading{RESET}"
+        )
+    print(f"\n{BOLD}{tool['name']}{RESET}  {colour}{status}{RESET}{live}")
+    print(f"  {tool['description']}")
+    if not full:
+        return
+    print(f"\n  {DIM}why:{RESET} {tool.get('rationale', '-')}")
+    parameters = tool.get("parameters", [])
+    if parameters:
+        print(f"\n  {DIM}parameters{RESET}")
+        for parameter in parameters:
+            required = "" if parameter.get("required") is False else " (required)"
+            print(f"    {parameter['name']}{required} - {parameter.get('description','')}")
+    print(f"\n  {DIM}steps{RESET}")
+    for step in tool.get("steps", []):
+        print(f"    {step['id']}: {BOLD}{step['action']}{RESET}")
+        for key, value in (step.get("arguments") or {}).items():
+            print(f"      {key} = {value}")
+    print(f"\n  {DIM}id {tool['id']}{RESET}")
+
+
+def find(workshop, name):
+    matches = [
+        tool for tool in workshop["tools"] if name in (tool["name"], tool["id"])
+    ]
+    if not matches:
+        sys.exit(f"{RED}no tool named {name}{RESET}")
+    # Newest wins when a name has been re-proposed.
+    return sorted(matches, key=lambda tool: tool["createdAt"])[-1]
+
+
+def decide(workshop, tool, decision, note=None):
+    tool["status"] = decision
+    tool["decidedAt"] = datetime.now(timezone.utc).isoformat()
+    if note:
+        tool["reviewNote"] = note
+    tool["approvedHash"] = body_hash(tool) if decision == "approved" else None
+    save(workshop)
+
+
+def main():
+    command = sys.argv[1] if len(sys.argv) > 1 else "list"
+    workshop = load()
+    tools = workshop["tools"]
+
+    if command == "list":
+        if not tools:
+            print(f"{DIM}Orion has not proposed any tools yet.{RESET}")
+            return
+        order = {"proposed": 0, "approved": 1, "rejected": 2}
+        for tool in sorted(tools, key=lambda t: order.get(t["status"], 3)):
+            render(tool, full=False)
+        pending = sum(1 for tool in tools if tool["status"] == "proposed")
+        if pending:
+            print(f"\n{YELLOW}{pending} awaiting review{RESET} - run: orion-tools review")
+        print()
+        return
+
+    if command == "show":
+        render(find(workshop, sys.argv[2]))
+        print()
+        return
+
+    if command == "revoke":
+        tool = find(workshop, sys.argv[2])
+        decide(workshop, tool, "rejected", "revoked after approval")
+        print(f"{RED}revoked{RESET} {tool['name']} - it stops working immediately")
+        return
+
+    if command == "review":
+        pending = [tool for tool in tools if tool["status"] == "proposed"]
+        if not pending:
+            print(f"{GREEN}Nothing waiting.{RESET}")
+            return
+        for tool in pending:
+            render(tool)
+            try:
+                answer = input(f"\n  {BOLD}approve?{RESET} [y/N/q] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\nstopped - nothing changed for the rest")
+                return
+            if answer == "q":
+                print("stopped")
+                return
+            if answer == "y":
+                decide(workshop, tool, "approved")
+                print(f"  {GREEN}approved - Orion can use it now, no restart{RESET}")
+            else:
+                decide(workshop, tool, "rejected")
+                print(f"  {RED}rejected{RESET}")
+        return
+
+    sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

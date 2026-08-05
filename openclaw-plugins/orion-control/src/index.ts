@@ -20,6 +20,16 @@ import {
   type ModelTaskGraph,
   type ProvenancePolicy,
 } from "./provenance.js";
+import {
+  activeTools,
+  defaultWorkshopPath,
+  expandTool,
+  proposeTool,
+  readWorkshop,
+  requiredTiers,
+  type ToolParameter,
+  type ToolStep,
+} from "./workshop.js";
 
 // The model-facing input shape deliberately has NO `trust` field. Trust is
 // minted only by `authorizeTaskGraph` from OpenClaw host provenance, so there is
@@ -167,6 +177,12 @@ const ConfigSchema = Type.Object({
     Type.String({
       description:
         "Trash directory used by file_delete. Defaults to ~/.Trash so deletes stay recoverable from Finder.",
+    }),
+  ),
+  workshopPath: Type.Optional(
+    Type.String({
+      description:
+        "JSON file holding Orion's proposed and approved composed tools. Reviewed with the orion-tools script.",
     }),
   ),
   enableSelfTuningActions: Type.Optional(
@@ -438,6 +454,80 @@ const CATALOG_SUMMARY: string = (() => {
   return parts.join(" ");
 })();
 
+/**
+ * The one path from a task graph to execution.
+ *
+ * Extracted so `orion_tool_run` cannot become a second, weaker route. An
+ * approved tool expands to an ordinary graph and comes through here, which
+ * means it gets the same trust anchor, the same taint checks, the same tier
+ * and profile gates, and the same ledger entry as anything Orion writes by
+ * hand. A tool is a shortcut through his powers, never around them.
+ */
+async function runAuthorizedGraph(
+  normalizedGraph: ModelTaskGraph,
+  config: OrionConfig,
+  context: { toolCallId?: string },
+): Promise<Record<string, unknown>> {
+  const permission = await resolveProfile(
+    defaultPermissionStatePath(config.permissionStatePath),
+  );
+  const enabledTiers = intersectTiers(
+    configuredTiers(config),
+    profileAllowedTiers(permission.state.profile),
+  );
+  // Trust boundary. `authorizeTaskGraph` rebuilds every input field by field:
+  // model-supplied inputs become untrusted_external, and the only trusted_user
+  // inputs are minted from harness provenance bound to this host tool call. No
+  // authenticated turn means every action fails closed.
+  // Neither `message_received` nor `llm_input` fires for locally initiated runs
+  // on this gateway, so on those turns the hooks supply a binding but no user
+  // text. Recover the text from the transcript the HOST wrote — the model
+  // cannot author a `role: "user"` entry there. Skipped when a hook already
+  // provided a turn.
+  await hydrateFromTranscript(config);
+  const anchor = provenance.resolve(context.toolCallId, trustPolicy(config));
+  const authorized = authorizeTaskGraph(normalizedGraph, anchor);
+  // Merge what the harness saw Orion read into the graph's own inputs, as
+  // untrusted context. The model cannot omit it, which is the point.
+  const observed = provenance.untrustedContent();
+  if (observed.trim().length > 0) {
+    authorized.graph.inputs.push({
+      id: "harness_observed_content",
+      kind: "observation",
+      trust: "untrusted_external",
+      content: observed,
+    });
+  }
+  const record = await runTaskGraph(authorized.graph, {
+    ledgerPath: defaultLedgerPath(config.ledgerPath),
+    testWorkspaceRoot: defaultTestWorkspaceRoot(config.testWorkspaceRoot),
+    scratchWorkspaceRoot: defaultScratchWorkspaceRoot(config.scratchWorkspaceRoot),
+    ...(config.remindersPath ? { remindersPath: config.remindersPath } : {}),
+    ...(config.defaultWeatherLocation
+      ? { defaultLocation: config.defaultWeatherLocation }
+      : {}),
+    desktopRoot: config.desktopRoot ? path.resolve(config.desktopRoot) : undefined,
+    enabledTiers,
+    authorization: authorized.provenance,
+    // Both halves of the self-authored-artifact rule. The lookup lets a
+    // follow-up turn edit a file Orion created; the callback is the only
+    // writer of that registry, and it runs after verification.
+    isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
+    onArtifact: (target) => provenance.recordAuthoredArtifact(target),
+  });
+  const notes = [
+    ...(authorized.discardedTrustAssertion
+      ? [
+          "A trust assertion in the submitted graph was discarded. Trust is derived from the real user turn by the harness and cannot be declared by a caller.",
+        ]
+      : []),
+    ...(permission.degraded ? [permission.degraded] : []),
+  ];
+  return notes.length > 0
+    ? ({ ...record, notes } as unknown as Record<string, unknown>)
+    : (record as unknown as Record<string, unknown>);
+}
+
 const entry = defineToolPlugin({
   id: "orion-control",
   name: "Orion Control",
@@ -498,69 +588,124 @@ const entry = defineToolPlugin({
             message: "Provide either a task graph or an action name.",
           };
         }
-        const permission = await resolveProfile(
-          defaultPermissionStatePath(config.permissionStatePath),
-        );
-        const enabledTiers = intersectTiers(
-          configuredTiers(config),
-          profileAllowedTiers(permission.state.profile),
-        );
-        // Trust boundary. `authorizeTaskGraph` rebuilds every input field by
-        // field: model-supplied inputs become untrusted_external, and the only
-        // trusted_user inputs are minted from harness provenance bound to this
-        // host tool call. No authenticated turn means every action fails closed.
-        // Neither `message_received` nor `llm_input` fires for locally
-        // initiated runs on this gateway, so on those turns the hooks supply a
-        // binding but no user text. Recover the text from the transcript the
-        // HOST wrote — the model cannot author a `role: "user"` entry there.
-        // Skipped entirely when a hook already provided a turn.
-        await hydrateFromTranscript(config);
-        const anchor = provenance.resolve(context.toolCallId, trustPolicy(config));
-        const authorized = authorizeTaskGraph(
-          normalizedGraph,
-          anchor,
-        );
-        // Merge what the harness saw Orion read into the graph's own inputs, as
-        // untrusted context. The model cannot omit it, which is the point.
-        const observed = provenance.untrustedContent();
-        if (observed.trim().length > 0) {
-          authorized.graph.inputs.push({
-            id: "harness_observed_content",
-            kind: "observation",
-            trust: "untrusted_external",
-            content: observed,
-          });
+        return runAuthorizedGraph(normalizedGraph, config, context);
+      },
+    }),
+    tool({
+      name: "orion_tool_propose",
+      label: "Propose a New Orion Tool",
+      description:
+        [
+          "Draft a reusable tool for your own toolbox and send it to Nick for review.",
+          "",
+          "A tool is a NAMED RECIPE over actions that already exist in your catalog --",
+          "parameters, plus steps whose `action` is a catalog action. It is not code,",
+          "which is exactly why an approved one works immediately with no rebuild.",
+          "",
+          "Use `{{parameter_name}}` anywhere in a step's arguments to substitute a value.",
+          "",
+          "Propose one whenever you notice yourself building the same multi-step graph",
+          "more than once. Say plainly in `rationale` why it earns a name.",
+          "",
+          "Example: { name: 'file_screenshot', description: 'Move a screenshot into",
+          "the Screenshots folder', rationale: 'Done by hand most days', parameters:",
+          "[{ name: 'filename', description: 'The screenshot to file' }], steps: [{ id:",
+          "'move', action: 'file_move', arguments: { root: 'desktop', relativePath:",
+          "'{{filename}}', destinationPath: 'Screenshots/{{filename}}' } }] }",
+          "",
+          "Call orion_permission_status first if you are unsure which action names",
+          "exist -- a step naming an action outside the catalog is refused outright.",
+          "",
+          "It does not run until Nick approves it. He reviews with: orion-tools review",
+        ].join("\n"),
+      parameters: Type.Object({
+        name: Type.String(),
+        description: Type.String(),
+        rationale: Type.String(),
+        parameters: Type.Optional(Type.Array(Type.Any())),
+        steps: Type.Array(Type.Any()),
+      }),
+      optional: true,
+      async execute(input, config) {
+        const file = defaultWorkshopPath(config.workshopPath);
+        const draft = {
+          name: String(input.name ?? ""),
+          description: String(input.description ?? ""),
+          rationale: String(input.rationale ?? ""),
+          parameters: (input.parameters ?? []) as ToolParameter[],
+          steps: (input.steps ?? []) as ToolStep[],
+        };
+        const { proposal, issues } = await proposeTool(file, draft);
+        if (!proposal) {
+          return {
+            status: "rejected",
+            issues,
+            hint: "Fix these and propose again. Every step's action must already exist in your catalog.",
+          };
         }
-        const record = await runTaskGraph(authorized.graph, {
-          ledgerPath: defaultLedgerPath(config.ledgerPath),
-          testWorkspaceRoot: defaultTestWorkspaceRoot(config.testWorkspaceRoot),
-          scratchWorkspaceRoot: defaultScratchWorkspaceRoot(
-            config.scratchWorkspaceRoot,
-          ),
-          ...(config.remindersPath ? { remindersPath: config.remindersPath } : {}),
-          ...(config.defaultWeatherLocation
-            ? { defaultLocation: config.defaultWeatherLocation }
-            : {}),
-          desktopRoot: config.desktopRoot
-            ? path.resolve(config.desktopRoot)
-            : undefined,
-          enabledTiers,
-          authorization: authorized.provenance,
-          // Both halves of the self-authored-artifact rule. The lookup lets a
-          // follow-up turn edit a file Orion created; the callback is the only
-          // writer of that registry, and it runs after verification.
-          isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
-          onArtifact: (target) => provenance.recordAuthoredArtifact(target),
-        });
-        const notes = [
-          ...(authorized.discardedTrustAssertion
-            ? [
-                "A trust assertion in the submitted graph was discarded. Trust is derived from the real user turn by the harness and cannot be declared by a caller.",
-              ]
-            : []),
-          ...(permission.degraded ? [permission.degraded] : []),
-        ];
-        return notes.length > 0 ? { ...record, notes } : record;
+        return {
+          status: "awaiting_review",
+          id: proposal.id,
+          name: proposal.name,
+          requiredTiers: requiredTiers(proposal),
+          message: `Proposed. Tell Nick to run: orion-tools review`,
+        };
+      },
+    }),
+    tool({
+      name: "orion_tool_list",
+      label: "List Orion's Own Tools",
+      description:
+        "List the tools you have proposed and which of them Nick has approved. Approved tools are run with orion_tool_run.",
+      parameters: Type.Object({}),
+      optional: true,
+      async execute(_input, config) {
+        const file = defaultWorkshopPath(config.workshopPath);
+        const workshop = await readWorkshop(file);
+        const live = new Set((await activeTools(file)).map((tool) => tool.id));
+        return {
+          tools: workshop.tools.map((tool) => ({
+            id: tool.id,
+            name: tool.name,
+            description: tool.description,
+            status: tool.status,
+            usable: live.has(tool.id),
+            requiredTiers: requiredTiers(tool),
+            parameters: tool.parameters.map((parameter) => parameter.name),
+            // An approved tool whose body no longer hashes to what was approved
+            // has been edited since review. Say so rather than silently hiding it.
+            ...(tool.status === "approved" && !live.has(tool.id)
+              ? { warning: "Edited since approval, or no longer valid against the catalog. Re-propose it." }
+              : {}),
+          })),
+        };
+      },
+    }),
+    tool({
+      name: "orion_tool_run",
+      label: "Run One of Orion's Own Tools",
+      description:
+        "Run a tool Nick approved: { name, arguments: { ... } }. It expands into an ordinary task graph and runs through the ordinary checks, so it can never do more than you could do by hand.",
+      parameters: Type.Object({
+        name: Type.String(),
+        arguments: Type.Optional(Type.Record(Type.String(), Type.Any())),
+      }),
+      optional: true,
+      async execute(input, config, context) {
+        const file = defaultWorkshopPath(config.workshopPath);
+        const live = await activeTools(file);
+        const tool = live.find((entry) => entry.name === input.name);
+        if (!tool) {
+          return {
+            status: "rejected",
+            message: `No approved tool named '${input.name}'. Use orion_tool_list to see what is available.`,
+          };
+        }
+        const { graph, issues } = expandTool(tool, input.arguments ?? {});
+        if (!graph) return { status: "rejected", issues };
+        // Straight into the ordinary pipeline. This is the whole safety
+        // argument: the expansion is just a graph, and a graph is checked.
+        return runAuthorizedGraph(graph, config, context);
       },
     }),
     tool({

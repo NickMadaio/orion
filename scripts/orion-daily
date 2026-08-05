@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+/*
+ End-of-day pass over the ledger.
+
+ Orion already writes an append-only ledger of every action, and OpenClaw
+ already expects `memory/YYYY-MM-DD.md` in the workspace. This joins the two: it
+ reads the day's ledger rows, writes a short summary where the runtime will
+ actually load it, and compresses the raw rows once summarised.
+
+ Deliberately NOT a model call. A summariser that needs the gateway up, a model
+ warm and a network reachable is a summariser that silently stops running some
+ evening and leaves a hole in the record nobody notices for a month. This reads
+ structured rows and counts them. It is dumber and it will still be working in a
+ year.
+
+   orion-daily              summarise yesterday, compress its raw rows
+   orion-daily 2026-07-30   a specific day
+   orion-daily --today      today so far, no compression
+*/
+
+import { createGzip } from "node:zlib";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
+
+const OPENCLAW = join(homedir(), ".openclaw");
+const LEDGER = join(OPENCLAW, "orion-controlled/task-ledger.jsonl");
+const MEMORY = join(OPENCLAW, "workspace/memory");
+const ARCHIVE = join(OPENCLAW, "orion-controlled/archive");
+
+const argument = process.argv[2];
+const today = argument === "--today";
+const day =
+  argument && !today
+    ? argument
+    : new Date(Date.now() - (today ? 0 : 86400000)).toISOString().slice(0, 10);
+
+async function ledgerRows() {
+  if (!existsSync(LEDGER)) return [];
+  const text = await readFile(LEDGER, "utf8");
+  const rows = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const row = JSON.parse(line);
+      if ((row.createdAt ?? "").startsWith(day)) rows.push(row);
+    } catch {
+      /* a torn final line is not worth failing the day over */
+    }
+  }
+  return rows;
+}
+
+const rows = await ledgerRows();
+if (rows.length === 0) {
+  console.log(`${day}: nothing in the ledger, no summary written`);
+  process.exit(0);
+}
+
+// What happened, counted rather than narrated.
+const actions = new Map();
+const failures = [];
+let verified = 0;
+let rejected = 0;
+
+for (const row of rows) {
+  for (const step of row.steps ?? []) {
+    const name =
+      (row.graph?.steps ?? []).find((s) => s.id === step.stepId)?.action ??
+      step.stepId;
+    actions.set(name, (actions.get(name) ?? 0) + 1);
+    if (step.status === "verified") verified++;
+    else failures.push(`${name}: ${step.error ?? step.status}`);
+  }
+  if (row.validation?.status === "rejected") {
+    rejected++;
+    const codes = [
+      ...new Set((row.validation.issues ?? []).map((i) => i.code)),
+    ];
+    failures.push(`${row.goal ?? "(no goal)"} — refused: ${codes.join(", ")}`);
+  }
+}
+
+const ranked = [...actions].sort((a, b) => b[1] - a[1]);
+const lines = [
+  `# ${day}`,
+  "",
+  `${rows.length} request${rows.length === 1 ? "" : "s"}, ${verified} action${verified === 1 ? "" : "s"} verified${rejected > 0 ? `, ${rejected} refused` : ""}.`,
+  "",
+];
+
+if (ranked.length > 0) {
+  lines.push("## What was done", "");
+  for (const [name, count] of ranked.slice(0, 12)) {
+    lines.push(`- ${name} ×${count}`);
+  }
+  lines.push("");
+}
+
+// Goals are the only free text kept. They are Orion's own one-line description
+// of what was asked, which is the part worth recalling weeks later -- the
+// arguments and hashes are not.
+const goals = [...new Set(rows.map((r) => r.goal).filter(Boolean))];
+if (goals.length > 0) {
+  lines.push("## Asked for", "");
+  for (const goal of goals.slice(0, 25)) lines.push(`- ${goal}`);
+  lines.push("");
+}
+
+if (failures.length > 0) {
+  // Kept deliberately. A day's summary that records only successes is how a
+  // recurring failure stays invisible for weeks.
+  lines.push("## Did not work", "");
+  for (const failure of [...new Set(failures)].slice(0, 15)) {
+    lines.push(`- ${failure}`);
+  }
+  lines.push("");
+}
+
+await mkdir(MEMORY, { recursive: true });
+const target = join(MEMORY, `${day}.md`);
+await writeFile(target, lines.join("\n"));
+console.log(`${day}: ${rows.length} requests -> ${target}`);
+
+if (today) process.exit(0);
+
+// Compress the raw rows for the day, then drop them from the live ledger.
+// The summary is what gets recalled; the rows are kept in case a specific
+// action ever has to be reconstructed exactly.
+await mkdir(ARCHIVE, { recursive: true });
+const archive = join(ARCHIVE, `ledger-${day}.jsonl.gz`);
+if (!existsSync(archive)) {
+  const raw = join(ARCHIVE, `.ledger-${day}.tmp`);
+  await writeFile(raw, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  await pipeline(createReadStream(raw), createGzip(), createWriteStream(archive));
+  const { unlink } = await import("node:fs/promises");
+  await unlink(raw);
+
+  const text = await readFile(LEDGER, "utf8");
+  const kept = text
+    .split("\n")
+    .filter((line) => line.trim() && !line.includes(`"createdAt":"${day}`));
+  await writeFile(LEDGER, kept.join("\n") + "\n");
+  console.log(`  archived ${rows.length} rows -> ${archive}`);
+}

@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+/* Run Gog with Orion's locally stored vault password, never printing the secret. */
+import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const values = {};
+for (const line of (await readFile(join(root, ".env"), "utf8")).split(/\r?\n/)) {
+  if (!line.startsWith("#") && line.includes("=")) {
+    const [key, value] = line.split("=", 2);
+    values[key.trim()] = value.trim().replace(/^['"]|['"]$/g, "");
+  }
+}
+if (!values.GOG_KEYRING_PASSWORD) {
+  console.error("Orion’s Gmail vault password is not available in local configuration.");
+  process.exit(2);
+}
+const child = spawn("gog", process.argv.slice(2), {
+  env: { ...process.env, GOG_KEYRING_PASSWORD: values.GOG_KEYRING_PASSWORD },
+  stdio: "inherit",
+});
+child.once("exit", (code) => process.exit(code ?? 1));

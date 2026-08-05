@@ -28,6 +28,23 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Orion listens only while you hold the Right Option key. Your voice is transcribed on this Mac and is never recorded to disk.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nickmadaio.orion.oauth</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>orion</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Orion reads your calendar so it knows what is actually in your day before it tells you how much of it is left. It only reads; it never creates or changes events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Orion reads your calendar so it knows what is actually in your day before it tells you how much of it is left. It only reads; it never creates or changes events.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
 	<key>NSRemindersUsageDescription</key>

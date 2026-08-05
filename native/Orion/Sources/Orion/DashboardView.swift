@@ -22,6 +22,9 @@ struct DashboardView: View {
     /// AppleRemindersSync for why a task Orion can only show on this Mac is a
     /// worse to-do list than the one already on your phone.
     @StateObject private var reminders = AppleRemindersSync()
+    @StateObject private var agenda = AppleCalendarSync()
+    @StateObject private var connections = ConnectionsModel()
+    @StateObject private var whoop = WhoopClient()
     @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "blackHole"
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
@@ -55,8 +58,14 @@ struct DashboardView: View {
             // Prompts for Reminders access the first time, then keeps the list
             // live off EKEventStoreChanged.
             reminders.start()
+            agenda.start()
+            whoop.start()
         }
-        .onDisappear { reminders.stop() }
+        .onDisappear {
+            reminders.stop()
+            agenda.stop()
+            whoop.stop()
+        }
         .onChange(of: state.focusComposerToken) { _, _ in composerFocused = true }
         .sheet(isPresented: $quickOpenEditorVisible) { QuickOpenEditor(settings: quickOpen) }
         .sheet(isPresented: $quickOpenAppPickerVisible) {
@@ -197,16 +206,16 @@ struct DashboardView: View {
             // needed to catch up to it.
             hero
         case .focus:
-            TasksTab(reminders: reminders, newTask: $newFocusTask, dayProgress: dayProgress,
-                     hoursLeft: hoursLeft, energyTitle: energyTitle)
+            TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
+                     dayProgress: dayProgress, hoursLeft: hoursLeft, energyTitle: energyTitle)
         case .health:
-            HealthTab(state: state)
+            HealthTab(state: state, whoop: whoop, connections: connections)
         case .finance:
-            FinanceTab()
+            FinanceTab(connections: connections)
         case .brand:
-            BrandTab(state: state)
+            BrandTab(state: state, connections: connections)
         case .settings:
-            SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale)
+            SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale, connections: connections)
         }
     }
 
@@ -313,6 +322,7 @@ struct DashboardView: View {
 /// same list is on the phone and a dated one actually interrupts you.
 private struct TasksTab: View {
     @ObservedObject var reminders: AppleRemindersSync
+    @ObservedObject var agenda: AppleCalendarSync
     @Binding var newTask: String
     let dayProgress: Double
     let hoursLeft: Int
@@ -406,9 +416,33 @@ private struct TasksTab: View {
                         .font(OrionTheme.mono(10))
                         .foregroundStyle(OrionTheme.red)
                 }
-                Divider().overlay(OrionTheme.line)
-                NotConnected(what: "Apple Calendar",
-                             detail: "Read-only agenda, so the day ring knows what is actually in it.")
+            }
+
+            SectionRule(title: "Today's agenda", trailing: agenda.statusLine)
+            OrionPanel {
+                if !agenda.access.isGranted {
+                    Text(agenda.statusLine)
+                        .font(OrionTheme.mono(11))
+                        .foregroundStyle(OrionTheme.textDim)
+                } else if agenda.events.isEmpty {
+                    Text("Nothing on the calendar today.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(OrionTheme.textDim)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(agenda.events) { event in
+                            AgendaRow(event: event)
+                            if event.id != agenda.events.last?.id {
+                                Divider().overlay(OrionTheme.line)
+                            }
+                        }
+                    }
+                    if agenda.committedMinutesRemaining > 0 {
+                        Text("\(agenda.committedMinutesRemaining / 60)h \(agenda.committedMinutesRemaining % 60)m still committed today.")
+                            .font(OrionTheme.mono(10))
+                            .foregroundStyle(OrionTheme.textDim)
+                    }
+                }
             }
         }
     }
@@ -584,6 +618,8 @@ private struct TaskRow: View {
 /// Water, the daily stack, and the wearable that is not plugged in yet.
 private struct HealthTab: View {
     @ObservedObject var state: AppState
+    @ObservedObject var whoop: WhoopClient
+    @ObservedObject var connections: ConnectionsModel
 
     private let bottleTarget = 9
     private let supplementTarget = 10
@@ -628,10 +664,53 @@ private struct HealthTab: View {
                 }
             }
 
-            SectionRule(title: "Whoop")
+            SectionRule(title: "Whoop", trailing: connections.state(.whoop).label)
             OrionPanel {
-                NotConnected(what: "Whoop",
-                             detail: "Recovery, sleep, strain and HRV. Read-only once connected.")
+                if let snapshot = whoop.snapshot {
+                    HStack(alignment: .center, spacing: 20) {
+                        RingMeter(progress: Double(snapshot.recovery ?? 0) / 100,
+                                  value: "\(snapshot.recovery ?? 0)",
+                                  caption: "recovery",
+                                  tint: recoveryTint(snapshot.recovery),
+                                  diameter: 112)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(snapshot.call.headline)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(recoveryTint(snapshot.recovery))
+                            Text(snapshot.call.detail)
+                                .font(.system(size: 12))
+                                .foregroundStyle(OrionTheme.textSoft)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                    }
+                    Divider().overlay(OrionTheme.line)
+                    HStack(spacing: 8) {
+                        if let value = snapshot.sleepPerformance {
+                            StatChip(icon: "moon.fill", value: "\(value)%", tint: OrionTheme.violet)
+                        }
+                        if let value = snapshot.sleepHours {
+                            StatChip(icon: "bed.double.fill", value: String(format: "%.1fh", value), tint: OrionTheme.violet)
+                        }
+                        if let value = snapshot.strain {
+                            StatChip(icon: "flame.fill", value: String(format: "%.1f", value), tint: OrionTheme.orange)
+                        }
+                        if let value = snapshot.hrvMilliseconds {
+                            StatChip(icon: "waveform.path.ecg", value: "\(value)ms", tint: OrionTheme.blue)
+                        }
+                        if let value = snapshot.restingHeartRate {
+                            StatChip(icon: "heart.fill", value: "\(value)bpm", tint: OrionTheme.red)
+                        }
+                        Spacer()
+                    }
+                } else if connections.state(.whoop).isConnected {
+                    Text(whoop.lastError ?? "Waiting for today's Whoop data…")
+                        .font(OrionTheme.mono(11))
+                        .foregroundStyle(OrionTheme.textDim)
+                } else {
+                    NotConnected(what: "Whoop",
+                                 detail: "Recovery, sleep, strain and HRV. Set it up in Settings ▸ Connections.")
+                }
             }
         }
     }
@@ -646,13 +725,18 @@ private struct HealthTab: View {
 /// Money. Every row here is a connection, because none of it should be typed in
 /// by hand and none of it is connected yet.
 private struct FinanceTab: View {
+    @ObservedObject var connections: ConnectionsModel
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SectionRule(title: "Accounts")
+            SectionRule(title: "Accounts", trailing: connections.state(.plaid).label)
             OrionPanel {
-                NotConnected(what: "Fidelity", detail: "Balances and positions, read-only.")
+                NotConnected(what: "Chase", detail: "Balances and recent transactions, via Plaid.")
                 Divider().overlay(OrionTheme.line)
-                NotConnected(what: "Chase", detail: "Balances and recent transactions, read-only.")
+                NotConnected(what: "Fidelity", detail: "Balances and positions, via Plaid.")
+                Divider().overlay(OrionTheme.line)
+                Text("Both banks connect through one Plaid account — set it up in Settings ▸ Connections.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
             }
 
             SectionRule(title: "How this will connect", trailing: "read-only")
@@ -685,16 +769,26 @@ private struct FinanceTab: View {
 /// The brand tab: posting rhythm is local and real, follower counts need APIs.
 private struct BrandTab: View {
     @ObservedObject var state: AppState
+    @ObservedObject var connections: ConnectionsModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             SectionRule(title: "Audience")
             OrionPanel {
-                NotConnected(what: "TikTok", detail: "Follower count and recent post performance.")
+                DataRow(label: "TikTok", sublabel: "follower count and recent post performance",
+                        value: connections.state(.tiktok).isConnected ? "LIVE" : "OFF",
+                        valueTint: connections.state(.tiktok).isConnected ? OrionTheme.green : OrionTheme.textDim)
                 Divider().overlay(OrionTheme.line)
-                NotConnected(what: "Instagram", detail: "Follower count and reel performance.")
+                DataRow(label: "Instagram", sublabel: "follower count and reel performance",
+                        value: connections.state(.instagram).isConnected ? "LIVE" : "OFF",
+                        valueTint: connections.state(.instagram).isConnected ? OrionTheme.green : OrionTheme.textDim)
                 Divider().overlay(OrionTheme.line)
-                NotConnected(what: "YouTube", detail: "Subscriber count and view velocity.")
+                DataRow(label: "YouTube", sublabel: "subscriber count — uses the Google connection",
+                        value: connections.state(.google).isConnected ? "LIVE" : "OFF",
+                        valueTint: connections.state(.google).isConnected ? OrionTheme.green : OrionTheme.textDim)
+                Text("Set these up in Settings ▸ Connections.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
             }
 
             SectionRule(title: "Today's reflection")
@@ -713,6 +807,7 @@ private struct BrandTab: View {
 private struct SettingsTab: View {
     @Binding var coreStyle: String
     @Binding var iconScale: Double
+    @ObservedObject var connections: ConnectionsModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -762,8 +857,50 @@ private struct SettingsTab: View {
                     .font(OrionTheme.mono(10))
                     .foregroundStyle(OrionTheme.textDim)
             }
+
+            ConnectionsView(connections: connections)
         }
     }
+}
+
+/// One line of the day's agenda. Read-only, like everything calendar here.
+private struct AgendaRow: View {
+    let event: AgendaEvent
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Rectangle()
+                .fill(event.isNow ? OrionTheme.green : (event.isPast ? OrionTheme.textDim.opacity(0.4) : OrionTheme.blue))
+                .frame(width: 2, height: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(event.isPast ? OrionTheme.textDim : OrionTheme.text)
+                    .lineLimit(1)
+                Text(event.calendarName)
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+            Spacer(minLength: 8)
+            if event.isNow {
+                Text("NOW")
+                    .font(OrionTheme.mono(9, .semibold))
+                    .tracking(1)
+                    .foregroundStyle(OrionTheme.green)
+            }
+            Text(event.timeLabel)
+                .font(OrionTheme.mono(11, .semibold))
+                .foregroundStyle(event.isPast ? OrionTheme.textDim : OrionTheme.textSoft)
+        }
+        .padding(.vertical, 7)
+    }
+}
+
+private func recoveryTint(_ recovery: Int?) -> Color {
+    guard let recovery else { return OrionTheme.textDim }
+    if recovery >= 67 { return OrionTheme.green }
+    if recovery >= 34 { return OrionTheme.orange }
+    return OrionTheme.red
 }
 
 private enum DashboardTab: String, CaseIterable, Identifiable {

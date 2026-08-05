@@ -30,19 +30,21 @@ struct DashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            Divider().overlay(Color.white.opacity(0.08))
+            // Home is the orb and should stay uncluttered; every other tab
+            // carries the same handful of live numbers at the top, so they are
+            // never more than a glance away.
+            if selectedTab != .home {
+                vitalsStrip
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 12)
+            }
+            Divider().overlay(OrionTheme.line)
 
             ScrollView { tabContent.padding(22) }
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(OrionTheme.line)
             tabBar
         }
-        .background(
-            LinearGradient(
-                colors: [Color.black.opacity(0.76), Color(red: 0.01, green: 0.035, blue: 0.075, opacity: 0.68)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(OrionTheme.ink)
         .preferredColorScheme(.dark)
         .onAppear { composerFocused = true }
         .onChange(of: state.focusComposerToken) { _, _ in composerFocused = true }
@@ -180,109 +182,74 @@ struct DashboardView: View {
     @ViewBuilder private var tabContent: some View {
         switch selectedTab {
         case .home:
+            // Untouched on purpose. The orb is the one surface that already
+            // worked, and it is what Orion *is*; the rest of the tabs are what
+            // needed to catch up to it.
             hero
         case .focus:
-            VStack(spacing: 18) {
-                SectionHero(title: "Focus", subtitle: "Turn your day into a short, defensible plan.", icon: "target", color: amber)
-                HStack(alignment: .top, spacing: 18) {
-                    DashboardCard(title: "TODAY'S FOCUS", icon: "checklist") {
-                        FocusSurface(state: state, newTask: $newFocusTask, cyan: cyan)
-                    }.frame(maxWidth: .infinity)
-                    DashboardCard(title: "QUICK CAPTURE", icon: "square.and.pencil") {
-                        Text("Use the Orion command bar to capture a task, thought, or reminder in plain language.")
-                            .font(.system(size: 14)).foregroundStyle(.white.opacity(0.67))
-                        composer
-                    }.frame(maxWidth: .infinity)
-                }
-            }
+            GoalmaxxingTab(state: state, newTask: $newFocusTask, dayProgress: dayProgress,
+                           hoursLeft: hoursLeft, energyTitle: energyTitle)
         case .health:
-            VStack(spacing: 18) {
-                SectionHero(title: "Health", subtitle: "Simple local tracking now; wearable data only after a real connection.", icon: "heart.fill", color: teal)
-                DashboardCard(title: "TODAY", icon: "heart.text.square") {
-                    HStack(spacing: 14) {
-                        MetricTile(title: "HYDRATION", value: "\(state.hydrationBottles)", suffix: " bottles", color: cyan, actionTitle: "+ Bottle", action: state.logHydration, secondaryActionTitle: "−", secondaryAction: state.removeHydration)
-                        MetricTile(title: "WORKOUT", value: state.workoutLogged ? "Done" : "—", suffix: " today", color: teal, actionTitle: state.workoutLogged ? "Undo" : "Log workout", action: state.toggleWorkoutLogged)
-                        MetricTile(title: "SUPPLEMENTS", value: "\(state.supplementsLogged)", suffix: " logged", color: amber, actionTitle: "+ Log", action: state.logSupplement)
-                    }
-                }
-            }
+            HealthTab(state: state)
         case .finance:
-            VStack(spacing: 18) {
-                SectionHero(title: "Finances", subtitle: "A read-only financial overview belongs here when you choose a real provider.", icon: "dollarsign.circle", color: amber)
-                DashboardCard(title: "CONNECTION STATUS", icon: "lock.shield") {
-                    Text("No financial account is connected yet.")
-                        .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white.opacity(0.86))
-                    Text("When you decide to use a provider, Orion should show balances and subscriptions read-only—never store your bank password.")
-                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.53))
-                }
-            }
+            FinanceTab()
         case .brand:
-            VStack(spacing: 18) {
-                SectionHero(title: "Brand", subtitle: "Capture content ideas and keep the publishing rhythm visible.", icon: "megaphone.fill", color: cyan)
-                HStack(alignment: .top, spacing: 18) {
-                    DashboardCard(title: "CONTENT CAPTURE", icon: "lightbulb") {
-                        Text("Tell Orion an idea in your own words and it can capture or structure it.")
-                            .font(.system(size: 14)).foregroundStyle(.white.opacity(0.65))
-                        composer
-                    }.frame(maxWidth: .infinity)
-                    DashboardCard(title: "METRICS", icon: "chart.line.uptrend.xyaxis") {
-                        Text("No platform metrics connected yet.")
-                            .font(.system(size: 16, weight: .medium)).foregroundStyle(.white.opacity(0.82))
-                        Text("This will become the place for live posting cadence and creator metrics once the data source is selected.")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
-                    }.frame(maxWidth: .infinity)
-                }
-            }
+            BrandTab(state: state)
         case .settings:
-            VStack(spacing: 18) {
-                SectionHero(title: "Settings", subtitle: "Tune Orion’s surface without adding controls to Home.", icon: "gearshape.fill", color: cyan)
-                DashboardCard(title: "ORION CORE", icon: "sparkles") {
-                    Picker("Visual", selection: $coreStyle) {
-                        Text("Original Orion").tag("original")
-                        Text("Black Hole").tag("blackHole")
-                    }
-                    .pickerStyle(.segmented)
-                    Text("The floating voice hologram always stays Original Orion; this changes the dashboard centerpiece only.")
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.48))
-                }
-                DashboardCard(title: "QUICK OPEN", icon: "circle.grid.3x3.fill") {
-                    HStack {
-                        Text("Icon size").font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(0.78))
-                        Spacer()
-                        Text("\(Int(iconScale * 100))%")
-                            .font(.system(size: 12, design: .monospaced)).foregroundStyle(cyan)
-                    }
-                    Slider(value: $iconScale, in: 0.72...1.45, step: 0.05)
-                        .tint(cyan)
-                    Text("Use Customize on Home to place the icons; this changes their scale without moving them.")
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.48))
-                }
-            }
+            SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale)
         }
     }
 
+    /// The always-present strip under the header: the handful of numbers that
+    /// should be true on every tab, in the reference's one-line form.
+    private var vitalsStrip: some View {
+        HStack(spacing: 8) {
+            StatChip(icon: "drop.fill", value: "\(state.hydrationBottles)", tint: OrionTheme.blue)
+            StatChip(icon: "pills.fill", value: "\(state.supplementsLogged)", tint: OrionTheme.violet)
+            StatChip(icon: "figure.run",
+                     value: state.workoutLogged ? "done" : "—",
+                     tint: state.workoutLogged ? OrionTheme.green : OrionTheme.textDim)
+            StatChip(icon: "checkmark.circle",
+                     value: "\(state.focusTasks.filter(\.isComplete).count)/\(state.focusTasks.count)",
+                     tint: OrionTheme.orange)
+            Spacer()
+            StatChip(icon: state.gatewayUp ? "bolt.fill" : "bolt.slash.fill",
+                     value: state.gatewayUp ? "online" : "offline",
+                     tint: state.gatewayUp ? OrionTheme.green : OrionTheme.red)
+        }
+    }
+
+    /// The reference marks the active tab with a short underline rather than a
+    /// filled pill. It is quieter, and at six tabs the filled version turned the
+    /// whole bar into a row of competing buttons.
     private var tabBar: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 2) {
             ForEach(DashboardTab.allCases) { tab in
                 Button { selectedTab = tab } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: tab.icon).font(.system(size: 14, weight: .semibold))
-                        Text(tab.title).font(.system(size: 10, weight: .semibold))
+                    VStack(spacing: 5) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 15, weight: .medium))
+                        Text(tab.title)
+                            .font(OrionTheme.mono(9, .semibold))
+                            .tracking(0.6)
+                        Capsule()
+                            .fill(selectedTab == tab ? Color.white : .clear)
+                            .frame(width: 18, height: 2)
                     }
-                    .frame(width: 88, height: 46)
-                    .foregroundStyle(selectedTab == tab ? cyan : .white.opacity(0.45))
-                    .background(RoundedRectangle(cornerRadius: 11).fill(selectedTab == tab ? cyan.opacity(0.1) : .clear))
+                    .frame(width: 84, height: 52)
+                    .foregroundStyle(selectedTab == tab ? OrionTheme.text : OrionTheme.textDim)
                     // SwiftUI otherwise uses only the icon and label glyphs as
                     // the hit region in this custom button style. The whole
-                    // illuminated tab is deliberately one large target.
-                    .contentShape(RoundedRectangle(cornerRadius: 11))
+                    // tab is deliberately one large target.
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 11)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .background(Color.black.opacity(0.23))
+        .background(Color.black.opacity(0.35))
+        .animation(.easeOut(duration: 0.18), value: selectedTab)
     }
 
     private var composer: some View {
@@ -319,6 +286,317 @@ struct DashboardView: View {
     private var energyTitle: String { let hour = Calendar.current.component(.hour, from: now); return hour < 12 ? "Morning setup" : hour < 17 ? "Active window" : "Evening reset" }
     private var phaseTitle: String { switch state.phase { case .idle: "Orion is ready"; case .listening: "Listening"; case .thinking: "Thinking"; case .speaking: "Speaking"; case .error: "Needs attention" } }
     private var phaseColor: Color { switch state.phase { case .idle: teal; case .listening: cyan; case .thinking: Color(red: 0.72, green: 0.43, blue: 1); case .speaking: amber; case .error: Color.red } }
+}
+
+// MARK: - Tabs
+//
+// One file-private view per tab, rather than five inline `case` bodies in one
+// switch. The switch had grown to the point where the tabs could only be
+// compared by scrolling, which is a large part of how they ended up identical.
+
+/// Goals, the way the reference frames them: how much day is left, how much of
+/// it you have used, and the short list you said you would do with it.
+private struct GoalmaxxingTab: View {
+    @ObservedObject var state: AppState
+    @Binding var newTask: String
+    let dayProgress: Double
+    let hoursLeft: Int
+    let energyTitle: String
+
+    private var done: Int { state.focusTasks.filter(\.isComplete).count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionRule(title: "The day", trailing: Date().formatted(.dateTime.weekday(.wide).month().day()))
+            OrionPanel {
+                HStack(alignment: .center, spacing: 20) {
+                    RingMeter(progress: dayProgress,
+                              value: "\(Int(dayProgress * 100))%",
+                              caption: energyTitle,
+                              subcaption: Date().formatted(date: .omitted, time: .shortened),
+                              tint: OrionTheme.orange)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(energyTitle)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(OrionTheme.text)
+                        Text("\(hoursLeft)h of awake time left")
+                            .font(OrionTheme.mono(12))
+                            .foregroundStyle(OrionTheme.textSoft)
+                        Text(done == state.focusTasks.count && !state.focusTasks.isEmpty
+                             ? "Everything you set out to do is done."
+                             : "\(state.focusTasks.count - done) still open.")
+                            .font(OrionTheme.mono(11))
+                            .foregroundStyle(done == state.focusTasks.count && !state.focusTasks.isEmpty
+                                             ? OrionTheme.green : OrionTheme.textDim)
+                    }
+                    Spacer()
+                }
+            }
+
+            SectionRule(title: "Goalmaxxing", trailing: "\(done) / \(state.focusTasks.count) complete")
+            OrionPanel {
+                // Segmented progress: one dash per goal. Reads as "how much is
+                // left" without having to count the list.
+                HStack(spacing: 4) {
+                    if state.focusTasks.isEmpty {
+                        Capsule().fill(Color.white.opacity(0.07)).frame(height: 4)
+                    } else {
+                        ForEach(state.focusTasks) { task in
+                            Capsule()
+                                .fill(task.isComplete ? OrionTheme.green : Color.white.opacity(0.10))
+                                .frame(height: 4)
+                        }
+                    }
+                }
+                .animation(.easeOut(duration: 0.3), value: done)
+
+                if state.focusTasks.isEmpty {
+                    Text("Nothing set for today yet.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(OrionTheme.textDim)
+                        .padding(.vertical, 6)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(state.focusTasks) { task in
+                            DataRow(label: task.title,
+                                    value: "",
+                                    tickable: true,
+                                    ticked: task.isComplete,
+                                    onTick: { state.toggleFocusTask(task.id) })
+                            if task.id != state.focusTasks.last?.id {
+                                Divider().overlay(OrionTheme.line)
+                            }
+                        }
+                    }
+                }
+
+                HStack(spacing: 9) {
+                    TextField("Add a goal for today…", text: $newTask)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OrionTheme.text)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10).fill(OrionTheme.cardRaised)
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(OrionTheme.line, lineWidth: 1))
+                        )
+                        .onSubmit(add)
+                    Button(action: add) {
+                        Text("Add")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(OrionTheme.ink)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(Capsule().fill(.white))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            SectionRule(title: "Calendar & reminders")
+            OrionPanel {
+                NotConnected(what: "Apple Reminders",
+                             detail: "Orion can already set timers and alarms; two-way sync with the Reminders app is the next step.")
+                Divider().overlay(OrionTheme.line)
+                NotConnected(what: "Apple Calendar",
+                             detail: "Read-only agenda, so the day ring knows what is actually in it.")
+            }
+        }
+    }
+
+    private func add() {
+        let trimmed = newTask.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        state.addFocusTask(trimmed)
+        newTask = ""
+    }
+}
+
+/// Water, the daily stack, and the wearable that is not plugged in yet.
+private struct HealthTab: View {
+    @ObservedObject var state: AppState
+
+    private let bottleTarget = 9
+    private let supplementTarget = 10
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionRule(title: "Water", trailing: "resets at 6 am")
+            OrionPanel {
+                BigStat(value: "\(state.hydrationBottles)",
+                        unit: "/ \(bottleTarget)",
+                        caption: "bottles drank today",
+                        tint: OrionTheme.text)
+                ZoneBar(value: state.hydrationBottles, target: bottleTarget, tint: OrionTheme.blue)
+                HStack(spacing: 9) {
+                    StepButton(systemImage: "minus") { state.removeHydration() }
+                    LogButton(title: "Drank a bottle") { state.logHydration() }
+                }
+                Text(hydrationNote)
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+
+            SectionRule(title: "Daily stack", trailing: "\(state.supplementsLogged) / \(supplementTarget) taken")
+            OrionPanel {
+                ZoneBar(value: state.supplementsLogged, target: supplementTarget,
+                        zoneLabel: "on track", tint: OrionTheme.violet)
+                LogButton(title: "Took one", systemImage: "plus", tint: OrionTheme.violet) {
+                    state.logSupplement()
+                }
+            }
+
+            SectionRule(title: "Movement")
+            OrionPanel {
+                DataRow(label: "Workout",
+                        sublabel: state.workoutLogged ? "logged today" : "not logged yet",
+                        value: state.workoutLogged ? "DONE" : "—",
+                        valueTint: state.workoutLogged ? OrionTheme.green : OrionTheme.textDim)
+                LogButton(title: state.workoutLogged ? "Undo workout" : "Log workout",
+                          systemImage: state.workoutLogged ? "arrow.uturn.backward" : "checkmark",
+                          tint: state.workoutLogged ? OrionTheme.cardRaised : OrionTheme.green) {
+                    state.toggleWorkoutLogged()
+                }
+            }
+
+            SectionRule(title: "Whoop")
+            OrionPanel {
+                NotConnected(what: "Whoop",
+                             detail: "Recovery, sleep, strain and HRV. Read-only once connected.")
+            }
+        }
+    }
+
+    private var hydrationNote: String {
+        let remaining = bottleTarget - state.hydrationBottles
+        if remaining <= 0 { return "Target hit. Anything more is a bonus." }
+        return "\(state.hydrationBottles) down. \(remaining) to go — you're below the healthy zone."
+    }
+}
+
+/// Money. Every row here is a connection, because none of it should be typed in
+/// by hand and none of it is connected yet.
+private struct FinanceTab: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionRule(title: "Accounts")
+            OrionPanel {
+                NotConnected(what: "Fidelity", detail: "Balances and positions, read-only.")
+                Divider().overlay(OrionTheme.line)
+                NotConnected(what: "Chase", detail: "Balances and recent transactions, read-only.")
+            }
+
+            SectionRule(title: "How this will connect", trailing: "read-only")
+            OrionPanel {
+                // Straight from INTEGRATION_HANDOFF.md, on the screen rather
+                // than in a document, because this is the moment it matters.
+                Label("Plaid Link, with you present. Orion never sees or stores a bank password.",
+                      systemImage: "lock.shield")
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.textSoft)
+                Label("Account names, masked numbers, balances, recent transactions.",
+                      systemImage: "eye")
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.textSoft)
+                Label("Transfers, payments and trading stay out of scope entirely.",
+                      systemImage: "xmark.shield")
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.red.opacity(0.85))
+            }
+
+            SectionRule(title: "Subscriptions")
+            OrionPanel {
+                NotConnected(what: "Recurring charges",
+                             detail: "Detected from transactions once an account is linked.")
+            }
+        }
+    }
+}
+
+/// The brand tab: posting rhythm is local and real, follower counts need APIs.
+private struct BrandTab: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionRule(title: "Audience")
+            OrionPanel {
+                NotConnected(what: "TikTok", detail: "Follower count and recent post performance.")
+                Divider().overlay(OrionTheme.line)
+                NotConnected(what: "Instagram", detail: "Follower count and reel performance.")
+                Divider().overlay(OrionTheme.line)
+                NotConnected(what: "YouTube", detail: "Subscriber count and view velocity.")
+            }
+
+            SectionRule(title: "Today's reflection")
+            OrionPanel {
+                Text("Where is the account going? What's working? What's failing?")
+                    .font(OrionTheme.mono(11))
+                    .foregroundStyle(OrionTheme.textDim)
+                Text("Say it to Orion and it lands in your notes — the composer on Home takes it in plain language.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(OrionTheme.textSoft)
+            }
+        }
+    }
+}
+
+private struct SettingsTab: View {
+    @Binding var coreStyle: String
+    @Binding var iconScale: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionRule(title: "Orion core")
+            OrionPanel {
+                Picker("Visual", selection: $coreStyle) {
+                    Text("Original Orion").tag("original")
+                    Text("Black Hole").tag("blackHole")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text("The floating voice hologram always stays Original Orion; this changes the dashboard centrepiece only.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+
+            SectionRule(title: "Quick open")
+            OrionPanel {
+                HStack {
+                    Text("Icon size")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(OrionTheme.text)
+                    Spacer()
+                    Text("\(Int(iconScale * 100))%")
+                        .font(OrionTheme.mono(11, .semibold))
+                        .foregroundStyle(OrionTheme.blue)
+                }
+                Slider(value: $iconScale, in: 0.72...1.45, step: 0.05)
+                    .tint(OrionTheme.blue)
+                Text("Use Customize on Home to place the icons; this only changes their scale.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+
+            SectionRule(title: "Voice timing")
+            OrionPanel {
+                DataRow(label: "Pause before Orion answers",
+                        sublabel: "raise it if he cuts you off mid-sentence",
+                        value: "\(VoiceTuning.endpointingMs) ms",
+                        valueTint: OrionTheme.blue)
+                Divider().overlay(OrionTheme.line)
+                DataRow(label: "Stuck-speech watchdog",
+                        sublabel: "forces the speaking phase to end if audio stalls",
+                        value: "\(Int(VoiceTuning.stallTimeout)) s",
+                        valueTint: OrionTheme.blue)
+                Text("Orion can change these himself — just tell him to wait longer before answering.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+        }
+    }
 }
 
 private enum DashboardTab: String, CaseIterable, Identifiable {

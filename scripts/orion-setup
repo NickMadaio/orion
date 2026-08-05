@@ -412,14 +412,39 @@ plugin_is_newer_than_gateway() {
   [[ -f "$entry" ]] || return 1
   pid="$(lsof -ti "tcp:$gw" -sTCP:LISTEN 2>/dev/null | head -1)"
   [[ -n "$pid" ]] || return 1
-  # etimes is the process's age in seconds; compare against the build's age.
+  # How long has the gateway been up, versus how long ago was the plugin built?
+  # If the build is NEWER than the process, the running gateway predates it and
+  # is serving stale code.
+  #
+  # `etimes` (age in whole seconds) is a GNU/procps keyword and does not exist
+  # in BSD ps, so on macOS `ps -o etimes=` does not fail -- it prints its entire
+  # list of valid keywords. That string was then interpolated straight into the
+  # Python below, which turned the whole check into a SyntaxError on every run:
+  #
+  #   sys.exit(0 if age < %cpu%memacflagacflgargsblocked...
+  #
+  # The check therefore never once returned an answer, which is why a rebuilt
+  # plugin could sit there un-served with setup reporting the gateway as fine.
+  # BSD ps has `etime`, formatted [[dd-]hh:]mm:ss, so parse that instead.
   local up
-  up="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+  up="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
   [[ -n "$up" ]] || return 1
   "$py" -c "
 import os, sys, time
+
+def seconds(text):
+    days = 0
+    if '-' in text:
+        day_part, text = text.split('-', 1)
+        days = int(day_part)
+    parts = [int(piece) for piece in text.split(':')]
+    while len(parts) < 3:
+        parts.insert(0, 0)
+    hours, minutes, secs = parts
+    return days * 86400 + hours * 3600 + minutes * 60 + secs
+
 age = time.time() - os.path.getmtime('$entry')
-sys.exit(0 if age < $up else 1)"
+sys.exit(0 if age < seconds('$up') else 1)"
 }
 
 if gw_alive; then

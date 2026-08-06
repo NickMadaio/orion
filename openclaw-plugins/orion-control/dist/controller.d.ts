@@ -13,6 +13,8 @@ export interface RunOptions {
     /** Configured browser for the `browser_control` tier. */
     browserPreference?: string;
     remindersPath?: string;
+    /** Shared supplement/workout store, also read by the Orion dashboard. */
+    healthLogPath?: string;
     defaultLocation?: string;
     enabledTiers?: ReadonlySet<CapabilityTier>;
     /** Harness-derived trust provenance recorded on the durable run record. */

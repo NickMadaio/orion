@@ -25,6 +25,8 @@ struct DashboardView: View {
     @StateObject private var agenda = AppleCalendarSync()
     @StateObject private var connections = ConnectionsModel()
     @StateObject private var whoop = WhoopClient()
+    @StateObject private var health = HealthLog()
+    @StateObject private var plaid = PlaidClient()
     @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "blackHole"
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
@@ -60,11 +62,24 @@ struct DashboardView: View {
             reminders.start()
             agenda.start()
             whoop.start()
+            health.start()
+            // The moment a grant lands, pull data. Without this the client only
+            // discovers the new token on its own 15-minute tick, so connecting
+            // Whoop looked like it had silently done nothing.
+            // Plaid's flow lives in its own client; hand it to the model so
+            // Connect can run it.
+            connections.plaid = plaid
+            plaid.refresh()
+            connections.onConnected = { connector in
+                if connector == .whoop { whoop.refresh() }
+                if connector == .plaid { plaid.refresh() }
+            }
         }
         .onDisappear {
             reminders.stop()
             agenda.stop()
             whoop.stop()
+            health.stop()
         }
         .onChange(of: state.focusComposerToken) { _, _ in composerFocused = true }
         .sheet(isPresented: $quickOpenEditorVisible) { QuickOpenEditor(settings: quickOpen) }
@@ -209,9 +224,9 @@ struct DashboardView: View {
             TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                      dayProgress: dayProgress, hoursLeft: hoursLeft, energyTitle: energyTitle)
         case .health:
-            HealthTab(state: state, whoop: whoop, connections: connections)
+            HealthTab(state: state, whoop: whoop, health: health, connections: connections)
         case .finance:
-            FinanceTab(connections: connections)
+            FinanceTab(connections: connections, plaid: plaid)
         case .brand:
             BrandTab(state: state, connections: connections)
         case .settings:
@@ -615,110 +630,328 @@ private struct TaskRow: View {
     }
 }
 
-/// Water, the daily stack, and the wearable that is not plugged in yet.
+/// Whoop first and full-width, then everything Nick logs by hand beside it.
+///
+/// The old version stacked one full-width panel per thing, so water — a number
+/// between 0 and 9 — occupied as much of the screen as the wearable feeding it
+/// five live metrics. Recovery is the number that decides how the day goes, so
+/// it goes at the top and gets the space; the manual trackers share a column.
 private struct HealthTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var whoop: WhoopClient
+    @ObservedObject var health: HealthLog
     @ObservedObject var connections: ConnectionsModel
 
+    @State private var newSupplement = ""
+    @State private var newSupplementTime = "morning"
+    @State private var exerciseName = ""
+    @State private var setWeight = ""
+    @State private var setReps = ""
+
     private let bottleTarget = 9
-    private let supplementTarget = 10
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SectionRule(title: "Water", trailing: "resets at 6 am")
-            OrionPanel {
-                BigStat(value: "\(state.hydrationBottles)",
-                        unit: "/ \(bottleTarget)",
-                        caption: "bottles drank today",
-                        tint: OrionTheme.text)
-                ZoneBar(value: state.hydrationBottles, target: bottleTarget, tint: OrionTheme.blue)
-                HStack(spacing: 9) {
-                    StepButton(systemImage: "minus") { state.removeHydration() }
-                    LogButton(title: "Drank a bottle") { state.logHydration() }
+            whoopSection
+
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 18) { workoutSection }
+                    .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 18) {
+                    waterSection
+                    supplementSection
                 }
-                Text(hydrationNote)
-                    .font(OrionTheme.mono(10))
+                .frame(width: 320)
+            }
+        }
+    }
+
+    // MARK: Whoop
+
+    @ViewBuilder private var whoopSection: some View {
+        SectionRule(title: "Whoop", trailing: connections.state(.whoop).label)
+        OrionPanel {
+            if let snapshot = whoop.snapshot {
+                HStack(alignment: .center, spacing: 22) {
+                    RingMeter(progress: Double(snapshot.recovery ?? 0) / 100,
+                              value: "\(snapshot.recovery ?? 0)",
+                              caption: "recovery",
+                              tint: recoveryTint(snapshot.recovery),
+                              diameter: 132)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(snapshot.call.headline)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(recoveryTint(snapshot.recovery))
+                        Text(snapshot.call.detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(OrionTheme.textSoft)
+                            .fixedSize(horizontal: false, vertical: true)
+                        // The reference's one-line vitals row, kept on one line.
+                        HStack(spacing: 8) {
+                            if let value = snapshot.sleepPerformance {
+                                StatChip(icon: "moon.fill", value: "\(value)%", tint: OrionTheme.violet)
+                            }
+                            if let value = snapshot.sleepHours {
+                                StatChip(icon: "bed.double.fill",
+                                         value: String(format: "%.1fh", value),
+                                         tint: OrionTheme.violet)
+                            }
+                            if let value = snapshot.strain {
+                                StatChip(icon: "flame.fill",
+                                         value: String(format: "%.1f", value),
+                                         tint: OrionTheme.orange)
+                            }
+                            if let value = snapshot.hrvMilliseconds {
+                                StatChip(icon: "waveform.path.ecg", value: "\(value)ms", tint: OrionTheme.blue)
+                            }
+                            if let value = snapshot.restingHeartRate {
+                                StatChip(icon: "heart.fill", value: "\(value)bpm", tint: OrionTheme.red)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else if connections.state(.whoop).isConnected {
+                HStack(spacing: 10) {
+                    if whoop.isLoading { ProgressView().controlSize(.small) }
+                    Text(whoop.lastError ?? "Connected — waiting for today's Whoop data.")
+                        .font(OrionTheme.mono(11))
+                        .foregroundStyle(whoop.lastError == nil ? OrionTheme.textDim : OrionTheme.red)
+                    Spacer()
+                    Button("Refresh") { whoop.refresh() }
+                        .buttonStyle(.plain)
+                        .font(OrionTheme.mono(10, .semibold))
+                        .foregroundStyle(OrionTheme.blue)
+                }
+            } else {
+                NotConnected(what: "Whoop",
+                             detail: "Recovery, sleep, strain and HRV. Set it up in Settings ▸ Connections.")
+            }
+        }
+    }
+
+    // MARK: Workouts
+
+    @ViewBuilder private var workoutSection: some View {
+        SectionRule(title: "Workout",
+                    trailing: health.todaysWorkout.map { "\($0.totalSets) sets" } ?? "nothing logged")
+        OrionPanel {
+            if let session = health.todaysWorkout, !session.exercises.isEmpty {
+                ForEach(session.exercises) { exercise in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(exercise.name)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(OrionTheme.text)
+                            Spacer()
+                            Text("\(Int(exercise.volume)) vol")
+                                .font(OrionTheme.mono(10))
+                                .foregroundStyle(OrionTheme.textDim)
+                        }
+                        // Each set on its own chip. A session collapsed to
+                        // "3 sets" cannot answer "did I beat last week".
+                        HStack(spacing: 6) {
+                            ForEach(exercise.sets) { set in
+                                Text(set.label)
+                                    .font(OrionTheme.mono(10, .semibold))
+                                    .foregroundStyle(OrionTheme.text)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        Capsule().fill(OrionTheme.cardRaised)
+                                            .overlay(Capsule().stroke(OrionTheme.line, lineWidth: 1))
+                                    )
+                                    .onTapGesture {
+                                        health.removeSet(exerciseID: exercise.id, setID: set.id)
+                                    }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        if let previous = health.previousBest(exercise.name) {
+                            Text("last time \(previous.day): \(previous.set.label)")
+                                .font(OrionTheme.mono(9))
+                                .foregroundStyle(OrionTheme.textDim)
+                        }
+                    }
+                    .padding(.vertical, 5)
+                    if exercise.id != session.exercises.last?.id {
+                        Divider().overlay(OrionTheme.line)
+                    }
+                }
+                Text("Total volume \(Int(session.volume)) · tap a set to remove it")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            } else {
+                Text("Nothing logged today. Add a set below, or just tell Orion what you did.")
+                    .font(.system(size: 13))
                     .foregroundStyle(OrionTheme.textDim)
             }
 
-            SectionRule(title: "Daily stack", trailing: "\(state.supplementsLogged) / \(supplementTarget) taken")
-            OrionPanel {
-                ZoneBar(value: state.supplementsLogged, target: supplementTarget,
-                        zoneLabel: "on track", tint: OrionTheme.violet)
-                LogButton(title: "Took one", systemImage: "plus", tint: OrionTheme.violet) {
-                    state.logSupplement()
-                }
+            Divider().overlay(OrionTheme.line)
+
+            HStack(spacing: 8) {
+                TextField("Exercise", text: $exerciseName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.text)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(fieldBackground)
+                TextField("lb", text: $setWeight)
+                    .textFieldStyle(.plain)
+                    .font(OrionTheme.mono(12))
+                    .foregroundStyle(OrionTheme.text)
+                    .frame(width: 62)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(fieldBackground)
+                TextField("reps", text: $setReps)
+                    .textFieldStyle(.plain)
+                    .font(OrionTheme.mono(12))
+                    .foregroundStyle(OrionTheme.text)
+                    .frame(width: 54)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(fieldBackground)
+                    .onSubmit(addSet)
+                Button("Log set", action: addSet)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(OrionTheme.ink)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().fill(.white))
             }
 
-            SectionRule(title: "Movement")
-            OrionPanel {
-                DataRow(label: "Workout",
-                        sublabel: state.workoutLogged ? "logged today" : "not logged yet",
-                        value: state.workoutLogged ? "DONE" : "—",
-                        valueTint: state.workoutLogged ? OrionTheme.green : OrionTheme.textDim)
-                LogButton(title: state.workoutLogged ? "Undo workout" : "Log workout",
-                          systemImage: state.workoutLogged ? "arrow.uturn.backward" : "checkmark",
-                          tint: state.workoutLogged ? OrionTheme.cardRaised : OrionTheme.green) {
-                    state.toggleWorkoutLogged()
-                }
-            }
-
-            SectionRule(title: "Whoop", trailing: connections.state(.whoop).label)
-            OrionPanel {
-                if let snapshot = whoop.snapshot {
-                    HStack(alignment: .center, spacing: 20) {
-                        RingMeter(progress: Double(snapshot.recovery ?? 0) / 100,
-                                  value: "\(snapshot.recovery ?? 0)",
-                                  caption: "recovery",
-                                  tint: recoveryTint(snapshot.recovery),
-                                  diameter: 112)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(snapshot.call.headline)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(recoveryTint(snapshot.recovery))
-                            Text(snapshot.call.detail)
-                                .font(.system(size: 12))
+            if !health.recentExerciseNames.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(health.recentExerciseNames.prefix(5), id: \.self) { name in
+                        Button { exerciseName = name } label: {
+                            Text(name)
+                                .font(OrionTheme.mono(9))
                                 .foregroundStyle(OrionTheme.textSoft)
-                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Capsule().stroke(OrionTheme.line, lineWidth: 1))
                         }
-                        Spacer()
+                        .buttonStyle(.plain)
                     }
-                    Divider().overlay(OrionTheme.line)
-                    HStack(spacing: 8) {
-                        if let value = snapshot.sleepPerformance {
-                            StatChip(icon: "moon.fill", value: "\(value)%", tint: OrionTheme.violet)
-                        }
-                        if let value = snapshot.sleepHours {
-                            StatChip(icon: "bed.double.fill", value: String(format: "%.1fh", value), tint: OrionTheme.violet)
-                        }
-                        if let value = snapshot.strain {
-                            StatChip(icon: "flame.fill", value: String(format: "%.1f", value), tint: OrionTheme.orange)
-                        }
-                        if let value = snapshot.hrvMilliseconds {
-                            StatChip(icon: "waveform.path.ecg", value: "\(value)ms", tint: OrionTheme.blue)
-                        }
-                        if let value = snapshot.restingHeartRate {
-                            StatChip(icon: "heart.fill", value: "\(value)bpm", tint: OrionTheme.red)
-                        }
-                        Spacer()
-                    }
-                } else if connections.state(.whoop).isConnected {
-                    Text(whoop.lastError ?? "Waiting for today's Whoop data…")
-                        .font(OrionTheme.mono(11))
-                        .foregroundStyle(OrionTheme.textDim)
-                } else {
-                    NotConnected(what: "Whoop",
-                                 detail: "Recovery, sleep, strain and HRV. Set it up in Settings ▸ Connections.")
+                    Spacer(minLength: 0)
                 }
             }
         }
     }
 
-    private var hydrationNote: String {
-        let remaining = bottleTarget - state.hydrationBottles
-        if remaining <= 0 { return "Target hit. Anything more is a bonus." }
-        return "\(state.hydrationBottles) down. \(remaining) to go — you're below the healthy zone."
+    // MARK: Water
+
+    @ViewBuilder private var waterSection: some View {
+        SectionRule(title: "Water", trailing: "resets 6am")
+        OrionPanel {
+            BigStat(value: "\(state.hydrationBottles)",
+                    unit: "/ \(bottleTarget)",
+                    caption: "bottles today")
+            ZoneBar(value: state.hydrationBottles, target: bottleTarget, tint: OrionTheme.blue)
+            HStack(spacing: 8) {
+                StepButton(systemImage: "minus") { state.removeHydration() }
+                LogButton(title: "Drank one") { state.logHydration() }
+            }
+        }
+    }
+
+    // MARK: Supplements
+
+    @ViewBuilder private var supplementSection: some View {
+        SectionRule(title: "Supplements",
+                    trailing: "\(health.takenToday.count) / \(health.supplements.count)")
+        OrionPanel {
+            if health.supplements.isEmpty {
+                Text("Add what you actually take — ashwagandha, vitamin D, magnesium. Then tick them off each day.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(health.supplementsByTime) { group in
+                    Text(group.id.uppercased())
+                        .font(OrionTheme.mono(9, .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(OrionTheme.textDim)
+                        .padding(.top, 2)
+                    ForEach(group.items) { supplement in
+                        HStack(spacing: 9) {
+                            Button { health.toggleSupplement(supplement.id) } label: {
+                                Image(systemName: health.takenToday.contains(supplement.id)
+                                      ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(health.takenToday.contains(supplement.id)
+                                                     ? OrionTheme.green : OrionTheme.textDim)
+                            }
+                            .buttonStyle(.plain)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(supplement.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(health.takenToday.contains(supplement.id)
+                                                     ? OrionTheme.textDim : OrionTheme.text)
+                                if !supplement.dose.isEmpty {
+                                    Text(supplement.dose)
+                                        .font(OrionTheme.mono(9))
+                                        .foregroundStyle(OrionTheme.textDim)
+                                }
+                            }
+                            Spacer(minLength: 4)
+                            Button { health.removeSupplement(supplement.id) } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(OrionTheme.textDim)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 3)
+                    }
+                }
+            }
+
+            Divider().overlay(OrionTheme.line)
+
+            HStack(spacing: 6) {
+                TextField("Add supplement", text: $newSupplement)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.text)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(fieldBackground)
+                    .onSubmit(addSupplement)
+                Button("Add", action: addSupplement)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(OrionTheme.ink)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Capsule().fill(.white))
+            }
+            Picker("", selection: $newSupplementTime) {
+                Text("Morning").tag("morning")
+                Text("Lunch").tag("lunch")
+                Text("Evening").tag("evening")
+                Text("Anytime").tag("anytime")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+    }
+
+    private var fieldBackground: some View {
+        RoundedRectangle(cornerRadius: 9).fill(OrionTheme.cardRaised)
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(OrionTheme.line, lineWidth: 1))
+    }
+
+    private func addSupplement() {
+        health.addSupplement(newSupplement, timeOfDay: newSupplementTime)
+        newSupplement = ""
+    }
+
+    private func addSet() {
+        guard let weight = Double(setWeight.trimmingCharacters(in: .whitespaces)),
+              let reps = Int(setReps.trimmingCharacters(in: .whitespaces))
+        else { return }
+        health.logSet(exercise: exerciseName, weight: weight, reps: reps)
+        // Name and weight stay: the next set is almost always the same lift, and
+        // retyping "incline bench" three times is how logging stops happening.
+        setReps = ""
     }
 }
 
@@ -726,17 +959,57 @@ private struct HealthTab: View {
 /// by hand and none of it is connected yet.
 private struct FinanceTab: View {
     @ObservedObject var connections: ConnectionsModel
+    @ObservedObject var plaid: PlaidClient
+
+    private var currency: String {
+        plaid.accounts.first?.currency ?? "USD"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SectionRule(title: "Accounts", trailing: connections.state(.plaid).label)
+            SectionRule(title: "Accounts",
+                        trailing: plaid.accounts.isEmpty
+                            ? connections.state(.plaid).label
+                            : "\(plaid.accounts.count) linked")
             OrionPanel {
-                NotConnected(what: "Chase", detail: "Balances and recent transactions, via Plaid.")
-                Divider().overlay(OrionTheme.line)
-                NotConnected(what: "Fidelity", detail: "Balances and positions, via Plaid.")
-                Divider().overlay(OrionTheme.line)
-                Text("Both banks connect through one Plaid account — set it up in Settings ▸ Connections.")
-                    .font(OrionTheme.mono(10))
-                    .foregroundStyle(OrionTheme.textDim)
+                if !plaid.accounts.isEmpty {
+                    BigStat(value: String(format: "%.2f", plaid.totalBalance),
+                            unit: currency,
+                            caption: "total balance")
+                    Divider().overlay(OrionTheme.line)
+                    ForEach(plaid.accounts) { account in
+                        DataRow(label: account.maskedLabel,
+                                sublabel: "\(account.type) · \(account.subtype)",
+                                value: account.current.map { String(format: "%.2f", $0) } ?? "—",
+                                valueTint: OrionTheme.green)
+                    }
+                    if let synced = plaid.lastSyncedAt {
+                        Text("synced \(synced.formatted(date: .omitted, time: .shortened)) · \(PlaidClient.environment)")
+                            .font(OrionTheme.mono(9))
+                            .foregroundStyle(OrionTheme.textDim)
+                    }
+                } else if plaid.isWorking {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(plaid.status.isEmpty ? "Working…" : plaid.status)
+                            .font(OrionTheme.mono(11))
+                            .foregroundStyle(OrionTheme.textSoft)
+                    }
+                } else {
+                    NotConnected(what: "Chase", detail: "Balances and recent transactions, via Plaid.")
+                    Divider().overlay(OrionTheme.line)
+                    NotConnected(what: "Fidelity", detail: "Balances and positions, via Plaid.")
+                    Divider().overlay(OrionTheme.line)
+                    Text("Both banks connect through one Plaid account — set it up in Settings ▸ Connections.")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.textDim)
+                }
+                if let error = plaid.lastError {
+                    Text(error)
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             SectionRule(title: "How this will connect", trailing: "read-only")

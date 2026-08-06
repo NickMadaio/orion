@@ -27,6 +27,8 @@ export interface RunOptions {
   /** Configured browser for the `browser_control` tier. */
   browserPreference?: string;
   remindersPath?: string;
+  /** Shared supplement/workout store, also read by the Orion dashboard. */
+  healthLogPath?: string;
   defaultLocation?: string;
   enabledTiers?: ReadonlySet<CapabilityTier>;
   /** Harness-derived trust provenance recorded on the durable run record. */
@@ -139,6 +141,9 @@ export async function runTaskGraph(
       writeMemo,
       ...(trustedInstruction ? { trustedInstruction } : {}),
       ...(options.trashRoot ? { trashRoot: options.trashRoot } : {}),
+      ...(options.healthLogPath
+        ? { healthLogPath: options.healthLogPath }
+        : {}),
       ...(options.remindersPath
         ? { remindersPath: options.remindersPath }
         : {}),

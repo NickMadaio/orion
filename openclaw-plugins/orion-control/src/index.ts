@@ -185,6 +185,17 @@ const ConfigSchema = Type.Object({
         "JSON file holding Orion's proposed and approved composed tools. Reviewed with the orion-tools script.",
     }),
   ),
+  enableHealthTrackingActions: Type.Optional(
+    Type.Boolean({
+      description:
+        "Let Orion record supplements taken and workout sets into the health log the Orion dashboard reads. Writes one JSON file he owns and nothing else. Default off.",
+    }),
+  ),
+  healthLogPath: Type.Optional(
+    Type.String({
+      description: "JSON file holding supplements and workouts, shared with the Orion app.",
+    }),
+  ),
   enableSelfTuningActions: Type.Optional(
     Type.Boolean({
       description:
@@ -284,10 +295,12 @@ function configuredTiers(config: {
   enableReminderActions?: boolean;
   enableFileMutateActions?: boolean;
   enableSelfTuningActions?: boolean;
+  enableHealthTrackingActions?: boolean;
   desktopRoot?: string;
 }): Set<CapabilityTier> {
   const tiers = new Set<CapabilityTier>(["simulation"]);
   if (config.enableSelfTuningActions === true) tiers.add("self_tuning");
+  if (config.enableHealthTrackingActions === true) tiers.add("health_tracking");
   if (config.enableAppControlActions === true) tiers.add("app_control");
   if (config.enableBrowserControlActions === true) tiers.add("browser_control");
   if (config.enableMediaControlActions === true) tiers.add("media_control");
@@ -503,6 +516,7 @@ async function runAuthorizedGraph(
     testWorkspaceRoot: defaultTestWorkspaceRoot(config.testWorkspaceRoot),
     scratchWorkspaceRoot: defaultScratchWorkspaceRoot(config.scratchWorkspaceRoot),
     ...(config.remindersPath ? { remindersPath: config.remindersPath } : {}),
+    ...(config.healthLogPath ? { healthLogPath: config.healthLogPath } : {}),
     ...(config.defaultWeatherLocation
       ? { defaultLocation: config.defaultWeatherLocation }
       : {}),

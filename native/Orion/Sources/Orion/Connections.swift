@@ -102,10 +102,12 @@ struct ConnectorSpec {
             auth: .hostedLink,
             registerURL: "https://dashboard.plaid.com/signup",
             setupSteps: [
-                "Nothing to do yet — Orion cannot use Plaid credentials at the moment, so registering an app would be wasted effort.",
-                "Plaid does not use a browser redirect like the others. It needs a link token minted from your secret, then its own hosted widget, then a public-token exchange.",
-                "That is a different flow from the OAuth one every other connector here shares, and it has not been written.",
-                "When it is: one Plaid account covers both Chase and Fidelity, Sandbox works immediately with fake data, and it stays read-only.",
+                "Create a free account at dashboard.plaid.com — Sandbox works immediately with fake banks, no approval needed.",
+                "Open Developers ▸ Keys and copy your client_id and the SANDBOX secret (not Production).",
+                "Paste both here and press Connect. There is no redirect URI to set for Plaid.",
+                "Plaid opens in your browser; pick a bank and sign in there. Orion never sees the bank password.",
+                "In Sandbox, any bank accepts username user_good and password pass_good.",
+                "Moving to real accounts means requesting Production access from Plaid and swapping the secret.",
             ],
             readOnly: true
         ),
@@ -249,8 +251,11 @@ enum ConnectionState: Equatable {
         case .needsCredentials: return "needs setup"
         case .readyToConnect: return "ready"
         case .connected(let expires):
-            guard let expires else { return "connected" }
-            return "connected · renews \(expires.formatted(date: .omitted, time: .shortened))"
+            // Deliberately NOT the raw expiry time. Whoop tokens last an hour
+            // and renew themselves; printing "renews 1:03 AM" made a healthy
+            // connection read like it was about to break.
+            guard expires != nil else { return "connected" }
+            return "connected · auto-renewing"
         case .expired: return "expired — reconnect"
         case .failed(let why): return why
         }
@@ -261,6 +266,14 @@ final class ConnectionsModel: ObservableObject {
 
     @Published private(set) var states: [ConnectorID: ConnectionState] = [:]
     @Published var busy: ConnectorID?
+
+    /// Fired the moment a connector finishes authorizing.
+    ///
+    /// Without this, a client that checked for a token at launch — before there
+    /// was one — has no idea a grant just arrived, and its data does not appear
+    /// until its own refresh timer next fires. Whoop's is 15 minutes, so
+    /// connecting looked like it had silently failed for a quarter of an hour.
+    var onConnected: ((ConnectorID) -> Void)?
 
     init() { refreshAll() }
 
@@ -275,11 +288,6 @@ final class ConnectionsModel: ObservableObject {
     /// Derived from what is actually in the Keychain, never from a stored flag.
     /// A connector cannot claim to be connected without a token to show for it.
     private func derive(_ id: ConnectorID) -> ConnectionState {
-        // Checked before credentials, so a connector with no implementation
-        // never shows "ready" and never invites a sign-in that cannot work.
-        if case .hostedLink = ConnectorSpec.spec(for: id).auth {
-            return .notBuilt("Plaid Link needs a hosted widget flow, not a browser redirect. Orion does not have it yet.")
-        }
         let hasCredentials = SecretStore.get(connector: id, field: SecretStore.Field.clientID) != nil
             && SecretStore.get(connector: id, field: SecretStore.Field.clientSecret) != nil
         guard hasCredentials else { return .needsCredentials }
@@ -323,10 +331,42 @@ final class ConnectionsModel: ObservableObject {
         refreshAll()
     }
 
+    /// Set by the dashboard so Plaid's non-OAuth flow has somewhere to run.
+    var plaid: PlaidClient?
+
     func connect(_ id: ConnectorID, completion: ((Result<Void, Error>) -> Void)? = nil) {
         let spec = ConnectorSpec.spec(for: id)
+        // Plaid is not OAuth: no authorize URL, no code. It mints a link token,
+        // runs in Plaid's own hosted page, and hands back a public token that
+        // gets exchanged. PlaidClient owns that; everything else is shared.
+        if case .hostedLink = spec.auth {
+            guard SecretStore.get(connector: id, field: SecretStore.Field.clientID) != nil,
+                  SecretStore.get(connector: id, field: SecretStore.Field.clientSecret) != nil
+            else {
+                states[id] = .needsCredentials
+                completion?(.failure(OAuthError.missingCredentials))
+                return
+            }
+            busy = id
+            plaid?.beginLink { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.busy = nil
+                    switch result {
+                    case .success:
+                        self.refreshAll()
+                        self.onConnected?(id)
+                        completion?(.success(()))
+                    case .failure(let error):
+                        self.states[id] = .failed(error.localizedDescription)
+                        completion?(.failure(error))
+                    }
+                }
+            }
+            return
+        }
         guard case .oauth2(let authorize, let token, let scopes) = spec.auth else {
-            states[id] = .failed("Plaid Link is not wired up yet — see the setup steps.")
+            states[id] = .failed("This connector has no sign-in flow.")
             completion?(.failure(OAuthError.unsupported))
             return
         }
@@ -352,6 +392,7 @@ final class ConnectionsModel: ObservableObject {
                 switch result {
                 case .success:
                     self.refreshAll()
+                    self.onConnected?(id)
                     completion?(.success(()))
                 case .failure(let error):
                     self.states[id] = .failed(error.localizedDescription)

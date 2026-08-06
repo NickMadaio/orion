@@ -2,6 +2,8 @@ import type { ActionDefinition, ControlledRoot, SupportedBrowser } from "./catal
 import type { TaskStep, UndoRecord } from "./types.js";
 export interface ExecutionContext {
     roots: Record<ControlledRoot, string>;
+    /** Shared supplement/workout store, also read by the Orion dashboard. */
+    healthLogPath?: string;
     workingContext?: string;
     simulatedState: Map<string, unknown>;
     /**

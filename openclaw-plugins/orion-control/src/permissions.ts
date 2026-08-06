@@ -51,6 +51,9 @@ const EDIT_TIERS: readonly CapabilityTier[] = [
   // worst case is that he mishears until told to set it back, and every change
   // records its own inverse in the ledger.
   "self_tuning",
+  // Supplements and workouts. Writes one JSON file Orion owns; the worst case
+  // is a wrong number in his own log, which he can be told to correct.
+  "health_tracking",
 ];
 
 const PROFILE_TIERS: Record<PermissionProfile, ReadonlySet<CapabilityTier>> = {

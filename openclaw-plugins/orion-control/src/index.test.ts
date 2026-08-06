@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { getToolPluginMetadata } from "openclaw/plugin-sdk/tool-plugin";
 import entry from "./index.js";
@@ -29,6 +29,13 @@ import {
   readPermissionState,
 } from "./permissions.js";
 import { HarnessProvenance } from "./provenance.js";
+import {
+  addSupplement,
+  logExercise,
+  supplementStatus,
+  takeSupplement,
+  workoutStatus,
+} from "./health.js";
 import {
   activeTools,
   decideTool,
@@ -2019,6 +2026,92 @@ describe("harness-derived trust boundary", () => {
     ).toBe("written by a tool");
     // And it is in the ledger like anything else, not off to one side.
     expect((record.authorization as Record<string, unknown>).turnCount).toBe(1);
+  });
+
+  it("records a spoken workout as separate sets, not one blob", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "orion-health-"));
+    const file = path.join(directory, `workout-${randomUUID()}.json`);
+    // "Incline bench, 135 for 8, 145 for 6, 155 for 4."
+    const logged = await logExercise(file, "Incline Bench", [
+      { weight: 135, reps: 8 },
+      { weight: 145, reps: 6 },
+      { weight: 155, reps: 4 },
+    ]);
+    expect(logged?.exercise.sets).toHaveLength(3);
+
+    const status = await workoutStatus(file);
+    expect(status.logged).toBe(true);
+    expect(status.totalSets).toBe(3);
+    // 135*8 + 145*6 + 155*4 = 1080 + 870 + 620
+    expect(status.totalVolume).toBe(2570);
+    expect(status.exercises[0]?.sets).toContain("135lb x 8");
+
+    // A second call for the same lift appends rather than replacing — sets get
+    // called out one at a time as often as all at once.
+    await logExercise(file, "incline bench", [{ weight: 165, reps: 2 }]);
+    const after = await workoutStatus(file);
+    expect(after.totalSets).toBe(4);
+    expect(after.exercises).toHaveLength(1);
+  });
+
+  it("records a supplement it has never heard of rather than refusing", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "orion-health-"));
+    const file = path.join(directory, `unknown-${randomUUID()}.json`);
+    const result = await takeSupplement(file, "Ashwagandha");
+    expect(result.created).toBe(true);
+    expect(result.alreadyTaken).toBe(false);
+
+    const status = await supplementStatus(file);
+    expect(status.total).toBe(1);
+    expect(status.takenCount).toBe(1);
+    expect(status.supplements[0]?.taken).toBe(true);
+
+    // Saying it twice is not an error and does not double-count.
+    const again = await takeSupplement(file, "ashwagandha");
+    expect(again.alreadyTaken).toBe(true);
+    expect((await supplementStatus(file)).takenCount).toBe(1);
+  });
+
+  it("keeps the supplement list while the daily ticks reset", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "orion-health-"));
+    const file = path.join(directory, `daily-${randomUUID()}.json`);
+    await addSupplement(file, "Vitamin D", "1000 IU", "morning");
+    await addSupplement(file, "Magnesium", "300mg", "evening");
+    // Yesterday's tick must not count toward today.
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await takeSupplement(file, "Vitamin D", yesterday);
+
+    const status = await supplementStatus(file);
+    expect(status.total).toBe(2);
+    expect(status.takenCount).toBe(0);
+    expect(status.supplements.map((entry) => entry.name)).toContain("Magnesium");
+  });
+
+  it("validates a spoken workout before it reaches the store", () => {
+    const definition = ACTION_CATALOG.workout_log!;
+    expect(
+      definition.validateArguments?.({ exercise: "squat", sets: [] }),
+    ).toHaveLength(1);
+    expect(
+      definition.validateArguments?.({
+        exercise: "squat",
+        sets: [{ weight: 225, reps: 0 }],
+      }),
+    ).toHaveLength(1);
+    expect(
+      definition.validateArguments?.({
+        exercise: "squat",
+        sets: [{ weight: 225, reps: 5 }],
+        unit: "stone",
+      }),
+    ).toHaveLength(1);
+    expect(
+      definition.validateArguments?.({
+        exercise: "squat",
+        sets: [{ weight: 225, reps: 5 }],
+        unit: "kg",
+      }),
+    ).toHaveLength(0);
   });
 
   it("reports trust provenance health so a closed gate is diagnosable", async () => {

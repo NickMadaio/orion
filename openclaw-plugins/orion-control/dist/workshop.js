@@ -2,11 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ACTION_CATALOG } from "./catalog.js";
-const EMPTY = {
-    schema: "orion.workshop.v1",
-    updatedAt: new Date(0).toISOString(),
-    tools: [],
-};
+/** A function, not a constant: see the note in health.ts. A spread of a shared
+ *  object hands every caller the same `tools` array. */
+function emptyWorkshop() {
+    return {
+        schema: "orion.workshop.v1",
+        updatedAt: new Date(0).toISOString(),
+        tools: [],
+    };
+}
 /** Everything that is reviewed. Status and timestamps are deliberately out. */
 export function toolBodyHash(tool) {
     return createHash("sha256")
@@ -27,12 +31,12 @@ export async function readWorkshop(file) {
     try {
         const parsed = JSON.parse(await readFile(file, "utf8"));
         if (parsed?.schema !== "orion.workshop.v1" || !Array.isArray(parsed.tools)) {
-            return { ...EMPTY };
+            return emptyWorkshop();
         }
         return parsed;
     }
     catch {
-        return { ...EMPTY };
+        return emptyWorkshop();
     }
 }
 async function writeWorkshop(file, workshop) {

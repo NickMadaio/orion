@@ -1,5 +1,5 @@
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "ambient_info" | "reminders" | "self_tuning";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -99,6 +99,9 @@ export type ExecutionPolicy = {
 } | {
     kind: "self_tuning";
     operation: "read" | "write";
+} | {
+    kind: "health_log";
+    operation: "supplement_add" | "supplement_take" | "supplement_status" | "workout_log" | "workout_status";
 } | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;

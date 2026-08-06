@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { clampVolume, browserUrlIssues, isMutableRoot, isObservationPolicy, isSafeRelativePath, isSafeSegment, isVisibleNonSensitiveName, ORION_APP_DOMAIN, resolveBrowserName, resolvePlayerName, SUPPORTED_BROWSERS, SUPPORTED_PLAYERS, TUNABLE_SETTINGS, } from "./catalog.js";
+import { addSupplement, defaultHealthLogPath, logExercise, readHealthLog, supplementStatus, takeSupplement, today as todayKey, workoutStatus, } from "./health.js";
 import { canonicalActionHash, hash } from "./validator.js";
 export class ActionExecutionError extends Error {
     retryable;
@@ -1297,6 +1298,9 @@ export async function executeAction(definition, step, context) {
     if (definition.execution.kind === "self_tuning") {
         return tuneSelf(definition.execution, step, idempotencyKey);
     }
+    if (definition.execution.kind === "health_log") {
+        return trackHealth(definition.execution, step, context, idempotencyKey);
+    }
     if (definition.execution.kind === "create_only_text") {
         return createOnlyText(definition.execution, step, context);
     }
@@ -1674,6 +1678,74 @@ async function tuneSelf(execution, step, idempotencyKey) {
         },
     };
 }
+/*
+ Supplements and workouts, written to the file the Orion app reads.
+
+ Every operation goes through `health.ts`, which does read-modify-write with an
+ atomic rename. Two writers exist -- this and the dashboard -- so nothing here
+ caches, and a set logged by voice shows up in the UI within its poll interval.
+*/
+async function trackHealth(execution, step, context, idempotencyKey) {
+    const file = defaultHealthLogPath(context.healthLogPath);
+    if (execution.operation === "supplement_status") {
+        return { mode: "observed", idempotencyKey, output: await supplementStatus(file) };
+    }
+    if (execution.operation === "workout_status") {
+        return { mode: "observed", idempotencyKey, output: await workoutStatus(file) };
+    }
+    if (execution.operation === "supplement_add") {
+        const name = String(step.arguments.name ?? "");
+        const result = await addSupplement(file, name, String(step.arguments.dose ?? ""), String(step.arguments.timeOfDay ?? "anytime"));
+        return {
+            mode: result.added ? "created" : "already_present",
+            idempotencyKey,
+            target: result.supplement?.name ?? name,
+            output: {
+                added: result.added,
+                name: result.supplement?.name ?? name,
+                note: result.added ? undefined : "Already on the list; nothing changed.",
+            },
+        };
+    }
+    if (execution.operation === "supplement_take") {
+        const name = String(step.arguments.name ?? "");
+        const result = await takeSupplement(file, name);
+        return {
+            mode: result.alreadyTaken ? "already_present" : "created",
+            idempotencyKey,
+            target: result.matched?.name ?? name,
+            output: {
+                name: result.matched?.name ?? name,
+                alreadyTaken: result.alreadyTaken,
+                // Recorded rather than refused: being told about a supplement Orion has
+                // never heard of is a fact to keep, not a setup error to complain about.
+                addedToList: result.created,
+            },
+        };
+    }
+    const exercise = String(step.arguments.exercise ?? "");
+    const rawSets = Array.isArray(step.arguments.sets) ? step.arguments.sets : [];
+    const sets = rawSets.map((entry) => ({
+        weight: Number(entry.weight),
+        reps: Number(entry.reps),
+    }));
+    const unit = String(step.arguments.unit ?? "lb");
+    const logged = await logExercise(file, exercise, sets, unit);
+    if (!logged) {
+        throw new ActionExecutionError("Could not record that exercise.");
+    }
+    return {
+        mode: "appended",
+        idempotencyKey,
+        target: logged.exercise.name,
+        output: {
+            exercise: logged.exercise.name,
+            setsLogged: sets.length,
+            totalSetsToday: logged.exercise.sets.length,
+            sets: logged.exercise.sets.map((set) => `${set.weight}${set.unit} x ${set.reps}`),
+        },
+    };
+}
 export async function verifyAction(definition, step, execution, context) {
     if (definition.execution.kind === "simulate") {
         return {
@@ -1705,6 +1777,44 @@ export async function verifyAction(definition, step, execution, context) {
         return {
             observed: found === wantPresent,
             evidence: `${id}:${found ? "present" : "absent"}`,
+        };
+    }
+    if (definition.execution.kind === "health_log") {
+        // Read the log back rather than trusting the write. Same discipline as
+        // every other mutation here, and it is what catches a store that silently
+        // did not persist.
+        const file = defaultHealthLogPath(context.healthLogPath);
+        if (definition.execution.operation === "supplement_status") {
+            return { observed: execution.output !== undefined, evidence: "supplements:reported" };
+        }
+        if (definition.execution.operation === "workout_status") {
+            return { observed: execution.output !== undefined, evidence: "workout:reported" };
+        }
+        const log = await readHealthLog(file);
+        if (definition.execution.operation === "workout_log") {
+            const day = todayKey();
+            const session = log.workouts.find((entry) => entry.day === day);
+            const name = String(step.arguments.exercise ?? "").toLowerCase();
+            const found = session?.exercises.some((entry) => entry.name.toLowerCase() === name);
+            return {
+                observed: found === true,
+                evidence: `${step.arguments.exercise}:${found ? "logged" : "missing"}`,
+            };
+        }
+        const name = String(step.arguments.name ?? "").toLowerCase();
+        const entry = log.supplements.find((candidate) => candidate.name.toLowerCase() === name);
+        if (definition.execution.operation === "supplement_add") {
+            return {
+                observed: entry !== undefined,
+                evidence: `${step.arguments.name}:${entry ? "listed" : "missing"}`,
+            };
+        }
+        const taken = entry
+            ? (log.supplementLog[todayKey()] ?? []).includes(entry.id)
+            : false;
+        return {
+            observed: taken,
+            evidence: `${step.arguments.name}:${taken ? "taken" : "not-taken"}`,
         };
     }
     if (definition.execution.kind === "self_tuning") {

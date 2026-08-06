@@ -84,6 +84,9 @@ export async function runTaskGraph(graph, options) {
             writeMemo,
             ...(trustedInstruction ? { trustedInstruction } : {}),
             ...(options.trashRoot ? { trashRoot: options.trashRoot } : {}),
+            ...(options.healthLogPath
+                ? { healthLogPath: options.healthLogPath }
+                : {}),
             ...(options.remindersPath
                 ? { remindersPath: options.remindersPath }
                 : {}),

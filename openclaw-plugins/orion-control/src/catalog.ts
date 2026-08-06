@@ -31,7 +31,11 @@ export type CapabilityTier =
   // value is range-checked against the same bounds the Swift side enforces, and
   // the blast radius of a mistake is that his ears are badly tuned until he is
   // told to put them back.
-  | "self_tuning";
+  | "self_tuning"
+  // Supplements and workouts. Writes only Orion's own health log, which the
+  // dashboard reads -- so saying "took my ashwagandha" and ticking the box in
+  // the UI are the same act rather than two records that drift apart.
+  | "health_tracking";
 
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
@@ -162,6 +166,15 @@ export type ExecutionPolicy =
   | {
       kind: "self_tuning";
       operation: "read" | "write";
+    }
+  | {
+      kind: "health_log";
+      operation:
+        | "supplement_add"
+        | "supplement_take"
+        | "supplement_status"
+        | "workout_log"
+        | "workout_status";
     }
   | FileMutationPolicy
   | CreateOnlyTextPolicy
@@ -1554,5 +1567,106 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       }
       return [];
     },
+  },
+
+  // Supplements and workouts. See the `health_tracking` tier note.
+
+  supplement_take: {
+    risk: "low",
+    requiredArguments: ["name"],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "supplement_take" },
+    validateArguments(arguments_) {
+      const name = arguments_.name;
+      return typeof name === "string" && name.trim().length > 0
+        ? []
+        : ["name must say which supplement was taken"];
+    },
+  },
+
+  supplement_add: {
+    risk: "low",
+    requiredArguments: ["name"],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "supplement_add" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      const name = arguments_.name;
+      if (typeof name !== "string" || name.trim().length === 0) {
+        issues.push("name is required");
+      }
+      const timeOfDay = arguments_.timeOfDay;
+      if (
+        timeOfDay !== undefined &&
+        !["morning", "lunch", "evening", "anytime"].includes(String(timeOfDay))
+      ) {
+        issues.push("timeOfDay must be morning, lunch, evening or anytime");
+      }
+      return issues;
+    },
+  },
+
+  supplement_status: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "supplement_status" },
+  },
+
+  workout_log: {
+    risk: "low",
+    requiredArguments: ["exercise", "sets"],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "workout_log" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      const exercise = arguments_.exercise;
+      if (typeof exercise !== "string" || exercise.trim().length === 0) {
+        issues.push("exercise must name the movement, e.g. 'incline bench'");
+      }
+      const sets = arguments_.sets;
+      if (!Array.isArray(sets) || sets.length === 0) {
+        issues.push("sets must be a list like [{ weight: 135, reps: 8 }]");
+        return issues;
+      }
+      if (sets.length > 20) issues.push("at most 20 sets in one call");
+      for (const [index, set] of sets.entries()) {
+        const weight = (set as Record<string, unknown>)?.weight;
+        const reps = (set as Record<string, unknown>)?.reps;
+        if (typeof weight !== "number" || !Number.isFinite(weight) || weight < 0) {
+          issues.push(`set ${index + 1}: weight must be a number`);
+        }
+        if (!Number.isInteger(reps) || (reps as number) < 1) {
+          issues.push(`set ${index + 1}: reps must be a whole number of at least 1`);
+        }
+      }
+      const unit = arguments_.unit;
+      if (unit !== undefined && !["lb", "kg"].includes(String(unit))) {
+        issues.push("unit must be lb or kg");
+      }
+      return issues;
+    },
+  },
+
+  workout_status: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "workout_status" },
   },
 };

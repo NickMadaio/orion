@@ -74,11 +74,15 @@ export interface Workshop {
   tools: ToolProposal[];
 }
 
-const EMPTY: Workshop = {
-  schema: "orion.workshop.v1",
-  updatedAt: new Date(0).toISOString(),
-  tools: [],
-};
+/** A function, not a constant: see the note in health.ts. A spread of a shared
+ *  object hands every caller the same `tools` array. */
+function emptyWorkshop(): Workshop {
+  return {
+    schema: "orion.workshop.v1",
+    updatedAt: new Date(0).toISOString(),
+    tools: [],
+  };
+}
 
 /** Everything that is reviewed. Status and timestamps are deliberately out. */
 export function toolBodyHash(tool: ComposedTool): string {
@@ -104,11 +108,11 @@ export async function readWorkshop(file: string): Promise<Workshop> {
   try {
     const parsed = JSON.parse(await readFile(file, "utf8")) as Workshop;
     if (parsed?.schema !== "orion.workshop.v1" || !Array.isArray(parsed.tools)) {
-      return { ...EMPTY };
+      return emptyWorkshop();
     }
     return parsed;
   } catch {
-    return { ...EMPTY };
+    return emptyWorkshop();
   }
 }
 

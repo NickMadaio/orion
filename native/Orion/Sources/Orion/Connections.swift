@@ -106,7 +106,9 @@ struct ConnectorSpec {
                 "Open Developers ▸ Keys and copy your client_id and the SANDBOX secret (not Production).",
                 "Paste both here and press Connect. There is no redirect URI to set for Plaid.",
                 "Plaid opens in your browser; pick a bank and sign in there. Orion never sees the bank password.",
-                "In Sandbox, any bank accepts username user_good and password pass_good.",
+                "Plaid asks for a PHONE NUMBER first — that is its returning-user lookup, not part of Orion. Real numbers do not work in Sandbox: use 415-555-0011, or take the “continue as guest” link to skip it entirely.",
+                "The verification code for every phone number in Sandbox is 123456.",
+                "At the bank login, use username user_good and password pass_good.",
                 "Moving to real accounts means requesting Production access from Plaid and swapping the secret.",
             ],
             readOnly: true

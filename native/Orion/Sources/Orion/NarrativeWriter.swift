@@ -18,6 +18,19 @@ import Foundation
  completions a day, which is nothing, instead of one on every keystroke.
 */
 
+/// What shape the answer should keep.
+///
+/// The brief wants one flowing paragraph; the health rail wants a short list of
+/// labelled takeaways. Both come back from the model as text with newlines in
+/// it, and collapsing those newlines — which is right for prose — destroys the
+/// list. So the caller says which it asked for.
+enum NarrativeStyle {
+    /// Collapse to a single paragraph.
+    case paragraph
+    /// Keep one line per line.
+    case lines
+}
+
 final class NarrativeWriter: ObservableObject {
 
     @Published private(set) var text: String?
@@ -34,7 +47,7 @@ final class NarrativeWriter: ObservableObject {
 
     /// `build` returns nil when there is nothing worth saying, which is
     /// different from "the model failed" and must not produce a request.
-    func load(key: String, build: () -> String?) {
+    func load(key: String, style: NarrativeStyle = .paragraph, build: () -> String?) {
         guard loadedKey != key || text == nil else { return }
 
         if let cached = UserDefaults.standard.string(forKey: defaultsPrefix + key), !cached.isEmpty {
@@ -59,7 +72,7 @@ final class NarrativeWriter: ObservableObject {
             let started = Date()
             var written: String?
             do {
-                written = NarrativeWriter.tidy(try LocalModel.complete(prompt: prompt))
+                written = NarrativeWriter.tidy(try LocalModel.complete(prompt: prompt), style: style)
             } catch {
                 // Not surfaced. The screen is complete without it, and an error
                 // banner about a thing the user did not ask for is noise.
@@ -87,7 +100,7 @@ final class NarrativeWriter: ObservableObject {
     /// Small models like to open with "Here's your brief:" and wrap things in
     /// quotes. Strip the scaffolding rather than prompt-engineering against it
     /// forever.
-    static func tidy(_ raw: String) -> String {
+    static func tidy(_ raw: String, style: NarrativeStyle = .paragraph) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Drop a leading label line like "Morning brief:" or "Here you go:".
@@ -103,12 +116,14 @@ final class NarrativeWriter: ObservableObject {
             text = String(text.dropFirst().dropLast())
         }
 
-        // Collapse to a single paragraph: the prompts ask for prose, and a
-        // stray blank line turns two sentences into two visual blocks.
-        return text
+        let lines = text
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
+
+        // Prose: collapse, because a stray blank line turns two sentences into
+        // two visual blocks. A list: keep the lines, because they ARE the
+        // structure.
+        return lines.joined(separator: style == .paragraph ? " " : "\n")
     }
 }

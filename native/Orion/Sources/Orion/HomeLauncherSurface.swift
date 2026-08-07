@@ -77,9 +77,11 @@ struct HomeLauncherSurface: View {
                                 )
                                 dragStartPoints[item.id] = origin
                                 draggingItemID = item.id
-                                dragPoints[item.id] = CGPoint(
-                                    x: min(geometry.size.width * 0.94, max(geometry.size.width * 0.06, origin.x + value.translation.width)),
-                                    y: min(geometry.size.height * 0.91, max(geometry.size.height * 0.11, origin.y + value.translation.height))
+                                dragPoints[item.id] = clamped(
+                                    CGPoint(x: origin.x + value.translation.width,
+                                            y: origin.y + value.translation.height),
+                                    in: geometry.size,
+                                    iconSize: placement.size * iconScale
                                 )
                             }
                             .onEnded { value in
@@ -88,9 +90,11 @@ struct HomeLauncherSurface: View {
                                     x: geometry.size.width * savedX,
                                     y: geometry.size.height * savedY
                                 )
-                                let point = CGPoint(
-                                    x: min(geometry.size.width * 0.94, max(geometry.size.width * 0.06, origin.x + value.translation.width)),
-                                    y: min(geometry.size.height * 0.91, max(geometry.size.height * 0.11, origin.y + value.translation.height))
+                                let point = clamped(
+                                    CGPoint(x: origin.x + value.translation.width,
+                                            y: origin.y + value.translation.height),
+                                    in: geometry.size,
+                                    iconSize: placement.size * iconScale
                                 )
                                 settings.move(item.id, toX: point.x / geometry.size.width, y: point.y / geometry.size.height)
                                 dragPoints[item.id] = nil
@@ -148,6 +152,28 @@ struct HomeLauncherSurface: View {
                 .frame(maxHeight: .infinity, alignment: .top)
             }
         }
+    }
+
+    /// Keep a dragged icon inside the field, and no further in than that.
+    ///
+    /// The old clamp was a fraction of the container — 6% in from the left, 94%
+    /// to the right — which meant an icon could never reach the left edge, and
+    /// the wider the window the further from it it stopped. It was also written
+    /// out twice, once in `onChanged` and once in `onEnded`, so the two could
+    /// silently disagree about where the wall was.
+    ///
+    /// In points instead, derived from the icon: half its width plus a little,
+    /// so the whole glyph stays visible and grabbable and nothing else is
+    /// forbidden. The top inset is the one real exception — the Quick Open
+    /// header row lives up there, and an icon parked underneath it cannot be
+    /// picked up again.
+    private func clamped(_ point: CGPoint, in size: CGSize, iconSize: CGFloat) -> CGPoint {
+        let margin = iconSize / 2 + 4
+        let headerInset: CGFloat = 34
+        return CGPoint(
+            x: min(max(point.x, margin), max(margin, size.width - margin)),
+            y: min(max(point.y, headerInset + iconSize / 2), max(margin, size.height - margin))
+        )
     }
 
     private func orbitPlacement(for index: Int) -> OrbitPlacement {

@@ -264,12 +264,27 @@ struct HealthTab: View {
                 SectionRule(title: "Orion reads this as")
 
                 if let text = writer.text {
-                    Text(text)
-                        .font(.system(size: 13))
-                        .foregroundStyle(OrionTheme.text.opacity(0.88))
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
+                    let takeaways = Takeaway.parse(text)
+                    if takeaways.isEmpty {
+                        // Parsed to nothing — show what the model said rather
+                        // than an empty column. The rail is still useful as
+                        // prose; it is only less scannable.
+                        Text(text)
+                            .font(.system(size: 13))
+                            .foregroundStyle(OrionTheme.text.opacity(0.88))
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
+                                TakeawayRow(takeaway: takeaway)
+                                if index != takeaways.count - 1 {
+                                    Rectangle().fill(OrionTheme.line).frame(height: 1)
+                                }
+                            }
+                        }
                         .transition(.opacity)
+                    }
                 } else if writer.isWriting {
                     Text("Reading the numbers…")
                         .font(OrionTheme.mono(10))
@@ -326,7 +341,7 @@ struct HealthTab: View {
 
     private func loadSummary() {
         let facts = summaryFacts
-        writer.load(key: facts.narrativeKey) { facts.prompt() }
+        writer.load(key: facts.narrativeKey, style: .lines) { facts.prompt() }
     }
 
     // MARK: - Not connected
@@ -478,6 +493,39 @@ struct HealthTab: View {
             }
             .padding(.top, 2)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One takeaway: a coloured tick, what it is about, and what it means.
+///
+/// The label carries the colour and the sentence carries the meaning, so the
+/// rail can be scanned by colour and read only where it matters. No fills — the
+/// hairlines between rows do the separating, same as everywhere else.
+private struct TakeawayRow: View {
+    let takeaway: Takeaway
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Capsule()
+                .fill(takeaway.tint)
+                .frame(width: 2, height: 13)
+                .padding(.top, 3)
+                .shadow(color: takeaway.tint.opacity(0.7), radius: 3)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(takeaway.label)
+                    .font(OrionTheme.mono(8, .semibold))
+                    .tracking(1.6)
+                    .foregroundStyle(takeaway.tint)
+                Text(takeaway.text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.text.opacity(0.88))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

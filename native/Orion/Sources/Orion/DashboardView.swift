@@ -40,6 +40,7 @@ struct DashboardView: View {
     @StateObject private var dayModel = DayModel()
     @StateObject private var briefWriter = NarrativeWriter()
     @StateObject private var healthWriter = NarrativeWriter()
+    @StateObject private var financeWriter = NarrativeWriter()
     @State private var briefPresentation: BriefPresentation = .parked
 
     /// Bound so the Settings controls change the surface live rather than on
@@ -316,7 +317,8 @@ struct DashboardView: View {
                           connections: connections, day: dayModel.day,
                           writer: healthWriter)
             case .finance:
-                FinanceTab(connections: connections, plaid: plaid)
+                FinanceTab(connections: connections, plaid: plaid,
+                           writer: financeWriter, day: dayModel.day)
             case .brand:
                 BrandTab(connections: connections)
             case .settings:

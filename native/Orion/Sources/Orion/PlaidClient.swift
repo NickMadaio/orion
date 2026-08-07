@@ -29,29 +29,11 @@ import Foundation
  Plaid's page — never seen by Orion.
 */
 
-struct PlaidAccount: Identifiable, Equatable {
-    let id: String
-    var name: String
-    var officialName: String
-    var mask: String
-    var type: String
-    var subtype: String
-    var available: Double?
-    var current: Double?
-    var currency: String
-
-    var displayName: String {
-        officialName.isEmpty ? name : officialName
-    }
-
-    var maskedLabel: String {
-        mask.isEmpty ? displayName : "\(displayName) ··\(mask)"
-    }
-}
-
 final class PlaidClient: ObservableObject {
 
     @Published private(set) var accounts: [PlaidAccount] = []
+    @Published private(set) var transactions: [PlaidTransaction] = []
+    @Published private(set) var items: [PlaidItem] = []
     @Published private(set) var status: String = ""
     @Published private(set) var isWorking = false
     @Published private(set) var lastError: String?
@@ -89,6 +71,53 @@ final class PlaidClient: ObservableObject {
     }
 
     private var host: String { "https://\(Self.environment).plaid.com" }
+
+    /// How far back to pull transactions. Ninety days is enough to see three
+    /// occurrences of a monthly charge, which is what the recurring detector
+    /// needs before it will call something a subscription.
+    private let transactionWindowDays = 90
+
+    // MARK: - Linked items
+    //
+    // Plaid issues an access token per ITEM — one login at one institution — so
+    // Chase and Fidelity are two tokens. This used to be a single Keychain
+    // field, which meant linking the second bank silently overwrote the first
+    // and the app could only ever show one of them.
+
+    static func storedItems() -> [PlaidItem] {
+        guard let raw = SecretStore.get(connector: .plaid, field: SecretStore.Field.items),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([PlaidItem].self, from: data)
+        else {
+            // Carry a pre-multi-item install forward rather than making the
+            // user re-link the bank they already connected.
+            if let legacy = SecretStore.get(connector: .plaid, field: SecretStore.Field.accessToken) {
+                let itemID = SecretStore.get(connector: .plaid, field: SecretStore.Field.accountID) ?? "legacy"
+                return [PlaidItem(itemID: itemID, accessToken: legacy, institutionName: "Bank")]
+            }
+            return []
+        }
+        return decoded
+    }
+
+    static func saveItems(_ items: [PlaidItem]) {
+        guard let data = try? JSONEncoder().encode(items),
+              let raw = String(data: data, encoding: .utf8)
+        else { return }
+        SecretStore.set(raw, connector: .plaid, field: SecretStore.Field.items)
+        // The single-token fields are what `ConnectionsModel` derives state
+        // from, so keep one populated for as long as any item exists.
+        SecretStore.set(items.first?.accessToken, connector: .plaid, field: SecretStore.Field.accessToken)
+        SecretStore.set(items.first?.itemID, connector: .plaid, field: SecretStore.Field.accountID)
+        NotificationCenter.default.post(name: .orionConnectionsChanged, object: nil)
+    }
+
+    func forget(_ itemID: String) {
+        let remaining = Self.storedItems().filter { $0.itemID != itemID }
+        Self.saveItems(remaining)
+        items = remaining
+        refresh()
+    }
 
     private var pollTimer: Timer?
     private var pollAttempts = 0
@@ -319,13 +348,20 @@ final class PlaidClient: ObservableObject {
                         completion(.failure(PlaidError.api(message)))
                         return
                     }
-                    SecretStore.set(accessToken, connector: .plaid,
-                                    field: SecretStore.Field.accessToken)
-                    if let itemID = json["item_id"] as? String {
-                        SecretStore.set(itemID, connector: .plaid,
-                                        field: SecretStore.Field.accountID)
-                    }
+                    let itemID = json["item_id"] as? String ?? UUID().uuidString
+
+                    // Append, never replace. Re-linking the SAME institution
+                    // replaces just that item, so fixing a broken Chase login
+                    // does not also drop Fidelity.
+                    var items = Self.storedItems().filter { $0.itemID != itemID }
+                    items.append(PlaidItem(itemID: itemID, accessToken: accessToken,
+                                           institutionName: "Linked account"))
+                    Self.saveItems(items)
+                    self.items = items
+                    OrionLog.write("[plaid] item linked — \(items.count) institution(s) now connected")
+
                     self.status = ""
+                    self.nameInstitution(for: accessToken, itemID: itemID)
                     self.refresh()
                     completion(.success(()))
                 }
@@ -335,56 +371,174 @@ final class PlaidClient: ObservableObject {
 
     // MARK: - Reading
 
+    /// Every linked institution, in parallel, merged.
     func refresh() {
+        let items = Self.storedItems()
+        self.items = items
         guard
             let clientID = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientID),
             let secret = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret),
-            let accessToken = SecretStore.get(connector: .plaid, field: SecretStore.Field.accessToken)
+            !items.isEmpty
         else {
-            // No grant for this environment. Clear the table rather than
-            // leaving the previous environment's balances sitting there
-            // looking current.
+            // Nothing linked in this environment. Clear the table rather than
+            // leaving the previous environment's balances looking current.
             accounts = []
+            transactions = []
             lastSyncedAt = nil
             return
         }
+
         isWorking = true
-        post(
-            "/accounts/balance/get",
-            body: ["client_id": clientID, "secret": secret, "access_token": accessToken]
-        ) { [weak self] result in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                self.isWorking = false
+        let group = DispatchGroup()
+        // Three requests per item all land on separate URLSession queues.
+        let lock = NSLock()
+        var collectedAccounts: [PlaidAccount] = []
+        var collectedTransactions: [PlaidTransaction] = []
+        var failure: String?
+
+        for item in items {
+            group.enter()
+            post("/accounts/balance/get",
+                 body: ["client_id": clientID, "secret": secret, "access_token": item.accessToken]) { result in
+                defer { group.leave() }
+                lock.lock(); defer { lock.unlock() }
                 switch result {
                 case .failure(let error):
-                    self.lastError = error.localizedDescription
+                    failure = "\(item.institutionName): \(error.localizedDescription)"
                 case .success(let json):
-                    let raw = json["accounts"] as? [[String: Any]] ?? []
-                    self.accounts = raw.map { entry in
-                        let balances = entry["balances"] as? [String: Any] ?? [:]
-                        return PlaidAccount(
-                            id: entry["account_id"] as? String ?? UUID().uuidString,
-                            name: entry["name"] as? String ?? "Account",
-                            officialName: entry["official_name"] as? String ?? "",
-                            mask: entry["mask"] as? String ?? "",
-                            type: entry["type"] as? String ?? "",
-                            subtype: entry["subtype"] as? String ?? "",
-                            available: balances["available"] as? Double,
-                            current: balances["current"] as? Double,
-                            currency: balances["iso_currency_code"] as? String ?? "USD"
-                        )
-                    }
-                    self.lastSyncedAt = Date()
-                    self.lastError = nil
+                    collectedAccounts += PlaidClient.parseAccounts(json, institution: item.institutionName)
+                }
+            }
+
+            group.enter()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            let start = Calendar.current.date(byAdding: .day, value: -transactionWindowDays, to: Date()) ?? Date()
+            post("/transactions/get",
+                 body: [
+                    "client_id": clientID,
+                    "secret": secret,
+                    "access_token": item.accessToken,
+                    "start_date": formatter.string(from: start),
+                    "end_date": formatter.string(from: Date()),
+                    "options": ["count": 500],
+                 ]) { result in
+                defer { group.leave() }
+                lock.lock(); defer { lock.unlock() }
+                // Transactions are NOT an error worth surfacing on their own.
+                // Plaid returns PRODUCT_NOT_READY for the first minute or two
+                // after linking while it pulls history, and a red banner over a
+                // working balances screen would be wrong.
+                if case .success(let json) = result {
+                    collectedTransactions += PlaidClient.parseTransactions(json)
+                } else if case .failure(let error) = result {
+                    OrionLog.write("[plaid] transactions for \(item.institutionName) — \(error.localizedDescription)")
+                }
+            }
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            self.isWorking = false
+            self.accounts = collectedAccounts.sorted { left, right in
+                if left.institutionName != right.institutionName {
+                    return left.institutionName < right.institutionName
+                }
+                return (left.current ?? 0) > (right.current ?? 0)
+            }
+            self.transactions = collectedTransactions.sorted { $0.date > $1.date }
+            self.lastSyncedAt = Date()
+            self.lastError = collectedAccounts.isEmpty ? failure : nil
+            OrionLog.write("[plaid] refreshed — \(collectedAccounts.count) account(s), "
+                           + "\(collectedTransactions.count) transaction(s) across \(items.count) institution(s)")
+        }
+    }
+
+    /// Ask Plaid which bank an item belongs to, so the UI can group by name
+    /// rather than by an opaque item id.
+    private func nameInstitution(for accessToken: String, itemID: String) {
+        guard
+            let clientID = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientID),
+            let secret = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret)
+        else { return }
+        post("/item/get", body: ["client_id": clientID, "secret": secret, "access_token": accessToken]) { [weak self] result in
+            guard case .success(let json) = result,
+                  let item = json["item"] as? [String: Any],
+                  let institutionID = item["institution_id"] as? String
+            else { return }
+            self?.post("/institutions/get_by_id", body: [
+                "client_id": clientID,
+                "secret": secret,
+                "institution_id": institutionID,
+                "country_codes": ["US"],
+            ]) { inner in
+                guard case .success(let json) = inner,
+                      let institution = json["institution"] as? [String: Any],
+                      let name = institution["name"] as? String
+                else { return }
+                DispatchQueue.main.async {
+                    var items = PlaidClient.storedItems()
+                    guard let index = items.firstIndex(where: { $0.itemID == itemID }) else { return }
+                    items[index].institutionName = name
+                    PlaidClient.saveItems(items)
+                    self?.items = items
+                    self?.refresh()
                 }
             }
         }
     }
 
-    var totalBalance: Double {
-        accounts.reduce(0) { $0 + ($1.current ?? 0) }
+    // MARK: - Parsing
+
+    static func parseAccounts(_ json: [String: Any], institution: String) -> [PlaidAccount] {
+        (json["accounts"] as? [[String: Any]] ?? []).map { entry in
+            let balances = entry["balances"] as? [String: Any] ?? [:]
+            return PlaidAccount(
+                id: entry["account_id"] as? String ?? UUID().uuidString,
+                name: entry["name"] as? String ?? "Account",
+                officialName: entry["official_name"] as? String ?? "",
+                mask: entry["mask"] as? String ?? "",
+                type: entry["type"] as? String ?? "",
+                subtype: entry["subtype"] as? String ?? "",
+                available: balances["available"] as? Double,
+                current: balances["current"] as? Double,
+                currency: balances["iso_currency_code"] as? String ?? "USD",
+                institutionName: institution
+            )
+        }
     }
+
+    static func parseTransactions(_ json: [String: Any]) -> [PlaidTransaction] {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+
+        return (json["transactions"] as? [[String: Any]] ?? []).compactMap { entry in
+            guard let id = entry["transaction_id"] as? String,
+                  let amount = entry["amount"] as? Double,
+                  let rawDate = entry["date"] as? String,
+                  let date = formatter.date(from: rawDate)
+            else { return nil }
+            // v2 categories. `category` (the old array) is deprecated and is
+            // deliberately not read.
+            let category = (entry["personal_finance_category"] as? [String: Any])?["primary"] as? String
+            return PlaidTransaction(
+                id: id,
+                accountID: entry["account_id"] as? String ?? "",
+                name: entry["name"] as? String ?? "Transaction",
+                merchant: entry["merchant_name"] as? String,
+                amount: amount,
+                date: date,
+                category: category ?? "OTHER",
+                isPending: entry["pending"] as? Bool ?? false
+            )
+        }
+    }
+
+    /// Assets minus debts — see `PlaidAccount.isLiability` for why a plain sum
+    /// would count a credit-card balance as savings.
+    var netWorth: Double { Money.netWorth(accounts) }
+    var currency: String { accounts.first?.currency ?? "USD" }
 
     // MARK: - Plumbing
 

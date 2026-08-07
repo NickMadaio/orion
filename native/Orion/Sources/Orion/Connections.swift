@@ -277,7 +277,11 @@ enum SecretStore {
         /// as "your credentials are wrong" when the truth is "those are the
         /// right credentials for the other environment".
         static let secretEnvironment = "secret_environment"
-        static let all = [clientID, clientSecret, accessToken, refreshToken, expiresAt, accountID, secretEnvironment]
+        /// Every linked Plaid institution, JSON-encoded. One access token per
+        /// bank — see PlaidItem.
+        static let items = "items"
+        static let all = [clientID, clientSecret, accessToken, refreshToken, expiresAt,
+                          accountID, secretEnvironment, items]
     }
 }
 

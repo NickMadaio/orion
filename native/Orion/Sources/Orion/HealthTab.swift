@@ -502,7 +502,7 @@ struct HealthTab: View {
 /// The label carries the colour and the sentence carries the meaning, so the
 /// rail can be scanned by colour and read only where it matters. No fills — the
 /// hairlines between rows do the separating, same as everywhere else.
-private struct TakeawayRow: View {
+struct TakeawayRow: View {
     let takeaway: Takeaway
 
     var body: some View {

@@ -186,19 +186,80 @@ final class PlaidClient: ObservableObject {
             "/link/token/get",
             body: ["client_id": clientID, "secret": secret, "link_token": linkToken]
         ) { [weak self] result in
-            guard let self, case .success(let json) = result else { return }
-            // Plaid records each completed session on the link token. The public
-            // token lives on the newest one.
-            let sessions = json["link_sessions"] as? [[String: Any]] ?? []
-            guard let newest = sessions.last,
-                  let publicToken = newest["public_token"] as? String
-            else { return }
+            guard let self else { return }
+            guard case .success(let json) = result else {
+                // Was swallowed entirely, which meant a link token Plaid had
+                // started rejecting looked identical to one still waiting for
+                // the user — ten minutes of "Waiting for Plaid…" either way.
+                if case .failure(let error) = result {
+                    OrionLog.write("[plaid] link/token/get failed — \(error.localizedDescription)")
+                }
+                return
+            }
+            guard let publicToken = PlaidClient.publicToken(in: json) else { return }
+            OrionLog.write("[plaid] public token found after \(self.pollAttempts) poll(s)")
             DispatchQueue.main.async {
                 self.stopPolling()
                 self.status = "Linking account…"
                 self.exchange(publicToken: publicToken, completion: completion)
             }
         }
+    }
+
+    /// Dig the public token out of `/link/token/get`.
+    ///
+    /// This is where the whole flow was failing. The old code read
+    /// `link_sessions.last["public_token"]`, and `public_token` is never at the
+    /// top level of a session — Plaid nests it at
+    /// `link_sessions[].results.item_add_results[].public_token`, with a
+    /// deprecated `on_success.public_token` still returned for older
+    /// integrations. So the read was nil on every poll, the loop never
+    /// finished, and ten minutes later it timed out having done everything
+    /// else correctly.
+    ///
+    /// Both paths are accepted, because which one an account gets depends on
+    /// when the integration was set up, and the newer one exists to support
+    /// Multi-Item Link returning several tokens from one session.
+    ///
+    /// The newest session is chosen by `finished_at` rather than by array
+    /// position: Plaid does not document the ordering of `link_sessions`, and
+    /// after a retry the array holds an abandoned session as well as the good
+    /// one.
+    static func publicToken(in json: [String: Any]) -> String? {
+        let sessions = json["link_sessions"] as? [[String: Any]] ?? []
+        return sessions
+            .compactMap { session -> (Date, String)? in
+                guard let token = token(in: session) else { return nil }
+                let finished = (session["finished_at"] as? String)
+                    .flatMap(parseTimestamp) ?? .distantPast
+                return (finished, token)
+            }
+            .max { $0.0 < $1.0 }?
+            .1
+    }
+
+    private static func token(in session: [String: Any]) -> String? {
+        if let results = session["results"] as? [String: Any],
+           let adds = results["item_add_results"] as? [[String: Any]] {
+            for add in adds {
+                if let token = add["public_token"] as? String, !token.isEmpty {
+                    return token
+                }
+            }
+        }
+        if let onSuccess = session["on_success"] as? [String: Any],
+           let token = onSuccess["public_token"] as? String, !token.isEmpty {
+            return token
+        }
+        return nil
+    }
+
+    private static func parseTimestamp(_ raw: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return fractional.date(from: raw) ?? plain.date(from: raw)
     }
 
     private func stopPolling() {

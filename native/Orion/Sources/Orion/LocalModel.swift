@@ -39,10 +39,28 @@ enum LocalModelError: LocalizedError {
 
 enum LocalModel {
 
-    /// Small on purpose. Every user of this is a short transform over facts
-    /// that are already computed, run on a schedule, forever. A 3B answers in
-    /// about a second and is more than enough for prose of that shape.
+    /// The model everything local runs on. One constant, so swapping it is one
+    /// edit.
+    ///
+    /// Measured on this Mac, same brief prompt:
+    ///
+    ///   llama3.2:3b    1.1s   invents physiology, skips the overdue task
+    ///   gpt-oss:20b   13.3s   names the overdue task, no invented numbers
+    ///
+    /// Both are local and cost nothing. The brief is written once per logical
+    /// day, cached, and never blocks the screen — so the thirteen seconds are
+    /// spent while the ring and the schedule are already being read.
     static let defaultModel = "llama3.2:3b"
+
+    /// Generous, and that is not arbitrary.
+    ///
+    /// Reasoning models — `gpt-oss:20b`, `qwen3:30b` — spend this budget on a
+    /// `thinking` field BEFORE writing anything into `response`. At 200 the
+    /// budget was gone before the answer started and both returned an
+    /// empty string, which looks exactly like the model being broken. It is
+    /// wasted on a non-reasoning model only in the sense that it is never
+    /// reached: generation still stops at the end of the answer.
+    static let defaultMaxTokens = 900
 
     private static let endpoint = URL(string: "http://127.0.0.1:11434/api/generate")!
 
@@ -54,9 +72,9 @@ enum LocalModel {
     static func complete(
         prompt: String,
         model: String = LocalModel.defaultModel,
-        maxTokens: Int = 200,
+        maxTokens: Int = LocalModel.defaultMaxTokens,
         temperature: Double = 0.4,
-        timeout: TimeInterval = 25
+        timeout: TimeInterval = 45
     ) throws -> String {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -94,6 +112,10 @@ enum LocalModel {
               let text = json["response"] as? String
         else { throw LocalModelError.unreachable }
 
+        // `thinking` is deliberately NOT used as a fallback. A reasoning
+        // model's scratchpad is not its answer — it is full of "we need to
+        // write 2-3 sentences" and half-formed drafts, and showing it would be
+        // worse than showing nothing.
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw LocalModelError.empty }
         return trimmed

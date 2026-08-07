@@ -27,6 +27,9 @@ struct DashboardView: View {
     @StateObject private var whoop = WhoopClient()
     @StateObject private var health = HealthLog()
     @StateObject private var plaid = PlaidClient()
+    /// Bound so the slider in Settings updates the surface live rather than on
+    /// the next launch.
+    @AppStorage(SurfaceSettings.tintKey) private var surfaceTint = SurfaceSettings.defaultTint
     @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "blackHole"
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
@@ -53,11 +56,17 @@ struct DashboardView: View {
             Divider().overlay(OrionTheme.line)
             tabBar
         }
-        // Material first, then the tint over it. Colour alone on an opaque
-        // window is just a darker window; the blur is what makes it read as
-        // glass sitting above the desktop.
-        .background(.ultraThinMaterial)
-        .background(OrionTheme.ink)
+        // Order is load-bearing. The blur must be the BOTTOM layer so it
+        // samples the desktop, with a thin tint painted OVER it for contrast.
+        // Previously the tint sat underneath, so the blur was blurring a solid
+        // fill of my own and the desktop never showed through at all.
+        .background {
+            ZStack {
+                VisualEffectBackground()
+                Color.black.opacity(surfaceTint)
+            }
+            .ignoresSafeArea()
+        }
         .preferredColorScheme(.dark)
         .onAppear {
             composerFocused = true
@@ -234,7 +243,8 @@ struct DashboardView: View {
         case .brand:
             BrandTab(state: state, connections: connections)
         case .settings:
-            SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale, connections: connections)
+            SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale,
+                        surfaceTint: $surfaceTint, connections: connections)
         }
     }
 
@@ -1023,6 +1033,7 @@ private struct BrandTab: View {
 private struct SettingsTab: View {
     @Binding var coreStyle: String
     @Binding var iconScale: Double
+    @Binding var surfaceTint: Double
     @ObservedObject var connections: ConnectionsModel
 
     var body: some View {
@@ -1036,6 +1047,30 @@ private struct SettingsTab: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 Text("The floating voice hologram always stays Original Orion; this changes the dashboard centrepiece only.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+
+            SectionRule(title: "Surface")
+            OrionPanel {
+                HStack {
+                    Text("Transparency")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(OrionTheme.text)
+                    Spacer()
+                    Text("\(Int((1 - surfaceTint / SurfaceSettings.tintRange.upperBound) * 100))%")
+                        .font(OrionTheme.mono(11, .semibold))
+                        .foregroundStyle(OrionTheme.blue)
+                }
+                // Inverted deliberately: the stored value is how much tint is
+                // painted on, but the thing being adjusted is how much desktop
+                // shows through, so that is what the slider reads as.
+                Slider(value: Binding(
+                    get: { SurfaceSettings.tintRange.upperBound - surfaceTint },
+                    set: { surfaceTint = SurfaceSettings.tintRange.upperBound - $0 }
+                ), in: 0...SurfaceSettings.tintRange.upperBound)
+                    .tint(OrionTheme.blue)
+                Text("All the way right is pure glass. Some tint keeps text readable over a busy wallpaper.")
                     .font(OrionTheme.mono(10))
                     .foregroundStyle(OrionTheme.textDim)
             }

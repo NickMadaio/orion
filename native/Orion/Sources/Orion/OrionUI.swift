@@ -33,6 +33,9 @@ enum OrionTheme {
     /// back — the material behind it does the rest — and the cards above are
     /// translucent too so the depth carries all the way through rather than
     /// stopping at the first surface.
+    /// Kept for anything that still wants a flat fill. The dashboard itself no
+    /// longer uses it — see VisualEffectBackground for why a colour cannot do
+    /// this job.
     static let ink = Color(red: 0.031, green: 0.035, blue: 0.047, opacity: 0.62)
     static let card = Color.white.opacity(0.045)
     static let cardRaised = Color.white.opacity(0.075)

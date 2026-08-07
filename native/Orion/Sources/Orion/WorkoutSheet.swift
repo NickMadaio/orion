@@ -42,8 +42,15 @@ struct WorkoutSheet: View {
             }
         }
         .frame(width: 540, height: 620)
-        .background(.ultraThinMaterial)
-        .background(OrionTheme.ink)
+        // Same correction as the dashboard: real behind-window blur underneath,
+        // tint over the top. See VisualEffectBackground.
+        .background {
+            ZStack {
+                VisualEffectBackground(material: .hudWindow)
+                Color.black.opacity(0.34)
+            }
+            .ignoresSafeArea()
+        }
         .preferredColorScheme(.dark)
     }
 

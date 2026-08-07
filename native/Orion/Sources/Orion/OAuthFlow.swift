@@ -33,9 +33,14 @@ enum OAuthError: LocalizedError {
     case stateMismatch
     case providerError(String)
     case noToken
+    /// The provider rejected the token itself — 401 or 403. Distinct from a
+    /// generic provider error because it is the one failure that means the
+    /// grant is gone rather than the request being wrong.
+    case unauthorized
 
     var errorDescription: String? {
         switch self {
+        case .unauthorized: return "The provider rejected the sign-in. Reconnect it in Settings ▸ Connections."
         case .unsupported: return "This connector does not use a browser sign-in."
         case .missingCredentials: return "Add the Client ID and Secret first."
         case .cancelled: return "Sign-in was cancelled."
@@ -64,6 +69,9 @@ final class OAuthFlow: NSObject {
         authorizeURL: String,
         tokenURL: String,
         scopes: [String],
+        /// Almost always `client_id`. TikTok requires `client_key` and rejects
+        /// the standard name — see `ConnectorSpec.clientIDParameter`.
+        clientIDParameter: String = "client_id",
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         let redirect = "\(Self.scheme)://oauth/\(connector.rawValue)"
@@ -76,7 +84,7 @@ final class OAuthFlow: NSObject {
             return
         }
         var items = [
-            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: clientIDParameter, value: clientID),
             URLQueryItem(name: "redirect_uri", value: redirect),
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "state", value: state),
@@ -152,6 +160,7 @@ final class OAuthFlow: NSObject {
                 clientID: clientID,
                 clientSecret: clientSecret,
                 tokenURL: tokenURL,
+                clientIDParameter: clientIDParameter,
                 completion: completion
             )
         }
@@ -173,6 +182,7 @@ final class OAuthFlow: NSObject {
         clientID: String,
         clientSecret: String,
         tokenURL: String,
+        clientIDParameter: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         guard let url = URL(string: tokenURL) else {
@@ -188,7 +198,7 @@ final class OAuthFlow: NSObject {
             URLQueryItem(name: "grant_type", value: "authorization_code"),
             URLQueryItem(name: "code", value: code),
             URLQueryItem(name: "redirect_uri", value: redirect),
-            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: clientIDParameter, value: clientID),
             URLQueryItem(name: "client_secret", value: clientSecret),
             URLQueryItem(name: "code_verifier", value: verifier),
         ]

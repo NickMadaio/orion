@@ -1,50 +1,56 @@
 import SwiftUI
 
 /*
- The dashboard's visual language.
+ Orion's visual language.
 
- Pulled out of `DashboardView` because the tabs had drifted into looking
- identical: every one was a heading, a rounded card, and a sentence of
- placeholder prose explaining what would eventually go there. Six tabs, one
- layout, almost no data. That reads as an app that has not been built yet, even
- where the data exists and is simply not being shown.
+ The brief this replaces: every element sat in its own rounded, filled capsule,
+ every tab was a vertical stack of those capsules at identical widths, and the
+ result read as a form rather than as a dashboard. Boxes were doing the work
+ that spacing, type and alignment should be doing.
 
- The reference Nick supplied works because it is dense and every element is a
- live number. Four things carry that, and they are what this file provides:
+ Four rules, and everything below follows from them:
 
-   1. Rule-prefixed section labels — small, tracked, monospaced, all caps,
-      preceded by an em dash. They separate without drawing a box around
-      everything, which is what lets a screen hold eight sections without
-      turning into a stack of competing panels.
-   2. One number per idea, set large, with its unit small beside it.
-   3. Ring and zone meters, so progress is legible at a glance rather than read.
-   4. Full-width action rows, so the common action per section is unmissable.
+   1. NOTHING IS IN A BOX. No fills, no card borders, no drop shadows behind
+      content. Grouping comes from proximity and from a hairline that separates
+      without enclosing. This is also what makes the window genuinely
+      see-through — a translucent surface covered in opaque cards is an opaque
+      surface, so the transparency work and the visual work are the same work.
 
- Everything is monospaced-by-default on numbers. Proportional digits shift
- column widths as values change, and a dashboard whose numbers jitter while you
- watch reads as unstable even when it is correct.
+   2. TYPE CARRIES THE HIERARCHY. One large number per idea, its unit small
+      beside it, its caption smaller still and tracked. If a section needs a box
+      to look important, it is not important.
+
+   3. LINE ART, NOT FILLED CHROME. Meters are thin strokes. Actions are hairline
+      outlines that fill only on hover. Filled shapes are reserved for the one
+      genuinely primary action on a screen.
+
+   4. OFFSET, NOT GRID. Columns have deliberately different widths and start at
+      deliberately different heights. A row of three equal cards is the thing
+      being replaced, so equal-width anything needs a reason.
+
+ Numbers are monospaced throughout. Proportional digits shift column widths as
+ values change, and a dashboard whose numbers jitter while you watch reads as
+ unstable even when it is correct.
 */
 
 enum OrionTheme {
-    /// The window wash, TRANSLUCENT.
-    ///
-    /// The revamp made this fully opaque, which flattened the panel into an
-    /// ordinary window and lost the floating-glass read the app had. Alpha is
-    /// back — the material behind it does the rest — and the cards above are
-    /// translucent too so the depth carries all the way through rather than
-    /// stopping at the first surface.
-    /// Kept for anything that still wants a flat fill. The dashboard itself no
-    /// longer uses it — see VisualEffectBackground for why a colour cannot do
-    /// this job.
-    static let ink = Color(red: 0.031, green: 0.035, blue: 0.047, opacity: 0.62)
-    static let card = Color.white.opacity(0.045)
-    static let cardRaised = Color.white.opacity(0.075)
-    static let line = Color.white.opacity(0.07)
 
-    static let text = Color.white.opacity(0.94)
-    static let textSoft = Color.white.opacity(0.62)
-    static let textDim = Color.white.opacity(0.38)
+    /// A flat fill, for the rare surface that genuinely needs one — a sheet, or
+    /// text sitting on a light shape. The dashboard itself paints nothing; see
+    /// `SurfaceSettings` for why a colour cannot do that job.
+    static let ink = Color(red: 0.016, green: 0.024, blue: 0.043)
 
+    // Kept because sheets and older call sites still reference them. Both are
+    // now barely-there and neither is used by the dashboard tabs.
+    static let card = Color.white.opacity(0.03)
+    static let cardRaised = Color.white.opacity(0.055)
+    static let line = Color.white.opacity(0.09)
+
+    static let text = Color.white.opacity(0.95)
+    static let textSoft = Color.white.opacity(0.60)
+    static let textDim = Color.white.opacity(0.34)
+
+    static let accent = Color(red: 0.18, green: 0.83, blue: 1.00)
     static let green = Color(red: 0.36, green: 0.92, blue: 0.60)
     static let orange = Color(red: 1.00, green: 0.58, blue: 0.20)
     static let red = Color(red: 1.00, green: 0.38, blue: 0.38)
@@ -55,76 +61,100 @@ enum OrionTheme {
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
+
+    /// Headlines and figures. Rounded, because the numbers are the personality.
+    static func display(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
+    }
 }
 
-/// `— SECTION LABEL`, the backbone of the whole layout.
+// MARK: - Structure
+
+/// A hairline that fades out rather than terminating.
+///
+/// A rule with two hard ends draws a boundary, which is a quiet way of drawing
+/// the box this design is trying not to draw. One that dissolves separates
+/// without enclosing.
+struct FadingRule: View {
+    var tint: Color = .white
+    var height: CGFloat = 1
+
+    var body: some View {
+        LinearGradient(
+            colors: [tint.opacity(0.16), tint.opacity(0.05), tint.opacity(0)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(height: height)
+    }
+}
+
+/// The section marker: a tracked label with the rule running off to the right.
+///
+/// Replaces the old `— SECTION` prefix, which pinned every heading to the same
+/// left edge and produced the ladder of identical rows this design is undoing.
 struct SectionRule: View {
     let title: String
     var trailing: String? = nil
+    var tint: Color = OrionTheme.textDim
 
     var body: some View {
-        HStack(spacing: 10) {
-            Rectangle()
-                .fill(OrionTheme.textDim)
-                .frame(width: 14, height: 1)
+        HStack(alignment: .center, spacing: 12) {
             Text(title.uppercased())
                 .font(OrionTheme.mono(9, .semibold))
-                .tracking(1.8)
-                .foregroundStyle(OrionTheme.textDim)
-            Spacer(minLength: 8)
+                .tracking(2.2)
+                .foregroundStyle(tint)
+                .fixedSize()
+            FadingRule()
             if let trailing {
                 Text(trailing.uppercased())
-                    .font(OrionTheme.mono(10, .medium))
-                    .tracking(1.2)
+                    .font(OrionTheme.mono(9, .medium))
+                    .tracking(1.4)
                     .foregroundStyle(OrionTheme.textDim)
+                    .fixedSize()
             }
         }
-        .padding(.top, 4)
+        .padding(.bottom, 2)
     }
 }
 
-/// A FLOATING tile, not a filled bubble.
+/// Pure layout. No fill, no border, no shadow — deliberately.
 ///
-/// The previous version was an opaque-ish rounded rectangle with a visible
-/// fill, and every section on every tab got one — so a screen was a vertical
-/// stack of identical grey capsules and nothing had any hierarchy. Uniform
-/// containers are the enemy of a dense dashboard: they cost the same vertical
-/// space whether they hold one number or twenty rows.
-///
-/// So: almost no fill, a hairline edge, and a soft drop shadow. The shadow is
-/// what does the work — it lifts the content off the glass so a tile reads as
-/// hovering rather than as a box drawn on top. Content stays legible because
-/// the blur behind is already dark, not because a panel is painted under it.
+/// This used to be the rounded card that every section was wrapped in, and the
+/// name is kept only so that call sites do not all have to change at once.
+/// What it does now is hold a column of content at a consistent rhythm, which
+/// is all a container on this surface is allowed to do.
 struct OrionTile<Content: View>: View {
-    var padding: CGFloat = 15
-    var tint: Color = .clear
+    var padding: CGFloat = 0
+    var spacing: CGFloat = 12
+    /// Left accent hairline. Off unless a section genuinely leads the page —
+    /// a rule the eye can follow is flow; a border around content is a box.
+    var accent: Color? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) { content }
-            .padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.white.opacity(0.055))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(tint.opacity(tint == .clear ? 0 : 0.10))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
-                    }
-                    // Lift. Without this a translucent tile on a translucent
-                    // background has no edge at all and everything melts.
-                    .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        HStack(alignment: .top, spacing: 14) {
+            if let accent {
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [accent.opacity(0.85), accent.opacity(0.05)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 2)
             }
+            VStack(alignment: .leading, spacing: spacing) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(padding)
     }
 }
 
-/// Kept so older call sites still compile; forwards to the floating tile.
+/// Kept so older call sites still compile; forwards to the plain container.
 struct OrionPanel<Content: View>: View {
-    var padding: CGFloat = 15
+    var padding: CGFloat = 0
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -132,28 +162,31 @@ struct OrionPanel<Content: View>: View {
     }
 }
 
+// MARK: - Figures
+
 /// One number, set large, with its unit kept small so the value dominates.
 struct BigStat: View {
     let value: String
     var unit: String? = nil
     var caption: String? = nil
     var tint: Color = OrionTheme.text
+    var size: CGFloat = 38
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             if let caption {
                 Text(caption.uppercased())
                     .font(OrionTheme.mono(9, .semibold))
-                    .tracking(1.4)
+                    .tracking(1.6)
                     .foregroundStyle(OrionTheme.textDim)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(value)
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .font(OrionTheme.display(size))
                     .foregroundStyle(tint)
                 if let unit {
                     Text(unit)
-                        .font(OrionTheme.mono(13))
+                        .font(OrionTheme.mono(12))
                         .foregroundStyle(OrionTheme.textDim)
                 }
             }
@@ -161,8 +194,10 @@ struct BigStat: View {
     }
 }
 
-/// The arc meter from the reference: a value you read in a glance, not a number
-/// you parse. Used for day progress and for recovery.
+/// A value you read in a glance rather than a number you parse.
+///
+/// Thinner than it was. A 9pt stroke reads as a filled donut — another shape
+/// competing for attention; a 5pt stroke reads as an instrument.
 struct RingMeter: View {
     /// 0...1. Clamped rather than trusted — a ring that wraps past its own
     /// start looks like a rendering fault, not like an out-of-range value.
@@ -178,20 +213,28 @@ struct RingMeter: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.08), lineWidth: 9)
+                .stroke(Color.white.opacity(0.07), lineWidth: 5)
             Circle()
                 .trim(from: 0, to: clamped)
-                .stroke(tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .stroke(
+                    AngularGradient(
+                        colors: [tint.opacity(0.55), tint],
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(360 * clamped)
+                    ),
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                )
                 .rotationEffect(.degrees(-90))
-                .shadow(color: tint.opacity(0.45), radius: 8)
-            VStack(spacing: 1) {
+                .shadow(color: tint.opacity(0.5), radius: 9)
+            VStack(spacing: 2) {
                 Text(value)
-                    .font(.system(size: diameter * 0.26, weight: .semibold, design: .rounded))
+                    .font(OrionTheme.display(diameter * 0.28))
                     .foregroundStyle(OrionTheme.text)
                 if let caption {
                     Text(caption.uppercased())
-                        .font(OrionTheme.mono(9, .semibold))
-                        .tracking(1.3)
+                        .font(OrionTheme.mono(8, .semibold))
+                        .tracking(1.6)
                         .foregroundStyle(OrionTheme.textDim)
                 }
                 if let subcaption {
@@ -206,11 +249,10 @@ struct RingMeter: View {
     }
 }
 
-/// A count against a target, with the "good enough" band marked on the track.
+/// A count against a target, as a hairline rather than a bar.
 ///
-/// The marker is the point: a bar alone says how far along you are, but not
-/// whether that is fine. The reference labels the band directly on the track,
-/// which answers both at once.
+/// The marker is the point: a track alone says how far along you are, but not
+/// whether that is fine. Marking the band on the track answers both at once.
 struct ZoneBar: View {
     let value: Int
     let target: Int
@@ -223,38 +265,43 @@ struct ZoneBar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Color.white.opacity(0.09))
+                        .frame(height: 2)
                     Capsule()
                         .fill(tint)
-                        .frame(width: max(6, geometry.size.width * fraction))
-                    // The band sits at 75% of target, which is where "enough
-                    // for today" actually begins for every counter here.
+                        .frame(width: max(2, geometry.size.width * fraction), height: 2)
+                        .shadow(color: tint.opacity(0.6), radius: 5)
+                    // "Enough for today" begins at 75% of target for every
+                    // counter here.
                     Rectangle()
-                        .fill(OrionTheme.green.opacity(0.5))
-                        .frame(width: 1)
+                        .fill(OrionTheme.green.opacity(0.45))
+                        .frame(width: 1, height: 7)
                         .offset(x: geometry.size.width * 0.75)
                 }
+                .frame(height: 7)
             }
-            .frame(height: 10)
-            HStack {
-                Text("0").font(OrionTheme.mono(9)).foregroundStyle(OrionTheme.textDim)
-                Spacer()
+            .frame(height: 7)
+            HStack(spacing: 0) {
                 Text(zoneLabel)
                     .font(OrionTheme.mono(9))
-                    .foregroundStyle(OrionTheme.green.opacity(0.85))
+                    .foregroundStyle(OrionTheme.textDim)
                 Spacer()
-                Text("\(target)").font(OrionTheme.mono(9)).foregroundStyle(OrionTheme.textDim)
+                Text("\(value) / \(target)")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
             }
         }
         .animation(.easeOut(duration: 0.35), value: fraction)
     }
 }
 
-/// The compact status chips that run under the header in the reference.
+/// A status reading in the header strip. No capsule — the strip separates its
+/// own items with hairlines, so each one carrying a pill was six shapes doing
+/// one shape's job.
 struct StatChip: View {
     let icon: String
     let value: String
@@ -266,67 +313,116 @@ struct StatChip: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(tint)
             Text(value)
-                .font(OrionTheme.mono(11, .semibold))
-                .foregroundStyle(OrionTheme.text)
+                .font(OrionTheme.mono(11, .medium))
+                .foregroundStyle(OrionTheme.textSoft)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(
-            Capsule().fill(OrionTheme.cardRaised)
-                .overlay(Capsule().stroke(OrionTheme.line, lineWidth: 1))
-        )
     }
 }
 
-/// The full-width quick-log row. One per section, and it is the obvious thing
-/// to click — the reference's "Drank a bottle ↑".
+// MARK: - Actions
+
+/// The primary action of a section: a hairline outline that fills on hover.
+///
+/// Previously a solid white capsule the full width of its card, which made
+/// every section shout equally. An outline reads as available rather than as
+/// urgent, and the hover fill gives back all the affordance the fill was for.
 struct LogButton: View {
     let title: String
     var systemImage: String = "arrow.up"
-    var tint: Color = .white
+    var tint: Color = OrionTheme.accent
+    var fullWidth: Bool = false
     let action: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Spacer()
+                if fullWidth { Spacer(minLength: 0) }
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .bold))
-                Spacer()
+                    .font(.system(size: 10, weight: .bold))
+                if fullWidth { Spacer(minLength: 0) }
             }
-            .padding(.vertical, 11)
-            .foregroundStyle(OrionTheme.ink)
-            .background(Capsule().fill(tint))
+            .foregroundStyle(hovering ? OrionTheme.ink : tint)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background {
+                Capsule()
+                    .fill(hovering ? tint : Color.clear)
+                    .overlay(Capsule().strokeBorder(tint.opacity(hovering ? 0 : 0.45), lineWidth: 1))
+            }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
     }
 }
 
-/// A small square button, for the `−` beside a quick-log row.
+/// A small round button, for the `−` beside a quick-log action.
 struct StepButton: View {
     let systemImage: String
     let action: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(OrionTheme.textSoft)
-                .frame(width: 36, height: 38)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(hovering ? OrionTheme.text : OrionTheme.textDim)
+                .frame(width: 30, height: 30)
                 .background(
-                    RoundedRectangle(cornerRadius: 10).fill(OrionTheme.cardRaised)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(OrionTheme.line, lineWidth: 1))
+                    Circle().strokeBorder(Color.white.opacity(hovering ? 0.28 : 0.12), lineWidth: 1)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 10))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
     }
 }
 
-/// A label/value line — the workhorse for subscriptions, stack items, metrics.
+/// A quiet text action. The default for anything that is not the one primary
+/// action on a screen.
+struct InlineAction: View {
+    let title: String
+    var systemImage: String? = nil
+    var tint: Color = OrionTheme.accent
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(OrionTheme.mono(10, .semibold))
+                    .tracking(0.8)
+                if let systemImage {
+                    Image(systemName: systemImage).font(.system(size: 9, weight: .bold))
+                }
+            }
+            .foregroundStyle(hovering ? tint : tint.opacity(0.75))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(tint.opacity(hovering ? 0.7 : 0.22))
+                    .frame(height: 1)
+                    .offset(y: 3)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
+    }
+}
+
+// MARK: - Rows
+
+/// A label/value line. Separated by air and a hairline, never by a fill.
 struct DataRow: View {
     let label: String
     var sublabel: String? = nil
@@ -337,7 +433,7 @@ struct DataRow: View {
     var onTick: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 12) {
             if tickable {
                 Button { onTick?() } label: {
                     Image(systemName: ticked ? "checkmark.circle.fill" : "circle")
@@ -358,20 +454,19 @@ struct DataRow: View {
                         .foregroundStyle(OrionTheme.textDim)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 12)
             Text(value)
                 .font(OrionTheme.mono(12, .semibold))
                 .foregroundStyle(valueTint)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
     }
 }
 
 /// The one-line "not connected yet" state.
 ///
-/// Worth a named component because six tabs were each explaining their own
-/// emptiness in a different paragraph of prose. An empty section should be one
-/// quiet line and a way to act, not an essay about the future.
+/// An empty section should be one quiet line and a way to act, not an essay
+/// about the future.
 struct NotConnected: View {
     let what: String
     var detail: String? = nil
@@ -381,7 +476,7 @@ struct NotConnected: View {
     var body: some View {
         HStack(spacing: 11) {
             Image(systemName: "link")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(OrionTheme.textDim)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(what) not connected")
@@ -393,20 +488,11 @@ struct NotConnected: View {
                         .foregroundStyle(OrionTheme.textDim)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 12)
             if let actionTitle, let action {
-                Button(action: action) {
-                    Text(actionTitle)
-                        .font(OrionTheme.mono(10, .semibold))
-                        .foregroundStyle(OrionTheme.blue)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background(Capsule().stroke(OrionTheme.blue.opacity(0.4), lineWidth: 1))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
+                InlineAction(title: actionTitle, action: action)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 }

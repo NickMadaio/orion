@@ -58,6 +58,33 @@ struct ConnectorSpec {
     /// True when the provider grants nothing but reads.
     let readOnly: Bool
 
+    /// True when something inside Orion actually READS this connector.
+    ///
+    /// Three of these have a working sign-in and no reader behind it: signing
+    /// in stores a token that nothing ever sends anywhere. The Brand tab was
+    /// printing a green LIVE for exactly those, which is the failure mode this
+    /// whole file's header claims to prevent — a connector that lies about
+    /// being connected. It is a fact about the code, so it belongs in the
+    /// catalog rather than in a view's guesswork.
+    var dataClient: Bool = false
+
+    /// True when the provider issues refresh tokens, so a grant without one is
+    /// a grant that cannot survive its own expiry.
+    ///
+    /// This is what turns "sign in again every single day" from a mystery into
+    /// a state the UI can name. Instagram is deliberately false: it has no
+    /// refresh token at all and instead issues sixty-day tokens, so a missing
+    /// refresh token there is normal rather than broken.
+    var renewable: Bool = false
+
+    /// Which parameter name this provider wants the client identifier under.
+    ///
+    /// TikTok is the odd one out and it is not a typo in their docs: its OAuth
+    /// v2 endpoints reject `client_id` and require `client_key`. Sending the
+    /// wrong name fails the authorize step with an error that does not say
+    /// which field was wrong.
+    var clientIDParameter: String = "client_id"
+
     static let all: [ConnectorSpec] = [
         ConnectorSpec(
             id: .whoop,
@@ -79,7 +106,9 @@ struct ConnectorSpec {
                 "Copy the Client ID and Client Secret into the fields here.",
                 "Press Connect — Whoop opens in your browser and comes back. You should only ever have to do this once.",
             ],
-            readOnly: true
+            readOnly: true,
+            dataClient: true,
+            renewable: true
         ),
         ConnectorSpec(
             id: .google,
@@ -96,8 +125,11 @@ struct ConnectorSpec {
                 "Add the YouTube Data API v3 to the project's enabled APIs.",
                 "Set the redirect URI to exactly: orion://oauth/google",
                 "Copy the Client ID and Client Secret into the fields here.",
+                "Nothing in Orion reads YouTube yet, so connecting this stores a grant and shows no numbers until that reader is written.",
             ],
-            readOnly: true
+            readOnly: true,
+            dataClient: false,
+            renewable: true
         ),
         ConnectorSpec(
             id: .plaid,
@@ -115,7 +147,10 @@ struct ConnectorSpec {
                 "At the bank login, use username user_good and password pass_good.",
                 "Moving to real accounts means requesting Production access from Plaid and swapping the secret.",
             ],
-            readOnly: true
+            readOnly: true,
+            dataClient: true,
+            // Plaid access tokens do not expire; there is nothing to renew.
+            renewable: false
         ),
         ConnectorSpec(
             id: .tiktok,
@@ -132,8 +167,13 @@ struct ConnectorSpec {
                 "Set the redirect URI to exactly: orion://oauth/tiktok",
                 "Copy the Client Key and Client Secret into the fields here.",
                 "Note: TikTok reviews apps by hand, which can take a few days.",
+                "Nothing in Orion reads TikTok yet, so connecting this stores a grant and shows no numbers until that reader is written.",
             ],
-            readOnly: true
+            readOnly: true,
+            dataClient: false,
+            renewable: true,
+            // TikTok calls it client_key, and rejects client_id outright.
+            clientIDParameter: "client_key"
         ),
         ConnectorSpec(
             id: .instagram,
@@ -159,8 +199,14 @@ struct ConnectorSpec {
                 "Under Instagram ▸ API setup, set the redirect URI to exactly: orion://oauth/instagram",
                 "Copy the Instagram App ID and Instagram App Secret — the ones on the Instagram product page, NOT the Meta app ID at the top of the dashboard.",
                 "Add yourself under Roles ▸ Instagram Testers, then accept the invite in the Instagram app under Settings ▸ Website permissions.",
+                "Nothing in Orion reads Instagram yet, so connecting this stores a grant and shows no numbers until that reader is written.",
             ],
-            readOnly: true
+            readOnly: true,
+            dataClient: false,
+            // Instagram has no refresh token: it issues sixty-day tokens that
+            // are refreshed by a different call entirely. A missing refresh
+            // token here is normal, not a broken grant.
+            renewable: false
         ),
     ]
 
@@ -243,12 +289,30 @@ enum ConnectionState: Equatable {
     /// Client id and secret present, but no grant.
     case readyToConnect
     case connected(expires: Date?)
+    /// Signed in, and the grant has no refresh token behind it.
+    ///
+    /// This is the state that explains "why do I have to sign in every single
+    /// day". Such a grant works right now and is dead within the hour, and the
+    /// old code could not tell it apart from a healthy one — so it reported
+    /// "connected", went silent, and turned into "expired — reconnect" the
+    /// next morning, every morning. Naming it lets the UI say the true thing
+    /// while the connection still works: reconnect once and this stops.
+    case cannotRenew
     case expired
     case failed(String)
 
     var isConnected: Bool {
         if case .connected = self { return true }
         return false
+    }
+
+    /// True when a grant exists at all, healthy or not. `isConnected` is the
+    /// stricter question and stays the one the data views ask.
+    var hasGrant: Bool {
+        switch self {
+        case .connected, .cannotRenew, .expired: return true
+        default: return false
+        }
     }
 
     var label: String {
@@ -262,16 +326,29 @@ enum ConnectionState: Equatable {
             // connection read like it was about to break.
             guard expires != nil else { return "connected" }
             return "connected · auto-renewing"
+        case .cannotRenew: return "reconnect once — cannot renew"
         case .expired: return "expired — reconnect"
         case .failed(let why): return why
         }
     }
 }
 
+extension Notification.Name {
+    /// A client changed what is in the Keychain — renewed a token, or cleared a
+    /// grant the provider had revoked.
+    ///
+    /// Without this the model only re-derives when a view happens to ask, so a
+    /// connection that died mid-session kept rendering as healthy until the
+    /// window was reopened.
+    static let orionConnectionsChanged = Notification.Name("orion.connections.changed")
+}
+
 final class ConnectionsModel: ObservableObject {
 
     @Published private(set) var states: [ConnectorID: ConnectionState] = [:]
     @Published var busy: ConnectorID?
+
+    private var changeObserver: NSObjectProtocol?
 
     /// Fired the moment a connector finishes authorizing.
     ///
@@ -281,7 +358,22 @@ final class ConnectionsModel: ObservableObject {
     /// connecting looked like it had silently failed for a quarter of an hour.
     var onConnected: ((ConnectorID) -> Void)?
 
-    init() { refreshAll() }
+    init() {
+        refreshAll()
+        changeObserver = NotificationCenter.default.addObserver(
+            forName: .orionConnectionsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshAll()
+        }
+    }
+
+    deinit {
+        if let changeObserver {
+            NotificationCenter.default.removeObserver(changeObserver)
+        }
+    }
 
     func refreshAll() {
         var next: [ConnectorID: ConnectionState] = [:]
@@ -300,11 +392,17 @@ final class ConnectionsModel: ObservableObject {
         guard let token = SecretStore.get(connector: id, field: SecretStore.Field.accessToken),
               !token.isEmpty
         else { return .readyToConnect }
+
+        let refreshable = SecretStore.get(connector: id, field: SecretStore.Field.refreshToken) != nil
+
         if let raw = SecretStore.get(connector: id, field: SecretStore.Field.expiresAt),
            let seconds = Double(raw) {
             let expires = Date(timeIntervalSince1970: seconds)
-            // A refresh token means expiry is routine rather than a disconnect.
-            let refreshable = SecretStore.get(connector: id, field: SecretStore.Field.refreshToken) != nil
+            // A grant that expires and has nothing to renew from is broken
+            // whether or not it has expired yet. Reporting that only after it
+            // dies is what made this look like a new problem every morning
+            // instead of one problem with one fix.
+            if ConnectorSpec.spec(for: id).renewable && !refreshable { return .cannotRenew }
             if expires < Date() && !refreshable { return .expired }
             return .connected(expires: expires)
         }
@@ -390,7 +488,8 @@ final class ConnectionsModel: ObservableObject {
             clientSecret: clientSecret,
             authorizeURL: authorize,
             tokenURL: token,
-            scopes: scopes
+            scopes: scopes,
+            clientIDParameter: spec.clientIDParameter
         ) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }

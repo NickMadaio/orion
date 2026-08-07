@@ -13,16 +13,27 @@ import SwiftUI
  Secrets are entered here and go straight to the Keychain. They are never
  rendered back: a revealed secret is one screen-share away from being burned,
  and there is no reason to show it again once it works.
+
+ Two states are new and both exist to stop this screen lying. `cannotRenew` is a
+ sign-in that works today and cannot survive the hour — the actual cause of
+ having to reconnect Whoop every morning. And a connector with no reader behind
+ it says so, rather than showing a healthy green dot for a token nothing will
+ ever send anywhere.
 */
 
 struct ConnectionsView: View {
     @ObservedObject var connections: ConnectionsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 0) {
             SectionRule(title: "Connections", trailing: "\(connectedCount) of \(ConnectorSpec.all.count) live")
+                .padding(.bottom, 6)
+
             ForEach(ConnectorSpec.all, id: \.id) { spec in
-                ConnectorCard(spec: spec, connections: connections)
+                ConnectorRow(spec: spec, connections: connections)
+                if spec.id != ConnectorSpec.all.last?.id {
+                    Rectangle().fill(OrionTheme.line).frame(height: 1)
+                }
             }
         }
     }
@@ -32,7 +43,7 @@ struct ConnectionsView: View {
     }
 }
 
-private struct ConnectorCard: View {
+private struct ConnectorRow: View {
     let spec: ConnectorSpec
     @ObservedObject var connections: ConnectionsModel
 
@@ -43,42 +54,59 @@ private struct ConnectorCard: View {
     private var state: ConnectionState { connections.state(spec.id) }
 
     var body: some View {
-        OrionPanel {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 Circle()
                     .fill(dotColor)
-                    .frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 2) {
+                    .frame(width: 7, height: 7)
+                    .shadow(color: dotColor.opacity(0.8), radius: 4)
+
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(spec.name)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(OrionTheme.text)
-                        if spec.readOnly {
-                            Text("READ-ONLY")
-                                .font(OrionTheme.mono(8, .semibold))
-                                .tracking(1)
-                                .foregroundStyle(OrionTheme.green)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().stroke(OrionTheme.green.opacity(0.35), lineWidth: 1))
-                        }
+                        if spec.readOnly { tag("READ-ONLY", tint: OrionTheme.green) }
+                        if !spec.dataClient { tag("NO READER YET", tint: OrionTheme.orange) }
                     }
                     Text(spec.purpose)
                         .font(.system(size: 12))
                         .foregroundStyle(OrionTheme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 8)
+
+                Spacer(minLength: 12)
+
                 Text(state.label)
                     .font(OrionTheme.mono(10))
                     .foregroundStyle(stateColor)
+                    .fixedSize()
+
                 actionButton
             }
 
-            if expanded {
-                Divider().overlay(OrionTheme.line)
-                setupBlock
+            // The explanation belongs beside the state, not in a log file.
+            if case .cannotRenew = state {
+                Text("This sign-in has no refresh token, so it expires within the hour and cannot renew itself — that is why it asks again every day. Reconnecting once, now that Orion requests offline access, fixes it for good.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.orange.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 620, alignment: .leading)
             }
+
+            if expanded { setupBlock }
         }
+        .padding(.vertical, 16)
+    }
+
+    private func tag(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(OrionTheme.mono(8, .semibold))
+            .tracking(1.1)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 1))
     }
 
     @ViewBuilder private var actionButton: some View {
@@ -87,39 +115,31 @@ private struct ConnectorCard: View {
         } else {
             switch state {
             case .connected:
-                Button("Disconnect") { connections.disconnect(spec.id) }
-                    .buttonStyle(.plain)
-                    .font(OrionTheme.mono(10, .semibold))
-                    .foregroundStyle(OrionTheme.textDim)
+                InlineAction(title: "Disconnect", tint: OrionTheme.textSoft) {
+                    connections.disconnect(spec.id)
+                }
+            case .cannotRenew:
+                LogButton(title: "Reconnect", systemImage: "arrow.clockwise", tint: OrionTheme.orange) {
+                    connections.connect(spec.id)
+                }
             case .readyToConnect, .expired, .failed:
-                Button("Connect") { connections.connect(spec.id) }
-                    .buttonStyle(.plain)
-                    .font(OrionTheme.mono(10, .semibold))
-                    .foregroundStyle(OrionTheme.ink)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Capsule().fill(OrionTheme.green))
+                LogButton(title: "Connect", systemImage: "arrow.right", tint: OrionTheme.green) {
+                    connections.connect(spec.id)
+                }
             case .notBuilt:
-                Button(expanded ? "Hide" : "Why not?") { expanded.toggle() }
-                    .buttonStyle(.plain)
-                    .font(OrionTheme.mono(10, .semibold))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Capsule().stroke(OrionTheme.line, lineWidth: 1))
+                InlineAction(title: expanded ? "Hide" : "Why not?", tint: OrionTheme.textSoft) {
+                    expanded.toggle()
+                }
             case .needsCredentials:
-                Button(expanded ? "Hide" : "Set up") { expanded.toggle() }
-                    .buttonStyle(.plain)
-                    .font(OrionTheme.mono(10, .semibold))
-                    .foregroundStyle(OrionTheme.blue)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Capsule().stroke(OrionTheme.blue.opacity(0.4), lineWidth: 1))
+                InlineAction(title: expanded ? "Hide" : "Set up") { expanded.toggle() }
             }
         }
     }
 
     private var setupBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(spec.setupSteps.enumerated()), id: \.offset) { index, step in
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: 10) {
                     Text("\(index + 1)")
                         .font(OrionTheme.mono(9, .semibold))
                         .foregroundStyle(OrionTheme.textDim)
@@ -131,29 +151,18 @@ private struct ConnectorCard: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                Button {
+            HStack(spacing: 20) {
+                InlineAction(title: "Open \(spec.name) portal", systemImage: "arrow.up.right") {
                     if let url = URL(string: spec.registerURL) { NSWorkspace.shared.open(url) }
-                } label: {
-                    Label("Open \(spec.name) portal", systemImage: "arrow.up.right.square")
-                        .font(OrionTheme.mono(10, .semibold))
-                        .foregroundStyle(OrionTheme.blue)
                 }
-                .buttonStyle(.plain)
-
                 if case .oauth2 = spec.auth {
-                    Button {
-                        // The single most-mistyped field in the whole flow, and
-                        // a wrong one fails with a provider error that does not
-                        // say which field was wrong.
+                    // The single most-mistyped field in the whole flow, and a
+                    // wrong one fails with a provider error that does not say
+                    // which field was wrong.
+                    InlineAction(title: "Copy redirect URI", systemImage: "doc.on.doc", tint: OrionTheme.textSoft) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString("orion://oauth/\(spec.id.rawValue)", forType: .string)
-                    } label: {
-                        Label("Copy redirect URI", systemImage: "doc.on.doc")
-                            .font(OrionTheme.mono(10, .semibold))
-                            .foregroundStyle(OrionTheme.textSoft)
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
@@ -162,37 +171,32 @@ private struct ConnectorCard: View {
                     .font(.system(size: 12))
                     .foregroundStyle(OrionTheme.orange)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !isNotBuilt {
-            HStack(spacing: 8) {
-                secureField("Client ID", text: $clientID, secure: false)
-                secureField("Client Secret", text: $clientSecret, secure: true)
-                Button("Save") {
-                    connections.saveCredentials(spec.id, clientID: clientID, clientSecret: clientSecret)
-                    // Cleared immediately: they are in the Keychain now, and
-                    // leaving them in a text field is just a copy waiting to be
-                    // shoulder-surfed.
-                    clientID = ""
-                    clientSecret = ""
-                    expanded = false
+            } else {
+                HStack(spacing: 12) {
+                    credentialField("Client ID", text: $clientID, secure: false)
+                    credentialField("Client Secret", text: $clientSecret, secure: true)
+                    LogButton(title: "Save", systemImage: "checkmark") {
+                        connections.saveCredentials(spec.id, clientID: clientID, clientSecret: clientSecret)
+                        // Cleared immediately: they are in the Keychain now, and
+                        // leaving them in a text field is just a copy waiting to
+                        // be shoulder-surfed.
+                        clientID = ""
+                        clientSecret = ""
+                        expanded = false
+                    }
+                    .disabled(clientID.isEmpty || clientSecret.isEmpty)
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(OrionTheme.ink)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(Capsule().fill(.white))
-                .disabled(clientID.isEmpty || clientSecret.isEmpty)
-            }
 
-            Text("Stored in your Keychain, never in the project folder and never in a git diff.")
-                .font(OrionTheme.mono(9))
-                .foregroundStyle(OrionTheme.textDim)
+                Text("Stored in your Keychain, never in the project folder and never in a git diff.")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
             }
         }
+        .padding(.leading, 19)
+        .padding(.top, 4)
     }
 
-    private func secureField(_ title: String, text: Binding<String>, secure: Bool) -> some View {
+    private func credentialField(_ title: String, text: Binding<String>, secure: Bool) -> some View {
         Group {
             if secure {
                 SecureField(title, text: text)
@@ -203,21 +207,16 @@ private struct ConnectorCard: View {
         .textFieldStyle(.plain)
         .font(OrionTheme.mono(11))
         .foregroundStyle(OrionTheme.text)
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8).fill(OrionTheme.cardRaised)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(OrionTheme.line, lineWidth: 1))
-        )
-    }
-
-    private var isNotBuilt: Bool {
-        if case .notBuilt = state { return true }
-        return false
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1)
+        }
     }
 
     private var dotColor: Color {
         switch state {
         case .connected: return OrionTheme.green
+        case .cannotRenew: return OrionTheme.orange
         case .expired, .failed: return OrionTheme.red
         case .readyToConnect: return OrionTheme.orange
         case .needsCredentials, .notBuilt: return OrionTheme.textDim
@@ -227,6 +226,7 @@ private struct ConnectorCard: View {
     private var stateColor: Color {
         switch state {
         case .connected: return OrionTheme.green
+        case .cannotRenew: return OrionTheme.orange
         case .expired, .failed: return OrionTheme.red
         default: return OrionTheme.textDim
         }

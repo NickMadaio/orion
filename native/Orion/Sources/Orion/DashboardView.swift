@@ -38,7 +38,8 @@ struct DashboardView: View {
     /// What day it is for a person — see OrionDay. Everything that buckets by
     /// day reads this rather than the civil date.
     @StateObject private var dayModel = DayModel()
-    @StateObject private var briefWriter = BriefWriter()
+    @StateObject private var briefWriter = NarrativeWriter()
+    @StateObject private var healthWriter = NarrativeWriter()
     @State private var briefPresentation: BriefPresentation = .parked
 
     /// Bound so the Settings controls change the surface live rather than on
@@ -104,10 +105,10 @@ struct DashboardView: View {
         // rather than leaving the window describing the day it opened on.
         .onChange(of: whoop.snapshot) { _, _ in
             dayModel.refresh()
-            briefWriter.load(for: briefFacts)
+            loadBrief()
         }
-        .onChange(of: agenda.events) { _, _ in briefWriter.load(for: briefFacts) }
-        .onChange(of: reminders.tasks) { _, _ in briefWriter.load(for: briefFacts) }
+        .onChange(of: agenda.events) { _, _ in loadBrief() }
+        .onChange(of: reminders.tasks) { _, _ in loadBrief() }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         .preferredColorScheme(.dark)
         .onAppear(perform: start)
@@ -133,7 +134,7 @@ struct DashboardView: View {
         dayModel.noteSession()
         // Surfaces a paragraph already written for this day immediately, rather
         // than waiting for a client to publish something.
-        briefWriter.load(for: briefFacts)
+        loadBrief()
 
         // Prompts for Reminders access the first time, then keeps the list live
         // off EKEventStoreChanged.
@@ -151,6 +152,14 @@ struct DashboardView: View {
         connections.onConnected = { connector in
             if connector == .whoop { whoop.refresh() }
             if connector == .plaid { plaid.refresh() }
+        }
+    }
+
+    /// The brief's paragraph, and only when there is something to say about.
+    private func loadBrief() {
+        let facts = briefFacts
+        briefWriter.load(key: facts.narrativeKey) {
+            facts.hasAnything ? facts.prompt() : nil
         }
     }
 
@@ -304,7 +313,8 @@ struct DashboardView: View {
                          dayProgress: dayProgress, hoursLeft: hoursLeft, energyTitle: energyTitle)
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
-                          connections: connections, day: dayModel.day)
+                          connections: connections, day: dayModel.day,
+                          writer: healthWriter)
             case .finance:
                 FinanceTab(connections: connections, plaid: plaid)
             case .brand:

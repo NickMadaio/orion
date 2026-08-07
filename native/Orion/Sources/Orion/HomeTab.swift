@@ -16,7 +16,7 @@ import SwiftUI
 struct HomeTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var quickOpen: QuickOpenSettings
-    @ObservedObject var writer: BriefWriter
+    @ObservedObject var writer: NarrativeWriter
     let coreStyle: String
     /// Nil until the day's facts have been gathered.
     let brief: BriefFacts?
@@ -36,7 +36,7 @@ struct HomeTab: View {
                         presentation = .parked
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
             } else {
                 scene
             }
@@ -49,9 +49,54 @@ struct HomeTab: View {
 
     // MARK: - The scene
 
+    /// Whether the brief has a card to park. Drives the reserved rail width, so
+    /// the orb is centred against the same margin on both sides.
+    private var showsRail: Bool {
+        presentation == .parked && (brief?.hasAnything ?? false)
+    }
+
+    private static let railWidth: CGFloat = 178
+
+    /// The orb, with a real column for the parked brief rather than a card
+    /// floating on top of it.
+    ///
+    /// It WAS an overlay on the same ZStack that holds the launcher surface,
+    /// and that could only ever collide: the launcher places its first ring at
+    /// fractions of the container, one of which is x 0.85 / y 0.20 — the exact
+    /// corner the card occupied. So an app icon sat on top of the brief and
+    /// took its clicks.
+    ///
+    /// A matching empty rail on the left keeps the orb centred in the window
+    /// rather than pushed off-axis by the card's width.
     private var scene: some View {
         VStack(spacing: 0) {
-            ZStack {
+            HStack(alignment: .center, spacing: 0) {
+                if showsRail {
+                    Color.clear.frame(width: HomeTab.railWidth)
+                }
+
+                orbField
+
+                if showsRail, let brief {
+                    ParkedBriefCard(facts: brief) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            presentation = .full
+                        }
+                    }
+                    .frame(width: HomeTab.railWidth)
+                    .transition(.opacity.combined(with: .offset(x: 14)))
+                }
+            }
+
+            composer
+                .frame(maxWidth: 560)
+                .padding(.top, 10)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var orbField: some View {
+        ZStack {
                 RadialGradient(
                     colors: [OrionTheme.accent.opacity(0.13), OrionTheme.accent.opacity(0.03), .clear],
                     center: .center,
@@ -79,25 +124,8 @@ struct HomeTab: View {
                     onManage: onManage
                 )
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: coreSize)
-            // Parked at the side, not gone. The orb keeps the centre.
-            .overlay(alignment: .topTrailing) {
-                if presentation == .parked, let brief, brief.hasAnything {
-                    ParkedBriefCard(facts: brief) {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                            presentation = .full
-                        }
-                    }
-                    .transition(.opacity.combined(with: .offset(x: 14)))
-                }
-            }
-
-            composer
-                .frame(maxWidth: 560)
-                .padding(.top, 10)
-        }
         .frame(maxWidth: .infinity)
+        .frame(height: coreSize)
     }
 
     /// Fill the height, within reason.

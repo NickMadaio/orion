@@ -40,43 +40,56 @@ enum BriefPresentation: String {
 
 struct MorningBriefPanel: View {
     let facts: BriefFacts
-    @ObservedObject var writer: BriefWriter
+    @ObservedObject var writer: NarrativeWriter
     var onStartDay: () -> Void
 
+    /// Centred, and centred properly: the panel is centred in the window AND
+    /// its own contents are centred within it. Left-aligning a 700pt column in
+    /// the middle of a wide window reads as a document that lost its page —
+    /// the eye finds the centre of the screen and the text is not there.
+    ///
+    /// The two detail columns stay left-aligned inside themselves, because a
+    /// list of times and titles with ragged left edges is unreadable. Centring
+    /// applies to the composition, not to every line in it.
     var body: some View {
-        VStack(alignment: .leading, spacing: 30) {
+        VStack(spacing: 34) {
             heading
             if facts.hasHealth { readings }
             narrative
-            HStack(alignment: .top, spacing: 60) {
+            FadingRule().frame(width: 220)
+            HStack(alignment: .top, spacing: 70) {
                 schedule
                 due
             }
+            .frame(maxWidth: 620)
             LogButton(title: "Start the day", systemImage: "arrow.right") { onStartDay() }
-                .padding(.top, 4)
+                .padding(.top, 6)
         }
-        .frame(maxWidth: 860, alignment: .leading)
+        .frame(maxWidth: 900)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 18)
     }
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 10) {
             Text(facts.day.start.formatted(.dateTime.weekday(.wide).month(.wide).day()).uppercased())
                 .font(OrionTheme.mono(9, .semibold))
-                .tracking(2.4)
+                .tracking(3)
                 .foregroundStyle(OrionTheme.textDim)
             Text(facts.salutation)
-                .font(OrionTheme.display(40))
+                .font(OrionTheme.display(46))
                 .foregroundStyle(OrionTheme.text)
+                .multilineTextAlignment(.center)
             if let wokeAt = facts.wokeAt {
-                Text("You were up at \(wokeAt.formatted(date: .omitted, time: .shortened)).")
-                    .font(.system(size: 13))
+                Text("Up at \(wokeAt.formatted(date: .omitted, time: .shortened))")
+                    .font(OrionTheme.mono(11))
                     .foregroundStyle(OrionTheme.textSoft)
             }
         }
     }
 
     private var readings: some View {
-        HStack(alignment: .center, spacing: 34) {
+        HStack(alignment: .center, spacing: 40) {
             if let recovery = facts.recovery {
                 RingMeter(progress: Double(recovery) / 100,
                           value: "\(recovery)",
@@ -116,7 +129,6 @@ struct MorningBriefPanel: View {
                         .frame(maxWidth: 150, alignment: .leading)
                 }
             }
-            Spacer(minLength: 0)
         }
     }
 
@@ -124,13 +136,14 @@ struct MorningBriefPanel: View {
     /// spinner: the brief is complete without it, and a shimmer where a
     /// sentence will be is a promise the local model might not keep.
     @ViewBuilder private var narrative: some View {
-        if let text = writer.narrative {
+        if let text = writer.text {
             Text(text)
                 .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(OrionTheme.text.opacity(0.88))
-                .lineSpacing(5)
+                .foregroundStyle(OrionTheme.text.opacity(0.9))
+                .lineSpacing(6)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 700, alignment: .leading)
+                .frame(maxWidth: 620)
                 .transition(.opacity)
         }
     }

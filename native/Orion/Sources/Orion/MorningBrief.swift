@@ -17,13 +17,9 @@ import Foundation
  enhancement layered on top: it appears when it arrives and is simply absent
  when it does not. There is never a spinner where a number should be.
 
- And it goes to a LOCAL model. Three sentences over facts Orion has already
- computed is the definition of work that should not cost anything, and it
- happens every single morning forever. `llama3.2:3b` answers in a second or two
- and is more than enough for the job.
-
- The paragraph is cached per logical day, so it is written once each morning
- rather than on every window open.
+ And it goes to a LOCAL model — see LocalModel for why straight to Ollama and
+ not through the agent. NarrativeWriter owns the mechanics and the caching; this
+ file owns what Orion actually knows and how it is put to the model.
 */
 
 /// Everything the brief knows, gathered before anything is rendered or written.
@@ -131,101 +127,7 @@ struct BriefFacts: Equatable {
     }
 }
 
-/// Writes the paragraph, once per day, locally.
-///
-/// Straight to Ollama rather than through the agent — see LocalModel for the
-/// measurement that settled it: 1.1s of prose versus 44s of the model trying to
-/// call a tool.
-final class BriefWriter: ObservableObject {
-
-    @Published private(set) var narrative: String?
-    @Published private(set) var isWriting = false
-
-    private var wroteForDay: String?
-
-    /// Cached per logical day. Written once each morning, not on every open.
-    private static func cacheKey(_ day: LogicalDay) -> String { "orion.brief.text.\(day.key)" }
-
-    func load(for facts: BriefFacts) {
-        let key = BriefWriter.cacheKey(facts.day)
-        if let cached = UserDefaults.standard.string(forKey: key), !cached.isEmpty {
-            narrative = cached
-            wroteForDay = facts.day.key
-            return
-        }
-        write(facts)
-    }
-
-    private func write(_ facts: BriefFacts) {
-        // Nothing to say yet. Better to show no paragraph than to have a model
-        // write prose about an empty day.
-        guard facts.hasHealth || !facts.events.isEmpty || !facts.dueToday.isEmpty || !facts.overdue.isEmpty else {
-            return
-        }
-        guard !isWriting, wroteForDay != facts.day.key else { return }
-        wroteForDay = facts.day.key
-        isWriting = true
-
-        let prompt = facts.prompt()
-        let dayKey = facts.day.key
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            var text: String?
-            let started = Date()
-            do {
-                let raw = try LocalModel.complete(prompt: prompt)
-                let cleaned = BriefWriter.tidy(raw)
-                if !cleaned.isEmpty {
-                    text = cleaned
-                    let ms = Int(Date().timeIntervalSince(started) * 1000)
-                    OrionLog.write("[brief] wrote \(cleaned.count) chars in \(ms)ms via \(LocalModel.defaultModel)")
-                }
-            } catch {
-                // Not surfaced. The brief is complete without it, and an error
-                // banner over a working screen would be noise about a thing the
-                // user did not ask for.
-                OrionLog.write("[brief] local model unavailable — \(error.localizedDescription)")
-            }
-
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isWriting = false
-                guard let text else {
-                    // Let a later open try again rather than latching failure
-                    // for the rest of the day.
-                    self.wroteForDay = nil
-                    return
-                }
-                self.narrative = text
-                UserDefaults.standard.set(text, forKey: "orion.brief.text.\(dayKey)")
-            }
-        }
-    }
-
-    /// Small models like to open with "Here's your brief:" and wrap things in
-    /// quotes. Strip the scaffolding rather than prompt-engineering against it
-    /// forever.
-    static func tidy(_ raw: String) -> String {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Drop a leading label line like "Morning brief:" or "Here you go:".
-        if let newline = text.firstIndex(of: "\n") {
-            let first = text[text.startIndex..<newline].trimmingCharacters(in: .whitespaces)
-            if first.hasSuffix(":") && first.count < 60 {
-                text = String(text[text.index(after: newline)...])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-
-        if text.hasPrefix("\"") && text.hasSuffix("\"") && text.count > 2 {
-            text = String(text.dropFirst().dropLast())
-        }
-
-        // Collapse to a single paragraph: the prompt asks for prose, and a
-        // stray blank line turns two sentences into two visual blocks.
-        return text
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
+extension BriefFacts {
+    /// One paragraph per logical day.
+    var narrativeKey: String { "brief.\(day.key)" }
 }

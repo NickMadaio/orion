@@ -31,6 +31,7 @@ struct HealthTab: View {
     @ObservedObject var health: HealthLog
     @ObservedObject var connections: ConnectionsModel
     let day: LogicalDay
+    @ObservedObject var writer: NarrativeWriter
 
     @State private var workoutSheetVisible = false
     @State private var supplementSheetVisible = false
@@ -51,11 +52,22 @@ struct HealthTab: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 40) {
-            headline
-            if !whoop.week.isEmpty { week }
-            logging
+        HStack(alignment: .top, spacing: 44) {
+            VStack(alignment: .leading, spacing: 40) {
+                headline
+                if !whoop.week.isEmpty { week }
+                logging
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            readingRail
+                .frame(width: 262)
+                .padding(.top, 44)
         }
+        .onAppear(perform: loadSummary)
+        .onChange(of: whoop.snapshot) { _, _ in loadSummary() }
+        .onChange(of: state.hydrationBottles) { _, _ in loadSummary() }
+        .onChange(of: health.takenToday) { _, _ in loadSummary() }
         .sheet(isPresented: $workoutSheetVisible) {
             WorkoutSheet(health: health) { workoutSheetVisible = false }
         }
@@ -236,6 +248,85 @@ struct HealthTab: View {
             .frame(width: 1, height: 46)
             .padding(.horizontal, 22)
             .padding(.top, 14)
+    }
+
+    // MARK: - What Orion makes of it
+
+    /// The numbers say what they are; this says what they mean together.
+    ///
+    /// Written by a local model and cached per day and phase, so it is composed
+    /// about three times a day rather than every time a bottle of water is
+    /// logged — which would be both wasteful and unsettling to watch rewrite
+    /// itself under you.
+    @ViewBuilder private var readingRail: some View {
+        if whoop.snapshot != nil || state.hydrationBottles > 0 {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionRule(title: "Orion reads this as")
+
+                if let text = writer.text {
+                    Text(text)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OrionTheme.text.opacity(0.88))
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                } else if writer.isWriting {
+                    Text("Reading the numbers…")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.textDim)
+                } else {
+                    // Says why rather than showing an empty column. The tab is
+                    // complete without this, and it should look deliberate
+                    // rather than broken.
+                    Text("The local model is not running, so there is no summary — every number on this page is still live.")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if writer.text != nil {
+                    FadingRule()
+                    Text("written on this Mac by \(LocalModel.defaultModel)")
+                        .font(OrionTheme.mono(9))
+                        .foregroundStyle(OrionTheme.textDim)
+                }
+            }
+        }
+    }
+
+    private var summaryFacts: HealthFacts {
+        HealthFacts(
+            dayKey: day.key,
+            phase: phaseName,
+            recovery: whoop.snapshot?.recovery,
+            recoveryDelta: whoop.week.recovery.deltaLabel(),
+            sleepPerformance: whoop.snapshot?.sleepPerformance,
+            sleepHours: whoop.snapshot?.sleepHours,
+            hrv: whoop.snapshot?.hrvMilliseconds,
+            hrvDelta: whoop.week.hrv.deltaLabel(),
+            restingHeartRate: whoop.snapshot?.restingHeartRate,
+            rhrDelta: whoop.week.restingHeartRate.deltaLabel(),
+            strain: whoop.snapshot?.strain,
+            strainTarget: StrainTarget.forRecovery(whoop.snapshot?.recovery),
+            bottles: state.hydrationBottles,
+            bottleTarget: bottleTarget,
+            supplementsTaken: health.takenToday.count,
+            supplementsTotal: health.supplements.count,
+            workoutSets: health.todaysWorkout?.totalSets ?? 0
+        )
+    }
+
+    private var phaseName: String {
+        switch phase {
+        case .morning: return "morning"
+        case .day: return "day"
+        case .evening: return "evening"
+        }
+    }
+
+    private func loadSummary() {
+        let facts = summaryFacts
+        writer.load(key: facts.narrativeKey) { facts.prompt() }
     }
 
     // MARK: - Not connected

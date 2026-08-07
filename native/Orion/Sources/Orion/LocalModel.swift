@@ -28,11 +28,13 @@ import Foundation
 enum LocalModelError: LocalizedError {
     case unreachable
     case empty
+    case truncated
 
     var errorDescription: String? {
         switch self {
         case .unreachable: return "Ollama is not answering on 127.0.0.1:11434."
         case .empty: return "The local model returned nothing."
+        case .truncated: return "The local model ran out of room mid-sentence."
         }
     }
 }
@@ -42,25 +44,38 @@ enum LocalModel {
     /// The model everything local runs on. One constant, so swapping it is one
     /// edit.
     ///
-    /// Measured on this Mac, same brief prompt:
+    /// `llama3.2:3b` was the first choice and it had to be given up, for a
+    /// reason worth recording because it is not the usual one. It was not too
+    /// bland. It was WRONG. Handed a strain of 8.4 against a suggested band of
+    /// 14–18, it wrote "you may be pushing yourself too hard" — the exact
+    /// inverse of what the number says. On the brief it invented a
+    /// "parasympathetic response" and claimed he had been pushing hard lately,
+    /// under a green recovery.
     ///
-    ///   llama3.2:3b    1.1s   invents physiology, skips the overdue task
-    ///   gpt-oss:20b   13.3s   names the overdue task, no invented numbers
+    /// A summary that misreads the data is worse than no summary, because the
+    /// numbers are right there beside it and the prose quietly contradicts
+    /// them. So the size is not a quality preference here, it is a correctness
+    /// floor.
     ///
-    /// Both are local and cost nothing. The brief is written once per logical
-    /// day, cached, and never blocks the screen — so the thirteen seconds are
-    /// spent while the ring and the schedule are already being read.
-    static let defaultModel = "llama3.2:3b"
+    /// Measured on this Mac, the same health prompt:
+    ///
+    ///   llama3.2:3b    2.4s   "pushing yourself too hard"   — inverted
+    ///   gpt-oss:20b   13.1s   "strain is below the band"    — correct
+    ///
+    /// Both are local and cost nothing. Every caller writes once, caches, and
+    /// never blocks the screen, so the seconds are spent while the numbers are
+    /// already being read.
+    static let defaultModel = "gpt-oss:20b"
 
     /// Generous, and that is not arbitrary.
     ///
     /// Reasoning models — `gpt-oss:20b`, `qwen3:30b` — spend this budget on a
     /// `thinking` field BEFORE writing anything into `response`. At 200 the
-    /// budget was gone before the answer started and both returned an
-    /// empty string, which looks exactly like the model being broken. It is
-    /// wasted on a non-reasoning model only in the sense that it is never
-    /// reached: generation still stops at the end of the answer.
-    static let defaultMaxTokens = 900
+    /// budget was gone before the answer started and both returned an empty
+    /// string, which looks exactly like the model being broken. At 900 the
+    /// answer started and was cut off mid-sentence. It is not wasted on a
+    /// smaller model: generation still stops at the end of the answer.
+    static let defaultMaxTokens = 1600
 
     private static let endpoint = URL(string: "http://127.0.0.1:11434/api/generate")!
 
@@ -74,7 +89,7 @@ enum LocalModel {
         model: String = LocalModel.defaultModel,
         maxTokens: Int = LocalModel.defaultMaxTokens,
         temperature: Double = 0.4,
-        timeout: TimeInterval = 45
+        timeout: TimeInterval = 90
     ) throws -> String {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -118,6 +133,13 @@ enum LocalModel {
         // worse than showing nothing.
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw LocalModelError.empty }
+
+        // A completion that ran out of budget stops mid-word. Half a sentence
+        // reads as a bug in the app rather than as a limit in the model, and
+        // every caller here would rather show nothing.
+        guard let last = trimmed.last, ".!?\"".contains(last) else {
+            throw LocalModelError.truncated
+        }
         return trimmed
     }
 }

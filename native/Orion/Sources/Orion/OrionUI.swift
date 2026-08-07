@@ -299,6 +299,58 @@ struct ZoneBar: View {
     }
 }
 
+/// A week of a metric as a single line, with the latest point marked.
+///
+/// Line art rather than a chart: no axes, no gridlines, no legend. At this size
+/// the only questions are "which way is it going" and "is today unusual", and
+/// a stroked path answers both without spending a single label on it.
+struct Sparkline: View {
+    /// Normalised 0...1, oldest → newest.
+    let points: [Double]
+    var tint: Color = OrionTheme.accent
+    var height: CGFloat = 26
+
+    var body: some View {
+        SparkPath(points: points)
+            .stroke(tint.opacity(0.75),
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            .overlay {
+                GeometryReader { geometry in
+                    let inset: CGFloat = SparkPath.inset
+                    let usable = max(1, geometry.size.height - inset * 2)
+                    let y = inset + usable * (1 - CGFloat(points.last ?? 0))
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 4, height: 4)
+                        .position(x: geometry.size.width, y: y)
+                        .shadow(color: tint.opacity(0.9), radius: 4)
+                        .opacity(points.isEmpty ? 0 : 1)
+                }
+            }
+            .frame(height: height)
+    }
+}
+
+/// The line itself. A `Shape` rather than an inline `Path`, because the point
+/// maths needs a function and a result builder will not take a declaration.
+private struct SparkPath: Shape {
+    static let inset: CGFloat = 3
+    let points: [Double]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard points.count > 1 else { return path }
+        let usable = max(1, rect.height - SparkPath.inset * 2)
+        let step = rect.width / CGFloat(points.count - 1)
+        for (index, value) in points.enumerated() {
+            let point = CGPoint(x: CGFloat(index) * step,
+                                y: SparkPath.inset + usable * (1 - CGFloat(value)))
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
+    }
+}
+
 /// A status reading in the header strip. No capsule — the strip separates its
 /// own items with hairlines, so each one carrying a pill was six shapes doing
 /// one shape's job.

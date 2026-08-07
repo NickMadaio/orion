@@ -387,7 +387,10 @@ final class AppState: ObservableObject {
     }
 
     private func refreshDailyLogIfNeeded() {
-        let today = Self.dailyFormatter.string(from: Date())
+        // The LOGICAL day, not the civil one. Keyed off midnight, a bottle of
+        // water logged at 1am counted for tomorrow, and the whole day's
+        // counters reset under you if you were still at the desk. See OrionDay.
+        let today = OrionDay.current.key
         let defaults = UserDefaults.standard
         guard defaults.string(forKey: AppState.dailyLogDateKey) != today else { return }
         defaults.set(today, forKey: AppState.dailyLogDateKey)
@@ -410,15 +413,6 @@ final class AppState: ObservableObject {
             defaults.set(data, forKey: AppState.focusTasksKey)
         }
     }
-
-    private static let dailyFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = .current
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
     func start() {
         OrionLog.write("---- Orion launched ----")
         OrionLog.permissionSnapshot("launch")

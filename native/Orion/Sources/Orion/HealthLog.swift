@@ -115,11 +115,12 @@ final class HealthLog: ObservableObject {
 
     private var watcher: Timer?
 
-    static var today: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
-    }
+    /// The LOGICAL day, not the civil one.
+    ///
+    /// A supplement taken at 1am belongs to the day you are still in, not to
+    /// the one the clock has just rolled into. Same rule everywhere — see
+    /// OrionDay for why midnight is the wrong boundary for a person.
+    static var today: String { OrionDay.current.key }
 
     func start() {
         load()

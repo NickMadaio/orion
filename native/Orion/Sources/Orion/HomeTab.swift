@@ -1,30 +1,62 @@
 import SwiftUI
 
-/// Home: Orion himself, the apps orbiting him, and the one place to type.
+/// Home: Orion himself, the apps orbiting him, and the one place to type —
+/// unless the day has just started, in which case the brief has it.
 ///
-/// The orb was the surface that already worked, so it is untouched. What
-/// changed is everything around it — the status line, the composer and the
-/// framing — which had been a black capsule and two centred labels sitting on
-/// top of an otherwise weightless scene.
+/// Two things about the layout, both of them corrections.
+///
+/// The orb is sized from the height it is actually given rather than from a
+/// constant. It used to be a fixed 465pt inside a fixed 520pt box, so on a
+/// large display it sat small with dead space above it, and the more space the
+/// window had the worse that looked.
+///
+/// And the phase line moved to the bottom, beside the composer. It reads as
+/// status, which belongs with the input, and having it above the orb put a row
+/// of text between the navigation and the thing the page is about.
 struct HomeTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var quickOpen: QuickOpenSettings
+    @ObservedObject var writer: BriefWriter
     let coreStyle: String
+    /// Nil until the day's facts have been gathered.
+    let brief: BriefFacts?
+    @Binding var presentation: BriefPresentation
+    /// The height Home has to work with, so the core can fill it.
+    let availableHeight: CGFloat
     var onAddApp: () -> Void
     var onManage: () -> Void
 
     @FocusState private var composerFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            phaseLine
+        Group {
+            if presentation == .full, let brief {
+                MorningBriefPanel(facts: brief, writer: writer) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        presentation = .parked
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                scene
+            }
+        }
+        .onAppear { composerFocused = true }
+        // Bumped every time the window is summoned, so a second click on the
+        // menu bar re-focuses the field instead of doing nothing visible.
+        .onChange(of: state.focusComposerToken) { _, _ in composerFocused = true }
+    }
 
+    // MARK: - The scene
+
+    private var scene: some View {
+        VStack(spacing: 0) {
             ZStack {
                 RadialGradient(
                     colors: [OrionTheme.accent.opacity(0.13), OrionTheme.accent.opacity(0.03), .clear],
                     center: .center,
                     startRadius: 35,
-                    endRadius: 300
+                    endRadius: coreSize * 0.62
                 )
                 Group {
                     if coreStyle == "blackHole" {
@@ -36,7 +68,7 @@ struct HomeTab: View {
                         HologramView(model: state.hologram)
                     }
                 }
-                .frame(width: 465, height: 465)
+                .frame(width: coreSize, height: coreSize)
                 .allowsHitTesting(false)
                 // Launchers deliberately sit above the visual core so an app can
                 // cross the front of a black hole rather than disappearing as
@@ -48,37 +80,34 @@ struct HomeTab: View {
                 )
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 520)
+            .frame(height: coreSize)
+            // Parked at the side, not gone. The orb keeps the centre.
+            .overlay(alignment: .topTrailing) {
+                if presentation == .parked, let brief, brief.hasAnything {
+                    ParkedBriefCard(facts: brief) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            presentation = .full
+                        }
+                    }
+                    .transition(.opacity.combined(with: .offset(x: 14)))
+                }
+            }
 
             composer
                 .frame(maxWidth: 560)
-                .padding(.top, 8)
+                .padding(.top, 10)
         }
         .frame(maxWidth: .infinity)
-        .onAppear { composerFocused = true }
-        // Bumped every time the window is summoned, so a second click on the
-        // menu bar re-focuses the field instead of doing nothing visible.
-        .onChange(of: state.focusComposerToken) { _, _ in composerFocused = true }
     }
 
-    // MARK: - Phase
-
-    private var phaseLine: some View {
-        HStack(spacing: 9) {
-            Circle()
-                .fill(phaseColor)
-                .frame(width: 6, height: 6)
-                .shadow(color: phaseColor.opacity(0.9), radius: 5)
-            Text(phaseTitle.uppercased())
-                .font(OrionTheme.mono(9, .semibold))
-                .tracking(2.4)
-                .foregroundStyle(OrionTheme.textSoft)
-            Text(state.statusLine)
-                .font(OrionTheme.mono(9))
-                .foregroundStyle(OrionTheme.textDim)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
+    /// Fill the height, within reason.
+    ///
+    /// The floor keeps it recognisable on a short window; the ceiling stops it
+    /// becoming a wall on a 6K display. The subtraction is the composer and the
+    /// phase line, which sit below it.
+    private var coreSize: CGFloat {
+        let forComposer: CGFloat = 96
+        return min(760, max(360, availableHeight - forComposer))
     }
 
     // MARK: - Composer
@@ -122,9 +151,29 @@ struct HomeTab: View {
                 .fill(composerFocused ? OrionTheme.accent.opacity(0.65) : Color.white.opacity(0.12))
                 .frame(height: 1)
                 .shadow(color: OrionTheme.accent.opacity(composerFocused ? 0.45 : 0), radius: 5)
+
+            phaseLine
         }
         .animation(.easeOut(duration: 0.18), value: composerFocused)
         .animation(.easeOut(duration: 0.18), value: canSend)
+    }
+
+    private var phaseLine: some View {
+        HStack(spacing: 9) {
+            Circle()
+                .fill(phaseColor)
+                .frame(width: 5, height: 5)
+                .shadow(color: phaseColor.opacity(0.9), radius: 4)
+            Text(phaseTitle.uppercased())
+                .font(OrionTheme.mono(8, .semibold))
+                .tracking(2.2)
+                .foregroundStyle(OrionTheme.textSoft)
+            Text(state.statusLine)
+                .font(OrionTheme.mono(8))
+                .foregroundStyle(OrionTheme.textDim)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
     }
 
     private var canSend: Bool {

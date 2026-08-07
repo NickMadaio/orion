@@ -43,6 +43,8 @@ struct WhoopSnapshot: Equatable {
     var strain: Double?         // 0-21
     /// The day these numbers are ABOUT, which is frequently not today.
     var recordedOn: Date?
+    /// The end of the most recent real night — when you actually got up.
+    var wokeAt: Date?
     /// When Orion fetched them.
     var capturedAt: Date
 
@@ -79,6 +81,9 @@ struct WhoopSnapshot: Equatable {
 final class WhoopClient: ObservableObject {
 
     @Published private(set) var snapshot: WhoopSnapshot?
+    /// The whole week, so the tab can show where today sits rather than one
+    /// number with no context. See WhoopSeries for why this was free.
+    @Published private(set) var week = WhoopWeek()
     @Published private(set) var lastError: String?
     @Published private(set) var isLoading = false
 
@@ -161,77 +166,67 @@ final class WhoopClient: ObservableObject {
 
     private func load(token: String) {
         let group = DispatchGroup()
-        var next = WhoopSnapshot(capturedAt: Date())
+        // The three requests complete on separate URLSession queues and all
+        // write here, so the shared state is behind a lock. It was not before:
+        // three callbacks mutating one struct and one error string concurrently
+        // is a data race that would show up as a field intermittently missing
+        // from an otherwise fine snapshot — the hardest possible version of
+        // "sometimes Whoop doesn't fill in".
+        let lock = NSLock()
+        var collected: [String: [[String: Any]]] = [:]
         var failure: String?
         var authFailed = false
 
-        func note(_ error: Error) {
-            if case OAuthError.unauthorized = error { authFailed = true }
-            failure = error.localizedDescription
-        }
-
-        // Recovery carries the score, HRV and RHR in one record.
-        group.enter()
-        get("/recovery", token: token) { result in
-            defer { group.leave() }
+        func finish(_ path: String, _ result: Result<[[String: Any]], Error>) {
+            lock.lock()
+            defer { lock.unlock(); group.leave() }
             switch result {
-            case .failure(let error):
-                note(error)
             case .success(let records):
-                guard let record = WhoopClient.mostRecentScored(records),
-                      let score = record["score"] as? [String: Any] else { return }
-                next.recovery = (score["recovery_score"] as? Double).map { Int($0.rounded()) }
-                next.restingHeartRate = (score["resting_heart_rate"] as? Double).map { Int($0.rounded()) }
-                next.hrvMilliseconds = (score["hrv_rmssd_milli"] as? Double).map { Int($0.rounded()) }
-                next.recordedOn = WhoopClient.timestamp(of: record)
+                collected[path] = records
+            case .failure(let error):
+                if case OAuthError.unauthorized = error { authFailed = true }
+                failure = error.localizedDescription
             }
         }
 
-        group.enter()
-        get("/activity/sleep", token: token) { result in
-            defer { group.leave() }
-            switch result {
-            case .failure(let error):
-                note(error)
-            case .success(let records):
-                guard let record = WhoopClient.mostRecentScored(records),
-                      let score = record["score"] as? [String: Any] else { return }
-                next.sleepPerformance = (score["sleep_performance_percentage"] as? Double).map { Int($0.rounded()) }
-                if let stage = score["stage_summary"] as? [String: Any],
-                   let milli = stage["total_in_bed_time_milli"] as? Double {
-                    next.sleepHours = (milli / 3_600_000 * 10).rounded() / 10
-                }
-            }
-        }
-
-        group.enter()
-        get("/cycle", token: token) { result in
-            defer { group.leave() }
-            switch result {
-            case .failure(let error):
-                note(error)
-            case .success(let records):
-                guard let record = WhoopClient.mostRecentScored(records),
-                      let score = record["score"] as? [String: Any],
-                      let strain = score["strain"] as? Double else { return }
-                next.strain = (strain * 10).rounded() / 10
-            }
+        for path in ["/recovery", "/activity/sleep", "/cycle"] {
+            group.enter()
+            get(path, token: token) { finish(path, $0) }
         }
 
         group.notify(queue: .main) { [weak self] in
             guard let self else { return }
             self.isLoading = false
 
+            let recoveries = collected["/recovery"] ?? []
+            // Naps are sleep records too, and treating one as the night would
+            // report a twenty-minute afternoon nap as the night's sleep and,
+            // worse, as the time you woke up.
+            let sleeps = (collected["/activity/sleep"] ?? []).filter { ($0["nap"] as? Bool) != true }
+            let cycles = collected["/cycle"] ?? []
+
+            let week = WhoopClient.buildWeek(recoveries: recoveries, sleeps: sleeps, cycles: cycles)
+            var next = WhoopClient.snapshot(recoveries: recoveries, sleeps: sleeps, cycles: cycles)
+
+            // The end of the most recent real night IS the moment the day
+            // started. Everything that buckets by day reads this — see OrionDay.
+            if let latestSleep = WhoopClient.mostRecentScored(sleeps),
+               let wokeAt = (latestSleep["end"] as? String).flatMap(WhoopClient.parseTimestamp) {
+                OrionDay.recordWake(wokeAt)
+                next.wokeAt = wokeAt
+            }
+
             // Only replace a good snapshot when the new one has something in
             // it. A transient network failure should not blank the dashboard.
             let empty = next.recovery == nil && next.sleepPerformance == nil && next.strain == nil
             if !empty {
                 self.snapshot = next
+                self.week = week
                 self.lastError = nil
-                OrionLog.write("[whoop] loaded recovery=\(next.recovery.map(String.init) ?? "—") "
-                               + "sleep=\(next.sleepPerformance.map(String.init) ?? "—") "
+                OrionLog.write("[whoop] loaded recovery=\(next.recovery.map { "\($0)" } ?? "—") "
+                               + "sleep=\(next.sleepPerformance.map { "\($0)" } ?? "—") "
                                + "strain=\(next.strain.map { String(format: "%.1f", $0) } ?? "—") "
-                               + "for \(next.dayLabel)")
+                               + "for \(next.dayLabel) · \(week.points.count) day(s) of history")
                 return
             }
 
@@ -304,6 +299,110 @@ final class WhoopClient: ObservableObject {
         }.resume()
     }
 
+    // MARK: - Mapping records
+
+    /// Whoop's field names, in one place, so a rename is one edit rather than
+    /// a hunt through three call sites that each looked slightly different.
+    private static func recoveryFields(_ record: [String: Any]) -> (Int?, Int?, Int?) {
+        guard let score = record["score"] as? [String: Any] else { return (nil, nil, nil) }
+        return (
+            (score["recovery_score"] as? Double).map { Int($0.rounded()) },
+            (score["resting_heart_rate"] as? Double).map { Int($0.rounded()) },
+            (score["hrv_rmssd_milli"] as? Double).map { Int($0.rounded()) }
+        )
+    }
+
+    private static func sleepFields(_ record: [String: Any]) -> (Int?, Double?) {
+        guard let score = record["score"] as? [String: Any] else { return (nil, nil) }
+        let performance = (score["sleep_performance_percentage"] as? Double).map { Int($0.rounded()) }
+        var hours: Double?
+        if let stage = score["stage_summary"] as? [String: Any],
+           let milli = stage["total_in_bed_time_milli"] as? Double {
+            hours = (milli / 3_600_000 * 10).rounded() / 10
+        }
+        return (performance, hours)
+    }
+
+    private static func strainField(_ record: [String: Any]) -> Double? {
+        guard let score = record["score"] as? [String: Any],
+              let strain = score["strain"] as? Double else { return nil }
+        return (strain * 10).rounded() / 10
+    }
+
+    /// The newest of everything, which is what the hero reads.
+    static func snapshot(
+        recoveries: [[String: Any]],
+        sleeps: [[String: Any]],
+        cycles: [[String: Any]]
+    ) -> WhoopSnapshot {
+        var next = WhoopSnapshot(capturedAt: Date())
+        if let record = mostRecentScored(recoveries) {
+            let (recovery, rhr, hrv) = recoveryFields(record)
+            next.recovery = recovery
+            next.restingHeartRate = rhr
+            next.hrvMilliseconds = hrv
+            next.recordedOn = timestamp(of: record)
+        }
+        if let record = mostRecentScored(sleeps) {
+            let (performance, hours) = sleepFields(record)
+            next.sleepPerformance = performance
+            next.sleepHours = hours
+        }
+        if let record = mostRecentScored(cycles) {
+            next.strain = strainField(record)
+        }
+        return next
+    }
+
+    /// Fold three collections into one point per day, oldest first.
+    ///
+    /// Bucketing by the calendar day of each record's own timestamp lines the
+    /// three collections up: a recovery is stamped the morning it is computed,
+    /// a night's sleep by when it ended, and a cycle by when it began — which
+    /// for Whoop is the same waking moment. They land on the same day without
+    /// having to correlate cycle ids across collections.
+    static func buildWeek(
+        recoveries: [[String: Any]],
+        sleeps: [[String: Any]],
+        cycles: [[String: Any]]
+    ) -> WhoopWeek {
+        let calendar = Calendar.current
+        var byDay: [Date: WhoopDayPoint] = [:]
+
+        func point(for record: [String: Any]) -> Date? {
+            guard let stamp = timestamp(of: record) else { return nil }
+            return calendar.startOfDay(for: stamp)
+        }
+
+        for record in recoveries where record["score"] is [String: Any] {
+            guard let day = point(for: record) else { continue }
+            let (recovery, rhr, hrv) = recoveryFields(record)
+            var entry = byDay[day] ?? WhoopDayPoint(date: day)
+            entry.recovery = recovery
+            entry.restingHeartRate = rhr
+            entry.hrv = hrv
+            byDay[day] = entry
+        }
+
+        for record in sleeps where record["score"] is [String: Any] {
+            guard let day = point(for: record) else { continue }
+            let (performance, hours) = sleepFields(record)
+            var entry = byDay[day] ?? WhoopDayPoint(date: day)
+            entry.sleepPerformance = performance
+            entry.sleepHours = hours
+            byDay[day] = entry
+        }
+
+        for record in cycles where record["score"] is [String: Any] {
+            guard let day = point(for: record) else { continue }
+            var entry = byDay[day] ?? WhoopDayPoint(date: day)
+            entry.strain = strainField(record)
+            byDay[day] = entry
+        }
+
+        return WhoopWeek(points: byDay.values.sorted { $0.date < $1.date })
+    }
+
     // MARK: - Picking the right record
 
     /// The newest record Whoop says it has actually scored.
@@ -331,7 +430,7 @@ final class WhoopClient: ObservableObject {
     /// so try the ones that exist in order of how well they describe the day.
     static func timestamp(of record: [String: Any]) -> Date? {
         for key in ["end", "start", "created_at", "updated_at"] {
-            if let raw = record[key] as? String, let date = parse(raw) { return date }
+            if let raw = record[key] as? String, let date = parseTimestamp(raw) { return date }
         }
         return nil
     }
@@ -350,7 +449,7 @@ final class WhoopClient: ObservableObject {
 
     /// Whoop stamps some fields with fractional seconds and some without, and
     /// ISO8601DateFormatter returns nil rather than coping with both.
-    private static func parse(_ raw: String) -> Date? {
+    static func parseTimestamp(_ raw: String) -> Date? {
         iso8601Fractional.date(from: raw) ?? iso8601.date(from: raw)
     }
 

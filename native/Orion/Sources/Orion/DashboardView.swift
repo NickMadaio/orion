@@ -35,6 +35,11 @@ struct DashboardView: View {
     @StateObject private var whoop = WhoopClient()
     @StateObject private var health = HealthLog()
     @StateObject private var plaid = PlaidClient()
+    /// What day it is for a person — see OrionDay. Everything that buckets by
+    /// day reads this rather than the civil date.
+    @StateObject private var dayModel = DayModel()
+    @StateObject private var briefWriter = BriefWriter()
+    @State private var briefPresentation: BriefPresentation = .parked
 
     /// Bound so the Settings controls change the surface live rather than on
     /// the next launch.
@@ -66,18 +71,23 @@ struct DashboardView: View {
             // launcher field sizes itself from its container, so capping the
             // width pulled every icon inward, and the left alignment slid the
             // whole constellation off centre.
+            //
+            // Home is NOT vertically centred, and that was a wrong turn worth
+            // recording. Centring 600pt of content in 900pt of window splits
+            // the slack evenly — which puts 150pt of nothing between the
+            // navigation and the top of the orb. It sits at the top and the orb
+            // is sized from the height instead, so the space goes into the
+            // artwork rather than above it.
             GeometryReader { proxy in
                 ScrollView {
                     if selectedTab.fillsWindow {
-                        tabContent
+                        tabContent(availableHeight: proxy.size.height - 24)
                             .padding(.horizontal, 22)
-                            .padding(.vertical, 18)
+                            .padding(.top, 6)
+                            .padding(.bottom, 18)
                             .frame(maxWidth: .infinity)
-                            // Centres in the window rather than sitting under
-                            // the navigation with the slack left below it.
-                            .frame(minHeight: proxy.size.height - 36)
                     } else {
-                        tabContent
+                        tabContent(availableHeight: proxy.size.height)
                             .padding(.horizontal, 46)
                             .padding(.top, 26)
                             .padding(.bottom, 60)
@@ -87,6 +97,17 @@ struct DashboardView: View {
                 }
             }
         }
+        .onChange(of: briefPresentation) { _, next in
+            next.store(for: dayModel.day)
+        }
+        // Whoop landing a wake time can change which day it is, so re-read
+        // rather than leaving the window describing the day it opened on.
+        .onChange(of: whoop.snapshot) { _, _ in
+            dayModel.refresh()
+            briefWriter.load(for: briefFacts)
+        }
+        .onChange(of: agenda.events) { _, _ in briefWriter.load(for: briefFacts) }
+        .onChange(of: reminders.tasks) { _, _ in briefWriter.load(for: briefFacts) }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         .preferredColorScheme(.dark)
         .onAppear(perform: start)
@@ -103,6 +124,17 @@ struct DashboardView: View {
     // MARK: - Lifecycle
 
     private func start() {
+        // Read the day's state BEFORE noting the session, since noting it is
+        // what makes this no longer the first session.
+        briefPresentation = BriefPresentation.stored(
+            for: dayModel.day,
+            isFirstSession: dayModel.isFirstSession
+        )
+        dayModel.noteSession()
+        // Surfaces a paragraph already written for this day immediately, rather
+        // than waiting for a client to publish something.
+        briefWriter.load(for: briefFacts)
+
         // Prompts for Reminders access the first time, then keeps the list live
         // off EKEventStoreChanged.
         reminders.start()
@@ -228,20 +260,51 @@ struct DashboardView: View {
 
     // MARK: - Content
 
-    @ViewBuilder private var tabContent: some View {
+    /// Everything the brief knows, gathered from the clients that already have
+    /// it. Cheap enough to recompute — it is a fold over lists the views are
+    /// already holding, and keeping it derived means it can never disagree with
+    /// what the Health and Tasks tabs are showing.
+    private var briefFacts: BriefFacts {
+        let today = Calendar.current.startOfDay(for: Date())
+        let open = reminders.tasks.filter { !$0.isComplete }
+        return BriefFacts(
+            day: dayModel.day,
+            wokeAt: dayModel.wokeAt,
+            recovery: whoop.snapshot?.recovery,
+            sleepPerformance: whoop.snapshot?.sleepPerformance,
+            sleepHours: whoop.snapshot?.sleepHours,
+            hrvDelta: whoop.week.hrv.deltaLabel(),
+            restingHeartRate: whoop.snapshot?.restingHeartRate,
+            strainTarget: StrainTarget.forRecovery(whoop.snapshot?.recovery),
+            events: agenda.events,
+            committedMinutes: agenda.committedMinutesRemaining,
+            dueToday: open.filter {
+                guard let due = $0.dueDate, !$0.isOverdue else { return false }
+                return Calendar.current.startOfDay(for: due) == today
+            },
+            overdue: open.filter(\.isOverdue)
+        )
+    }
+
+    @ViewBuilder private func tabContent(availableHeight: CGFloat) -> some View {
         Group {
             switch selectedTab {
             case .home:
                 HomeTab(state: state,
                         quickOpen: quickOpen,
+                        writer: briefWriter,
                         coreStyle: coreStyle,
+                        brief: briefFacts,
+                        presentation: $briefPresentation,
+                        availableHeight: availableHeight,
                         onAddApp: { quickOpenAppPickerVisible = true },
                         onManage: { quickOpenEditorVisible = true })
             case .focus:
                 TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                          dayProgress: dayProgress, hoursLeft: hoursLeft, energyTitle: energyTitle)
             case .health:
-                HealthTab(state: state, whoop: whoop, health: health, connections: connections)
+                HealthTab(state: state, whoop: whoop, health: health,
+                          connections: connections, day: dayModel.day)
             case .finance:
                 FinanceTab(connections: connections, plaid: plaid)
             case .brand:

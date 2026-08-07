@@ -1,0 +1,101 @@
+import Foundation
+
+/*
+ A local model, spoken to directly.
+
+ The obvious route for this was `GatewayClient` — Orion's brain is already there
+ and the CLI takes `--model`, so a local override looked like one flag. It was
+ measured instead of assumed, and the measurement killed the idea:
+
+     openclaw agent --model ollama/llama3.2:3b   44.7s, stopReason "toolUse"
+     ollama /api/generate directly                1.1s, three clean sentences
+
+ The gateway routes correctly — the run really did go to Ollama with no
+ fallback. But it runs an AGENT: the model is handed Orion's whole toolset and a
+ durable session, and a 3B model given tools reaches for them. It spent
+ forty-four seconds deciding to call one and never wrote the paragraph.
+
+ Which is the lesson worth keeping: an agent and a text transform are different
+ jobs. Writing three sentences over numbers Orion has already computed needs no
+ tools, no memory of yesterday, and no conversation. It needs a completion.
+
+ So this is a plain HTTP call to Ollama on loopback. Nothing leaves the machine,
+ there is no gateway to be up, no session to accumulate, and it is forty times
+ faster. When Ollama is not running, it fails — which is fine, because
+ everything that uses this is designed to be complete without it.
+*/
+
+enum LocalModelError: LocalizedError {
+    case unreachable
+    case empty
+
+    var errorDescription: String? {
+        switch self {
+        case .unreachable: return "Ollama is not answering on 127.0.0.1:11434."
+        case .empty: return "The local model returned nothing."
+        }
+    }
+}
+
+enum LocalModel {
+
+    /// Small on purpose. Every user of this is a short transform over facts
+    /// that are already computed, run on a schedule, forever. A 3B answers in
+    /// about a second and is more than enough for prose of that shape.
+    static let defaultModel = "llama3.2:3b"
+
+    private static let endpoint = URL(string: "http://127.0.0.1:11434/api/generate")!
+
+    /// Blocking. Always call from a background queue.
+    ///
+    /// `timeout` is deliberately short. A local completion either comes back in
+    /// a couple of seconds or something is wrong, and every caller here would
+    /// rather show nothing than wait.
+    static func complete(
+        prompt: String,
+        model: String = LocalModel.defaultModel,
+        maxTokens: Int = 200,
+        temperature: Double = 0.4,
+        timeout: TimeInterval = 25
+    ) throws -> String {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = timeout
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "prompt": prompt,
+            "stream": false,
+            "options": [
+                "temperature": temperature,
+                "num_predict": maxTokens,
+            ],
+        ])
+
+        // Synchronous by design: the callers already run on a background queue
+        // and a semaphore here is simpler than threading a completion handler
+        // through code whose whole job is "produce a string or do not".
+        let semaphore = DispatchSemaphore(value: 0)
+        var body: Data?
+        var failure: Error?
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            body = data
+            failure = error
+            semaphore.signal()
+        }.resume()
+
+        guard semaphore.wait(timeout: .now() + timeout + 2) == .success else {
+            throw LocalModelError.unreachable
+        }
+        if failure != nil { throw LocalModelError.unreachable }
+        guard let body,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let text = json["response"] as? String
+        else { throw LocalModelError.unreachable }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw LocalModelError.empty }
+        return trimmed
+    }
+}

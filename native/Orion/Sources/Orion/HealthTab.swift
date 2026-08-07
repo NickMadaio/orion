@@ -1,28 +1,59 @@
 import SwiftUI
 
-/// Health: recovery leads, vitals read across, and the three things Nick logs
-/// sit underneath on a staircase rather than in a row of three equal cards.
-///
-/// Recovery is not as important as a water counter — it is the number the whole
-/// day hangs on, so it gets the width, the size and the top of the page. The
-/// logging columns are deliberately staggered downward: same content as a grid,
-/// none of the "three identical boxes" read that made the old version feel like
-/// a settings screen.
+/*
+ Health, and what the day is asking of you right now.
+
+ The complaint this rebuild answers: "the only big metric is yesterday's
+ recovery, unless it's the morning." Which was fair. Recovery is a morning
+ number — it is computed once, from the night you just had, and by two in the
+ afternoon it is history. A dashboard whose headline never changes is a
+ dashboard you stop looking at after breakfast.
+
+ So the headline moves with the day:
+
+   MORNING   recovery and sleep. What you woke up with.
+   DAY       strain against the band that recovery bought you. What you have
+             spent, and what is left.
+   EVENING   what tonight needs to look like.
+
+ The phase comes from the LOGICAL day (OrionDay), not the clock, so a day that
+ started at 11am is four hours old at 3pm rather than most of the way through.
+
+ And the week is on screen now. Orion was already downloading seven days and
+ keeping one; every reading carries its own line and how far today sits from
+ your own baseline, which is the difference between "HRV 71" and "HRV 71, eight
+ above normal for you."
+*/
+
 struct HealthTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var whoop: WhoopClient
     @ObservedObject var health: HealthLog
     @ObservedObject var connections: ConnectionsModel
+    let day: LogicalDay
 
     @State private var workoutSheetVisible = false
     @State private var supplementSheetVisible = false
 
     private let bottleTarget = 9
 
+    /// Where the day is, measured from when it actually began.
+    private enum Phase { case morning, day, evening }
+
+    private var phase: Phase {
+        let hoursUp = day.elapsed / 3600
+        // Falls back to the clock when the day start is only the 4am floor and
+        // the hours-up figure would be fiction.
+        let hour = Calendar.current.component(.hour, from: Date())
+        if hoursUp < 4 && hour < 14 { return .morning }
+        if hour >= 20 || hoursUp > 14 { return .evening }
+        return .day
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 42) {
-            recovery
-            if whoop.snapshot != nil { vitals }
+        VStack(alignment: .leading, spacing: 40) {
+            headline
+            if !whoop.week.isEmpty { week }
             logging
         }
         .sheet(isPresented: $workoutSheetVisible) {
@@ -33,51 +64,181 @@ struct HealthTab: View {
         }
     }
 
-    // MARK: - Recovery
+    // MARK: - Headline
 
-    @ViewBuilder private var recovery: some View {
+    @ViewBuilder private var headline: some View {
         if let snapshot = whoop.snapshot {
-            HStack(alignment: .center, spacing: 38) {
-                RingMeter(progress: Double(snapshot.recovery ?? 0) / 100,
-                          value: "\(snapshot.recovery ?? 0)",
-                          caption: "recovery",
-                          tint: recoveryTint(snapshot.recovery),
-                          diameter: 132)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(snapshot.dayLabel.uppercased())
-                        .font(OrionTheme.mono(9, .semibold))
-                        .tracking(2.2)
-                        .foregroundStyle(OrionTheme.textDim)
-                    Text(snapshot.call.headline)
-                        .font(OrionTheme.display(28))
-                        .foregroundStyle(recoveryTint(snapshot.recovery))
-                    Text(snapshot.call.detail)
-                        .font(.system(size: 13))
-                        .foregroundStyle(OrionTheme.textSoft)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 420, alignment: .leading)
-                }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    if whoop.isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        InlineAction(title: "Refresh", systemImage: "arrow.clockwise") {
-                            whoop.refresh()
-                        }
-                    }
-                    Text("synced \(snapshot.capturedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(OrionTheme.mono(9))
-                        .foregroundStyle(OrionTheme.textDim)
-                }
+            switch phase {
+            case .morning: recoveryHeadline(snapshot)
+            case .day: strainHeadline(snapshot)
+            case .evening: eveningHeadline(snapshot)
             }
         } else {
             whoopEmptyState
         }
     }
+
+    /// Morning: what you woke up with.
+    private func recoveryHeadline(_ snapshot: WhoopSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 38) {
+            RingMeter(progress: Double(snapshot.recovery ?? 0) / 100,
+                      value: "\(snapshot.recovery ?? 0)",
+                      caption: "recovery",
+                      tint: recoveryTint(snapshot.recovery),
+                      diameter: 138)
+
+            VStack(alignment: .leading, spacing: 8) {
+                phaseLabel("this morning · \(snapshot.dayLabel)")
+                Text(snapshot.call.headline)
+                    .font(OrionTheme.display(30))
+                    .foregroundStyle(recoveryTint(snapshot.recovery))
+                Text(snapshot.call.detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(OrionTheme.textSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 400, alignment: .leading)
+                if let sleep = snapshot.sleepPerformance {
+                    Text("Slept \(sleep)%"
+                         + (snapshot.sleepHours.map { String(format: ", %.1fh in bed", $0) } ?? "")
+                         + (snapshot.wokeAt.map { " · up at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
+                        .font(OrionTheme.mono(11))
+                        .foregroundStyle(OrionTheme.textDim)
+                }
+            }
+            Spacer(minLength: 0)
+            refreshControl(snapshot)
+        }
+    }
+
+    /// The rest of the day: what you have spent against what today can carry.
+    private func strainHeadline(_ snapshot: WhoopSnapshot) -> some View {
+        let target = StrainTarget.forRecovery(snapshot.recovery)
+        return HStack(alignment: .center, spacing: 38) {
+            RingMeter(progress: target.progress(snapshot.strain),
+                      value: snapshot.strain.map { String(format: "%.1f", $0) } ?? "—",
+                      caption: "strain",
+                      subcaption: "of \(Int(target.high))",
+                      tint: OrionTheme.orange,
+                      diameter: 138)
+
+            VStack(alignment: .leading, spacing: 8) {
+                phaseLabel("today so far")
+                Text(target.headline)
+                    .font(OrionTheme.display(30))
+                    .foregroundStyle(OrionTheme.text)
+                Text("Recovery came in at \(snapshot.recovery.map { "\($0)" } ?? "—"), "
+                     + "which supports a strain of \(Int(target.low))–\(Int(target.high)). "
+                     + "You are \(target.verdict(snapshot.strain)).")
+                    .font(.system(size: 13))
+                    .foregroundStyle(OrionTheme.textSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 420, alignment: .leading)
+            }
+            Spacer(minLength: 0)
+            refreshControl(snapshot)
+        }
+    }
+
+    /// Evening: what tonight needs to look like.
+    private func eveningHeadline(_ snapshot: WhoopSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 38) {
+            RingMeter(progress: Double(snapshot.sleepPerformance ?? 0) / 100,
+                      value: snapshot.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
+                      caption: "hours",
+                      subcaption: "last night",
+                      tint: OrionTheme.violet,
+                      diameter: 138)
+
+            VStack(alignment: .leading, spacing: 8) {
+                phaseLabel("winding down")
+                Text(eveningCall(snapshot))
+                    .font(OrionTheme.display(30))
+                    .foregroundStyle(OrionTheme.violet)
+                Text(eveningDetail(snapshot))
+                    .font(.system(size: 13))
+                    .foregroundStyle(OrionTheme.textSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 420, alignment: .leading)
+            }
+            Spacer(minLength: 0)
+            refreshControl(snapshot)
+        }
+    }
+
+    private func eveningCall(_ snapshot: WhoopSnapshot) -> String {
+        guard let strain = snapshot.strain else { return "Get a full night" }
+        if strain >= 14 { return "Hard day — sleep it off" }
+        if strain <= 6 { return "Quiet day" }
+        return "Normal night will do"
+    }
+
+    private func eveningDetail(_ snapshot: WhoopSnapshot) -> String {
+        let baseline = whoop.week.sleepHours.baseline
+        let usual = baseline.map { String(format: "%.1fh", $0) } ?? "your usual"
+        guard let strain = snapshot.strain else {
+            return "No strain logged today. Aim for \(usual)."
+        }
+        if strain >= 14 {
+            return "Strain hit \(String(format: "%.1f", strain)). After a day like that, more than \(usual) is the difference between tomorrow being green or yellow."
+        }
+        return "Strain came in at \(String(format: "%.1f", strain)). \(usual) should have you recovered."
+    }
+
+    private func phaseLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(OrionTheme.mono(9, .semibold))
+            .tracking(2.2)
+            .foregroundStyle(OrionTheme.textDim)
+    }
+
+    private func refreshControl(_ snapshot: WhoopSnapshot) -> some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if whoop.isLoading {
+                ProgressView().controlSize(.small)
+            } else {
+                InlineAction(title: "Refresh", systemImage: "arrow.clockwise") { whoop.refresh() }
+            }
+            Text("synced \(snapshot.capturedAt.formatted(date: .omitted, time: .shortened))")
+                .font(OrionTheme.mono(9))
+                .foregroundStyle(OrionTheme.textDim)
+        }
+    }
+
+    // MARK: - The week
+
+    /// Every reading with its own line and its distance from your baseline.
+    private var week: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionRule(title: "Your week", trailing: "\(whoop.week.points.count) days")
+            HStack(alignment: .top, spacing: 0) {
+                Metric(label: "recovery", trend: whoop.week.recovery, unit: "%",
+                       tint: OrionTheme.green, decimals: 0, drop: 0)
+                metricDivider
+                Metric(label: "sleep", trend: whoop.week.sleepPerformance, unit: "%",
+                       tint: OrionTheme.violet, decimals: 0, drop: 16)
+                metricDivider
+                Metric(label: "hrv", trend: whoop.week.hrv, unit: "ms",
+                       tint: OrionTheme.blue, decimals: 0, drop: 0)
+                metricDivider
+                Metric(label: "resting hr", trend: whoop.week.restingHeartRate, unit: "bpm",
+                       tint: OrionTheme.red, decimals: 0, drop: 16)
+                metricDivider
+                Metric(label: "strain", trend: whoop.week.strain, unit: "",
+                       tint: OrionTheme.orange, decimals: 1, drop: 0)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var metricDivider: some View {
+        Rectangle()
+            .fill(OrionTheme.line)
+            .frame(width: 1, height: 46)
+            .padding(.horizontal, 22)
+            .padding(.top, 14)
+    }
+
+    // MARK: - Not connected
 
     /// Every reason Whoop can show nothing, each with the one action that fixes
     /// it. The old version had a single "Connected — waiting for today's data."
@@ -129,41 +290,6 @@ struct HealthTab: View {
                              detail: "Recovery, sleep, strain and HRV. Settings ▸ Connections.")
             }
         }
-    }
-
-    // MARK: - Vitals
-
-    /// Readings that run across the page, separated by hairlines and set at
-    /// alternating heights. No tiles: five squares in a row is the grid this
-    /// design is replacing.
-    @ViewBuilder private var vitals: some View {
-        if let snapshot = whoop.snapshot {
-            HStack(alignment: .top, spacing: 0) {
-                Vital(label: "sleep", value: snapshot.sleepPerformance.map { "\($0)" } ?? "—",
-                      unit: "%", tint: OrionTheme.violet, drop: 0)
-                vitalDivider
-                Vital(label: "in bed", value: snapshot.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
-                      unit: "h", tint: OrionTheme.violet, drop: 14)
-                vitalDivider
-                Vital(label: "strain", value: snapshot.strain.map { String(format: "%.1f", $0) } ?? "—",
-                      unit: "", tint: OrionTheme.orange, drop: 0)
-                vitalDivider
-                Vital(label: "hrv", value: snapshot.hrvMilliseconds.map { "\($0)" } ?? "—",
-                      unit: "ms", tint: OrionTheme.blue, drop: 14)
-                vitalDivider
-                Vital(label: "resting hr", value: snapshot.restingHeartRate.map { "\($0)" } ?? "—",
-                      unit: "bpm", tint: OrionTheme.red, drop: 0)
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private var vitalDivider: some View {
-        Rectangle()
-            .fill(OrionTheme.line)
-            .frame(width: 1, height: 34)
-            .padding(.horizontal, 26)
-            .padding(.top, 16)
     }
 
     // MARK: - Logging
@@ -265,23 +391,27 @@ struct HealthTab: View {
     }
 }
 
-/// One reading. A label, a number, and nothing drawn around it.
-private struct Vital: View {
+/// One metric across the week: today's value, how far it is from your own
+/// baseline, and the shape of the line that got there.
+private struct Metric: View {
     let label: String
-    let value: String
+    let trend: Trend
     let unit: String
     let tint: Color
-    /// How far down the page this one sits. The alternation is the point.
+    let decimals: Int
+    /// The stagger. Alternating heights is what keeps five readings in a row
+    /// from reading as five cells of a table.
     let drop: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(label.uppercased())
                 .font(OrionTheme.mono(8, .semibold))
                 .tracking(1.6)
                 .foregroundStyle(tint.opacity(0.85))
+
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
+                Text(trend.latest.map { String(format: "%.\(decimals)f", $0) } ?? "—")
                     .font(OrionTheme.display(26))
                     .foregroundStyle(OrionTheme.text)
                 if !unit.isEmpty {
@@ -289,6 +419,20 @@ private struct Vital: View {
                         .font(OrionTheme.mono(10))
                         .foregroundStyle(OrionTheme.textDim)
                 }
+            }
+
+            if let delta = trend.deltaLabel(decimals: decimals) {
+                Text("\(delta) vs avg")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            } else {
+                Text(" ")
+                    .font(OrionTheme.mono(9))
+            }
+
+            if trend.hasShape {
+                Sparkline(points: trend.normalised, tint: tint, height: 22)
+                    .frame(width: 78)
             }
         }
         .padding(.top, drop)

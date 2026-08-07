@@ -55,13 +55,36 @@ struct DashboardView: View {
             }
             .chromeScrim(edge: .top, strength: 0.5)
 
-            ScrollView {
-                tabContent
-                    .padding(.horizontal, 46)
-                    .padding(.top, 26)
-                    .padding(.bottom, 60)
-                    .frame(maxWidth: 1180, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // Two content shapes, because the tabs are two different kinds of
+            // thing. The reading tabs are documents: a column capped at a
+            // comfortable measure and set against the left margin, so the eye
+            // does not have to travel the width of a 6K display to find the
+            // next line. Home is a scene — the orb, and the apps in orbit
+            // around it — so it takes the whole window and centres in it.
+            //
+            // Giving Home the document treatment is what shrank it: the
+            // launcher field sizes itself from its container, so capping the
+            // width pulled every icon inward, and the left alignment slid the
+            // whole constellation off centre.
+            GeometryReader { proxy in
+                ScrollView {
+                    if selectedTab.fillsWindow {
+                        tabContent
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 18)
+                            .frame(maxWidth: .infinity)
+                            // Centres in the window rather than sitting under
+                            // the navigation with the slack left below it.
+                            .frame(minHeight: proxy.size.height - 36)
+                    } else {
+                        tabContent
+                            .padding(.horizontal, 46)
+                            .padding(.top, 26)
+                            .padding(.bottom, 60)
+                            .frame(maxWidth: 1180, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
         }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
@@ -329,6 +352,10 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .settings: "Settings"
         }
     }
+
+    /// True for a tab that is a scene rather than a document — it wants the
+    /// whole window and centres in it, instead of a capped reading column.
+    var fillsWindow: Bool { self == .home }
 
     var icon: String {
         switch self {

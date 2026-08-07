@@ -270,7 +270,14 @@ enum SecretStore {
         static let refreshToken = "refresh_token"
         static let expiresAt = "expires_at"
         static let accountID = "account_id"
-        static let all = [clientID, clientSecret, accessToken, refreshToken, expiresAt, accountID]
+        /// Which Plaid environment the stored secret belongs to.
+        ///
+        /// Sandbox and Production secrets are different strings, and presenting
+        /// one to the other fails with INVALID_API_KEYS — an error that reads
+        /// as "your credentials are wrong" when the truth is "those are the
+        /// right credentials for the other environment".
+        static let secretEnvironment = "secret_environment"
+        static let all = [clientID, clientSecret, accessToken, refreshToken, expiresAt, accountID, secretEnvironment]
     }
 }
 
@@ -388,6 +395,10 @@ final class ConnectionsModel: ObservableObject {
         let hasCredentials = SecretStore.get(connector: id, field: SecretStore.Field.clientID) != nil
             && SecretStore.get(connector: id, field: SecretStore.Field.clientSecret) != nil
         guard hasCredentials else { return .needsCredentials }
+        // Plaid holding the other environment's secret cannot connect, and
+        // saying "ready" would send the user into a Connect that fails.
+        if id == .plaid, ConnectionsModel.plaidSecretMismatch() { return .needsCredentials }
+
         guard let token = SecretStore.get(connector: id, field: SecretStore.Field.accessToken),
               !token.isEmpty
         else { return .readyToConnect }
@@ -417,7 +428,27 @@ final class ConnectionsModel: ObservableObject {
                         connector: id, field: SecretStore.Field.clientID)
         SecretStore.set(clientSecret.trimmingCharacters(in: .whitespacesAndNewlines),
                         connector: id, field: SecretStore.Field.clientSecret)
+        // Stamp the environment this secret was entered for, so switching
+        // environments later can say "that secret is for the other one"
+        // instead of letting Connect fail with a credentials error.
+        if id == .plaid {
+            SecretStore.set(PlaidClient.environment, connector: id,
+                            field: SecretStore.Field.secretEnvironment)
+        }
         refreshAll()
+    }
+
+    /// True when Plaid holds a secret that belongs to the other environment.
+    ///
+    /// A secret with no stamp is treated as Sandbox: that is what every
+    /// existing install has, since Sandbox is the default and was the only
+    /// thing reachable before there was a switch.
+    static func plaidSecretMismatch() -> Bool {
+        guard SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret) != nil
+        else { return false }
+        let saved = SecretStore.get(connector: .plaid, field: SecretStore.Field.secretEnvironment)
+            ?? "sandbox"
+        return saved != PlaidClient.environment
     }
 
     func disconnect(_ id: ConnectorID) {

@@ -83,6 +83,27 @@ private struct ConnectorRow: View {
                     .fixedSize()
 
                 actionButton
+
+                // Always reachable, and that is the fix for a real dead end.
+                // The setup block used to open only from the `needsCredentials`
+                // action, so the moment a client id and secret were saved there
+                // was NO route back to those fields — not from `connected`,
+                // which offers Disconnect, and not from `readyToConnect`, which
+                // offers Connect. Rotating a secret or moving from Sandbox to
+                // Production was therefore impossible without deleting the
+                // Keychain items by hand.
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(expanded ? OrionTheme.text : OrionTheme.textDim)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Hide setup" : "Keys and setup")
             }
 
             // The explanation belongs beside the state, not in a log file.
@@ -99,6 +120,20 @@ private struct ConnectorRow: View {
             // all. Putting the switch on the row means "why am I looking at
             // First Platypus Bank" has a visible answer.
             if spec.id == .plaid { environmentPicker }
+
+            if spec.id == .plaid, ConnectionsModel.plaidSecretMismatch() {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(OrionTheme.orange)
+                    Text("The stored secret was entered for the other environment. Plaid issues a different secret per environment, so paste the \(PlaidClient.environment.uppercased()) one below — Developers ▸ Keys in the Plaid dashboard.")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.orange.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 620, alignment: .leading)
+                }
+                .padding(.leading, 19)
+            }
 
             if expanded { setupBlock }
         }

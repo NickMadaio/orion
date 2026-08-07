@@ -47,7 +47,12 @@ final class WhoopClient: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var isLoading = false
 
-    private let base = "https://api.prod.whoop.com/developer/v1"
+    /// v2, not v1.
+    ///
+    /// Whoop's migration guide is blunt about it: "The v1 API is no longer
+    /// supported." Calling v1 is a second, independent reason the dashboard
+    /// showed nothing even when the token was good.
+    private let base = "https://api.prod.whoop.com/developer/v2"
     private var timer: Timer?
 
     func start() {
@@ -137,7 +142,13 @@ final class WhoopClient: ObservableObject {
             // it. A transient network failure should not blank the dashboard.
             let empty = next.recovery == nil && next.sleepPerformance == nil && next.strain == nil
             if !empty { self.snapshot = next }
-            self.lastError = empty ? (failure ?? "Whoop returned nothing for today.") : nil
+            // Say WHICH failure. An empty panel with no message was the single
+            // most useless state this screen could be in: connected, no data,
+            // no reason given, nothing to act on.
+            self.lastError = empty
+                ? (failure
+                    ?? "Whoop returned no records for today. If you have not worn the strap or it has not scored yet, there is genuinely nothing to show.")
+                : nil
         }
     }
 
@@ -161,7 +172,13 @@ final class WhoopClient: ObservableObject {
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error { completion(.failure(error)); return }
             if let status = (response as? HTTPURLResponse)?.statusCode, status >= 400 {
-                completion(.failure(OAuthError.providerError("Whoop returned HTTP \(status).")))
+                // 401 means the token is dead and could not be renewed, which
+                // is a different problem from "no data" and needs a different
+                // fix from the user.
+                let message = status == 401
+                    ? "Whoop rejected the sign-in. Reconnect it in Settings ▸ Connections — this should be a one-off."
+                    : "Whoop returned HTTP \(status) for \(path)."
+                completion(.failure(OAuthError.providerError(message)))
                 return
             }
             guard let data,

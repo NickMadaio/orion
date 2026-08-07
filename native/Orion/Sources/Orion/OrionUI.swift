@@ -26,11 +26,16 @@ import SwiftUI
 */
 
 enum OrionTheme {
-    /// Near-black, very slightly blue. Flat: the previous diagonal gradient
-    /// made the same card look like two different greys at top and bottom.
-    static let ink = Color(red: 0.031, green: 0.035, blue: 0.047)
-    static let card = Color(red: 0.070, green: 0.077, blue: 0.094)
-    static let cardRaised = Color(red: 0.098, green: 0.106, blue: 0.126)
+    /// The window wash, TRANSLUCENT.
+    ///
+    /// The revamp made this fully opaque, which flattened the panel into an
+    /// ordinary window and lost the floating-glass read the app had. Alpha is
+    /// back — the material behind it does the rest — and the cards above are
+    /// translucent too so the depth carries all the way through rather than
+    /// stopping at the first surface.
+    static let ink = Color(red: 0.031, green: 0.035, blue: 0.047, opacity: 0.62)
+    static let card = Color.white.opacity(0.045)
+    static let cardRaised = Color.white.opacity(0.075)
     static let line = Color.white.opacity(0.07)
 
     static let text = Color.white.opacity(0.94)

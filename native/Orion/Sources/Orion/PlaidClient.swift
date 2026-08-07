@@ -70,6 +70,17 @@ final class PlaidClient: ObservableObject {
     private var pollTimer: Timer?
     private var pollAttempts = 0
 
+    /// Stop waiting. Without this the only way out of a half-finished Link was
+    /// to wait ten minutes or quit the app, which is not a real option.
+    func cancel() {
+        stopPolling()
+        isWorking = false
+        status = ""
+        lastError = "Cancelled. Press Connect to start again."
+    }
+
+    var isWaitingForBrowser: Bool { pollTimer != nil }
+
     // MARK: - Linking
 
     /// Step 1 and 2: mint a hosted Link URL and open it.
@@ -114,8 +125,10 @@ final class PlaidClient: ObservableObject {
                     let hosted = json["hosted_link_url"] as? String,
                     let url = URL(string: hosted)
                 else {
-                    let message = (json["error_message"] as? String)
-                        ?? "Plaid did not return a hosted link. Hosted Link may not be enabled on this account."
+                    // Naming the likely cause matters here: Hosted Link is opt-in
+                // on some Plaid accounts, and the raw API error does not say so.
+                let message = (json["error_message"] as? String)
+                        ?? "Plaid did not return a hosted link URL. Hosted Link may need enabling on your Plaid account, under Team Settings."
                     DispatchQueue.main.async {
                         self.isWorking = false
                         self.lastError = message
@@ -143,6 +156,10 @@ final class PlaidClient: ObservableObject {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.pollAttempts += 1
+            // Say how long, so a flow that is genuinely still waiting looks
+            // different from one that has quietly died.
+            let seconds = self.pollAttempts * 3
+            self.status = "Waiting for Plaid… \(seconds)s. Finish in your browser."
             // Ten minutes. Past that the user has almost certainly abandoned
             // it, and a timer polling a dead link forever is its own bug.
             if self.pollAttempts > 200 {
@@ -305,7 +322,10 @@ final class PlaidClient: ObservableObject {
             // Plaid reports failures in the body with 400s, so the message is
             // more useful than the status code.
             if let message = json["error_message"] as? String {
-                completion(.failure(PlaidError.api(message)))
+                // Plaid's own message plus the code, because the message alone
+                // is often generic and the code is what is searchable.
+                let code = json["error_code"] as? String
+                completion(.failure(PlaidError.api(code.map { "\(message) (\($0))" } ?? message)))
                 return
             }
             completion(.success(json))

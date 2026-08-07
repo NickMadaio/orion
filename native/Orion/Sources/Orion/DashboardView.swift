@@ -53,6 +53,10 @@ struct DashboardView: View {
             Divider().overlay(OrionTheme.line)
             tabBar
         }
+        // Material first, then the tint over it. Colour alone on an opaque
+        // window is just a darker window; the blur is what makes it read as
+        // glass sitting above the desktop.
+        .background(.ultraThinMaterial)
         .background(OrionTheme.ink)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -417,22 +421,6 @@ private struct TasksTab: View {
                 composer
             }
 
-            SectionRule(title: "Sync", trailing: reminders.access.isGranted ? "two-way" : "not connected")
-            OrionPanel {
-                DataRow(label: "Apple Reminders",
-                        sublabel: "list “\(AppleRemindersSync.listTitle)” · edits on your phone appear here",
-                        value: reminders.access.isGranted ? "ON" : "OFF",
-                        valueTint: reminders.access.isGranted ? OrionTheme.green : OrionTheme.textDim)
-                Text(reminders.statusLine)
-                    .font(OrionTheme.mono(10))
-                    .foregroundStyle(OrionTheme.textDim)
-                if let error = reminders.lastError {
-                    Text(error)
-                        .font(OrionTheme.mono(10))
-                        .foregroundStyle(OrionTheme.red)
-                }
-            }
-
             SectionRule(title: "Today's agenda", trailing: agenda.statusLine)
             OrionPanel {
                 if !agenda.access.isGranted {
@@ -647,6 +635,7 @@ private struct HealthTab: View {
     @State private var exerciseName = ""
     @State private var setWeight = ""
     @State private var setReps = ""
+    @State private var workoutSheetVisible = false
 
     private let bottleTarget = 9
 
@@ -655,14 +644,19 @@ private struct HealthTab: View {
             whoopSection
 
             HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 18) { workoutSection }
-                    .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 18) {
+                    supplementSection
+                }
+                .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 18) {
                     waterSection
-                    supplementSection
+                    workoutSection
                 }
                 .frame(width: 320)
             }
+        }
+        .sheet(isPresented: $workoutSheetVisible) {
+            WorkoutSheet(health: health) { workoutSheetVisible = false }
         }
     }
 
@@ -733,108 +727,49 @@ private struct HealthTab: View {
 
     // MARK: Workouts
 
+    /// Deliberately small.
+    ///
+    /// The inline version had an exercise field, a weight field, a reps field,
+    /// a button, a chip row of recent lifts and the full set history — for
+    /// something touched a few times a week, sitting permanently next to things
+    /// checked daily. Now it is a summary and a button; the logging lives in a
+    /// sheet, and saying it to Orion skips the UI entirely.
     @ViewBuilder private var workoutSection: some View {
         SectionRule(title: "Workout",
                     trailing: health.todaysWorkout.map { "\($0.totalSets) sets" } ?? "nothing logged")
         OrionPanel {
             if let session = health.todaysWorkout, !session.exercises.isEmpty {
-                ForEach(session.exercises) { exercise in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(exercise.name)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(OrionTheme.text)
-                            Spacer()
-                            Text("\(Int(exercise.volume)) vol")
-                                .font(OrionTheme.mono(10))
-                                .foregroundStyle(OrionTheme.textDim)
-                        }
-                        // Each set on its own chip. A session collapsed to
-                        // "3 sets" cannot answer "did I beat last week".
-                        HStack(spacing: 6) {
-                            ForEach(exercise.sets) { set in
-                                Text(set.label)
-                                    .font(OrionTheme.mono(10, .semibold))
-                                    .foregroundStyle(OrionTheme.text)
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        Capsule().fill(OrionTheme.cardRaised)
-                                            .overlay(Capsule().stroke(OrionTheme.line, lineWidth: 1))
-                                    )
-                                    .onTapGesture {
-                                        health.removeSet(exerciseID: exercise.id, setID: set.id)
-                                    }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        if let previous = health.previousBest(exercise.name) {
-                            Text("last time \(previous.day): \(previous.set.label)")
-                                .font(OrionTheme.mono(9))
-                                .foregroundStyle(OrionTheme.textDim)
-                        }
-                    }
-                    .padding(.vertical, 5)
-                    if exercise.id != session.exercises.last?.id {
-                        Divider().overlay(OrionTheme.line)
-                    }
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    BigStat(value: "\(session.totalSets)",
+                            unit: "sets",
+                            caption: "today",
+                            tint: OrionTheme.green)
+                    BigStat(value: "\(Int(session.volume))",
+                            unit: "vol",
+                            caption: "total load")
+                    Spacer(minLength: 0)
                 }
-                Text("Total volume \(Int(session.volume)) · tap a set to remove it")
-                    .font(OrionTheme.mono(9))
+                // Names only. The per-set detail is one tap away and does not
+                // need to be on screen while you are ticking off vitamin D.
+                Text(session.exercises.map(\.name).joined(separator: " · "))
+                    .font(OrionTheme.mono(10))
                     .foregroundStyle(OrionTheme.textDim)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Nothing logged today. Add a set below, or just tell Orion what you did.")
+                Text("Nothing logged today.")
                     .font(.system(size: 13))
                     .foregroundStyle(OrionTheme.textDim)
             }
 
-            Divider().overlay(OrionTheme.line)
-
-            HStack(spacing: 8) {
-                TextField("Exercise", text: $exerciseName)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(OrionTheme.text)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(fieldBackground)
-                TextField("lb", text: $setWeight)
-                    .textFieldStyle(.plain)
-                    .font(OrionTheme.mono(12))
-                    .foregroundStyle(OrionTheme.text)
-                    .frame(width: 62)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(fieldBackground)
-                TextField("reps", text: $setReps)
-                    .textFieldStyle(.plain)
-                    .font(OrionTheme.mono(12))
-                    .foregroundStyle(OrionTheme.text)
-                    .frame(width: 54)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(fieldBackground)
-                    .onSubmit(addSet)
-                Button("Log set", action: addSet)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(OrionTheme.ink)
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(Capsule().fill(.white))
+            LogButton(title: health.todaysWorkout == nil ? "Log a workout" : "Open workout",
+                      systemImage: "dumbbell.fill",
+                      tint: OrionTheme.green) {
+                workoutSheetVisible = true
             }
-
-            if !health.recentExerciseNames.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(health.recentExerciseNames.prefix(5), id: \.self) { name in
-                        Button { exerciseName = name } label: {
-                            Text(name)
-                                .font(OrionTheme.mono(9))
-                                .foregroundStyle(OrionTheme.textSoft)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Capsule().stroke(OrionTheme.line, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
+            Text("Or just tell Orion — “incline chest, 135 for 8, 145 for 6”.")
+                .font(OrionTheme.mono(9))
+                .foregroundStyle(OrionTheme.textDim)
         }
     }
 
@@ -994,7 +929,15 @@ private struct FinanceTab: View {
                         Text(plaid.status.isEmpty ? "Working…" : plaid.status)
                             .font(OrionTheme.mono(11))
                             .foregroundStyle(OrionTheme.textSoft)
+                        Spacer()
+                        Button("Cancel") { plaid.cancel() }
+                            .buttonStyle(.plain)
+                            .font(OrionTheme.mono(10, .semibold))
+                            .foregroundStyle(OrionTheme.textDim)
                     }
+                    Text("Sandbox: phone 415-555-0011, code 123456, then user_good / pass_good.")
+                        .font(OrionTheme.mono(9))
+                        .foregroundStyle(OrionTheme.textDim)
                 } else {
                     NotConnected(what: "Chase", detail: "Balances and recent transactions, via Plaid.")
                     Divider().overlay(OrionTheme.line)

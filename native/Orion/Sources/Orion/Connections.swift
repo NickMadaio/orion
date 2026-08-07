@@ -66,14 +66,18 @@ struct ConnectorSpec {
             auth: .oauth2(
                 authorize: "https://api.prod.whoop.com/oauth/oauth2/auth",
                 token: "https://api.prod.whoop.com/oauth/oauth2/token",
-                scopes: ["read:recovery", "read:sleep", "read:cycles", "read:workout", "read:profile"]
+                // `offline` is NOT optional. Whoop's docs: "You must request the
+                // offline scope to receive a refresh token." Without it the
+                // access token dies in an hour with nothing to renew it from,
+                // which is exactly why this needed signing in again every day.
+                scopes: ["offline", "read:recovery", "read:sleep", "read:cycles", "read:workout", "read:profile"]
             ),
             registerURL: "https://developer.whoop.com",
             setupSteps: [
                 "Sign in at developer.whoop.com and create an app.",
                 "Set the redirect URI to exactly: orion://oauth/whoop",
                 "Copy the Client ID and Client Secret into the fields here.",
-                "Press Connect — Whoop opens in your browser and comes back.",
+                "Press Connect — Whoop opens in your browser and comes back. You should only ever have to do this once.",
             ],
             readOnly: true
         ),

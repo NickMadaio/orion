@@ -94,9 +94,54 @@ private struct ConnectorRow: View {
                     .frame(maxWidth: 620, alignment: .leading)
             }
 
+            // Plaid is the one connector with two live environments, and the
+            // difference is not cosmetic: Sandbox has no real banks in it at
+            // all. Putting the switch on the row means "why am I looking at
+            // First Platypus Bank" has a visible answer.
+            if spec.id == .plaid { environmentPicker }
+
             if expanded { setupBlock }
         }
         .padding(.vertical, 16)
+    }
+
+    @ViewBuilder private var environmentPicker: some View {
+        HStack(spacing: 14) {
+            Text("ENVIRONMENT")
+                .font(OrionTheme.mono(8, .semibold))
+                .tracking(1.6)
+                .foregroundStyle(OrionTheme.textDim)
+
+            ForEach(["sandbox", "production"], id: \.self) { option in
+                let selected = PlaidClient.environment == option
+                Button {
+                    PlaidClient.setEnvironment(option)
+                    connections.refreshAll()
+                } label: {
+                    Text(option.uppercased())
+                        .font(OrionTheme.mono(9, .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(selected ? OrionTheme.ink : OrionTheme.textSoft)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background {
+                            Capsule()
+                                .fill(selected ? (option == "production" ? OrionTheme.green : OrionTheme.orange) : .clear)
+                                .overlay(Capsule().strokeBorder(OrionTheme.line, lineWidth: selected ? 0 : 1))
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(PlaidClient.isProduction
+                 ? "Real banks. Needs your PRODUCTION secret above."
+                 : "Test banks only — First Platypus, fake balances.")
+                .font(OrionTheme.mono(9))
+                .foregroundStyle(PlaidClient.isProduction ? OrionTheme.green : OrionTheme.textDim)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 19)
     }
 
     private func tag(_ text: String, tint: Color) -> some View {

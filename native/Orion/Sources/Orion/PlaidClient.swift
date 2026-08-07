@@ -57,12 +57,35 @@ final class PlaidClient: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var lastSyncedAt: Date?
 
-    /// Sandbox by default. Production needs Plaid's approval, so making it the
-    /// default would mean every first attempt fails with a permissions error.
+    /// Sandbox by default, because a first attempt should not fail on an
+    /// approval the user has not applied for yet.
     static let environmentKey = "OrionPlaidEnvironment"
 
     static var environment: String {
         UserDefaults.standard.string(forKey: environmentKey) ?? "sandbox"
+    }
+
+    static var isProduction: Bool { environment == "production" }
+
+    /// Switch environments, and throw away everything that belonged to the old
+    /// one.
+    ///
+    /// This has to clear the grant, and it is not tidiness. A Plaid access
+    /// token is issued by one environment and is meaningless to the other, so
+    /// keeping a sandbox token after switching to production means the next
+    /// balance call fails with an invalid-token error that reads as "your bank
+    /// connection broke" rather than "you changed environment". Same for the
+    /// item id.
+    ///
+    /// The client_id is shared across environments; the SECRET is not, which is
+    /// why the UI asks for it again on the way through.
+    static func setEnvironment(_ next: String) {
+        guard next != environment else { return }
+        UserDefaults.standard.set(next, forKey: environmentKey)
+        SecretStore.set(nil, connector: .plaid, field: SecretStore.Field.accessToken)
+        SecretStore.set(nil, connector: .plaid, field: SecretStore.Field.accountID)
+        OrionLog.write("[plaid] environment switched to \(next); grant cleared")
+        NotificationCenter.default.post(name: .orionConnectionsChanged, object: nil)
     }
 
     private var host: String { "https://\(Self.environment).plaid.com" }
@@ -317,7 +340,14 @@ final class PlaidClient: ObservableObject {
             let clientID = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientID),
             let secret = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret),
             let accessToken = SecretStore.get(connector: .plaid, field: SecretStore.Field.accessToken)
-        else { return }
+        else {
+            // No grant for this environment. Clear the table rather than
+            // leaving the previous environment's balances sitting there
+            // looking current.
+            accounts = []
+            lastSyncedAt = nil
+            return
+        }
         isWorking = true
         post(
             "/accounts/balance/get",

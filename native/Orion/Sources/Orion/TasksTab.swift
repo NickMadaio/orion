@@ -1,13 +1,26 @@
 import AppKit
 import SwiftUI
 
-/// Tasks. Added, ticked and deleted here; stored in Apple Reminders, so the
-/// same list is on the phone and a dated one actually interrupts you.
-///
-/// Two columns of deliberately different weight, and the narrow one starts
-/// lower than the wide one. That offset is the layout: the day and the list are
-/// what this tab is about, and the agenda is a reference the eye should reach
-/// second rather than a third equal card in a row of three.
+/*
+ Tasks, and the day they have to fit into.
+
+ The two halves are deliberately not equal. On the left is what you have to do;
+ on the right is the time you actually have. Keeping them on one screen is the
+ entire point — a to-do list that does not know your calendar will happily let
+ you plan six hours of work into an afternoon with four hours of lectures in it,
+ and a calendar that does not know your tasks is just a record of other people's
+ claims on you.
+
+ The bridge between them is `Schedule` on a task row: it opens the composer with
+ the title already filled, at the time you clicked. That is the seed of the
+ thing this is eventually meant to be — for now it is one button, and it is the
+ one that matters.
+
+ Tasks live in Apple Reminders, so everything here is on the phone too. Priority
+ is a real EventKit field and syncs; progress is local, and TaskPriority says
+ why at length.
+*/
+
 struct TasksTab: View {
     @ObservedObject var reminders: AppleRemindersSync
     @ObservedObject var agenda: AppleCalendarSync
@@ -18,34 +31,45 @@ struct TasksTab: View {
 
     @State private var dueDate = Date().addingTimeInterval(3600)
     @State private var wantsDueDate = false
+    @State private var newPriority: TaskPriority = .none
+    @State private var composerStart: Date?
+    @State private var composerTitle = ""
 
     var body: some View {
-        HStack(alignment: .top, spacing: 54) {
-            VStack(alignment: .leading, spacing: 34) {
+        HStack(alignment: .top, spacing: 46) {
+            VStack(alignment: .leading, spacing: 32) {
                 dayHeader
                 tasksSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            agendaColumn
-                .frame(width: 296)
-                // The offset. Nothing on this tab starts on the same line as
-                // anything beside it.
-                .padding(.top, 52)
+            schedule
+                .frame(width: 430)
+        }
+        .sheet(isPresented: Binding(
+            get: { composerStart != nil },
+            set: { if !$0 { composerStart = nil; composerTitle = "" } }
+        )) {
+            if let start = composerStart {
+                EventComposer(agenda: agenda, start: start, prefilledTitle: composerTitle) {
+                    composerStart = nil
+                    composerTitle = ""
+                }
+            }
         }
     }
 
     // MARK: - The day
 
     private var dayHeader: some View {
-        HStack(alignment: .top, spacing: 30) {
+        HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 7) {
                 Text(Date().formatted(.dateTime.weekday(.wide).month().day()).uppercased())
                     .font(OrionTheme.mono(9, .semibold))
                     .tracking(2.2)
                     .foregroundStyle(OrionTheme.textDim)
                 Text(energyTitle)
-                    .font(OrionTheme.display(34))
+                    .font(OrionTheme.display(32))
                     .foregroundStyle(OrionTheme.text)
                 Text("\(hoursLeft)h of awake time left")
                     .font(.system(size: 13))
@@ -55,38 +79,31 @@ struct TasksTab: View {
                     .foregroundStyle(summaryTint)
                     .padding(.top, 2)
             }
-
             Spacer(minLength: 12)
-
-            RingMeter(progress: dayProgress,
-                      value: "\(Int(dayProgress * 100))%",
-                      caption: Date().formatted(date: .omitted, time: .shortened),
-                      tint: OrionTheme.orange,
-                      diameter: 104)
+            RingMeter(progress: completion,
+                      value: "\(Int(completion * 100))%",
+                      caption: "done",
+                      tint: completion >= 1 ? OrionTheme.green : OrionTheme.accent,
+                      diameter: 98)
         }
+    }
+
+    /// Weighted by progress, not just by ticks. A list of five with four of
+    /// them half-finished is not 0% done, and showing 0% is why progress bars
+    /// on to-do lists feel like a lie.
+    private var completion: Double {
+        let open = reminders.tasks
+        guard !open.isEmpty else { return 0 }
+        return open.reduce(0.0) { $0 + ($1.isComplete ? 1 : $1.progress) } / Double(open.count)
     }
 
     // MARK: - Tasks
 
     private var tasksSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             SectionRule(title: "Tasks", trailing: "\(reminders.doneCount) / \(reminders.tasks.count) done")
 
             if !reminders.access.isGranted { accessNotice }
-
-            // One dash per task. "How much is left" without counting.
-            HStack(spacing: 4) {
-                if reminders.tasks.isEmpty {
-                    Capsule().fill(Color.white.opacity(0.07)).frame(height: 3)
-                } else {
-                    ForEach(reminders.tasks) { task in
-                        Capsule()
-                            .fill(task.isComplete ? OrionTheme.green : Color.white.opacity(0.10))
-                            .frame(height: 3)
-                    }
-                }
-            }
-            .animation(.easeOut(duration: 0.3), value: reminders.doneCount)
 
             if reminders.tasks.isEmpty {
                 Text(reminders.access.isGranted
@@ -98,9 +115,17 @@ struct TasksTab: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(reminders.tasks) { task in
-                        TaskRow(task: task,
-                                onToggle: { reminders.setComplete(task.id, !task.isComplete) },
-                                onDelete: { reminders.remove(task.id) })
+                        TaskRow(
+                            task: task,
+                            onToggle: { reminders.setComplete(task.id, !task.isComplete) },
+                            onDelete: { reminders.remove(task.id) },
+                            onPriority: { reminders.setPriority(task.id, task.priority.next) },
+                            onProgress: { reminders.setProgress(task.id, $0) },
+                            onSchedule: {
+                                composerTitle = task.title
+                                composerStart = task.dueDate ?? nextFreeHour()
+                            }
+                        )
                         if task.id != reminders.tasks.last?.id {
                             Rectangle().fill(OrionTheme.line).frame(height: 1)
                         }
@@ -108,8 +133,17 @@ struct TasksTab: View {
                 }
             }
 
-            composer.padding(.top, 4)
+            composer.padding(.top, 6)
         }
+    }
+
+    /// Where a task would go if scheduled now: the next hour that has not
+    /// started yet, so "Schedule" never proposes a slot in the past.
+    private func nextFreeHour() -> Date {
+        let calendar = Calendar.current
+        let now = Date()
+        let hour = calendar.component(.hour, from: now)
+        return calendar.date(bySettingHour: min(23, hour + 1), minute: 0, second: 0, of: now) ?? now
     }
 
     private var composer: some View {
@@ -125,11 +159,32 @@ struct TasksTab: View {
                     }
                     .onSubmit(add)
 
+                // Priority before it exists, so it does not have to be set
+                // twice — once when adding and once when correcting.
+                Button {
+                    withAnimation(.easeOut(duration: 0.14)) { newPriority = newPriority.next }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: newPriority.mark)
+                            .font(.system(size: 9, weight: .bold))
+                        Text(newPriority == .none ? "PRIORITY" : newPriority.label.uppercased())
+                            .font(OrionTheme.mono(8, .semibold))
+                            .tracking(1.1)
+                    }
+                    .foregroundStyle(newPriority.tint)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Capsule().strokeBorder(newPriority.tint.opacity(0.4), lineWidth: 1))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Priority")
+
                 Button { wantsDueDate.toggle() } label: {
                     Image(systemName: wantsDueDate ? "bell.fill" : "bell")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(wantsDueDate ? OrionTheme.orange : OrionTheme.textDim)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 26, height: 26)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -170,9 +225,6 @@ struct TasksTab: View {
                     .foregroundStyle(OrionTheme.textDim)
             }
             Spacer(minLength: 12)
-            // Straight to the exact pane. Telling someone to "check Privacy
-            // settings" and leaving them to find it is most of why a denied
-            // permission stays denied.
             InlineAction(title: "Open Settings", systemImage: "arrow.up.right") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
                     NSWorkspace.shared.open(url)
@@ -182,39 +234,58 @@ struct TasksTab: View {
         .padding(.bottom, 4)
     }
 
-    // MARK: - Agenda
+    // MARK: - Schedule
 
-    private var agendaColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Today", trailing: agenda.access.isGranted ? nil : "no access")
+    private var schedule: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            WeekStrip(days: agenda.weekDays,
+                      selected: $agenda.selectedDate,
+                      load: { agenda.load(for: $0) },
+                      onToday: {
+                          withAnimation(.easeOut(duration: 0.2)) {
+                              agenda.selectedDate = Calendar.current.startOfDay(for: Date())
+                          }
+                      })
 
             if !agenda.access.isGranted {
                 Text(agenda.statusLine)
                     .font(OrionTheme.mono(11))
                     .foregroundStyle(OrionTheme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if agenda.events.isEmpty {
-                Text("Nothing on the calendar today.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(OrionTheme.textDim)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(agenda.events) { event in
-                        AgendaRow(event: event)
-                        if event.id != agenda.events.last?.id {
-                            Rectangle().fill(OrionTheme.line).frame(height: 1)
+            } else if let error = agenda.lastError {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No calendars")
+                        .font(OrionTheme.display(18))
+                        .foregroundStyle(OrionTheme.orange)
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundStyle(OrionTheme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                    InlineAction(title: "Open Internet Accounts", systemImage: "arrow.up.right") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preferences.internetaccounts") {
+                            NSWorkspace.shared.open(url)
                         }
                     }
                 }
-                if agenda.committedMinutesRemaining > 0 {
-                    Text("\(agenda.committedMinutesRemaining / 60)h \(agenda.committedMinutesRemaining % 60)m still committed today.")
-                        .font(OrionTheme.mono(10))
-                        .foregroundStyle(OrionTheme.textDim)
-                        .padding(.top, 4)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            } else {
+                DayTimeline(
+                    date: agenda.selectedDate,
+                    events: agenda.events(on: agenda.selectedDate),
+                    onCreate: { moment in
+                        composerTitle = ""
+                        composerStart = moment
+                    },
+                    onSelect: { event in
+                        // Only Orion's own events are editable, so selecting a
+                        // meeting somebody else booked deliberately does
+                        // nothing rather than offering an action that fails.
+                        guard agenda.canEdit(event) else { return }
+                        agenda.delete(event)
+                    }
+                )
             }
         }
+        .onChange(of: agenda.selectedDate) { _, _ in agenda.refresh() }
     }
 
     // MARK: - Derived
@@ -235,63 +306,102 @@ struct TasksTab: View {
     private func add() {
         let trimmed = newTask.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        reminders.add(trimmed, due: wantsDueDate ? dueDate : nil)
+        reminders.add(trimmed, due: wantsDueDate ? dueDate : nil, priority: newPriority)
         newTask = ""
         wantsDueDate = false
+        newPriority = .none
     }
 }
 
-/// One task line: tick, title, when it is due, and a delete that only appears
-/// on hover so the list is not a wall of destructive buttons.
+/// One task: priority on the left edge, progress underneath, and the actions
+/// that only appear when you are looking at it.
 private struct TaskRow: View {
     let task: SyncedTask
     let onToggle: () -> Void
     let onDelete: () -> Void
+    let onPriority: () -> Void
+    let onProgress: (Double) -> Void
+    let onSchedule: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button(action: onToggle) {
-                Image(systemName: task.isComplete ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 15))
-                    .foregroundStyle(task.isComplete ? OrionTheme.green : OrionTheme.textDim)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 11) {
+                Button(action: onToggle) {
+                    Image(systemName: task.isComplete ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(task.isComplete ? OrionTheme.green : OrionTheme.textDim)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(task.isComplete ? OrionTheme.textDim : OrionTheme.text)
-                    .strikethrough(task.isComplete, color: OrionTheme.textDim)
-                if let due = task.dueDate {
-                    HStack(spacing: 5) {
-                        Image(systemName: task.hasAlarm ? "bell.fill" : "calendar")
-                            .font(.system(size: 8))
-                        Text(due.formatted(date: .abbreviated, time: .shortened))
-                            .font(OrionTheme.mono(10))
+                // Cycles rather than opening a menu. Four values is not worth a
+                // popover, and one click per step is faster than two per change.
+                Button(action: onPriority) {
+                    Image(systemName: task.priority.mark)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(task.priority.tint)
+                        .frame(width: 16, height: 16)
+                        .background(Circle().strokeBorder(task.priority.tint.opacity(0.35), lineWidth: 1))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Priority: \(task.priority.label)")
+                .opacity(task.isComplete ? 0.4 : 1)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(task.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(task.isComplete ? OrionTheme.textDim : OrionTheme.text)
+                        .strikethrough(task.isComplete, color: OrionTheme.textDim)
+                    if let due = task.dueDate {
+                        HStack(spacing: 5) {
+                            Image(systemName: task.hasAlarm ? "bell.fill" : "calendar")
+                                .font(.system(size: 8))
+                            Text(due.formatted(date: .abbreviated, time: .shortened))
+                                .font(OrionTheme.mono(10))
+                        }
+                        .foregroundStyle(task.isOverdue ? OrionTheme.red : OrionTheme.textDim)
                     }
-                    .foregroundStyle(task.isOverdue ? OrionTheme.red : OrionTheme.textDim)
+                }
+
+                Spacer(minLength: 12)
+
+                if task.isOverdue {
+                    Text("OVERDUE")
+                        .font(OrionTheme.mono(9, .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(OrionTheme.red)
+                }
+
+                if !task.isComplete {
+                    Text("\(Int(task.progress * 100))%")
+                        .font(OrionTheme.mono(10, .semibold))
+                        .foregroundStyle(task.progress > 0 ? OrionTheme.accent : OrionTheme.textDim)
+                        .frame(width: 34, alignment: .trailing)
+                }
+
+                if hovering {
+                    InlineAction(title: "Schedule", tint: OrionTheme.violet, action: onSchedule)
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(OrionTheme.textDim)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            Spacer(minLength: 12)
 
-            if task.isOverdue {
-                Text("OVERDUE")
-                    .font(OrionTheme.mono(9, .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(OrionTheme.red)
+            // Drag anywhere along it to set progress. A slider control would be
+            // four times the height for the same gesture.
+            if !task.isComplete {
+                ProgressTrack(progress: task.progress, tint: task.priority == .none ? OrionTheme.accent : task.priority.tint,
+                              onChange: onProgress)
+                    .padding(.leading, 42)
             }
-            Button(action: onDelete) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .opacity(hovering ? 1 : 0)
         }
         .padding(.vertical, 9)
         .contentShape(Rectangle())
@@ -300,36 +410,34 @@ private struct TaskRow: View {
     }
 }
 
-/// One line of the day's agenda. Read-only, like everything calendar here.
-private struct AgendaRow: View {
-    let event: AgendaEvent
+/// A hairline you can drag. Two pixels tall, with a much taller invisible
+/// target — a 2pt hit region would be unusable, and a 2pt bar is what the rest
+/// of this design language uses.
+private struct ProgressTrack: View {
+    let progress: Double
+    let tint: Color
+    let onChange: (Double) -> Void
 
     var body: some View {
-        HStack(spacing: 11) {
-            Rectangle()
-                .fill(event.isNow ? OrionTheme.green : (event.isPast ? OrionTheme.textDim.opacity(0.35) : OrionTheme.accent))
-                .frame(width: 2, height: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(event.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(event.isPast ? OrionTheme.textDim : OrionTheme.text)
-                    .lineLimit(1)
-                Text(event.calendarName)
-                    .font(OrionTheme.mono(9))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .lineLimit(1)
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(height: 2)
+                Capsule()
+                    .fill(tint)
+                    .frame(width: max(0, geometry.size.width * progress), height: 2)
+                    .shadow(color: tint.opacity(0.6), radius: 4)
             }
-            Spacer(minLength: 6)
-            if event.isNow {
-                Text("NOW")
-                    .font(OrionTheme.mono(8, .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(OrionTheme.green)
-            }
-            Text(event.timeLabel)
-                .font(OrionTheme.mono(10, .semibold))
-                .foregroundStyle(event.isPast ? OrionTheme.textDim : OrionTheme.textSoft)
+            .frame(height: 14)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        onChange(min(1, max(0, value.location.x / max(1, geometry.size.width))))
+                    }
+            )
         }
-        .padding(.vertical, 9)
+        .frame(height: 14)
     }
 }

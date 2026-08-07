@@ -35,6 +35,18 @@ struct SyncedTask: Identifiable, Equatable {
     var isComplete: Bool
     var dueDate: Date?
     var hasAlarm: Bool
+    /// Real, and syncs — `EKReminder.priority`. See TaskPriority.
+    var priority: TaskPriority = .none
+    /// 0...1, and LOCAL — EventKit has no percent-complete field.
+    var progress: Double = 0
+
+    /// What the list sorts by. Overdue first because it is the only category
+    /// that is actually urgent, then priority, then when it is due. Sorting by
+    /// due date alone buries a high-priority task with no date under a week of
+    /// trivia that happens to be dated.
+    var sortKey: (Int, Int, Date) {
+        (isOverdue ? 0 : 1, priority.rank, dueDate ?? .distantFuture)
+    }
 
     var isOverdue: Bool {
         guard let dueDate, !isComplete else { return false }
@@ -171,36 +183,36 @@ final class AppleRemindersSync: ObservableObject {
         store.fetchReminders(matching: predicate) { [weak self] found in
             let mapped = (found ?? [])
                 .map { reminder in
-                    SyncedTask(
-                        id: reminder.calendarItemIdentifier,
+                    let id = reminder.calendarItemIdentifier
+                    return SyncedTask(
+                        id: id,
                         title: reminder.title ?? "Untitled",
                         isComplete: reminder.isCompleted,
                         dueDate: reminder.dueDateComponents?.date,
-                        hasAlarm: !(reminder.alarms ?? []).isEmpty
+                        hasAlarm: !(reminder.alarms ?? []).isEmpty,
+                        priority: TaskPriority.from(reminder.priority),
+                        progress: reminder.isCompleted ? 1 : TaskProgressStore.shared.progress(for: id)
                     )
                 }
-                // Open first, then by due date, undated last. Completed sink to
-                // the bottom -- the list should answer "what now" at a glance.
+                // Completed sink to the bottom; above that, overdue, then
+                // priority, then due date. The list should answer "what now".
                 .sorted { left, right in
                     if left.isComplete != right.isComplete { return !left.isComplete }
-                    switch (left.dueDate, right.dueDate) {
-                    case let (leftDate?, rightDate?): return leftDate < rightDate
-                    case (nil, _?): return false
-                    case (_?, nil): return true
-                    default: return left.title < right.title
-                    }
+                    if left.sortKey != right.sortKey { return left.sortKey < right.sortKey }
+                    return left.title < right.title
                 }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.tasks = mapped
                 self.lastSyncedAt = Date()
+                TaskProgressStore.shared.prune(keeping: Set(mapped.map(\.id)))
             }
         }
     }
 
     // MARK: - Writing
 
-    func add(_ title: String, due: Date? = nil) {
+    func add(_ title: String, due: Date? = nil, priority: TaskPriority = .none) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, access.isGranted else { return }
         if calendar == nil { prepareCalendar() }
@@ -209,6 +221,7 @@ final class AppleRemindersSync: ObservableObject {
         let reminder = EKReminder(eventStore: store)
         reminder.calendar = calendar
         reminder.title = trimmed
+        reminder.priority = priority.rawValue
         if let due {
             reminder.dueDateComponents = Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute], from: due
@@ -244,6 +257,20 @@ final class AppleRemindersSync: ObservableObject {
                 reminder.dueDateComponents = nil
             }
         }
+    }
+
+    func setPriority(_ id: String, _ priority: TaskPriority) {
+        mutate(id) { $0.priority = priority.rawValue }
+    }
+
+    /// Local only — see TaskPriority for why there is nowhere to sync this to.
+    /// Reaching 100% does NOT complete the task: "done enough to stop thinking
+    /// about" and "done" are different claims, and only the tick makes the
+    /// second one.
+    func setProgress(_ id: String, _ progress: Double) {
+        TaskProgressStore.shared.set(progress, for: id)
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[index].progress = min(1, max(0, progress))
     }
 
     func rename(_ id: String, to title: String) {

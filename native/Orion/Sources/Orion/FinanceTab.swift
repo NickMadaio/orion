@@ -33,7 +33,10 @@ struct FinanceTab: View {
                 connected
             }
         }
-        .onAppear(perform: loadSummary)
+        .onAppear {
+            plaid.refresh()
+            loadSummary()
+        }
         .onChange(of: plaid.lastSyncedAt) { _, _ in loadSummary() }
     }
 
@@ -343,6 +346,20 @@ struct FinanceTab: View {
                         .foregroundStyle(OrionTheme.textSoft)
                     Spacer(minLength: 12)
                     InlineAction(title: "Cancel", tint: OrionTheme.textSoft) { plaid.cancel() }
+                }
+            } else if let blocked = plaid.blockedReason {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Nothing loaded")
+                        .font(OrionTheme.display(22))
+                        .foregroundStyle(OrionTheme.orange)
+                    Text(blocked)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OrionTheme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Environment: \(PlaidClient.environment) · \(plaid.items.count) linked item(s)")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.textDim)
+                    InlineAction(title: "Try again", systemImage: "arrow.clockwise") { plaid.refresh() }
                 }
             } else {
                 NotConnected(what: "Your banks",

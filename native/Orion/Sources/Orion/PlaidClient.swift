@@ -38,6 +38,8 @@ final class PlaidClient: ObservableObject {
     @Published private(set) var isWorking = false
     @Published private(set) var lastError: String?
     @Published private(set) var lastSyncedAt: Date?
+    /// Why there is nothing on screen, when there is nothing on screen.
+    @Published private(set) var blockedReason: String?
 
     /// Sandbox by default, because a first attempt should not fail on an
     /// approval the user has not applied for yet.
@@ -375,18 +377,27 @@ final class PlaidClient: ObservableObject {
     func refresh() {
         let items = Self.storedItems()
         self.items = items
-        guard
-            let clientID = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientID),
-            let secret = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret),
-            !items.isEmpty
-        else {
-            // Nothing linked in this environment. Clear the table rather than
-            // leaving the previous environment's balances looking current.
+        // Say WHY nothing happened. The previous version returned silently on
+        // every one of these, so an empty Finances tab and a missing Keychain
+        // item and a wrong environment all looked identical — from the outside
+        // and in the log, which had nothing in it at all.
+        let clientID = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientID)
+        let secret = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret)
+        guard let clientID, let secret, !items.isEmpty else {
+            var missing: [String] = []
+            if clientID == nil { missing.append("client_id") }
+            if secret == nil { missing.append("client_secret") }
+            if items.isEmpty { missing.append("no linked items") }
+            let reason = missing.joined(separator: ", ")
+            OrionLog.write("[plaid] refresh skipped — \(reason) (env \(Self.environment))")
             accounts = []
             transactions = []
             lastSyncedAt = nil
+            blockedReason = "Nothing to load: \(reason)."
             return
         }
+        blockedReason = nil
+        OrionLog.write("[plaid] refreshing \(items.count) item(s) in \(Self.environment)")
 
         isWorking = true
         let group = DispatchGroup()
@@ -405,6 +416,7 @@ final class PlaidClient: ObservableObject {
                 switch result {
                 case .failure(let error):
                     failure = "\(item.institutionName): \(error.localizedDescription)"
+                    OrionLog.write("[plaid] balance for \(item.institutionName) — \(error.localizedDescription)")
                 case .success(let json):
                     collectedAccounts += PlaidClient.parseAccounts(json, institution: item.institutionName)
                 }

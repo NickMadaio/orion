@@ -40,6 +40,7 @@ struct WorkoutSheet: View {
                 }
                 .padding(20)
             }
+            .scrollContentBackground(.hidden)
         }
         .frame(width: 540, height: 620)
         // Same correction as the dashboard: real behind-window blur underneath,

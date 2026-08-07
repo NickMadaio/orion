@@ -68,9 +68,9 @@ struct SectionRule: View {
                 .fill(OrionTheme.textDim)
                 .frame(width: 14, height: 1)
             Text(title.uppercased())
-                .font(OrionTheme.mono(10, .semibold))
-                .tracking(1.6)
-                .foregroundStyle(OrionTheme.textSoft)
+                .font(OrionTheme.mono(9, .semibold))
+                .tracking(1.8)
+                .foregroundStyle(OrionTheme.textDim)
             Spacer(minLength: 8)
             if let trailing {
                 Text(trailing.uppercased())
@@ -83,23 +83,52 @@ struct SectionRule: View {
     }
 }
 
-/// A plain surface. No gradient, no glow — the content is what should be loud.
-struct OrionPanel<Content: View>: View {
-    var padding: CGFloat = 16
+/// A FLOATING tile, not a filled bubble.
+///
+/// The previous version was an opaque-ish rounded rectangle with a visible
+/// fill, and every section on every tab got one — so a screen was a vertical
+/// stack of identical grey capsules and nothing had any hierarchy. Uniform
+/// containers are the enemy of a dense dashboard: they cost the same vertical
+/// space whether they hold one number or twenty rows.
+///
+/// So: almost no fill, a hairline edge, and a soft drop shadow. The shadow is
+/// what does the work — it lifts the content off the glass so a tile reads as
+/// hovering rather than as a box drawn on top. Content stays legible because
+/// the blur behind is already dark, not because a panel is painted under it.
+struct OrionTile<Content: View>: View {
+    var padding: CGFloat = 15
+    var tint: Color = .clear
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) { content }
+        VStack(alignment: .leading, spacing: 10) { content }
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(OrionTheme.card)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(OrionTheme.line, lineWidth: 1)
-                    )
-            )
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.white.opacity(0.055))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(tint.opacity(tint == .clear ? 0 : 0.10))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+                    }
+                    // Lift. Without this a translucent tile on a translucent
+                    // background has no edge at all and everything melts.
+                    .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+            }
+    }
+}
+
+/// Kept so older call sites still compile; forwards to the floating tile.
+struct OrionPanel<Content: View>: View {
+    var padding: CGFloat = 15
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        OrionTile(padding: padding) { content }
     }
 }
 

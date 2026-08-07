@@ -52,7 +52,13 @@ struct DashboardView: View {
             }
             Divider().overlay(OrionTheme.line)
 
+            // THE reason two previous transparency fixes did nothing. SwiftUI's
+            // ScrollView is an NSScrollView underneath, and NSScrollView draws
+            // an OPAQUE background by default. It covers the whole content
+            // area, so it was painting over the window, the blur and the tint
+            // no matter what any of them were set to.
             ScrollView { tabContent.padding(22) }
+                .scrollContentBackground(.hidden)
             Divider().overlay(OrionTheme.line)
             tabBar
         }
@@ -628,12 +634,17 @@ private struct TaskRow: View {
     }
 }
 
-/// Whoop first and full-width, then everything Nick logs by hand beside it.
+/// A bento of tiles, not a column of bubbles.
 ///
-/// The old version stacked one full-width panel per thing, so water — a number
-/// between 0 and 9 — occupied as much of the screen as the wearable feeding it
-/// five live metrics. Recovery is the number that decides how the day goes, so
-/// it goes at the top and gets the space; the manual trackers share a column.
+/// The previous version — and the one before it — were a vertical stack of
+/// same-width, same-treatment panels, so scanning it meant reading top to
+/// bottom and everything felt equally important. Recovery is not as important
+/// as a water counter; it is the number the whole day hangs on.
+///
+/// So the grid is deliberately uneven: recovery gets a wide tile with the ring,
+/// the vitals become small square tiles that read at a glance, and the things
+/// Nick ticks are compact tiles that never grow past their content. Nothing on
+/// this tab scrolls past one screen.
 private struct HealthTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var whoop: WhoopClient
@@ -641,156 +652,111 @@ private struct HealthTab: View {
     @ObservedObject var connections: ConnectionsModel
 
     @State private var newSupplement = ""
-    @State private var newSupplementTime = "morning"
-    @State private var exerciseName = ""
-    @State private var setWeight = ""
-    @State private var setReps = ""
     @State private var workoutSheetVisible = false
+    @State private var supplementSheetVisible = false
 
     private let bottleTarget = 9
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            whoopSection
-
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 18) {
-                    supplementSection
-                }
-                .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 18) {
-                    waterSection
-                    workoutSection
-                }
-                .frame(width: 320)
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            recoveryRow
+            vitalsRow
+            logRow
         }
         .sheet(isPresented: $workoutSheetVisible) {
             WorkoutSheet(health: health) { workoutSheetVisible = false }
         }
+        .sheet(isPresented: $supplementSheetVisible) {
+            SupplementSheet(health: health) { supplementSheetVisible = false }
+        }
     }
 
-    // MARK: Whoop
+    // MARK: Recovery — the one thing that gets width
 
-    @ViewBuilder private var whoopSection: some View {
-        SectionRule(title: "Whoop", trailing: connections.state(.whoop).label)
-        OrionPanel {
-            if let snapshot = whoop.snapshot {
+    @ViewBuilder private var recoveryRow: some View {
+        if let snapshot = whoop.snapshot {
+            OrionTile(padding: 18, tint: recoveryTint(snapshot.recovery)) {
                 HStack(alignment: .center, spacing: 22) {
                     RingMeter(progress: Double(snapshot.recovery ?? 0) / 100,
                               value: "\(snapshot.recovery ?? 0)",
                               caption: "recovery",
                               tint: recoveryTint(snapshot.recovery),
-                              diameter: 132)
-                    VStack(alignment: .leading, spacing: 8) {
+                              diameter: 118)
+                    VStack(alignment: .leading, spacing: 5) {
                         Text(snapshot.call.headline)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(recoveryTint(snapshot.recovery))
                         Text(snapshot.call.detail)
                             .font(.system(size: 12))
                             .foregroundStyle(OrionTheme.textSoft)
                             .fixedSize(horizontal: false, vertical: true)
-                        // The reference's one-line vitals row, kept on one line.
-                        HStack(spacing: 8) {
-                            if let value = snapshot.sleepPerformance {
-                                StatChip(icon: "moon.fill", value: "\(value)%", tint: OrionTheme.violet)
-                            }
-                            if let value = snapshot.sleepHours {
-                                StatChip(icon: "bed.double.fill",
-                                         value: String(format: "%.1fh", value),
-                                         tint: OrionTheme.violet)
-                            }
-                            if let value = snapshot.strain {
-                                StatChip(icon: "flame.fill",
-                                         value: String(format: "%.1f", value),
-                                         tint: OrionTheme.orange)
-                            }
-                            if let value = snapshot.hrvMilliseconds {
-                                StatChip(icon: "waveform.path.ecg", value: "\(value)ms", tint: OrionTheme.blue)
-                            }
-                            if let value = snapshot.restingHeartRate {
-                                StatChip(icon: "heart.fill", value: "\(value)bpm", tint: OrionTheme.red)
-                            }
-                        }
-                        .padding(.top, 2)
                     }
                     Spacer(minLength: 0)
                 }
-            } else if connections.state(.whoop).isConnected {
-                HStack(spacing: 10) {
-                    if whoop.isLoading { ProgressView().controlSize(.small) }
-                    Text(whoop.lastError ?? "Connected — waiting for today's Whoop data.")
-                        .font(OrionTheme.mono(11))
-                        .foregroundStyle(whoop.lastError == nil ? OrionTheme.textDim : OrionTheme.red)
-                    Spacer()
-                    Button("Refresh") { whoop.refresh() }
-                        .buttonStyle(.plain)
-                        .font(OrionTheme.mono(10, .semibold))
-                        .foregroundStyle(OrionTheme.blue)
+            }
+        } else {
+            OrionTile {
+                if connections.state(.whoop).isConnected {
+                    HStack(spacing: 10) {
+                        if whoop.isLoading { ProgressView().controlSize(.small) }
+                        Text(whoop.lastError ?? "Connected — waiting for today's data.")
+                            .font(OrionTheme.mono(11))
+                            .foregroundStyle(whoop.lastError == nil ? OrionTheme.textDim : OrionTheme.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button("Refresh") { whoop.refresh() }
+                            .buttonStyle(.plain)
+                            .font(OrionTheme.mono(10, .semibold))
+                            .foregroundStyle(OrionTheme.blue)
+                    }
+                } else {
+                    NotConnected(what: "Whoop",
+                                 detail: "Recovery, sleep, strain and HRV. Settings ▸ Connections.")
                 }
-            } else {
-                NotConnected(what: "Whoop",
-                             detail: "Recovery, sleep, strain and HRV. Set it up in Settings ▸ Connections.")
             }
         }
     }
 
-    // MARK: Workouts
+    // MARK: Vitals — small squares, read at a glance
 
-    /// Deliberately small.
-    ///
-    /// The inline version had an exercise field, a weight field, a reps field,
-    /// a button, a chip row of recent lifts and the full set history — for
-    /// something touched a few times a week, sitting permanently next to things
-    /// checked daily. Now it is a summary and a button; the logging lives in a
-    /// sheet, and saying it to Orion skips the UI entirely.
-    @ViewBuilder private var workoutSection: some View {
-        SectionRule(title: "Workout",
-                    trailing: health.todaysWorkout.map { "\($0.totalSets) sets" } ?? "nothing logged")
-        OrionPanel {
-            if let session = health.todaysWorkout, !session.exercises.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 14) {
-                    BigStat(value: "\(session.totalSets)",
-                            unit: "sets",
-                            caption: "today",
-                            tint: OrionTheme.green)
-                    BigStat(value: "\(Int(session.volume))",
-                            unit: "vol",
-                            caption: "total load")
-                    Spacer(minLength: 0)
-                }
-                // Names only. The per-set detail is one tap away and does not
-                // need to be on screen while you are ticking off vitamin D.
-                Text(session.exercises.map(\.name).joined(separator: " · "))
-                    .font(OrionTheme.mono(10))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("Nothing logged today.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(OrionTheme.textDim)
+    @ViewBuilder private var vitalsRow: some View {
+        if let snapshot = whoop.snapshot {
+            HStack(spacing: 14) {
+                VitalTile(icon: "moon.fill", label: "sleep",
+                          value: snapshot.sleepPerformance.map { "\($0)" } ?? "—",
+                          unit: "%", tint: OrionTheme.violet)
+                VitalTile(icon: "bed.double.fill", label: "in bed",
+                          value: snapshot.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
+                          unit: "h", tint: OrionTheme.violet)
+                VitalTile(icon: "flame.fill", label: "strain",
+                          value: snapshot.strain.map { String(format: "%.1f", $0) } ?? "—",
+                          unit: "", tint: OrionTheme.orange)
+                VitalTile(icon: "waveform.path.ecg", label: "hrv",
+                          value: snapshot.hrvMilliseconds.map { "\($0)" } ?? "—",
+                          unit: "ms", tint: OrionTheme.blue)
+                VitalTile(icon: "heart.fill", label: "rhr",
+                          value: snapshot.restingHeartRate.map { "\($0)" } ?? "—",
+                          unit: "bpm", tint: OrionTheme.red)
             }
-
-            LogButton(title: health.todaysWorkout == nil ? "Log a workout" : "Open workout",
-                      systemImage: "dumbbell.fill",
-                      tint: OrionTheme.green) {
-                workoutSheetVisible = true
-            }
-            Text("Or just tell Orion — “incline chest, 135 for 8, 145 for 6”.")
-                .font(OrionTheme.mono(9))
-                .foregroundStyle(OrionTheme.textDim)
         }
     }
 
-    // MARK: Water
+    // MARK: What Nick logs — three compact tiles, none of them lists
 
-    @ViewBuilder private var waterSection: some View {
-        SectionRule(title: "Water", trailing: "resets 6am")
-        OrionPanel {
+    private var logRow: some View {
+        HStack(alignment: .top, spacing: 14) {
+            waterTile
+            supplementTile
+            workoutTile
+        }
+    }
+
+    private var waterTile: some View {
+        OrionTile {
+            SectionRule(title: "Water")
             BigStat(value: "\(state.hydrationBottles)",
                     unit: "/ \(bottleTarget)",
-                    caption: "bottles today")
+                    tint: state.hydrationBottles >= bottleTarget ? OrionTheme.green : OrionTheme.text)
             ZoneBar(value: state.hydrationBottles, target: bottleTarget, tint: OrionTheme.blue)
             HStack(spacing: 8) {
                 StepButton(systemImage: "minus") { state.removeHydration() }
@@ -799,104 +765,108 @@ private struct HealthTab: View {
         }
     }
 
-    // MARK: Supplements
-
-    @ViewBuilder private var supplementSection: some View {
-        SectionRule(title: "Supplements",
-                    trailing: "\(health.takenToday.count) / \(health.supplements.count)")
-        OrionPanel {
+    /// Counts and a button. The full list lives in a sheet, because a tile that
+    /// grows with the number of supplements is a tile that eventually owns the
+    /// screen — which is exactly what went wrong before.
+    private var supplementTile: some View {
+        OrionTile {
+            SectionRule(title: "Supplements")
+            BigStat(value: "\(health.takenToday.count)",
+                    unit: "/ \(health.supplements.count)",
+                    tint: health.supplements.isEmpty
+                        ? OrionTheme.textDim
+                        : (health.takenToday.count == health.supplements.count
+                            ? OrionTheme.green : OrionTheme.text))
             if health.supplements.isEmpty {
-                Text("Add what you actually take — ashwagandha, vitamin D, magnesium. Then tick them off each day.")
-                    .font(.system(size: 12))
+                Text("Nothing set up yet.")
+                    .font(OrionTheme.mono(10))
                     .foregroundStyle(OrionTheme.textDim)
-                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                ForEach(health.supplementsByTime) { group in
-                    Text(group.id.uppercased())
-                        .font(OrionTheme.mono(9, .semibold))
-                        .tracking(1.2)
+                ZoneBar(value: health.takenToday.count,
+                        target: max(1, health.supplements.count),
+                        zoneLabel: "on track",
+                        tint: OrionTheme.violet)
+                // Only what is still outstanding — the done ones need no space.
+                let remaining = health.supplements.filter { !health.takenToday.contains($0.id) }
+                if remaining.isEmpty {
+                    Text("All taken today.")
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.green)
+                } else {
+                    Text("left: " + remaining.prefix(3).map(\.name).joined(separator: ", ")
+                         + (remaining.count > 3 ? " +\(remaining.count - 3)" : ""))
+                        .font(OrionTheme.mono(10))
                         .foregroundStyle(OrionTheme.textDim)
-                        .padding(.top, 2)
-                    ForEach(group.items) { supplement in
-                        HStack(spacing: 9) {
-                            Button { health.toggleSupplement(supplement.id) } label: {
-                                Image(systemName: health.takenToday.contains(supplement.id)
-                                      ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(health.takenToday.contains(supplement.id)
-                                                     ? OrionTheme.green : OrionTheme.textDim)
-                            }
-                            .buttonStyle(.plain)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(supplement.name)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(health.takenToday.contains(supplement.id)
-                                                     ? OrionTheme.textDim : OrionTheme.text)
-                                if !supplement.dose.isEmpty {
-                                    Text(supplement.dose)
-                                        .font(OrionTheme.mono(9))
-                                        .foregroundStyle(OrionTheme.textDim)
-                                }
-                            }
-                            Spacer(minLength: 4)
-                            Button { health.removeSupplement(supplement.id) } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(OrionTheme.textDim)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.vertical, 3)
-                    }
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            Divider().overlay(OrionTheme.line)
-
-            HStack(spacing: 6) {
-                TextField("Add supplement", text: $newSupplement)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(OrionTheme.text)
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(fieldBackground)
-                    .onSubmit(addSupplement)
-                Button("Add", action: addSupplement)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(OrionTheme.ink)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Capsule().fill(.white))
+            LogButton(title: "Open", systemImage: "pills.fill", tint: OrionTheme.violet) {
+                supplementSheetVisible = true
             }
-            Picker("", selection: $newSupplementTime) {
-                Text("Morning").tag("morning")
-                Text("Lunch").tag("lunch")
-                Text("Evening").tag("evening")
-                Text("Anytime").tag("anytime")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
         }
     }
 
-    private var fieldBackground: some View {
-        RoundedRectangle(cornerRadius: 9).fill(OrionTheme.cardRaised)
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(OrionTheme.line, lineWidth: 1))
+    private var workoutTile: some View {
+        OrionTile {
+            SectionRule(title: "Workout")
+            if let session = health.todaysWorkout, session.totalSets > 0 {
+                BigStat(value: "\(session.totalSets)", unit: "sets", tint: OrionTheme.green)
+                Text("\(Int(session.volume)) total load")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+                Text(session.exercises.map(\.name).joined(separator: " · "))
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textSoft)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                BigStat(value: "—", unit: "sets", tint: OrionTheme.textDim)
+                Text("Nothing logged today.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+            LogButton(title: "Open", systemImage: "dumbbell.fill", tint: OrionTheme.green) {
+                workoutSheetVisible = true
+            }
+        }
     }
+}
 
-    private func addSupplement() {
-        health.addSupplement(newSupplement, timeOfDay: newSupplementTime)
-        newSupplement = ""
-    }
+/// A small square. One number, one word, one colour.
+///
+/// Named `VitalTile` and not `MetricTile` because the Home tab already has a
+/// `MetricTile` with a completely different shape, and two private types with
+/// the same name in one file is a compile error rather than a style question.
+private struct VitalTile: View {
+    let icon: String
+    let label: String
+    let value: String
+    let unit: String
+    let tint: Color
 
-    private func addSet() {
-        guard let weight = Double(setWeight.trimmingCharacters(in: .whitespaces)),
-              let reps = Int(setReps.trimmingCharacters(in: .whitespaces))
-        else { return }
-        health.logSet(exercise: exerciseName, weight: weight, reps: reps)
-        // Name and weight stay: the next set is almost always the same lift, and
-        // retyping "incline bench" three times is how logging stops happening.
-        setReps = ""
+    var body: some View {
+        OrionTile(padding: 13) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(label.uppercased())
+                    .font(OrionTheme.mono(8, .semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .foregroundStyle(OrionTheme.text)
+                if !unit.isEmpty {
+                    Text(unit)
+                        .font(OrionTheme.mono(10))
+                        .foregroundStyle(OrionTheme.textDim)
+                }
+            }
+        }
     }
 }
 

@@ -178,6 +178,47 @@ cmd_apply() {
   return 0
 }
 
+# A targeted edit rather than a whole file.
+#
+# `apply` wants the complete new contents, and that turned out to be the wrong
+# interface for the thing actually driving this. Asking a small model to
+# reproduce two hundred lines verbatim is slow, expensive, and one dropped brace
+# away from destroying a file — the first end-to-end attempt spent six and a
+# half minutes and never produced a call at all. An exact find/replace is a few
+# hundred bytes and cannot truncate anything.
+#
+# The matching rule lives in orion_forge_edit.py; everything after it is the
+# ordinary apply path, so an edit passes the same build and launch gates.
+cmd_edit() {
+  local relative="${1:-}" findfile="${2:-}" replacefile="${3:-}"
+  local message="${4:-Orion edited his own code}"
+  if [[ -z "$relative" || ! -f "${findfile:-/nonexistent}" || ! -f "${replacefile:-/nonexistent}" ]]; then
+    log "usage: orion-forge edit <relative-path> <find-file> <replace-file> [message]"
+    return 2
+  fi
+
+  local target
+  target="$(resolve_target "$relative")" || { ledger refused "path rejected" "$relative"; return 2 }
+  if [[ ! -f "$target" ]]; then
+    log "no such source file: $relative"
+    ledger refused "no such file" "$relative"
+    return 2
+  fi
+
+  local staged
+  staged="$(mktemp)"
+  if ! python3 "$REPO/scripts/orion_forge_edit.py" "$target" "$findfile" "$replacefile" "$staged"; then
+    rm -f "$staged"
+    ledger refused "edit did not apply" "$relative"
+    return 2
+  fi
+
+  cmd_apply "$relative" "$staged" "$message"
+  local status=$?
+  rm -f "$staged"
+  return $status
+}
+
 cmd_revert() {
   cd "$REPO" || return 2
   local subject
@@ -210,8 +251,13 @@ cmd_status() {
 }
 
 case "${1:-status}" in
+  edit)   shift; cmd_edit "$@" ;;
   apply)  shift; cmd_apply "$@" ;;
   revert) cmd_revert ;;
   status) cmd_status ;;
-  *) log "usage: orion-forge {apply <path> <content-file> [message]|revert|status}"; exit 2 ;;
+  *)
+    log "usage: orion-forge {edit <path> <find-file> <replace-file> [message]"
+    log "                   |apply <path> <content-file> [message]|revert|status}"
+    exit 2
+    ;;
 esac

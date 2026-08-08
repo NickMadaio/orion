@@ -152,7 +152,7 @@ struct HomeTab: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(composerFocused ? OrionTheme.accent : OrionTheme.textDim)
 
-                TextField("What do you need?", text: $state.composer, axis: .vertical)
+                TextField("Ask Orion anything…", text: $state.composer, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .lineLimit(1...3)

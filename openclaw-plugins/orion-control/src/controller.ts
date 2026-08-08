@@ -58,6 +58,7 @@ export interface RunOptions {
 const AUTHORING_MODES = new Set([
   "created",
   "already_present",
+  "rebuilt",
   "appended",
   "replaced",
   "moved",

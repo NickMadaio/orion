@@ -1,5 +1,5 @@
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -86,6 +86,25 @@ export interface FileMutationPolicy {
 }
 export type ExecutionPolicy = {
     kind: "simulate";
+}
+/**
+ * Rewrite one of Orion's own Swift sources, rebuild, reinstall, and prove the
+ * result still launches.
+ *
+ * Everything dangerous lives in `scripts/orion-forge` rather than here, on
+ * purpose: this is the single most powerful thing Orion can do and it should
+ * be one file a person can read end to end, not logic threaded through a ten
+ * thousand line plugin. The plugin's job is to get the request through the
+ * gate; the script's job is to make the change survivable.
+ *
+ * Three gates in that script, none of which ask a human anything:
+ * the path (only .swift inside the app target — Orion cannot edit the gate
+ * that constrains him, nor the script itself), the build (it must compile),
+ * and the launch (it must still start, verified by watching for a crash
+ * report, with the previous bundle restored automatically if it does not).
+ */
+ | {
+    kind: "self_modify";
 } | {
     kind: "app_control";
     operation: "open" | "quit";

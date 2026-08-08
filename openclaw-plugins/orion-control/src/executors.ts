@@ -11,7 +11,7 @@ import {
   type Reminder,
 } from "./ambient.js";
 import { createHash, randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -20,7 +20,9 @@ import {
   readdir,
   realpath,
   rename,
+  rm,
   unlink,
+  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -109,6 +111,9 @@ export interface ExecutionResult {
     | "opened"
     | "quit"
     | "already_present"
+    // Orion rebuilt and reinstalled himself. Its own mode because it is not
+    // like the others: the artefact that changed is the app doing the work.
+    | "rebuilt"
     | "observed"
     | "controlled"
     | "moved"
@@ -1766,6 +1771,9 @@ export async function executeAction(
     context.simulatedState.set(idempotencyKey, true);
     return { mode: "simulated", idempotencyKey };
   }
+  if (definition.execution.kind === "self_modify") {
+    return runSelfModify(step, idempotencyKey);
+  }
   if (definition.execution.kind === "app_control") {
     const application = step.arguments[definition.execution.applicationArgument];
     if (typeof application !== "string") {
@@ -2526,4 +2534,76 @@ export async function verifyAction(
     };
   }
   return { observed: false };
+}
+
+
+/**
+ * Hand a source rewrite to `scripts/orion-forge` and report what it decided.
+ *
+ * Deliberately thin. Everything that makes this survivable — the path gate, the
+ * build gate, the launch gate, the automatic restore of the previous bundle,
+ * the git commit and the ledger — lives in the script, so the dangerous logic is
+ * one readable file rather than a branch buried in this one. This function only
+ * writes the proposed source to a temporary file, runs the script, and turns a
+ * non-zero exit into a refusal the model can read.
+ *
+ * The timeout is generous because a release build of the whole app plus a
+ * twelve-second launch watch genuinely takes minutes, and killing it halfway
+ * would leave the app mid-swap — the one state the script is built to avoid.
+ */
+async function runSelfModify(
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const file = String(step.arguments.file ?? "");
+  const source = String(step.arguments.source ?? "");
+  const intent = String(step.arguments.message ?? "Orion changed his own code");
+
+  const scratch = path.join(
+    os.tmpdir(),
+    `orion-forge-${Date.now()}-${Math.random().toString(36).slice(2)}.swift`,
+  );
+  await writeFile(scratch, source, "utf8");
+
+  const script = path.join(
+    os.homedir(),
+    "Desktop/ORION/scripts/orion-forge",
+  );
+
+  try {
+    const result = await new Promise<{ code: number; output: string }>(
+      (resolve) => {
+        const child = spawn(script, ["apply", file, scratch, intent], {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let output = "";
+        child.stdout?.on("data", (chunk) => (output += String(chunk)));
+        child.stderr?.on("data", (chunk) => (output += String(chunk)));
+        const timer = setTimeout(
+          () => child.kill("SIGKILL"),
+          15 * 60 * 1000,
+        );
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          resolve({ code: code ?? 1, output: output.trim() });
+        });
+        child.on("error", (error) => {
+          clearTimeout(timer);
+          resolve({ code: 1, output: String(error) });
+        });
+      },
+    );
+
+    if (result.code !== 0) {
+      // The script already undid everything before returning. Surfacing its
+      // output verbatim matters: the compiler errors in it are what let the
+      // model fix the change rather than guess at why it was refused.
+      throw new ActionExecutionError(
+        `The change was rejected and rolled back. Nothing was installed.\n${result.output}`,
+      );
+    }
+    return { mode: "rebuilt", idempotencyKey, output: result.output };
+  } finally {
+    await rm(scratch, { force: true }).catch(() => {});
+  }
 }

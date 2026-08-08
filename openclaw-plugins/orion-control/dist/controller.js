@@ -13,6 +13,7 @@ import { hash, validateTaskGraph } from "./validator.js";
 const AUTHORING_MODES = new Set([
     "created",
     "already_present",
+    "rebuilt",
     "appended",
     "replaced",
     "moved",

@@ -543,6 +543,44 @@ function fileMutation(operation, definition) {
     };
 }
 export const ACTION_CATALOG = {
+    /**
+     * `approvalRequired: false` is a decision, not an oversight.
+     *
+     * It was chosen explicitly: Orion edits, builds, installs and relaunches
+     * without pausing for a diff. What makes that defensible is not trust, it is
+     * that the verifier is mechanical and cannot be talked round — the code must
+     * compile AND the app must still launch, or the previous bundle is restored
+     * and the source reverted before anyone is looking at it. Every applied
+     * change is a git commit, so undoing one is a single command.
+     *
+     * Direct user authorization is not a field here — it comes from the
+     * validator, which mints `trusted_user` only from host provenance and refuses
+     * an action whose target appears in something Orion READ rather than in
+     * something the user SAID. That taint check is what stops an iMessage from
+     * asking Orion to rewrite himself, and `risk: "high"` is what routes this
+     * action through it.
+     */
+    self_modify: {
+        risk: "high",
+        requiredArguments: ["file", "source"],
+        approvalRequired: false,
+        verification: "self_modify_applied",
+        reversible: true,
+        capabilityTier: "self_modification",
+        execution: { kind: "self_modify" },
+        validateArguments: (arguments_) => {
+            const problems = [];
+            const file = arguments_.file;
+            const source = arguments_.source;
+            if (typeof file !== "string" || !/^[A-Za-z0-9_]+\.swift$/.test(file)) {
+                problems.push("file must be a bare Swift filename inside the app target, such as HealthTab.swift");
+            }
+            if (typeof source !== "string" || source.trim().length < 20) {
+                problems.push("source must be the complete new contents of that file");
+            }
+            return problems;
+        },
+    },
     folder_create: {
         risk: "low",
         requiredArguments: ["path"],

@@ -13,6 +13,11 @@ export type CapabilityTier =
   | "desktop_direct_write"
   | "scratch_direct_write"
   | "file_mutate"
+  // Orion editing his own Swift source and reinstalling himself. The most
+  // consequential tier there is, and deliberately its own — it must never be
+  // reachable by widening a filesystem tier, because it is not a filesystem
+  // operation. See the `self_modify` policy below.
+  | "self_modification"
   // Reads of the world rather than of the disk: weather, the clock, how the
   // machine is doing. No filesystem root, nothing mutable, and only the weather
   // leaves the machine — to one keyless endpoint given a place name.
@@ -148,6 +153,23 @@ export interface FileMutationPolicy {
 
 export type ExecutionPolicy =
   | { kind: "simulate" }
+  /**
+   * Rewrite one of Orion's own Swift sources, rebuild, reinstall, and prove the
+   * result still launches.
+   *
+   * Everything dangerous lives in `scripts/orion-forge` rather than here, on
+   * purpose: this is the single most powerful thing Orion can do and it should
+   * be one file a person can read end to end, not logic threaded through a ten
+   * thousand line plugin. The plugin's job is to get the request through the
+   * gate; the script's job is to make the change survivable.
+   *
+   * Three gates in that script, none of which ask a human anything:
+   * the path (only .swift inside the app target — Orion cannot edit the gate
+   * that constrains him, nor the script itself), the build (it must compile),
+   * and the launch (it must still start, verified by watching for a crash
+   * report, with the previous bundle restored automatically if it does not).
+   */
+  | { kind: "self_modify" }
   | {
       kind: "app_control";
       operation: "open" | "quit";
@@ -923,6 +945,46 @@ function fileMutation(
 }
 
 export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
+  /**
+   * `approvalRequired: false` is a decision, not an oversight.
+   *
+   * It was chosen explicitly: Orion edits, builds, installs and relaunches
+   * without pausing for a diff. What makes that defensible is not trust, it is
+   * that the verifier is mechanical and cannot be talked round — the code must
+   * compile AND the app must still launch, or the previous bundle is restored
+   * and the source reverted before anyone is looking at it. Every applied
+   * change is a git commit, so undoing one is a single command.
+   *
+   * Direct user authorization is not a field here — it comes from the
+   * validator, which mints `trusted_user` only from host provenance and refuses
+   * an action whose target appears in something Orion READ rather than in
+   * something the user SAID. That taint check is what stops an iMessage from
+   * asking Orion to rewrite himself, and `risk: "high"` is what routes this
+   * action through it.
+   */
+  self_modify: {
+    risk: "high",
+    requiredArguments: ["file", "source"],
+    approvalRequired: false,
+    verification: "self_modify_applied",
+    reversible: true,
+    capabilityTier: "self_modification",
+    execution: { kind: "self_modify" },
+    validateArguments: (arguments_) => {
+      const problems: string[] = [];
+      const file = arguments_.file;
+      const source = arguments_.source;
+      if (typeof file !== "string" || !/^[A-Za-z0-9_]+\.swift$/.test(file)) {
+        problems.push(
+          "file must be a bare Swift filename inside the app target, such as HealthTab.swift",
+        );
+      }
+      if (typeof source !== "string" || source.trim().length < 20) {
+        problems.push("source must be the complete new contents of that file");
+      }
+      return problems;
+    },
+  },
   folder_create: {
     risk: "low",
     requiredArguments: ["path"],

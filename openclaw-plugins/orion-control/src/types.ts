@@ -110,6 +110,10 @@ export interface StepRecord {
       | "trashed"
       | "scheduled"
       | "cancelled"
+      // Orion rebuilt and reinstalled himself. The ledger needs it as much as
+      // the executor does — this is the one outcome where the thing that
+      // changed is the app that wrote the row.
+      | "rebuilt"
       | "failed";
     target?: string;
     output?: unknown;

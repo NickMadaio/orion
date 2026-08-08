@@ -50,8 +50,19 @@ const PROFILE_TIERS = {
     restricted_read_only: new Set(["simulation", "desktop_read", "ambient_info"]),
     approved_root_edit: new Set(EDIT_TIERS),
     broad_local_filesystem: new Set(EDIT_TIERS),
-    consequential_local: new Set([...EDIT_TIERS, "file_mutate"]),
-    external_connected: new Set([...EDIT_TIERS, "file_mutate"]),
+    // Self-modification sits ONLY here and above, and is listed explicitly
+    // rather than folded into EDIT_TIERS. It is not a filesystem operation and
+    // must never arrive as a side effect of widening filesystem access.
+    consequential_local: new Set([
+        ...EDIT_TIERS,
+        "file_mutate",
+        "self_modification",
+    ]),
+    external_connected: new Set([
+        ...EDIT_TIERS,
+        "file_mutate",
+        "self_modification",
+    ]),
 };
 export const PROFILE_MATRIX = {
     restricted_read_only: {

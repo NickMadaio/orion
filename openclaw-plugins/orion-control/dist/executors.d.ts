@@ -31,7 +31,7 @@ export interface ExecutionContext {
     defaultLocation?: string;
 }
 export interface ExecutionResult {
-    mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "moved" | "trashed" | "scheduled" | "cancelled";
+    mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "rebuilt" | "observed" | "controlled" | "moved" | "trashed" | "scheduled" | "cancelled";
     idempotencyKey: string;
     target?: string;
     output?: unknown;

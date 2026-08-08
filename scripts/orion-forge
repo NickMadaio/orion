@@ -205,7 +205,8 @@ cmd_status() {
   print -r -- "running:   $(pgrep -f 'Orion.app/Contents/MacOS/Orion' >/dev/null && echo yes || echo no)"
   print -r -- "backup:    $([[ -d "$BACKUP" ]] && echo yes || echo none)"
   print -r -- "editable:  $APP_SRC/$SOURCES/*.swift"
-  [[ -f "$LEDGER" ]] && { print -r -- "--- last 5 forge entries ---"; tail -5 "$LEDGER" }
+  if [[ -f "$LEDGER" ]]; then print -r -- "--- last 5 forge entries ---"; tail -5 "$LEDGER"; fi
+  return 0
 }
 
 case "${1:-status}" in

@@ -2370,6 +2370,31 @@ export async function verifyAction(
       evidence: `simulated:${execution.idempotencyKey}`,
     };
   }
+  if (definition.execution.kind === "self_source") {
+    // Same question an ambient read asks, for the same reason: a read has no
+    // state to re-check, so the only meaningful verification is whether
+    // anything came back. Declaring a verification name with no verifier behind
+    // it is what made these fail with "independent verification did not observe
+    // the expected state" — a true message about a check that did not exist.
+    const present =
+      typeof execution.output === "string" && execution.output.length > 0;
+    return {
+      observed: present,
+      evidence: present ? `self_source:${definition.execution.operation}` : undefined,
+    };
+  }
+  if (definition.execution.kind === "self_modify") {
+    // The forge already proved it: a non-zero exit threw before reaching here,
+    // and reaching here means the code compiled AND the rebuilt app survived
+    // its launch watch. That IS the independent verification — re-deriving it
+    // would be weaker than the check that already ran.
+    const applied =
+      typeof execution.output === "string" && execution.output.includes("✓");
+    return {
+      observed: applied,
+      evidence: applied ? "self_modify:applied" : undefined,
+    };
+  }
   if (definition.execution.kind === "ambient_read") {
     // The evidence IS the answer: an ambient read has no state to re-check, so
     // verification asks the only meaningful question — did anything come back.

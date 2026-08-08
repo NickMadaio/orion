@@ -202,6 +202,12 @@ const ConfigSchema = Type.Object({
         "Let Orion read and adjust his own voice timing — how long he waits before deciding you have stopped talking, and the watchdog that ends a wedged speaking phase. Writes a fixed, range-checked list of keys in his own preference domain and nothing else. Default off.",
     }),
   ),
+  enableSelfModificationActions: Type.Optional(
+    Type.Boolean({
+      description:
+        "Let Orion rewrite his own Swift source, rebuild, and reinstall himself. The most consequential switch here. Every change runs through scripts/orion-forge, which enforces three gates that ask nobody anything: only .swift files inside the app target (never the plugin, the gate, or the script itself), the code must compile, and the rebuilt app must still launch — verified by watching for a crash report, with the previous bundle restored automatically if it does not. Every applied change is a git commit. Default off.",
+    }),
+  ),
   desktopRoot: Type.Optional(Type.String()),
   trustAllowPromptSource: Type.Optional(
     Type.Boolean({
@@ -296,9 +302,17 @@ function configuredTiers(config: {
   enableFileMutateActions?: boolean;
   enableSelfTuningActions?: boolean;
   enableHealthTrackingActions?: boolean;
+  enableSelfModificationActions?: boolean;
   desktopRoot?: string;
 }): Set<CapabilityTier> {
   const tiers = new Set<CapabilityTier>(["simulation"]);
+  // Its own switch, defaulting off like every other tier. Reaching the enabled
+  // set still requires the PROFILE to allow it too — `enabledTiers` is the
+  // intersection of the two, so neither a config flag nor a profile alone can
+  // turn self-modification on.
+  if (config.enableSelfModificationActions === true) {
+    tiers.add("self_modification");
+  }
   if (config.enableSelfTuningActions === true) tiers.add("self_tuning");
   if (config.enableHealthTrackingActions === true) tiers.add("health_tracking");
   if (config.enableAppControlActions === true) tiers.add("app_control");

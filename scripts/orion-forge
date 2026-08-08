@@ -214,9 +214,12 @@ cmd_edit() {
   fi
 
   cmd_apply "$relative" "$staged" "$message"
-  local status=$?
+  # `status` is read-only in zsh — assigning to it fails and the function then
+  # returns 1 no matter what happened, which reported every successful edit as a
+  # failure.
+  local outcome=$?
   rm -f "$staged"
-  return $status
+  return $outcome
 }
 
 cmd_revert() {

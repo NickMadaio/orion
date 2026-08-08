@@ -80,9 +80,20 @@ final class ContactsClient: ObservableObject {
     }
 
     private func load() {
+        // `descriptorForRequiredKeys` and NOT a hand-written list, which is the
+        // bug that crashed the whole app on launch.
+        //
+        // CNContactFormatter reads more than given and family name — nickname,
+        // prefix, suffix, middle name, phonetic variants — and reading a key
+        // that was not fetched raises an Objective-C NSException. Swift cannot
+        // catch that: `do/catch` only sees Swift errors, the exception unwinds
+        // straight past it into objc_exception_rethrow, and the process aborts.
+        // So a mistake in this array is not a wrong name, it is a hard crash on
+        // a background queue. Asking the formatter what it needs removes the
+        // chance of getting the list wrong.
+        let nameKeys = CNContactFormatter.descriptorForRequiredKeys(for: .fullName)
         let keys: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
+            nameKeys,
             CNContactOrganizationNameKey as CNKeyDescriptor,
             CNContactPhoneNumbersKey as CNKeyDescriptor,
             CNContactEmailAddressesKey as CNKeyDescriptor,
@@ -97,8 +108,18 @@ final class ContactsClient: ObservableObject {
 
             do {
                 try self.store.enumerateContacts(with: request) { contact, _ in
-                    let name = CNContactFormatter.string(from: contact, style: .fullName)
-                        ?? contact.organizationName
+                    // ASK BEFORE READING. `areKeysAvailable` is the documented
+                    // way to avoid the exception rather than hope the descriptor
+                    // covered everything — and since that exception aborts the
+                    // process rather than throwing, the cost of being wrong is
+                    // not a bad name, it is the app failing to start.
+                    let formatted = contact.areKeysAvailable([nameKeys])
+                        ? (CNContactFormatter.string(from: contact, style: .fullName) ?? "")
+                        : ""
+                    let manual = [contact.givenName, contact.familyName]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                    let name = formatted.trimmingCharacters(in: .whitespaces).isEmpty ? manual : formatted
                     let display = name.trimmingCharacters(in: .whitespaces).isEmpty
                         ? contact.organizationName
                         : name

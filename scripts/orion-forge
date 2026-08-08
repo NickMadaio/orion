@@ -1,0 +1,216 @@
+#!/bin/zsh
+#
+# Orion changes his own code.
+#
+# The whole cycle in one auditable place: stage a source edit, build it, install
+# it, and prove the result actually runs — undoing everything automatically if
+# any of that fails. It lives here rather than inside the plugin because this is
+# the most dangerous thing Orion can do, and dangerous things should be one file
+# somebody can read end to end.
+#
+# THREE GATES, and none of them ask a human anything:
+#
+#   1. PATH. Only Swift sources inside the app target. Not the plugin, not the
+#      gate, not this script. Orion cannot edit the thing that constrains him.
+#   2. BUILD. It must compile. A change that does not is reverted and never
+#      reaches the bundle.
+#   3. LAUNCH. It must still start. This is the gate that matters most and the
+#      one that is easy to leave out: a change can compile perfectly and abort
+#      on launch — an unfetched Contacts key did exactly that, and without this
+#      the result is a dead app and no UI left to fix it from. The previous
+#      bundle is kept and restored if the new one does not survive.
+#
+# Every applied change is a git commit, so "revert it" is one command.
+#
+#   orion-forge apply <relative-path> <content-file> [message]
+#   orion-forge revert            undo the last applied change and rebuild
+#   orion-forge status
+#
+set -uo pipefail
+
+REPO="${ORION_REPO:-$HOME/Desktop/ORION}"
+APP_SRC="$REPO/native/Orion"
+SOURCES="Sources/Orion"
+INSTALLED="/Applications/Orion.app"
+BACKUP="$HOME/.openclaw/orion-controlled/Orion-previous.app"
+LEDGER="$HOME/.openclaw/orion-controlled/forge-ledger.jsonl"
+CRASHES="$HOME/Library/Logs/DiagnosticReports"
+# How long to give the app to fall over. A launch crash is immediate; this is
+# generous enough to catch the ones that happen a beat after the window opens.
+SETTLE_SECONDS=12
+
+mkdir -p "$(dirname "$LEDGER")"
+
+log() { print -r -- "$@" >&2 }
+
+ledger() {
+  local outcome="$1" detail="$2" file="${3:-}"
+  python3 - "$LEDGER" "$outcome" "$detail" "$file" <<'PY' 2>/dev/null || true
+import json, sys, time, os
+path, outcome, detail, changed = sys.argv[1:5]
+row = {"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "outcome": outcome,
+       "detail": detail, "file": changed}
+with open(path, "a") as handle:
+    handle.write(json.dumps(row) + "\n")
+PY
+}
+
+# --- gate 1: the path -------------------------------------------------------
+#
+# Resolved rather than string-matched. `../` walks out of a prefix check but not
+# out of a realpath comparison, and this is the check that keeps Orion out of
+# his own gate.
+resolve_target() {
+  local relative="$1"
+  case "$relative" in
+    */../*|../*|*/..) log "refused: path traversal"; return 1 ;;
+  esac
+  case "$relative" in
+    *.swift) ;;
+    *) log "refused: only .swift files inside the app target"; return 1 ;;
+  esac
+
+  local root target
+  root="$(cd "$APP_SRC/$SOURCES" 2>/dev/null && pwd -P)" || { log "missing source root"; return 1; }
+  target="$root/${relative##*/}"
+  # Flat by design: the target has no subdirectories, and allowing them would
+  # widen what a crafted relative path can reach for no benefit.
+  print -r -- "$target"
+}
+
+cmd_apply() {
+  local relative="${1:-}" content="${2:-}" message="${3:-Orion changed his own code}"
+  [[ -n "$relative" && -n "$content" ]] || { log "usage: orion-forge apply <relative-path> <content-file> [message]"; return 2 }
+  [[ -f "$content" ]] || { log "no such content file: $content"; return 2 }
+
+  local target
+  target="$(resolve_target "$relative")" || { ledger refused "path rejected" "$relative"; return 2 }
+
+  cd "$REPO" || return 2
+  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    log "refused: the repo has uncommitted changes. Commit or stash first so a"
+    log "         rollback cannot take somebody else's work with it."
+    ledger refused "dirty worktree" "$relative"
+    return 2
+  fi
+
+  local head existed=0
+  head="$(git rev-parse HEAD)"
+  [[ -f "$target" ]] && existed=1
+
+  log "→ writing ${target#$REPO/}"
+  cp "$content" "$target" || { log "write failed"; return 1 }
+
+  # --- gate 2: it must compile ---------------------------------------------
+  log "→ building"
+  local build_log
+  build_log="$(mktemp)"
+  if ! ( cd "$APP_SRC" && swift build -c release ) >"$build_log" 2>&1; then
+    log "✗ build failed — reverting, nothing was installed"
+    grep -E 'error:' "$build_log" | head -20 >&2
+    if (( existed )); then git checkout -- "$target" 2>/dev/null; else rm -f "$target"; fi
+    ledger rejected "build failed" "$relative"
+    rm -f "$build_log"
+    return 1
+  fi
+  rm -f "$build_log"
+
+  log "→ bundling and signing"
+  if ! ( cd "$APP_SRC" && ./make_app_bundle.sh ) >/dev/null 2>&1; then
+    log "✗ bundle/sign failed — reverting"
+    if (( existed )); then git checkout -- "$target" 2>/dev/null; else rm -f "$target"; fi
+    ledger rejected "bundle failed" "$relative"
+    return 1
+  fi
+  [[ -x "$APP_SRC/.build/Orion.app/Contents/MacOS/Orion" ]] || {
+    log "✗ no bundle produced — reverting"
+    if (( existed )); then git checkout -- "$target" 2>/dev/null; else rm -f "$target"; fi
+    ledger rejected "no bundle" "$relative"
+    return 1
+  }
+
+  # Keep the version that is known to work before replacing it. This is what
+  # makes gate 3 recoverable rather than merely detectable.
+  rm -rf "$BACKUP"
+  [[ -d "$INSTALLED" ]] && cp -R "$INSTALLED" "$BACKUP"
+
+  local crash_before
+  crash_before="$(ls -t "$CRASHES"/Orion* 2>/dev/null | head -1)"
+
+  log "→ installing"
+  pkill -9 -f 'Orion.app/Contents/MacOS/Orion' 2>/dev/null
+  sleep 1
+  rm -rf "$INSTALLED"
+  cp -R "$APP_SRC/.build/Orion.app" "$INSTALLED"
+  open -n "$INSTALLED"
+
+  # --- gate 3: it must still run -------------------------------------------
+  log "→ waiting ${SETTLE_SECONDS}s to see if it survives"
+  sleep "$SETTLE_SECONDS"
+
+  local crash_after alive=0
+  pgrep -f 'Orion.app/Contents/MacOS/Orion' >/dev/null && alive=1
+  crash_after="$(ls -t "$CRASHES"/Orion* 2>/dev/null | head -1)"
+
+  if (( ! alive )) || [[ "$crash_after" != "$crash_before" ]]; then
+    log "✗ the new build does not run — restoring the previous app"
+    [[ -n "$crash_after" && "$crash_after" != "$crash_before" ]] && log "  crash report: $(basename "$crash_after")"
+    pkill -9 -f 'Orion.app/Contents/MacOS/Orion' 2>/dev/null
+    sleep 1
+    rm -rf "$INSTALLED"
+    if [[ -d "$BACKUP" ]]; then
+      cp -R "$BACKUP" "$INSTALLED"
+      open -n "$INSTALLED"
+      log "  previous app restored and relaunched"
+    fi
+    if (( existed )); then git checkout -- "$target" 2>/dev/null; else rm -f "$target"; fi
+    ( cd "$APP_SRC" && swift build -c release ) >/dev/null 2>&1
+    ledger rejected "crashed on launch" "$relative"
+    return 1
+  fi
+
+  git add "$target" >/dev/null 2>&1
+  git commit -q -m "$message" -m "Applied by orion-forge. Previous: $head" 2>/dev/null
+  local new_head
+  new_head="$(git rev-parse --short HEAD)"
+  log "✓ applied, built, installed and running — commit $new_head"
+  ledger applied "$new_head" "$relative"
+  return 0
+}
+
+cmd_revert() {
+  cd "$REPO" || return 2
+  local subject
+  subject="$(git log -1 --pretty=%s)"
+  log "→ reverting: $subject"
+  git revert --no-edit HEAD >/dev/null 2>&1 || { log "revert failed"; return 1 }
+  ( cd "$APP_SRC" && swift build -c release ) >/dev/null 2>&1 || { log "rebuild failed"; return 1 }
+  ( cd "$APP_SRC" && ./make_app_bundle.sh ) >/dev/null 2>&1
+  pkill -9 -f 'Orion.app/Contents/MacOS/Orion' 2>/dev/null
+  sleep 1
+  rm -rf "$INSTALLED"
+  cp -R "$APP_SRC/.build/Orion.app" "$INSTALLED"
+  open -n "$INSTALLED"
+  log "✓ reverted and reinstalled"
+  ledger reverted "$subject" ""
+  return 0
+}
+
+cmd_status() {
+  cd "$REPO" 2>/dev/null || return 2
+  print -r -- "repo:      $REPO"
+  print -r -- "head:      $(git log -1 --pretty='%h %s')"
+  print -r -- "worktree:  $([[ -n "$(git status --porcelain)" ]] && echo dirty || echo clean)"
+  print -r -- "installed: $([[ -d "$INSTALLED" ]] && echo yes || echo MISSING)"
+  print -r -- "running:   $(pgrep -f 'Orion.app/Contents/MacOS/Orion' >/dev/null && echo yes || echo no)"
+  print -r -- "backup:    $([[ -d "$BACKUP" ]] && echo yes || echo none)"
+  print -r -- "editable:  $APP_SRC/$SOURCES/*.swift"
+  [[ -f "$LEDGER" ]] && { print -r -- "--- last 5 forge entries ---"; tail -5 "$LEDGER" }
+}
+
+case "${1:-status}" in
+  apply)  shift; cmd_apply "$@" ;;
+  revert) cmd_revert ;;
+  status) cmd_status ;;
+  *) log "usage: orion-forge {apply <path> <content-file> [message]|revert|status}"; exit 2 ;;
+esac

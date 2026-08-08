@@ -324,7 +324,7 @@ struct DashboardView: View {
             case .settings:
                 SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale,
                             surfaceOpacity: $surfaceOpacity, surfaceBlur: $surfaceBlur,
-                            connections: connections)
+                            connections: connections, agenda: agenda)
             }
         }
         // Content rises slightly as it arrives, which is what makes the tabs

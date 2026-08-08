@@ -82,6 +82,29 @@ final class AppleCalendarSync: ObservableObject {
     /// Event identifiers Orion created. See the header for why this exists.
     private var createdIDs: Set<String> = []
 
+    /// Every calendar EventKit can see, so "my Google event is missing" has an
+    /// answer instead of a shrug. This file had no logging and no way to
+    /// inspect what it was reading, which makes an empty day and an
+    /// unconnected account look identical.
+    @Published private(set) var calendars: [CalendarInfo] = []
+
+    struct CalendarInfo: Identifiable, Equatable {
+        let id: String
+        let title: String
+        /// The account it comes from — "iCloud", "Google", "On My Mac".
+        let source: String
+        /// Google arrives as CalDAV; iCloud has its own type.
+        let kind: String
+        let writable: Bool
+        var eventsInWindow: Int
+    }
+
+    /// True when at least one calendar comes from a Google account.
+    var hasGoogle: Bool {
+        calendars.contains { $0.source.localizedCaseInsensitiveContains("google")
+            || $0.source.localizedCaseInsensitiveContains("gmail") }
+    }
+
     private var createdURL: URL {
         let directory = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".openclaw/orion-controlled", isDirectory: true)
@@ -145,6 +168,7 @@ final class AppleCalendarSync: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard granted else {
+                    OrionLog.write("[calendar] access DENIED — \(error?.localizedDescription ?? "no reason given")")
                     self.access = .denied(
                         error?.localizedDescription
                             ?? "Allow Orion in System Settings ▸ Privacy & Security ▸ Calendars."
@@ -169,6 +193,7 @@ final class AppleCalendarSync: ObservableObject {
                 }
             }
         }
+        OrionLog.write("[calendar] requesting access")
         if #available(macOS 14.0, *) {
             store.requestFullAccessToEvents(completion: handle)
         } else {
@@ -199,7 +224,9 @@ final class AppleCalendarSync: ObservableObject {
         let calendars = store.calendars(for: .event)
         guard !calendars.isEmpty else {
             windowEvents = []
+            self.calendars = []
             lastError = "No calendar accounts are set up on this Mac. Add one in System Settings ▸ Internet Accounts — a Google account with Calendars enabled shows up here automatically."
+            OrionLog.write("[calendar] EventKit returned ZERO calendars — no accounts configured, or access is limited")
             return
         }
         lastError = nil
@@ -210,9 +237,20 @@ final class AppleCalendarSync: ObservableObject {
         // it runs off the main thread and publishes back.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let mapped = self.store.events(matching: predicate).map { event in
-                let id = event.eventIdentifier ?? UUID().uuidString
-                return AgendaEvent(
+
+            // One fetch, walked once. Counting per calendar in a second pass
+            // would mean asking EventKit for the same window twice.
+            let raw = self.store.events(matching: predicate)
+            var mapped: [AgendaEvent] = []
+            var counts: [String: Int] = [:]
+            mapped.reserveCapacity(raw.count)
+
+            for event in raw {
+                let id: String = event.eventIdentifier ?? UUID().uuidString
+                if let calendarID = event.calendar?.calendarIdentifier {
+                    counts[calendarID, default: 0] += 1
+                }
+                mapped.append(AgendaEvent(
                     id: id,
                     title: event.title ?? "Untitled",
                     start: event.startDate,
@@ -221,12 +259,54 @@ final class AppleCalendarSync: ObservableObject {
                     calendarName: event.calendar?.title ?? "",
                     colorHex: nil,
                     isOrionMade: created.contains(id)
-                )
+                ))
             }
+
+            var described: [CalendarInfo] = []
+            for calendar in calendars {
+                let identifier: String = calendar.calendarIdentifier
+                described.append(CalendarInfo(
+                    id: identifier,
+                    title: calendar.title,
+                    source: calendar.source?.title ?? "unknown",
+                    kind: AppleCalendarSync.describe(calendar.source?.sourceType),
+                    writable: calendar.allowsContentModifications,
+                    eventsInWindow: counts[identifier] ?? 0
+                ))
+            }
+            described.sort { left, right in
+                if left.source != right.source { return left.source < right.source }
+                return left.title < right.title
+            }
+
+            var parts: [String] = []
+            for info in described {
+                parts.append(info.source + "/" + info.title + ":" + String(info.eventsInWindow))
+            }
+            let summary: String = "[calendar] " + String(described.count) + " calendar(s), "
+                + String(mapped.count) + " event(s) in window — " + parts.joined(separator: ", ")
+
             DispatchQueue.main.async {
                 self.windowEvents = mapped
+                self.calendars = described
                 self.lastSyncedAt = Date()
+                OrionLog.write(summary)
             }
+        }
+    }
+
+    /// Google Calendar reaches macOS over CalDAV, so its source type is
+    /// `.calDAV` and its title is the account name — which is how "is Google
+    /// connected" is answered without a Google API anywhere.
+    static func describe(_ type: EKSourceType?) -> String {
+        switch type {
+        case .local: "On this Mac"
+        case .exchange: "Exchange"
+        case .calDAV: "CalDAV / Google"
+        case .mobileMe: "iCloud"
+        case .subscribed: "Subscribed"
+        case .birthdays: "Birthdays"
+        default: "Unknown"
         }
     }
 

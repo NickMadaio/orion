@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Settings. Two columns: what Orion looks like on the left, what he is wired
@@ -9,6 +10,7 @@ struct SettingsTab: View {
     @Binding var surfaceOpacity: Double
     @Binding var surfaceBlur: Bool
     @ObservedObject var connections: ConnectionsModel
+    @ObservedObject var agenda: AppleCalendarSync
 
     var body: some View {
         HStack(alignment: .top, spacing: 54) {
@@ -19,10 +21,14 @@ struct SettingsTab: View {
                 voice
             }
             .frame(width: 380)
+            .fixedSize(horizontal: true, vertical: false)
 
-            ConnectionsView(connections: connections)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 46)
+            VStack(alignment: .leading, spacing: 36) {
+                calendars
+                ConnectionsView(connections: connections)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 46)
         }
     }
 
@@ -88,6 +94,69 @@ struct SettingsTab: View {
         case 55..<92: return "Mostly glass. The desktop reads clearly through the page."
         case 20..<55: return "Tinted. A good middle over a busy wallpaper."
         default: return "Nearly solid — this is the old look."
+        }
+    }
+
+    // MARK: - Calendars
+
+    /// What EventKit can actually see.
+    ///
+    /// This exists because "my Google event is not showing up" had no answer.
+    /// Google reaches macOS over CalDAV and then arrives through EventKit like
+    /// anything else, so the question is never about Orion's code — it is
+    /// whether the account is connected at the system level. Listing every
+    /// calendar with its account and its event count answers that outright.
+    private var calendars: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionRule(title: "Calendars",
+                        trailing: agenda.calendars.isEmpty ? "none" : "\(agenda.calendars.count) visible")
+
+            if !agenda.access.isGranted {
+                Text(agenda.statusLine)
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if agenda.calendars.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("macOS has no calendar accounts")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(OrionTheme.orange)
+                    Text("Orion reads calendars through macOS, which is how Google works here without a Google API. Add the account in System Settings ▸ Internet Accounts and turn Calendars on — the events appear here with no further setup.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(OrionTheme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(agenda.calendars) { info in
+                        DataRow(label: info.title,
+                                sublabel: info.source + " · " + info.kind
+                                    + (info.writable ? "" : " · read-only"),
+                                value: "\(info.eventsInWindow)",
+                                valueTint: info.eventsInWindow > 0 ? OrionTheme.green : OrionTheme.textDim)
+                        if info.id != agenda.calendars.last?.id {
+                            Rectangle().fill(OrionTheme.line).frame(height: 1)
+                        }
+                    }
+                }
+                Text(agenda.hasGoogle
+                     ? "Google is connected through macOS — its events arrive with iCloud's, already merged."
+                     : "No Google account is visible. If you expect one, add it in System Settings ▸ Internet Accounts with Calendars enabled.")
+                    .font(OrionTheme.mono(10))
+                    .foregroundStyle(agenda.hasGoogle ? OrionTheme.textDim : OrionTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 18) {
+                InlineAction(title: "Open Internet Accounts", systemImage: "arrow.up.right") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preferences.internetaccounts") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                InlineAction(title: "Reload", systemImage: "arrow.clockwise", tint: OrionTheme.textSoft) {
+                    agenda.refresh()
+                }
+            }
         }
     }
 

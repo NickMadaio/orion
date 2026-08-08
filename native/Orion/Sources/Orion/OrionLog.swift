@@ -12,6 +12,11 @@ import ApplicationServices
 ///
 /// Writes to ~/.openclaw/logs/orion-app.log. Cheap, append-only, and the first
 /// thing to read when something is silent.
+///
+/// Not the only record. When Orion changes his own code, `orion-forge` keeps a
+/// separate append-only ledger at ~/.openclaw/orion-controlled/forge-ledger.jsonl
+/// with one row per attempt — applied, rejected or reverted, and why. This log
+/// says what the app did; that one says what the app BECAME.
 enum OrionLog {
 
     private static let path: String = {

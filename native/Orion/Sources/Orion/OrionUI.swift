@@ -57,6 +57,21 @@ enum OrionTheme {
     static let blue = Color(red: 0.36, green: 0.72, blue: 1.00)
     static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
 
+    /// A calendar's own colour, from `RRGGBB`.
+    ///
+    /// Falls back to the accent rather than to grey: an event with an
+    /// unreadable colour should still look like an event.
+    static func color(hex: String?) -> Color {
+        guard let hex, hex.count == 6, let value = Int(hex, radix: 16) else { return accent }
+        return Color(
+            .sRGB,
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255,
+            opacity: 1
+        )
+    }
+
     /// Section labels, chip values, every number.
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
         .system(size: size, weight: weight, design: .monospaced)

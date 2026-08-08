@@ -1,3 +1,4 @@
+import AppKit
 import EventKit
 import Foundation
 
@@ -44,10 +45,24 @@ struct AgendaEvent: Identifiable, Equatable {
     var isAllDay: Bool
     var calendarName: String
     /// The dot colour Calendar.app shows, so the agenda is recognisable.
+    ///
+    /// Was always nil — fetched as a hardcoded `nil` and then used to decide a
+    /// tint, which is why every block on the timeline was the same blue
+    /// regardless of which calendar it came from. Now real, which is most of
+    /// what makes a day legible at a glance: you know what a thing IS from its
+    /// colour before you read its name.
     var colorHex: String?
 
-    /// True when Orion created it, so it is safe to change.
+    /// True when Orion created it.
     var isOrionMade: Bool = false
+    /// Which calendar it lives on, so an editor can preselect it.
+    var calendarID: String = ""
+    /// Subscribed and birthday calendars refuse writes at the EventKit level.
+    /// A technical limit, not a policy — surfaced so the UI can explain rather
+    /// than fail on save.
+    var isReadOnly: Bool = false
+    /// Other people are on this. Saving sends them an update.
+    var hasAttendees: Bool = false
 
     var isPast: Bool { end < Date() }
     var isNow: Bool {
@@ -257,8 +272,11 @@ final class AppleCalendarSync: ObservableObject {
                     end: event.endDate,
                     isAllDay: event.isAllDay,
                     calendarName: event.calendar?.title ?? "",
-                    colorHex: nil,
-                    isOrionMade: created.contains(id)
+                    colorHex: AppleCalendarSync.hex(from: event.calendar?.cgColor),
+                    isOrionMade: created.contains(id),
+                    calendarID: event.calendar?.calendarIdentifier ?? "",
+                    isReadOnly: !(event.calendar?.allowsContentModifications ?? false),
+                    hasAttendees: (event.attendees?.count ?? 0) > 0
                 ))
             }
 
@@ -293,6 +311,22 @@ final class AppleCalendarSync: ObservableObject {
                 OrionLog.write(summary)
             }
         }
+    }
+
+    /// A calendar's colour as `RRGGBB`.
+    ///
+    /// Converted through sRGB rather than read straight off the CGColor:
+    /// calendar colours arrive in whatever space the account uses, and reading
+    /// raw components from a non-RGB space yields nonsense rather than an
+    /// error.
+    static func hex(from cgColor: CGColor?) -> String? {
+        guard let cgColor,
+              let converted = NSColor(cgColor: cgColor)?.usingColorSpace(.sRGB)
+        else { return nil }
+        let red = Int((converted.redComponent * 255).rounded())
+        let green = Int((converted.greenComponent * 255).rounded())
+        let blue = Int((converted.blueComponent * 255).rounded())
+        return String(format: "%02X%02X%02X", red, green, blue)
     }
 
     /// Google Calendar reaches macOS over CalDAV, so its source type is
@@ -363,14 +397,60 @@ final class AppleCalendarSync: ObservableObject {
         }
     }
 
-    /// Only what Orion made. See the header.
-    func canEdit(_ event: AgendaEvent) -> Bool { event.isOrionMade }
+    /// Anything on a writable calendar.
+    ///
+    /// This was deliberately narrowed to Orion's own events, and it was
+    /// widened deliberately too: the request was to edit the calendar, and it
+    /// is the user's calendar. What has NOT been widened is anything automatic
+    /// — every change here comes from a sheet the user opened and a button they
+    /// pressed, deletion asks twice because it cannot be undone, and an event
+    /// with other people on it says out loud that saving will notify them.
+    func canEdit(_ event: AgendaEvent) -> Bool { !event.isReadOnly }
+
+    /// Move, rename or re-time an existing event.
+    func update(
+        _ event: AgendaEvent,
+        title: String,
+        start: Date,
+        end: Date,
+        isAllDay: Bool,
+        calendar: EKCalendar? = nil
+    ) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canEdit(event), !trimmed.isEmpty,
+              let stored = store.event(withIdentifier: event.id)
+        else {
+            lastError = event.isReadOnly
+                ? "That calendar is read-only — subscribed and birthday calendars cannot be changed."
+                : "Could not find that event any more. Reload and try again."
+            return false
+        }
+
+        stored.title = trimmed
+        stored.isAllDay = isAllDay
+        stored.startDate = start
+        stored.endDate = max(end, start.addingTimeInterval(isAllDay ? 0 : 300))
+        if let calendar, calendar.allowsContentModifications { stored.calendar = calendar }
+
+        do {
+            // `.thisEvent` rather than `.futureEvents`: changing one occurrence
+            // of a repeating event should not silently rewrite the series.
+            try store.save(stored, span: .thisEvent, commit: true)
+            lastError = nil
+            OrionLog.write("[calendar] updated event on \(stored.calendar?.title ?? "?")")
+            refresh()
+            return true
+        } catch {
+            lastError = "Could not save: \(error.localizedDescription)"
+            return false
+        }
+    }
 
     func delete(_ event: AgendaEvent) {
         guard canEdit(event),
               let stored = store.event(withIdentifier: event.id)
         else {
-            lastError = "Orion only removes events it created."
+            lastError = "That calendar is read-only."
             return
         }
         do {

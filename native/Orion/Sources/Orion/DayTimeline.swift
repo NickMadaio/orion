@@ -106,17 +106,20 @@ struct DayTimeline: View {
                 .foregroundStyle(OrionTheme.textDim)
                 .frame(width: gutter - 12, alignment: .trailing)
             ForEach(allDay) { event in
+                let tint = OrionTheme.color(hex: event.colorHex)
                 Text(event.title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(OrionTheme.text)
                     .lineLimit(1)
-                    .padding(.horizontal, 9)
+                    .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(
-                        Capsule().fill(OrionTheme.accent.opacity(0.18))
-                            .overlay(Capsule().strokeBorder(OrionTheme.accent.opacity(0.35), lineWidth: 1))
+                        Capsule().fill(tint.opacity(0.32))
+                            .overlay(Capsule().strokeBorder(tint.opacity(0.6), lineWidth: 1))
                     )
+                    .contentShape(Capsule())
                     .onTapGesture { onSelect(event) }
+                    .help("\(event.title) — click to edit")
             }
             Spacer(minLength: 0)
         }
@@ -160,9 +163,9 @@ struct DayTimeline: View {
             ForEach(timed) { event in
                 let lane = lanes[event.id] ?? (0, 1)
                 let laneWidth = width / CGFloat(lane.total)
-                EventBlock(event: event, isNow: event.isNow)
-                    .frame(width: max(40, laneWidth - 4),
-                           height: max(20, height(for: event)))
+                let blockHeight = max(20, height(for: event))
+                EventBlock(event: event, isNow: event.isNow, height: blockHeight)
+                    .frame(width: max(40, laneWidth - 4), height: blockHeight)
                     .offset(x: gutter + CGFloat(lane.index) * laneWidth,
                             y: offset(for: event.start))
                     .onTapGesture { onSelect(event) }
@@ -253,26 +256,67 @@ struct DayTimeline: View {
     }
 }
 
+/// An event, made to read at a glance.
+///
+/// The previous version was a 15%-opacity wash of one hard-coded blue for every
+/// event on every calendar, with a title and nothing else. Three changes:
+///
+///   • THE CALENDAR'S OWN COLOUR. `colorHex` was being fetched as a literal nil
+///     and then used to pick a tint, so every block looked identical no matter
+///     which calendar it came from. Colour is how you know what a thing IS
+///     before you read its name.
+///   • ENOUGH FILL TO BE A BLOCK. A wash that faint over a translucent window
+///     reads as a smudge. It is a solid-enough shape with a saturated edge bar,
+///     which is what makes the day scannable.
+///   • DETAIL BY HEIGHT. A 15-minute block has room for a title; a two-hour one
+///     has room for the time range and the calendar. Rendering the same three
+///     lines in both means the short one clips and the tall one looks empty.
 private struct EventBlock: View {
     let event: AgendaEvent
     let isNow: Bool
+    /// Drives how much is shown. Not a style choice — it is what stops a short
+    /// event from clipping its own title.
+    let height: CGFloat
 
     @State private var hovering = false
 
+    private var tint: Color { OrionTheme.color(hex: event.colorHex) }
+    private var showsTime: Bool { height >= 34 }
+    private var showsCalendar: Bool { height >= 58 }
+
     var body: some View {
         HStack(alignment: .top, spacing: 7) {
-            Capsule()
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                 .fill(tint)
-                .frame(width: 2)
-            VStack(alignment: .leading, spacing: 1) {
+                .frame(width: 3)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(OrionTheme.text)
-                    .lineLimit(2)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(event.isPast ? OrionTheme.textSoft : OrionTheme.text)
+                    .strikethrough(false)
+                    .lineLimit(showsCalendar ? 2 : 1)
                     .multilineTextAlignment(.leading)
-                Text(event.start.formatted(date: .omitted, time: .shortened))
-                    .font(OrionTheme.mono(9))
-                    .foregroundStyle(OrionTheme.textDim)
+
+                if showsTime {
+                    Text(event.start.formatted(date: .omitted, time: .shortened)
+                         + " – " + event.end.formatted(date: .omitted, time: .shortened))
+                        .font(OrionTheme.mono(9))
+                        .foregroundStyle(OrionTheme.textSoft)
+                }
+                if showsCalendar {
+                    HStack(spacing: 5) {
+                        Text(event.calendarName)
+                            .font(OrionTheme.mono(9))
+                            .foregroundStyle(OrionTheme.textDim)
+                            .lineLimit(1)
+                        if event.hasAttendees {
+                            Image(systemName: "person.2.fill")
+                                .font(.system(size: 7))
+                                .foregroundStyle(OrionTheme.textDim)
+                        }
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
@@ -281,20 +325,25 @@ private struct EventBlock: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(tint.opacity(hovering ? 0.24 : 0.15))
+                .fill(tint.opacity(fill))
                 .overlay {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(tint.opacity(isNow ? 0.75 : 0.30), lineWidth: 1)
+                        .strokeBorder(tint.opacity(isNow ? 0.95 : 0.55), lineWidth: isNow ? 1.5 : 1)
                 }
+                .shadow(color: .black.opacity(0.35), radius: hovering ? 8 : 4, y: 2)
         }
+        // Past events fade rather than vanish: what you already did is context
+        // for what is left, and greying it out entirely loses the shape of the
+        // day behind you.
+        .opacity(event.isPast ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.14), value: hovering)
+        .help(event.isReadOnly ? "\(event.title) — read-only calendar" : "\(event.title) — click to edit")
     }
 
-    private var tint: Color {
-        if event.isPast { return OrionTheme.textDim }
-        if isNow { return OrionTheme.green }
-        return event.isOrionMade ? OrionTheme.violet : OrionTheme.accent
+    private var fill: Double {
+        if hovering { return 0.46 }
+        return isNow ? 0.42 : 0.30
     }
 }

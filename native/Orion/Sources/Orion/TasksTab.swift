@@ -32,7 +32,7 @@ struct TasksTab: View {
     @State private var dueDate = Date().addingTimeInterval(3600)
     @State private var wantsDueDate = false
     @State private var newPriority: TaskPriority = .none
-    @State private var composerStart: Date?
+    @State private var sheetMode: EventSheetMode?
     @State private var composerTitle = ""
 
     var body: some View {
@@ -47,12 +47,12 @@ struct TasksTab: View {
                 .frame(width: 430)
         }
         .sheet(isPresented: Binding(
-            get: { composerStart != nil },
-            set: { if !$0 { composerStart = nil; composerTitle = "" } }
+            get: { sheetMode != nil },
+            set: { if !$0 { sheetMode = nil; composerTitle = "" } }
         )) {
-            if let start = composerStart {
-                EventComposer(agenda: agenda, start: start, prefilledTitle: composerTitle) {
-                    composerStart = nil
+            if let mode = sheetMode {
+                EventComposer(agenda: agenda, mode: mode, prefilledTitle: composerTitle) {
+                    sheetMode = nil
                     composerTitle = ""
                 }
             }
@@ -123,7 +123,7 @@ struct TasksTab: View {
                             onProgress: { reminders.setProgress(task.id, $0) },
                             onSchedule: {
                                 composerTitle = task.title
-                                composerStart = task.dueDate ?? nextFreeHour()
+                                sheetMode = .create(start: task.dueDate ?? nextFreeHour())
                             }
                         )
                         if task.id != reminders.tasks.last?.id {
@@ -273,14 +273,14 @@ struct TasksTab: View {
                     events: agenda.events(on: agenda.selectedDate),
                     onCreate: { moment in
                         composerTitle = ""
-                        composerStart = moment
+                        sheetMode = .create(start: moment)
                     },
                     onSelect: { event in
-                        // Only Orion's own events are editable, so selecting a
-                        // meeting somebody else booked deliberately does
-                        // nothing rather than offering an action that fails.
-                        guard agenda.canEdit(event) else { return }
-                        agenda.delete(event)
+                        // Opens for everything, including read-only calendars —
+                        // the sheet explains why those cannot be changed rather
+                        // than the click doing nothing and looking broken.
+                        composerTitle = ""
+                        sheetMode = .edit(event)
                     }
                 )
             }

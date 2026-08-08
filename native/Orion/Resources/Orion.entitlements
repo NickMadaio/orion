@@ -29,6 +29,21 @@
   <true/>
 
   <!--
+    Contacts, so a phone number in a message can become a person's name.
+
+    Third time this trap is worth naming: under the hardened runtime the
+    Info.plist usage string alone is not enough. Without this, CNContactStore
+    reports .denied for a permission the user was never shown a prompt for.
+
+    Note what is NOT here and cannot be: Full Disk Access. Reading the Messages
+    database needs it, there is no entitlement that grants it, and no API that
+    requests it — it is granted by hand in System Settings and nowhere else.
+    See MessagesReader.
+  -->
+  <key>com.apple.security.personal-information.addressbook</key>
+  <true/>
+
+  <!--
     Orion shells out to the openclaw CLI for every agent turn. The hardened
     runtime restricts a signed process from loading or spawning code signed by
     a different authority without these.

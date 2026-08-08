@@ -11,10 +11,15 @@ struct SettingsTab: View {
     @Binding var surfaceBlur: Bool
     @ObservedObject var connections: ConnectionsModel
     @ObservedObject var agenda: AppleCalendarSync
+    /// Full Disk Access has no API, so its state is inferred from whether the
+    /// Messages database actually opened. See PermissionsAudit.
+    let messagesAccess: MessagesReader.Access
+    var onRecheck: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 54) {
             VStack(alignment: .leading, spacing: 36) {
+                permissions
                 surface
                 core
                 quickOpen
@@ -96,6 +101,66 @@ struct SettingsTab: View {
         default: return "Nearly solid — this is the old look."
         }
     }
+
+    // MARK: - Permissions
+
+    /// What Orion is allowed to do, and which of those it can ask for.
+    private var permissions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionRule(title: "Permissions", trailing: "\(grantedCount) of \(states.count)")
+
+            VStack(spacing: 0) {
+                ForEach(states) { permission in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(permission.tint)
+                                .frame(width: 6, height: 6)
+                            Text(permission.name)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(OrionTheme.text)
+                            Spacer(minLength: 8)
+                            Text(permission.label)
+                                .font(OrionTheme.mono(9))
+                                .foregroundStyle(permission.tint)
+                            Button { PermissionsAudit.open(permission.settingsURL) } label: {
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(OrionTheme.textDim)
+                                    .frame(width: 18, height: 18)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Text(permission.purpose)
+                            .font(OrionTheme.mono(9))
+                            .foregroundStyle(OrionTheme.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.leading, 16)
+                        // The distinction that matters: two of these macOS
+                        // will never let an app request.
+                        if !permission.requestable {
+                            Text("granted by hand only — no app can prompt for this")
+                                .font(OrionTheme.mono(9))
+                                .foregroundStyle(OrionTheme.orange.opacity(0.8))
+                                .padding(.leading, 16)
+                        }
+                    }
+                    .padding(.vertical, 9)
+                    if permission.id != states.last?.id {
+                        Rectangle().fill(OrionTheme.line).frame(height: 1)
+                    }
+                }
+            }
+
+            InlineAction(title: "Re-check", systemImage: "arrow.clockwise", tint: OrionTheme.textSoft) {
+                onRecheck()
+            }
+        }
+    }
+
+    private var states: [PermissionState] { PermissionsAudit.all(messages: messagesAccess) }
+    private var grantedCount: Int { states.filter { $0.status == .granted }.count }
 
     // MARK: - Calendars
 

@@ -49,6 +49,8 @@
 	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
 	<key>NSRemindersUsageDescription</key>
 	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Orion reads your contacts so a phone number in a message can be shown as the person's name. It only reads; it never adds, edits or sends anything to your contacts.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Orion turns what you say into text so it can answer you. Transcription runs on this Mac whenever your language supports it, so your speech stays local.</string>
 	<key>CFBundleIconFile</key>

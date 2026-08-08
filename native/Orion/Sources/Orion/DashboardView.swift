@@ -35,6 +35,8 @@ struct DashboardView: View {
     @StateObject private var whoop = WhoopClient()
     @StateObject private var health = HealthLog()
     @StateObject private var plaid = PlaidClient()
+    @StateObject private var contacts = ContactsClient()
+    @StateObject private var messages = MessagesReader()
     /// What day it is for a person — see OrionDay. Everything that buckets by
     /// day reads this rather than the civil date.
     @StateObject private var dayModel = DayModel()
@@ -143,6 +145,11 @@ struct DashboardView: View {
         agenda.start()
         whoop.start()
         health.start()
+        contacts.start()
+        // Handed the contact book so a thread reads as a person rather than a
+        // phone number.
+        messages.contacts = contacts
+        messages.start()
         // Plaid's flow lives in its own client; hand it to the model so Connect
         // can run it.
         connections.plaid = plaid
@@ -169,6 +176,7 @@ struct DashboardView: View {
         agenda.stop()
         whoop.stop()
         health.stop()
+        messages.stop()
     }
 
     // MARK: - Header
@@ -225,6 +233,12 @@ struct DashboardView: View {
                 StatChip(icon: "exclamationmark.triangle.fill",
                          value: "\(reminders.overdueCount) overdue",
                          tint: OrionTheme.red)
+            }
+            if messages.unreadTotal > 0 {
+                hairline
+                StatChip(icon: "bubble.left.fill",
+                         value: "\(messages.unreadTotal)",
+                         tint: OrionTheme.accent)
             }
             hairline
             StatChip(icon: state.gatewayUp ? "bolt.fill" : "bolt.slash.fill",
@@ -319,12 +333,16 @@ struct DashboardView: View {
             case .finance:
                 FinanceTab(connections: connections, plaid: plaid,
                            writer: financeWriter, day: dayModel.day)
+            case .messages:
+                MessagesTab(messages: messages, contacts: contacts)
             case .brand:
                 BrandTab(connections: connections)
             case .settings:
                 SettingsTab(coreStyle: $coreStyle, iconScale: $iconScale,
                             surfaceOpacity: $surfaceOpacity, surfaceBlur: $surfaceBlur,
-                            connections: connections, agenda: agenda)
+                            connections: connections, agenda: agenda,
+                            messagesAccess: messages.access,
+                            onRecheck: { messages.refresh() })
             }
         }
         // Content rises slightly as it arrives, which is what makes the tabs
@@ -411,7 +429,7 @@ private struct NavItem: View {
 // MARK: - Tabs
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case home, focus, health, finance, brand, settings
+    case home, focus, health, finance, messages, brand, settings
     var id: String { rawValue }
 
     /// Spelled out rather than derived from `rawValue`. The focus tab is a task
@@ -423,6 +441,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .focus: "Tasks"
         case .health: "Health"
         case .finance: "Finances"
+        case .messages: "Messages"
         case .brand: "Brand"
         case .settings: "Settings"
         }
@@ -438,6 +457,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .focus: "checklist"
         case .health: "heart"
         case .finance: "chart.line.uptrend.xyaxis"
+        case .messages: "bubble.left.and.bubble.right"
         case .brand: "megaphone"
         case .settings: "slider.horizontal.3"
         }

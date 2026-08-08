@@ -560,6 +560,30 @@ export const ACTION_CATALOG = {
      * asking Orion to rewrite himself, and `risk: "high"` is what routes this
      * action through it.
      */
+    self_source_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_source_listed",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_source", operation: "list" },
+    },
+    self_source_read: {
+        risk: "low",
+        requiredArguments: ["file"],
+        approvalRequired: false,
+        verification: "self_source_read",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_source", operation: "read" },
+        validateArguments: (arguments_) => typeof arguments_.file === "string" &&
+            /^[A-Za-z0-9_]+\.swift$/.test(arguments_.file)
+            ? []
+            : [
+                "file must be a bare Swift filename from self_source_list, such as HomeTab.swift",
+            ],
+    },
     self_modify: {
         risk: "high",
         requiredArguments: ["file", "find", "replace"],

@@ -240,6 +240,33 @@ cmd_revert() {
   return 0
 }
 
+# What Orion is allowed to edit.
+#
+# Without this the edit action is unusable rather than merely awkward: a
+# find/replace needs the exact existing text, and Orion cannot quote a file he
+# cannot open or name a file he cannot see. He asked "where is the source
+# code" — that was not confusion, it was a missing capability.
+cmd_list() {
+  local root
+  root="$(cd "$APP_SRC/$SOURCES" 2>/dev/null && pwd -P)" || { log "missing source root"; return 1 }
+  print -r -- "Editable Swift files (use the bare filename, no path):"
+  local file
+  for file in "$root"/*.swift(N); do
+    print -r -- "  ${file:t}  ($(wc -l < "$file" | tr -d " ") lines)"
+  done
+  return 0
+}
+
+cmd_read() {
+  local relative="${1:-}"
+  [[ -n "$relative" ]] || { log "usage: orion-forge read <filename.swift>"; return 2 }
+  local target
+  target="$(resolve_target "$relative")" || return 2
+  [[ -f "$target" ]] || { log "no such source file: $relative"; return 2 }
+  cat "$target"
+  return 0
+}
+
 cmd_status() {
   cd "$REPO" 2>/dev/null || return 2
   print -r -- "repo:      $REPO"
@@ -254,6 +281,8 @@ cmd_status() {
 }
 
 case "${1:-status}" in
+  list)   cmd_list ;;
+  read)   shift; cmd_read "$@" ;;
   edit)   shift; cmd_edit "$@" ;;
   apply)  shift; cmd_apply "$@" ;;
   revert) cmd_revert ;;

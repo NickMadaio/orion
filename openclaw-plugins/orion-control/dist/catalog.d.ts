@@ -105,6 +105,20 @@ export type ExecutionPolicy = {
  */
  | {
     kind: "self_modify";
+}
+/**
+ * Reading Orion's own source, so that editing it is possible at all.
+ *
+ * These are not a convenience. A find/replace edit needs the exact existing
+ * text, and Orion cannot quote a file he cannot open or name a file he cannot
+ * see — asked to change the UI, he answered that he did not know where the
+ * source was, which was true and was a missing capability rather than
+ * confusion. Read-only, so they sit at the ordinary read tier: this is code
+ * on the user's own disk, and hiding it from him buys nothing.
+ */
+ | {
+    kind: "self_source";
+    operation: "list" | "read";
 } | {
     kind: "app_control";
     operation: "open" | "quit";

@@ -1774,6 +1774,13 @@ export async function executeAction(
   if (definition.execution.kind === "self_modify") {
     return runSelfModify(step, idempotencyKey);
   }
+  if (definition.execution.kind === "self_source") {
+    return runSelfSource(
+      definition.execution.operation,
+      step,
+      idempotencyKey,
+    );
+  }
   if (definition.execution.kind === "app_control") {
     const application = step.arguments[definition.execution.applicationArgument];
     if (typeof application !== "string") {
@@ -2611,4 +2618,43 @@ async function runSelfModify(
     await rm(findPath, { force: true }).catch(() => {});
     await rm(replacePath, { force: true }).catch(() => {});
   }
+}
+
+
+/** Read-only companion to `runSelfModify` — see the `self_source` policy. */
+async function runSelfSource(
+  operation: "list" | "read",
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const script = path.join(os.homedir(), "Desktop/ORION/scripts/orion-forge");
+  const arguments_ =
+    operation === "list"
+      ? ["list"]
+      : ["read", String(step.arguments.file ?? "")];
+
+  const result = await new Promise<{ code: number; output: string }>(
+    (resolve) => {
+      const child = spawn(script, arguments_, {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      child.stdout?.on("data", (chunk) => (output += String(chunk)));
+      child.stderr?.on("data", (chunk) => (output += String(chunk)));
+      const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve({ code: code ?? 1, output: output.trim() });
+      });
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        resolve({ code: 1, output: String(error) });
+      });
+    },
+  );
+
+  if (result.code !== 0) {
+    throw new ActionExecutionError(result.output || "Could not read the source.");
+  }
+  return { mode: "observed", idempotencyKey, output: result.output };
 }

@@ -170,6 +170,17 @@ export type ExecutionPolicy =
    * report, with the previous bundle restored automatically if it does not).
    */
   | { kind: "self_modify" }
+  /**
+   * Reading Orion's own source, so that editing it is possible at all.
+   *
+   * These are not a convenience. A find/replace edit needs the exact existing
+   * text, and Orion cannot quote a file he cannot open or name a file he cannot
+   * see — asked to change the UI, he answered that he did not know where the
+   * source was, which was true and was a missing capability rather than
+   * confusion. Read-only, so they sit at the ordinary read tier: this is code
+   * on the user's own disk, and hiding it from him buys nothing.
+   */
+  | { kind: "self_source"; operation: "list" | "read" }
   | {
       kind: "app_control";
       operation: "open" | "quit";
@@ -962,6 +973,31 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
    * asking Orion to rewrite himself, and `risk: "high"` is what routes this
    * action through it.
    */
+  self_source_list: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "self_source_listed",
+    reversible: true,
+    capabilityTier: "desktop_read",
+    execution: { kind: "self_source", operation: "list" },
+  },
+  self_source_read: {
+    risk: "low",
+    requiredArguments: ["file"],
+    approvalRequired: false,
+    verification: "self_source_read",
+    reversible: true,
+    capabilityTier: "desktop_read",
+    execution: { kind: "self_source", operation: "read" },
+    validateArguments: (arguments_) =>
+      typeof arguments_.file === "string" &&
+      /^[A-Za-z0-9_]+\.swift$/.test(arguments_.file)
+        ? []
+        : [
+            "file must be a bare Swift filename from self_source_list, such as HomeTab.swift",
+          ],
+  },
   self_modify: {
     risk: "high",
     requiredArguments: ["file", "find", "replace"],

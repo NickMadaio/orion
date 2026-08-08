@@ -964,7 +964,7 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
    */
   self_modify: {
     risk: "high",
-    requiredArguments: ["file", "source"],
+    requiredArguments: ["file", "find", "replace"],
     approvalRequired: false,
     verification: "self_modify_applied",
     reversible: true,
@@ -973,14 +973,26 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     validateArguments: (arguments_) => {
       const problems: string[] = [];
       const file = arguments_.file;
-      const source = arguments_.source;
+      const find = arguments_.find;
+      const replace = arguments_.replace;
       if (typeof file !== "string" || !/^[A-Za-z0-9_]+\.swift$/.test(file)) {
         problems.push(
           "file must be a bare Swift filename inside the app target, such as HealthTab.swift",
         );
       }
-      if (typeof source !== "string" || source.trim().length < 20) {
-        problems.push("source must be the complete new contents of that file");
+      // A find/replace rather than whole-file contents, and that is not a
+      // convenience. Asking a small model to reproduce a two hundred line file
+      // verbatim is slow and one dropped brace away from destroying it; the
+      // first end-to-end attempt burned six and a half minutes without ever
+      // producing a call. A quoted fragment is a few hundred bytes and cannot
+      // truncate anything.
+      if (typeof find !== "string" || find.trim().length === 0) {
+        problems.push(
+          "find must be the exact existing text to replace, copied from the file including its whitespace, and must appear exactly once",
+        );
+      }
+      if (typeof replace !== "string") {
+        problems.push("replace must be the text to put in its place");
       }
       return problems;
     },

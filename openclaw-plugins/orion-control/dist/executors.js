@@ -1923,14 +1923,21 @@ export async function verifyAction(definition, step, execution, context) {
  */
 async function runSelfModify(step, idempotencyKey) {
     const file = String(step.arguments.file ?? "");
-    const source = String(step.arguments.source ?? "");
+    const find = String(step.arguments.find ?? "");
+    const replace = String(step.arguments.replace ?? "");
     const intent = String(step.arguments.message ?? "Orion changed his own code");
-    const scratch = path.join(os.tmpdir(), `orion-forge-${Date.now()}-${Math.random().toString(36).slice(2)}.swift`);
-    await writeFile(scratch, source, "utf8");
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const findPath = path.join(os.tmpdir(), `orion-forge-find-${stamp}.txt`);
+    const replacePath = path.join(os.tmpdir(), `orion-forge-replace-${stamp}.txt`);
+    // Written to files rather than passed as argv: a Swift fragment contains
+    // newlines, quotes and braces, and routing that through a command line is a
+    // quoting bug waiting to corrupt the very text being matched.
+    await writeFile(findPath, find, "utf8");
+    await writeFile(replacePath, replace, "utf8");
     const script = path.join(os.homedir(), "Desktop/ORION/scripts/orion-forge");
     try {
         const result = await new Promise((resolve) => {
-            const child = spawn(script, ["apply", file, scratch, intent], {
+            const child = spawn(script, ["edit", file, findPath, replacePath, intent], {
                 stdio: ["ignore", "pipe", "pipe"],
             });
             let output = "";
@@ -1955,6 +1962,7 @@ async function runSelfModify(step, idempotencyKey) {
         return { mode: "rebuilt", idempotencyKey, output: result.output };
     }
     finally {
-        await rm(scratch, { force: true }).catch(() => { });
+        await rm(findPath, { force: true }).catch(() => { });
+        await rm(replacePath, { force: true }).catch(() => { });
     }
 }

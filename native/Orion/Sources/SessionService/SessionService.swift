@@ -42,6 +42,14 @@ public protocol SessionEffectHandler: AnyObject {
     func stopClip() -> Bool
     func askAboutAbsence(seconds: TimeInterval, phaseIndex: Int) -> Bool
     func reportClockAnomaly(seconds: TimeInterval) -> Bool
+
+    /// Make the audio match the session's state.
+    ///
+    /// Declarative and idempotent rather than a pair of paused/resumed events,
+    /// so it can be called on every pass without tracking transitions. Pausing
+    /// something already paused is a no-op; the alternative is remembering the
+    /// last status somewhere and getting it wrong after a restart.
+    func setAudioPaused(_ paused: Bool)
 }
 
 /// A handler that does nothing and says it worked. The default until Gate 6
@@ -54,6 +62,7 @@ public final class NullEffectHandler: SessionEffectHandler {
     public func stopClip() -> Bool { true }
     public func askAboutAbsence(seconds: TimeInterval, phaseIndex: Int) -> Bool { true }
     public func reportClockAnomaly(seconds: TimeInterval) -> Bool { true }
+    public func setAudioPaused(_ paused: Bool) {}
 }
 
 // MARK: - What a caller gets back
@@ -101,7 +110,23 @@ public final class SessionService {
     /// from the socket genuinely do arrive concurrently.
     private let queue = DispatchQueue(label: "com.nickmadaio.orion.session")
 
-    private var timer: Timer?
+    /// The heartbeat runs on its own queue, NOT on the main run loop.
+    ///
+    /// It used to be a `Timer` on `RunLoop.main` in `.common`, copying the
+    /// pattern `ReminderService` uses. That pattern is right for work that has
+    /// to touch the UI and wrong for this: a heartbeat writes a file and
+    /// dispatches effects, none of which needs the main thread, and depending
+    /// on the main run loop means anything that blocks it — a modal sheet, a
+    /// long layout pass, a launch context where the run loop is not pumping —
+    /// silently stops the session's clock. That was not theoretical: a session
+    /// verified end to end ran its full five minutes without a single heartbeat
+    /// or phase announcement, because every main-run-loop timer in the process
+    /// was dead while the socket on its own thread kept answering.
+    ///
+    /// A dispatch timer cannot be starved that way. Its own queue, separate
+    /// from `queue`, so `tick()`'s `queue.sync` is not a deadlock.
+    private let timerQueue = DispatchQueue(label: "com.nickmadaio.orion.session.timer")
+    private var timer: DispatchSourceTimer?
 
     /// How often the liveness watermark is written.
     ///
@@ -125,7 +150,7 @@ public final class SessionService {
         self.effects = effects
     }
 
-    deinit { timer?.invalidate() }
+    deinit { timer?.cancel() }
 
     // MARK: Lifecycle
 
@@ -162,19 +187,22 @@ public final class SessionService {
     }
 
     public func stop() {
-        timer?.invalidate()
+        timer?.cancel()
         timer = nil
     }
 
     private func startTimer() {
-        timer?.invalidate()
-        // `.common` so the tick survives menu tracking and window drags, which
-        // is the lesson ReminderService already learned the hard way.
-        let timer = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
-            self?.tick()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        timer?.cancel()
+        let source = DispatchSource.makeTimerSource(queue: timerQueue)
+        // Leeway because nothing here is deadline-sensitive: the derivation is
+        // computed from timestamps, so a heartbeat arriving a second late costs
+        // nothing and letting the system coalesce wakeups costs less battery.
+        source.schedule(deadline: .now() + Self.heartbeatInterval,
+                        repeating: Self.heartbeatInterval,
+                        leeway: .seconds(2))
+        source.setEventHandler { [weak self] in self?.tick() }
+        source.resume()
+        timer = source
     }
 
     /// One heartbeat plus one reconciliation. Safe to call as often as anyone
@@ -267,9 +295,15 @@ public final class SessionService {
                 continue
             }
 
-            guard !reconciliation.effects.isEmpty else { return snapshot }
-
             let handler = effects ?? fallbackEffects
+
+            // Audio follows the session's state on every pass, whether or not
+            // there are effects to dispatch — a pause produces no effect, and
+            // the clip still has to stop.
+            handler.setAudioPaused(reconciliation.status == .paused
+                                   || reconciliation.status.isOver)
+
+            guard !reconciliation.effects.isEmpty else { return snapshot }
             var acknowledged: [EffectID] = []
 
             for effect in reconciliation.effects {

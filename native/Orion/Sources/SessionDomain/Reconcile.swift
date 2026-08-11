@@ -353,11 +353,31 @@ public enum SessionReconciler {
             effects.append(.stopClip(
                 id: EffectID(session: session, kind: EffectKindName.clipStop)
             ))
-            if reason == .early {
+            // Say something when it ends.
+            //
+            // This used to fire only for `.early`, on the reasoning that
+            // `.readyToComplete` already announced completion. It does not, in
+            // practice: the service turns `readyToComplete` into the terminal
+            // event on the very same pass, so that announcement never survives
+            // long enough to be dispatched and a finished session ended in
+            // silence. Both branches share one effect id, so whichever state
+            // the announcement is actually reached in, it happens exactly once.
+            //
+            // Nothing is said for `.abandoned`. He walked away or gave up, and
+            // a summary is the last thing wanted.
+            switch reason {
+            case .completed:
+                effects.append(.announce(
+                    id: EffectID(session: session, kind: EffectKindName.finishAnnounce),
+                    .sessionComplete(focusMinutes: Int((walk.servedFocus / 60).rounded()))
+                ))
+            case .early:
                 effects.append(.announce(
                     id: EffectID(session: session, kind: EffectKindName.finishAnnounce),
                     .sessionEndedEarly(focusMinutes: Int((walk.servedFocus / 60).rounded()))
                 ))
+            case .abandoned:
+                break
             }
 
             // Exactly one history record per session, ever. The id has no phase

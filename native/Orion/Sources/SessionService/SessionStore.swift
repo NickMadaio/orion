@@ -141,7 +141,18 @@ public final class SessionStore {
         let scratch = url.deletingLastPathComponent()
             .appendingPathComponent(".focus-state.\(UUID().uuidString).tmp")
 
-        try data.write(to: scratch, options: [.atomic, .completeFileProtection])
+        // NOT `.completeFileProtection`. It looks like a free extra safeguard
+        // and it is not: it applies a data-protection class that can make the
+        // file unreadable to any process other than the one that wrote it. This
+        // file exists to be read by other things — a script, a backup, Nick
+        // opening it when something has gone wrong — so that is a bug, and it
+        // is a quiet one, because in the home directory it happens to work and
+        // it only fails once the path moves. It cost an afternoon exactly that
+        // way: `cat` on the state file returned "Operation not permitted" for a
+        // 0600 file the user owned.
+        //
+        // 0600 is the actual requirement, and it is set explicitly below.
+        try data.write(to: scratch, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600],
                                               ofItemAtPath: scratch.path)
 

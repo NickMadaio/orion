@@ -44,6 +44,11 @@ final class RecordingEffects: SessionEffectHandler {
         guard !failEverything else { return false }
         anomalies.append(seconds); return true
     }
+
+    /// Not a failable effect — it is a statement about how things should be, so
+    /// it is recorded rather than acknowledged.
+    private(set) var audioPaused = false
+    func setAudioPaused(_ paused: Bool) { audioPaused = paused }
 }
 
 final class ServiceTests: XCTestCase {
@@ -189,6 +194,41 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(records[0].reason, .completed)
         XCTAssertEqual(records[0].completedFocusBlocks, 2)
         XCTAssertEqual(records[0].dayKey, "2026-03-02")
+        service.stop()
+    }
+
+    /// A session that runs its full length must say so.
+    ///
+    /// It did not, for a while: the completion line was only emitted in the
+    /// transient `readyToComplete` state, which the pump turns into the terminal
+    /// event on the same pass, so a finished session ended in silence.
+    func testAFinishedSessionAnnouncesThatItIsDone() {
+        let service = makeService()
+        service.start()
+        service.send(command(.start(plan: plan()), "r1"))
+
+        advance(300, on: service)
+
+        let spoken = effects.announcements.compactMap { announcement -> Int? in
+            if case .sessionComplete(let minutes) = announcement { return minutes }
+            return nil
+        }
+        XCTAssertEqual(spoken.count, 1, "exactly one completion line, and not zero")
+        XCTAssertEqual(spoken.first, 4, "four minutes of focus in a 2/1/2 plan")
+        service.stop()
+    }
+
+    func testAnAbandonedSessionIsNotCongratulated() {
+        let service = makeService()
+        service.start()
+        service.send(command(.start(plan: plan()), "r1"))
+        advance(30, on: service)
+        effects.announcements.removeAll()
+
+        service.send(command(.abandon, "r2"))
+
+        XCTAssertTrue(effects.announcements.isEmpty,
+                      "he gave up; a summary is the last thing wanted")
         service.stop()
     }
 

@@ -173,7 +173,16 @@ final class AppState: ObservableObject {
     /// talk to. Owned here because AppState owns and wires; the engine logic
     /// lives in SessionDomain and the I/O in SessionService, and neither is
     /// reachable except through this one object.
-    let session = SessionService()
+    /// The clip library and player, and the object that carries out whatever
+    /// `reconcile` asks for. Announcements go to the log until Gate 6 routes
+    /// them through Orion's real voice — recorded honestly, just not spoken.
+    private let clipPlayer = ClipPlayer()
+    private lazy var sessionEffects = SessionEffects(
+        clips: clipPlayer,
+        speak: { _ in true },
+        log: { OrionLog.write($0) }
+    )
+    private(set) lazy var session = SessionService(effects: sessionEffects)
     private lazy var sessionIPC = SessionIPC(service: session)
     private let speakerVerifier = SpeakerVerifier()
 
@@ -493,6 +502,7 @@ final class AppState: ObservableObject {
         // reports that Orion is not running rather than hanging on a dead path.
         sessionIPC.stop()
         session.stop()
+        clipPlayer.stop()
     }
 
     /// Bring the session up and open its command socket.
@@ -510,6 +520,18 @@ final class AppState: ObservableObject {
                            + "phase \(now.phaseIndex), \(Int(now.servedInPhase))s served")
         } else {
             OrionLog.write("[session] no session running")
+        }
+
+        clipPlayer.onLog = { OrionLog.write($0) }
+        clipPlayer.onFailure = { OrionLog.write("[clip] \($0)") }
+
+        let inventory = ClipLibrary().inventory()
+        if let explanation = inventory.explanation {
+            // Never a silent empty. If there is nothing to play, say why.
+            OrionLog.write("[clip] \(explanation)")
+        } else {
+            OrionLog.write("[clip] \(inventory.clips.count) clip(s): "
+                           + inventory.clips.map(\.name).joined(separator: ", "))
         }
 
         sessionIPC.onLog = { OrionLog.write($0) }

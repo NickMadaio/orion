@@ -177,9 +177,17 @@ final class AppState: ObservableObject {
     /// `reconcile` asks for. Announcements go to the log until Gate 6 routes
     /// them through Orion's real voice — recorded honestly, just not spoken.
     private let clipPlayer = ClipPlayer()
+
+    /// Ducks the clip while Orion talks. Only the clip — never system volume.
+    private lazy var audioCoordinator = AudioCoordinator(
+        clips: clipPlayer,
+        setClipVolume: { [weak self] value in self?.clipPlayer.volume = value },
+        currentClipVolume: { [weak self] in self?.clipPlayer.volume ?? 0 }
+    )
+
     private lazy var sessionEffects = SessionEffects(
         clips: clipPlayer,
-        speak: { _ in true },
+        speak: { [weak self] line in self?.speakSession(line) ?? false },
         log: { OrionLog.write($0) }
     )
     private(set) lazy var session = SessionService(effects: sessionEffects)
@@ -510,6 +518,7 @@ final class AppState: ObservableObject {
         // reports that Orion is not running rather than hanging on a dead path.
         sessionIPC.stop()
         session.stop()
+        audioCoordinator.reset()
         clipPlayer.stop()
     }
 
@@ -520,7 +529,41 @@ final class AppState: ObservableObject {
     /// talks over Orion's real one is worse than one that is plainly not
     /// connected yet.
     private func speakEnforcement(_ line: String) {
-        OrionLog.write("[focus] would say: \(line)")
+        _ = speakSession(line)
+    }
+
+    /// Session and enforcement speech, through Orion's real voice.
+    ///
+    /// Replaces `/usr/bin/say`, which the earlier focus script used. Two reasons
+    /// that matters beyond it sounding right: `say` is a second, uncoordinated
+    /// audio source that talks over Orion's actual replies, and it bypasses
+    /// every barge-in and stall watchdog `SpeechOutput` already has.
+    ///
+    /// Returns whether it was handed off. False leaves the effect unacknowledged
+    /// so it is retried rather than silently lost — which is the whole reason
+    /// `SessionEffectHandler` returns a Bool.
+    @discardableResult
+    private func speakSession(_ line: String) -> Bool {
+        guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
+        OrionLog.write("[session] speaking: \(line)")
+
+        // Duck the clip for the sentence, and come back up after. Reference
+        // counted, so overlapping lines do not restore over each other.
+        audioCoordinator.beginSpeaking()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.speechOutput.speak(line)
+        }
+        // The clip comes back up when speech finishes. `SpeechOutput.onFinished`
+        // is already wired for the conversational path, so a timed release is
+        // used here rather than competing for that callback — a fixed estimate
+        // is honest about being an estimate, and the worst case is the bed
+        // staying quiet a moment too long rather than talking over him.
+        let estimate = min(8.0, 1.0 + Double(line.count) / 14.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + estimate) { [weak self] in
+            self?.audioCoordinator.endSpeaking()
+        }
+        return true
     }
 
     /// Bring the session up and open its command socket.

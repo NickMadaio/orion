@@ -38,10 +38,15 @@ public struct SessionRequest: Codable, Sendable {
     public let restMinutes: Double?
     public let clips: [String]?
     public let minutes: Double?
+    /// Bundle identifiers Nick has confirmed for `arm`.
+    public let allow: [String]?
+    /// "gentle" or "firm".
+    public let level: String?
 
     public init(op: String, requestId: String? = nil, task: String? = nil,
                 focusBlocks: Int? = nil, focusMinutes: Double? = nil,
-                restMinutes: Double? = nil, clips: [String]? = nil, minutes: Double? = nil) {
+                restMinutes: Double? = nil, clips: [String]? = nil, minutes: Double? = nil,
+                allow: [String]? = nil, level: String? = nil) {
         self.op = op
         self.requestId = requestId
         self.task = task
@@ -50,6 +55,8 @@ public struct SessionRequest: Codable, Sendable {
         self.restMinutes = restMinutes
         self.clips = clips
         self.minutes = minutes
+        self.allow = allow
+        self.level = level
     }
 }
 
@@ -79,6 +86,15 @@ public struct SessionResponse: Codable, Sendable {
     /// Set when the state file could not be read. Distinct from "no session",
     /// which is `status: "none"`.
     public var unreadable: String?
+
+    /// Enforcement, when it is running.
+    public var enforcement: String?
+    /// Apps proposed by `preflight`, for Nick to confirm.
+    public var proposedApps: [String]?
+    public var proposedBundleIDs: [String]?
+    /// Set when a sensor cannot be read, so the UI never implies cover it does
+    /// not have.
+    public var sensorsUnavailable: String?
 
     public init(ok: Bool) { self.ok = ok }
 
@@ -148,6 +164,11 @@ public final class SessionIPC {
     }
 
     private let service: SessionService
+
+    /// Optional so the socket can be tested without sensors. When absent, the
+    /// enforcement commands say so rather than pretending to work.
+    private let enforcer: Enforcer?
+
     private let socketURL: URL
     private var listener: Int32 = -1
     private var thread: Thread?
@@ -156,8 +177,9 @@ public final class SessionIPC {
     /// Where a stale socket file is reported. The app logs it; tests read it.
     public var onLog: ((String) -> Void)?
 
-    public init(service: SessionService, socketURL: URL? = nil) {
+    public init(service: SessionService, enforcer: Enforcer? = nil, socketURL: URL? = nil) {
         self.service = service
+        self.enforcer = enforcer
         if let socketURL {
             self.socketURL = socketURL
         } else if let override = ProcessInfo.processInfo.environment["ORION_SESSION_SOCKET"],
@@ -363,7 +385,51 @@ public final class SessionIPC {
     private func handle(_ request: SessionRequest) -> SessionResponse {
         // Status asks nothing of the writer, so it needs no request id.
         if request.op == "status" {
-            return SessionWire.describe(service.snapshot())
+            var response = SessionWire.describe(service.snapshot())
+            annotate(&response)
+            return response
+        }
+
+        // The escape. Deliberately BEFORE the request-id check and before any
+        // session lookup: it must work in every state of the world, including
+        // with no session, a corrupt state file, and a client that forgot to
+        // generate an id. There is no condition under which Nick is told he
+        // cannot get out.
+        if request.op == "release" {
+            guard let enforcer else {
+                return .failure("enforcement is not running, so there is nothing to release")
+            }
+            enforcer.release()
+            var response = SessionWire.describe(service.snapshot())
+            annotate(&response)
+            return response
+        }
+
+        if request.op == "preflight" {
+            guard let enforcer else { return .failure("enforcement is not available") }
+            let (list, apps) = enforcer.preflight(forTask: request.task ?? "")
+            var response = SessionWire.describe(service.snapshot())
+            // Both arrays come from ONE ordered list, so index i is the same app
+            // in each. Never sort these separately.
+            response.proposedApps = apps.map(\.name)
+            response.proposedBundleIDs = apps.map(\.bundleID)
+            _ = list
+            annotate(&response)
+            return response
+        }
+
+        if request.op == "arm" {
+            guard let enforcer else { return .failure("enforcement is not available") }
+            guard let allow = request.allow, !allow.isEmpty else {
+                return .failure("arming needs the list of apps you are confirming — "
+                              + "run preflight first")
+            }
+            let level: EnforcementLevel = (request.level == "firm") ? .firm : .gentle
+            enforcer.arm(Allowlist(bundleIDs: Set(allow)),
+                         policy: level == .firm ? .firm : .gentle)
+            var response = SessionWire.describe(service.snapshot())
+            annotate(&response)
+            return response
         }
 
         guard let requestId = request.requestId, !requestId.isEmpty else {
@@ -416,6 +482,25 @@ public final class SessionIPC {
             response.error = outcome.rejection?.message ?? "that command did not apply"
         }
         return response
+    }
+
+    /// Add enforcement and sensor state to any reply.
+    ///
+    /// Sensor unavailability is reported on EVERY response rather than only
+    /// when asked, because a UI that shows enforcement as on while a sensor is
+    /// dark is claiming cover it does not have.
+    private func annotate(_ response: inout SessionResponse) {
+        guard let enforcer else { return }
+        if enforcer.isReleased {
+            response.enforcement = "released"
+        } else if !enforcer.isArmed {
+            response.enforcement = "off"
+        } else if enforcer.hasDisengaged {
+            response.enforcement = "disengaged"
+        } else {
+            response.enforcement = enforcer.policy.level.rawValue
+        }
+        response.sensorsUnavailable = enforcer.sensorDisclosure
     }
 
     private func errnoText() -> String {

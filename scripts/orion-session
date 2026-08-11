@@ -24,6 +24,15 @@
    orion-session finish               done, archived as a success
    orion-session abandon              gave up, archived as abandoned
 
+   orion-session preflight            the apps Orion would allow — CONFIRM FIRST
+   orion-session arm [--level firm] --allow com.a,com.b
+   orion-session release              stop enforcement, unconditionally
+
+ `release` is the escape hatch and it is deliberately the simplest command
+ here: no request id, no session required, no model, no gateway. If Orion is
+ running it works, and if Orion is not running then enforcement is not running
+ either. There is no state of the world in which you are stuck inside it.
+
  Add --json for the raw reply.
 
  A caution worth keeping in mind: ENFORCEMENT DOES NOT RUN WHILE THE APP IS
@@ -117,7 +126,29 @@ function duration(seconds) {
   return `${Math.round(seconds / 60)}m`;
 }
 
+function enforcementLine(reply) {
+  if (!reply.enforcement || reply.enforcement === "off") return "";
+  const words = {
+    gentle: "enforcement: gentle",
+    firm: "enforcement: firm",
+    released: "enforcement: released — Orion will not mention drift again",
+    disengaged: "enforcement: stopped after too many nudges",
+  };
+  let line = `\n  ${words[reply.enforcement] ?? reply.enforcement}`;
+  // Never let the UI imply cover it does not have.
+  if (reply.sensorsUnavailable) line += `\n  ${reply.sensorsUnavailable}`;
+  return line;
+}
+
 function describe(reply) {
+  if (reply.proposedApps) {
+    return (
+      "These are running now. Confirm the ones that count as working:\n" +
+      reply.proposedApps.map((n, i) => `  ${n}  (${reply.proposedBundleIDs[i] ?? "?"})`).join("\n") +
+      "\n\nThen: orion-session arm --level firm --allow " +
+      (reply.proposedBundleIDs ?? []).slice(0, 3).join(",")
+    );
+  }
   if (reply.unreadable) {
     // Distinct from "nothing running", loudly. A session that vanishes with
     // nothing said is this project's worst failure mode.
@@ -139,7 +170,8 @@ function describe(reply) {
         `\n  task: ${reply.task}` +
         `\n  focus served today in this session: ${duration(reply.servedFocusSeconds)}` +
         (reply.uncountedSeconds > 60 ? `\n  not counted: ${duration(reply.uncountedSeconds)}` : "") +
-        (reply.approximate ? "\n  (approximate — the clock moved during this session)" : "")
+        (reply.approximate ? "\n  (approximate — the clock moved during this session)" : "") +
+        enforcementLine(reply)
       );
     }
     case "paused":
@@ -188,6 +220,24 @@ async function main() {
       request.minutes = value;
       break;
     }
+
+    case "preflight":
+      delete request.requestId;
+      request.task = rest[0] && !rest[0].startsWith("--") ? rest[0] : "";
+      break;
+
+    case "arm": {
+      const allow = flag("allow", "");
+      if (!allow) fail("arm needs --allow with the bundle ids you are confirming");
+      request.allow = allow.split(",").map((id) => id.trim()).filter(Boolean);
+      request.level = flag("level", "gentle");
+      break;
+    }
+
+    case "release":
+      // No request id on purpose. The escape must never fail a validation.
+      delete request.requestId;
+      break;
 
     case "pause":
     case "resume":

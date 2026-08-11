@@ -183,7 +183,15 @@ final class AppState: ObservableObject {
         log: { OrionLog.write($0) }
     )
     private(set) lazy var session = SessionService(effects: sessionEffects)
-    private lazy var sessionIPC = SessionIPC(service: session)
+
+    /// Drift enforcement. Off until Nick confirms an allowlist — the model
+    /// proposes, he authorizes. Reachable from the socket so the escape works
+    /// without the gateway, the local model, or the UI being up.
+    private(set) lazy var enforcer = Enforcer(
+        speak: { [weak self] line in self?.speakEnforcement(line) },
+        log: { OrionLog.write($0) }
+    )
+    private lazy var sessionIPC = SessionIPC(service: session, enforcer: enforcer)
     private let speakerVerifier = SpeakerVerifier()
 
     /// Rolling mono window of what the microphone has heard, for verification.
@@ -505,6 +513,16 @@ final class AppState: ObservableObject {
         clipPlayer.stop()
     }
 
+    /// What enforcement says out loud.
+    ///
+    /// Routed through `speak(...)` in Gate 6. Until then it is written to the
+    /// log rather than sent to `/usr/bin/say`, because a half-wired voice that
+    /// talks over Orion's real one is worse than one that is plainly not
+    /// connected yet.
+    private func speakEnforcement(_ line: String) {
+        OrionLog.write("[focus] would say: \(line)")
+    }
+
     /// Bring the session up and open its command socket.
     ///
     /// `start()` first: it records that the process started, which is what makes
@@ -532,6 +550,20 @@ final class AppState: ObservableObject {
         } else {
             OrionLog.write("[clip] \(inventory.clips.count) clip(s): "
                            + inventory.clips.map(\.name).joined(separator: ", "))
+        }
+
+        // Enforcement is evaluated on every session change, which includes the
+        // heartbeat — so it runs on the same dispatch timer and inherits its
+        // independence from the main run loop.
+        session.onChange = { [weak self] snapshot in
+            guard let self else { return }
+            let focusing: Bool
+            if case .running(let kind) = snapshot.reconciliation?.status, kind.isFocus {
+                focusing = true
+            } else {
+                focusing = false
+            }
+            self.enforcer.evaluate(sessionIsFocusing: focusing)
         }
 
         sessionIPC.onLog = { OrionLog.write($0) }

@@ -200,6 +200,11 @@ final class AppState: ObservableObject {
         log: { OrionLog.write($0) }
     )
     private lazy var sessionIPC = SessionIPC(service: session, enforcer: enforcer)
+
+    /// What the Session tab reads. Held here because AppState owns and wires.
+    private(set) lazy var sessionTabModel = SessionTabModel(
+        service: session, library: ClipLibrary(), enforcer: enforcer, effects: sessionEffects
+    )
     private let speakerVerifier = SpeakerVerifier()
 
     /// Rolling mono window of what the microphone has heard, for verification.
@@ -607,6 +612,7 @@ final class AppState: ObservableObject {
                 focusing = false
             }
             self.enforcer.evaluate(sessionIsFocusing: focusing)
+            self.sessionTabModel.adopt(snapshot)
         }
 
         sessionIPC.onLog = { OrionLog.write($0) }

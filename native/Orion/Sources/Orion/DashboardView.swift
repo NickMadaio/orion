@@ -329,7 +329,9 @@ struct DashboardView: View {
                         availableHeight: availableHeight,
                         onAddApp: { quickOpenAppPickerVisible = true },
                         onManage: { quickOpenEditorVisible = true })
-            case .focus:
+            case .session:
+                SessionTab(model: state.sessionTabModel)
+            case .tasks:
                 TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
                          energyTitle: energyTitle, availableHeight: availableHeight)
@@ -436,16 +438,21 @@ private struct NavItem: View {
 // MARK: - Tabs
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case home, focus, health, finance, messages, brand, settings
+    case home, tasks, session, health, finance, messages, brand, settings
     var id: String { rawValue }
 
-    /// Spelled out rather than derived from `rawValue`. The focus tab is a task
-    /// list backed by Apple Reminders now, and "Focus" described the thing it
-    /// used to be — a scratch list that lived and died in this window.
+    /// Spelled out rather than derived from `rawValue`.
+    ///
+    /// The case used to be called `focus` while rendering a task list, which was
+    /// a leftover from when it was a scratch list that lived and died in this
+    /// window. It is `tasks` now, and `session` is the actual focus session —
+    /// keeping the old name would have meant two different things called focus
+    /// sitting next to each other in the same enum.
     var title: String {
         switch self {
         case .home: "Home"
-        case .focus: "Tasks"
+        case .tasks: "Tasks"
+        case .session: "Session"
         case .health: "Health"
         case .finance: "Finances"
         case .messages: "Messages"
@@ -461,7 +468,8 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: "circle.hexagongrid"
-        case .focus: "checklist"
+        case .tasks: "checklist"
+        case .session: "timer"
         case .health: "heart"
         case .finance: "chart.line.uptrend.xyaxis"
         case .messages: "bubble.left.and.bubble.right"

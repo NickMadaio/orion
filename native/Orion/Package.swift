@@ -72,6 +72,14 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ]
+        ),
+        .testTarget(
+            name: "SessionServiceTests",
+            dependencies: ["SessionService", "SessionDomain"],
+            path: "Tests/SessionServiceTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         )
     ]
 )

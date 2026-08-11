@@ -1,6 +1,10 @@
 #!/bin/bash
 #
-# The pure session domain's tests — the suite that runs constantly.
+# The SwiftPM test suites — the ones that run constantly.
+#
+# Covers SessionDomain (pure: reducer, reconcile, clocks) and SessionService
+# (the store, the history journal, the single writer). Named for the domain
+# because that is what it started as and what most of it still is.
 #
 # Why this wrapper exists rather than just typing `swift test`:
 #
@@ -14,7 +18,7 @@
 # If Xcode is ever moved or removed, this fails with a clear message rather
 # than the confusing missing-module error.
 #
-#   ./Tests/run-domain-test.sh              all domain tests
+#   ./Tests/run-domain-test.sh              everything
 #   ./Tests/run-domain-test.sh --filter Clocks
 #
 # Note the OTHER harnesses in this directory — LayoutHarness, RaceHarness,

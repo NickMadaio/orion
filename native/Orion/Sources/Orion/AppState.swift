@@ -201,6 +201,9 @@ final class AppState: ObservableObject {
     )
     private lazy var sessionIPC = SessionIPC(service: session, enforcer: enforcer)
 
+    /// The keyboard-first Console. ⌥Tab by default.
+    private(set) lazy var console = ConsoleController(service: session, enforcer: enforcer)
+
     /// The small window that appears during a break.
     private let breakSurface = BreakSurface()
 
@@ -524,6 +527,7 @@ final class AppState: ObservableObject {
         speechOutput.stop(reason: "app shutting down")
         // Removes the socket file, so a client started after this correctly
         // reports that Orion is not running rather than hanging on a dead path.
+        console.teardown()
         sessionIPC.stop()
         session.stop()
         audioCoordinator.reset()
@@ -667,6 +671,9 @@ final class AppState: ObservableObject {
             self.sessionTabModel.adopt(snapshot)
             self.updateBreakSurface(snapshot)
         }
+
+        console.onLog = { OrionLog.write($0) }
+        console.install()
 
         sessionIPC.onLog = { OrionLog.write($0) }
         if !sessionIPC.start() {

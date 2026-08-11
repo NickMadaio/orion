@@ -130,4 +130,15 @@ public final class StubMonotonicClock: MonotonicClock, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         current += interval
     }
+
+    /// The machine rebooted, so the origin moved.
+    ///
+    /// The only legitimate way this value goes down, and named for the thing
+    /// that causes it so a test cannot use it as a convenient way to rewind.
+    /// After a reboot, uptimes from before are not comparable to uptimes after —
+    /// which is exactly the condition `ClockStamp.sharesBoot` exists to detect.
+    public func reset(to uptime: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
+        current = uptime
+    }
 }

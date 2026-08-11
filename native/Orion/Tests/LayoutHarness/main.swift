@@ -192,6 +192,48 @@ MainActor.assumeIsolated {
     }
     print("")
 
+    // MARK: The break surface
+
+    /*
+     Does the break window actually appear, and does it go away again?
+
+     Worth measuring rather than trusting, because the panel is the one piece of
+     this feature that cannot be reached from a unit test — it needs a real
+     window server — and because it is easy to break invisibly: a wrong level, a
+     zero frame, or an early return leaves a window that exists and is never
+     seen. Both sizes are exercised, since full-bleed is a separate code path.
+
+     It genuinely puts a window on screen for a few milliseconds and takes it
+     away. That is the test.
+    */
+    print("== break surface ==")
+    for fullBleed in [false, true] {
+        let surface = BreakSurface()
+        surface.isFullBleed = fullBleed
+        let label = fullBleed ? "full screen" : "small"
+
+        surface.show(prompt: "Stand up.", minutesRemaining: 5)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+        if surface.isVisible {
+            print("   ok   \(label) surface appears")
+        } else {
+            print("   FAIL \(label) surface did not appear")
+            failures.append("\(label) break surface never became visible")
+        }
+
+        surface.dismiss()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+        if surface.isVisible {
+            print("   FAIL \(label) surface would not go away")
+            failures.append("\(label) break surface stayed visible after dismiss")
+        } else {
+            print("   ok   \(label) surface dismisses")
+        }
+    }
+    print("")
+
     guard failures.isEmpty else {
         for failure in failures { print("FAIL: \(failure)") }
         exit(1)

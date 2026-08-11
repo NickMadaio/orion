@@ -55,5 +55,7 @@
 	<string>Orion turns what you say into text so it can answer you. Transcription runs on this Mac whenever your language supports it, so your speech stays local.</string>
 	<key>CFBundleIconFile</key>
 	<string>Orion.icns</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Orion can check whether you are at your desk during a focus session. It takes one frame every 90 seconds, turns it into a single number, and discards it — nothing is saved or sent. The green camera light will be on whenever it looks. This is off unless you turn it on.</string>
 </dict>
 </plist>

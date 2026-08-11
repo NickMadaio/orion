@@ -21,6 +21,24 @@ import Foundation
 
 // MARK: - Levels
 
+/// Which direction enforcement points.
+///
+/// The normal one keeps him ON the work. The reverse keeps him OFF it, during a
+/// break or an evening he said he wanted to protect — and it is genuinely the
+/// harder of the two to justify, because "stop working" is advice somebody can
+/// resent even when they asked for it. So it is the same machinery, the same
+/// escalation cap, and the same unconditional escape. The only thing that
+/// inverts is what counts as drift.
+public enum EnforcementDirection: String, Codable, Sendable, CaseIterable {
+    /// Drift = being somewhere that is NOT on the list.
+    case keepOnTask
+    /// Drift = being somewhere that IS on the list. The list becomes the set of
+    /// things he asked to be kept away from.
+    case keepAway
+
+    public var isReverse: Bool { self == .keepAway }
+}
+
 public enum EnforcementLevel: String, Codable, Sendable, CaseIterable {
     /// Say something once when he drifts, then leave him alone.
     case gentle
@@ -88,12 +106,21 @@ public struct Allowlist: Codable, Equatable, Sendable {
         Allowlist(bundleIDs: bundleIDs, confirmed: true)
     }
 
-    public func allows(_ bundleID: String?) -> Bool {
-        // Unreadable frontmost app is NOT a violation. Failing closed here would
-        // mean nagging him because a permission check glitched.
+    public func allows(_ bundleID: String?,
+                       direction: EnforcementDirection = .keepOnTask) -> Bool {
+        // Unreadable frontmost app is NOT a violation, in either direction.
+        // Failing closed here would mean nagging him because a permission check
+        // glitched, which is the fastest way to make somebody turn the feature
+        // off entirely.
         guard let bundleID else { return true }
+
+        // The never-a-distraction set holds in both directions. Reverse lockdown
+        // must not lock him out of his password manager either.
         if Self.alwaysAllowed.contains(bundleID) { return true }
-        return bundleIDs.contains(bundleID)
+
+        return direction.isReverse
+            ? !bundleIDs.contains(bundleID)   // on the list means keep away
+            : bundleIDs.contains(bundleID)
     }
 }
 
@@ -138,11 +165,16 @@ public struct EnforcementPolicy: Equatable, Sendable {
     /// feature off.
     public let disengageAfter: Int
 
+    /// Which way enforcement points. Normal unless Nick asked for the reverse.
+    public let direction: EnforcementDirection
+
     public init(level: EnforcementLevel = .gentle,
+                direction: EnforcementDirection = .keepOnTask,
                 idleThreshold: TimeInterval = 5 * 60,
                 wrongAppGrace: TimeInterval = 60,
                 nudgeInterval: TimeInterval = 60,
                 disengageAfter: Int = 6) {
+        self.direction = direction
         self.level = level
         self.idleThreshold = idleThreshold
         self.wrongAppGrace = wrongAppGrace
@@ -152,6 +184,11 @@ public struct EnforcementPolicy: Equatable, Sendable {
 
     public static let gentle = EnforcementPolicy(level: .gentle)
     public static let firm = EnforcementPolicy(level: .firm)
+
+    /// Reverse lockdown: keep him AWAY from the listed apps.
+    public static func reverse(_ level: EnforcementLevel = .gentle) -> EnforcementPolicy {
+        EnforcementPolicy(level: level, direction: .keepAway)
+    }
 }
 
 // MARK: - The running state
@@ -273,8 +310,14 @@ public enum Enforcement {
                               policy: EnforcementPolicy,
                               state: inout EnforcementState,
                               now: Date) -> Drift {
-        let wrongApp = !allowlist.allows(observation.frontmostBundleID)
-        let inactive = observation.idleFor >= policy.idleThreshold
+        let wrongApp = !allowlist.allows(observation.frontmostBundleID,
+                                         direction: policy.direction)
+
+        // Idling is only drift when the point is to keep him working. During a
+        // reverse lockdown, sitting still IS the goal — nagging somebody for
+        // being inactive while telling them to rest would be absurd.
+        let inactive = !policy.direction.isReverse
+            && observation.idleFor >= policy.idleThreshold
 
         guard wrongApp || inactive else { return .onTask }
 

@@ -204,6 +204,13 @@ final class AppState: ObservableObject {
     /// The keyboard-first Console. ⌥Tab by default.
     private(set) lazy var console = ConsoleController(service: session, enforcer: enforcer)
 
+    /// Gate 10's opt-ins. Every one off by default.
+    private(set) lazy var focusExtras = FocusExtras()
+    private(set) lazy var quittableApps = QuittableApps()
+    private lazy var extrasCoordinator = FocusExtrasCoordinator(
+        extras: focusExtras, quittable: quittableApps
+    )
+
     /// The small window that appears during a break.
     private let breakSurface = BreakSurface()
 
@@ -555,6 +562,7 @@ final class AppState: ObservableObject {
             guard let self else { return }
             if onBreak {
                 self.breakSurface.onLog = { OrionLog.write($0) }
+                self.breakSurface.isFullBleed = self.focusExtras.fullBleedBreak
                 self.breakSurface.show(prompt: self.breakPrompt(), minutesRemaining: minutes)
             } else if self.breakSurface.isVisible {
                 self.breakSurface.dismiss()
@@ -670,7 +678,11 @@ final class AppState: ObservableObject {
             self.enforcer.evaluate(sessionIsFocusing: focusing)
             self.sessionTabModel.adopt(snapshot)
             self.updateBreakSurface(snapshot)
+            self.extrasCoordinator.apply(snapshot)
         }
+
+        extrasCoordinator.onLog = { OrionLog.write($0) }
+        quittableApps.onLog = { OrionLog.write($0) }
 
         console.onLog = { OrionLog.write($0) }
         console.install()

@@ -44,6 +44,26 @@
   <true/>
 
   <!--
+    The camera, for presence checking during a focus session. OFF BY DEFAULT and
+    useless until Nick turns it on — but the entitlement has to be present at
+    SIGNING time, not at the moment the feature is switched on, so it ships with
+    the bundle either way.
+
+    Fourth time the same trap is worth naming, because it has now cost hours
+    twice: under the hardened runtime the Info.plist usage string alone is not
+    enough. Without this entitlement AVCaptureDevice reports .denied for a
+    permission the user was never shown a prompt for, which looks exactly like
+    them having refused it.
+
+    Adding this does NOT turn the camera on and does not cause a prompt. macOS
+    asks the first time something actually tries to capture, which is the first
+    time Nick enables presence checking. Until then the entitlement sits unused
+    and the green light never comes on.
+  -->
+  <key>com.apple.security.device.camera</key>
+  <true/>
+
+  <!--
     Orion shells out to the openclaw CLI for every agent turn. The hardened
     runtime restricts a signed process from loading or spawning code signed by
     a different authority without these.

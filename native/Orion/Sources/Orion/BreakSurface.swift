@@ -43,6 +43,21 @@ final class BreakSurface {
     var onDismiss: (() -> Void)?
     var onLog: ((String) -> Void)?
 
+    /// The Gate 10 upgrade: cover the screen instead of floating over it.
+    ///
+    /// OPT-IN and off by default, because it is the difference between an
+    /// overlay and a thing that takes your machine away every fifty minutes.
+    /// It ships only now, after the small one proved it hands focus back — a
+    /// takeover that leaves you clicking your editor again is intolerable at a
+    /// frequency of once per block.
+    ///
+    /// `.screenSaver` level rather than `.mainMenu`: it covers the menu bar and
+    /// the Dock, which is the point, but it deliberately does NOT capture the
+    /// system. Command-Tab still works, the Force Quit dialog still works, and
+    /// the button is still the way out. Orion is not allowed to be something you
+    /// have to fight.
+    var isFullBleed = false
+
     /// Whether global Escape is actually available. Read once at show time
     /// rather than cached, because the grant can change while Orion runs.
     var escapeAvailable: Bool { AXIsProcessTrusted() }
@@ -60,11 +75,16 @@ final class BreakSurface {
             prompt: prompt,
             minutes: minutesRemaining,
             escapeWorks: escapeAvailable,
+            fullBleed: isFullBleed,
             onDismiss: { [weak self] in self?.dismiss() }
         )
 
+        let frame = isFullBleed
+            ? (NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900))
+            : NSRect(x: 0, y: 0, width: 420, height: 210)
+
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 210),
+            contentRect: frame,
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -72,7 +92,7 @@ final class BreakSurface {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
-        panel.level = .floating
+        panel.level = isFullBleed ? .screenSaver : .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
@@ -82,12 +102,17 @@ final class BreakSurface {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = NSHostingView(rootView: content)
 
-        centre(panel)
+        if isFullBleed {
+            panel.setFrame(frame, display: true)
+        } else {
+            centre(panel)
+        }
         panel.orderFrontRegardless()
         self.panel = panel
 
         installEscape()
-        onLog?("[break] surface shown (escape \(escapeAvailable ? "available" : "UNAVAILABLE"))")
+        onLog?("[break] surface shown — \(isFullBleed ? "full screen" : "small"), "
+               + "escape \(escapeAvailable ? "available" : "UNAVAILABLE")")
     }
 
     func update(prompt: String, minutesRemaining: Int) {
@@ -96,6 +121,7 @@ final class BreakSurface {
         }
         hosting.rootView = BreakSurfaceView(
             prompt: prompt, minutes: minutesRemaining, escapeWorks: escapeAvailable,
+            fullBleed: isFullBleed,
             onDismiss: { [weak self] in self?.dismiss() }
         )
     }
@@ -172,6 +198,7 @@ struct BreakSurfaceView: View {
     let prompt: String
     let minutes: Int
     let escapeWorks: Bool
+    var fullBleed = false
     let onDismiss: () -> Void
 
     var body: some View {
@@ -209,15 +236,26 @@ struct BreakSurfaceView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(24)
-        .frame(width: 420, height: 210, alignment: .topLeading)
+        .padding(fullBleed ? 80 : 24)
+        .frame(maxWidth: fullBleed ? .infinity : 420,
+               maxHeight: fullBleed ? .infinity : 210,
+               alignment: fullBleed ? .center : .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(OrionTheme.ink.opacity(0.96))
-                .overlay(
+            Group {
+                if fullBleed {
+                    // Opaque, because the point is that the work is not there to
+                    // be glanced at. Not quite black: a pure black takeover
+                    // reads as the screen having died.
+                    OrionTheme.ink.opacity(0.985)
+                } else {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(OrionTheme.line, lineWidth: 1)
-                )
+                        .fill(OrionTheme.ink.opacity(0.96))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(OrionTheme.line, lineWidth: 1)
+                        )
+                }
+            }
         )
     }
 }

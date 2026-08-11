@@ -228,6 +228,86 @@ final class EnforcementTests: XCTestCase {
                        "the model proposes; it never silently authorizes")
     }
 
+    // MARK: Reverse lockdown
+
+    /// The list inverts: being ON it is now the violation.
+    func testReverseLockdownNudgesHimForBeingInTheListedApp() {
+        var state = EnforcementState()
+        let keepAwayFrom = Allowlist(bundleIDs: ["com.apple.dt.Xcode"], confirmed: true)
+
+        step(onTask(), &state, at: 0, policy: .reverse(.firm), allowlist: keepAwayFrom)
+        let action = step(onTask(), &state, at: 61, policy: .reverse(.firm),
+                          allowlist: keepAwayFrom)
+
+        XCTAssertEqual(action, .nudge(reason: .wrongApp(name: "Xcode"), escalation: 1),
+                       "he asked to be kept away from Xcode this evening")
+    }
+
+    func testReverseLockdownSaysNothingAboutAnythingElse() {
+        var state = EnforcementState()
+        let keepAwayFrom = Allowlist(bundleIDs: ["com.apple.dt.Xcode"], confirmed: true)
+
+        step(offTask(), &state, at: 0, policy: .reverse(.firm), allowlist: keepAwayFrom)
+        XCTAssertEqual(step(offTask(), &state, at: 600, policy: .reverse(.firm),
+                            allowlist: keepAwayFrom), .none,
+                       "Messages is not what he asked to be kept away from")
+    }
+
+    /// Nagging somebody for sitting still while telling them to rest would be
+    /// absurd. Idle is only drift when the point is to keep him working.
+    func testReverseLockdownNeverNagsAboutBeingIdle() {
+        var state = EnforcementState()
+        let keepAwayFrom = Allowlist(bundleIDs: ["com.apple.dt.Xcode"], confirmed: true)
+        let idleElsewhere = Observation(frontmostBundleID: "com.apple.MobileSMS",
+                                        frontmostName: "Messages",
+                                        idleFor: 3600, screenLocked: false)
+
+        step(idleElsewhere, &state, at: 0, policy: .reverse(.firm), allowlist: keepAwayFrom)
+        XCTAssertEqual(step(idleElsewhere, &state, at: 3600, policy: .reverse(.firm),
+                            allowlist: keepAwayFrom), .none,
+                       "sitting still IS the goal during a reverse lockdown")
+    }
+
+    func testTheNeverADistractionSetHoldsInReverseToo() {
+        var state = EnforcementState()
+        // Even if 1Password were somehow on the keep-away list.
+        let keepAwayFrom = Allowlist(bundleIDs: ["com.1password.1password"], confirmed: true)
+        let manager = Observation(frontmostBundleID: "com.1password.1password",
+                                  frontmostName: "1Password", idleFor: 0, screenLocked: false)
+
+        step(manager, &state, at: 0, policy: .reverse(.firm), allowlist: keepAwayFrom)
+        XCTAssertEqual(step(manager, &state, at: 600, policy: .reverse(.firm),
+                            allowlist: keepAwayFrom), .none,
+                       "reverse lockdown must not lock him out of his password manager")
+    }
+
+    func testTheEscapeWorksInReverseToo() {
+        var state = EnforcementState()
+        let keepAwayFrom = Allowlist(bundleIDs: ["com.apple.dt.Xcode"], confirmed: true)
+        step(onTask(), &state, at: 0, policy: .reverse(.firm), allowlist: keepAwayFrom)
+        step(onTask(), &state, at: 61, policy: .reverse(.firm), allowlist: keepAwayFrom)
+
+        state = Enforcement.release(state)
+
+        XCTAssertEqual(step(onTask(), &state, at: 200, policy: .reverse(.firm),
+                            allowlist: keepAwayFrom), .none)
+    }
+
+    func testReverseLockdownStillStopsAfterSixEscalations() {
+        var state = EnforcementState()
+        let keepAwayFrom = Allowlist(bundleIDs: ["com.apple.dt.Xcode"], confirmed: true)
+        step(onTask(), &state, at: 0, policy: .reverse(.firm), allowlist: keepAwayFrom)
+
+        var actions: [EnforcementAction] = []
+        for minute in 1...9 {
+            actions.append(step(onTask(), &state, at: Double(minute) * 61,
+                                policy: .reverse(.firm), allowlist: keepAwayFrom))
+        }
+
+        XCTAssertEqual(actions.filter { if case .nudge = $0 { return true }; return false }.count, 6)
+        XCTAssertTrue(state.disengaged, "the same cap, because it is the same machinery")
+    }
+
     // MARK: Only during focus
 
     func testABreakIsNotDrift() {

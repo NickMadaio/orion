@@ -233,10 +233,30 @@ final class HealthLog: ObservableObject {
     /// `rename(2)` rather than `replaceItemAt`: it is the same atomic swap the
     /// node side does, and unlike `replaceItemAt` it also works on first run,
     /// when there is no existing file to replace.
+    ///
+    /// 0600 because a supplement list and a training log are Nick's business.
     private static func publish(_ data: Data) throws {
         let scratch = fileURL.deletingLastPathComponent()
             .appendingPathComponent(".health-log.\(UUID().uuidString).tmp")
-        try data.write(to: scratch, options: [.atomic, .completeFileProtection])
+
+        // NOT `.completeFileProtection` — see the same note in
+        // SessionService/SessionStore.swift `publish`. It applies a
+        // data-protection class that can make the file unreadable to any
+        // process other than the one that wrote it, and this file has two
+        // writers and two readers in two processes by design: the plugin's
+        // health.ts reads and writes it from the daemon. In
+        // ~/.openclaw/orion-controlled/ the class happens not to bite, which is
+        // what makes it a quiet bug — it only fails once the path moves, and
+        // `ORION_HEALTH_LOG` above moves it. The identical line in SessionStore
+        // cost an afternoon exactly that way: `cat` returned "Operation not
+        // permitted" for a 0600 file the user owned, as soon as the state file
+        // pointed at /private/tmp.
+        //
+        // 0600 is the actual requirement, and it is set explicitly below.
+        try data.write(to: scratch, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                              ofItemAtPath: scratch.path)
+
         guard rename(scratch.path, fileURL.path) == 0 else {
             let failure = errno
             try? FileManager.default.removeItem(at: scratch)

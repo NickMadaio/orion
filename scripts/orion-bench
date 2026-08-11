@@ -1,0 +1,324 @@
+#!/usr/bin/env node
+/*
+ Orion's personal benchmark runner.
+
+ Scope, deliberately: this executes the cases that can be checked without a
+ model in the loop -- memory recall. Those are the ones that regress silently.
+ The conversational and autonomy cases in the same spec are scored by a human,
+ because "did that feel like one continuous person" is not a thing a script can
+ assert, and pretending otherwise would produce a green suite that means nothing.
+
+ Recall is worth automating precisely because it broke for weeks without anyone
+ noticing: the embedding provider had no credits, indexing silently returned
+ zero chunks, and every search answered "No matches." A green bar here means a
+ fact planted in a memory file is still reachable by a question phrased
+ differently. That is the whole claim.
+
+   orion-bench            run the recall suite
+   orion-bench --verbose  show scores and the matched file for every case
+   orion-bench --live     also drive real agent turns end to end (costs money)
+
+ --live is the only test that proves Orion *learns*. Everything else proves the
+ plumbing underneath him works, which is not the same claim and was, for a
+ while, true while learning was completely broken: he had no file_write tool, so
+ his attempt to save a memory fell through to a non-allowlisted exec heredoc,
+ hung on an approval nobody answered, and killed the whole turn after four
+ minutes. Indexing was green throughout. Only an end-to-end turn catches that.
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+const SPEC = join(
+  homedir(),
+  "Desktop/ORION/planning/orion-benchmark.json",
+);
+const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
+
+const verbose = process.argv.includes("--verbose");
+
+/*
+ `openclaw memory search` prints lines like:
+   0.604 memory/2026-08-08.md:1-32
+ followed by the matching excerpt. Only the score/path lines matter here.
+*/
+const HIT = /^\s*(\d+\.\d+)\s+(\S+?):\d+-\d+/;
+
+function parseHits(stdout) {
+  return stdout
+    .split("\n")
+    .map((line) => HIT.exec(line))
+    .filter(Boolean)
+    .map((match) => ({ score: Number(match[1]), file: match[2] }));
+}
+
+async function search(query) {
+  try {
+    const { stdout } = await run(OPENCLAW, ["memory", "search", query], {
+      timeout: 120000,
+      maxBuffer: 1024 * 1024 * 8,
+    });
+    return parseHits(stdout);
+  } catch (error) {
+    // A search that cannot run is a failed case, not a crashed suite -- the
+    // point of the harness is to report the breakage, not to inherit it.
+    return { error: error.stderr?.trim() || error.message };
+  }
+}
+
+const spec = JSON.parse(await readFile(SPEC, "utf8"));
+const threshold = spec.recallThreshold ?? 0.3;
+const recall = spec.cases.filter((c) => c.kind === "recall");
+const manual = spec.cases.filter((c) => c.kind === "manual");
+
+const results = [];
+for (const testCase of recall) {
+  const hits = await search(testCase.query);
+
+  if (hits.error) {
+    results.push({ testCase, ok: false, reason: `search failed: ${hits.error}` });
+    continue;
+  }
+
+  const match = hits.find((h) => h.file === testCase.expectFile);
+
+  if (!match) {
+    const saw = hits.length ? hits.map((h) => h.file).join(", ") : "nothing";
+    results.push({
+      testCase,
+      ok: false,
+      reason: `expected ${testCase.expectFile}, got ${saw}`,
+    });
+    continue;
+  }
+  if (match.score < threshold) {
+    results.push({
+      testCase,
+      ok: false,
+      reason: `scored ${match.score.toFixed(3)}, below ${threshold}`,
+    });
+    continue;
+  }
+  results.push({ testCase, ok: true, score: match.score });
+}
+
+/*
+ The live loop. Three turns, because the claim has three separable failure
+ points and a single turn cannot tell them apart:
+
+   1. does Orion decide, unprompted, that a passing remark is worth keeping?
+   2. does the write actually land, in the right file, without hanging?
+   3. can a DIFFERENT session get it back?
+
+ A fresh session key for the recall turn is the whole point -- asking in the same
+ session proves only that it is still in the context window, which is not memory.
+*/
+async function runLive() {
+  /*
+   The token must be distinct per run (so a pass is never a stale hit from an
+   earlier run) and must share NO substring with the session key.
+
+   Learned the hard way: the first version used `Harbor-${pid}` as the token and
+   `bench-${pid}` as the session key. Orion answered with the session key, having
+   spotted the matching digits in his own context -- a confabulation the harness
+   had handed him. A test whose fixture leaks into the prompt does not measure
+   memory. Letters only here, drawn from the clock, and the key stays digit-free.
+  */
+  const alphabet = "bcdfghjklmnpqrstvwxz";
+  const stamp = Date.now();
+  const codename = [0, 1, 2, 3, 4]
+    .map((i) => alphabet[Math.floor(stamp / 7 ** (i + 1)) % alphabet.length])
+    .join("");
+  const token = `Kestrel${codename}`;
+
+  /*
+   Unique per run, because sessions persist. A fixed key meant the "brand-new
+   session" turn reopened the *same* session as the last run and answered from
+   its transcript -- returning the previous run's codename, which looked like a
+   recall failure and was really a recall of the wrong thing.
+
+   The name is deliberately meaningless. When it was `orionbench<digits>`, Orion
+   answered "the fixture codename is orionbench1786255892849-b" -- he had matched
+   the word "bench" in his own session id to the word "benchmark" in the question
+   and served it back as fact. Real bug, now covered by a rule in AGENTS.md, but
+   the harness should not be dangling topic words in his context either.
+  */
+  const key = `agent:main:s${stamp}`;
+  const live = [];
+
+  async function turn(sessionKey, message) {
+    const { stdout } = await run(
+      OPENCLAW,
+      ["agent", "--session-key", sessionKey, "--timeout", "200", "--message", message],
+      { timeout: 260000, maxBuffer: 1024 * 1024 * 8 },
+    );
+    return stdout.trim();
+  }
+
+  try {
+    // Stated in passing. Deliberately never says "remember".
+    await turn(
+      `${key}-a`,
+      `Quick thing before I forget — the benchmark fixture codename is ${token}. Anyway, what's the time?`,
+    );
+
+    const daily = join(
+      homedir(),
+      ".openclaw/workspace/memory",
+      `${new Date().toLocaleDateString("en-CA")}.md`,
+    );
+    const stored = (await readFile(daily, "utf8")).includes(token);
+    live.push({
+      id: "live-01",
+      ok: stored,
+      label: "stores a fact stated in passing, unprompted",
+      reason: stored ? "" : `"${token}" never reached ${daily}`,
+    });
+
+    await run(OPENCLAW, ["memory", "index"], { timeout: 180000 });
+
+    // Fresh session: no shared context, so this can only come from memory.
+    const answer = await turn(`${key}-b`, "What's the fixture codename for the benchmark work?");
+    const recalled = answer.includes(token);
+    live.push({
+      id: "live-02",
+      ok: recalled,
+      label: "recalls it in a brand-new session",
+      reason: recalled ? "" : `answered: ${answer.slice(-160)}`,
+    });
+
+    // Over-retrieval is a failure too: a memory that surfaces when it is not
+    // relevant is noise, and noise is what makes a big memory useless.
+    const unrelated = await turn(`${key}-c`, "How many days are in February?");
+    const quiet = !unrelated.includes(token);
+    live.push({
+      id: "live-03",
+      ok: quiet,
+      label: "does NOT surface it when irrelevant",
+      reason: quiet ? "" : "leaked the fixture into an unrelated answer",
+    });
+
+    /*
+     The counterpart to recall, and the more dangerous half. An assistant that
+     always produces an answer is worse than one that sometimes says it does not
+     know, because you cannot tell the two apart from the outside. This asks for
+     something that was never stored; the only correct behaviour is admitting it.
+    */
+    const invented = await turn(
+      `${key}-d`,
+      "What was the codename we agreed on for the deployment pipeline?",
+    );
+    /*
+     Assert on the failure, not on the phrasing of success. The first version of
+     this check looked for "I don't know"-shaped wording and failed Orion for
+     answering "do you remember roughly when we discussed it?" -- which is
+     exactly right: he declined to invent one and asked a narrowing question.
+     What actually matters is that he never states a codename he does not have.
+    */
+    const asserted = /codename\s+(?:is|was|we agreed on|:)\s*\**["'`]?([A-Za-z][\w-]{2,})/i.exec(
+      invented,
+    );
+    live.push({
+      id: "live-04",
+      ok: !asserted,
+      label: "does not invent a codename it was never told",
+      reason: asserted ? `confabulated: "${asserted[1]}"` : "",
+    });
+  } catch (error) {
+    live.push({
+      id: "live-xx",
+      ok: false,
+      label: "live loop crashed",
+      reason: (error.stderr || error.message || "").slice(0, 200),
+    });
+  } finally {
+    /*
+     Clean up, always -- including after a failure, which is when it matters most.
+
+     Two reasons. The obvious one: these are Nick's real memory files, and a test
+     that leaves fixtures behind is a test that slowly fills his assistant's head
+     with junk it will happily recite back to him.
+
+     The subtle one, learned by watching it happen: leftover fixtures make the
+     suite lie. Every run plants a fresh codename, so by the third run the file
+     held three, Orion answered with the oldest, and recall was scored a failure
+     while working perfectly. A test that pollutes its own input stops measuring
+     anything after the first run.
+    */
+    await scrubFixtures();
+  }
+  return live;
+}
+
+// Every fixture this harness writes carries the same prefix, which is what makes
+// them safe to identify and remove without touching a real memory.
+const FIXTURE_PREFIX = "Kestrel";
+
+async function scrubFixtures() {
+  const daily = join(
+    homedir(),
+    ".openclaw/workspace/memory",
+    `${new Date().toLocaleDateString("en-CA")}.md`,
+  );
+  if (!existsSync(daily)) return;
+
+  const before = await readFile(daily, "utf8");
+  const after = before
+    .split("\n")
+    .filter((line) => !line.includes(FIXTURE_PREFIX))
+    .join("\n")
+    // Each note is written as a blank line plus the note. Dropping only the note
+    // leaves its blank behind, and across runs the file fills with whitespace.
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd()
+    .concat("\n");
+
+  if (after === before) return;
+  await writeFile(daily, after);
+  await run(OPENCLAW, ["memory", "index"], { timeout: 180000 }).catch(() => {});
+}
+
+const liveResults = process.argv.includes("--live") ? await runLive() : [];
+const passed = results.filter((r) => r.ok);
+
+console.log(`\nOrion benchmark — recall suite (${recall.length} cases)\n`);
+for (const result of results) {
+  const mark = result.ok ? "pass" : "FAIL";
+  const detail = result.ok
+    ? verbose
+      ? `  ${result.score.toFixed(3)}  ${result.testCase.expectFile}`
+      : ""
+    : `  ${result.reason}`;
+  console.log(`  ${mark}  ${result.testCase.id}  ${result.testCase.query}${detail}`);
+  if (!result.ok && verbose) console.log(`        why it matters: ${result.testCase.why}`);
+}
+
+console.log(`\n  ${passed.length}/${results.length} recall cases passed`);
+
+if (liveResults.length > 0) {
+  console.log(`\nLive loop — real agent turns\n`);
+  for (const result of liveResults) {
+    console.log(
+      `  ${result.ok ? "pass" : "FAIL"}  ${result.id}  ${result.label}` +
+        (result.ok ? "" : `\n        ${result.reason}`),
+    );
+  }
+  const livePassed = liveResults.filter((r) => r.ok).length;
+  console.log(`\n  ${livePassed}/${liveResults.length} live cases passed`);
+} else {
+  console.log(`  live loop not run — pass --live to drive real agent turns`);
+}
+
+console.log(
+  `  ${manual.length} further cases in the spec are scored by hand — see planning/ORION_BENCHMARK.md\n`,
+);
+
+const allOk =
+  passed.length === results.length && liveResults.every((r) => r.ok);
+process.exit(allOk ? 0 : 1);

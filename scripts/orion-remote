@@ -1,0 +1,433 @@
+#!/usr/bin/env node
+/*
+ Orion's inbound ear while Nick is away. The other half of orion-notify.
+
+ orion-notify can say a mission is BLOCKED. Until this existed that was the end
+ of the conversation -- the mission sat dead until Nick walked back to the Mac.
+ This turns that notification into something he can answer from a phone.
+
+ An inbound message is UNTRUSTED. It arrives over a channel anyone can write to
+ once they know the address, and it is text, which this project has repeatedly
+ proved must never become an instruction (orion-control/src/provenance.ts). So
+ the rule is orion-notify's own noise-control rule pointed the other way: the
+ safety is not a filter on the text, it is a filter on the VOCABULARY.
+
+   1. Seven verbs. The first meaningful token must match one EXACTLY -- no fuzzy
+      matching, no fallthrough to a model, no parser to confuse.
+   2. Arguments are validated by SHAPE in the dispatcher, never in the handlers,
+      so a new verb cannot forget to check. Every id must already name something
+      Orion minted: inbound text points at his own state, it cannot introduce a
+      new noun.
+   3. Inbound text never reaches a shell, a model, or a subprocess argv. Only
+      ids that survived validation cross into execFile. There is no `sh -c`.
+   4. `approve` resolves exactly the id it was handed. No verb means "yes to
+      everything" -- the id IS the authorisation, and it is orion-notify's own
+      `ap-xxxxxxxx` minting rather than a parallel scheme.
+
+ Transport is deliberately separate from all of that. No OpenClaw channel can be
+ configured today without a credential only Nick can create, so the default
+ transport is a pair of local append-only files: a bridge appends envelopes to
+ inbox.jsonl, `poll` drains them, replies land in outbox.jsonl. Attaching a real
+ channel changes nothing above it -- hence building it in this order.
+*/
+
+import { execFile, spawn } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
+
+const run = promisify(execFile);
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
+const STATE = join(CONTROLLED, "remote.json"); // shared with orion-notify
+const MISSIONS = join(CONTROLLED, "missions");
+const INBOX = join(CONTROLLED, "inbox.jsonl");
+const OUTBOX = join(CONTROLLED, "outbox.jsonl");
+const AUDIT = join(CONTROLLED, "remote-audit.jsonl");
+const INBOUND = join(CONTROLLED, "remote-inbound.json"); // cursor + rate limits
+const RUNNER_LOG = join(CONTROLLED, "remote-runner.log");
+const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
+
+// A test seam, not a config knob: whoever sets this already owns the process.
+// It is recorded in the audit line whenever it differs from the real binary.
+const MISSION_BIN = process.env.ORION_REMOTE_MISSION_BIN || join(ROOT, "scripts/orion-mission");
+
+const MISSION_RE = /^[a-z0-9][a-z0-9-]{0,39}$/; // the shape orion-notify enforces
+const APPROVAL_RE = /^ap-[0-9a-f]{8}$/; // exactly what `ap-${randomBytes(4)}` mints
+const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+const TERMINAL = new Set(["succeeded", "needs_human", "needs_permission", "budget_exhausted", "unsafe", "aborted"]);
+const [MAX_BYTES, MAX_TOKENS] = [200, 8];
+const RATE_WINDOW_MS = 10 * 60_000;
+const RATE_CAP = 12; // per sender, counting rejects too, so garbage cannot flood
+const SEEN_KEPT = 200; // replayed envelope ids are refused, never re-executed
+
+// Only these senders are obeyed. `local` is the file transport; a real channel
+// adds Nick's handle here through the environment, never via an inbound message.
+const ALLOWED = new Set(
+  (process.env.ORION_REMOTE_ALLOW || "local").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+);
+
+const VERBS = {
+  status: { aliases: ["status", "state", "sitrep"], min: 0, shape: ["mission"] },
+  pause: { aliases: ["pause", "hold", "halt"], min: 1, shape: ["mission"] },
+  resume: { aliases: ["resume", "continue", "unpause"], min: 1, shape: ["mission"] },
+  cancel: { aliases: ["cancel", "abort", "stop"], min: 1, shape: ["mission"] },
+  approve: { aliases: ["approve", "approved", "yes", "ok"], min: 1, shape: ["approval"] },
+  deny: { aliases: ["deny", "denied", "no", "reject"], min: 1, shape: ["approval"] },
+  priority: { aliases: ["priority", "prioritise", "prioritize"], min: 2, shape: ["mission", "level"] },
+};
+const ALIAS_TO_VERB = new Map(Object.entries(VERBS).flatMap(([v, s]) => s.aliases.map((a) => [a, v])));
+// Dropped before matching. Phones add politeness; the grammar should not care.
+const FILLER = new Set(["orion", "please", "change", "set", "mission", "the", "to", "for"]);
+
+const fail = (message, code = 2) => {
+  console.error(`orion-remote: ${message}`);
+  process.exit(code);
+};
+
+/* ---------- state ---------- */
+
+// remote.json has two writers now. orion-notify does a bare read-modify-write,
+// so a lock here cannot make the race impossible -- it shrinks this side's
+// window from a subprocess lifetime to a few milliseconds.
+async function withStateLock(fn) {
+  const lock = `${STATE}.lock`;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await (await open(lock, "wx")).close();
+      try {
+        return await fn();
+      } finally {
+        await rm(lock, { force: true });
+      }
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const age = await stat(lock).then((s) => Date.now() - s.mtimeMs).catch(() => Infinity);
+      if (age > 15_000) await rm(lock, { force: true }); // a killed process must not lock Nick out
+      else await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error("remote.json stayed locked for six seconds");
+}
+
+async function readState() {
+  if (!existsSync(STATE)) return { missions: {}, pending: {}, notify: { sent: [], deferred: [] } };
+  try {
+    const parsed = JSON.parse(await readFile(STATE, "utf8"));
+    return { ...parsed, missions: parsed.missions ?? {}, pending: parsed.pending ?? {} };
+  } catch (error) {
+    // Unlike orion-notify, unreadable state is fatal here: an empty history
+    // would make every id look unknown, and "unknown id" is how this file says
+    // no. Failing loudly beats silently refusing everything Nick sends.
+    throw new Error(`remote.json is unreadable (${error instanceof Error ? error.message : error})`);
+  }
+}
+
+async function writeState(next) {
+  await mkdir(CONTROLLED, { recursive: true });
+  const tmp = `${STATE}.tmp-${randomBytes(4).toString("hex")}`;
+  await writeFile(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
+  await rename(tmp, STATE); // atomic: a crash never leaves truncated state
+}
+
+async function readInbound() {
+  if (!existsSync(INBOUND)) return { cursor: 0, seen: [], hits: [] };
+  try {
+    const p = JSON.parse(await readFile(INBOUND, "utf8"));
+    return { cursor: p.cursor ?? 0, seen: p.seen ?? [], hits: p.hits ?? [] };
+  } catch {
+    // Losing the cursor must never mean replaying the inbox, so a corrupt file
+    // resets to "everything so far has already been handled".
+    return { cursor: Number.MAX_SAFE_INTEGER, seen: [], hits: [] };
+  }
+}
+
+const writeInbound = (next) => writeFile(INBOUND, JSON.stringify(next, null, 2), { mode: 0o600 });
+const audit = (entry) =>
+  appendFile(AUDIT, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`, { mode: 0o600 });
+
+/* ---------- views over Orion's own nouns ---------- */
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+const readJson = (path) => (existsSync(path) ? parseJson(readFileSync(path, "utf8")) : null);
+const runnerMission = (id) => readJson(join(MISSIONS, id, "mission.json"));
+const knownMission = (state, id) => Boolean(state.missions?.[id]) || Boolean(runnerMission(id));
+
+// The mission lock records the stepper's pid, which is the only handle this
+// file has on a running mission. Signal 0 merely tests that it is still alive.
+// SIGTERM rather than SIGKILL: the stepper writes mission.json between steps,
+// so a polite stop leaves durable state plus the lock `resume` knows to break.
+function signalRunner(id, signal) {
+  const held = readJson(join(MISSIONS, id, "mission.lock"));
+  if (!Number.isInteger(held?.pid) || held.pid <= 1) return null;
+  try {
+    process.kill(held.pid, signal);
+    return held.pid;
+  } catch {
+    return null;
+  }
+}
+const livePid = (id) => signalRunner(id, 0);
+const stopRunner = (id) => signalRunner(id, "SIGTERM");
+
+const withMission = (state, id, patch) => ({
+  ...state,
+  missions: { ...state.missions, [id]: { ...(state.missions[id] ?? { priority: "normal", history: [] }), ...patch } },
+});
+
+/* ---------- parsing and the argument shapes ---------- */
+
+// Returns { verb, args } or { error }. Never throws, never partially matches.
+function parse(raw) {
+  const text = String(raw ?? "");
+  if (!text.trim()) return { error: "empty message" };
+  if (Buffer.byteLength(text, "utf8") > MAX_BYTES) return { error: "message too long" };
+  // Refused rather than stripped: a control character is never part of a real
+  // command, and it is the classic way to smuggle a terminal escape.
+  if (/[\u0000-\u001f\u007f]/.test(text)) return { error: "control characters in message" };
+  const tokens = text.toLowerCase().split(/\s+/)
+    .map((t) => t.replace(/^[^a-z0-9-]+/, "").replace(/[^a-z0-9-]+$/, "")).filter(Boolean);
+  if (!tokens.length) return { error: "no usable words" };
+  if (tokens.length > MAX_TOKENS) return { error: "too many words" };
+  // Filler is skipped only until a verb is found. After that every token is an
+  // argument matched against a shape, so leniency there costs nothing.
+  const start = tokens.findIndex((t) => !FILLER.has(t));
+  if (start === -1) return { error: "no command in message" };
+  const verb = ALIAS_TO_VERB.get(tokens[start]);
+  if (!verb) return { error: `"${tokens[start].slice(0, 24)}" is not a command` };
+  const args = tokens.slice(start + 1).filter((t) => !FILLER.has(t));
+  const { min, shape } = VERBS[verb];
+  if (args.length < min || args.length > shape.length) {
+    return { error: `${verb} takes ${min === shape.length ? min : `${min}-${shape.length}`} argument(s)` };
+  }
+  return { verb, args };
+}
+
+// The taint gate. Declared per-verb above and applied by the dispatcher, so no
+// handler ever receives a value it has not already proved Orion owns.
+const SHAPES = {
+  mission: (v, state) => (MISSION_RE.test(v) && knownMission(state, v) ? null : `no mission called ${v}`),
+  approval: (v, state) => (APPROVAL_RE.test(v) && state.pending[v] ? null : `no pending approval ${v}`),
+  level: (v) => (PRIORITIES.has(v) ? null : `priority must be one of ${[...PRIORITIES].join(", ")}`),
+};
+
+const checkArgs = (verb, args, state) =>
+  args.map((arg, i) => SHAPES[VERBS[verb].shape[i]](arg, state)).find(Boolean) ?? null;
+
+/* ---------- verb handlers: each returns one short line for Nick's phone ---------- */
+
+async function doStatus(args, state) {
+  // Two registers hold missions: the notify view in remote.json and the runner's
+  // own directories. Nick does not care which is which, so status merges them.
+  const onDisk = existsSync(MISSIONS)
+    ? readdirSync(MISSIONS, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
+    : [];
+  const ids = args[0] ? [args[0]] : [...new Set([...Object.keys(state.missions), ...onDisk])];
+  const pending = Object.entries(state.pending).filter(([, item]) => item.status === "pending");
+  const lines = ["Orion | REMOTE STATUS", ...(ids.length ? [] : ["- no missions"])];
+  for (const id of ids) {
+    const tracked = state.missions[id];
+    const status = runnerMission(id)?.status ?? tracked?.status ?? "unknown";
+    lines.push(`- ${id}: ${status} (${tracked?.priority ?? "normal"})${livePid(id) ? " · runner live" : ""}`);
+  }
+  if (pending.length) lines.push("waiting on you:");
+  for (const [id, item] of pending) lines.push(`- ${id} · ${item.missionId}: ${item.request}`);
+  return { ok: true, reply: lines.join("\n") };
+}
+
+async function doPause([id], state) {
+  const pid = stopRunner(id);
+  await writeState(withMission(state, id, { status: "paused", pausedAt: new Date().toISOString() }));
+  return { ok: true, reply: pid ? `paused ${id} (stopped runner pid ${pid})` : `marked ${id} paused (no runner was live)` };
+}
+
+async function doResume([id], state) {
+  const runner = runnerMission(id);
+  if (runner && TERMINAL.has(runner.status)) return { ok: false, reply: `${id} already finished (${runner.status})` };
+  if (livePid(id)) return { ok: false, reply: `${id} is already running` };
+  await writeState(withMission(state, id, { status: "running", pausedAt: null }));
+  if (!runner) return { ok: true, reply: `marked ${id} running (no local runner to start)` };
+  // Detached on purpose: a mission outlives the message that restarted it. The
+  // output goes to a log rather than /dev/null so a failed restart is findable.
+  const log = await open(RUNNER_LOG, "a");
+  try {
+    const child = spawn(MISSION_BIN, ["resume", id], { detached: true, stdio: ["ignore", log.fd, log.fd] });
+    child.unref();
+    return { ok: true, reply: `resumed ${id} (runner pid ${child.pid})` };
+  } finally {
+    await log.close();
+  }
+}
+
+async function doCancel([id], state) {
+  const runner = runnerMission(id);
+  if (runner && TERMINAL.has(runner.status)) return { ok: false, reply: `${id} already finished (${runner.status})` };
+  stopRunner(id);
+  await writeState(withMission(state, id, { status: "cancelled" }));
+  if (!runner) return { ok: true, reply: `marked ${id} cancelled (no local runner)` };
+  try {
+    // Fixed reason string. No part of the inbound message reaches this argv.
+    await run(MISSION_BIN, ["abort", id, "cancelled remotely by Nick"], { timeout: 30_000 });
+    return { ok: true, reply: `cancelled ${id}` };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, reply: `marked ${id} cancelled but abort failed: ${reason.slice(0, 120)}` };
+  }
+}
+
+// approve and deny are one motion against one id, which is the point: no code
+// path here can resolve anything other than the single item it was handed.
+async function resolveApproval([id], state, decision) {
+  const item = state.pending[id];
+  if (item.status !== "pending") return { ok: false, reply: `${id} was already ${item.status}` };
+  const decided = { ...item, status: decision, decidedAt: new Date().toISOString() };
+  await writeState({ ...state, pending: { ...state.pending, [id]: decided } });
+  return { ok: true, reply: `${decision} ${id} — ${item.request} (${item.missionId})` };
+}
+
+async function doPriority([id, level], state) {
+  await writeState(withMission(state, id, { priority: level }));
+  return { ok: true, reply: `${id} priority is now ${level}` };
+}
+
+const HANDLERS = {
+  status: doStatus,
+  pause: doPause,
+  resume: doResume,
+  cancel: doCancel,
+  approve: (args, state) => resolveApproval(args, state, "approved"),
+  deny: (args, state) => resolveApproval(args, state, "denied"),
+  priority: doPriority,
+};
+
+/* ---------- the one path every inbound message takes ---------- */
+
+async function handle({ text, from, envelopeId }) {
+  const sender = String(from ?? "").toLowerCase().trim();
+  // The raw text is kept for forensics, but only ever as a JSON string field:
+  // control characters out, length capped, and nothing downstream re-reads it.
+  const record = { from: sender, text: String(text ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200) };
+  const now = Date.now();
+  if (!ALLOWED.has(sender)) {
+    await audit({ ...record, decision: "rejected", reason: "sender not allowed" });
+    return { ok: false, reply: null }; // silence: never confirm the address works
+  }
+  const inbound = await readInbound();
+  if (envelopeId && inbound.seen.includes(envelopeId)) {
+    await audit({ ...record, decision: "rejected", reason: "replayed envelope" });
+    return { ok: false, reply: null };
+  }
+  const recent = inbound.hits.filter((hit) => now - hit.at < RATE_WINDOW_MS);
+  if (recent.filter((hit) => hit.from === sender).length >= RATE_CAP) {
+    await audit({ ...record, decision: "rejected", reason: "rate limited" });
+    return { ok: false, reply: "too many commands in the last ten minutes — try again shortly" };
+  }
+  // The budget is spent BEFORE the command runs, so a message that fails to
+  // parse still costs its sender a slot. Otherwise garbage would be free.
+  await writeInbound({
+    ...inbound,
+    hits: [...recent, { from: sender, at: now }],
+    seen: envelopeId ? [...inbound.seen, envelopeId].slice(-SEEN_KEPT) : inbound.seen,
+  });
+  const parsed = parse(text);
+  if (parsed.error) {
+    await audit({ ...record, decision: "rejected", reason: parsed.error });
+    return { ok: false, reply: `not a command I know (${parsed.error}). Try: ${Object.keys(VERBS).join(", ")}` };
+  }
+  try {
+    const result = await withStateLock(async () => {
+      const state = await readState();
+      const invalid = checkArgs(parsed.verb, parsed.args, state);
+      return invalid ? { ok: false, reply: invalid } : HANDLERS[parsed.verb](parsed.args, state);
+    });
+    const decision = result.ok ? "accepted" : "refused";
+    const seam = MISSION_BIN.endsWith("/orion-mission") ? {} : { runner: MISSION_BIN };
+    await audit({ ...record, decision, verb: parsed.verb, args: parsed.args, reply: result.reply, ...seam });
+    return result;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await audit({ ...record, decision: "error", verb: parsed.verb, args: parsed.args, reason: reason.slice(0, 200) });
+    return { ok: false, reply: `that failed: ${reason.slice(0, 120)}` };
+  }
+}
+
+async function reply(envelope, text) {
+  if (!text) return;
+  await appendFile(OUTBOX, `${JSON.stringify({ at: new Date().toISOString(), to: envelope.from, text })}\n`, { mode: 0o600 });
+  // The attach point, and the reason it is environment rather than config: an
+  // unconfigured Orion writes replies to a file and talks to nobody. Wiring a
+  // real channel is a deliberate act, never a default.
+  const [channel, target] = [process.env.ORION_REMOTE_REPLY_CHANNEL, process.env.ORION_REMOTE_REPLY_TARGET];
+  if (!channel || !target) return;
+  await run(OPENCLAW, ["message", "send", "--channel", channel, "--target", target, "--message", text], {
+    timeout: 30_000,
+  }).catch((error) => console.error(`orion-remote: reply failed: ${String(error?.message).slice(0, 160)}`));
+}
+
+/* ---------- cli ---------- */
+
+const [command, ...rest] = process.argv.slice(2);
+
+// `--flag value` pairs are lifted out so everything left is the message,
+// verbatim. It arrives as one argv entry and is never re-split by a shell.
+const flags = {};
+const positional = [];
+for (let i = 0; i < rest.length; i += 1) {
+  if (rest[i].startsWith("--")) flags[rest[(i += 1) - 1].slice(2)] = rest[i];
+  else positional.push(rest[i]);
+}
+const sender = flags.from ?? "local";
+
+if (command === "inject") {
+  if (!positional.join(" ").trim()) fail('inject needs a message, e.g. inject "status"');
+  const envelope = { id: randomBytes(6).toString("hex"), from: sender, text: positional.join(" "), at: Date.now() };
+  await mkdir(CONTROLLED, { recursive: true });
+  await appendFile(INBOX, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
+  console.log(`queued ${envelope.id}`);
+} else if (command === "handle") {
+  const result = await handle({ text: positional.join(" "), from: sender, envelopeId: null });
+  if (result.reply) console.log(result.reply);
+  process.exit(result.ok ? 0 : 1);
+} else if (command === "poll") {
+  const lines = existsSync(INBOX) ? (await readFile(INBOX, "utf8")).split("\n").filter(Boolean) : [];
+  const inbound = await readInbound();
+  const cursor = Math.min(inbound.cursor, lines.length); // truncation must not replay
+  if (cursor !== inbound.cursor) await writeInbound({ ...inbound, cursor });
+  for (const [offset, line] of lines.slice(cursor).entries()) {
+    const envelope = parseJson(line);
+    if (!envelope) await audit({ decision: "rejected", reason: "unparseable envelope" });
+    else {
+      const result = await handle({ text: envelope.text, from: envelope.from, envelopeId: envelope.id });
+      await reply(envelope, result.reply);
+      if (result.reply) console.log(`[${envelope.from}] ${envelope.text}\n${result.reply}\n`);
+    }
+    // Advance one at a time, so a crash mid-drain re-reads at most one message
+    // -- and the replay guard refuses that one anyway.
+    await writeInbound({ ...(await readInbound()), cursor: cursor + offset + 1 });
+  }
+  console.log(`polled ${lines.length - cursor} message(s)`);
+} else if (command === "audit") {
+  if (!existsSync(AUDIT)) fail("no audit log yet", 1);
+  const count = Number(positional[0] ?? 20);
+  const lines = (await readFile(AUDIT, "utf8")).split("\n").filter(Boolean);
+  for (const line of lines.slice(-(Number.isInteger(count) && count > 0 ? count : 20))) console.log(line);
+} else {
+  fail(
+    [
+      'usage: orion-remote inject "<message>" [--from <sender>] | poll | audit [n]',
+      '       orion-remote handle "<message>" [--from <sender>]',
+      `verbs Nick can send: ${Object.keys(VERBS).join(", ")}`,
+    ].join("\n"),
+  );
+}

@@ -1,0 +1,417 @@
+#!/usr/bin/env node
+/*
+ Orion's outbound voice while Nick is away.
+
+ The whole problem with an assistant that can report progress is that it will.
+ A notifier wired to tool calls produces forty messages an hour, Nick mutes it,
+ and then the one message that mattered -- the blocked one -- arrives muted.
+ So this deliberately has NO general "send" verb. There are exactly five events
+ a long mission is allowed to emit, and they are the argv verb itself:
+
+   started    the mission is now running and he should know it exists
+   milestone  a real chunk landed; no action needed
+   decision   Orion chose something he might have chosen differently
+   blocked    stopped, needs an answer, and is the ONLY thing that can wake him
+   complete   done, with the outcome
+
+ Anything that is not one of those five exits 2 without sending. That is the
+ noise control -- not a filter on the text, a filter on the vocabulary.
+
+ Two more suppressors, because five event types per mission is still too many
+ when three missions run at once:
+
+ 1. Rate limits per mission and globally. A milestone that arrives twenty
+    seconds after the last one is not a milestone, it is narration.
+ 2. Quiet hours 23:00-08:00. Non-urgent traffic is DEFERRED, not dropped --
+    it lands in a queue that `flush` delivers as one digest in the morning.
+    Dropping would make the notifier lie about what happened overnight.
+
+ `blocked` and `--urgent` bypass both. Waking someone is the correct behaviour
+ exactly when the alternative is a mission sitting dead until morning.
+
+   orion-notify started   site-rebuild "Starting the rebuild. ~2h."
+   orion-notify milestone site-rebuild "Core UI and persistence work."
+   orion-notify blocked   site-rebuild "Need the API key." --approval "use staging key"
+   orion-notify flush
+   orion-notify status
+   ... add --dry-run to render and record without sending anything.
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, writeFile, rename, mkdir, open, rm, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
+
+const run = promisify(execFile);
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const STATE = join(homedir(), ".openclaw/orion-controlled/remote.json");
+const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
+const CONFIG = join(homedir(), ".openclaw/openclaw.json");
+const DISCORD = join(ROOT, "scripts/orion-discord-alert");
+
+const EVENTS = {
+  started: { label: "MISSION STARTED", minGapMs: 0 },
+  milestone: { label: "MILESTONE REACHED", minGapMs: 20 * 60_000 },
+  decision: { label: "IMPORTANT DECISION MADE", minGapMs: 10 * 60_000 },
+  blocked: { label: "BLOCKED - INPUT REQUIRED", minGapMs: 0 },
+  complete: { label: "MISSION COMPLETE", minGapMs: 0 },
+};
+
+// `blocked` is exempt from every suppressor. It is the only event whose whole
+// purpose is to interrupt, and a rate-limited plea for input is just a hang.
+const ALWAYS_DELIVER = new Set(["blocked"]);
+const GLOBAL_HOURLY_CAP = 6;
+const DEDUPE_MS = 30 * 60_000;
+const QUIET_FROM = 23;
+const QUIET_UNTIL = 8;
+
+const MISSION_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+function fail(message, code = 2) {
+  console.error(`orion-notify: ${message}`);
+  process.exit(code);
+}
+
+/* ---------- state (atomic, immutable) ---------- */
+
+async function readState() {
+  if (!existsSync(STATE)) return { missions: {}, pending: {}, notify: { sent: [], deferred: [] } };
+  try {
+    const parsed = JSON.parse(await readFile(STATE, "utf8"));
+    return {
+      missions: parsed.missions ?? {},
+      pending: parsed.pending ?? {},
+      notify: { sent: parsed.notify?.sent ?? [], deferred: parsed.notify?.deferred ?? [] },
+    };
+  } catch {
+    // A corrupt state file must not mean "Orion goes silent". Losing the rate
+    // limiter is survivable; losing the ability to say BLOCKED is not.
+    console.error("orion-notify: state unreadable, continuing with an empty history");
+    return { missions: {}, pending: {}, notify: { sent: [], deferred: [] } };
+  }
+}
+
+/*
+ `remote.json` has two writers: this file and `orion-remote`, and once both run
+ from cron they will overlap.
+
+ The atomic rename below only guarantees the file is never left half-written. It
+ does nothing about the actual hazard, which is a LOST UPDATE: both processes
+ read the same state, each edits its own corner, and whoever renames last erases
+ the other's change. The symptom would be an approval quietly un-resolving, or a
+ rate-limit history rolling back so a suppressed alert fires twice.
+
+ So the whole read-modify-write happens under the same lockfile `orion-remote`
+ takes, and the state is re-read INSIDE the lock — a copy fetched before the
+ lock was held is exactly the stale copy that causes the bug. Callers pass an
+ updater rather than a finished object for that reason.
+*/
+async function withStateLock(fn) {
+  const lock = `${STATE}.lock`;
+  await mkdir(dirname(STATE), { recursive: true });
+
+  for (let attempt = 0; attempt < 60; attempt++) {
+    try {
+      await (await open(lock, "wx")).close();
+      try {
+        return await fn();
+      } finally {
+        await rm(lock, { force: true });
+      }
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      // A process killed mid-write must not lock Nick out of his own alerts.
+      const age = await stat(lock)
+        .then((s) => Date.now() - s.mtimeMs)
+        .catch(() => Infinity);
+      if (age > 15_000) await rm(lock, { force: true });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error("remote.json stayed locked for six seconds");
+}
+
+async function writeState(update) {
+  return withStateLock(async () => {
+    const fresh = await readState();
+    const next = typeof update === "function" ? update(fresh) : update;
+
+    const tmp = `${STATE}.tmp-${randomBytes(4).toString("hex")}`;
+    await writeFile(tmp, JSON.stringify(next, null, 2));
+    await rename(tmp, STATE); // atomic, so a crash never truncates state
+    return next;
+  });
+}
+
+/* ---------- input validation ---------- */
+
+function cleanText(raw, limit) {
+  const text = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  // Control characters are refused outright: they are never meaningful in a
+  // status line and are the classic way to smuggle terminal escapes.
+  if (/[\u0000-\u001f\u007f]/.test(text)) return null;
+  if (Buffer.byteLength(text, "utf8") > limit) return null;
+  return text;
+}
+
+function parseArgs(argv) {
+  const flags = {};
+  const positional = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    const key = arg.slice(2);
+    if (["dry-run", "urgent"].includes(key)) {
+      flags[key] = true;
+      continue;
+    }
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) fail(`--${key} needs a value`);
+    flags[key] = value;
+    i += 1;
+  }
+  return { flags, positional };
+}
+
+/* ---------- rendering ---------- */
+
+function render({ event, missionId, message, approvalId, approval }) {
+  const head = `Orion | ${EVENTS[event].label} | ${missionId}`;
+  const body = [head, message];
+  if (event === "blocked" && approvalId) {
+    body.push(`Waiting on: ${approval}`);
+    body.push(`Reply "approve ${approvalId}" or "deny ${approvalId}".`);
+  } else if (event !== "complete" && event !== "blocked") {
+    body.push("No action needed.");
+  }
+  return body.join("\n");
+}
+
+/* ---------- transport ---------- */
+
+// Channel-agnostic on purpose. The moment a real OpenClaw channel exists this
+// starts using it with no edit here; until then the existing one-way Discord
+// webhook carries the traffic. Nothing in this file knows a secret.
+async function resolveTransport(flags) {
+  const channel = flags.channel ?? process.env.ORION_NOTIFY_CHANNEL;
+  const target = flags.target ?? process.env.ORION_NOTIFY_TARGET;
+  if (channel && target) return { kind: "openclaw", channel, target };
+
+  try {
+    const config = JSON.parse(await readFile(CONFIG, "utf8"));
+    for (const [name, entry] of Object.entries(config.channels ?? {})) {
+      if (entry?.enabled === false) continue;
+      const to = entry?.defaultTo ?? entry?.accounts?.default?.defaultTo;
+      if (to) return { kind: "openclaw", channel: name, target: to };
+    }
+  } catch {
+    // No readable config is not fatal; it just means no native channel.
+  }
+  return { kind: "discord" };
+}
+
+async function deliver(transport, text, dryRun) {
+  if (dryRun) {
+    const where = transport.kind === "openclaw"
+      ? `openclaw:${transport.channel} -> ${transport.target}`
+      : "discord-webhook";
+    console.log(`--- DRY RUN (${where}) ---\n${text}\n--- END ---`);
+    return { delivered: false, dryRun: true };
+  }
+  try {
+    if (transport.kind === "openclaw") {
+      await run(OPENCLAW, [
+        "message", "send",
+        "--channel", transport.channel,
+        "--target", transport.target,
+        "--message", text,
+      ], { timeout: 30_000 });
+    } else {
+      await run(DISCORD, [text], { timeout: 30_000 });
+    }
+    return { delivered: true };
+  } catch (error) {
+    // Never let a transport failure kill the caller's mission. Report and move
+    // on -- a dropped milestone is cheaper than a crashed long-running job.
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`orion-notify: delivery failed: ${reason.slice(0, 200)}`);
+    return { delivered: false, error: true };
+  }
+}
+
+/* ---------- suppression ---------- */
+
+const inQuietHours = (now) => {
+  const hour = now.getHours();
+  return hour >= QUIET_FROM || hour < QUIET_UNTIL;
+};
+
+function suppressionReason(state, { event, missionId, message, at }) {
+  const sent = state.notify.sent;
+  const duplicate = sent.find(
+    (entry) => entry.event === event && entry.missionId === missionId
+      && entry.message === message && at - entry.at < DEDUPE_MS,
+  );
+  if (duplicate) return "duplicate of a message sent in the last 30 min";
+
+  const gap = EVENTS[event].minGapMs;
+  if (gap > 0) {
+    const last = sent.filter((e) => e.missionId === missionId && e.event === event).at(-1);
+    if (last && at - last.at < gap) {
+      return `rate limit: ${event} for ${missionId} was sent ${Math.round((at - last.at) / 60000)} min ago`;
+    }
+  }
+
+  const lastHour = sent.filter((entry) => at - entry.at < 3_600_000).length;
+  if (lastHour >= GLOBAL_HOURLY_CAP) return `rate limit: ${lastHour} messages already sent this hour`;
+  return null;
+}
+
+/* ---------- commands ---------- */
+
+const { flags, positional } = parseArgs(process.argv.slice(2));
+const [command, ...rest] = positional;
+const now = flags.now ? new Date(flags.now) : new Date();
+if (Number.isNaN(now.getTime())) fail("--now must be an ISO timestamp");
+const at = now.getTime();
+const dryRun = flags["dry-run"] === true;
+
+if (command === "status") {
+  const state = await readState();
+  const recent = state.notify.sent.filter((entry) => at - entry.at < 3_600_000);
+  console.log(`sent in the last hour: ${recent.length}/${GLOBAL_HOURLY_CAP}`);
+  console.log(`deferred (quiet hours): ${state.notify.deferred.length}`);
+  console.log(`quiet hours right now: ${inQuietHours(now) ? "yes" : "no"}`);
+  for (const [id, mission] of Object.entries(state.missions)) {
+    console.log(`- ${id}: ${mission.status}${mission.priority ? ` (${mission.priority})` : ""}`);
+  }
+  for (const [id, item] of Object.entries(state.pending)) {
+    if (item.status === "pending") console.log(`- pending approval ${id}: ${item.request}`);
+  }
+  process.exit(0);
+}
+
+if (command === "flush") {
+  const state = await readState();
+  if (state.notify.deferred.length === 0) {
+    console.log("nothing deferred");
+    process.exit(0);
+  }
+  const digest = [
+    `Orion | OVERNIGHT DIGEST | ${state.notify.deferred.length} update(s)`,
+    ...state.notify.deferred.map((entry) => `- [${EVENTS[entry.event].label}] ${entry.missionId}: ${entry.message}`),
+  ].join("\n");
+  const transport = await resolveTransport(flags);
+  const result = await deliver(transport, digest, dryRun);
+  if (!dryRun && result.delivered) {
+    await writeState((fresh) => ({ ...fresh, notify: { ...fresh.notify, deferred: [] } }));
+  }
+  process.exit(result.error ? 1 : 0);
+}
+
+if (!command || !(command in EVENTS)) {
+  fail(`unknown event "${command ?? ""}". Allowed: ${Object.keys(EVENTS).join(", ")}, flush, status`);
+}
+
+const missionId = rest[0];
+if (!missionId || !MISSION_RE.test(missionId)) {
+  fail("mission id must be 1-40 chars of a-z, 0-9 and hyphen");
+}
+const message = cleanText(rest.slice(1).join(" "), 1200);
+if (!message) fail("message must be 1-1200 bytes of printable text");
+
+const approval = flags.approval ? cleanText(flags.approval, 200) : null;
+if (flags.approval && !approval) fail("--approval must be 1-200 bytes of printable text");
+if (approval && command !== "blocked") fail("--approval only makes sense on a blocked event");
+
+const state = await readState();
+
+// A blocked event with --approval mints exactly one pending item with its own
+// id. That id is the ONLY thing a remote `approve` can name -- which is what
+// stops an inbound message from ever being a blanket authorisation.
+const approvalId = approval ? `ap-${randomBytes(4).toString("hex")}` : null;
+
+const text = render({ event: command, missionId, message, approvalId, approval });
+
+const forced = ALWAYS_DELIVER.has(command) || flags.urgent === true;
+const quiet = !forced && inQuietHours(now);
+const suppressed = forced ? null : suppressionReason(state, { event: command, missionId, message, at });
+
+const mission = state.missions[missionId] ?? { priority: "normal", history: [] };
+const statusFor = { started: "running", complete: "complete", blocked: "blocked" }[command] ?? mission.status ?? "running";
+
+const nextMissions = {
+  ...state.missions,
+  [missionId]: {
+    ...mission,
+    status: statusFor,
+    lastEvent: command,
+    lastEventAt: new Date(at).toISOString(),
+  },
+};
+const nextPending = approvalId
+  ? { ...state.pending, [approvalId]: { missionId, request: approval, status: "pending", createdAt: new Date(at).toISOString() } }
+  : state.pending;
+
+if (quiet) {
+  // Apply only THIS mission's delta onto the freshly-read state. Replacing the
+  // whole `missions` map with one built from a stale read is how a concurrent
+  // orion-remote edit to a different mission would silently vanish.
+  await writeState((fresh) => ({
+    ...fresh,
+    missions: { ...fresh.missions, [missionId]: nextMissions[missionId] },
+    pending: approvalId ? { ...fresh.pending, [approvalId]: nextPending[approvalId] } : fresh.pending,
+    notify: { ...fresh.notify, deferred: [...fresh.notify.deferred, { event: command, missionId, message, at }] },
+  }));
+  console.log(`deferred (quiet hours ${QUIET_FROM}:00-0${QUIET_UNTIL}:00) - will go out with the next flush`);
+  process.exit(0);
+}
+
+if (suppressed) {
+  await writeState((fresh) => ({ ...fresh, missions: nextMissions, pending: nextPending }));
+  console.log(`suppressed: ${suppressed}`);
+  process.exit(0);
+}
+
+const transport = await resolveTransport(flags);
+const result = await deliver(transport, text, dryRun);
+
+await writeState((fresh) => ({
+  ...fresh,
+  missions: { ...fresh.missions, [missionId]: nextMissions[missionId] },
+  pending: approvalId ? { ...fresh.pending, [approvalId]: nextPending[approvalId] } : fresh.pending,
+  notify: {
+    ...fresh.notify,
+    /*
+     A dry run is CHECKED against the rate limit but does not consume it.
+
+     It used to consume it, on the reasoning that a rehearsal should behave
+     exactly like the real thing. That reasoning conflates two different jobs:
+     showing what the limiter would do, and spending the budget it guards.
+     Keeping both meant a single pass over the five event types burned most of
+     the hourly cap, so the next genuinely important "BLOCKED — INPUT REQUIRED"
+     went to nobody. A test that silences real alarms is not a safe test.
+
+     The suppression check above still runs for dry runs, so a rehearsal still
+     tells you honestly that it would have been throttled.
+    */
+    sent: dryRun
+      ? fresh.notify.sent
+      : [...fresh.notify.sent, { event: command, missionId, message, at }].filter(
+          (e) => at - e.at < 24 * 3_600_000,
+        ),
+  },
+}));
+
+if (approvalId) console.log(`pending approval id: ${approvalId}`);
+if (result.delivered) console.log(`sent (${transport.kind})`);
+process.exit(result.error ? 1 : 0);

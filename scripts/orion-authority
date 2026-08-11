@@ -1,0 +1,572 @@
+#!/usr/bin/env node
+/*
+ What Orion may do on his own, and why — derived, never declared.
+
+ Orion's authority already exists in two places that do not know about each
+ other. The plugin gate decides whether a catalog ACTION runs: a capability
+ tier has to be switched on in the plugin config AND allowed by the permission
+ profile AND, for a couple of actions, carry an approval hash bound to the exact
+ arguments. The exec layer decides whether a COMMAND runs: it matches the
+ command name against an allowlist and, with `ask: off` and `askFallback: deny`,
+ denies everything else outright.
+
+ Neither can answer the question Nick actually asks out loud — "what can you do
+ without asking me?" — because neither knows the other exists, and because both
+ answer in yes/no when the honest answer has four levels in it.
+
+ So this reads both, live, and projects them onto one ladder:
+
+   AUTO      do it, say nothing. Reads, retries, reversible work inside roots
+             Orion owns, his own internal state.
+   NOTIFY    do it, then say so. Irreversible-by-Orion, or high risk, or it
+             changed something in Nick's own space rather than Orion's.
+   APPROVAL  ask first. The gate demands a bound approval hash, or the effect
+             leaves the machine and cannot be taken back.
+   NEVER     not authorised at all — the tier is off, the profile forbids it,
+             or the command is not on the allowlist and the fallback is deny.
+
+ THE ONE RULE THAT MATTERS: nothing here is a hand-written list of what Orion
+ can do. Levels are computed from live metadata every run — `ACTION_CATALOG`
+ out of the installed plugin, the tier flags out of `openclaw.json`, the profile
+ out of `permission-state.json`, the allowlist out of `exec-approvals.json`, and
+ the wrapper scripts out of their own source text. Change any of those and the
+ output changes with it. This project has been burned by capability prose that
+ was true when it was written; prose is the one thing this file must not be.
+
+ Where a capability cannot be classified — a new tier with no config flag, a new
+ command on the allowlist — it fails CLOSED to APPROVAL or NEVER and says so
+ loudly, rather than guessing AUTO.
+
+   orion-authority show                  the full map
+   orion-authority check <capability>    one capability, with the derivation
+   orion-authority explain               the spoken answer, for a voice turn
+   orion-authority show --json           machine-readable
+
+ What-if flags, all read-only, for asking "what changes if…":
+   --profile <name>      derive against a different permission profile
+   --config <path>       derive against a different openclaw.json
+   --approvals <path>    derive against a different exec-approvals.json
+*/
+
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+
+const HOME = homedir();
+const P = {
+  installed: join(HOME, ".openclaw/extensions/orion-control/dist"),
+  built: join(HOME, "Desktop/ORION/openclaw-plugins/orion-control/dist"),
+  config: join(HOME, ".openclaw/openclaw.json"),
+  approvals: join(HOME, ".openclaw/exec-approvals.json"),
+  state: join(HOME, ".openclaw/orion-controlled/permission-state.json"),
+  scripts: join(HOME, "Desktop/ORION/scripts"),
+};
+
+const LEVELS = ["AUTO", "NOTIFY", "APPROVAL", "NEVER"];
+const worst = (a, b) => (LEVELS.indexOf(a) >= LEVELS.indexOf(b) ? a : b);
+
+function die(message, cause) {
+  console.error(`orion-authority: ${message}${cause ? `\n  ${cause}` : ""}`);
+  process.exit(1);
+}
+
+async function loadJson(path, what) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    die(`could not read ${what} at ${path}`, error.message);
+  }
+}
+
+/* ------------------------------------------------------------------ inputs */
+
+/*
+ The INSTALLED plugin is the truth: that is the code the daemon loads. The
+ built copy on the Desktop is only a candidate. Reporting a difference between
+ them is the point — a map derived from source Nick has not deployed yet would
+ be exactly the kind of confident lie this file exists to prevent.
+*/
+async function loadCatalog() {
+  for (const dist of [P.installed, P.built]) {
+    try {
+      const catalog = await import(join(dist, "catalog.js"));
+      const permissions = await import(join(dist, "permissions.js"));
+      const index = await readFile(join(dist, "index.js"), "utf8");
+      return { catalog, permissions, index, dist };
+    } catch {
+      /* try the next candidate; both missing is fatal below */
+    }
+  }
+  return die(`no built plugin found in ${P.installed} or ${P.built}`);
+}
+
+async function deployDrift() {
+  const read = (d) => readFile(join(d, "catalog.js"), "utf8").catch(() => null);
+  const [installed, built] = await Promise.all([read(P.installed), read(P.built)]);
+  return installed && built && installed !== built;
+}
+
+/* ------------------------------------------------------- tier availability */
+
+const pascal = (tier) =>
+  tier.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join("");
+
+/*
+ Which config flag turns a tier on, worked out from the tier's own name rather
+ than copied out of index.ts — a copy is a second source of truth and would rot
+ the first time a tier is added. Both spellings the plugin actually uses are
+ tried (`reminders` is switched by `enableReminderActions`), and the winner has
+ to appear verbatim in the compiled plugin or it is not a real flag.
+*/
+function resolveFlag(tier, indexSource) {
+  const stem = pascal(tier);
+  const candidates = [`enable${stem}Actions`];
+  if (stem.endsWith("s")) candidates.push(`enable${stem.slice(0, -1)}Actions`);
+  return candidates.find((name) => indexSource.includes(name));
+}
+
+/*
+ A tier is reachable only where the config flag AND the permission profile both
+ say yes — `intersectTiers` in the plugin. Desktop-rooted tiers additionally
+ need `desktopRoot` set, and that dependency is read off the catalog (does any
+ action in the tier address the Desktop?) rather than hardcoded.
+*/
+function tierAvailability({ catalog, permissions, index }, config, profile) {
+  const allowed = permissions.profileAllowedTiers(profile);
+  const desktopTiers = new Set(
+    Object.values(catalog.ACTION_CATALOG)
+      .filter((d) => d.execution.root === "desktop")
+      .map((d) => d.capabilityTier),
+  );
+  const tiers = new Map();
+  for (const definition of Object.values(catalog.ACTION_CATALOG)) {
+    const tier = definition.capabilityTier;
+    if (tiers.has(tier)) continue;
+    const flag = tier === "simulation" ? null : resolveFlag(tier, index);
+    const unresolved = tier !== "simulation" && flag === undefined;
+    const needsRoot = desktopTiers.has(tier);
+    const configOn =
+      tier === "simulation" ||
+      (!unresolved && config[flag] === true && (!needsRoot || Boolean(config.desktopRoot)));
+    tiers.set(tier, {
+      tier,
+      flag,
+      unresolved,
+      configOn,
+      profileOn: allowed.has(tier),
+      available: configOn && allowed.has(tier),
+    });
+  }
+  return tiers;
+}
+
+/* --------------------------------------------------- the ladder, catalogue */
+
+/*
+ One ladder, four rules, first match wins. Every clause names the live field it
+ read, so `check` can print the derivation instead of an assertion.
+
+ R2's last clause is the subtle one. A write whose policy carries a fixed
+ `subdirectory` lands in a folder Orion owns even when the root is the Desktop
+ (`Orion Controlled Test Workspace/...`), so it is his space, not Nick's. A
+ write with a runtime `rootArgument` could land anywhere mutable, so it is
+ treated as Nick's.
+*/
+function classifyAction(name, definition, availability) {
+  const tier = availability.get(definition.capabilityTier);
+  const execution = definition.execution;
+
+  if (!tier.available) {
+    const because = tier.unresolved
+      ? `capability tier '${tier.tier}' has no recognisable config flag in the installed plugin, so it is treated as off`
+      : !tier.configOn && !tier.profileOn
+        ? `config flag ${tier.flag} is not true and profile does not allow tier '${tier.tier}'`
+        : !tier.configOn
+          ? `config flag ${tier.flag} is not true in openclaw.json`
+          : `permission profile does not allow capability tier '${tier.tier}'`;
+    return { level: "NEVER", rule: "R0 unreachable", because };
+  }
+  if (definition.approvalRequired) {
+    return {
+      level: "APPROVAL",
+      rule: "R1 gate demands approval",
+      because:
+        "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+    };
+  }
+  if (definition.reversible === false) {
+    return {
+      level: "NOTIFY",
+      rule: "R2 irreversible",
+      because: "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+    };
+  }
+  if (definition.risk === "high" || definition.risk === "critical") {
+    return {
+      level: "NOTIFY",
+      rule: "R2 blast radius",
+      because: `risk is '${definition.risk}' — reversible, but too large to happen silently`,
+    };
+  }
+  const runtimeRoot = Boolean(execution.rootArgument);
+  const nicksSpace = execution.root === "desktop" && !execution.subdirectory;
+  const writes = !["list_directory", "path_metadata", "read_text", "self_source", "simulate"].includes(
+    execution.kind,
+  );
+  if (writes && (runtimeRoot || nicksSpace)) {
+    return {
+      level: "NOTIFY",
+      rule: "R2 Nick's space",
+      because: runtimeRoot
+        ? `the root is chosen at call time (${execution.rootArgument}), so this can land in Nick's own files`
+        : "it writes into the Desktop itself rather than a folder Orion owns",
+    };
+  }
+  return {
+    level: "AUTO",
+    rule: "R3 default",
+    because:
+      execution.kind === "simulate"
+        ? "simulated only — it changes nothing at all"
+        : `reversible, ${definition.risk} risk, confined to reads or to state Orion owns`,
+  };
+}
+
+/* ------------------------------------------------------- the ladder, shell */
+
+/*
+ Wrapper scripts carry no metadata, so their effects are read out of their own
+ source. Each signal is a regex plus the line that matched it, so `check` shows
+ evidence rather than an opinion — and if a script is edited to stop doing the
+ dangerous thing, its level moves on the next run.
+*/
+const WRITE_CALL = /\b(?:append|write)File(?:Sync)?\s*\(|>>\s*['"]/;
+const SIGNALS = [
+  { id: "write_call", re: WRITE_CALL },
+  { id: "root_workspace", re: /\.openclaw\/workspace/ },
+  { id: "root_orion", re: /\.openclaw\/orion-controlled/ },
+  {
+    id: "external_delete",
+    klass: "irreversible_external",
+    re: /delete_calendar_event|delete_reminder|\bgit\s+push\b|\brm\s+-[A-Za-z]*[rf]|\bunlink(?:Sync)?\s*\(/,
+    why: "it removes a record that lives outside Orion's own state, and he has no inverse to run",
+  },
+  {
+    id: "outbound_message",
+    klass: "irreversible_external",
+    re: /-X\s*POST|["']POST["']|webhook/i,
+    why: "it delivers a message off this machine, and a sent message cannot be unsent",
+  },
+  {
+    id: "external_create",
+    klass: "external_write",
+    re: /create_calendar_event|create_reminder/,
+    why: "it writes a record into an account Nick reads outside Orion",
+  },
+  {
+    id: "remote_readonly",
+    klass: "remote_read",
+    re: /--readonly|--gmail-no-send/,
+    why: "it reaches a connected account with the read-only flags hard-wired into the call",
+  },
+  {
+    id: "user_file_write",
+    klass: "user_write",
+    requires: ["write_call", "root_workspace"],
+    why: "it writes files Nick reads directly, including memory loaded into every session",
+  },
+  {
+    id: "orion_state_write",
+    klass: "orion_state",
+    requires: ["write_call", "root_orion"],
+    why: "it writes only Orion's own state directory",
+  },
+];
+const CLASS_LEVEL = {
+  irreversible_external: "APPROVAL",
+  external_write: "NOTIFY",
+  user_write: "NOTIFY",
+  remote_read: "AUTO",
+  orion_state: "AUTO",
+};
+
+function scanSource(source) {
+  const lines = source.split("\n");
+  const hits = new Map();
+  for (const signal of SIGNALS) {
+    if (signal.requires) continue;
+    const at = lines.findIndex((line) => signal.re.test(line));
+    if (at !== -1) hits.set(signal.id, { line: at + 1, text: lines[at].trim().slice(0, 90) });
+  }
+  const found = [];
+  for (const signal of SIGNALS) {
+    if (!signal.klass) continue;
+    const ok = signal.requires
+      ? signal.requires.every((id) => hits.has(id))
+      : hits.has(signal.id);
+    if (!ok) continue;
+    const evidence = hits.get(signal.requires ? signal.requires[0] : signal.id);
+    found.push({ ...signal, evidence });
+  }
+  return found;
+}
+
+/*
+ Sub-capabilities, where the script's own dispatch exposes them. This matters
+ because the exec layer grants at SCRIPT granularity — one allowlist entry
+ covers `orion-agenda today` and `orion-agenda remove` alike — so the level the
+ machine can enforce is the worst case across the whole file, while the level
+ Orion should actually follow is per subcommand. Both are reported; conflating
+ them would either block a calendar read or silently permit a calendar delete.
+*/
+function subCapabilities(source) {
+  const parts = source.split(/^\s*case "([a-z][a-z-]*)":/m);
+  const subs = [];
+  for (let index = 1; index < parts.length; index += 2) {
+    const signals = scanSource(parts[index + 1] ?? "");
+    const level = signals.reduce((acc, s) => worst(acc, CLASS_LEVEL[s.klass]), "AUTO");
+    subs.push({ name: parts[index], level, signals });
+  }
+  return subs;
+}
+
+/*
+ A bare command name on the allowlist carries no source to read and no
+ arguments to inspect, so it gets a stated class — the one place in this file
+ that is a table rather than a derivation, and it is fail-closed: a command
+ that appears on the allowlist and is not in this table classifies as
+ `unclassified` and lands at APPROVAL until someone looks at it.
+*/
+const BARE = {
+  read: "ls cat head tail wc stat file du df tree rg egrep fgrep grep fd locate mdfind pwd which whoami date uname hostname sw_vers sort uniq cut tr column jq diff basename dirname".split(" "),
+  // Read-ish, but each is also a way to run something else: `env CMD`,
+  // `find -exec`, `git -c alias`. Calling them read-only would be a lie, and
+  // calling them APPROVAL would make Orion ask before `git status`. So they
+  // inherit the level of whatever they are being used to DO — see `check`.
+  exec_vector: ["find", "env", "git"],
+};
+
+function classifyShell(pattern, allowlisted, sources) {
+  if (!allowlisted) {
+    return {
+      level: "NEVER",
+      rule: "R0 unreachable",
+      because:
+        "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+    };
+  }
+  const source = sources.get(pattern);
+  if (source !== undefined) {
+    const signals = scanSource(source);
+    const level = signals.reduce((acc, s) => worst(acc, CLASS_LEVEL[s.klass]), "AUTO");
+    const subs = subCapabilities(source);
+    return {
+      level,
+      rule: signals.length ? "R1/R2 from script source" : "R3 default",
+      because: signals.length
+        ? signals.map((s) => s.why).join("; ")
+        : "nothing in its source writes outside Orion's state or leaves the machine",
+      signals,
+      subs: subs.filter((s) => s.level !== level).length ? subs : [],
+      coarse: subs.length > 0,
+    };
+  }
+  const name = basename(pattern);
+  if (BARE.read.includes(name)) {
+    return {
+      level: "AUTO",
+      rule: "R3 default",
+      because: "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+    };
+  }
+  if (BARE.exec_vector.includes(name)) {
+    return {
+      level: "AUTO",
+      rule: "R3 default, escape hatch",
+      escapeHatch: true,
+      because:
+        "reads at AUTO, but this entry can also launch other work (env CMD, find -exec, git push) — when used that way it takes the level of the effect, not of the command",
+    };
+  }
+  return {
+    level: "APPROVAL",
+    rule: "fail closed",
+    because: "on the allowlist but not classified here, so it gets the most friction until it is",
+  };
+}
+
+/* ------------------------------------------------------------ the full map */
+
+async function buildMap(options) {
+  const plugin = await loadCatalog();
+  const configFile = await loadJson(options.config ?? P.config, "openclaw.json");
+  const approvals = await loadJson(options.approvals ?? P.approvals, "exec-approvals.json");
+  const state = await loadJson(options.state ?? P.state, "permission-state.json").catch(() => null);
+
+  const config = configFile.plugins?.entries?.["orion-control"]?.config ?? {};
+  const profile = options.profile ?? state?.profile ?? "restricted_read_only";
+  if (!plugin.permissions.PERMISSION_PROFILES.includes(profile)) {
+    die(`unknown permission profile '${profile}'`);
+  }
+  const availability = tierAvailability(plugin, config, profile);
+
+  const actions = Object.entries(plugin.catalog.ACTION_CATALOG).map(([name, definition]) => ({
+    kind: "action",
+    name,
+    tier: definition.capabilityTier,
+    risk: definition.risk,
+    reversible: definition.reversible,
+    enforcedBy: "plugin gate (mechanical)",
+    ...classifyAction(name, definition, availability),
+  }));
+
+  const agent = approvals.agents?.main ?? {};
+  const patterns = new Set((agent.allowlist ?? []).map((entry) => entry.pattern));
+  const scriptPaths = new Set([...patterns].filter((p) => p.includes("/")));
+  const { readdir } = await import("node:fs/promises");
+  for (const file of await readdir(P.scripts).catch(() => [])) {
+    if (file.startsWith("orion-") && !file.includes(".")) scriptPaths.add(join(P.scripts, file));
+  }
+  const sources = new Map();
+  for (const path of scriptPaths) {
+    const source = await readFile(path, "utf8").catch(() => null);
+    if (source !== null) sources.set(path, source);
+  }
+
+  const commands = [...new Set([...patterns, ...scriptPaths])].map((pattern) => ({
+    kind: "command",
+    name: pattern.includes("/") ? basename(pattern) : pattern,
+    pattern,
+    enforcedBy: pattern.includes("/") || true ? "exec allowlist (allow/deny only)" : "",
+    ...classifyShell(pattern, patterns.has(pattern), sources),
+  }));
+
+  return {
+    profile,
+    profileSource: options.profile ? "--profile override" : "permission-state.json",
+    dist: plugin.dist,
+    drift: await deployDrift(),
+    exec: { security: agent.security, ask: agent.ask, askFallback: agent.askFallback },
+    availability: [...availability.values()],
+    capabilities: [...actions, ...commands].sort(
+      (a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || a.name.localeCompare(b.name),
+    ),
+  };
+}
+
+/* -------------------------------------------------------------- rendering */
+
+const banner = (map) => [
+  `profile: ${map.profile}  (${map.profileSource})`,
+  `catalog: ${map.dist.replace(HOME, "~")}`,
+  `exec:    security=${map.exec.security} ask=${map.exec.ask} askFallback=${map.exec.askFallback}`,
+  map.drift
+    ? "WARNING: the built plugin on the Desktop differs from the installed one; this map describes what is INSTALLED."
+    : null,
+].filter(Boolean).join("\n");
+
+function show(map) {
+  console.log(`${banner(map)}\n`);
+  for (const level of LEVELS) {
+    const rows = map.capabilities.filter((c) => c.level === level);
+    console.log(`${level}  (${rows.length})`);
+    for (const row of rows) {
+      const tag = row.kind === "action" ? row.tier : "shell";
+      const flag = row.escapeHatch ? " [escape hatch]" : row.coarse ? " [coarse: see check]" : "";
+      console.log(`  ${row.name.padEnd(30)} ${tag.padEnd(22)} ${row.rule}${flag}`);
+    }
+    console.log("");
+  }
+  const unresolved = map.availability.filter((t) => t.unresolved);
+  if (unresolved.length) {
+    console.log(`UNRESOLVED TIERS (failed closed to NEVER): ${unresolved.map((t) => t.tier).join(", ")}`);
+  }
+}
+
+function check(map, query) {
+  const found = map.capabilities.filter(
+    (c) => c.name === query || c.pattern === query || c.name === basename(query),
+  );
+  if (!found.length) {
+    console.error(`orion-authority: '${query}' is not a capability Orion has. Try: orion-authority show`);
+    process.exit(2);
+  }
+  for (const row of found) {
+    console.log(`${row.name}: ${row.level}`);
+    console.log(`  kind        ${row.kind === "action" ? `catalog action, tier '${row.tier}'` : "shell command"}`);
+    if (row.kind === "action") {
+      console.log(`  metadata    risk=${row.risk} reversible=${row.reversible}`);
+    }
+    console.log(`  rule        ${row.rule}`);
+    console.log(`  because     ${row.because}`);
+    console.log(`  enforced by ${row.enforcedBy}`);
+    for (const signal of row.signals ?? []) {
+      const at = signal.evidence ? ` (line ${signal.evidence.line}: ${signal.evidence.text})` : "";
+      console.log(`  evidence    ${signal.id}${at}`);
+    }
+    if (row.subs?.length) {
+      console.log("  subcommands the exec layer CANNOT tell apart — Orion applies these himself:");
+      for (const sub of row.subs) console.log(`    ${sub.name.padEnd(16)} ${sub.level}`);
+    }
+  }
+}
+
+function explain(map) {
+  const by = (level) => map.capabilities.filter((c) => c.level === level);
+  const names = (level, limit) => {
+    const rows = by(level).map((c) => c.name);
+    return rows.length > limit ? `${rows.slice(0, limit).join(", ")}, and ${rows.length - limit} more` : rows.join(", ");
+  };
+  console.log(`${banner(map)}\n`);
+  console.log(
+    `I have ${map.capabilities.length} capabilities. Without asking you I can do ${by("AUTO").length} of them — ` +
+      `reading your Desktop, your home folder and my own source, searching your mail, recalling what you told me, ` +
+      `browser tabs, music and volume, timers, my own voice tuning, and anything inside the folders I own. ` +
+      `Examples: ${names("AUTO", 6)}.`,
+  );
+  console.log(
+    `\nThere are ${by("NOTIFY").length} I will do and then tell you about, because I cannot undo them or they are ` +
+      `big enough that you should hear it: ${names("NOTIFY", 8)}.`,
+  );
+  console.log(
+    `\nThere are ${by("APPROVAL").length} I will not do until you say yes: ${names("APPROVAL", 8)}. ` +
+      `Those either send something off this machine or delete something you own.`,
+  );
+  console.log(
+    `\nAnd ${by("NEVER").length} I cannot do at all right now — the capability is switched off in my config, your ` +
+      `permission profile forbids it, or the command is not on my allowlist. Ask me to check any one of them by name.`,
+  );
+}
+
+/* ------------------------------------------------------------------- main */
+
+const argv = process.argv.slice(2);
+const options = {};
+const positional = [];
+for (let index = 0; index < argv.length; index += 1) {
+  const argument = argv[index];
+  if (argument === "--json") options.json = true;
+  else if (argument.startsWith("--")) {
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) die(`${argument} needs a value`);
+    options[argument.slice(2)] = value;
+    index += 1;
+  } else positional.push(argument);
+}
+
+const [command = "show", target] = positional;
+if (!["show", "check", "explain"].includes(command)) {
+  die(`unknown command '${command}'. Usage: orion-authority show | check <capability> | explain`);
+}
+if (command === "check" && !target) die("check needs a capability name");
+
+try {
+  const map = await buildMap(options);
+  if (options.json) {
+    console.log(JSON.stringify(command === "check" ? map.capabilities.filter((c) => c.name === target) : map, null, 2));
+  } else if (command === "show") show(map);
+  else if (command === "check") check(map, target);
+  else explain(map);
+} catch (error) {
+  die("failed to derive the authority map", error.stack ?? error.message);
+}

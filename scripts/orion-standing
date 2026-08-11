@@ -1,0 +1,638 @@
+#!/usr/bin/env node
+/*
+ Orion's standing orders — the checks he runs unprompted, and the only place he
+ is allowed to speak first.
+
+ One rule governs everything here: SAY ONLY WHAT CHANGED. A proactive assistant
+ that reads your day back to you every morning gets muted in a week, so silence
+ is the default and the normal outcome. Every line this prints has to answer
+ three questions at once — what changed, why it matters, what to do about it —
+ or it does not earn the interruption.
+
+ Three failure modes were already paid for once, and the code defends each:
+
+ 1. **"Nothing scheduled" when the truth is "no access."** `orion-agenda tasks`
+    exits non-zero with a permission message right now, because Orion was never
+    granted Reminders. Flattening that into silence tells Nick his day is clear
+    when in fact nobody looked. So every source carries a status — ok, empty,
+    unavailable, degraded — and an unavailable source is *reported as a blind
+    spot*, never absorbed.
+
+ 2. **Numbers that were never given.** Nothing here paraphrases, rounds, or
+    infers a figure. Recovery and sleep are printed only if a real number is in
+    the file AND it is stamped with today's local date; a stale reading is
+    dropped rather than re-attributed to today. `--polish` runs the wording past
+    a local model and then *rejects the result* if it contains a digit the
+    deterministic text did not.
+
+ 3. **UTC dates.** Every day boundary is `toLocaleDateString("en-CA")`.
+    `toISOString()` is UTC and rolls over mid-evening in New York, which already
+    filed a day's memory under tomorrow once.
+
+ Output contract, so a cron job can pipe it straight at Discord: the message
+ goes to stdout and NOTHING is printed when there is nothing worth sending.
+ Diagnostics go to stderr, only under `--explain`, so they never leak into a
+ message.
+
+   orion-standing morning            today's commitments, what's due, poor recovery
+   orion-standing evening            what's still open, an early start tomorrow
+   orion-standing check              an imminent commitment he may not have clocked
+   orion-standing auto               picks one of the above from the clock
+   ... --now 2026-08-10T07:30        pretend it is that local wall-clock moment
+   ... --explain                     source-by-source status on stderr
+   ... --force                       ignore quiet hours
+   ... --polish                      let gpt-oss:20b tighten the wording
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+const HOME = homedir();
+const HERE = dirname(fileURLToPath(import.meta.url));
+// Overridable so the behaviour can be exercised against a fixture agenda. It is
+// a test seam, not a feature: a bad path fails loudly below rather than quietly
+// becoming "no events".
+const AGENDA = process.env.ORION_STANDING_AGENDA || join(HERE, "orion-agenda");
+const HEALTH_FILE = join(HOME, ".openclaw/orion-controlled/health-log.json");
+const MEMORY_DIR = join(HOME, ".openclaw/workspace/memory");
+
+const QUIET_FROM = 23; // 23:00–08:00 is his, not Orion's.
+const QUIET_UNTIL = 8;
+const MORNING_HOUR = 8;
+const EVENING_HOUR = 21;
+const IMMINENT_MINUTES = 120; // "<2h" — the brief's own number.
+const LAST_CALL_MINUTES = 20; // second and final nudge if the first was missed.
+const EARLY_HOUR = 9; // a start before this is worth going to bed for.
+const POOR_RECOVERY = 33; // Whoop's own red band.
+const SHORT_SLEEP_HOURS = 6;
+const MAX_LISTED = 5; // beyond this it stops being a brief and becomes a diary.
+const HEALTH_MAX_AGE_HOURS = 18;
+
+const MODES = new Set(["morning", "evening", "check", "auto"]);
+const VALUE_FLAGS = new Set(["--now", "--every"]);
+const BOOL_FLAGS = new Set(["--explain", "--force", "--polish", "--notify"]);
+
+function fail(message, code = 2) {
+  console.error(`orion-standing: ${message}`);
+  process.exit(code);
+}
+
+/* ---------------------------------------------------------------- arguments */
+
+const parsed = process.argv.slice(2).reduce(
+  (acc, token) => {
+    if (acc.pending) {
+      return { ...acc, pending: null, values: { ...acc.values, [acc.pending]: token } };
+    }
+    if (VALUE_FLAGS.has(token)) return { ...acc, pending: token };
+    if (BOOL_FLAGS.has(token)) return { ...acc, values: { ...acc.values, [token]: true } };
+    if (token.startsWith("-")) fail(`unknown option ${token}`);
+    return { ...acc, positional: [...acc.positional, token] };
+  },
+  { values: {}, positional: [], pending: null },
+);
+
+if (parsed.pending) fail(`${parsed.pending} needs a value`);
+if (parsed.positional.length > 1) fail("give one mode: morning | evening | check | auto");
+
+const mode = parsed.positional[0] ?? "auto";
+if (!MODES.has(mode)) fail(`unknown mode "${mode}" — use morning | evening | check | auto`);
+
+// Only the local wall-clock form is accepted. An offset-bearing timestamp would
+// reintroduce exactly the timezone ambiguity this file exists to avoid.
+const nowRaw = parsed.values["--now"];
+if (nowRaw !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(nowRaw)) {
+  fail("--now must look like 2026-08-10T07:30 (local wall clock, no timezone)");
+}
+const now = nowRaw ? new Date(`${nowRaw}:00`) : new Date();
+if (Number.isNaN(now.getTime())) fail(`could not read ${nowRaw} as a date`);
+
+const cadence = Number(parsed.values["--every"] ?? 60);
+if (!Number.isInteger(cadence) || cadence < 1 || cadence > 720) {
+  fail("--every must be a whole number of minutes between 1 and 720");
+}
+
+const explain = parsed.values["--explain"] === true;
+const force = parsed.values["--force"] === true;
+const wantsPolish = parsed.values["--polish"] === true;
+// Opt-in delivery. Without it this prints and stops, which is what makes it safe
+// to run by hand or from cron while a channel is still being decided.
+const wantsNotify = parsed.values["--notify"] === true;
+
+if (process.env.ORION_STANDING_AGENDA && !existsSync(AGENDA)) {
+  fail(`ORION_STANDING_AGENDA points at ${AGENDA}, which does not exist`, 1);
+}
+
+/* -------------------------------------------------------------------- clock */
+
+const DAY_LABEL = { weekday: "short", month: "short", day: "numeric" };
+const localDay = (at) => at.toLocaleDateString("en-CA");
+const clockLabel = (at) => at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const dayShift = (at, days) => new Date(at.getFullYear(), at.getMonth(), at.getDate() + days);
+const minutesBetween = (from, to) => Math.round((to.getTime() - from.getTime()) / 60000);
+
+function gapLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/* ------------------------------------------------------------------ sources */
+
+/*
+ Spawned with `process.execPath` rather than by shebang. The gateway's cron runs
+ with a minimal PATH that has no `node` on it, so `#!/usr/bin/env node` inside
+ orion-agenda would fail there and nowhere else — the worst kind of bug. Reusing
+ the interpreter already running this file removes the question.
+*/
+async function askAgenda(args) {
+  try {
+    const { stdout } = await run(process.execPath, [AGENDA, ...args], {
+      timeout: 45000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return { ok: true, stdout };
+  } catch (error) {
+    // orion-agenda says which grant is missing on stderr. That sentence is the
+    // whole difference between "no events" and "no access" — keep it verbatim.
+    const said = String(error.stderr || error.message || "").trim();
+    // Trailing period stripped because the reason is spliced mid-sentence into a
+    // finding that supplies its own punctuation.
+    const reason = said.replace(/^orion-agenda:\s*/, "").split("\n")[0].replace(/\.$/, "");
+    return { ok: false, reason: reason || "the calendar bridge did not answer" };
+  }
+}
+
+// Locale formatters emit either a plain space or U+202F before AM/PM depending
+// on the ICU build, and Orion runs under two different node installs. Accept
+// both rather than silently failing to parse every event on one of them.
+const SP = "[\\s\\u202f\\u00a0]";
+const EVENT_LINE = new RegExp(
+  `^ {2}(today|[A-Za-z]{3}, [A-Za-z]{3} \\d{1,2}) (\\d{1,2}:\\d{2}${SP}(?:AM|PM)) — (.+)$`,
+);
+const TASK_LINE = /^ {2}(.+?)(?: \((?:due) (\d{1,2}\/\d{1,2}\/\d{4})\))?$/;
+
+/*
+ orion-agenda prints future days as "Mon, Aug 10" — no year. Rather than parsing
+ month names by hand, walk forward and re-format each candidate with the very
+ options that produced the label; the first exact match is the day. It is the
+ formatter's own inverse, so leap days and locale quirks come free.
+*/
+function resolveDay(label, base) {
+  if (label === "today") return localDay(base);
+  for (let step = 0; step <= 400; step += 1) {
+    const candidate = dayShift(base, step);
+    if (candidate.toLocaleDateString("en-US", DAY_LABEL) === label) return localDay(candidate);
+  }
+  return null;
+}
+
+function combine(day, time) {
+  const match = new RegExp(`^(\\d{1,2}):(\\d{2})${SP}(AM|PM)$`).exec(time);
+  if (!match) return null;
+  const half = Number(match[1]) % 12;
+  const hour = match[3] === "PM" ? half + 12 : half;
+  const at = new Date(`${day}T${String(hour).padStart(2, "0")}:${match[2]}:00`);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+async function readCalendar() {
+  const result = await askAgenda(["upcoming"]);
+  if (!result.ok) return { status: "unavailable", reason: result.reason, events: [] };
+
+  const collected = result.stdout.split("\n").reduce(
+    (acc, line) => {
+      // Identifier lines and "nothing upcoming" carry no em dash; skip them
+      // without counting them as damage.
+      if (!line.includes(" — ")) return acc;
+      const match = EVENT_LINE.exec(line);
+      const day = match ? resolveDay(match[1], now) : null;
+      const at = day ? combine(day, match[2]) : null;
+      if (!at) return { ...acc, unparsed: acc.unparsed + 1 };
+      return { ...acc, events: [...acc.events, { at, title: match[3].trim() }] };
+    },
+    { events: [], unparsed: 0 },
+  );
+
+  const events = [...collected.events].sort((a, b) => a.at - b.at);
+  // A line that looks like an event but will not parse is a silent data loss —
+  // precisely the shape of bug that makes Orion untrustworthy. Report it.
+  if (collected.unparsed > 0) {
+    return {
+      status: "degraded",
+      events,
+      reason: `${collected.unparsed} calendar line(s) I could not read — the agenda output format may have changed`,
+    };
+  }
+  return { status: events.length > 0 ? "ok" : "empty", events };
+}
+
+async function readTasks() {
+  const result = await askAgenda(["tasks"]);
+  if (!result.ok) return { status: "unavailable", reason: result.reason, tasks: [] };
+
+  const tasks = result.stdout.split("\n").reduce((acc, line) => {
+    const match = line.startsWith("  ") ? TASK_LINE.exec(line) : null;
+    if (!match) return acc;
+    const [month, day, year] = (match[2] ?? "").split("/").map(Number);
+    const due = match[2] ? new Date(year, month - 1, day) : null;
+    return [...acc, { title: match[1].trim(), due }];
+  }, []);
+
+  return { status: tasks.length > 0 ? "ok" : "empty", tasks };
+}
+
+/*
+ Health is the one source that is readable and yet routinely has nothing to say:
+ Whoop's recovery and sleep live inside the Swift app and never reach this file.
+ That is NOT a blind spot to nag about, it is the known steady state — so it
+ returns "no-metrics" and stays quiet. What it must never do is guess.
+*/
+function pickNumber(value, low, high) {
+  return Number.isFinite(value) && value >= low && value <= high ? value : null;
+}
+
+async function readHealth() {
+  if (!existsSync(HEALTH_FILE)) {
+    return { status: "unavailable", reason: `no health log at ${HEALTH_FILE.replace(HOME, "~")}` };
+  }
+  const data = await readFile(HEALTH_FILE, "utf8")
+    .then(JSON.parse)
+    .catch((error) => ({ __broken: error.message }));
+  if (data.__broken) {
+    return { status: "unavailable", reason: `health log is unreadable — ${data.__broken}` };
+  }
+
+  const readings = [data, ...(Array.isArray(data.readings) ? data.readings : [])];
+  const found = readings.reduce((acc, entry) => {
+    if (acc) return acc;
+    const recovery = pickNumber(Number(entry.recovery ?? entry.recoveryScore), 0, 100);
+    const sleep = pickNumber(Number(entry.sleepHours ?? entry.sleep), 0, 24);
+    if (recovery === null && sleep === null) return acc;
+    const stamp = entry.date ?? entry.day ?? entry.updatedAt ?? data.updatedAt;
+    return { recovery, sleep, at: stamp ? new Date(stamp) : null };
+  }, null);
+
+  if (!found) return { status: "no-metrics" };
+
+  // A two-day-old recovery score is not today's recovery score. Attaching it to
+  // this morning would be stating a number he was never given for today.
+  const ageHours = found.at ? (now.getTime() - found.at.getTime()) / 3600000 : Infinity;
+  if (!(ageHours >= 0) || ageHours > HEALTH_MAX_AGE_HOURS) {
+    return { status: "stale", reason: "the newest recovery reading is not from today" };
+  }
+  return { status: "ok", ...found };
+}
+
+const STOPWORDS = new Set(["that", "this", "with", "from", "have", "into", "about", "them", "then"]);
+const COMMITMENT =
+  /\b(todo|must|need to|needs to|have to|deadline|promised|committed|due (today|tonight|tomorrow)|before (tonight|tomorrow))\b/i;
+const RESOLVED = /\b(done|finished|shipped|sent|completed|resolved|handled|cancelled)\b/i;
+const NOTE_LINE = new RegExp(`^- (\\d{1,2}:\\d{2}(?:${SP}[AP]M)?) — (.+)$`);
+
+const keyWords = (text) =>
+  new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length >= 4 && !STOPWORDS.has(word)),
+  );
+
+/*
+ "Unfinished important things" with no task system available: the day's own
+ memory file. Only the `## Noted` section is read — the block below it is
+ generated by orion-daily from the tool ledger and is a machine log, not a
+ promise Nick made.
+*/
+async function readOpenLoops(day) {
+  const path = join(MEMORY_DIR, `${day}.md`);
+  if (!existsSync(path)) return { status: "empty", items: [] };
+
+  const text = await readFile(path, "utf8").catch(() => null);
+  if (text === null) return { status: "unavailable", reason: `could not read ${day}.md` };
+
+  const start = text.indexOf("## Noted");
+  if (start === -1) return { status: "empty", items: [] };
+  const rest = text.slice(start + "## Noted".length);
+  const end = rest.search(/\n(?:##\s|<!-- orion-daily:begin)/);
+  const notes = (end === -1 ? rest : rest.slice(0, end))
+    .split("\n")
+    .map((line) => NOTE_LINE.exec(line.trim()))
+    .filter(Boolean)
+    .map((match) => ({ clock: match[1], text: match[2].trim() }));
+
+  // A later note that reads as closure and shares real vocabulary with the
+  // commitment counts as having closed it. Deliberately conservative: two
+  // shared significant words, not one, so "sent the email" does not silently
+  // retire "need to send the visa form".
+  const items = notes.filter((note, index) => {
+    if (!COMMITMENT.test(note.text)) return false;
+    const words = keyWords(note.text);
+    return !notes.slice(index + 1).some((later) => {
+      if (!RESOLVED.test(later.text)) return false;
+      const overlap = [...keyWords(later.text)].filter((word) => words.has(word));
+      return overlap.length >= 2;
+    });
+  });
+
+  return { status: items.length > 0 ? "ok" : "empty", items };
+}
+
+/* ----------------------------------------------------------------- findings */
+
+const note = (text) => ({ severity: "note", text });
+const urgent = (text) => ({ severity: "urgent", text });
+
+// Blind spots are only raised by the once-a-day checks. `check` runs hourly, and
+// an hourly reminder that Reminders is still not granted is exactly the kind of
+// nagging that gets a proactive assistant switched off.
+function blindSpots(sources) {
+  return sources.flatMap(({ label, source, action }) => {
+    if (source.status === "unavailable") {
+      return [note(`${label}: no access — ${source.reason}. ${action}`)];
+    }
+    if (source.status === "degraded") {
+      return [note(`${label}: partial read — ${source.reason}. ${action}`)];
+    }
+    return [];
+  });
+}
+
+function dueFindings(tasks, day) {
+  const relevant = tasks.filter((task) => task.due && localDay(task.due) <= day);
+  if (relevant.length === 0) return [];
+  const overdue = relevant.filter((task) => localDay(task.due) < day);
+  const titles = relevant.slice(0, MAX_LISTED).map((task) => `"${task.title}"`).join(", ");
+  const more = relevant.length > MAX_LISTED ? ` (+${relevant.length - MAX_LISTED} more)` : "";
+  const why = overdue.length > 0 ? `${overdue.length} already past its date` : "due today";
+  return [note(`Due: ${titles}${more} — ${why}. Close it out or move the date.`)];
+}
+
+function healthFinding(health) {
+  if (health.status !== "ok") return [];
+  const poor = [
+    health.recovery !== null && health.recovery <= POOR_RECOVERY
+      ? `recovery ${health.recovery}`
+      : null,
+    health.sleep !== null && health.sleep < SHORT_SLEEP_HOURS ? `${health.sleep}h sleep` : null,
+  ].filter(Boolean);
+  if (poor.length === 0) return [];
+  return [note(`Body: ${poor.join(", ")} — you are starting the day short. Ease off the load.`)];
+}
+
+function morningFindings({ calendar, tasks, health, day }) {
+  const today = calendar.events.filter((event) => localDay(event.at) === day);
+  const ahead = today.filter((event) => event.at > now);
+  const listed = today
+    .slice(0, MAX_LISTED)
+    .map((event) => `  ${clockLabel(event.at)} — ${event.title}`);
+  const more = today.length > MAX_LISTED ? [`  (+${today.length - MAX_LISTED} more)`] : [];
+  const lead =
+    ahead.length > 0
+      ? `First is in ${gapLabel(minutesBetween(now, ahead[0].at))}. Plan the morning around it.`
+      : "All of it is behind you already.";
+
+  return [
+    ...(today.length > 0
+      ? [note([`Today: ${today.length} commitment(s).`, ...listed, ...more, lead].join("\n"))]
+      : []),
+    ...dueFindings(tasks.tasks, day),
+    ...healthFinding(health),
+    ...blindSpots([
+      { label: "Calendar", source: calendar, action: "Check it yourself before assuming a free day." },
+      { label: "Reminders", source: tasks, action: "Grant Orion Reminders access in System Settings › Privacy & Security." },
+      { label: "Health log", source: health, action: "I will not guess at recovery." },
+    ]),
+  ];
+}
+
+function eveningFindings({ calendar, loops, day }) {
+  const tomorrow = localDay(dayShift(now, 1));
+  const first = calendar.events.filter((event) => localDay(event.at) === tomorrow)[0];
+  const early = first && first.at.getHours() < EARLY_HOUR;
+
+  /*
+   An early start is not the only thing worth hearing the night before.
+
+   The case that exposed this: "UK visa biometrics appointment - bring original
+   passport", at 1:30pm. Not early, so nothing was said — yet it is exactly the
+   kind of commitment where finding out in the morning is too late, because it
+   needs something fetched before you leave. The test is not what time it starts,
+   it is whether tomorrow-you can still do anything about it.
+
+   Kept to an explicit vocabulary rather than asking a model: this runs on a
+   timer, and a rule that can be read is a rule that can be corrected when it
+   nags about the wrong thing.
+  */
+  const NEEDS_PREPARING =
+    /\b(bring|passport|visa|appointment|interview|flight|deadline|exam|document|id|ticket|deposit|form)\b/i;
+  const prep = first && !early && NEEDS_PREPARING.test(first.title);
+
+  const open = loops.items
+    .slice(0, MAX_LISTED)
+    .map((item) => `  "${item.text}" (noted ${item.clock})`);
+  const more = loops.items.length > MAX_LISTED ? [`  (+${loops.items.length - MAX_LISTED} more)`] : [];
+
+  return [
+    ...(early
+      ? [
+          note(
+            `Tomorrow starts at ${clockLabel(first.at)} — ${first.title}. That is an early one. Set the alarm and turn in.`,
+          ),
+        ]
+      : prep
+        ? [
+            note(
+              `Tomorrow at ${clockLabel(first.at)} — ${first.title}. ` +
+                `Worth sorting out tonight rather than in the morning.`,
+            ),
+          ]
+        : []),
+    ...(loops.items.length > 0
+      ? [
+          note(
+            [
+              `Still open from today: ${loops.items.length}, nothing since marked done.`,
+              ...open,
+              ...more,
+              "Close them, or say they can wait.",
+            ].join("\n"),
+          ),
+        ]
+      : []),
+    ...blindSpots([
+      { label: "Calendar", source: calendar, action: "I cannot see whether tomorrow starts early." },
+      { label: "Today's notes", source: loops, action: "I cannot tell what you left open." },
+    ]),
+  ];
+}
+
+/*
+ Stateless de-duplication. This script writes nothing, so it cannot remember
+ having already mentioned an event — instead the alert fires only in the single
+ cadence-wide band where the event first crosses the two-hour line, which exactly
+ one hourly run can satisfy. A second, final band near the start covers the case
+ where that one run was missed because the laptop was asleep.
+*/
+function imminentFindings({ calendar }) {
+  return calendar.events.flatMap((event) => {
+    const left = minutesBetween(now, event.at);
+    if (left <= 0 || left > IMMINENT_MINUTES) return [];
+    const entering = left > IMMINENT_MINUTES - cadence;
+    const lastCall = left <= LAST_CALL_MINUTES && left > LAST_CALL_MINUTES - cadence;
+    if (!entering && !lastCall) return [];
+    return [
+      urgent(
+        `${clockLabel(event.at)} — ${event.title}. Starts in ${gapLabel(left)}. Wrap up what you are on.`,
+      ),
+    ];
+  });
+}
+
+/* ------------------------------------------------------------------- polish */
+
+async function polish(text) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    const response = await fetch("http://127.0.0.1:11434/api/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-oss:20b",
+        stream: false,
+        options: { temperature: 0.2 },
+        prompt:
+          "Rewrite the following assistant notification so it reads naturally and briefly. " +
+          "Keep every fact, every name and every number exactly as given. Add nothing. " +
+          "Invent no times, no counts, no advice that is not already there. " +
+          "Reply with the rewritten notification only.\n\n---\n" +
+          text,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return text;
+    const body = await response.json();
+    const rewritten = String(body.response ?? "").trim();
+    if (!rewritten || rewritten.length > text.length * 2) return text;
+
+    // The guard that makes this safe to enable: a model that hallucinated a
+    // figure has introduced a digit sequence the deterministic text never had.
+    // If so, throw the whole rewrite away — the facts outrank the prose.
+    const given = new Set(text.match(/\d+/g) ?? []);
+    const invented = (rewritten.match(/\d+/g) ?? []).filter((n) => !given.has(n));
+    return invented.length > 0 ? text : rewritten;
+  } catch (error) {
+    if (explain) console.error(`  polish: skipped — ${error.message}`);
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* --------------------------------------------------------------------- main */
+
+async function main() {
+  const day = localDay(now);
+  const hour = now.getHours();
+  const resolved =
+    mode !== "auto" ? mode : hour === MORNING_HOUR ? "morning" : hour === EVENING_HOUR ? "evening" : "check";
+
+  const calendar = await readCalendar();
+  const [tasks, health, loops] =
+    resolved === "morning"
+      ? await Promise.all([readTasks(), readHealth(), Promise.resolve({ status: "skipped", items: [] })])
+      : resolved === "evening"
+        ? [{ status: "skipped", tasks: [] }, { status: "skipped" }, await readOpenLoops(day)]
+        : [{ status: "skipped", tasks: [] }, { status: "skipped" }, { status: "skipped", items: [] }];
+
+  if (explain) {
+    console.error(`orion-standing: ${resolved} at ${day} ${clockLabel(now)} (cadence ${cadence}m)`);
+    for (const [label, source] of [
+      ["calendar", calendar],
+      ["reminders", tasks],
+      ["health", health],
+      ["open loops", loops],
+    ]) {
+      const detail = source.reason ? ` — ${source.reason}` : "";
+      const count = source.events?.length ?? source.tasks?.length ?? source.items?.length;
+      console.error(`  ${label}: ${source.status}${count === undefined ? "" : ` (${count})`}${detail}`);
+    }
+  }
+
+  const findings =
+    resolved === "morning"
+      ? morningFindings({ calendar, tasks, health, day })
+      : resolved === "evening"
+        ? eveningFindings({ calendar, loops, day })
+        : imminentFindings({ calendar });
+
+  // Quiet hours drop everything that is not genuinely time-critical. A 6am
+  // flight still gets through at 5am; "Reminders is still not granted" does not.
+  const quiet = hour >= QUIET_FROM || hour < QUIET_UNTIL;
+  const speaking = quiet && !force ? findings.filter((f) => f.severity === "urgent") : findings;
+
+  if (explain) {
+    console.error(
+      `  findings: ${findings.length}, speaking: ${speaking.length}${quiet ? force ? " (quiet hours, forced)" : " (quiet hours)" : ""}`,
+    );
+  }
+  if (speaking.length === 0) return;
+
+  const heading =
+    resolved === "check"
+      ? "Heads up"
+      : `${resolved === "morning" ? "Morning" : "Evening"} · ${now.toLocaleDateString("en-US", DAY_LABEL)}`;
+  const message = [heading, ...speaking.map((finding) => finding.text)].join("\n");
+  const text = wantsPolish ? await polish(message) : message;
+  console.log(text);
+
+  /*
+   Delivery is opt-in via --notify, and it goes through orion-notify rather than
+   reaching for the webhook here.
+
+   That matters: orion-notify already owns quiet hours, per-event de-duplication
+   and the hourly cap. A second sender writing to the same channel would have its
+   own idea of "too much", and the two together would be exactly the thing Nick
+   said he did not want — a proactive assistant that becomes noise. One throat to
+   choke, one rate limiter.
+
+   Anything urgent is BLOCKED (it wants a human); everything else is a milestone.
+  */
+  if (!wantsNotify) return;
+
+  const urgent = speaking.some((finding) => finding.severity === "urgent");
+  try {
+    await run(
+      process.execPath,
+      [
+        join(HERE, "orion-notify"),
+        urgent ? "blocked" : "milestone",
+        `standing-${resolved}`,
+        text,
+        ...(urgent ? ["--urgent"] : []),
+      ],
+      { timeout: 60000 },
+    );
+  } catch (error) {
+    // Never let a delivery failure look like "nothing to report" — the whole
+    // point of this file is that silence must be meaningful.
+    console.error(`orion-standing: findings were not delivered — ${error?.message ?? error}`);
+  }
+}
+
+main().catch((error) => {
+  // A standing order that dies quietly is worse than one that never ran: it
+  // looks exactly like "nothing to report".
+  fail(`check failed — ${error?.stack?.split("\n")[0] ?? error}`, 1);
+});

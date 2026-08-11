@@ -1,0 +1,315 @@
+#!/usr/bin/env node
+/*
+ Lockdown mode. Orion as the friend who takes your phone away.
+
+ Nick asked for this in his own words: when he is off task and something needs
+ doing, Orion should yell at him, lock him onto the task, and make him REASON
+ his way back out rather than clicking dismiss.
+
+ Two design choices worth stating, because both were the second idea:
+
+ 1. **Refocus, don't kill.** The obvious enforcement is quitting the distracting
+    app. That is destructive (unsaved work), it needs Automation permission per
+    target app, and it makes Orion something to be afraid of rather than argued
+    with. Instead this brings the TASK app back to the front, repeatedly, which
+    needs no permission at all and is exactly as annoying as it needs to be.
+
+ 2. **The unlock is a conversation, not a password.** A timer you can cancel is
+    a timer you will cancel. So relief is granted by a model that has been told
+    what the deadline is and instructed to be sceptical -- "I'm bored" fails,
+    "the build is running and I can't do anything for six minutes" passes. It
+    can be argued with, which is the point, and it cannot be no-oped.
+
+ Nothing here needs a permission Nick has not already given. `lsappinfo` reads
+ the frontmost app with no TCC prompt; `open -a` raises a window; `say` speaks.
+
+   orion-focus start "finish the essay" 90 Zed Safari
+   orion-focus check                 one enforcement tick (cron calls this)
+   orion-focus status
+   orion-focus plead "the build is running, six minutes"
+   orion-focus end
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+const STATE = join(homedir(), ".openclaw/orion-controlled/focus.json");
+const MODEL = "gpt-oss:20b";
+
+// Apps that are never a distraction: Orion himself needs to be reachable, and
+// locking someone out of Finder or their password manager is just cruelty.
+const ALWAYS_ALLOWED = ["Orion", "Finder", "loginwindow", "1Password", "System Settings"];
+
+const [command, ...rest] = process.argv.slice(2);
+
+function fail(message, code = 2) {
+  console.error(`orion-focus: ${message}`);
+  process.exit(code);
+}
+
+async function readState() {
+  if (!existsSync(STATE)) return {};
+  try {
+    return JSON.parse(await readFile(STATE, "utf8"));
+  } catch {
+    // A corrupt state file must not mean "locked forever with no way out".
+    return {};
+  }
+}
+
+// Immutable writes: every caller builds a new session object rather than
+// mutating the one it read, so a half-applied update cannot exist on disk.
+async function writeState(next) {
+  await writeFile(STATE, JSON.stringify(next, null, 2));
+}
+
+async function frontmostApp() {
+  try {
+    const { stdout } = await run("/bin/sh", [
+      "-c",
+      "lsappinfo info -only name $(lsappinfo front) 2>/dev/null",
+    ]);
+    const match = /"LSDisplayName"="([^"]+)"/.exec(stdout);
+    return match?.[1] ?? "";
+  } catch {
+    return "";
+  }
+}
+
+const speak = (line) => run("/usr/bin/say", ["-r", "190", line]).catch(() => {});
+const raise = (app) => run("/usr/bin/open", ["-a", app]).catch(() => {});
+
+function activeSession(state) {
+  const session = state.session;
+  if (!session) return null;
+  if (Date.now() > session.until) return null;
+  return session;
+}
+
+const minutesLeft = (session) => Math.max(0, Math.round((session.until - Date.now()) / 60000));
+
+switch (command) {
+  case "start": {
+    const [task, minutesText, ...apps] = rest;
+    if (!task?.trim()) fail('start needs a task, e.g. start "finish the essay" 90 Zed');
+
+    const minutes = Number(minutesText ?? 60);
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > 480) {
+      fail("length must be a whole number of minutes between 5 and 480");
+    }
+
+    const session = {
+      task: task.trim(),
+      startedAt: Date.now(),
+      until: Date.now() + minutes * 60000,
+      allowedApps: [...new Set([...apps, ...ALWAYS_ALLOWED])],
+      // The app to drag him back to. First named wins; without one, refocusing
+      // is meaningless and enforcement degrades to nagging.
+      anchor: apps[0] ?? null,
+      strikes: 0,
+      grants: [],
+    };
+
+    await writeState({ ...(await readState()), session });
+    await speak(`Locked in. ${task.trim()}. ${minutes} minutes.`);
+    console.log(`locked on: ${session.task} for ${minutes} min`);
+    console.log(`allowed: ${session.allowedApps.join(", ")}`);
+    break;
+  }
+
+  case "check": {
+    const state = await readState();
+    const session = activeSession(state);
+
+    if (!session) {
+      // Expired sessions are cleared here rather than lingering as a trap that
+      // starts shouting again the next time anything calls check.
+      if (state.session) {
+        await writeState({ ...state, session: null });
+        await speak("Time's up. You're free.");
+        console.log("session ended");
+      } else {
+        console.log("no active session");
+      }
+      break;
+    }
+
+    // A granted exception suspends enforcement without ending the session.
+    const grant = session.grants[session.grants.length - 1];
+    if (grant && Date.now() < grant.until) {
+      console.log(`grace: ${Math.round((grant.until - Date.now()) / 60000)} min left (${grant.reason})`);
+      break;
+    }
+
+    const front = await frontmostApp();
+    if (!front || session.allowedApps.includes(front)) {
+      // On task. Strikes decay, so one wander does not leave him one step from
+      // being shouted at an hour later.
+      if (session.strikes > 0) {
+        await writeState({ ...state, session: { ...session, strikes: session.strikes - 1 } });
+      }
+      console.log(`on task (${front || "unknown"}) — ${minutesLeft(session)} min left`);
+      break;
+    }
+
+    const strikes = session.strikes + 1;
+
+    /*
+     Count every minute, but do NOT speak every minute.
+
+     The guard runs on a 1-minute cron, and the first version said something out
+     loud on every off-task tick. Twenty minutes in a browser would be twenty
+     spoken interruptions — which is not an accountability partner, it is a car
+     alarm, and the only rational response is to kill the session and never use
+     it again. The escalation is supposed to come from the STRIKE COUNT, not from
+     repetition.
+
+     Quiet hours deliberately do NOT apply here: Nick started this session on
+     purpose, possibly at 1am precisely because that is when he is avoiding the
+     thing. Silencing it then would defeat the feature he asked for.
+    */
+    const COOLDOWN_MS = { 1: 6 * 60_000, 2: 4 * 60_000 }[strikes] ?? 2 * 60_000;
+    const spokeAgo = Date.now() - (session.lastSpokeAt ?? 0);
+    const maySpeak = spokeAgo >= COOLDOWN_MS;
+
+    await writeState({
+      ...state,
+      session: { ...session, strikes, lastSpokeAt: maySpeak ? Date.now() : session.lastSpokeAt },
+    });
+
+    if (!maySpeak) {
+      console.log(
+        `OFF TASK: ${front} (strike ${strikes}, quiet for another ` +
+          `${Math.ceil((COOLDOWN_MS - spokeAgo) / 60000)} min) — ${minutesLeft(session)} min left`,
+      );
+      break;
+    }
+
+    /*
+     Escalation. The first step is quiet on purpose -- being shouted at for
+     three seconds in the wrong window teaches you to turn the thing off.
+    */
+    if (strikes === 1) {
+      await speak(`${front}. You're meant to be on ${session.task}.`);
+    } else if (strikes === 2) {
+      await speak(`Nick. ${session.task}. Not ${front}.`);
+    } else {
+      await speak(
+        `Enough. ${session.task}. ${minutesLeft(session)} minutes left. ` +
+          `Talk to me if you have an actual reason.`,
+      );
+      if (session.anchor) await raise(session.anchor);
+    }
+
+    console.log(`OFF TASK: ${front} (strike ${strikes}) — ${minutesLeft(session)} min left`);
+    break;
+  }
+
+  case "status": {
+    const session = activeSession(await readState());
+    if (!session) {
+      console.log("no active focus session");
+      break;
+    }
+    const grant = session.grants[session.grants.length - 1];
+    const grace = grant && Date.now() < grant.until
+      ? ` · grace ${Math.round((grant.until - Date.now()) / 60000)} min`
+      : "";
+    console.log(`focused on: ${session.task}`);
+    console.log(`${minutesLeft(session)} min left · ${session.strikes} strike(s)${grace}`);
+    console.log(`allowed: ${session.allowedApps.join(", ")}`);
+    break;
+  }
+
+  case "plead": {
+    const argument = rest.join(" ").trim();
+    if (!argument) fail('plead needs a reason, e.g. plead "the build is running for six minutes"');
+
+    const state = await readState();
+    const session = activeSession(state);
+    if (!session) fail("nothing to plead against — no active session", 1);
+
+    const prompt = `Nick is in a focus session he set himself.
+
+Task: ${session.task}
+Time remaining: ${minutesLeft(session)} minutes
+Times he has already wandered off: ${session.strikes}
+Exceptions already granted this session: ${session.grants.length}
+
+He is asking to be let off. His reason:
+
+"${argument}"
+
+Decide. Reply with exactly one line, in one of these two forms:
+
+GRANT <minutes> <short reason>
+DENY <short reason>
+
+Rules for deciding:
+- Grant only for something genuinely outside his control or genuinely urgent:
+  a build or test running, someone at the door, a call he has to take, feeling
+  ill, an actual emergency.
+- Refuse boredom, restlessness, "just five minutes", "I'll make it up later",
+  wanting to check something, and anything that is just not wanting to.
+- Grant no more than 15 minutes, and less if the reason implies less.
+- He has already been granted ${session.grants.length} exception(s). Be harder
+  each time.
+- You are his assistant, not his boss. Be short and human, never preachy.`;
+
+    let verdict = "";
+    try {
+      const { stdout } = await run(
+        "/bin/sh",
+        [
+          "-c",
+          `curl -s -m 180 http://127.0.0.1:11434/api/generate -d @- <<'JSON' | /usr/bin/python3 -c "import sys,json;print(json.load(sys.stdin)['response'])"
+${JSON.stringify({ model: MODEL, stream: false, prompt })}
+JSON`,
+        ],
+        { timeout: 200000, maxBuffer: 1024 * 1024 * 8 },
+      );
+      verdict = stdout.trim().split("\n").filter(Boolean).pop() ?? "";
+    } catch {
+      // If the judge cannot run, the answer is no. A broken model must not be
+      // the way out of a lockdown -- that would make it the easiest way out.
+      fail("could not reach the local model, so the answer is no", 1);
+    }
+
+    const granted = /^GRANT\s+(\d+)\s*(.*)$/i.exec(verdict);
+    if (!granted) {
+      const reason = verdict.replace(/^DENY\s*/i, "").trim() || "not good enough";
+      await speak(`No. ${reason}`);
+      console.log(`DENIED — ${reason}`);
+      process.exit(1);
+    }
+
+    const granting = Math.min(15, Math.max(1, Number(granted[1])));
+    const reason = granted[2].trim() || "fair enough";
+    const grants = [...session.grants, { until: Date.now() + granting * 60000, reason, argument }];
+
+    await writeState({ ...state, session: { ...session, grants, strikes: 0 } });
+    await speak(`Fine. ${granting} minutes.`);
+    console.log(`GRANTED ${granting} min — ${reason}`);
+    break;
+  }
+
+  case "end": {
+    const state = await readState();
+    if (!activeSession(state)) {
+      console.log("no active session");
+      break;
+    }
+    await writeState({ ...state, session: null });
+    console.log("session ended");
+    break;
+  }
+
+  default:
+    fail('usage: orion-focus start "<task>" <minutes> [apps...] | check | status | plead "<reason>" | end');
+}

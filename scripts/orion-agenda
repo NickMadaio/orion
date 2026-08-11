@@ -1,0 +1,219 @@
+#!/usr/bin/env node
+/*
+ Calendar and reminders for Orion, through OrionMacBridge.
+
+ Why this and not `accli`: accli needs its own macOS Calendar grant, which was
+ never given, so Orion spent a week telling Nick he had no calendar. The bridge
+ is Orion's own binary, already written, already speaking EventKit — the
+ capability existed the whole time with nothing plugged into it.
+
+ A caution that is easy to get wrong: macOS attributes Calendar access to the
+ RESPONSIBLE process, not the binary. Running the bridge from a terminal
+ inherits that terminal's grant, which tells you nothing about what happens when
+ the OpenClaw gateway LaunchAgent runs it. So this script is verified by an
+ actual agent turn, not by running it here.
+
+   orion-agenda today                 events for today
+   orion-agenda upcoming              everything the bridge can see ahead
+   orion-agenda add "<title>" <start> [minutes]
+   orion-agenda tasks                 incomplete reminders
+   orion-agenda task-add "<title>" [YYYY-MM-DDTHH:mm]
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+const BRIDGE = join(
+  homedir(),
+  "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge",
+);
+
+const [command, ...rest] = process.argv.slice(2);
+
+function fail(message, code = 2) {
+  console.error(`orion-agenda: ${message}`);
+  process.exit(code);
+}
+
+if (!existsSync(BRIDGE)) {
+  fail("the bridge binary is missing — build it with `swift build -c release` in native/OrionMacBridge", 1);
+}
+
+/*
+ The bridge is a JSON-lines process: one request on stdin, one response on
+ stdout. It is not a daemon, so a call is a spawn.
+*/
+async function ask(action, payload = {}) {
+  // Arguments go UNDER `payload` — the bridge decodes `request.payload["title"]`,
+  // so spreading them at the top level silently loses every one of them and
+  // comes back as "an event needs a title and valid start and end times".
+  const request = JSON.stringify({ id: String(Date.now()), action, payload });
+  let stdout = "";
+  try {
+    ({ stdout } = await run("/bin/sh", ["-c", `printf '%s\\n' '${request.replace(/'/g, "'\\''")}' | "${BRIDGE}"`], {
+      timeout: 30000,
+      maxBuffer: 1024 * 1024 * 8,
+    }));
+  } catch (error) {
+    fail(`bridge did not respond — ${(error.stderr || error.message || "").slice(0, 200)}`, 1);
+  }
+
+  const line = stdout.split("\n").find((l) => l.trim().startsWith("{"));
+  if (!line) fail(`bridge returned nothing usable: ${stdout.slice(0, 200)}`, 1);
+
+  const parsed = JSON.parse(line);
+  if (!parsed.ok) {
+    // The bridge's own words. Access failures say which permission is missing,
+    // which is the difference between "you have no calendar" and "click this".
+    fail(parsed.error || "bridge reported an unspecified failure", 1);
+  }
+  return parsed.result ?? {};
+}
+
+// The bridge hands back JSON inside a JSON string field.
+function unpack(result, field) {
+  const raw = result[field];
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+const localDay = (at) => at.toLocaleDateString("en-CA");
+const timeLabel = (iso) =>
+  new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+function describeEvents(events, { onlyToday }) {
+  const today = localDay(new Date());
+  const wanted = onlyToday
+    ? events.filter((e) => localDay(new Date(e.start)) === today)
+    : events;
+
+  if (wanted.length === 0) {
+    console.log(onlyToday ? "nothing on the calendar today" : "nothing upcoming");
+    return;
+  }
+
+  for (const event of wanted.sort((a, b) => new Date(a.start) - new Date(b.start))) {
+    const start = new Date(event.start);
+    const day = localDay(start) === today ? "today" : start.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    console.log(`  ${day} ${timeLabel(event.start)} — ${event.title}`);
+    // Printed so `remove` works on anything listed, not only on what `add`
+    // just returned. Indented under the event so it reads as a detail.
+    if (event.identifier) console.log(`      id: ${event.identifier}`);
+  }
+}
+
+const ISO_MINUTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+switch (command) {
+  case "today":
+  case "upcoming": {
+    const result = await ask("list_upcoming_calendar_events");
+    describeEvents(unpack(result, "events_json"), { onlyToday: command === "today" });
+    break;
+  }
+
+  case "add": {
+    const [title, start, minutes] = rest;
+    if (!title?.trim()) fail('add needs a title, e.g. add "Dinner" 2026-08-10T19:00');
+    if (!ISO_MINUTE.test(start ?? "")) fail("add needs a start like 2026-08-10T19:00 (local, 24-hour)");
+
+    const length = minutes ? Number(minutes) : 60;
+    if (!Number.isInteger(length) || length < 5 || length > 1440) {
+      fail("duration must be a whole number of minutes between 5 and 1440");
+    }
+
+    /*
+     The bridge parses with ISO8601DateFormatter, which wants seconds and a zone
+     — "2026-08-10T19:00" is rejected outright. Interpreting the wall-clock time
+     locally and handing over the resulting instant in UTC is unambiguous and
+     survives Nick moving to London without an edit.
+    */
+    const begins = new Date(`${start}:00`);
+    if (Number.isNaN(begins.getTime())) fail(`could not read ${start} as a date`);
+    const ends = new Date(begins.getTime() + length * 60000);
+
+    // ...and without milliseconds. `toISOString()` emits ".000Z", and a plain
+    // ISO8601DateFormatter rejects fractional seconds unless explicitly told to
+    // accept them, which surfaces as the unhelpful "valid start and end times".
+    const stamp = (at) => at.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+    const created = await ask("create_calendar_event", {
+      title: title.trim(),
+      start: stamp(begins),
+      end: stamp(ends),
+    });
+
+    /*
+     Execute, then VERIFY, then report -- never report success because a call
+     came back without throwing. Read the calendar again and find the thing.
+    */
+    const after = unpack(await ask("list_upcoming_calendar_events"), "events_json");
+    const landed = after.some(
+      (e) => e.title === title.trim() && localDay(new Date(e.start)) === start.slice(0, 10),
+    );
+
+    if (!landed) fail("the create call succeeded but the event is not in the calendar afterwards", 1);
+    console.log(`added and verified: ${title.trim()} — ${start} for ${length} min`);
+    if (created.identifier) console.log(`id: ${created.identifier}`);
+    break;
+  }
+
+  case "remove": {
+    // Identifier-only, and only what `add` printed. See the bridge for why.
+    const identifier = rest[0];
+    if (!identifier) fail("remove needs the event identifier that `add` printed");
+
+    const gone = await ask("delete_calendar_event", { identifier });
+
+    const after = unpack(await ask("list_upcoming_calendar_events"), "events_json");
+    if (after.some((e) => e.title === gone.title)) {
+      fail("the delete call succeeded but an event with that title is still there", 1);
+    }
+    console.log(`removed and verified: ${gone.title}`);
+    break;
+  }
+
+  case "tasks": {
+    const tasks = unpack(await ask("list_incomplete_reminders"), "reminders_json");
+    if (tasks.length === 0) {
+      console.log("nothing outstanding");
+      break;
+    }
+    for (const task of tasks) {
+      const due = task.due ? ` (due ${new Date(task.due).toLocaleDateString("en-US")})` : "";
+      console.log(`  ${task.title}${due}`);
+    }
+    break;
+  }
+
+  case "task-add": {
+    const [title, due] = rest;
+    if (!title?.trim()) fail('task-add needs a title, e.g. task-add "Renew passport"');
+    if (due && !ISO_MINUTE.test(due)) fail("due must look like 2026-08-10T19:00");
+
+    await ask("create_reminder", { title: title.trim(), ...(due ? { due } : {}) });
+
+    const after = unpack(await ask("list_incomplete_reminders"), "reminders_json");
+    if (!after.some((t) => t.title === title.trim())) {
+      fail("the reminder call succeeded but the reminder is not there afterwards", 1);
+    }
+    console.log(`added and verified: ${title.trim()}`);
+    break;
+  }
+
+  default:
+    fail('usage: orion-agenda today | upcoming | add "<title>" <start> [minutes] | tasks | task-add "<title>" [due]');
+}

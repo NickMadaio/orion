@@ -1,0 +1,1082 @@
+#!/usr/bin/env node
+/*
+ Autonomous missions. "Give Orion an outcome, leave, come back to finished work."
+
+ The failure this is built against, in Nick's words: **if Orion stops after
+ generating code, autonomy is not finished.** Every agent that "does a task"
+ writes some files, says "done!", and leaves you a broken thing. So the phase
+ machine here is not advice to a model -- it is enforced in this file:
+
+     PLAN -> EXECUTE -> CHECKPOINT -> TEST -> INSPECT -> FIX -> RETEST -> COMPLETE
+
+ `canComplete()` refuses to succeed unless a verification command has actually
+ run and actually exited zero. The model cannot talk its way past that, because
+ the model is not the one holding the pen.
+
+ ## What OpenClaw already gives us, and what it doesn't
+
+ Investigated before writing a line, because Nick's rule is don't rebuild the
+ furniture:
+
+ - `openclaw agent --session-key ... --json` is a durable, restart-surviving
+   conversation *and* it writes a tracked record into OpenClaw's SQLite task
+   ledger for free (`openclaw tasks list --runtime cli`). So every thought a
+   mission has is already auditable with `openclaw tasks show <runId>`. We reuse
+   it wholesale as the brain, and store the runId on each step.
+ - `openclaw tasks flow` (TaskFlow) is exactly the right shape -- durable
+   multi-step state, revision counters, survives gateway restarts. But it is
+   **inspect-only from the CLI**: `list`, `show`, `cancel`. Creating a *managed*
+   flow requires plugin code calling the plugin-runtime TaskFlow API. There is
+   no `tasks flow create`. So the orchestration layer is the genuine gap, and
+   the JSON mission record below is that gap filled -- deliberately mirroring
+   TaskFlow's vocabulary (revision, blocked, waiting) so it can be lifted into a
+   real managed flow later without reshaping the data.
+ - Lobster would give deterministic step pipelines with approval gates, but it
+   is an in-process *model tool* gated behind `tools.alsoAllow`, not something a
+   shell script can drive, and it has no notion of mission state.
+
+ ## Why this script executes, and the model only decides
+
+ Agent `main` runs `security: allowlist, ask: off, askFallback: deny` -- it can
+ run `ls` and `git` and the orion-* wrappers, and nothing else. It cannot run
+ `node`. So an agent turn structurally *cannot* build and test a project.
+
+ That constraint turned out to be the right architecture anyway. The model is
+ asked only for JSON decisions; this script performs every side effect, inside a
+ workspace jail it owns. The safety rules are therefore invariants of the code
+ rather than requests in a prompt -- an injected instruction in a test fixture
+ cannot talk the executor into writing outside the jail, because the executor
+ never reads instructions.
+
+   orion-mission start "build X" [--steps 40] [--minutes 30] [--usd 0.50] [--run]
+   orion-mission run <id>          drive to a terminal state
+   orion-mission step <id>         advance exactly one increment
+   orion-mission status [id]
+   orion-mission list
+   orion-mission resume <id>       run, breaking a stale lock from a killed run
+   orion-mission abort <id> [why]
+*/
+
+import { execFile } from "node:child_process";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+const ROOT = join(homedir(), ".openclaw/orion-controlled/missions");
+const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
+const OLLAMA = "http://127.0.0.1:11434/api/generate";
+const LOCAL_MODEL = "gpt-oss:20b";
+
+// Budgets. Every one of these is a distinct terminal state, not a crash -- a
+// mission that ran out of money must be resumable with a bigger wallet.
+const DEFAULTS = { maxSteps: 40, maxMinutes: 30, maxUsd: 0.5 };
+const BRAIN_TIMEOUT_S = 180;
+const CMD_TIMEOUT_MS = 60_000;
+const LOCK_STALE_MS = 5 * 60_000;
+const MAX_FIX_ROUNDS = 4;
+const MAX_FILE_BYTES = 256 * 1024;
+
+/*
+ Binaries a mission may execute. Note `process.execPath` -- the mission runs
+ tests with the exact node interpreting this script, so there is no PATH lookup
+ to hijack. Everything else is read-only inspection. No package managers: a
+ mission that can `npm install` can run arbitrary postinstall code, which is the
+ whole sandbox gone.
+*/
+const RUNNABLE = new Map([
+  ["node", process.execPath],
+  ["python3", "/usr/bin/python3"],
+  ["ls", "/bin/ls"],
+  ["cat", "/bin/cat"],
+  ["wc", "/usr/bin/wc"],
+  ["grep", "/usr/bin/grep"],
+]);
+
+// Shell metacharacters are inert (we never spawn a shell), but a model reaching
+// for them means it has misunderstood the contract, and `..`/`~` mean it is
+// probing the jail. Both are worth failing loudly on rather than quietly
+// neutralising.
+const ARG_POISON = /(\.\.|^~|[;&|`$><]|\$\()/;
+const NAME_POISON = /\b(sudo|rm|mv|chmod|chown|curl|wget|ssh|scp|nc|osascript|launchctl|defaults|killall|dd|mkfs)\b/i;
+
+// USD per million tokens. Cache reads are ~0.1x input and writes ~1.25x, which
+// dominates here: every turn re-reads ORION's ~17k-token persona from cache.
+const PRICES = [
+  ["claude-haiku-4-5", { in: 1, out: 5, cr: 0.1, cw: 1.25 }],
+  ["claude-sonnet-5", { in: 3, out: 15, cr: 0.3, cw: 3.75 }],
+  ["claude-sonnet-4", { in: 3, out: 15, cr: 0.3, cw: 3.75 }],
+  ["claude-opus-5", { in: 5, out: 25, cr: 0.5, cw: 6.25 }],
+  ["claude-opus-4", { in: 5, out: 25, cr: 0.5, cw: 6.25 }],
+];
+
+const TERMINAL = new Set([
+  "succeeded",
+  "needs_human",
+  "needs_permission",
+  "budget_exhausted",
+  "unsafe",
+  "aborted",
+]);
+
+// ---------------------------------------------------------------- utilities
+
+function fail(message, code = 2) {
+  console.error(`orion-mission: ${message}`);
+  process.exit(code);
+}
+
+const nowIso = () => new Date().toISOString();
+const missionDir = (id) => join(ROOT, id);
+const workspaceOf = (id) => join(missionDir(id), "workspace");
+
+function newId() {
+  const stamp = Date.now().toString(36);
+  const salt = Math.random().toString(36).slice(2, 6);
+  return `m${stamp}${salt}`;
+}
+
+/*
+ Hand-rolled validation rather than zod on purpose: this script has to run as a
+ bare executable with no node_modules anywhere near it (same as every other
+ script in this directory). Everything crossing the boundary -- CLI argv and
+ model JSON -- still gets checked explicitly below.
+*/
+const asText = (value, { max = 4000, label = "value" } = {}) => {
+  if (typeof value !== "string") fail(`${label} must be a string`);
+  const trimmed = value.trim();
+  if (!trimmed) fail(`${label} must not be empty`);
+  if (trimmed.length > max) fail(`${label} must be under ${max} characters`);
+  if (trimmed.includes("\0")) fail(`${label} must not contain null bytes`);
+  return trimmed;
+};
+
+const asCount = (raw, fallback, { min, max, label }) => {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    fail(`${label} must be a number between ${min} and ${max}`);
+  }
+  return n;
+};
+
+// ------------------------------------------------------------ durable state
+
+/*
+ Three artefacts per mission, and the redundancy is the point:
+
+   mission.json       current state (atomic tmp+rename, never half-written)
+   mission.json.bak   last state known to parse
+   journal.jsonl      append-only full snapshots
+
+ A corrupt mission.json must never strand a mission. Reads fall back .json ->
+ .bak -> last parseable journal line, and only give up if all three are gone.
+*/
+function saveMission(mission, event = "update") {
+  const dir = missionDir(mission.id);
+  mkdirSync(dir, { recursive: true });
+
+  const next = { ...mission, revision: (mission.revision ?? 0) + 1, updatedAt: nowIso() };
+  const body = JSON.stringify(next, null, 2);
+  const target = join(dir, "mission.json");
+  const tmp = join(dir, `.mission.${process.pid}.tmp`);
+
+  try {
+    if (existsSync(target)) {
+      // Only promote a *parseable* file to .bak, or one corrupt write poisons
+      // the backup too.
+      try {
+        JSON.parse(readFileSync(target, "utf8"));
+        renameSync(target, `${target}.bak`);
+      } catch {
+        /* leave the older, good .bak alone */
+      }
+    }
+    writeFileSync(tmp, body);
+    renameSync(tmp, target);
+    appendFileSync(join(dir, "journal.jsonl"), `${JSON.stringify({ ts: nowIso(), event, mission: next })}\n`);
+  } catch (error) {
+    console.error("mission save failed:", error?.message ?? error);
+    throw new Error(`could not persist mission ${mission.id}: ${error?.message ?? error}`);
+  }
+  return next;
+}
+
+function readJsonIfSane(path) {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return parsed && typeof parsed === "object" && typeof parsed.id === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadMission(id, { quiet = false } = {}) {
+  const dir = missionDir(id);
+  if (!existsSync(dir)) fail(`no mission ${id}`, 1);
+
+  const direct = readJsonIfSane(join(dir, "mission.json"));
+  if (direct) return direct;
+
+  const backup = readJsonIfSane(join(dir, "mission.json.bak"));
+  if (backup) {
+    if (!quiet) console.error(`orion-mission: mission.json unreadable, recovered from .bak (rev ${backup.revision})`);
+    return backup;
+  }
+
+  // Last resort: replay the journal backwards for the newest snapshot that
+  // parses. Slow and rare, but it means a mission is only truly lost if the
+  // append-only log is lost too.
+  const journal = join(dir, "journal.jsonl");
+  if (existsSync(journal)) {
+    const lines = readFileSync(journal, "utf8").split("\n").filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      try {
+        const entry = JSON.parse(lines[i]);
+        if (entry?.mission?.id) {
+          if (!quiet) console.error(`orion-mission: rebuilt ${id} from journal (rev ${entry.mission.revision})`);
+          return entry.mission;
+        }
+      } catch {
+        /* skip a torn line */
+      }
+    }
+  }
+  fail(`mission ${id} exists but no readable state remains`, 1);
+}
+
+const listMissionIds = () =>
+  existsSync(ROOT)
+    ? readdirSync(ROOT).filter((name) => existsSync(join(ROOT, name, "mission.json")) || existsSync(join(ROOT, name, "journal.jsonl")))
+    : [];
+
+/*
+ One stepper per mission. The lock records a pid so a *killed* run (which is
+ exactly what the durability test does) can be told apart from a live one and
+ taken over, rather than deadlocking the mission forever.
+*/
+function acquireLock(id, { force = false } = {}) {
+  const path = join(missionDir(id), "mission.lock");
+  if (existsSync(path)) {
+    const held = readJsonIfSane(path) ?? { id, pid: 0, at: 0 };
+    let alive = false;
+    try {
+      process.kill(held.pid, 0);
+      alive = true;
+    } catch {
+      alive = false;
+    }
+    const fresh = Date.now() - (held.at ?? 0) < LOCK_STALE_MS;
+    if (alive && fresh && !force) fail(`mission ${id} is already being stepped by pid ${held.pid}`, 1);
+  }
+  writeFileSync(path, JSON.stringify({ id, pid: process.pid, at: Date.now() }));
+  const release = () => {
+    try {
+      rmSync(path, { force: true });
+    } catch {
+      /* best effort */
+    }
+  };
+  process.once("exit", release);
+  return release;
+}
+
+// -------------------------------------------------------------------- jail
+
+/*
+ The single most important function here. A mission may only touch
+ <mission>/workspace/. Resolve, prefix-check, and then re-check the realpath of
+ the parent after mkdir so a symlink planted mid-mission cannot smuggle a write
+ out. Prefix comparison uses a trailing separator -- "/ws" must not match
+ "/ws-evil".
+*/
+function jailed(mission, rawPath) {
+  const rel = asText(rawPath, { max: 400, label: "path" });
+  const root = realpathSync(workspaceOf(mission.id));
+  const abs = resolve(root, rel);
+  const inside = abs === root || abs.startsWith(root + sep);
+  if (!inside) throw new Error(`path escapes the mission workspace: ${rel}`);
+
+  mkdirSync(dirname(abs), { recursive: true });
+  const parent = realpathSync(dirname(abs));
+  if (parent !== root && !parent.startsWith(root + sep)) {
+    throw new Error(`path resolves outside the workspace via a link: ${rel}`);
+  }
+  return abs;
+}
+
+function listWorkspace(mission) {
+  const root = workspaceOf(mission.id);
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) walk(abs);
+      else if (entry.isFile()) found.push(`${relative(root, abs)} (${statSync(abs).size}b)`);
+    }
+  };
+  try {
+    walk(root);
+  } catch {
+    /* empty workspace */
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------- executor
+
+function vetCommand(command, args) {
+  const name = asText(command, { max: 40, label: "command" });
+  const bin = RUNNABLE.get(name);
+  if (!bin) throw new Error(`command not allowed: ${name} (allowed: ${[...RUNNABLE.keys()].join(", ")})`);
+  if (NAME_POISON.test(name)) throw new Error(`command not allowed: ${name}`);
+
+  const list = Array.isArray(args) ? args : [];
+  if (list.length > 12) throw new Error("too many arguments");
+  for (const arg of list) {
+    const text = asText(arg, { max: 300, label: "argument" });
+    if (ARG_POISON.test(text)) throw new Error(`argument rejected as unsafe: ${text}`);
+    if (NAME_POISON.test(text)) throw new Error(`argument rejected as unsafe: ${text}`);
+    if (text.startsWith("/")) throw new Error("arguments must be workspace-relative, not absolute");
+  }
+  return { bin, name, args: list };
+}
+
+async function runInWorkspace(mission, command, args) {
+  const vetted = vetCommand(command, args);
+  const cwd = realpathSync(workspaceOf(mission.id));
+  try {
+    const { stdout, stderr } = await run(vetted.bin, vetted.args, {
+      cwd,
+      timeout: CMD_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024 * 4,
+      // Strip the environment down: a mission's test process has no business
+      // seeing API keys that happen to be exported in Nick's shell.
+      env: { PATH: "/usr/bin:/bin", HOME: cwd, LANG: "en_US.UTF-8" },
+    });
+    return { ok: true, exitCode: 0, stdout: String(stdout).slice(-6000), stderr: String(stderr).slice(-3000) };
+  } catch (error) {
+    return {
+      ok: false,
+      exitCode: error?.code ?? -1,
+      stdout: String(error?.stdout ?? "").slice(-6000),
+      stderr: String(error?.stderr ?? error?.message ?? "").slice(-3000),
+      timedOut: error?.killed === true,
+    };
+  }
+}
+
+// ------------------------------------------------------------------- brain
+
+const priceFor = (model = "") => {
+  const hit = PRICES.find(([prefix]) => model.startsWith(prefix));
+  return hit ? { ...hit[1], estimated: false } : { in: 1, out: 5, cr: 0.1, cw: 1.25, estimated: true };
+};
+
+function costOf(model, usage = {}) {
+  const p = priceFor(model);
+  const million = 1_000_000;
+  return (
+    ((usage.input ?? 0) * p.in +
+      (usage.output ?? 0) * p.out +
+      (usage.cacheRead ?? 0) * p.cr +
+      (usage.cacheWrite ?? 0) * p.cw) /
+    million
+  );
+}
+
+/*
+ Models fence JSON, apologise before it, and trail off after it. Take the widest
+ brace span and parse that. Cheap, and far more reliable than trusting format
+ instructions.
+*/
+function extractJson(text) {
+  if (typeof text !== "string") return null;
+  const unfenced = text.replace(/```(?:json)?/gi, "");
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(unfenced.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+async function askOpenclaw(mission, prompt, tag) {
+  const dir = join(missionDir(mission.id), "brain");
+  mkdirSync(dir, { recursive: true });
+  // --message-file instead of --message: prompts carry file contents and test
+  // output, which blow past comfortable argv limits, and the file doubles as an
+  // audit trail of exactly what the brain was shown.
+  const file = join(dir, `${String(mission.budget.usedSteps).padStart(3, "0")}-${tag}.txt`);
+  writeFileSync(file, prompt);
+
+  const { stdout } = await run(
+    OPENCLAW,
+    [
+      "agent",
+      "--session-key",
+      `agent:main:mission-${mission.id}`,
+      "--timeout",
+      String(BRAIN_TIMEOUT_S),
+      "--json",
+      "--message-file",
+      file,
+    ],
+    { timeout: (BRAIN_TIMEOUT_S + 30) * 1000, maxBuffer: 1024 * 1024 * 32 },
+  );
+
+  const envelope = JSON.parse(stdout);
+  const meta = envelope?.result?.meta ?? {};
+  const agentMeta = meta.agentMeta ?? {};
+  const text = meta.finalAssistantVisibleText ?? envelope?.result?.payloads?.[0]?.text ?? "";
+  return {
+    text,
+    source: "openclaw",
+    model: agentMeta.model ?? "unknown",
+    runId: envelope?.runId ?? null,
+    usage: agentMeta.usage ?? {},
+    usd: costOf(agentMeta.model ?? "", agentMeta.usage ?? {}),
+  };
+}
+
+async function askOllama(prompt) {
+  const response = await fetch(OLLAMA, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: LOCAL_MODEL, stream: false, prompt }),
+    signal: AbortSignal.timeout(BRAIN_TIMEOUT_S * 1000),
+  });
+  if (!response.ok) throw new Error(`ollama returned ${response.status}`);
+  const body = await response.json();
+  return { text: body.response ?? "", source: "ollama", model: LOCAL_MODEL, runId: null, usage: {}, usd: 0 };
+}
+
+/*
+ Ask the brain for JSON, with one repair round. The gateway is primary because
+ the session is durable and shows up in `openclaw tasks` for free; the local
+ model is the fallback so a mission left running overnight survives the gateway
+ restarting under it.
+*/
+async function think(mission, prompt, tag) {
+  const attempts = [];
+  for (const [index, ask] of [
+    () => askOpenclaw(mission, prompt, tag),
+    () => askOllama(prompt),
+  ].entries()) {
+    let reply;
+    try {
+      reply = await ask();
+    } catch (error) {
+      attempts.push(`brain ${index === 0 ? "openclaw" : "ollama"} failed: ${error?.message ?? error}`);
+      continue;
+    }
+    const parsed = extractJson(reply.text);
+    if (parsed) return { ...reply, json: parsed, attempts };
+
+    // One repair round on the same transport before falling through.
+    try {
+      const repair = await (index === 0
+        ? askOpenclaw(mission, `${prompt}\n\nYour previous reply was not parseable JSON. Reply with the JSON object ONLY.`, `${tag}-repair`)
+        : askOllama(`${prompt}\n\nReply with the JSON object ONLY.`));
+      const fixed = extractJson(repair.text);
+      if (fixed) return { ...repair, json: fixed, usd: reply.usd + repair.usd, attempts };
+      attempts.push(`brain ${reply.source} returned unparseable JSON twice`);
+    } catch (error) {
+      attempts.push(`brain ${reply.source} repair failed: ${error?.message ?? error}`);
+    }
+  }
+  throw new Error(`no brain could produce usable JSON (${attempts.join("; ")})`);
+}
+
+// ------------------------------------------------------------- mission math
+
+const remainingWork = (mission) => {
+  const open = mission.plan.filter((s) => !s.done).map((s) => s.title);
+  const failing = mission.testResults.filter((t) => !t.ok).length;
+  if (mission.status !== "active") return "none — mission is finished";
+  return [
+    open.length ? `${open.length} plan step(s) open: ${open.join("; ")}` : "plan steps all done",
+    failing ? `${failing} failed verification run(s) on record` : "no failing verification on record",
+  ].join(" · ");
+};
+
+function budgetVerdict(mission) {
+  const b = mission.budget;
+  if (b.usedSteps >= b.maxSteps) return `step budget exhausted (${b.usedSteps}/${b.maxSteps})`;
+  if (Date.now() - Date.parse(b.startedAt) >= b.maxMinutes * 60_000) return `wall-clock budget exhausted (${b.maxMinutes} min)`;
+  if (b.usedUsd >= b.maxUsd) return `cost budget exhausted ($${b.usedUsd.toFixed(4)}/$${b.maxUsd})`;
+  return null;
+}
+
+// The anti-"it generated code so it must be done" gate. Nothing in the prompt
+// layer can satisfy this; only a real process exiting zero can.
+const hasPassingVerification = (mission) => mission.testResults.some((t) => t.ok);
+
+const canComplete = (mission) =>
+  hasPassingVerification(mission) && mission.criteria.length > 0 && mission.criteria.every((c) => c.met);
+
+function finish(mission, status, reason) {
+  return saveMission({ ...mission, status, terminalReason: reason, phase: "DONE", finishedAt: nowIso() }, `terminal:${status}`);
+}
+
+const record = (mission, patch, event) =>
+  saveMission(
+    {
+      ...mission,
+      ...patch,
+      budget: { ...mission.budget, ...(patch.budget ?? {}) },
+      remaining: remainingWork({ ...mission, ...patch }),
+    },
+    event,
+  );
+
+// ------------------------------------------------------------------ prompts
+
+const CONTRACT = `You are ORION running an autonomous mission. You do not have tools here.
+You reply with ONE JSON object and nothing else — no prose, no markdown fence, no explanation.
+A separate executor performs your action inside a sealed workspace. You never see a shell.
+
+Hard limits the executor enforces (asking for these is wasted turns):
+- Every path is relative to the mission workspace. No absolute paths, no "..".
+- Runnable commands: ${[...RUNNABLE.keys()].join(", ")}. Nothing else. No npm, no installs, no network.
+- Only dependency-free code. Node builtins and plain browser JS only.`;
+
+const briefing = (mission) => `MISSION ${mission.id}
+GOAL: ${mission.goal}
+
+COMPLETION CRITERIA:
+${mission.criteria.map((c, i) => `  ${i + 1}. [${c.met ? "MET" : "open"}] ${c.text}${c.evidence ? ` (evidence: ${c.evidence})` : ""}`).join("\n") || "  (not yet set)"}
+
+PLAN:
+${mission.plan.map((s, i) => `  ${i + 1}. [${s.done ? "done" : "open"}] ${s.title}`).join("\n") || "  (not yet set)"}
+
+VERIFICATION COMMAND: ${mission.verify ? `${mission.verify.command} ${mission.verify.args.join(" ")}` : "(not yet set)"}
+FILES IN WORKSPACE:
+${listWorkspace(mission).map((f) => `  ${f}`).join("\n") || "  (empty)"}
+
+DECISIONS SO FAR:
+${mission.decisions.slice(-6).map((d) => `  - ${d.text}`).join("\n") || "  (none)"}
+
+BUDGET: step ${mission.budget.usedSteps}/${mission.budget.maxSteps} · $${mission.budget.usedUsd.toFixed(4)}/$${mission.budget.maxUsd}`;
+
+const ACTION_MENU = `Reply with exactly one of these shapes:
+
+{"reasoning":"<one sentence>","action":{"type":"write_file","path":"index.html","content":"<full file contents>"}}
+{"reasoning":"...","action":{"type":"run","command":"node","args":["test.mjs"]}}
+{"reasoning":"...","action":{"type":"read_file","path":"index.html"}}
+{"reasoning":"...","action":{"type":"note_decision","text":"<a choice worth remembering>"}}
+{"reasoning":"...","action":{"type":"execute_done"}}
+{"reasoning":"...","action":{"type":"need_human","question":"<what only Nick can answer>"}}
+{"reasoning":"...","action":{"type":"need_permission","request":"<the capability you lack>"}}
+{"reasoning":"...","action":{"type":"unsafe","why":"<why this cannot be done safely>"}}
+
+write_file replaces the whole file — always send complete contents, never a diff.
+Use need_human only for a genuine decision you cannot make; use need_permission only when
+the task truly requires a capability the executor forbids. Neither is an escape from difficulty.`;
+
+// -------------------------------------------------------------- phase steps
+
+async function phasePlan(mission) {
+  const prompt = `${CONTRACT}
+
+${briefing(mission)}
+
+Plan this mission. Reply with this JSON object:
+
+{"plan":["step title", "..."],
+ "criteria":["a specific, checkable statement of done", "..."],
+ "verify":{"command":"node","args":["test.mjs"]}}
+
+Rules:
+- 2 to 6 plan steps, each a concrete unit of work.
+- 2 to 5 criteria. Each must be checkable by reading a file or running the verification command.
+  At least one criterion must be about the verification command passing.
+- "verify" is the command that PROVES the work. It must be a test script you will write into
+  the workspace yourself, exiting 0 on success and non-zero on failure, printing what it checked.
+- Plan for the verification script to test real behaviour, not merely that files exist.`;
+
+  const reply = await think(mission, prompt, "plan");
+  const { plan, criteria, verify } = reply.json ?? {};
+
+  if (!Array.isArray(plan) || !plan.length || !Array.isArray(criteria) || !criteria.length) {
+    throw new Error("planner returned no plan or no criteria");
+  }
+  const vetted = vetCommand(verify?.command ?? "", verify?.args ?? []);
+
+  return {
+    reply,
+    patch: {
+      phase: "EXECUTE",
+      plan: plan.slice(0, 8).map((title, i) => ({ id: `p${i + 1}`, title: String(title).slice(0, 300), done: false })),
+      criteria: criteria.slice(0, 6).map((text, i) => ({ id: `c${i + 1}`, text: String(text).slice(0, 300), met: false, evidence: null })),
+      verify: { command: vetted.name, args: vetted.args },
+    },
+  };
+}
+
+async function phaseWork(mission, { fixing = false } = {}) {
+  const failure = mission.testResults.filter((t) => !t.ok).slice(-1)[0];
+  const header = fixing
+    ? `The verification command FAILED. Fix it.
+
+FAILED RUN (exit ${failure?.exitCode}):
+--- stdout ---
+${failure?.stdout || "(empty)"}
+--- stderr ---
+${failure?.stderr || "(empty)"}
+
+Diagnose the actual cause and repair it. Do not weaken or delete the test to make it pass —
+if the test itself is genuinely wrong, say so in note_decision before changing it.`
+    : `Build the next increment of this mission.
+
+You MUST create the verification script (${mission.verify.command} ${mission.verify.args.join(" ")}) as part of the work.
+Reply execute_done only once every artefact exists, including that script.`;
+
+  const prompt = `${CONTRACT}
+
+${briefing(mission)}
+
+${header}
+
+${ACTION_MENU}`;
+
+  const reply = await think(mission, prompt, fixing ? "fix" : "execute");
+  return { reply, action: reply.json?.action, reasoning: reply.json?.reasoning };
+}
+
+async function phaseInspect(mission) {
+  const last = mission.testResults.slice(-1)[0];
+  const prompt = `${CONTRACT}
+
+${briefing(mission)}
+
+The verification command has been run. Here is the real result.
+
+EXIT CODE: ${last.exitCode}
+--- stdout ---
+${last.stdout || "(empty)"}
+--- stderr ---
+${last.stderr || "(empty)"}
+
+Judge honestly. Exit code 0 does not by itself mean the goal is met — check the output
+actually demonstrates the criteria. Reply with:
+
+{"verdict":"pass"|"fail",
+ "summary":"<one sentence>",
+ "criteria":[{"id":"c1","met":true,"evidence":"<what in the output or files proves it>"}, ...]}
+
+Mark a criterion met only with concrete evidence. If the run failed, verdict is "fail".`;
+
+  const reply = await think(mission, prompt, "inspect");
+  const { verdict, summary, criteria } = reply.json ?? {};
+  const claims = new Map((Array.isArray(criteria) ? criteria : []).map((c) => [c?.id, c]));
+
+  const merged = mission.criteria.map((c) => {
+    const claim = claims.get(c.id);
+    // A criterion can only be met if the run that supposedly proves it passed.
+    // Otherwise a model can declare victory over a red test.
+    const met = Boolean(claim?.met) && last.ok;
+    return { ...c, met, evidence: met ? String(claim?.evidence ?? "").slice(0, 300) || "asserted by inspection" : null };
+  });
+
+  return { reply, verdict: verdict === "pass" && last.ok ? "pass" : "fail", summary, criteria: merged };
+}
+
+// One increment of the machine. Returns the (possibly terminal) mission.
+async function stepOnce(missionIn) {
+  let mission = missionIn;
+  if (TERMINAL.has(mission.status)) return mission;
+
+  const overspent = budgetVerdict(mission);
+  if (overspent) return finish(mission, "budget_exhausted", overspent);
+
+  mission = record(mission, { budget: { usedSteps: mission.budget.usedSteps + 1 } }, "step-begin");
+  const stepNo = mission.budget.usedSteps;
+
+  const chargeFor = (reply) =>
+    record(
+      mission,
+      {
+        budget: {
+          usedUsd: mission.budget.usedUsd + (reply?.usd ?? 0),
+          tokens: {
+            input: (mission.budget.tokens.input ?? 0) + (reply?.usage?.input ?? 0),
+            output: (mission.budget.tokens.output ?? 0) + (reply?.usage?.output ?? 0),
+            cacheRead: (mission.budget.tokens.cacheRead ?? 0) + (reply?.usage?.cacheRead ?? 0),
+            cacheWrite: (mission.budget.tokens.cacheWrite ?? 0) + (reply?.usage?.cacheWrite ?? 0),
+          },
+        },
+        brain: { ...mission.brain, turns: mission.brain.turns + 1, lastModel: reply?.model ?? null, lastRunId: reply?.runId ?? null },
+      },
+      "brain-turn",
+    );
+
+  const log = (entry) =>
+    record(mission, { steps: [...mission.steps, { n: stepNo, at: nowIso(), ...entry }].slice(-200) }, `step:${entry.phase}`);
+
+  try {
+    switch (mission.phase) {
+      case "PLAN": {
+        const { reply, patch } = await phasePlan(mission);
+        mission = chargeFor(reply);
+        mission = record(mission, patch, "planned");
+        mission = log({ phase: "PLAN", summary: `plan of ${patch.plan.length}, ${patch.criteria.length} criteria, verify: ${patch.verify.command} ${patch.verify.args.join(" ")}` });
+        return mission;
+      }
+
+      case "EXECUTE":
+      case "FIX": {
+        const fixing = mission.phase === "FIX";
+        const { reply, action, reasoning } = await phaseWork(mission, { fixing });
+        mission = chargeFor(reply);
+        const type = action?.type;
+
+        if (type === "need_human") {
+          return finish(mission, "needs_human", asText(action.question, { max: 800, label: "question" }));
+        }
+        if (type === "need_permission") {
+          return finish(mission, "needs_permission", asText(action.request, { max: 800, label: "request" }));
+        }
+        if (type === "unsafe") {
+          return finish(mission, "unsafe", asText(action.why, { max: 800, label: "why" }));
+        }
+
+        if (type === "note_decision") {
+          const text = asText(action.text, { max: 600, label: "decision" });
+          mission = record(mission, { decisions: [...mission.decisions, { at: nowIso(), text }].slice(-40) }, "decision");
+          return log({ phase: mission.phase, summary: `decision: ${text}` });
+        }
+
+        if (type === "write_file") {
+          const content = typeof action.content === "string" ? action.content : "";
+          if (content.length > MAX_FILE_BYTES) throw new Error("file content exceeds the mission file size limit");
+          const abs = jailed(mission, action.path);
+          writeFileSync(abs, content);
+          const rel = relative(workspaceOf(mission.id), abs);
+          mission = record(
+            mission,
+            { filesModified: [...new Set([...mission.filesModified, rel])] },
+            "write",
+          );
+          return log({ phase: mission.phase, summary: `wrote ${rel} (${content.length}b)${reasoning ? ` — ${reasoning}` : ""}` });
+        }
+
+        if (type === "read_file") {
+          const abs = jailed(mission, action.path);
+          const body = existsSync(abs) ? readFileSync(abs, "utf8").slice(0, 6000) : "(file does not exist)";
+          mission = record(
+            mission,
+            { decisions: [...mission.decisions, { at: nowIso(), text: `read ${relative(workspaceOf(mission.id), abs)}:\n${body}` }].slice(-40) },
+            "read",
+          );
+          return log({ phase: mission.phase, summary: `read ${relative(workspaceOf(mission.id), abs)}` });
+        }
+
+        if (type === "run") {
+          const result = await runInWorkspace(mission, action.command, action.args);
+          mission = record(
+            mission,
+            { decisions: [...mission.decisions, { at: nowIso(), text: `ran ${action.command} ${(action.args ?? []).join(" ")} -> exit ${result.exitCode}\n${result.stdout}${result.stderr}`.slice(0, 1500) }].slice(-40) },
+            "run",
+          );
+          return log({ phase: mission.phase, summary: `ran ${action.command} (exit ${result.exitCode})` });
+        }
+
+        if (type === "execute_done") {
+          // The hard gate. "I'm finished building" is only accepted once the
+          // thing that proves it is on disk. This is what stops a mission
+          // declaring success over generated-but-unverified code.
+          const verifyTarget = mission.verify.args.find((a) => a.includes("."));
+          if (verifyTarget && !existsSync(join(workspaceOf(mission.id), verifyTarget))) {
+            mission = record(
+              mission,
+              { errors: [...mission.errors, { at: nowIso(), text: `refused execute_done: verification script ${verifyTarget} does not exist yet` }] },
+              "gate",
+            );
+            return log({ phase: mission.phase, summary: `REFUSED execute_done — ${verifyTarget} missing; still building` });
+          }
+          mission = record(mission, { phase: "CHECKPOINT" }, "execute-done");
+          return log({ phase: mission.phase, summary: "build increment complete, checkpointing" });
+        }
+
+        throw new Error(`unknown action type: ${String(type)}`);
+      }
+
+      case "CHECKPOINT": {
+        // Deliberately a real durable stop, not a no-op: this is the state a
+        // mission is safe to be killed in, and the one `resume` lands on.
+        mission = record(
+          mission,
+          {
+            phase: "TEST",
+            checkpoints: [
+              ...mission.checkpoints,
+              { at: nowIso(), files: [...mission.filesModified], usd: Number(mission.budget.usedUsd.toFixed(4)), step: stepNo },
+            ].slice(-20),
+          },
+          "checkpoint",
+        );
+        return log({ phase: "CHECKPOINT", summary: `checkpoint: ${mission.filesModified.length} file(s), $${mission.budget.usedUsd.toFixed(4)}` });
+      }
+
+      case "TEST":
+      case "RETEST": {
+        const result = await runInWorkspace(mission, mission.verify.command, mission.verify.args);
+        mission = record(
+          mission,
+          {
+            phase: "INSPECT",
+            testResults: [...mission.testResults, { at: nowIso(), phase: mission.phase, cmd: `${mission.verify.command} ${mission.verify.args.join(" ")}`, ...result }].slice(-20),
+          },
+          "verified",
+        );
+        return log({ phase: "TEST", summary: `verification exit ${result.exitCode} (${result.ok ? "PASS" : "FAIL"})` });
+      }
+
+      case "INSPECT": {
+        const { reply, verdict, summary, criteria } = await phaseInspect(mission);
+        mission = chargeFor(reply);
+        mission = record(mission, { criteria }, "inspected");
+
+        if (verdict === "pass" && canComplete(mission)) {
+          mission = record(mission, { plan: mission.plan.map((s) => ({ ...s, done: true })), phase: "COMPLETE" }, "inspect-pass");
+          return log({ phase: "INSPECT", summary: `PASS — ${summary ?? "all criteria evidenced"}` });
+        }
+
+        const rounds = mission.fixRounds + 1;
+        if (rounds > MAX_FIX_ROUNDS) {
+          mission = record(mission, { fixRounds: rounds }, "fix-exhausted");
+          return finish(
+            mission,
+            "needs_human",
+            `verification still failing after ${MAX_FIX_ROUNDS} fix rounds. Last: ${summary ?? mission.testResults.slice(-1)[0]?.stderr ?? "unknown"}`,
+          );
+        }
+        mission = record(mission, { phase: "FIX", fixRounds: rounds }, "inspect-fail");
+        return log({ phase: "INSPECT", summary: `FAIL (fix round ${rounds}/${MAX_FIX_ROUNDS}) — ${summary ?? "criteria not evidenced"}` });
+      }
+
+      case "COMPLETE": {
+        if (!canComplete(mission)) {
+          // Belt and braces: never allow COMPLETE to be reached by any path
+          // that skipped a green verification.
+          mission = record(mission, { phase: "TEST" }, "complete-rejected");
+          return log({ phase: "COMPLETE", summary: "rejected completion — no passing verification on record, re-testing" });
+        }
+        return finish(
+          mission,
+          "succeeded",
+          `all ${mission.criteria.length} criteria met, verification passed (${mission.verify.command} ${mission.verify.args.join(" ")})`,
+        );
+      }
+
+      default:
+        return finish(mission, "unsafe", `unknown phase ${mission.phase}`);
+    }
+  } catch (error) {
+    const text = String(error?.message ?? error).slice(0, 600);
+    mission = record(mission, { errors: [...mission.errors, { at: nowIso(), phase: mission.phase, text }].slice(-40) }, "error");
+    // Three consecutive-ish errors means something structural is wrong and
+    // burning the remaining budget on it helps nobody.
+    if (mission.errors.length >= 6) return finish(mission, "needs_human", `repeated failures, last: ${text}`);
+    return log({ phase: mission.phase, summary: `error: ${text}` });
+  }
+}
+
+// --------------------------------------------------------------------- CLI
+
+function createMission(goal, options) {
+  const id = newId();
+  mkdirSync(workspaceOf(id), { recursive: true });
+  return saveMission(
+    {
+      schemaVersion: 1,
+      id,
+      goal,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      finishedAt: null,
+      phase: "PLAN",
+      status: "active",
+      terminalReason: null,
+      revision: 0,
+      criteria: [],
+      plan: [],
+      verify: null,
+      steps: [],
+      checkpoints: [],
+      filesModified: [],
+      decisions: [],
+      testResults: [],
+      errors: [],
+      blockers: [],
+      fixRounds: 0,
+      remaining: "not yet planned",
+      workspace: workspaceOf(id),
+      brain: { sessionKey: `agent:main:mission-${id}`, turns: 0, lastModel: null, lastRunId: null },
+      budget: {
+        startedAt: nowIso(),
+        maxSteps: options.maxSteps,
+        maxMinutes: options.maxMinutes,
+        maxUsd: options.maxUsd,
+        usedSteps: 0,
+        usedUsd: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    },
+    "created",
+  );
+}
+
+async function driveToTerminal(id, { force = false } = {}) {
+  const release = acquireLock(id, { force });
+  let mission = loadMission(id);
+  try {
+    while (!TERMINAL.has(mission.status)) {
+      const before = mission.phase;
+      mission = await stepOnce(mission);
+      const line = mission.steps.slice(-1)[0];
+      console.log(
+        `  [${String(mission.budget.usedSteps).padStart(2, " ")}] ${before.padEnd(10)} ${line?.n === mission.budget.usedSteps ? line.summary : mission.terminalReason ?? ""}`,
+      );
+    }
+  } finally {
+    release();
+  }
+  return mission;
+}
+
+function printStatus(mission) {
+  const b = mission.budget;
+  const mins = ((Date.parse(mission.finishedAt ?? nowIso()) - Date.parse(b.startedAt)) / 60000).toFixed(1);
+  console.log(`mission ${mission.id} — ${mission.status.toUpperCase()}${mission.status === "active" ? ` (${mission.phase})` : ""}`);
+  console.log(`goal: ${mission.goal}`);
+  if (mission.terminalReason) console.log(`reason: ${mission.terminalReason}`);
+  console.log(`workspace: ${mission.workspace}`);
+  console.log(`budget: ${b.usedSteps}/${b.maxSteps} steps · ${mins}/${b.maxMinutes} min · $${b.usedUsd.toFixed(4)}/$${b.maxUsd} · ${mission.brain.turns} brain turns`);
+  console.log(`tokens: in ${b.tokens.input} · out ${b.tokens.output} · cache r/w ${b.tokens.cacheRead}/${b.tokens.cacheWrite}`);
+  console.log(`remaining: ${mission.remaining}`);
+  if (mission.criteria.length) {
+    console.log("criteria:");
+    for (const c of mission.criteria) console.log(`  [${c.met ? "x" : " "}] ${c.text}${c.evidence ? `\n        ${c.evidence}` : ""}`);
+  }
+  if (mission.plan.length) {
+    console.log("plan:");
+    for (const s of mission.plan) console.log(`  [${s.done ? "x" : " "}] ${s.title}`);
+  }
+  if (mission.filesModified.length) console.log(`files: ${mission.filesModified.join(", ")}`);
+  if (mission.testResults.length) {
+    const t = mission.testResults.slice(-1)[0];
+    console.log(`last verification: ${t.cmd} -> exit ${t.exitCode} (${t.ok ? "PASS" : "FAIL"}) at ${t.at}`);
+  }
+  if (mission.errors.length) console.log(`errors: ${mission.errors.length} (last: ${mission.errors.slice(-1)[0].text})`);
+}
+
+const flag = (argv, name) => {
+  const i = argv.indexOf(`--${name}`);
+  return i === -1 ? undefined : argv[i + 1];
+};
+
+const [command, ...rest] = process.argv.slice(2);
+
+switch (command) {
+  case "start": {
+    const goal = asText(rest[0] ?? "", { max: 2000, label: "goal" });
+    const options = {
+      maxSteps: asCount(flag(rest, "steps"), DEFAULTS.maxSteps, { min: 1, max: 300, label: "--steps" }),
+      maxMinutes: asCount(flag(rest, "minutes"), DEFAULTS.maxMinutes, { min: 1, max: 720, label: "--minutes" }),
+      maxUsd: asCount(flag(rest, "usd"), DEFAULTS.maxUsd, { min: 0.01, max: 50, label: "--usd" }),
+    };
+    const mission = createMission(goal, options);
+    console.log(`mission ${mission.id} created`);
+    console.log(`workspace: ${mission.workspace}`);
+    console.log(`budget: ${options.maxSteps} steps · ${options.maxMinutes} min · $${options.maxUsd}`);
+    if (rest.includes("--run")) {
+      const done = await driveToTerminal(mission.id);
+      console.log("");
+      printStatus(done);
+      process.exit(done.status === "succeeded" ? 0 : 1);
+    }
+    console.log(`next: orion-mission run ${mission.id}`);
+    break;
+  }
+
+  case "step": {
+    const id = asText(rest[0] ?? "", { max: 64, label: "mission id" });
+    const release = acquireLock(id);
+    try {
+      const mission = await stepOnce(loadMission(id));
+      printStatus(mission);
+    } finally {
+      release();
+    }
+    break;
+  }
+
+  case "run":
+  case "resume": {
+    const id = asText(rest[0] ?? "", { max: 64, label: "mission id" });
+    // `resume` breaks a lock left behind by a killed process on purpose — that
+    // is the whole reason it exists as a separate verb.
+    const mission = await driveToTerminal(id, { force: command === "resume" });
+    console.log("");
+    printStatus(mission);
+    process.exit(mission.status === "succeeded" ? 0 : 1);
+  }
+
+  case "status": {
+    const id = rest[0] ? asText(rest[0], { max: 64, label: "mission id" }) : listMissionIds().slice(-1)[0];
+    if (!id) fail("no missions yet", 1);
+    printStatus(loadMission(id));
+    break;
+  }
+
+  case "list": {
+    const ids = listMissionIds();
+    if (!ids.length) {
+      console.log("no missions");
+      break;
+    }
+    for (const id of ids) {
+      const m = loadMission(id, { quiet: true });
+      const mark = m.status === "succeeded" ? "✓" : m.status === "active" ? "·" : "✗";
+      console.log(`${mark} ${m.id}  ${m.status.padEnd(17)} ${String(m.phase).padEnd(10)} $${m.budget.usedUsd.toFixed(4)}  ${m.goal.slice(0, 60)}`);
+    }
+    break;
+  }
+
+  case "abort": {
+    const id = asText(rest[0] ?? "", { max: 64, label: "mission id" });
+    const mission = loadMission(id);
+    if (TERMINAL.has(mission.status)) {
+      console.log(`mission ${id} is already ${mission.status}`);
+      break;
+    }
+    printStatus(finish(mission, "aborted", rest.slice(1).join(" ").trim() || "aborted by Nick"));
+    break;
+  }
+
+  default:
+    fail(
+      [
+        'usage: orion-mission start "<goal>" [--steps N] [--minutes N] [--usd N] [--run]',
+        "       orion-mission run <id> | step <id> | resume <id>",
+        "       orion-mission status [id] | list | abort <id> [reason]",
+      ].join("\n"),
+    );
+}

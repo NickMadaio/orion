@@ -273,6 +273,69 @@ if (off.length === 0) {
   }
 }
 lines.push("");
+/*
+ Fourth source: the exec allowlist.
+
+ The catalog is not the whole truth any more. Memory writes, memory search and
+ calendar all run as allowlisted wrapper scripts rather than catalog actions --
+ they had to, because the `coding` tools profile removes `file_write` and a
+ non-allowlisted command used to hang the session outright. A TOOLS.md derived
+ only from the catalog therefore omits the tools Orion most needs, which is the
+ exact failure this generator was written to prevent: a confidently incomplete
+ self-description that makes him refuse things he can do.
+
+ Read from the approvals file so this cannot drift either -- if a wrapper is
+ removed from the allowlist it disappears from here on the next run.
+*/
+const WRAPPER_BLURB = {
+  "orion-remember": 'write something to memory — `orion-remember "…"`, or `--user "…"` for a durable fact about Nick',
+  "orion-focus": "lockdown mode — `start \"<task>\" <minutes> [apps]`, `status`, `plead \"<his reason>\"`, `end`; a judge decides whether he gets let off",
+  "orion-mission": "long autonomous jobs — `start \"<outcome>\"`, `run <id>`, `status <id>`; sandboxed, tests its own work, survives a restart",
+  "orion-notify": "reach Nick while he is away — `started|milestone|decision|blocked|complete <mission-id> \"<text>\"`; rate-limited, quiet hours enforced",
+  "orion-authority": "what you may do unasked — `explain`, `check <capability>`; derived from live config, never stale",
+  "orion-standing": "your proactive checks — `morning|evening|check|auto`; says nothing unless something genuinely changed",
+  "orion-learn": "read your own failures back — writes proposals only, applies nothing",
+  "orion-recall": 'search your own memory by meaning — `orion-recall "…"`',
+  "orion-agenda": "real Apple Calendar — `today`, `upcoming`, `add \"<title>\" <start> [minutes]`, `remove <id>`; also `tasks` (needs a Reminders grant)",
+  "orion-gmail-latest": "the newest inbox thread (read-only)",
+  "orion-gmail-search": "search mail with a Gmail query (read-only)",
+  "orion-discord-alert": "send Nick a short Discord alert (he must have approved the alert policy)",
+};
+
+let wrappers = [];
+try {
+  const approvals = JSON.parse(
+    readFileSync(join(OPENCLAW, "exec-approvals.json"), "utf8"),
+  );
+  wrappers = (approvals.agents?.main?.allowlist ?? [])
+    .map((entry) => String(entry.pattern ?? ""))
+    .filter((pattern) => pattern.includes("/scripts/orion-"))
+    .map((pattern) => pattern.split("/").pop())
+    .sort();
+} catch {
+  // No approvals file is a real condition, not a crash. Better a TOOLS.md
+  // without this section than no TOOLS.md at all.
+}
+
+if (wrappers.length > 0) {
+  lines.push("## Commands you run through `exec`");
+  lines.push("");
+  lines.push("Allowlisted, so they return immediately. Anything NOT on this list");
+  lines.push("is refused with `exec denied: allowlist miss` — that is a real answer,");
+  lines.push("quote it rather than retrying.");
+  lines.push("");
+  for (const name of wrappers) {
+    const path = `~/Desktop/ORION/scripts/${name}`;
+    const blurb = WRAPPER_BLURB[name];
+    lines.push(`- \`${path}\`${blurb ? ` — ${blurb}` : ""}`);
+  }
+  lines.push("");
+  lines.push("Plus the ordinary read-only shell: `ls`, `cat`, `grep`, `rg`, `find`,");
+  lines.push("`head`, `tail`, `wc`, `date`, `git` and similar. Write the command, not");
+  lines.push("a description of it — `exec` runs shell, it does not read English.");
+  lines.push("");
+}
+
 lines.push("## The rule that has not changed");
 lines.push("");
 lines.push("Never invent a tool name. If something is not above, you do not have");

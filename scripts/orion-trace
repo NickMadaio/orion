@@ -1,0 +1,226 @@
+#!/usr/bin/env node
+/*
+ The Brain Inspector: why did that turn go the way it did?
+
+ Deliberately NOT a new tracing system. OpenClaw already writes two files per
+ session -- a message transcript and a `.trajectory.jsonl` carrying the compiled
+ context, the model, the tool inventory and the final status. The plan called for
+ building traces; the traces exist. What was missing was a way to read them, so
+ this renders them and nothing else.
+
+ Written because every diagnosis tonight started the same way: something aborted,
+ and finding out why meant hand-writing a Python one-liner to dig the tool call
+ out of a JSONL file. That is the loop this closes. The failures it surfaces are
+ the raw material for improving Orion -- a turn that hung on an unallowlisted
+ pipeline, a memory that was never written, a command that was English prose.
+
+   orion-trace                  the most recent session
+   orion-trace --last 10        the last ten
+   orion-trace --failures       only sessions that aborted, timed out or errored
+   orion-trace <sessionId>      one specific session
+   orion-trace --full           don't truncate prompts and replies
+*/
+
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const SESSIONS = join(homedir(), ".openclaw/agents/main/sessions");
+
+const argv = process.argv.slice(2);
+const full = argv.includes("--full");
+const failuresOnly = argv.includes("--failures");
+const lastIndex = argv.indexOf("--last");
+const requested = argv.find((a) => !a.startsWith("--") && !/^\d+$/.test(a));
+const limit =
+  lastIndex !== -1 ? Number(argv[lastIndex + 1]) || 5 : requested ? 1 : 1;
+
+function readJsonl(path) {
+  try {
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null; // a torn final line shouldn't lose the whole session
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function sessionIds() {
+  const ids = readdirSync(SESSIONS)
+    .filter((f) => f.endsWith(".jsonl") && !f.includes("trajectory"))
+    .map((f) => ({
+      id: f.replace(".jsonl", ""),
+      at: statSync(join(SESSIONS, f)).mtimeMs,
+    }))
+    .sort((a, b) => b.at - a.at);
+
+  return requested ? ids.filter((s) => s.id.startsWith(requested)) : ids;
+}
+
+const truncate = (text, n) =>
+  !text ? "" : full || text.length <= n ? text : `${text.slice(0, n)}…`;
+
+function analyse(id) {
+  const messages = readJsonl(join(SESSIONS, `${id}.jsonl`));
+  const trajectory = readJsonl(join(SESSIONS, `${id}.trajectory.jsonl`));
+
+  const started = trajectory.find((t) => t.type === "session.started");
+  const ended = trajectory.find((t) => t.type === "session.ended");
+  const meta = trajectory.find((t) => t.type === "trace.metadata");
+
+  const prompts = [];
+  const replies = [];
+  const toolCalls = [];
+  const results = new Map();
+  const usage = { input: 0, output: 0, cacheRead: 0, cost: 0 };
+  let model = meta?.data?.model?.id || "";
+
+  for (const entry of messages) {
+    const message = entry.message;
+    if (!message) continue;
+
+    if (message.model) model ||= message.model;
+    if (message.usage) {
+      usage.input += message.usage.input ?? 0;
+      usage.output += message.usage.output ?? 0;
+      usage.cacheRead += message.usage.cacheRead ?? 0;
+      usage.cost += message.usage.cost?.total ?? 0;
+    }
+
+    // A user turn stores its content as a bare string; assistant and tool turns
+    // store an array of parts. Handle both or the "asked" line silently vanishes,
+    // which makes every trace unreadable -- the question is the context for
+    // everything under it.
+    if (message.role === "user" && typeof message.content === "string") {
+      prompts.push(message.content);
+      continue;
+    }
+
+    for (const part of message.content ?? []) {
+      if (part?.type === "text" && message.role === "user") prompts.push(part.text);
+      if (part?.type === "text" && message.role === "assistant") replies.push(part.text);
+      if (part?.type === "toolCall") {
+        toolCalls.push({ id: part.id, name: part.name, args: part.arguments });
+      }
+    }
+
+    if (message.role === "toolResult") {
+      const text = (message.content ?? [])
+        .map((c) => (typeof c?.text === "string" ? c.text : ""))
+        .join(" ");
+      results.set(message.toolCallId, text);
+    }
+  }
+
+  // The interesting part of a tool call is its command, not its schema.
+  const describe = (call) => {
+    const a = call.args ?? {};
+    return a.command ?? a.query ?? a.path ?? a.goal ?? JSON.stringify(a).slice(0, 120);
+  };
+
+  const failed = toolCalls.filter((c) => {
+    const out = results.get(c.id) ?? "";
+    // No result at all means the turn died holding this call -- the exact shape
+    // of the approval hang, and the single most useful thing to surface.
+    return !results.has(c.id) || /error|denied|failed|not authorized/i.test(out);
+  });
+
+  // "success" is the runtime's word for a clean finish; normalise it so that
+  // --failures does not cheerfully list every healthy session.
+  const raw = ended?.data?.status;
+  const clean = raw === "success" || raw === "ok" || raw === undefined;
+
+  const status = ended?.data?.aborted
+    ? "ABORTED"
+    : ended?.data?.timedOut || ended?.data?.idleTimedOut
+      ? "TIMED OUT"
+      : failed.length > 0
+        ? "completed with errors"
+        : clean
+          ? "ok"
+          : raw;
+
+  return {
+    id,
+    key: started?.sessionKey || started?.data?.agentId || "",
+    model,
+    status,
+    prompts,
+    replies,
+    toolCalls,
+    failed,
+    results,
+    usage,
+    describe,
+    // Memory activity, which is what this whole project is about.
+    stored: toolCalls.filter((c) => /orion-remember/.test(describe(c))),
+    recalled: toolCalls.filter((c) => /orion-recall|memory search/.test(describe(c))),
+  };
+}
+
+const traces = sessionIds()
+  .map((s) => analyse(s.id))
+  .filter((t) => t.prompts.length > 0 || t.toolCalls.length > 0)
+  .filter((t) => !failuresOnly || t.status !== "ok")
+  .slice(0, limit);
+
+if (traces.length === 0) {
+  console.log(failuresOnly ? "no failing sessions found" : "no sessions found");
+  process.exit(0);
+}
+
+for (const t of traces) {
+  const mark = t.status === "ok" ? "" : `  [${t.status}]`;
+  console.log(`\n${"─".repeat(72)}`);
+  console.log(`${t.id.slice(0, 8)}  ${t.key}${mark}`);
+  console.log(`${"─".repeat(72)}`);
+
+  if (t.model) console.log(`  model    ${t.model}`);
+
+  for (const p of t.prompts) console.log(`  asked    ${truncate(p, 220)}`);
+
+  if (t.recalled.length) {
+    console.log(`  recalled ${t.recalled.map((c) => truncate(t.describe(c), 90)).join("; ")}`);
+  }
+
+  if (t.toolCalls.length) {
+    console.log(`  tools    ${t.toolCalls.length} call(s)`);
+    for (const call of t.toolCalls) {
+      const out = t.results.get(call.id);
+      const verdict =
+        out === undefined ? "NEVER RETURNED" : /error|denied|failed/i.test(out) ? "failed" : "ok";
+      const flag = verdict === "ok" ? "  " : "! ";
+      console.log(`    ${flag}${call.name}: ${truncate(t.describe(call), 100)}`);
+      if (verdict !== "ok") console.log(`         -> ${verdict}${out ? `: ${truncate(out, 120)}` : ""}`);
+    }
+  }
+
+  if (t.stored.length) {
+    console.log(`  LEARNED  ${t.stored.map((c) => truncate(t.describe(c), 120)).join("; ")}`);
+  } else if (t.prompts.some((p) => p.length > 40)) {
+    // Not always wrong -- a pure question has nothing to store -- but worth
+    // seeing, because a turn where Nick stated something and nothing was
+    // written is the failure this project exists to eliminate.
+    console.log(`  learned  nothing stored this turn`);
+  }
+
+  const reply = t.replies[t.replies.length - 1];
+  if (reply) console.log(`  said     ${truncate(reply, 260)}`);
+
+  const { input, output, cacheRead, cost } = t.usage;
+  if (input || output) {
+    console.log(
+      `  cost     ${input} in / ${output} out / ${cacheRead} cached` +
+        (cost ? ` — $${cost.toFixed(4)}` : ""),
+    );
+  }
+}
+console.log("");

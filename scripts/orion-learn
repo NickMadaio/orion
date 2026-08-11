@@ -1,0 +1,481 @@
+#!/usr/bin/env node
+/*
+ Adaptive learning, the only honest kind: read what actually happened, propose,
+ and let a human decide.
+
+ This script NEVER changes anything. Not AGENTS.md, not SOUL.md, not a config,
+ not the exec allowlist. It reads session history and writes one markdown file of
+ proposals. That ceiling is the design, not an unfinished feature: an assistant
+ that edits its own instructions on the strength of its own reading of its own
+ logs has no error-correcting term anywhere in the loop. The pipeline is
+
+     PROPOSE -> TEST (orion-bench, or Nick) -> ACCEPT IF BETTER / ROLLBACK IF WORSE
+
+ and this script owns exactly the first box.
+
+ It is deliberately not a new tracing system. orion-trace already showed that
+ OpenClaw's per-session `.jsonl` + `.trajectory.jsonl` hold everything worth
+ knowing; this reuses that reading and asks the next question -- not "why did
+ that turn fail" but "what keeps failing, and what would fix the class of it".
+
+   orion-learn                every session on disk -> planning/learning-proposals.md
+   orion-learn --days 3       narrow the window
+   orion-learn --last 40      narrow by count
+   orion-learn --dry-run      print the report, write nothing
+   orion-learn --verbose      every piece of evidence, not the top few
+   orion-learn --judge        local ollama second opinion before Nick reads it
+*/
+
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const HOME = homedir();
+const SESSIONS = join(HOME, ".openclaw/agents/main/sessions");
+const APPROVALS = join(HOME, ".openclaw/exec-approvals.json"); // read, never written
+const AGENTS_MD = join(HOME, ".openclaw/workspace/AGENTS.md"); // read, never written
+const OUT = join(HOME, "Desktop/ORION/planning/learning-proposals.md");
+const OLLAMA = "http://127.0.0.1:11434/api/generate";
+
+const argv = process.argv.slice(2);
+const has = (name) => argv.includes(`--${name}`);
+const num = (name, fallback) => {
+  if (!has(name)) return fallback;
+  const parsed = Number(argv[argv.indexOf(`--${name}`) + 1]);
+  // A typo'd `--days x` must not quietly mean "everything": a report built from
+  // the wrong window is worse than no report, because it still looks correct.
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(`--${name} needs a positive number`);
+    process.exit(2);
+  }
+  return parsed;
+};
+const options = Object.freeze({
+  days: num("days", 0),
+  last: num("last", 0),
+  dryRun: has("dry-run"),
+  verbose: has("verbose"),
+  judge: has("judge"),
+});
+
+function readJsonl(path) {
+  try {
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null; // a torn final line must not cost us the whole session
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/*
+ Read-only view of the live allowlist, and the single most important input here.
+ It is the difference between a useful proposal and a confidently wrong one:
+ "add grep to the allowlist" is nonsense when grep is already on it and the real
+ cause is the pipe hanging off the end of the command.
+*/
+function allowlist(agent = "main") {
+  try {
+    const raw = JSON.parse(readFileSync(APPROVALS, "utf8"));
+    return new Set(
+      (raw?.agents?.[agent]?.allowlist ?? [])
+        .map((e) => (typeof e === "string" ? e : e?.pattern) ?? "")
+        .filter(Boolean)
+        .map((p) => p.split("/").pop()),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+const ALLOWED = allowlist();
+const GUIDANCE = existsSync(AGENTS_MD) ? readFileSync(AGENTS_MD, "utf8") : "";
+const GUIDANCE_AT = existsSync(AGENTS_MD) ? statSync(AGENTS_MD).mtime.toISOString() : "unknown";
+const covered = (pattern) => pattern.test(GUIDANCE);
+
+// The voice front-end prepends a fixed preamble to every spoken turn. Left in,
+// its own words -- "remember some words might be incorrectly transcribed" --
+// trip the durable-fact detector on every voice session: the harness's text
+// masquerading as something Nick said.
+const stripPreamble = (text) =>
+  text.startsWith("User talked via voice recognition") ? text.split("\n\n").slice(1).join("\n\n") : text;
+
+function sessions() {
+  const cutoff = options.days ? Date.now() - options.days * 86_400_000 : 0;
+  const found = readdirSync(SESSIONS)
+    .filter((f) => f.endsWith(".jsonl") && !f.includes("trajectory"))
+    .map((f) => ({ id: f.replace(".jsonl", ""), at: statSync(join(SESSIONS, f)).mtimeMs }))
+    .filter((s) => s.at >= cutoff)
+    .sort((a, b) => b.at - a.at);
+  return options.last ? found.slice(0, options.last) : found;
+}
+
+// The interesting part of a call is its command, not its schema.
+const describe = (part) => {
+  const a = part.arguments ?? {};
+  return a.command ?? a.query ?? a.path ?? a.goal ?? JSON.stringify(a).slice(0, 120);
+};
+
+function load({ id, at }) {
+  const messages = readJsonl(join(SESSIONS, `${id}.jsonl`));
+  const trajectory = readJsonl(join(SESSIONS, `${id}.trajectory.jsonl`));
+
+  const calls = messages.flatMap((entry) =>
+    (Array.isArray(entry.message?.content) ? entry.message.content : [])
+      .filter((part) => part?.type === "toolCall")
+      .map((part) => ({ id: part.id, name: part.name, desc: describe(part), at: entry.timestamp ?? "" })),
+  );
+
+  const results = new Map(
+    messages
+      .filter((e) => e.message?.role === "toolResult")
+      .map((e) => [
+        e.message.toolCallId,
+        (e.message.content ?? []).map((c) => (typeof c?.text === "string" ? c.text : "")).join(" "),
+      ]),
+  );
+
+  // A user turn stores content as a bare string, assistant turns as parts.
+  const text = (role) =>
+    messages
+      .filter((e) => e.message?.role === role)
+      .flatMap((e) =>
+        typeof e.message.content === "string"
+          ? [e.message.content]
+          : (e.message.content ?? []).filter((p) => p?.type === "text").map((p) => p.text ?? ""),
+      );
+
+  const tokens = messages.reduce((sum, e) => {
+    const u = e.message?.usage ?? {};
+    return sum + (u.input ?? 0) + (u.output ?? 0) + (u.cacheRead ?? 0);
+  }, 0);
+
+  // Every session.ended, not just the first. Seventeen session files here hold
+  // more than one turn, and in four of them the first ended "success" while a
+  // later one aborted -- a `.find()` reports those as perfectly healthy.
+  const endings = trajectory.filter((t) => t.type === "session.ended").map((t) => t.data ?? {});
+
+  return Object.freeze({
+    id,
+    at: new Date(at).toISOString(),
+    prompts: text("user").map(stripPreamble),
+    replies: text("assistant"),
+    calls,
+    results,
+    tokens,
+    endings,
+    stored: calls.filter((c) => /orion-remember/.test(c.desc)),
+  });
+}
+
+const SHELL_OPS = /(\|\||&&|[|;`]|\d?>|\$\(|\bxargs\b|-exec\b)/;
+const TOOL_NAMES = /^(read|write|exec|tool_call|tool_search|memory_search|memory_get|session_status)$/;
+const MEMORY_TREE = /workspace\/memory|MEMORY\.md|workspace\/USER\.md/;
+const DURABLE =
+  /\b(before i forget|remember this|don'?t forget|from now on|going forward|i prefer|i always|i never|my (wife|birthday|address|doctor|dog|cat|goal|deadline)|for future reference|note that i)\b/i;
+const NO_IDEA = /(i don'?t (have|know|recall)|no record|don'?t see any|can'?t access|nothing (stored|saved))/i;
+const BARREN = /(no match|not found|allowlist miss|"status":\s*"error"|no results)/i;
+
+// One finding = one observed defect in one session. Detectors never mutate: each
+// maps a session to zero or more findings, and the report groups them after.
+const detectors = [
+  function denials(s) {
+    return s.calls
+      .filter((c) => /allowlist miss/.test(s.results.get(c.id) ?? ""))
+      .map((c) => {
+        const head = (c.desc.trim().split(/\s+/)[0] ?? "").split("/").pop();
+        const cause = TOOL_NAMES.test(head)
+          ? "tool-name-as-shell-command"
+          : ALLOWED.has(head) && SHELL_OPS.test(c.desc)
+            ? "shell-operators-on-allowed-binary"
+            : ALLOWED.has(head)
+              ? "allowed-binary-denied-unexplained"
+              : "missing-capability";
+        return { kind: "denial", cause, head, memory: MEMORY_TREE.test(c.desc), s, what: c.desc, at: c.at };
+      });
+  },
+
+  // No result row at all means the turn died holding the call: the approval-hang
+  // shape. Nothing errored, the answer simply never came -- which is exactly why
+  // it is invisible to any check that counts errors.
+  function hangs(s) {
+    return s.calls
+      .filter((c) => !s.results.has(c.id))
+      .map((c) => ({ kind: "hang", s, what: `${c.name}: ${c.desc}`, at: c.at }));
+  },
+
+  function retries(s) {
+    const counts = s.calls.reduce((acc, c) => ({ ...acc, [c.desc]: (acc[c.desc] ?? 0) + 1 }), {});
+    return Object.entries(counts)
+      .filter(([, n]) => n >= 3)
+      .map(([desc, n]) => ({ kind: "retry", s, n, what: `${n}x ${desc}`, at: s.at }));
+  },
+
+  // Nick said something with a shelf life and the turn ended with nothing
+  // written. Coarse -- some of these are rhetorical -- but each one is a fact
+  // that will not survive to the next session, which is the failure this whole
+  // project exists to eliminate.
+  function unstored(s) {
+    if (s.stored.length > 0) return [];
+    return s.prompts
+      .filter((p) => DURABLE.test(p))
+      .map((p) => ({ kind: "unstored", s, what: p.replace(/\s+/g, " ").slice(0, 160), at: s.at }));
+  },
+
+  // Looked for a memory, got nothing usable back, then told Nick it did not
+  // know. The answer may even have been right -- but it was luck, not knowledge,
+  // and from outside the two are indistinguishable.
+  function blind(s) {
+    const lookups = s.calls.filter(
+      (c) => /orion-recall/.test(c.desc) || /^memory_/.test(c.name) || MEMORY_TREE.test(c.desc),
+    );
+    const empty = lookups.filter((c) => {
+      const out = s.results.get(c.id);
+      return out === undefined || out.trim().length < 60 || BARREN.test(out);
+    });
+    if (empty.length === 0 || !s.replies.some((r) => NO_IDEA.test(r))) return [];
+    const asked = (s.prompts[0] ?? "").replace(/\s+/g, " ").slice(0, 90);
+    return [{ kind: "blind", s, what: `${empty.length} empty lookup(s) then "I don't know" — asked: ${asked}`, at: s.at }];
+  },
+
+  function aborts(s) {
+    return s.endings
+      .filter((e) => e.aborted || e.timedOut || e.idleTimedOut || e.status === "error")
+      .map((e) => ({
+        kind: "abort",
+        s,
+        what: e.aborted && e.timedOut ? "aborted on timeout" : e.aborted ? "aborted" : "ended in error",
+        at: s.at,
+      }));
+  },
+];
+
+const corpus = sessions().map(load);
+const findings = corpus.flatMap((s) => detectors.flatMap((detect) => detect(s)));
+const of = (kind, extra = () => true) => findings.filter((f) => f.kind === kind && extra(f));
+const distinct = (list, pick) => [...new Set(list.map(pick))];
+const evidence = (list, limit = 6) =>
+  list
+    .slice(0, options.verbose ? list.length : limit)
+    .map((f) => `  - \`${f.what.replace(/\s+/g, " ").slice(0, 150)}\` — session ${f.s.id.slice(0, 8)}`)
+    .join("\n") + (!options.verbose && list.length > limit ? `\n  - …and ${list.length - limit} more` : "");
+
+/*
+ Every proposal carries the change, the test that would prove it, and the way
+ back. A proposal without a rollback is not a proposal, it is a decision already
+ taken -- and `already` matters just as much: when AGENTS.md said it and it
+ happened anyway, the answer is a mechanical fix, not another paragraph.
+*/
+function proposals() {
+  const memoryGreps = of("denial", (f) => f.cause === "shell-operators-on-allowed-binary" && f.memory);
+  const missing = of("denial", (f) => f.cause === "missing-capability");
+  const toolNames = of("denial", (f) => f.cause === "tool-name-as-shell-command");
+  const hangs = of("hang");
+  const retries = of("retry");
+  const unstored = of("unstored");
+  const blind = of("blind");
+  const aborts = of("abort");
+  const burned = distinct(retries, (f) => f.s).reduce((sum, s) => sum + s.tokens, 0);
+
+  return [
+    memoryGreps.length && {
+      title: "Searching memory by hand instead of using orion-recall",
+      severity: "high",
+      signal: `${memoryGreps.length} denied commands across ${distinct(memoryGreps, (f) => f.s.id).length} sessions`,
+      already: covered(/orion-recall`?, never|never with the shell/i),
+      diagnosis: `Every one is a hand-rolled \`grep\`/\`find\`/\`ls\` over the memory tree with a pipe or a redirect attached. The binaries are already allowlisted — \`${distinct(memoryGreps, (f) => f.head).join("`, `")}\` — so this is not a missing capability; the shell operator is what gets refused. The deeper mistake is reaching for the shell at all when \`orion-recall\` is allowlisted and exists for this exact job.`,
+      change: "AGENTS.md: make `orion-recall` the only route into memory, not the preferred one.",
+      text: `**Memory is searched with \`orion-recall\`, never with the shell.** You have\nrun \`grep -r … ~/.openclaw/workspace/memory/ 2>/dev/null | head -20\` and been\nrefused ${memoryGreps.length} times. \`grep\` is allowlisted; the pipe is not. Do not repair the\ncommand — the command was the wrong idea. \`orion-recall "<what you are looking\nfor>"\` searches the same files, is allowlisted, and returns ranked hits. If it\nfinds nothing, that is the answer: say you do not have it.`,
+      test: "`orion-bench --live` (live-02 recalls a planted fact, live-04 declines to invent one), then `orion-learn --days 1` — this proposal should stop firing.",
+      rollback: "Delete the added paragraph from AGENTS.md. No other state changes.",
+      list: memoryGreps,
+    },
+    missing.length && {
+      title: "Capabilities reached for that are not allowlisted",
+      severity: "medium",
+      signal: `${missing.length} denials — ${distinct(missing, (f) => f.head).join(", ")}`,
+      already: false,
+      diagnosis:
+        "These head binaries are genuinely absent from the `main` allowlist, so the refusal is correct policy but a real capability gap: Orion tried to do the job and could not.",
+      change: `Run these yourself, once you are happy he should run each unattended:\n\n\`\`\`sh\n${distinct(missing, (f) => f.head)
+        .map((h) => `openclaw approvals allowlist add --agent main "${h.startsWith("/") ? h : `**/${h}`}"`)
+        .join("\n")}\n\`\`\``,
+      test: "Re-ask the turn that failed; the command should run. Then `orion-bench` to confirm nothing else regressed.",
+      rollback: '`openclaw approvals allowlist remove --agent main "<pattern>"`',
+      list: missing,
+    },
+    toolNames.length && {
+      title: "Tool ids sent to exec as if they were shell commands",
+      severity: "medium",
+      signal: `${toolNames.length} denials — ${distinct(toolNames, (f) => f.head).join(", ")}`,
+      already: covered(/tool id is not a shell command/i),
+      diagnosis:
+        "`exec` runs programs. `read` and `session_status` are tool ids, not programs on PATH, so they can never resolve — the allowlist refusal is a symptom of a naming confusion, not a permissions problem.",
+      change: 'AGENTS.md: extend the existing "never invent a tool name" rule to cover the inverse mistake.',
+      text: `**A tool id is not a shell command.** \`exec\` runs programs that exist on\nPATH. Sending it \`read <path>\` or \`session_status\` produces \`allowlist miss\`,\nbecause there is no such program — the tool you wanted was in TOOLS.md all\nalong. Read a file with the \`read\` tool; run a program with \`exec\`.`,
+      test: "Ask for something needing a file read; confirm the read tool is used and `orion-trace` shows no allowlist miss.",
+      rollback: "Delete the added paragraph.",
+      list: toolNames,
+    },
+    retries.length && {
+      title: "Retry loops burning the context window",
+      severity: "high",
+      signal: `${retries.length} loops across ${distinct(retries, (f) => f.s.id).length} sessions, which consumed ${burned.toLocaleString()} tokens`,
+      already: covered(/two attempts, then talk/i),
+      diagnosis: `The same call, byte-identical, three or more times in one session; the worst offender re-sent one command ${Math.max(...retries.map((f) => f.n))} times. AGENTS.md already says "two attempts, then talk to him", so the evidence is that the rule does not enforce itself. The next step is mechanical, not rhetorical.`,
+      change:
+        "Ask for a repeat-call guard in the runtime: refuse a third identical exec within a session and return `you already ran this twice and it failed twice`. Until that exists, keep the AGENTS.md rule and re-measure with this script weekly.",
+      test: "`orion-learn --days 7` should report zero loops. Cheaper proxy: the heaviest session's token total drops below 100k.",
+      rollback: "Remove the guard; behaviour returns to unlimited retries.",
+      list: retries,
+    },
+    hangs.length && {
+      title: "Tool calls that never returned",
+      severity: "high",
+      signal: `${hangs.length} calls left unresolved across ${distinct(hangs, (f) => f.s.id).length} sessions`,
+      already: covered(/fails in about a second/i),
+      diagnosis:
+        "No result row was ever written for these calls — the turn died still holding them. Not an error; an answer that never arrives, which is why it never shows up in an error count.",
+      change:
+        "Check each command below is allowlisted *in the exact form it was sent*, and give exec a hard per-call timeout so an unanswered approval fails fast instead of eating the turn.",
+      test: 'Re-issue the same command; it must come back within seconds, refused or not. "Refused in one second" is a pass.',
+      rollback: "Restore the previous timeout value.",
+      list: hangs,
+    },
+    blind.length && {
+      title: 'Memory lookup came back empty and the turn said "I don\'t know"',
+      severity: "high",
+      signal: `${blind.length} sessions`,
+      already: covered(/could not search|couldn'?t search my memory/i),
+      diagnosis:
+        "A lookup ran, returned nothing usable (or was denied outright), and the reply was a disclaimer. Some are correct — the fact genuinely was never stored, which is what trust-04 asks for. The rest are recall failures wearing the same clothes. That ambiguity is the finding: he could not see, so being right was luck.",
+      change:
+        'AGENTS.md: require the reason to be said out loud. "I searched and found nothing" and "I could not search" are different sentences, and Nick can only fix one of them.',
+      text: `**Say which kind of "I don't know" it is.** If \`orion-recall\` ran and came\nback empty, say you looked and found nothing. If the lookup itself failed or was\nrefused, say *that* — "I couldn't search my memory, the command was denied" —\nbecause Nick can fix a broken tool and cannot fix a silence that sounds like a\nclean miss.`,
+      test: "Ask for a fact never stored (bench live-04): the answer must say it searched. Then break recall deliberately and ask again: the answer must say it could not search.",
+      rollback: "Delete the added paragraph.",
+      list: blind,
+    },
+    unstored.length && {
+      title: "Durable statements that were never written down",
+      severity: "high",
+      signal: `${unstored.length} turns across ${distinct(unstored, (f) => f.s.id).length} sessions`,
+      already: false,
+      diagnosis:
+        "Nick stated something with a shelf life and the session ended with no `orion-remember` call. Each one is a fact that did not survive to the next session — and because nothing errored, nothing anywhere else records that it was lost.",
+      change:
+        "Review the turns below. If they should have been kept, the gap is judgement rather than plumbing: tighten what AGENTS.md calls worth keeping instead of adding a tool.",
+      test: "`orion-bench --live` case live-01 (stores a fact stated in passing, unprompted).",
+      rollback: "Revert the wording change.",
+      list: unstored,
+    },
+    aborts.length && {
+      title: "Sessions that aborted, timed out, or ended in error",
+      severity: "medium",
+      signal: `${aborts.length} failed turns across ${distinct(aborts, (f) => f.s.id).length} sessions`,
+      already: false,
+      diagnosis:
+        "Baseline health, counted across every `session.ended` rather than the first one per file. Read it alongside the hang and retry findings above — those are usually the cause, and this is the number that has to fall for any of it to have mattered.",
+      change: "No direct change. This is the metric the other proposals are scored against.",
+      test: "Re-run `orion-learn` over a fixed window after any accepted change; this count is the accept/rollback signal.",
+      rollback: "n/a — measurement only.",
+      list: aborts,
+    },
+  ].filter(Boolean);
+}
+
+/*
+ A local second opinion before a human spends attention on this. Cheap insurance
+ against a confidently-worded proposal built on a bad heuristic. gpt-oss:20b
+ because llama3.2:3b misreads numbers, and this report is entirely numbers.
+*/
+async function judge(items) {
+  return Promise.all(
+    items.map(async (p) => {
+      try {
+        const res = await fetch(OLLAMA, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-oss:20b",
+            stream: false,
+            prompt: `You review proposed changes to a voice assistant's instructions. Be terse and sceptical.\n\nPROBLEM: ${p.title}\nEVIDENCE: ${p.signal}\nDIAGNOSIS: ${p.diagnosis}\nPROPOSED FIX: ${p.change.slice(0, 400)}\n\nIn under 40 words: is the fix aimed at the real cause? Start with SOUND: or DOUBTFUL: then why.`,
+          }),
+          signal: AbortSignal.timeout(300_000),
+        });
+        if (!res.ok) return `(judge unavailable: HTTP ${res.status})`;
+        return ((await res.json()).response ?? "").trim().replace(/\s+/g, " ").slice(0, 300);
+      } catch (error) {
+        // A dead ollama must not cost us the report: the proposals stand on the
+        // evidence with or without a second opinion.
+        return `(judge unavailable: ${error.message})`;
+      }
+    }),
+  );
+}
+
+const items = proposals();
+const verdicts = options.judge ? await judge(items) : [];
+
+const report = `# Orion — learning proposals
+
+> **Generated by \`scripts/orion-learn\`. NOTHING HERE HAS BEEN APPLIED.**
+>
+> This file is the output of the PROPOSE step and nothing else. \`orion-learn\`
+> never edits AGENTS.md, SOUL.md, any config, or the exec allowlist — it reads
+> session history and writes this file. Every item below is waiting on a human:
+> **PROPOSE → TEST → ACCEPT IF BETTER → ROLLBACK IF WORSE.**
+> Paste the drafted text yourself, run \`orion-bench\`, and revert if the numbers
+> get worse. The assembled AGENTS.md section lives in \`planning/fragment-p5.md\`.
+
+Generated ${new Date().toISOString()} from ${corpus.length} sessions${options.days ? ` (last ${options.days} days)` : ""} — ${findings.length} findings.
+AGENTS.md last modified ${GUIDANCE_AT}. Evidence newer than that is guidance being ignored; evidence older may already be fixed, so re-run before acting.
+
+| # | proposal | severity | signal |
+| - | -------- | -------- | ------ |
+${items.map((p, i) => `| P${i + 1} | ${p.title} | ${p.severity} | ${p.signal} |`).join("\n")}
+
+${items
+  .map((p, i) =>
+    [
+      `## P${i + 1} — ${p.title}`,
+      `**Severity** ${p.severity} · **Signal** ${p.signal}`,
+      p.already
+        ? "**Already in AGENTS.md?** Yes — and it happened anyway. Prefer a mechanical fix over more prose."
+        : "**Already in AGENTS.md?** No matching rule found.",
+      `**Diagnosis.** ${p.diagnosis}`,
+      `**Proposed change.** ${p.change}`,
+      p.text ? `Proposed AGENTS.md text:\n\n\`\`\`markdown\n${p.text}\n\`\`\`` : "",
+      verdicts[i] ? `**Local review (gpt-oss:20b).** ${verdicts[i]}` : "",
+      `**How to test.** ${p.test}`,
+      `**How to roll back.** ${p.rollback}`,
+      `**Evidence.**\n${evidence(p.list)}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  )
+  .join("\n\n---\n\n")}
+`;
+
+if (options.dryRun) console.log(report);
+else writeFileSync(OUT, report);
+
+console.log(`\norion-learn — ${corpus.length} sessions, ${findings.length} findings\n`);
+for (const [i, p] of items.entries()) {
+  console.log(`  P${i + 1}  [${p.severity.padEnd(6)}] ${p.title}`);
+  console.log(`        ${p.signal}${p.already ? "   (AGENTS.md already says this)" : ""}`);
+}
+console.log(
+  items.length === 0
+    ? "  no defects found in this window"
+    : `\n  ${options.dryRun ? "dry run — nothing written" : `proposals written to ${OUT}`}`,
+);
+console.log("  nothing was applied. review, test with orion-bench, then accept or discard.\n");

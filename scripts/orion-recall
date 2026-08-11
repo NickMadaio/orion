@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+/*
+ The one way Orion is allowed to look something up in his own memory.
+
+ The mirror of orion-remember, and it exists for the same reason. Given no
+ memory-search path, Orion improvises one: he reaches for `exec` and writes
+ things like
+
+     find files named "*.md" in ~/.openclaw/workspace -> show first 20 lines
+
+ which is a sentence, not a command, so it fails. Observed repeatedly. Sometimes
+ he recovers and answers from startup context; sometimes he concludes he has no
+ record and tells Nick he does not know something he was told an hour ago. That
+ is the difference between "Orion forgot" and "Orion failed to look" -- and from
+ the outside they are identical, which is what makes it corrosive.
+
+ So: one allowlisted command, semantic search over the real index, no shell
+ improvisation required.
+
+   orion-recall "desk lamp"          top matches
+   orion-recall --all "supplements"  don't collapse to one line per file
+*/
+
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
+const MAX_QUERY = 300;
+
+const args = process.argv.slice(2);
+const all = args[0] === "--all";
+const query = (all ? args.slice(1) : args).join(" ").trim();
+
+if (!query) {
+  console.error('orion-recall: nothing to look for. Usage: orion-recall "<query>"');
+  process.exit(2);
+}
+if (query.length > MAX_QUERY) {
+  console.error(`orion-recall: query too long (${query.length} chars, max ${MAX_QUERY}).`);
+  process.exit(2);
+}
+
+let stdout = "";
+try {
+  ({ stdout } = await run(OPENCLAW, ["memory", "search", query], {
+    timeout: 120000,
+    maxBuffer: 1024 * 1024 * 8,
+  }));
+} catch (error) {
+  // Report the real failure. A recall path that fails silently is how "Orion
+  // forgot" and "the index is down" become indistinguishable again.
+  console.error(`orion-recall: search failed — ${error.stderr?.trim() || error.message}`);
+  process.exit(1);
+}
+
+/*
+ `memory search` interleaves `<score> <file>:<range>` headers with excerpt text
+ and the occasional retry warning. Orion is going to read this out loud, so
+ strip the machinery and keep the prose.
+*/
+const HEADER = /^\s*(\d+\.\d+)\s+(\S+?):(\d+-\d+)\s*$/;
+const blocks = [];
+
+for (const line of stdout.split("\n")) {
+  const header = HEADER.exec(line);
+  if (header) {
+    blocks.push({ score: Number(header[1]), file: header[2], lines: [] });
+    continue;
+  }
+  if (line.startsWith("[memory]")) continue; // retry/telemetry noise
+  if (blocks.length > 0) blocks[blocks.length - 1].lines.push(line);
+}
+
+if (blocks.length === 0) {
+  console.log(`nothing in memory about "${query}"`);
+  process.exit(0);
+}
+
+const shown = all ? blocks : blocks.slice(0, 4);
+
+for (const block of shown) {
+  // Headings and list bullets survive; blank runs and the generated ledger
+  // block's HTML markers do not -- they are structure, not recollection.
+  const body = block.lines
+    .filter((l) => l.trim() && !l.trim().startsWith("<!--"))
+    .map((l) => l.replace(/^#+\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, all ? 40 : 8)
+    .join("\n    ");
+
+  if (!body) continue;
+  console.log(`\n  [${block.score.toFixed(2)}] ${block.file}\n    ${body}`);
+}
+console.log("");

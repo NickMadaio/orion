@@ -36,8 +36,10 @@ for file in "$ROOT"/Sources/Orion/*.swift; do
   [ "$(basename "$file")" = "main.swift" ] || sources+=("$file")
 done
 
+source "$HERE/build-modules.sh"
+
 echo "== building the layout harness (${#sources[@]} sources) =="
-swiftc -O "${sources[@]}" "$HERE/LayoutHarness/main.swift" -o "$BUILD/layout-test" \
+swiftc -O $MODULE_FLAGS "${sources[@]}" "$HERE/LayoutHarness/main.swift" -o "$BUILD/layout-test" \
   || { echo "layout harness failed to build"; exit 1; }
 
 "$BUILD/layout-test"

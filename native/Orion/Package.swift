@@ -29,9 +29,25 @@ let package = Package(
                 .swiftLanguageMode(.v5)
             ]
         ),
+        // Everything the session needs that touches the world: the state file,
+        // the history journal, the cross-process lock and the command socket.
+        // Separate from the app so the crash-safety and idempotency rules can be
+        // tested directly, which an executable target makes awkward.
+        //
+        // FileLock lives here rather than in the app because two subsystems now
+        // need it — HealthLog and SessionStore — and the lockfile NAME is a
+        // cross-language contract. Two copies of that protocol is precisely how
+        // it drifts into two locks that exclude nothing.
+        .target(
+            name: "SessionService",
+            dependencies: ["SessionDomain"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
+        ),
         .executableTarget(
             name: "Orion",
-            dependencies: ["SessionDomain"],
+            dependencies: ["SessionDomain", "SessionService"],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],

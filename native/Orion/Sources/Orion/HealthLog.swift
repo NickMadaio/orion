@@ -1,4 +1,5 @@
 import Foundation
+import SessionService
 
 /*
  Supplements and workouts, in one file that both sides own.

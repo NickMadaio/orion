@@ -41,8 +41,9 @@ trap 'rm -rf "$(dirname "$SCRATCH")"' EXIT
 echo "== building the two racers =="
 
 mkdir -p "$BUILD"
-swiftc -O \
-  "$ROOT/Sources/Orion/FileLock.swift" \
+source "$HERE/build-modules.sh"
+
+swiftc $MODULE_FLAGS -O \
   "$ROOT/Sources/Orion/OrionDay.swift" \
   "$ROOT/Sources/Orion/HealthLog.swift" \
   "$HERE/RaceHarness/main.swift" \

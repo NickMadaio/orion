@@ -54,14 +54,14 @@ import Foundation
  of the file, so making readers queue would buy nothing and cost latency.
 */
 
-enum FileLock {
+public enum FileLock {
 
     /// Longer than any honest hold (a write here is single-digit milliseconds),
     /// short enough that a crash is not felt as a permanent outage.
-    static let staleAfter: TimeInterval = 15
+    public static let staleAfter: TimeInterval = 15
 
     /// Matches the node side's 60 attempts × 100ms.
-    static let giveUpAfter: TimeInterval = 6
+    public static let giveUpAfter: TimeInterval = 6
 
     /// Polled faster than the node side's 100ms purely to keep the UI snappy:
     /// `mutate` runs on the main thread, so every millisecond spent waiting is
@@ -70,9 +70,9 @@ enum FileLock {
     /// lockfile name, O_EXCL, and the 15s stale rule have to agree.
     private static let pollInterval: useconds_t = 20_000
 
-    struct Busy: LocalizedError {
-        let path: String
-        var errorDescription: String? {
+    public struct Busy: LocalizedError {
+        public let path: String
+        public var errorDescription: String? {
             "\(path) stayed locked for \(Int(FileLock.giveUpAfter))s"
         }
     }
@@ -80,7 +80,7 @@ enum FileLock {
     /// Run `body` with `<target>.lock` held. Rethrows whatever `body` throws,
     /// releasing the lock either way.
     @discardableResult
-    static func withLock<T>(_ target: URL, _ body: () throws -> T) throws -> T {
+    public static func withLock<T>(_ target: URL, _ body: () throws -> T) throws -> T {
         let lockPath = target.path + ".lock"
         let deadline = Date().addingTimeInterval(giveUpAfter)
 

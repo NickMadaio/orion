@@ -201,6 +201,9 @@ final class AppState: ObservableObject {
     )
     private lazy var sessionIPC = SessionIPC(service: session, enforcer: enforcer)
 
+    /// The small window that appears during a break.
+    private let breakSurface = BreakSurface()
+
     /// What the Session tab reads. Held here because AppState owns and wires.
     private(set) lazy var sessionTabModel = SessionTabModel(
         service: session, library: ClipLibrary(), enforcer: enforcer, effects: sessionEffects
@@ -527,6 +530,55 @@ final class AppState: ObservableObject {
         clipPlayer.stop()
     }
 
+    /// Show the break window during a break, and take it away otherwise.
+    ///
+    /// Driven from the same snapshot as everything else rather than from a timer
+    /// of its own, so it cannot disagree with what the session actually thinks
+    /// is happening.
+    private func updateBreakSurface(_ snapshot: SessionSnapshot) {
+        guard let now = snapshot.reconciliation else {
+            DispatchQueue.main.async { [weak self] in
+                if self?.breakSurface.isVisible == true { self?.breakSurface.dismiss() }
+            }
+            return
+        }
+
+        let onBreak: Bool
+        if case .running(let kind) = now.status, !kind.isFocus { onBreak = true } else { onBreak = false }
+        let minutes = max(1, Int((now.remainingInPhase / 60).rounded()))
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if onBreak {
+                self.breakSurface.onLog = { OrionLog.write($0) }
+                self.breakSurface.show(prompt: self.breakPrompt(), minutesRemaining: minutes)
+            } else if self.breakSurface.isVisible {
+                self.breakSurface.dismiss()
+            }
+        }
+    }
+
+    /// What the break window suggests.
+    ///
+    /// Orion generates these rather than reading from a hand-maintained list —
+    /// that was a decision, and a list of twelve would start repeating by the
+    /// second day. Until the generator is wired, these are the fallbacks, and
+    /// they are deliberately physical: the point of the break is to stop looking
+    /// at the screen.
+    private func breakPrompt() -> String {
+        let fallbacks = [
+            "Stand up. Look at something further away than this screen.",
+            "Water, and a walk to the window.",
+            "Shoulders down, jaw unclenched. Breathe out longer than you breathe in.",
+            "Leave the desk. The block will still be here.",
+            "Stretch whatever has been still for the last fifty minutes."
+        ]
+        // Keyed by the day so it is stable within a session rather than
+        // flickering on every snapshot.
+        let index = abs(OrionDay.current.key.hashValue &+ hydrationBottles) % fallbacks.count
+        return fallbacks[index]
+    }
+
     /// What enforcement says out loud.
     ///
     /// Routed through `speak(...)` in Gate 6. Until then it is written to the
@@ -613,6 +665,7 @@ final class AppState: ObservableObject {
             }
             self.enforcer.evaluate(sessionIsFocusing: focusing)
             self.sessionTabModel.adopt(snapshot)
+            self.updateBreakSurface(snapshot)
         }
 
         sessionIPC.onLog = { OrionLog.write($0) }

@@ -99,22 +99,30 @@ public final class SessionEffects: SessionEffectHandler {
     /// Plain sentences. The domain deliberately does not write prose, so this is
     /// where the wording lives and where a copy edit lands without touching
     /// anything that has a test pointed at it.
+    /// "1 minute", not "1 minutes".
+    ///
+    /// It reads as a bug out loud even more than it does on screen, and a
+    /// two-minute test fixture hits it every single run.
+    private static func spokenMinutes(_ minutes: Int) -> String {
+        minutes == 1 ? "1 minute" : "\(minutes) minutes"
+    }
+
     public static func sentence(for announcement: Announcement) -> String {
         switch announcement {
         case .sessionStarted(let task, let minutes):
-            return "Starting \(minutes) minutes on \(task)."
+            return "Starting \(spokenMinutes(minutes)) on \(task)."
         case .focusBeginning(let block, let total, let minutes):
             return block == 1
-                ? "First block. \(minutes) minutes."
-                : "Block \(block) of \(total). \(minutes) minutes."
+                ? "First block. \(spokenMinutes(minutes))."
+                : "Block \(block) of \(total). \(spokenMinutes(minutes))."
         case .restBeginning(let minutes):
-            return "Break — \(minutes) minute\(minutes == 1 ? "" : "s")."
+            return "Break — \(spokenMinutes(minutes))."
         case .restEnding:
             return "Break's nearly over."
         case .sessionComplete(let minutes):
-            return "Session done. \(minutes) minutes of focus."
+            return "Session done. \(spokenMinutes(minutes)) of focus."
         case .sessionEndedEarly(let minutes):
-            return "Wrapped up early. \(minutes) minutes of focus."
+            return "Wrapped up early. \(spokenMinutes(minutes)) of focus."
         case .waitingForReturn:
             return "The break's over whenever you're back."
         case .paused:

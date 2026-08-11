@@ -48,6 +48,22 @@ public enum SessionStatus: Equatable, Sendable {
         if case .finished = self { return true }
         return false
     }
+
+    /// Something a person can read.
+    ///
+    /// Exists because the default enum description leaks the module and the
+    /// case payload — "running(SessionDomain.PhaseKind.focus)" went into the app
+    /// log for a while and told nobody anything.
+    public var label: String {
+        switch self {
+        case .notStarted: return "not started"
+        case .running(let kind): return kind.isFocus ? "focus" : "break"
+        case .paused: return "paused"
+        case .waitingForReturn: return "waiting for him to come back"
+        case .readyToComplete: return "finishing"
+        case .finished(let reason): return "finished (\(reason.rawValue))"
+        }
+    }
 }
 
 // MARK: - The answer

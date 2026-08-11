@@ -1,6 +1,8 @@
 import AppKit
 import AVFoundation
 import Combine
+import SessionDomain
+import SessionService
 import Foundation
 
 /*
@@ -166,6 +168,13 @@ final class AppState: ObservableObject {
 
     let hologram = HologramModel()
     private let reminders = ReminderService()
+
+    /// The single writer of session state and history, and the socket scripts
+    /// talk to. Owned here because AppState owns and wires; the engine logic
+    /// lives in SessionDomain and the I/O in SessionService, and neither is
+    /// reachable except through this one object.
+    let session = SessionService()
+    private lazy var sessionIPC = SessionIPC(service: session)
     private let speakerVerifier = SpeakerVerifier()
 
     /// Rolling mono window of what the microphone has heard, for verification.
@@ -323,6 +332,7 @@ final class AppState: ObservableObject {
         activeSTTProvider = .apple
         restoreDailyLog()
         wireSpeech()
+        wireSession()
     }
 
     func logHydration() {
@@ -479,6 +489,33 @@ final class AppState: ObservableObject {
         disarmSpeakingWatchdog()
         speechInput.abort()
         speechOutput.stop(reason: "app shutting down")
+        // Removes the socket file, so a client started after this correctly
+        // reports that Orion is not running rather than hanging on a dead path.
+        sessionIPC.stop()
+        session.stop()
+    }
+
+    /// Bring the session up and open its command socket.
+    ///
+    /// `start()` first: it records that the process started, which is what makes
+    /// the gap since the last heartbeat read as downtime rather than as focus
+    /// Nick never served. Only then is the socket opened, so the first command
+    /// through it cannot race the recovery.
+    private func wireSession() {
+        let snapshot = session.start()
+        if let failure = snapshot.failure {
+            OrionLog.write("[session] state file unreadable — \(failure.message)")
+        } else if let now = snapshot.reconciliation {
+            OrionLog.write("[session] restored \(now.status.label) — "
+                           + "phase \(now.phaseIndex), \(Int(now.servedInPhase))s served")
+        } else {
+            OrionLog.write("[session] no session running")
+        }
+
+        sessionIPC.onLog = { OrionLog.write($0) }
+        if !sessionIPC.start() {
+            OrionLog.write("[session] command socket unavailable — scripts cannot reach the session")
+        }
     }
 
     private func wireSpeech() {

@@ -1,0 +1,222 @@
+#!/usr/bin/env node
+/*
+ Focus sessions, driven from anywhere. A CLIENT — never an engine.
+
+ Orion.app owns the session: one process writes focus-state.json and
+ focus-history.jsonl, and everything else asks it to. This script asks. It has
+ no fallback, and that is deliberate rather than lazy: a script that could start
+ a session while the app was down would be a second writer, and two writers on
+ one file is the bug that quietly ate Nick's supplement ticks until the health
+ log was fixed. So when the app is not running, this says so and stops.
+
+ Every command carries a request id, and the app refuses one it has already
+ applied. That makes a retry after a timeout safe: the second attempt is not a
+ second pause, and re-running `finish` does not write a second history record.
+ The reply says `duplicate: true` so a caller can tell "I did that" from "it was
+ already done" — both of which are success.
+
+   orion-session status
+   orion-session start "finish the essay" [--blocks 3] [--focus 50] [--rest 10]
+                                          [--clips rain,forest,rain]
+   orion-session pause | resume | back | idle
+   orion-session skip                 end the current break now
+   orion-session shorten 3            leave three minutes of the break
+   orion-session finish               done, archived as a success
+   orion-session abandon              gave up, archived as abandoned
+
+ Add --json for the raw reply.
+
+ A caution worth keeping in mind: ENFORCEMENT DOES NOT RUN WHILE THE APP IS
+ TERMINATED. The session itself survives being quit — the state file and the
+ app's reconciliation see to that, and time while it was down is recorded as
+ downtime rather than counted as focus. But nothing watches what Nick is doing
+ while nothing is running.
+*/
+
+import { connect } from "node:net";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const SOCKET =
+  process.env.ORION_SESSION_SOCKET || join(homedir(), ".openclaw/orion-session.sock");
+
+const [command, ...rest] = process.argv.slice(2);
+const wantsJSON = rest.includes("--json");
+
+function fail(message, code = 2) {
+  console.error(`orion-session: ${message}`);
+  process.exit(code);
+}
+
+function flag(name, fallback) {
+  const at = rest.indexOf(`--${name}`);
+  if (at === -1 || at === rest.length - 1) return fallback;
+  return rest[at + 1];
+}
+
+/*
+ One request, one reply, one connection.
+
+ The socket not existing and the connect being refused are the same fact to a
+ caller — Orion is not running — but they arrive as different errors, so both
+ are translated into the same sentence. A stale socket file left by a killed app
+ gives ECONNREFUSED, which is exactly the second case.
+*/
+function ask(request) {
+  return new Promise((resolve, reject) => {
+    if (!existsSync(SOCKET)) {
+      return reject(
+        new Error("Orion is not running, so there is nothing to ask. Start Orion.app first."),
+      );
+    }
+
+    const socket = connect(SOCKET);
+    let reply = "";
+
+    // A reply that never comes must not hang a shell forever.
+    socket.setTimeout(5000, () => {
+      socket.destroy();
+      reject(new Error("Orion did not answer within five seconds."));
+    });
+
+    socket.on("connect", () => socket.write(JSON.stringify(request) + "\n"));
+    socket.on("data", (chunk) => {
+      reply += chunk;
+      const newline = reply.indexOf("\n");
+      if (newline === -1) return;
+      socket.end();
+      try {
+        resolve(JSON.parse(reply.slice(0, newline)));
+      } catch (error) {
+        reject(new Error(`could not read Orion's reply: ${error.message}`));
+      }
+    });
+    socket.on("error", (error) => {
+      if (error.code === "ECONNREFUSED" || error.code === "ENOENT") {
+        return reject(
+          new Error("Orion is not running, so there is nothing to ask. Start Orion.app first."),
+        );
+      }
+      reject(error);
+    });
+  });
+}
+
+/*
+ Under a minute, say seconds.
+
+ Rounding to whole minutes made a 27-second session read as "0m", which looks
+ exactly like nothing happened — and it is precisely the range that matters when
+ checking whether a crash cost anything.
+*/
+function duration(seconds) {
+  if (seconds === undefined || seconds === null) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
+function describe(reply) {
+  if (reply.unreadable) {
+    // Distinct from "nothing running", loudly. A session that vanishes with
+    // nothing said is this project's worst failure mode.
+    console.error(`orion-session: ${reply.unreadable}`);
+  }
+
+  switch (reply.status) {
+    case "none":
+      return "No session running.";
+    case "not-started":
+      return "A session is set up but has not started.";
+    case "running": {
+      const where =
+        reply.phase === "focus"
+          ? `focus block ${reply.blockNumber} of ${reply.totalBlocks}`
+          : "on a break";
+      return (
+        `${where} — ${duration(reply.remainingSeconds)} left` +
+        `\n  task: ${reply.task}` +
+        `\n  focus served today in this session: ${duration(reply.servedFocusSeconds)}` +
+        (reply.uncountedSeconds > 60 ? `\n  not counted: ${duration(reply.uncountedSeconds)}` : "") +
+        (reply.approximate ? "\n  (approximate — the clock moved during this session)" : "")
+      );
+    }
+    case "paused":
+      return `Paused — ${duration(reply.servedSeconds)} served in this phase.\n  task: ${reply.task}`;
+    case "waiting-for-return":
+      return "The break ended while you were away. Waiting for you to come back.";
+    case "finishing":
+      return "Every phase is served; wrapping up.";
+    case "finished":
+      return (
+        `Session ${reply.phase === "abandoned" ? "abandoned" : "finished"} — ` +
+        `${duration(reply.servedFocusSeconds)} of focus.`
+      );
+    default:
+      return JSON.stringify(reply);
+  }
+}
+
+async function main() {
+  if (!command || command === "--help" || command === "-h") {
+    fail("usage: orion-session status|start|pause|resume|skip|shorten|finish|abandon", 0);
+  }
+
+  const request = { op: command, requestId: randomUUID() };
+
+  switch (command) {
+    case "status":
+      delete request.requestId; // status asks nothing of the writer
+      break;
+
+    case "start": {
+      const task = rest[0];
+      if (!task || task.startsWith("--")) fail('start needs a task: orion-session start "the thing"');
+      request.task = task;
+      request.focusBlocks = Number(flag("blocks", 3));
+      request.focusMinutes = Number(flag("focus", 50));
+      request.restMinutes = Number(flag("rest", 10));
+      const clips = flag("clips", "");
+      if (clips) request.clips = clips.split(",").map((name) => name.trim()).filter(Boolean);
+      break;
+    }
+
+    case "shorten": {
+      const value = Number(rest[0]);
+      if (!Number.isFinite(value) || value < 0) fail("shorten needs a number of minutes to leave");
+      request.minutes = value;
+      break;
+    }
+
+    case "pause":
+    case "resume":
+    case "skip":
+    case "finish":
+    case "abandon":
+    case "idle":
+    case "back":
+      break;
+
+    default:
+      fail(`unknown command: ${command}`);
+  }
+
+  let reply;
+  try {
+    reply = await ask(request);
+  } catch (error) {
+    fail(error.message, 3);
+  }
+
+  if (wantsJSON) {
+    console.log(JSON.stringify(reply, null, 2));
+    process.exit(reply.ok ? 0 : 1);
+  }
+
+  if (!reply.ok) fail(reply.error ?? "that command did not apply", 1);
+  if (reply.duplicate) console.log("(already done)");
+  console.log(describe(reply));
+}
+
+main();

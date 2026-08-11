@@ -41,6 +41,23 @@ final class LayoutRuleTests: XCTestCase {
                        + "silently stops scrolling")
     }
 
+    func testTheCalendarTabHasNoScrollViewOfItsOwn() throws {
+        let text = code(try source("CalendarTab.swift"))
+
+        XCTAssertFalse(text.contains("ScrollView"),
+                       "a month grid is a fixed number of rows and needs no scroll view; "
+                       + "adding one on the dashboard's axis stops both of them scrolling")
+    }
+
+    /// The month grid must be given a definite row height rather than sizing to
+    /// its content, or the page grows a scrollbar for something meant to fit.
+    func testTheMonthGridUsesTheHeightItWasGiven() throws {
+        let text = code(try source("CalendarTab.swift"))
+
+        XCTAssertTrue(text.contains("availableHeight"),
+                      "the grid has to divide the real window height across its rows")
+    }
+
     /// The one tab that DOES contain a ScrollView has to be given a definite
     /// height, which is what turns it into a viewport instead of a tall picture
     /// of one.

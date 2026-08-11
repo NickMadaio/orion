@@ -33,6 +33,15 @@ struct SyncedTask: Identifiable, Equatable {
     let id: String
     var title: String
     var isComplete: Bool
+
+    /// WHEN it was completed, from `EKReminder.completionDate`.
+    ///
+    /// Needed by the calendar, which draws what actually happened on a day
+    /// rather than what was scheduled for it. A task due Monday and finished on
+    /// Thursday belongs on Thursday in a record of the week, and `dueDate`
+    /// cannot say that.
+    var completionDate: Date?
+
     var dueDate: Date?
     var hasAlarm: Bool
     /// Real, and syncs — `EKReminder.priority`. See TaskPriority.
@@ -188,6 +197,7 @@ final class AppleRemindersSync: ObservableObject {
                         id: id,
                         title: reminder.title ?? "Untitled",
                         isComplete: reminder.isCompleted,
+                        completionDate: reminder.completionDate,
                         dueDate: reminder.dueDateComponents?.date,
                         hasAlarm: !(reminder.alarms ?? []).isEmpty,
                         priority: TaskPriority.from(reminder.priority),

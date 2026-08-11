@@ -225,6 +225,53 @@ final class AppleCalendarSync: ObservableObject {
         }
     }
 
+    /// Fetch an ARBITRARY interval, for the calendar's visible range.
+    ///
+    /// Separate from `refresh()`, which keeps its own fixed fortnight for the
+    /// day timeline. The month grid needs whatever is on screen plus padding,
+    /// and a fixed window is wrong in both directions at once: too small at the
+    /// edges, so paging shows a blank grid until a refetch lands, and too large
+    /// in the middle, so every redraw asks EventKit for weeks nobody is looking
+    /// at.
+    ///
+    /// Synchronous EventKit work stays off the main thread — `events(matching:)`
+    /// can block on a cold store, and a grid that freezes while it pages reads
+    /// as broken.
+    func fetch(interval: DateInterval, completion: @escaping ([AgendaEvent], String?) -> Void) {
+        guard access.isGranted else {
+            return completion([], "Calendar access has not been granted, so what is "
+                              + "scheduled is unknown.")
+        }
+        let calendars = store.calendars(for: .event)
+        guard !calendars.isEmpty else {
+            return completion([], "No calendar accounts are set up on this Mac.")
+        }
+
+        let predicate = store.predicateForEvents(withStart: interval.start,
+                                                 end: interval.end, calendars: calendars)
+        let created = createdIDs
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return completion([], nil) }
+            let mapped = self.store.events(matching: predicate).map { event in
+                AgendaEvent(
+                    id: event.eventIdentifier ?? UUID().uuidString,
+                    title: event.title ?? "Untitled",
+                    start: event.startDate,
+                    end: event.endDate,
+                    isAllDay: event.isAllDay,
+                    calendarName: event.calendar?.title ?? "",
+                    colorHex: AppleCalendarSync.hex(from: event.calendar?.cgColor),
+                    isOrionMade: created.contains(event.eventIdentifier ?? ""),
+                    calendarID: event.calendar?.calendarIdentifier ?? "",
+                    isReadOnly: !(event.calendar?.allowsContentModifications ?? false),
+                    hasAttendees: (event.attendees?.count ?? 0) > 0
+                )
+            }
+            DispatchQueue.main.async { completion(mapped, nil) }
+        }
+    }
+
     func refresh() {
         guard access.isGranted else { return }
         let calendar = Calendar.current

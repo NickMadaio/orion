@@ -31,6 +31,11 @@ struct DashboardView: View {
     /// worse to-do list than the one already on your phone.
     @StateObject private var reminders = AppleRemindersSync()
     @StateObject private var agenda = AppleCalendarSync()
+
+    /// The calendar's own model, built here because it needs the same
+    /// EventKit syncs this view already owns. Fetches the visible interval plus
+    /// padding rather than a fixed window, so paging never shows a blank edge.
+    @State private var calendarModel: CalendarModel?
     @StateObject private var connections = ConnectionsModel()
     @StateObject private var whoop = WhoopClient()
     @StateObject private var health = HealthLog()
@@ -331,6 +336,18 @@ struct DashboardView: View {
                         onManage: { quickOpenEditorVisible = true })
             case .session:
                 SessionTab(model: state.sessionTabModel)
+            case .calendar:
+                if let calendarModel {
+                    CalendarTab(model: calendarModel, availableHeight: availableHeight)
+                } else {
+                    // Built on first appearance rather than at init, because it
+                    // needs the syncs to exist and it fetches immediately.
+                    Color.clear.onAppear {
+                        calendarModel = CalendarModel(
+                            agenda: agenda, reminders: reminders, history: state.session.history
+                        )
+                    }
+                }
             case .tasks:
                 TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
@@ -438,7 +455,7 @@ private struct NavItem: View {
 // MARK: - Tabs
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case home, tasks, session, health, finance, messages, brand, settings
+    case home, tasks, session, calendar, health, finance, messages, brand, settings
     var id: String { rawValue }
 
     /// Spelled out rather than derived from `rawValue`.
@@ -453,6 +470,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .home: "Home"
         case .tasks: "Tasks"
         case .session: "Session"
+        case .calendar: "Calendar"
         case .health: "Health"
         case .finance: "Finances"
         case .messages: "Messages"
@@ -470,6 +488,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .home: "circle.hexagongrid"
         case .tasks: "checklist"
         case .session: "timer"
+        case .calendar: "calendar"
         case .health: "heart"
         case .finance: "chart.line.uptrend.xyaxis"
         case .messages: "bubble.left.and.bubble.right"

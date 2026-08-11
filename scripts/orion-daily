@@ -30,12 +30,32 @@ const LEDGER = join(OPENCLAW, "orion-controlled/task-ledger.jsonl");
 const MEMORY = join(OPENCLAW, "workspace/memory");
 const ARCHIVE = join(OPENCLAW, "orion-controlled/archive");
 
+/*
+ Days are LOCAL days, not UTC days.
+
+ toISOString() is UTC, so east of Greenwich-minus-nothing it rolls over before
+ midnight where Nick actually is: at 22:30 in New York it already says tomorrow.
+ A summariser that runs in the evening -- which is the only sensible time to run
+ one -- would file every day's memory under the wrong date, and the runtime
+ loads "today and yesterday" by name. en-CA gives YYYY-MM-DD in the host's own
+ timezone, so this also follows him to London instead of needing an edit.
+*/
+function localDay(offsetDays = 0) {
+  const at = new Date(Date.now() - offsetDays * 86400000);
+  return at.toLocaleDateString("en-CA");
+}
+
 const argument = process.argv[2];
 const today = argument === "--today";
-const day =
-  argument && !today
-    ? argument
-    : new Date(Date.now() - (today ? 0 : 86400000)).toISOString().slice(0, 10);
+const day = argument && !today ? argument : localDay(today ? 0 : 1);
+
+// `createdAt` is a UTC instant; `day` is a local calendar day. Comparing them
+// as strings is the same off-by-one as above, one layer down -- an action taken
+// at 22:30 in New York is stamped tomorrow in UTC and would be filed a day late.
+function dayOf(row) {
+  const at = new Date(row.createdAt ?? 0);
+  return Number.isNaN(at.getTime()) ? "" : at.toLocaleDateString("en-CA");
+}
 
 async function ledgerRows() {
   if (!existsSync(LEDGER)) return [];
@@ -45,7 +65,7 @@ async function ledgerRows() {
     if (!line.trim()) continue;
     try {
       const row = JSON.parse(line);
-      if ((row.createdAt ?? "").startsWith(day)) rows.push(row);
+      if (dayOf(row) === day) rows.push(row);
     } catch {
       /* a torn final line is not worth failing the day over */
     }
@@ -85,8 +105,6 @@ for (const row of rows) {
 
 const ranked = [...actions].sort((a, b) => b[1] - a[1]);
 const lines = [
-  `# ${day}`,
-  "",
   `${rows.length} request${rows.length === 1 ? "" : "s"}, ${verified} action${verified === 1 ? "" : "s"} verified${rejected > 0 ? `, ${rejected} refused` : ""}.`,
   "",
 ];
@@ -119,10 +137,48 @@ if (failures.length > 0) {
   lines.push("");
 }
 
+/*
+ The ledger is only half of a day. It records the Mac actions Orion took; it
+ records nothing Nick SAID, nothing Orion learned, and no decision either of
+ them made. Those arrive the other way -- AGENTS.md tells Orion to write what
+ he is told into this very file.
+
+ So this script must never own the whole file. It owns one delimited block and
+ nothing else. Everything outside the markers is somebody's memory and is
+ copied through untouched. The previous version called writeFile() on the whole
+ path, which meant every run silently destroyed anything Orion had journalled
+ that day -- the one instruction for capturing what Nick says wrote to a file
+ this script overwrote.
+*/
+const BEGIN = "<!-- orion-daily:begin — generated from the action ledger; edits inside this block are overwritten -->";
+const END = "<!-- orion-daily:end -->";
+
+const block = [BEGIN, "", ...lines, END].join("\n");
+
+function spliceBlock(existing, day) {
+  const start = existing.indexOf(BEGIN);
+  const finish = existing.indexOf(END);
+
+  if (start !== -1 && finish !== -1 && finish > start) {
+    return existing.slice(0, start) + block + existing.slice(finish + END.length);
+  }
+  if (existing.trim()) {
+    // A file Orion already wrote into, from before this block existed. Keep
+    // every word of it and put the generated summary underneath.
+    return `${existing.trimEnd()}\n\n${block}\n`;
+  }
+  return `# ${day}\n\n${block}\n`;
+}
+
 await mkdir(MEMORY, { recursive: true });
 const target = join(MEMORY, `${day}.md`);
-await writeFile(target, lines.join("\n"));
-console.log(`${day}: ${rows.length} requests -> ${target}`);
+const existing = existsSync(target) ? await readFile(target, "utf8") : "";
+const preserved = existing.replace(BEGIN, "").replace(END, "").trim().length > 0;
+
+await writeFile(target, spliceBlock(existing, day));
+console.log(
+  `${day}: ${rows.length} requests -> ${target}${preserved ? " (existing notes preserved)" : ""}`,
+);
 
 if (today) process.exit(0);
 
@@ -139,9 +195,17 @@ if (!existsSync(archive)) {
   await unlink(raw);
 
   const text = await readFile(LEDGER, "utf8");
-  const kept = text
-    .split("\n")
-    .filter((line) => line.trim() && !line.includes(`"createdAt":"${day}`));
+  const kept = text.split("\n").filter((line) => {
+    if (!line.trim()) return false;
+    try {
+      // Same local-day rule as the reader. A substring match on the raw JSON
+      // would drop the wrong rows now that `day` is local rather than UTC --
+      // and dropping the wrong rows here deletes them from the live ledger.
+      return dayOf(JSON.parse(line)) !== day;
+    } catch {
+      return true; // keep anything unparseable rather than silently losing it
+    }
+  });
   await writeFile(LEDGER, kept.join("\n") + "\n");
   console.log(`  archived ${rows.length} rows -> ${archive}`);
 }

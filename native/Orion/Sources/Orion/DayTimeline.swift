@@ -25,12 +25,25 @@ struct DayTimeline: View {
     var onCreate: (Date) -> Void
     var onSelect: (AgendaEvent) -> Void
 
-    /// The window drawn. Not midnight-to-midnight: fourteen empty hours of
-    /// night push the part of the day you actually use off the screen.
-    private let firstHour = 6
+    /// The whole day, midnight to midnight.
+    ///
+    /// This used to start at 6am, on the reasoning that fourteen empty night
+    /// hours push the useful part of the day off screen. That reasoning was
+    /// sound and the fix was in the wrong place: `offset(for:)` CLAMPS, so a
+    /// 2am event did not scroll off, it was drawn on top of the 6 AM row. The
+    /// day was not shortened, it was falsified. Now every hour exists and the
+    /// view opens on the current one instead, which solves the original
+    /// complaint without lying about the night.
+    private let firstHour = 0
     private let lastHour = 23
     private let hourHeight: CGFloat = 52
     private let gutter: CGFloat = 54
+
+    /// Only the waking window counts as "free" in the header. Drawing midnight
+    /// to midnight must not turn eight hours of sleep into eight hours of
+    /// availability.
+    private let wakingStart = 6
+    private let wakingEnd = 23
 
     @State private var now = Date()
     private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -51,26 +64,80 @@ struct DayTimeline: View {
                         grid
                         blocks
                         if isToday { nowLine }
-                        // Anchor for the initial scroll — see below.
-                        Color.clear
-                            .frame(height: 1)
-                            .offset(y: offset(for: max(now, startOfWindow).addingTimeInterval(-3600)))
-                            .id("now")
                     }
                     .frame(height: CGFloat(hours.count) * hourHeight + 8)
                 }
-                .onAppear {
-                    // Open on the current hour rather than at 6am. The first
-                    // thing you want is where you are, not where the day began.
-                    guard isToday else { return }
-                    DispatchQueue.main.async {
-                        withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("now", anchor: .top) }
-                    }
-                }
+                // Anchoring happens against the hour rows themselves — they are
+                // the only things here with a real layout position. See the note
+                // on `scrollToAnchor`.
+                .onAppear { scrollToAnchor(proxy, animated: false) }
+                .onChange(of: date) { _, _ in scrollToAnchor(proxy, animated: true) }
             }
+            // The whole point. Without a definite height this ScrollView is
+            // proposed the unbounded height of the dashboard's own ScrollView,
+            // sizes itself to its full 24-hour content, and so has no viewport
+            // to scroll WITHIN — every wheel event falls through to the page
+            // behind it. Taking the remaining height of the column gives it a
+            // viewport smaller than its content, which is what makes it a
+            // scroll view rather than a tall picture of one.
+            .frame(maxHeight: .infinity)
         }
         .onReceive(tick) { now = $0 }
     }
+
+    // MARK: - Opening position
+
+    /// Where the timeline should be looking when it appears.
+    ///
+    /// Today: an hour before now, so the current hour has context above it
+    /// rather than being jammed against the top edge. Any other day: an hour
+    /// before its first event. A day with nothing on it opens at the start of
+    /// the waking window, because midnight is never the useful answer.
+    private var anchorHour: Int {
+        DayTimeline.anchorHour(
+            hourOfInterest: isToday
+                ? calendar.component(.hour, from: now)
+                : timed.min(by: { $0.start < $1.start }).map { calendar.component(.hour, from: $0.start) },
+            fallback: wakingStart,
+            bounds: firstHour...lastHour
+        )
+    }
+
+    /// Pulled out as a pure function so it can be checked without a window —
+    /// see Tests/LayoutHarness. The "opens on the current hour" promise is the
+    /// half of this fix that a height measurement cannot see.
+    ///
+    /// One hour earlier than the hour of interest, so that hour has context
+    /// above it instead of being jammed against the top edge.
+    static func anchorHour(hourOfInterest: Int?, fallback: Int, bounds: ClosedRange<Int>) -> Int {
+        let target = (hourOfInterest ?? fallback) - 1
+        return min(bounds.upperBound, max(bounds.lowerBound, target))
+    }
+
+    /// Scroll to an HOUR ROW, never to a positioned spacer.
+    ///
+    /// The previous version put its `.id("now")` on a `Color.clear` pushed down
+    /// the day with `.offset(y:)`. `offset` is a render-time transform: it moves
+    /// the pixels and leaves the view's layout position alone. In a ZStack
+    /// aligned `.topLeading` that anchor's layout position is y=0 for every hour
+    /// of the day, so `scrollTo` faithfully scrolled to the top of the window
+    /// and looked like it was doing nothing at all. The hour rows are laid out
+    /// by a VStack and are therefore where they appear to be.
+    private func scrollToAnchor(_ proxy: ScrollViewProxy, animated: Bool) {
+        // A hop to the next runloop pass: on first appearance the rows do not
+        // have their final geometry yet and the scroll lands short.
+        DispatchQueue.main.async {
+            guard animated else {
+                proxy.scrollTo(hourID(anchorHour), anchor: .top)
+                return
+            }
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo(hourID(anchorHour), anchor: .top)
+            }
+        }
+    }
+
+    private func hourID(_ hour: Int) -> String { "hour-\(hour)" }
 
     // MARK: - Header
 
@@ -94,7 +161,7 @@ struct DayTimeline: View {
     private var summary: String {
         let minutes = timed.reduce(0) { $0 + $1.durationMinutes }
         guard minutes > 0 else { return "nothing booked" }
-        let free = max(0, (lastHour - firstHour) * 60 - minutes)
+        let free = max(0, (wakingEnd - wakingStart) * 60 - minutes)
         return "\(minutes / 60)h \(minutes % 60)m booked · \(free / 60)h free"
     }
 
@@ -145,6 +212,9 @@ struct DayTimeline: View {
                 .contentShape(Rectangle())
                 // An empty hour is an offer, not decoration.
                 .onTapGesture { onCreate(dateFor(hour: hour)) }
+                // The scroll target. On the row rather than on a spacer so that
+                // ScrollViewReader is aiming at something with a real position.
+                .id(hourID(hour))
             }
         }
     }

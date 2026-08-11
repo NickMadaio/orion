@@ -91,7 +91,11 @@ struct DashboardView: View {
                             .padding(.bottom, 18)
                             .frame(maxWidth: .infinity)
                     } else {
-                        tabContent(availableHeight: proxy.size.height)
+                        // Minus its own vertical padding, the same way the
+                        // branch above nets off its 6+18. A tab told it has the
+                        // full window and then padded by 86 sizes itself 86pt
+                        // too tall and makes the page scroll for no reason.
+                        tabContent(availableHeight: proxy.size.height - 86)
                             .padding(.horizontal, 46)
                             .padding(.top, 26)
                             .padding(.bottom, 60)
@@ -306,7 +310,9 @@ struct DashboardView: View {
                 guard let due = $0.dueDate, !$0.isOverdue else { return false }
                 return Calendar.current.startOfDay(for: due) == today
             },
-            overdue: open.filter(\.isOverdue)
+            overdue: open.filter(\.isOverdue),
+            calendarConnected: agenda.access.isGranted,
+            tasksConnected: reminders.access.isGranted
         )
     }
 
@@ -325,7 +331,8 @@ struct DashboardView: View {
                         onManage: { quickOpenEditorVisible = true })
             case .focus:
                 TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
-                         dayProgress: dayProgress, hoursLeft: hoursLeft, energyTitle: energyTitle)
+                         dayProgress: dayProgress, hoursLeft: hoursLeft,
+                         energyTitle: energyTitle, availableHeight: availableHeight)
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
                           connections: connections, day: dayModel.day,

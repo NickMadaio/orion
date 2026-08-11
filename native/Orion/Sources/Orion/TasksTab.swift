@@ -28,6 +28,14 @@ struct TasksTab: View {
     let dayProgress: Double
     let hoursLeft: Int
     let energyTitle: String
+    /// How much window the dashboard actually has to give this tab.
+    ///
+    /// Needed because the schedule column contains a ScrollView and this whole
+    /// tab sits inside the dashboard's ScrollView. Nested on the same axis, the
+    /// inner one is proposed an unbounded height, grows to its full content, and
+    /// silently stops being scrollable. Pinning the column to the real window
+    /// height is what gives the timeline a viewport of its own.
+    let availableHeight: CGFloat
 
     @State private var dueDate = Date().addingTimeInterval(3600)
     @State private var wantsDueDate = false
@@ -44,7 +52,11 @@ struct TasksTab: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             schedule
-                .frame(width: 430)
+                // Definite on BOTH axes. The height is what turns the timeline
+                // into a scrollable region instead of a 24-hour-tall column that
+                // drags the whole page with it; the WeekStrip above it keeps its
+                // natural height and the timeline takes the remainder.
+                .frame(width: 430, height: max(360, availableHeight))
         }
         .sheet(isPresented: Binding(
             get: { sheetMode != nil },

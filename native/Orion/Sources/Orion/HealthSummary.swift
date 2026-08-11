@@ -37,7 +37,15 @@ struct HealthFacts: Equatable {
     var supplementsTotal: Int
     var workoutSets: Int
 
-    var narrativeKey: String { "health.\(dayKey).\(phase)" }
+    /// Keyed by the facts, not just the day and phase. Phase alone meant a
+    /// summary written at 8am stood until the afternoon even after recovery,
+    /// hydration and workout counts had all moved underneath it — the same
+    /// staleness that put an 81% sleep score beside a 27% tile in the brief.
+    /// `prompt()` is nil when there is nothing to say; fall back to the coarse
+    /// key then, since no request is made in that case anyway.
+    var narrativeKey: String {
+        NarrativeKey.make("health.\(dayKey).\(phase)", facts: prompt() ?? "")
+    }
 
     var hasAnything: Bool {
         recovery != nil || sleepPerformance != nil || strain != nil || bottles > 0 || workoutSets > 0

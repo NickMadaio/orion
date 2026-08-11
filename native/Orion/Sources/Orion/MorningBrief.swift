@@ -39,6 +39,16 @@ struct BriefFacts: Equatable {
     var dueToday: [SyncedTask] = []
     var overdue: [SyncedTask] = []
 
+    /// Whether those two lists mean anything yet.
+    ///
+    /// An empty `events` array has two completely different causes — a clear day,
+    /// or no Calendar permission — and saying "nothing scheduled" for the second
+    /// one is not an optimistic reading, it is a made-up fact. Nick would act on
+    /// it. The same goes for tasks. Keep the distinction all the way into the
+    /// prompt so the model cannot flatten it either.
+    var calendarConnected: Bool = true
+    var tasksConnected: Bool = true
+
     /// The next thing that has not happened yet.
     var nextEvent: AgendaEvent? {
         events.filter { !$0.isPast }.min { $0.start < $1.start }
@@ -85,7 +95,9 @@ struct BriefFacts: Equatable {
             lines.append("- Suggested strain band for today: \(Int(strainTarget.low))–\(Int(strainTarget.high)).")
         }
 
-        if events.isEmpty {
+        if !calendarConnected {
+            lines.append("- Calendar: not connected, so what is scheduled is unknown.")
+        } else if events.isEmpty {
             lines.append("- Calendar: nothing scheduled.")
         } else {
             let hours = committedMinutes / 60
@@ -97,7 +109,9 @@ struct BriefFacts: Equatable {
             }
         }
 
-        if overdue.isEmpty && dueToday.isEmpty {
+        if !tasksConnected {
+            lines.append("- Tasks: not connected, so what is due is unknown.")
+        } else if overdue.isEmpty && dueToday.isEmpty {
             lines.append("- Tasks: nothing due.")
         } else {
             if !dueToday.isEmpty {
@@ -119,6 +133,8 @@ struct BriefFacts: Equatable {
         - Tie the recovery to what is actually on his calendar today.
         - If anything is overdue, name it.
         - Never state a number that is not in the facts above.
+        - If a fact says something is not connected, say you cannot see it. \
+        Never turn "not connected" into "nothing scheduled" or "nothing due".
         - No greeting, no lists, no headings, no sign-off.
         - No generic wellness advice. Nothing about stretching, hydration, \
         breathing, taking breaks or listening to your body unless it is in the \
@@ -128,6 +144,17 @@ struct BriefFacts: Equatable {
 }
 
 extension BriefFacts {
-    /// One paragraph per logical day.
-    var narrativeKey: String { "brief.\(day.key)" }
+    /// One paragraph per distinct set of facts — NOT one per day.
+    ///
+    /// Keying by day alone is what put "sleep score 81%, recovery 55%" on screen
+    /// beside tiles reading 27% and 12. The paragraph had been written earlier,
+    /// before Whoop synced the night Nick actually had, and a day-shaped key gave
+    /// nothing any reason to replace it. The facts are re-derived on every render
+    /// and were always correct; only the prose was frozen.
+    ///
+    /// Digesting the prompt itself means the key tracks the facts automatically:
+    /// change what the model is told and the cache entry changes with it, with
+    /// nothing to keep in sync by hand. The day stays in the scope so entries
+    /// remain readable and prunable.
+    var narrativeKey: String { NarrativeKey.make("brief.\(day.key)", facts: prompt()) }
 }

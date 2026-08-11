@@ -91,8 +91,44 @@ final class NarrativeWriter: ObservableObject {
                 OrionLog.write("[narrative] \(key): \(written.count) chars in "
                                + "\(Int(Date().timeIntervalSince(started) * 1000))ms")
                 UserDefaults.standard.set(written, forKey: self.defaultsPrefix + key)
+                self.prune(keeping: key)
                 guard self.loadedKey == key else { return }
                 self.text = written
+            }
+        }
+    }
+
+    /*
+     Keys used to be one per day. They are now one per distinct set of facts,
+     which is what stops a stale paragraph outliving the numbers it describes —
+     but it also means a day with a moving recovery score leaves a trail of
+     superseded entries behind it. Left alone that grows forever inside
+     UserDefaults, which is a preferences file, not a database.
+
+     Two rules, both cheap: a scope keeps only its newest entry, and any scope
+     stamped with an earlier date goes entirely. Yesterday's brief is never
+     wanted again — that is the whole reason the bug existed.
+    */
+    private func prune(keeping key: String) {
+        let today = Date().formatted(.iso8601.year().month().day().dateSeparator(.dash))
+        let scope = key.split(separator: ".").dropLast().joined(separator: ".")
+        let store = UserDefaults.standard
+
+        for stored in store.dictionaryRepresentation().keys
+        where stored.hasPrefix(defaultsPrefix) && stored != defaultsPrefix + key {
+
+            let bare = String(stored.dropFirst(defaultsPrefix.count))
+
+            // Superseded entry for the same subject.
+            if bare.split(separator: ".").dropLast().joined(separator: ".") == scope {
+                store.removeObject(forKey: stored)
+                continue
+            }
+
+            // Anything stamped with a day that is not today.
+            if let date = bare.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression),
+               bare[date] != today {
+                store.removeObject(forKey: stored)
             }
         }
     }

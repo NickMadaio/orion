@@ -25,7 +25,12 @@ struct FinanceFacts: Equatable {
     var recurringCount: Int
     var accountCount: Int
 
-    var narrativeKey: String { "finance.\(dayKey)" }
+    /// Keyed by the facts, not the day. A balance that moves after the paragraph
+    /// is written would otherwise leave last night's numbers described in prose
+    /// beside today's figures — and money is the worst place for that.
+    var narrativeKey: String {
+        NarrativeKey.make("finance.\(dayKey)", facts: prompt() ?? "")
+    }
 
     static func == (lhs: FinanceFacts, rhs: FinanceFacts) -> Bool {
         lhs.narrativeKey == rhs.narrativeKey

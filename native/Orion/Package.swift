@@ -18,8 +18,20 @@ let package = Package(
         .executable(name: "Orion", targets: ["Orion"])
     ],
     targets: [
+        // The pure session domain: models, reducer, reconcile(now:), clocks.
+        // No AppKit, no SwiftUI, no file I/O, no network — which is what makes
+        // it testable against DST, sleep and a dragged system clock. Kept a
+        // separate target rather than a folder so that constraint is enforced
+        // by the compiler instead of by good intentions.
+        .target(
+            name: "SessionDomain",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
+        ),
         .executableTarget(
             name: "Orion",
+            dependencies: ["SessionDomain"],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],
@@ -30,6 +42,19 @@ let package = Package(
                 .linkedFramework("Speech"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("CoreGraphics")
+            ]
+        ),
+        // `path` is explicit because Tests/ is not only a SwiftPM directory —
+        // it also holds the standalone harnesses (LayoutHarness, RaceHarness,
+        // AudioMatrix) that are compiled by their own run-*.sh scripts against
+        // the real app sources. Naming the path keeps SwiftPM's attention on
+        // this one directory and off theirs.
+        .testTarget(
+            name: "SessionDomainTests",
+            dependencies: ["SessionDomain"],
+            path: "Tests/SessionDomainTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
             ]
         )
     ]

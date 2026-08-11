@@ -105,7 +105,18 @@ final class HealthLog: ObservableObject {
     @Published private(set) var lastError: String?
 
     /// Shared with the plugin, so Orion can write what Nick says out loud.
+    ///
+    /// `ORION_HEALTH_LOG` redirects it, and exists for exactly one caller: the
+    /// race harness in `Tests/`. Without the seam that harness has two bad
+    /// options — duplicate `mutate()` and prove nothing about the code that
+    /// actually ships, or race Nick's real supplement list. It reads the
+    /// environment of this process only, which is not a channel anything hostile
+    /// reaches; the app is launched by Nick from /Applications.
     static var fileURL: URL {
+        if let override = ProcessInfo.processInfo.environment["ORION_HEALTH_LOG"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home
             .appendingPathComponent(".openclaw")
@@ -167,28 +178,75 @@ final class HealthLog: ObservableObject {
         return file
     }
 
-    /// Read-modify-write, then republish. Atomic rename so a reader never sees
-    /// a half-written file.
+    /// Read-modify-write, then republish.
+    ///
+    /// Every line of the read-modify-write is inside `FileLock.withLock`, and
+    /// the read happens INSIDE it. The plugin writes this same file from the
+    /// daemon process, so anything read before the lock was taken is a stale
+    /// copy — writing it back is exactly how "I took my ashwagandha" erases the
+    /// tick Nick just made in the UI. `Tests/run-race-test.sh` measures it: this
+    /// store kept 284 of its 908 writes with the lock removed, and 671 of 671
+    /// with it, racing the real plugin the whole time.
+    ///
+    /// Synchronous, and therefore blocking on the main thread. That is a
+    /// deliberate trade: the hold is a couple of milliseconds for a file this
+    /// size, and keeping it synchronous means the checkmark still flips the
+    /// instant Nick taps it. The pathological case — a writer killed mid-write
+    /// — is bounded at `FileLock.giveUpAfter` and self-heals in 15s.
     private func mutate(_ change: (inout HealthLogFile) -> Void) {
-        var file = read()
-        change(&file)
-        file.updatedAt = ISO8601DateFormatter().string(from: Date())
         do {
+            // Before the lock: the lockfile lives in this directory, so it has
+            // to exist before anyone can take it.
             try FileManager.default.createDirectory(
                 at: Self.fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]
             )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(file)
-            let temporary = Self.fileURL.appendingPathExtension("tmp")
-            try data.write(to: temporary, options: .atomic)
-            _ = try FileManager.default.replaceItemAt(Self.fileURL, withItemAt: temporary)
+            try FileLock.withLock(Self.fileURL) {
+                var file = read()
+                change(&file)
+                file.updatedAt = ISO8601DateFormatter().string(from: Date())
+
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(file)
+                try Self.publish(data)
+            }
             lastLoadedStamp = nil
             load()
         } catch {
             lastError = "Could not save: \(error.localizedDescription)"
+        }
+    }
+
+    /// Write to a scratch file, then rename it over the real one.
+    ///
+    /// The scratch name carries a UUID, and the plugin's carries random bytes.
+    /// A fixed `.json.tmp` on both sides would be byte-for-byte the same path in
+    /// the same directory: the two processes would write one scratch file and
+    /// race to rename it, giving real errors rather than just lost data —
+    /// `ENOENT` on the node side and "couldn't be saved" here, whenever one
+    /// renamed the file out from under the other. The lock alone would prevent
+    /// that; unique names mean a broken stale lock cannot bring it back.
+    ///
+    /// `rename(2)` rather than `replaceItemAt`: it is the same atomic swap the
+    /// node side does, and unlike `replaceItemAt` it also works on first run,
+    /// when there is no existing file to replace.
+    private static func publish(_ data: Data) throws {
+        let scratch = fileURL.deletingLastPathComponent()
+            .appendingPathComponent(".health-log.\(UUID().uuidString).tmp")
+        try data.write(to: scratch, options: [.atomic, .completeFileProtection])
+        guard rename(scratch.path, fileURL.path) == 0 else {
+            let failure = errno
+            try? FileManager.default.removeItem(at: scratch)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(failure),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "could not publish health-log.json: \(String(cString: strerror(failure)))"
+                ]
+            )
         }
     }
 

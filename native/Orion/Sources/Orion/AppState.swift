@@ -211,6 +211,12 @@ final class AppState: ObservableObject {
         extras: focusExtras, quittable: quittableApps
     )
 
+    /// Whether the Do Not Disturb Shortcuts exist, checked BEFORE a session
+    /// rather than at the moment one fails. A session that silently did not turn
+    /// Focus on is worse than one that never claimed to.
+    var doNotDisturbConfigured: Bool { extrasCoordinator.isDoNotDisturbConfigured }
+    var doNotDisturbSetup: String { extrasCoordinator.doNotDisturbSetup }
+
     /// The small window that appears during a break.
     private let breakSurface = BreakSurface()
 

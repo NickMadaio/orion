@@ -181,6 +181,7 @@ struct HomeTab: View {
                 .shadow(color: OrionTheme.accent.opacity(composerFocused ? 0.45 : 0), radius: 5)
 
             phaseLine
+            sessionCard
         }
         .animation(.easeOut(duration: 0.18), value: composerFocused)
         .animation(.easeOut(duration: 0.18), value: canSend)
@@ -201,6 +202,17 @@ struct HomeTab: View {
                 .foregroundStyle(OrionTheme.textDim)
                 .lineLimit(1)
             Spacer(minLength: 0)
+        }
+    }
+
+    /// The session, under the composer, only when there is something to say.
+    ///
+    /// Hidden entirely when no session has ever run and none is running — an
+    /// empty card on the home page every day is clutter, and the way to start
+    /// one is the Console or a voice line, not a button you have to find.
+    @ViewBuilder private var sessionCard: some View {
+        if state.sessionTabModel.snapshot.session != nil {
+            SessionCard(model: state.sessionTabModel)
         }
     }
 

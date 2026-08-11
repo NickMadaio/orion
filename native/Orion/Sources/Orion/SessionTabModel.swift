@@ -256,3 +256,20 @@ final class SessionTabModel: ObservableObject {
         seconds < 60 ? "\(Int(seconds))s" : "\(Int((seconds / 60).rounded()))m"
     }
 }
+
+// MARK: - Segments
+
+/// One phase, as the strip draws it.
+///
+/// Lived in SessionTab.swift until the tab became a card on Home. The type
+/// belongs with the model that produces it, not with whichever view happens to
+/// render it this month.
+struct PhaseSegment: Identifiable {
+    let id: Int
+    let isFocus: Bool
+    let isPast: Bool
+    let isCurrent: Bool
+    let progress: Double
+    let width: CGFloat
+    let tint: Color
+}

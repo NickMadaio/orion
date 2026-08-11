@@ -154,6 +154,46 @@ final class AppleRemindersSync: ObservableObject {
         }
     }
 
+    /// Everything ticked off recently, ACROSS ALL LISTS, for the calendar.
+    ///
+    /// A deliberate asymmetry with `tasks`, which stays scoped to the Orion list.
+    /// Writing into somebody's personal lists is a much bigger promise than
+    /// reading them, and only the write scope was ever narrow on purpose.
+    ///
+    /// The reason to widen the read: a calendar that claims to show his days
+    /// while only counting one list is misleading. He ticks things off in his
+    /// own lists, sees nothing appear, and concludes the feature is broken —
+    /// which it would be, just not in the way it looks.
+    ///
+    /// No new permission. macOS grants Reminders access all-or-nothing, so this
+    /// reads what was already granted.
+    @Published private(set) var completedEverywhere: [SyncedTask] = []
+
+    func refreshCompletions() {
+        guard access.isGranted else { return }
+        let lists = store.calendars(for: .reminder)
+        guard !lists.isEmpty else { return }
+
+        let predicate = store.predicateForReminders(in: lists)
+        store.fetchReminders(matching: predicate) { [weak self] found in
+            let done = (found ?? [])
+                .filter { $0.isCompleted }
+                .map { reminder in
+                    SyncedTask(
+                        id: reminder.calendarItemIdentifier,
+                        title: reminder.title ?? "Untitled",
+                        isComplete: true,
+                        completionDate: reminder.completionDate,
+                        dueDate: reminder.dueDateComponents?.date,
+                        hasAlarm: !(reminder.alarms ?? []).isEmpty,
+                        priority: TaskPriority.from(reminder.priority),
+                        progress: 1
+                    )
+                }
+            DispatchQueue.main.async { self?.completedEverywhere = done }
+        }
+    }
+
     /// Find the Orion list, or make it.
     private func prepareCalendar() {
         if let existing = store.calendars(for: .reminder)
@@ -185,6 +225,13 @@ final class AppleRemindersSync: ObservableObject {
 
     func refresh() {
         guard access.isGranted else { return }
+
+        // The calendar's completions ride along with every refresh rather than
+        // having a trigger of their own. Two independent refresh paths over the
+        // same store is how the task list and the calendar come to disagree
+        // about whether something is ticked off.
+        refreshCompletions()
+
         if calendar == nil { prepareCalendar() }
         guard let calendar else { return }
         // Predicated on the one list. This is the scope promise, in code.

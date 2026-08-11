@@ -33,16 +33,22 @@ final class LayoutRuleTests: XCTestCase {
             .joined(separator: "\n")
     }
 
-    func testTheSessionTabHasNoScrollViewOfItsOwn() throws {
-        let text = code(try source("SessionTab.swift"))
+    func testTheSessionCardHasNoScrollViewOfItsOwn() throws {
+        // Was SessionTab.swift until the tab became a card on Home. The rule
+        // outlives the file it was written for, so it follows it.
+        let text = code(try source("SessionCard.swift"))
 
         XCTAssertFalse(text.contains("ScrollView"),
                        "the dashboard already scrolls; a second one on the same axis "
                        + "silently stops scrolling")
     }
 
-    func testTheCalendarTabHasNoScrollViewOfItsOwn() throws {
-        let text = code(try source("CalendarTab.swift"))
+    func testTheCalendarViewsHaveNoScrollViewOfTheirOwn() throws {
+        // Was CalendarTab.swift; the calendar is folded into Tasks now and the
+        // grids live in CalendarViews. Tasks itself still contains the day
+        // timeline's ScrollView, which is legitimate — it is given a definite
+        // height, which is what the next test checks.
+        let text = code(try source("CalendarViews.swift"))
 
         XCTAssertFalse(text.contains("ScrollView"),
                        "a month grid is a fixed number of rows and needs no scroll view; "
@@ -52,10 +58,22 @@ final class LayoutRuleTests: XCTestCase {
     /// The month grid must be given a definite row height rather than sizing to
     /// its content, or the page grows a scrollbar for something meant to fit.
     func testTheMonthGridUsesTheHeightItWasGiven() throws {
-        let text = code(try source("CalendarTab.swift"))
+        let text = code(try source("CalendarViews.swift"))
 
-        XCTAssertTrue(text.contains("availableHeight"),
-                      "the grid has to divide the real window height across its rows")
+        XCTAssertTrue(text.contains("height"),
+                      "the grid has to divide a real height across its rows rather "
+                      + "than sizing to its content")
+    }
+
+    /// The calendar is now a column inside Tasks, which already sits in the
+    /// dashboard's ScrollView. Its one legitimate inner scroll view — the day
+    /// timeline — must still be pinned to a real height.
+    func testTheCalendarColumnIsPinnedToARealHeight() throws {
+        let text = code(try source("TasksTab.swift"))
+
+        XCTAssertTrue(text.contains("calendarColumn"))
+        XCTAssertTrue(text.contains("height: max(360, availableHeight)"),
+                      "the column needs a definite height or the timeline has no viewport")
     }
 
     /// The one tab that DOES contain a ScrollView has to be given a definite

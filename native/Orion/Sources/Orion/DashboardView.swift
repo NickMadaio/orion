@@ -32,10 +32,22 @@ struct DashboardView: View {
     @StateObject private var reminders = AppleRemindersSync()
     @StateObject private var agenda = AppleCalendarSync()
 
-    /// The calendar's own model, built here because it needs the same
-    /// EventKit syncs this view already owns. Fetches the visible interval plus
-    /// padding rather than a fixed window, so paging never shows a blank edge.
-    @State private var calendarModel: CalendarModel?
+    /// The calendar's own model, built here because it needs the same EventKit
+    /// syncs this view already owns. Fetches the visible interval plus padding
+    /// rather than a fixed window, so paging never shows a blank edge.
+    ///
+    /// `@State` holding an optional, built on first use: it cannot be a
+    /// `@StateObject` initialiser because it needs `reminders` and `agenda`,
+    /// which are themselves `@StateObject`s and not available at init.
+    @State private var calendarModelStorage: CalendarModel?
+
+    private func calendarModel(_ state: AppState) -> CalendarModel {
+        if let calendarModelStorage { return calendarModelStorage }
+        let built = CalendarModel(agenda: agenda, reminders: reminders,
+                                  history: state.session.history)
+        DispatchQueue.main.async { calendarModelStorage = built }
+        return built
+    }
     @StateObject private var connections = ConnectionsModel()
     @StateObject private var whoop = WhoopClient()
     @StateObject private var health = HealthLog()
@@ -334,24 +346,11 @@ struct DashboardView: View {
                         availableHeight: availableHeight,
                         onAddApp: { quickOpenAppPickerVisible = true },
                         onManage: { quickOpenEditorVisible = true })
-            case .session:
-                SessionTab(model: state.sessionTabModel)
-            case .calendar:
-                if let calendarModel {
-                    CalendarTab(model: calendarModel, availableHeight: availableHeight)
-                } else {
-                    // Built on first appearance rather than at init, because it
-                    // needs the syncs to exist and it fetches immediately.
-                    Color.clear.onAppear {
-                        calendarModel = CalendarModel(
-                            agenda: agenda, reminders: reminders, history: state.session.history
-                        )
-                    }
-                }
             case .tasks:
                 TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
-                         energyTitle: energyTitle, availableHeight: availableHeight)
+                         energyTitle: energyTitle, availableHeight: availableHeight,
+                         calendar: calendarModel(state))
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
                           connections: connections, day: dayModel.day,
@@ -359,8 +358,6 @@ struct DashboardView: View {
             case .finance:
                 FinanceTab(connections: connections, plaid: plaid,
                            writer: financeWriter, day: dayModel.day)
-            case .messages:
-                MessagesTab(messages: messages, contacts: contacts)
             case .brand:
                 BrandTab(connections: connections)
             case .settings:
@@ -368,7 +365,11 @@ struct DashboardView: View {
                             surfaceOpacity: $surfaceOpacity, surfaceBlur: $surfaceBlur,
                             connections: connections, agenda: agenda,
                             messagesAccess: messages.access,
-                            onRecheck: { messages.refresh() })
+                            onRecheck: { messages.refresh() },
+                            focusExtras: state.focusExtras,
+                            quittable: state.quittableApps,
+                            dndConfigured: state.doNotDisturbConfigured,
+                            dndSetup: state.doNotDisturbSetup)
             }
         }
         // Content rises slightly as it arrives, which is what makes the tabs
@@ -455,7 +456,7 @@ private struct NavItem: View {
 // MARK: - Tabs
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case home, tasks, session, calendar, health, finance, messages, brand, settings
+    case home, tasks, health, finance, brand, settings
     var id: String { rawValue }
 
     /// Spelled out rather than derived from `rawValue`.
@@ -469,11 +470,8 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Home"
         case .tasks: "Tasks"
-        case .session: "Session"
-        case .calendar: "Calendar"
         case .health: "Health"
         case .finance: "Finances"
-        case .messages: "Messages"
         case .brand: "Brand"
         case .settings: "Settings"
         }
@@ -487,11 +485,8 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "circle.hexagongrid"
         case .tasks: "checklist"
-        case .session: "timer"
-        case .calendar: "calendar"
         case .health: "heart"
         case .finance: "chart.line.uptrend.xyaxis"
-        case .messages: "bubble.left.and.bubble.right"
         case .brand: "megaphone"
         case .settings: "slider.horizontal.3"
         }

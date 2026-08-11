@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import SessionDomain
 
 /*
  Tasks, and the day they have to fit into.
@@ -37,6 +38,15 @@ struct TasksTab: View {
     /// height is what gives the timeline a viewport of its own.
     let availableHeight: CGFloat
 
+    /// The calendar, folded in rather than living as its own tab.
+    ///
+    /// Tasks and the calendar were two tabs showing two halves of the same day —
+    /// what is due on the left, what happened on the right — and switching
+    /// between them to answer one question is the sort of thing that makes a
+    /// dashboard feel like filing. One tab, and the right-hand column changes
+    /// granularity instead.
+    @ObservedObject var calendar: CalendarModel
+
     @State private var dueDate = Date().addingTimeInterval(3600)
     @State private var wantsDueDate = false
     @State private var newPriority: TaskPriority = .none
@@ -51,12 +61,12 @@ struct TasksTab: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            schedule
+            calendarColumn
                 // Definite on BOTH axes. The height is what turns the timeline
                 // into a scrollable region instead of a 24-hour-tall column that
-                // drags the whole page with it; the WeekStrip above it keeps its
+                // drags the whole page with it; whatever sits above it keeps its
                 // natural height and the timeline takes the remainder.
-                .frame(width: 430, height: max(360, availableHeight))
+                .frame(width: 470, height: max(360, availableHeight))
         }
         .sheet(isPresented: Binding(
             get: { sheetMode != nil },
@@ -247,6 +257,56 @@ struct TasksTab: View {
     }
 
     // MARK: - Schedule
+
+    /// The right-hand column: a granularity switcher over one of three views.
+    private var calendarColumn: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Text(calendarTitle)
+                    .font(OrionTheme.display(19))
+                    .foregroundStyle(OrionTheme.text)
+
+                Spacer(minLength: 8)
+
+                ForEach(CalendarGranularity.allCases, id: \.self) { option in
+                    InlineAction(
+                        title: option.title,
+                        tint: option == calendar.granularity ? OrionTheme.accent : OrionTheme.textDim
+                    ) { calendar.show(option) }
+                }
+
+                InlineAction(title: "‹", tint: OrionTheme.textSoft) { calendar.step(-1) }
+                InlineAction(title: "•", tint: OrionTheme.textSoft) { calendar.goToToday() }
+                InlineAction(title: "›", tint: OrionTheme.textSoft) { calendar.step(1) }
+            }
+
+            ForEach(calendar.disclosures, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: 11))
+                    .foregroundStyle(OrionTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            switch calendar.granularity {
+            case .day:
+                schedule
+            case .week:
+                WeekGrid(model: calendar, height: max(300, availableHeight - 90))
+            case .month:
+                MonthGrid(model: calendar, height: max(300, availableHeight - 90))
+            }
+        }
+    }
+
+    private var calendarTitle: String {
+        let formatter = DateFormatter()
+        switch calendar.granularity {
+        case .month: formatter.dateFormat = "MMMM yyyy"
+        case .week:  formatter.dateFormat = "MMMM"
+        case .day:   formatter.dateFormat = "EEEE d MMMM"
+        }
+        return formatter.string(from: calendar.focusDate)
+    }
 
     private var schedule: some View {
         VStack(alignment: .leading, spacing: 20) {

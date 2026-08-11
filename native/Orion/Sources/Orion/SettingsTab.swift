@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import SessionService
 
 /// Settings. Two columns: what Orion looks like on the left, what he is wired
 /// into on the right — the longest section, so it gets its own full column
@@ -16,14 +17,29 @@ struct SettingsTab: View {
     let messagesAccess: MessagesReader.Access
     var onRecheck: () -> Void
 
+    /// Gate 10's switches, which had no surface at all until now.
+    @ObservedObject var focusExtras: FocusExtras
+    let quittable: QuittableApps
+    let dndConfigured: Bool
+    let dndSetup: String
+
+    /// Which sections are open. Permissions and Focus start open because they
+    /// are the two somebody actually comes here for; the rest are set once and
+    /// then in the way.
+    @State private var expanded: Set<String> = ["Permissions", "Focus session"]
+
     var body: some View {
         HStack(alignment: .top, spacing: 54) {
-            VStack(alignment: .leading, spacing: 36) {
-                permissions
-                surface
-                core
-                quickOpen
-                voice
+            VStack(alignment: .leading, spacing: 18) {
+                section("Permissions") { permissions }
+                section("Focus session") {
+                    FocusSettings(extras: focusExtras, quittable: quittable,
+                                  dndConfigured: dndConfigured, dndSetup: dndSetup)
+                }
+                section("Surface") { surface }
+                section("Orion core") { core }
+                section("Quick open") { quickOpen }
+                section("Voice timing") { voice }
             }
             .frame(width: 380)
             .fixedSize(horizontal: true, vertical: false)
@@ -33,7 +49,44 @@ struct SettingsTab: View {
                 ConnectionsView(connections: connections)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 46)
+            .padding(.top, 6)
+        }
+    }
+
+    /// A collapsible section.
+    ///
+    /// Six sections stacked flat is what made this tab feel like a form. They
+    /// are not equally interesting — permissions and the focus switches are why
+    /// anybody opens Settings, and the surface sliders are set once and then
+    /// never touched. Collapsing is not decoration here; it is the difference
+    /// between finding a toggle and scrolling past five others to reach it.
+    ///
+    /// The inner sections keep their own SectionRule headers, so an open
+    /// section looks exactly like it did before.
+    @ViewBuilder
+    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        let isOpen = expanded.contains(title)
+        VStack(alignment: .leading, spacing: isOpen ? 14 : 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    if isOpen { expanded.remove(title) } else { expanded.insert(title) }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(OrionTheme.textDim)
+                    Text(title.uppercased())
+                        .font(OrionTheme.mono(9, .semibold))
+                        .tracking(1.8)
+                        .foregroundStyle(isOpen ? OrionTheme.textSoft : OrionTheme.textDim)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen { content() }
         }
     }
 
@@ -48,8 +101,7 @@ struct SettingsTab: View {
     /// through his text.
     private var surface: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Surface")
-
+            
             HStack(alignment: .firstTextBaseline) {
                 Text("Transparency")
                     .font(.system(size: 13, weight: .medium))
@@ -229,8 +281,7 @@ struct SettingsTab: View {
 
     private var core: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Orion core")
-            Picker("Visual", selection: $coreStyle) {
+                        Picker("Visual", selection: $coreStyle) {
                 Text("Original Orion").tag("original")
                 Text("Black Hole").tag("blackHole")
             }
@@ -247,8 +298,7 @@ struct SettingsTab: View {
 
     private var quickOpen: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Quick open")
-            HStack(alignment: .firstTextBaseline) {
+                        HStack(alignment: .firstTextBaseline) {
                 Text("Icon size")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(OrionTheme.text)
@@ -270,8 +320,7 @@ struct SettingsTab: View {
 
     private var voice: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionRule(title: "Voice timing")
-            DataRow(label: "Pause before Orion answers",
+                        DataRow(label: "Pause before Orion answers",
                     sublabel: "raise it if he cuts you off mid-sentence",
                     value: "\(VoiceTuning.endpointingMs) ms",
                     valueTint: OrionTheme.accent)

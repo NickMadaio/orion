@@ -1,0 +1,200 @@
+#!/usr/bin/env node
+/*
+ Read iMessages, so Orion can answer "what did Carla say".
+
+ This exists because the capability did not. `MessagesReader` in the app reads
+ chat.db perfectly well, but it was only ever wired to a tab — the agent had no
+ way to reach it, so "summarise the last few texts from X" was a thing Orion
+ could not do no matter how it was asked. Removing the Messages tab made that
+ obvious rather than causing it.
+
+   orion-messages recent [n]              the last n messages, newest first
+   orion-messages from "<name or number>" [n]
+   orion-messages chats [n]               who has been talking recently
+
+ READS ONLY. There is no send here and there will not be one from this script:
+ sending is a different risk class and belongs behind the permission gate, not
+ behind a convenience wrapper.
+
+ Two things chat.db will lie about if you let it, both learned the hard way in
+ MessagesReader.swift and repeated here because a second reader that gets them
+ wrong is worse than no second reader:
+
+ 1. THE CLOCK. `message.date` is not Unix time. It is nanoseconds since
+    2001-01-01 on anything modern, and seconds since 2001-01-01 on older rows.
+    Read it as Unix time and every message lands in 2001.
+
+ 2. THE BODY. Newer messages leave `text` NULL and put the content in
+    `attributedBody`, a serialised blob. A reader that only takes `text` shows
+    recent conversations as empty, which looks like the messages being gone
+    rather than the reader being wrong.
+
+ FULL DISK ACCESS is required, and it is granted to the RESPONSIBLE PROCESS,
+ not to this file. Run from a terminal it inherits the terminal's grant; run by
+ the OpenClaw gateway it needs the gateway's. If it is missing this says so
+ by name instead of reporting an empty inbox — an empty result and a denied
+ read are completely different answers and only one of them means "no messages".
+*/
+
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const DB = join(homedir(), "Library/Messages/chat.db");
+
+const [command, ...rest] = process.argv.slice(2);
+
+function fail(message, code = 2) {
+  console.error(`orion-messages: ${message}`);
+  process.exit(code);
+}
+
+/*
+ Apple's epoch is 2001-01-01. Modern rows are nanoseconds since then; rows from
+ older macOS versions are plain seconds. Anything past ~1e11 is nanoseconds —
+ seconds since 2001 will not reach that until the year 5138.
+*/
+const APPLE_EPOCH = 978307200; // seconds between 1970 and 2001
+function appleDate(raw) {
+  const value = Number(raw ?? 0);
+  if (!value) return null;
+  const seconds = value > 1e11 ? value / 1e9 : value;
+  return new Date((seconds + APPLE_EPOCH) * 1000);
+}
+
+/*
+ `sqlite3` in read-only mode, over a URI, with immutable=1.
+
+ Read-only because nothing here should ever be able to modify his message
+ history. immutable because Messages holds a WAL lock while running, and a
+ normal open fails with "database is locked" exactly when he is using it —
+ which is always.
+*/
+async function query(sql) {
+  if (!existsSync(DB)) {
+    fail("There is no Messages database on this Mac (~/Library/Messages/chat.db).", 3);
+  }
+  try {
+    const { stdout } = await run("/usr/bin/sqlite3", [
+      "-json",
+      `file:${DB}?mode=ro&immutable=1`,
+      sql,
+    ]);
+    return stdout.trim() ? JSON.parse(stdout) : [];
+  } catch (error) {
+    const text = `${error.stderr ?? error.message}`;
+    if (/authorization denied|unable to open|not permitted/i.test(text)) {
+      fail(
+        "Full Disk Access is required to read Messages, and the process running this " +
+          "does not have it. macOS attributes it to the RESPONSIBLE process — grant it " +
+          "to whatever launched this (Terminal, or the OpenClaw gateway) in System " +
+          "Settings ▸ Privacy & Security ▸ Full Disk Access. This is not an empty inbox.",
+        4,
+      );
+    }
+    fail(text.trim() || "the query failed", 5);
+  }
+}
+
+/*
+ attributedBody is a serialised NSAttributedString. Fully decoding it needs
+ Foundation; the readable text is stored as plain UTF-8 inside the blob, so
+ pulling the longest printable run out of it recovers the message without
+ pretending to parse a format we do not own. Good enough to summarise, and
+ honest about being an extraction rather than a decode.
+*/
+function bodyFrom(row) {
+  if (row.text && row.text.trim()) return row.text.trim();
+  if (!row.body_hex) return "";
+  const raw = Buffer.from(row.body_hex, "hex").toString("utf8");
+  const runs = raw.match(/[\x20-\x7E -￿]{4,}/g) ?? [];
+  const best = runs
+    .filter((r) => !/^(NSString|NSAttributedString|NSDictionary|NSNumber|streamtyped|__k)/.test(r))
+    .sort((a, b) => b.length - a.length)[0];
+  return (best ?? "").trim();
+}
+
+const SELECT = `
+  SELECT m.ROWID AS id, m.date AS date, m.is_from_me AS mine, m.text AS text,
+         hex(m.attributedBody) AS body_hex, h.id AS who,
+         IFNULL(c.display_name, '') AS chat
+  FROM message AS m
+  LEFT JOIN handle AS h ON m.handle_id = h.ROWID
+  LEFT JOIN chat_message_join AS cmj ON m.ROWID = cmj.message_id
+  LEFT JOIN chat AS c ON cmj.chat_id = c.ROWID
+  WHERE m.associated_message_type = 0
+`;
+
+function render(rows) {
+  const lines = rows
+    .map((row) => {
+      const when = appleDate(row.date);
+      const body = bodyFrom(row);
+      if (!body) return null;
+      const stamp = when ? when.toLocaleString("en-CA", { hour12: false }).slice(0, 16) : "?";
+      const who = row.mine ? "me" : row.chat || row.who || "unknown";
+      return `${stamp}  ${who}: ${body}`;
+    })
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    console.log("No messages matched. (This is a real empty result, not a permissions problem — "
+      + "a denied read would have said so.)");
+    return;
+  }
+  console.log(lines.reverse().join("\n"));
+}
+
+async function main() {
+  const limit = Math.min(200, Number(rest.find((a) => /^\d+$/.test(a)) ?? 20));
+
+  switch (command) {
+    case "recent": {
+      render(await query(`${SELECT} ORDER BY m.date DESC LIMIT ${limit};`));
+      break;
+    }
+
+    case "from": {
+      const who = rest[0];
+      if (!who || /^\d+$/.test(who)) fail('from needs a name or number: orion-messages from "Carla"');
+      // Matched against the handle and the chat display name. Deliberately
+      // LIKE rather than exact: he will say "Carla", not "+1555...".
+      const safe = who.replace(/'/g, "''");
+      render(
+        await query(
+          `${SELECT} AND (h.id LIKE '%${safe}%' OR IFNULL(c.display_name,'') LIKE '%${safe}%')
+           ORDER BY m.date DESC LIMIT ${limit};`,
+        ),
+      );
+      break;
+    }
+
+    case "chats": {
+      const rows = await query(
+        `SELECT IFNULL(c.display_name, h.id) AS who, MAX(m.date) AS date, COUNT(*) AS n
+         FROM message AS m
+         LEFT JOIN handle AS h ON m.handle_id = h.ROWID
+         LEFT JOIN chat_message_join AS cmj ON m.ROWID = cmj.message_id
+         LEFT JOIN chat AS c ON cmj.chat_id = c.ROWID
+         WHERE m.associated_message_type = 0
+         GROUP BY who ORDER BY date DESC LIMIT ${limit};`,
+      );
+      const lines = rows
+        .filter((r) => r.who)
+        .map((r) => {
+          const when = appleDate(r.date);
+          return `${when ? when.toLocaleDateString("en-CA") : "?"}  ${r.who}  (${r.n})`;
+        });
+      console.log(lines.length ? lines.join("\n") : "No conversations found.");
+      break;
+    }
+
+    default:
+      fail("usage: orion-messages recent [n] | from \"<name>\" [n] | chats [n]", 0);
+  }
+}
+
+main();

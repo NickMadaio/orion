@@ -55,6 +55,15 @@ final class CalendarModel: ObservableObject {
     @Published private(set) var entriesByDay: [String: [CalendarEntry]] = [:]
     @Published private(set) var isLoading = false
 
+    /// The day the detail list is showing. Separate from `focusDate`, which is
+    /// which PAGE is on screen — clicking the 3rd while looking at March should
+    /// select it, not navigate away.
+    @Published private(set) var selectedDay = Date()
+
+    /// One score per day, computed once per reload rather than per cell. A
+    /// SwiftUI grid asks for a cell's body far more often than the data changes.
+    @Published private(set) var scoresByDay: [String: DayScore] = [:]
+
     /// One line per source that could not be read. Shown, never swallowed.
     @Published private(set) var disclosures: [String] = []
 
@@ -104,8 +113,24 @@ final class CalendarModel: ObservableObject {
 
     func focus(on day: Date) {
         focusDate = day
+        selectedDay = day
         reload(force: false)
     }
+
+    /// Pick a day without changing the page.
+    func select(_ day: Date) {
+        selectedDay = day
+    }
+
+    /// The seven days around the selected one.
+    var weekDays: [Date] {
+        let start = range.startOfWeek(containing: focusDate)
+        return (0..<7).compactMap {
+            range.calendar.date(byAdding: .day, value: $0, to: start)
+        }
+    }
+
+    func score(on day: Date) -> DayScore? { scoresByDay[key(for: day)] }
 
     var visible: VisibleInterval {
         range.interval(around: focusDate, granularity: granularity)
@@ -179,14 +204,19 @@ final class CalendarModel: ObservableObject {
         }
 
         if reminders.access.isGranted {
-            for task in reminders.tasks {
-                if task.isComplete, let done = task.completionDate,
-                   interval.contains(done) {
+            // Completions come from EVERY list, deadlines only from Orion's.
+            // Reading widely is what makes the calendar true; writing narrowly
+            // is the promise that was actually worth keeping.
+            for task in reminders.completedEverywhere {
+                if let done = task.completionDate, interval.contains(done) {
                     byDay[key(for: done), default: []].append(CalendarEntry(
                         id: "done:\(task.id)", title: task.title,
                         start: done, end: done, kind: .completed, isAllDay: false
                     ))
-                } else if !task.isComplete, let due = task.dueDate, interval.contains(due) {
+                }
+            }
+            for task in reminders.tasks {
+                if !task.isComplete, let due = task.dueDate, interval.contains(due) {
                     byDay[key(for: due), default: []].append(CalendarEntry(
                         id: "due:\(task.id)", title: task.title,
                         start: due, end: due,
@@ -200,7 +230,9 @@ final class CalendarModel: ObservableObject {
         }
 
         do {
+            var grouped: [String: [HistoryRecord]] = [:]
             for record in try history.records() where interval.contains(record.startedAt) {
+                grouped[record.dayKey, default: []].append(record)
                 byDay[record.dayKey, default: []].append(CalendarEntry(
                     id: "focus:\(record.sessionID)",
                     title: record.task,
@@ -210,6 +242,7 @@ final class CalendarModel: ObservableObject {
                     isAllDay: false
                 ))
             }
+            historyByDay = grouped
         } catch {
             problems.append("Focus history could not be read: \(error.localizedDescription)")
         }
@@ -220,7 +253,43 @@ final class CalendarModel: ObservableObject {
 
         entriesByDay = byDay
         disclosures = problems
+        rebuildScores()
     }
+
+    /// Score each visible day from the facts already gathered.
+    ///
+    /// Focus comes from history. Health is NOT available per-day here — Whoop
+    /// exposes recent days and the hand-logged hydration is today-only — so it
+    /// is passed as unavailable rather than guessed, which is why most days will
+    /// honestly report "not scored" until there is more to go on. That is the
+    /// designed behaviour, not a gap: inventing a health number to make the grid
+    /// look complete is the one thing the scoring rules forbid.
+    private func rebuildScores() {
+        var scores: [String: DayScore] = [:]
+
+        for (day, entries) in entriesByDay {
+            let records = entries.compactMap { entry -> HistoryRecord? in
+                guard case .focus = entry.kind else { return nil }
+                return historyByDay[day]?.first { $0.sessionID == entry.id.replacingOccurrences(of: "focus:", with: "") }
+            }
+
+            var inputs = DayScoring.focusInputs(records: records)
+            inputs.append(ScoreInput(.recovery, value: nil,
+                                     unavailable: "recovery for past days is not stored yet"))
+            inputs.append(ScoreInput(.sleep, value: nil,
+                                     unavailable: "sleep for past days is not stored yet"))
+            inputs.append(ScoreInput(.selfCare, value: nil,
+                                     unavailable: "hydration is only kept for today"))
+
+            scores[day] = DayScoring.score(dayKey: day, inputs: inputs)
+        }
+
+        scoresByDay = scores
+    }
+
+    /// History records grouped by day, so scoring does not re-read the file per
+    /// cell.
+    private var historyByDay: [String: [HistoryRecord]] = [:]
 }
 
 // MARK: - Colour

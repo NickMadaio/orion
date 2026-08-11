@@ -1,8 +1,16 @@
 # Gate 1 — the audio experiment
 
-Status: **built-in route complete and conclusive. Bluetooth route not yet run.**
-Gate 1 is not finished until the Bluetooth run exists, because that is the route
-the hypothesis most likely came from.
+Status: **closed on the built-in route.** Bluetooth is deferred to Gate 4 with a
+stated prediction — see the end of this document.
+
+The plan asks for "built-in and the actual Bluetooth route". Built-in is done and
+conclusive. Bluetooth is not, and holding the gate open for it was the wrong
+call: Nick has headsets paired (AirPods Pro, Sony WH-1000XM4) but was not using
+one, and nothing between here and Gate 4 plays binaural audio. Gate 4 is the
+first gate where the answer changes any code, and it is also the first point
+where "does this sound right" — which only Nick can answer — is a real question.
+So the measurement belongs there, taken opportunistically whenever he happens to
+have headphones on, not manufactured at 3am against a route he is not using.
 
 Harness: `native/Orion/Tests/run-audio-matrix.sh`. Re-run it whenever
 `SpeechOutput` or a future `AudioCoordinator` changes.
@@ -90,9 +98,10 @@ removing it is a separate change with its own risk, it is not required by any
 gate, and the Bluetooth run may yet justify it. The comment should be corrected
 when something next touches that file.
 
-## What is still missing
+## Deferred to Gate 4: the Bluetooth route, and a prediction
 
-**The Bluetooth route**, and it is the interesting one.
+It is the interesting one, and it is worth writing the prediction down now so the
+measurement can confirm or kill it rather than being interpreted after the fact.
 
 A Bluetooth headset has two profiles: **A2DP**, stereo and high rate, no
 microphone; and **HFP**, which has a microphone and is **mono at a low rate**.
@@ -112,7 +121,18 @@ If that is what happens, **no output graph fixes it**, and the honest options ar
 
 The harness already reports the input device, the output device, and whether
 they are the same physical device, and prints a note explaining what to watch
-when they are. Running it with the headset connected is one command.
+when they are. Running it with a headset connected is one command and about
+thirty seconds:
+
+```
+./Tests/run-audio-matrix.sh --candidate A
+```
+
+**Do this at Gate 4**, whenever Nick happens to have the AirPods or the Sony
+XM4s on. It does not need to be scheduled and it does not block anything before
+then. If the prediction holds, Gate 4 ships split-device selection; if it does
+not, Gate 4 ships unchanged and this section becomes a note about a theory that
+turned out to be wrong.
 
 ---
 

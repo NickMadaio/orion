@@ -130,7 +130,7 @@ visible denied state. Calendar has one. Open item.
 
 | Item | Where it lands |
 |---|---|
-| Bluetooth route not yet measured | **Blocks Gate 1 completion** — needs the headset connected |
+| Bluetooth route not measured | **Gate 4**, opportunistically — does not block anything before then |
 | **`SessionService` must write a heartbeat every 30 s** | **Gate 3 — required, not optional. See below.** |
 | Reminders access has no visible denied/stale state | Fix before Gate 7 (Session UI) at the latest |
 | Apple Music Automation consent — acceptable or not? | Gate 10; not needed before then |

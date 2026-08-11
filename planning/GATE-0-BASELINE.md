@@ -131,6 +131,26 @@ visible denied state. Calendar has one. Open item.
 | Item | Where it lands |
 |---|---|
 | Bluetooth route not yet measured | **Blocks Gate 1 completion** — needs the headset connected |
+| **`SessionService` must write a heartbeat every 30 s** | **Gate 3 — required, not optional. See below.** |
 | Reminders access has no visible denied/stale state | Fix before Gate 7 (Session UI) at the latest |
 | Apple Music Automation consent — acceptable or not? | Gate 10; not needed before then |
 | Terminal gained microphone access mid-session | Noted, not requested — see Gate 1 record |
+
+### The heartbeat requirement (Gate 3)
+
+Gate 2 added something the plan did not have, because the tests demanded it.
+
+Downtime is the gap before a `processStarted` event — but the domain only ever
+learns when the app came *back*, never when it died. Without a liveness
+watermark that whole gap is ambiguous, and the conservative reading writes all
+of it off. A crash at minute 49 of a 50-minute block then voids the block.
+
+So `SessionService` **must** call `SessionReducer.noteHeartbeat` on a timer
+while a session is running. `Harness.heartbeatInterval` is 30 s and the domain
+tests assert the loss is bounded by exactly one interval. If the service does
+not write heartbeats, the domain still behaves correctly — it just charges every
+crash the maximum. Use the `.common`-runloop timer pattern from `ReminderService`
+so it survives window drags.
+
+Heartbeats coalesce (a heartbeat replacing a trailing heartbeat), so this costs
+one event per run stretch, not one per interval.

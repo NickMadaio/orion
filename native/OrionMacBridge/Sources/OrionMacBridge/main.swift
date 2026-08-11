@@ -85,6 +85,8 @@ enum OrionMacBridge {
             return try createReminder(payload: request.payload ?? [:])
         case "create_calendar_event":
             return try createCalendarEvent(payload: request.payload ?? [:])
+        case "delete_calendar_event":
+            return try deleteCalendarEvent(payload: request.payload ?? [:])
         case "set_clock_timer":
             guard shortcutExists(named: nativeTimerShortcut) else {
                 throw BridgeError.unavailable("Create the Shortcuts shortcut named \(nativeTimerShortcut) with Apple’s Set Timer action first.")
@@ -125,7 +127,17 @@ enum OrionMacBridge {
             .sorted { $0.startDate < $1.startDate }
             .prefix(25)
             .map { event in
-                ["title": event.title ?? "Untitled", "start": ISO8601DateFormatter().string(from: event.startDate), "end": ISO8601DateFormatter().string(from: event.endDate)]
+                // The identifier travels with every event, not just newly created
+                // ones. Without it a caller can only remove something it made
+                // moments ago -- ask Orion to cancel a meeting he merely read and
+                // he has nothing to name it by, which invites a delete-by-title
+                // that the bridge deliberately refuses to offer.
+                [
+                    "title": event.title ?? "Untitled",
+                    "start": ISO8601DateFormatter().string(from: event.startDate),
+                    "end": ISO8601DateFormatter().string(from: event.endDate),
+                    "identifier": event.calendarItemIdentifier,
+                ]
             }
         return ["events_json": String(data: try JSONSerialization.data(withJSONObject: events), encoding: .utf8)!]
     }
@@ -180,6 +192,30 @@ enum OrionMacBridge {
         event.calendar = store.defaultCalendarForNewEvents
         try store.save(event, span: .thisEvent, commit: true)
         return ["status": "created", "identifier": event.calendarItemIdentifier]
+    }
+
+    /// Remove an event by the identifier `create_calendar_event` handed back.
+    ///
+    /// Deliberately identifier-only: there is no "delete everything matching
+    /// this title" here, because a fuzzy delete against a real calendar that
+    /// syncs to every device Nick owns is a bad trade at any convenience.
+    /// Anything calling this must have created or read the exact event first.
+    static func deleteCalendarEvent(payload: [String: String]) throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Calendar access in Orion before removing an event.")
+        }
+        guard let identifier = payload["identifier"], !identifier.isEmpty else {
+            throw BridgeError.invalidRequest("Removing an event needs its identifier.")
+        }
+
+        let store = EKEventStore()
+        guard let event = store.calendarItem(withIdentifier: identifier) as? EKEvent else {
+            throw BridgeError.invalidRequest("No event with that identifier — it may already be gone.")
+        }
+
+        let title = event.title ?? "(untitled)"
+        try store.remove(event, span: .thisEvent, commit: true)
+        return ["status": "deleted", "title": title]
     }
 
     static func requestNotificationPermission() async throws -> Bool {

@@ -1,0 +1,1739 @@
+{
+  "schemaVersion": 1,
+  "profile": "external_connected",
+  "profileSource": "permission-state.json",
+  "installedPluginParity": true,
+  "execPolicy": {
+    "security": "allowlist",
+    "ask": "off",
+    "askFallback": "deny"
+  },
+  "counts": {
+    "total": 157,
+    "AUTO": 99,
+    "NOTIFY": 14,
+    "APPROVAL": 13,
+    "NEVER": 31
+  },
+  "availability": [
+    {
+      "tier": "ambient_info",
+      "flag": "enableAmbientInfoActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "app_control",
+      "flag": "enableAppControlActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "browser_control",
+      "flag": "enableBrowserControlActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "calendar",
+      "flag": "enableCalendarActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "desktop_direct_write",
+      "flag": "enableDesktopDirectWriteActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "desktop_modify",
+      "flag": "enableDesktopModifyActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "desktop_read",
+      "flag": "enableDesktopReadActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "desktop_test_workspace",
+      "flag": "enableDesktopTestWorkspaceActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "file_mutate",
+      "flag": "enableFileMutateActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "health_tracking",
+      "flag": "enableHealthTrackingActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "home_read",
+      "flag": "enableHomeReadActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "media_control",
+      "flag": "enableMediaControlActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "messages_read",
+      "flag": "enableMessagesReadActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "messages_send",
+      "flag": "enableMessagesSendActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "reminders",
+      "flag": "enableReminderActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "scratch_direct_write",
+      "flag": "enableScratchDirectWriteActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "scratch_workspace",
+      "flag": "enableScratchWorkspaceActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "self_config",
+      "flag": "enableSelfConfigActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "self_modification",
+      "flag": "enableSelfModificationActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "self_plugin",
+      "flag": "enableSelfPluginActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "self_scripts",
+      "flag": "enableSelfScriptsActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "self_tuning",
+      "flag": "enableSelfTuningActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "simulation",
+      "flag": null,
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "test_workspace",
+      "flag": "enableTestWorkspaceActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    }
+  ],
+  "capabilities": [
+    {
+      "kind": "action",
+      "name": "alarm_set",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "reminders",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "app_open",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "app_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "app_quit",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "app_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "apple_reminder_add",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "calendar",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "browser_list_tabs",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "browser_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "browser_new_tab",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "browser_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "browser_open_url",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "browser_control",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "browser_read_page",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "browser_control",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "browser_switch_tab",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "browser_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "calendar_event_add",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "calendar",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "clock_now",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "ambient_info",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "desktop_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "desktop_metadata",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "desktop_test_text_create",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_test_workspace",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "desktop_text_read",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "display_sleep",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "folder_create",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "simulated only — it changes nothing at all",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "simulation",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "home_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "home_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "home_metadata",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "home_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "home_read_text",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "home_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "media_next_track",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "media_play_pause",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "media_previous_track",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_chats",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_contacts_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_from",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_recent",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_search",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_whoami",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "reminder_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "reminders",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "scratch_folder_create_explicit",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "scratch_direct_write",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "scratch_text_create",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "scratch_workspace",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_config_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_config",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_config_revert",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_config",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_config_set",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_config",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_plugin_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_plugin_read",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_plugin_revert",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_plugin",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_repair_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_script_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_script_read",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_script_revert",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_scripts",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_source_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_source_read",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "supplement_add",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "health_tracking",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "supplement_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "health_tracking",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "supplement_take",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "health_tracking",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "system_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "ambient_info",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "test_marker_create",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "test_workspace",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "timer_set",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "reminders",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "voice_tuning_read",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_tuning",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "voice_tuning_set",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_tuning",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "volume_mute",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "volume_set",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "volume_unmute",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "weather_now",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "ambient_info",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "workout_log",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "health_tracking",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "workout_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "health_tracking",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "command",
+      "name": "basename",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "cat",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "column",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "cut",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "date",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "df",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "diff",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "dirname",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "du",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "egrep",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "env",
+      "level": "AUTO",
+      "rule": "R3 default, escape hatch",
+      "because": "reads at AUTO, but this entry can also launch other work (env CMD, find -exec, git push) — when used that way it takes the level of the effect, not of the command",
+      "enforcedBy": "exec allowlist (allow/deny only)",
+      "escapeHatch": true
+    },
+    {
+      "kind": "command",
+      "name": "fd",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "fgrep",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "file",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "find",
+      "level": "AUTO",
+      "rule": "R3 default, escape hatch",
+      "because": "reads at AUTO, but this entry can also launch other work (env CMD, find -exec, git push) — when used that way it takes the level of the effect, not of the command",
+      "enforcedBy": "exec allowlist (allow/deny only)",
+      "escapeHatch": true
+    },
+    {
+      "kind": "command",
+      "name": "grep",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "head",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "hostname",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "jq",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "locate",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "ls",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "mdfind",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-agenda",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)",
+      "coarse": true
+    },
+    {
+      "kind": "command",
+      "name": "orion-focus",
+      "level": "AUTO",
+      "rule": "R1/R2 from script source",
+      "because": "it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)",
+      "coarse": true
+    },
+    {
+      "kind": "command",
+      "name": "orion-gmail-latest",
+      "level": "AUTO",
+      "rule": "R1/R2 from script source",
+      "because": "it reaches a connected account with the read-only flags hard-wired into the call",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-gmail-search",
+      "level": "AUTO",
+      "rule": "R1/R2 from script source",
+      "because": "it reaches a connected account with the read-only flags hard-wired into the call",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-recall",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-remote",
+      "level": "AUTO",
+      "rule": "R1/R2 from script source",
+      "because": "it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "pwd",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "rg",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "sort",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "stat",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "sw_vers",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "tail",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "tr",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "tree",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "uname",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "uniq",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "wc",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "which",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "whoami",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "read-only inspection; note the allowlist matches the NAME, so its arguments are unconstrained",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "action",
+      "name": "browser_close_tab",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "browser_control",
+      "risk": "low",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "desktop_file_write_explicit",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_direct_write",
+      "risk": "medium",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "desktop_folder_create_explicit",
+      "level": "NOTIFY",
+      "rule": "R2 Nick's space",
+      "because": "it writes into the Desktop itself rather than a folder Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_direct_write",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "desktop_text_append_confirmed",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_modify",
+      "risk": "medium",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "desktop_text_create_confirmed",
+      "level": "NOTIFY",
+      "rule": "R2 Nick's space",
+      "because": "it writes into the Desktop itself rather than a folder Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_modify",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "desktop_text_replace_confirmed",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "desktop_modify",
+      "risk": "medium",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "file_move",
+      "level": "NOTIFY",
+      "rule": "R2 Nick's space",
+      "because": "the root is chosen at call time (root), so this can land in Nick's own files",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "file_mutate",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "file_rename",
+      "level": "NOTIFY",
+      "rule": "R2 Nick's space",
+      "because": "the root is chosen at call time (root), so this can land in Nick's own files",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "file_mutate",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "reminder_cancel",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "reminders",
+      "risk": "low",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "scratch_file_write_explicit",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "scratch_direct_write",
+      "risk": "medium",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "self_modify",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_modification",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_plugin_modify",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_plugin",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_script_modify",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_scripts",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "command",
+      "name": "orion-remember",
+      "level": "NOTIFY",
+      "rule": "R1/R2 from script source",
+      "because": "it writes files Nick reads directly, including memory loaded into every session",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "action",
+      "name": "calendar_event_remove",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "calendar",
+      "risk": "high",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "email_send",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "simulation",
+      "risk": "high",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "file_delete",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "file_mutate",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "messages_send",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "messages_send",
+      "risk": "high",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "self_config_authority_set",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_config",
+      "risk": "critical",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_plugin_authority_modify",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_plugin",
+      "risk": "critical",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "self_script_authority_modify",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "self_scripts",
+      "risk": "critical",
+      "reversible": true
+    },
+    {
+      "kind": "command",
+      "name": "orion-authority",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it removes a record that lives outside Orion's own state, and he has no inverse to run",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-discord-alert",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it delivers a message off this machine, and a sent message cannot be unsent",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-learn",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it delivers a message off this machine, and a sent message cannot be unsent; it writes files Nick reads directly, including memory loaded into every session",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-mission",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it delivers a message off this machine, and a sent message cannot be unsent; it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)",
+      "coarse": true,
+      "subcommands": [
+        {
+          "name": "abort",
+          "level": "AUTO"
+        },
+        {
+          "name": "list",
+          "level": "AUTO"
+        },
+        {
+          "name": "resume",
+          "level": "AUTO"
+        },
+        {
+          "name": "run",
+          "level": "AUTO"
+        },
+        {
+          "name": "start",
+          "level": "AUTO"
+        },
+        {
+          "name": "status",
+          "level": "AUTO"
+        },
+        {
+          "name": "step",
+          "level": "AUTO"
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "name": "orion-notify",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it delivers a message off this machine, and a sent message cannot be unsent; it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-standing",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it delivers a message off this machine, and a sent message cannot be unsent",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-agenda-change",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-bench",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-cron-deliver",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-daily",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-doctor",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-enroll-voice",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-forge",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-gog",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-interface",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-keys",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-local-tts",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-login-item",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-messages",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-messages-send",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-mic-doctor",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-permissions",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-probe-agent",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-probe-app",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-probe-plugin",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-probe-tools",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-python",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-repair",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-reset-session",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-selfdoc",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-session",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-setup",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-sign-setup",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-tools",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-trace",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-verify-gate",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-weather-alert",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    }
+  ]
+}

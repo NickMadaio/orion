@@ -18,6 +18,8 @@ This pass added only Phase 0 safeguards and documentation:
 - a dependency-free, redacting secret scanner;
 - five scanner regression tests, including removed-secret Git history coverage;
 - a redacting live-route smoke check plus three offline contract tests;
+- a sanitized live-authority exporter, three contract tests, and a versioned
+  snapshot of all 157 current capabilities;
 - a local repeatable command that scans the working tree and full Git history;
 - a fingerprint allowlist containing only deliberate security-test fixtures;
 - a server-lifecycle fix so the legacy scheduler stops before SQLite closes;
@@ -139,6 +141,13 @@ The live authority derivation reported 157 entries:
 The authority report is derived from the installed catalog, live capability
 flags, permission profile, approval allowlist, and wrapper source. It is more
 reliable than prose capability lists.
+
+`planning/v2/CURRENT_AUTHORITY.json` is the versioned Phase 0 snapshot of that
+report. It records every capability's current level, derivation rule,
+enforcement layer, action tier/risk/reversibility, command coarse-gate flags,
+and recognized subcommands. Its exporter deliberately omits installed paths,
+command spellings, source excerpts, and configuration values. The snapshot can
+be checked against the live derivation without rewriting it.
 
 Current automation consists of three OpenClaw jobs according to the latest
 handoff: focus guard, standing orders, and daily memory. Permanent automation
@@ -263,8 +272,9 @@ event. Rotation and deletion are deliberately not performed unattended.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 213/213 passed; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 216/216 passed; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
+| Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |
 | Installed ORION Control parity | repo dist and manifest match the installed extension |
@@ -279,7 +289,7 @@ The first combined run also printed scheduler-thread exceptions after tests had
 already closed their temporary SQLite stores while still returning success.
 `OrionServer.server_close()` now stops the scheduler it owns before closing the
 HTTP socket, and a regression test proves the thread is stopped before the store
-is closed. The final 213-test run was clean.
+is closed. The final 216-test run was clean.
 
 One 213-test run executed concurrently with the full-history scanner had a
 single TTS Unix-socket connection timing miss. The test passed immediately in
@@ -315,7 +325,7 @@ transient is retained here so recurrence can be recognized instead of hidden.
 | Critical regression coverage | partial | normal-route smoke and durable ledger verification now pass; add broader secret/log redaction invariants |
 | Secrets accounted for | partial | decide on `.env.save`, rotate previously exposed Anthropic key if still current, migrate plaintext OpenClaw secrets |
 | Existing ORION reproducible | partial | source builds pass; perform a clean checkout/build and compare installed/runtime artifacts without replacing them |
-| Security-sensitive capabilities known | initial complete | turn the 157-entry authority output into versioned v2 capability/risk data without hand-copying it |
+| Security-sensitive capabilities known | complete for Phase 0 | versioned 157-entry snapshot is generated from live enforcement metadata and fails closed on malformed/duplicate rows |
 
 **Do not start Phase 1 yet.** The next safe work is still Phase 0: checkpoint the
 inherited dirty baseline, close the credential decisions, and reproduce the
@@ -327,6 +337,7 @@ move.
 ```bash
 uv run python -m unittest discover -s tests -v
 uv run python scripts/orion_v2_live_smoke.py
+uv run python scripts/orion_v2_authority_snapshot.py --check
 cd openclaw-plugins/orion-control && npm test && npm run build
 cd native/Orion && ./Tests/run-domain-test.sh && ./make_app_bundle.sh
 python3 scripts/orion_v2_secret_scan.py \

@@ -17,6 +17,7 @@ This pass added only Phase 0 safeguards and documentation:
 
 - a dependency-free, redacting secret scanner;
 - five scanner regression tests, including removed-secret Git history coverage;
+- a redacting live-route smoke check plus three offline contract tests;
 - a local repeatable command that scans the working tree and full Git history;
 - a fingerprint allowlist containing only deliberate security-test fixtures;
 - a server-lifecycle fix so the legacy scheduler stops before SQLite closes;
@@ -31,6 +32,14 @@ was configured with a present key, the installed app was running, and its
 signature used the stable `Orion Local Signing` identity. The installed ORION
 Control dist and manifest were also byte-for-byte identical to the tested repo
 build. No service was restarted to obtain this evidence.
+
+The dedicated live smoke then sent one uniquely identified request through the
+installed normal `openclaw agent` route. It authorized only the read-only
+`system_status` action, suppressed raw agent/tool output, and accepted success
+only after observing a new durable task-ledger row. The recorded task succeeded
+with authenticated `recent` provenance, one verified `system_status` step, and
+an independently observed outcome. No generic exec, mutation, restart, install,
+deployment, or external communication was authorized.
 
 ## Source of truth used
 
@@ -254,12 +263,12 @@ event. Rotation and deletion are deliberately not performed unattended.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 210/210 passed; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 213/213 passed; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |
 | Installed ORION Control parity | repo dist and manifest match the installed extension |
-| Installed normal agent route | live doctor passed one agent turn; app running with stable signature |
+| Installed normal agent route | live doctor passed; dedicated smoke produced an authenticated, verified `system_status` ledger row |
 | Full Git-history high-confidence scan | completed across 109 commits; no historical match |
 
 An initial `pytest` command failed because pytest is not a project dependency;
@@ -270,7 +279,13 @@ The first combined run also printed scheduler-thread exceptions after tests had
 already closed their temporary SQLite stores while still returning success.
 `OrionServer.server_close()` now stops the scheduler it owns before closing the
 HTTP socket, and a regression test proves the thread is stopped before the store
-is closed. The final 210-test run was clean.
+is closed. The final 213-test run was clean.
+
+One 213-test run executed concurrently with the full-history scanner had a
+single TTS Unix-socket connection timing miss. The test passed immediately in
+isolation and the complete 213-test suite passed when rerun without competing
+history-scan load. No product change was made for a non-reproducible event; the
+transient is retained here so recurrence can be recognized instead of hidden.
 
 ## Behaviors that must remain unchanged during initial refactor
 
@@ -297,19 +312,21 @@ is closed. The final 210-test run was clean.
 |---|---|---|
 | Dedicated v2 development branch | partial | branch exists; checkpoint inherited dirty worktree before structural edits |
 | Architecture documented | complete for Phase 0 | live normal agent trace and installed app/signature validated |
-| Critical regression coverage | partial | existing suites are strong; add one normal-route end-to-end smoke contract and secret/log redaction invariants |
+| Critical regression coverage | partial | normal-route smoke and durable ledger verification now pass; add broader secret/log redaction invariants |
 | Secrets accounted for | partial | decide on `.env.save`, rotate previously exposed Anthropic key if still current, migrate plaintext OpenClaw secrets |
 | Existing ORION reproducible | partial | source builds pass; perform a clean checkout/build and compare installed/runtime artifacts without replacing them |
 | Security-sensitive capabilities known | initial complete | turn the 157-entry authority output into versioned v2 capability/risk data without hand-copying it |
 
 **Do not start Phase 1 yet.** The next safe work is still Phase 0: checkpoint the
-dirty baseline, add the end-to-end normal-route smoke contract, and close the
-credential decisions. Only then should module boundaries move.
+inherited dirty baseline, close the credential decisions, and reproduce the
+current source state from a clean checkout. Only then should module boundaries
+move.
 
 ## Commands for the next pass
 
 ```bash
 uv run python -m unittest discover -s tests -v
+uv run python scripts/orion_v2_live_smoke.py
 cd openclaw-plugins/orion-control && npm test && npm run build
 cd native/Orion && ./Tests/run-domain-test.sh && ./make_app_bundle.sh
 python3 scripts/orion_v2_secret_scan.py \

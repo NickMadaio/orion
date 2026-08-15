@@ -41,6 +41,20 @@ class FakeProvider:
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_server_close_stops_its_scheduler_before_the_store_closes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            server = OrionServer(
+                ("127.0.0.1", 0),
+                root / "data" / "orion.db",
+                "gpt-oss:20b",
+                root / "Desktop",
+            )
+            self.assertTrue(server.scheduler._thread.is_alive())
+            server.server_close()
+            self.assertFalse(server.scheduler._thread.is_alive())
+            server.runtime.store.close()
+
     def test_router_picks_cheapest_workable_tier_and_respects_budget(self):
         disabled = CloudRouter(False, "fast-model", "deep-model", budget_usd=15)
         self.assertEqual(disabled.decide("Analyze this").tier, "local")

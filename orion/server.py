@@ -40,6 +40,17 @@ class OrionServer(ThreadingHTTPServer):
         self.scheduler = Scheduler(self.runtime.store, self._run_scheduled_job)
         self.scheduler.start()
 
+    def server_close(self) -> None:
+        """Stop background users of SQLite before callers close the store.
+
+        Tests and embedding callers historically invoked `server_close()` and
+        then closed the database, while the scheduler thread kept polling it.
+        The resulting exception was printed from a daemon thread but did not
+        fail the suite. Make the HTTP server own the lifecycle it starts.
+        """
+        self.scheduler.stop()
+        super().server_close()
+
     def _run_scheduled_job(self, kind: str, payload: dict) -> None:
         if kind == "notification":
             self.mac_bridge.request("notify", {"title": payload.get("title", "Orion"), "body": payload.get("body", "")})

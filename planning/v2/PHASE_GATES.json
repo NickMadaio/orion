@@ -18,7 +18,7 @@
         {
           "id": "critical_regression_coverage",
           "status": "passed",
-          "evidence": "227 Python, 134 plugin, and 287 native tests plus live ledger smoke"
+          "evidence": "233 Python, 134 plugin, and 287 native tests plus live ledger smoke"
         },
         {
           "id": "secrets_accounted_for",

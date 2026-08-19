@@ -27,6 +27,8 @@ This pass added only Phase 0 safeguards and documentation:
   snapshot of all 157 current capabilities;
 - a non-invasive source-checkpoint tool plus three path-safety tests;
 - a redacted secret-location inventory plus three no-value-leakage tests;
+- a value-free three-target SecretRef plan and native Keychain seeding helper,
+  each with three safety tests and a disposable live Keychain proof;
 - explicit Codex/Claude collaboration boundaries and an additive Phase 1 plan;
 - a local repeatable command that scans the working tree and full Git history;
 - a fingerprint allowlist containing only deliberate security-test fixtures;
@@ -269,6 +271,15 @@ OpenClaw schema dry-run. The coordinated apply/reload procedure is documented
 in `planning/v2/PHASE_0_SECRET_MIGRATION.md`; it is intentionally not applied
 while another agent may be exercising the live Mac UI.
 
+The value-free three-target apply plan is versioned at
+`planning/v2/OPENCLAW_SECRETREF_PLAN.json`. Its generator fixes every provider
+to `/usr/bin/security` argv and uses the installed registry's canonical gateway,
+model-provider, and auth-profile target types. No live value is embedded in the
+plan. The companion seeding helper passed an end-to-end disposable Keychain
+proof, including readback through that exact command, then deleted the item.
+Its read-only live-name check reported all three intended items missing. No
+credential, OpenClaw config, gateway process, installed plugin, or app changed.
+
 ## Error handling and logging
 
 - Native components write structured subsystem-prefixed diagnostics, but some
@@ -299,11 +310,13 @@ while another agent may be exercising the live Mac UI.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 227/227 passed on the current tree; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 233/233 passed on the current tree; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
 | Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
 | Phase 0 source checkpoint | 3/3 filter tests passed; active index/worktree invariance verified |
 | Phase 0 secret inventory | 3/3 redaction tests passed; live metadata snapshot current |
+| Phase 0 SecretRef plan | 3/3 contract tests passed; deterministic three-target plan current |
+| Phase 0 Keychain seed | 3/3 safety tests passed; disposable native insert/read/delete proof passed |
 | Phase 0 machine-readable gate | 3/3 passed; `--require-open` correctly refuses Phase 1 |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |

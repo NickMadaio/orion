@@ -1,17 +1,22 @@
 # ORION v2 Phase 0 — live inventory and gate status
 
-Recorded 2026-08-15 from `/Users/nickmadaio/Desktop/ORION`.
+Recorded 2026-08-15 and refreshed 2026-08-18 from
+`/Users/nickmadaio/Desktop/ORION`.
 
 ## Outcome
 
 Phase 0 is **started and intentionally not closed**. A dedicated branch named
 `orion-v2/phase-0-inventory` now exists. The large pre-existing uncommitted
-worktree was preserved exactly; nothing was reset, stashed, committed, pushed,
-installed, launched, or deployed.
+worktree was preserved exactly: none of those shared changes were reset,
+stashed, staged into the active branch, or overwritten. V2-only safeguards and
+planning records were committed separately. Nothing was pushed, installed,
+relaunched, or deployed.
 
-The branch name creates a development boundary, but it does not yet create a
-recoverable snapshot of the inherited dirty worktree. Do not begin structural
-refactors until Nick chooses how that work should be checkpointed.
+The branch now has a recoverable source-only snapshot at local branch
+`orion-v2/source-checkpoint-20260818`, commit `613c6acbc899`. It was created
+through a temporary index without staging, stashing, resetting, or changing the
+active worktree. Build backups, live workspace memory, planning archives, and
+ignored secrets were excluded. See `planning/v2/SOURCE_CHECKPOINT.md`.
 
 This pass added only Phase 0 safeguards and documentation:
 
@@ -20,6 +25,9 @@ This pass added only Phase 0 safeguards and documentation:
 - a redacting live-route smoke check plus three offline contract tests;
 - a sanitized live-authority exporter, three contract tests, and a versioned
   snapshot of all 157 current capabilities;
+- a non-invasive source-checkpoint tool plus three path-safety tests;
+- a redacted secret-location inventory plus three no-value-leakage tests;
+- explicit Codex/Claude collaboration boundaries and an additive Phase 1 plan;
 - a local repeatable command that scans the working tree and full Git history;
 - a fingerprint allowlist containing only deliberate security-test fixtures;
 - a server-lifecycle fix so the legacy scheduler stops before SQLite closes;
@@ -242,6 +250,17 @@ An older audit records that the Anthropic key was once printed to a terminal.
 Treat rotation as still required unless Nick has already rotated it after that
 event. Rotation and deletion are deliberately not performed unattended.
 
+The refreshed redacted inventory is versioned at
+`planning/v2/CURRENT_SECRET_INVENTORY.json`. All three inspected files are mode
+`0600`. The active `.env` Anthropic value is the same value referenced by the
+OpenClaw Anthropic provider. `.env.save` contains a different Anthropic value,
+so it is not a duplicate of the current configuration. The inspected OpenClaw
+gateway, Anthropic, and Ollama credential fields are all plaintext rather than
+SecretRefs. Values and fingerprints were never emitted or written to the
+inventory. Nick still needs to confirm whether the active Anthropic credential
+was rotated after the historical exposure and decide whether `.env.save` is an
+obsolete old key that may be securely removed.
+
 ## Error handling and logging
 
 - Native components write structured subsystem-prefixed diagnostics, but some
@@ -272,14 +291,30 @@ event. Rotation and deletion are deliberately not performed unattended.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 216/216 passed; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 224/224 passed on the current tree; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
 | Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
+| Phase 0 source checkpoint | 3/3 filter tests passed; active index/worktree invariance verified |
+| Phase 0 secret inventory | 3/3 redaction tests passed; live metadata snapshot current |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |
 | Installed ORION Control parity | repo dist and manifest match the installed extension |
 | Installed normal agent route | live doctor passed; dedicated smoke produced an authenticated, verified `system_status` ledger row |
-| Full Git-history high-confidence scan | completed across 109 commits; no historical match |
+| Full Git-history high-confidence scan | completed across all currently reachable branch history; no historical match |
+
+The 2026-08-18 source-only checkpoint then reproduced independently in a fresh
+detached worktree: Python 221/221, ORION Control 134/134 plus TypeScript build,
+and native 287/287 plus a signed release app bundle. The checkpoint plugin dist
+matched the installed extension byte-for-byte. The rebuilt app matched the
+installed bundle identifier and signing/runtime metadata but not the executable
+byte-for-byte; deterministic binary builds are not configured. The temporary
+worktree and all generated dependencies/artifacts were removed afterward.
+
+The current no-cloud `orion-doctor` also passed on 2026-08-18: the gateway was
+listening on loopback, TTS answered through the configured ElevenLabs service,
+Deepgram STT configuration was present, and the installed signed Orion app was
+running. The intentional paid agent turn was skipped; the dedicated authenticated
+ledger smoke remains the normal-route proof for this Phase 0 branch.
 
 An initial `pytest` command failed because pytest is not a project dependency;
 the documented standard-library unittest runner then passed. This is a tooling
@@ -320,17 +355,18 @@ transient is retained here so recurrence can be recognized instead of hidden.
 
 | Requirement | Status | Remaining work |
 |---|---|---|
-| Dedicated v2 development branch | partial | branch exists; checkpoint inherited dirty worktree before structural edits |
+| Dedicated v2 development branch | complete for Phase 0 | active branch plus local source-only checkpoint `613c6acbc899`; checkpoint is not pushed |
 | Architecture documented | complete for Phase 0 | live normal agent trace and installed app/signature validated |
-| Critical regression coverage | partial | normal-route smoke and durable ledger verification now pass; add broader secret/log redaction invariants |
-| Secrets accounted for | partial | decide on `.env.save`, rotate previously exposed Anthropic key if still current, migrate plaintext OpenClaw secrets |
-| Existing ORION reproducible | partial | source builds pass; perform a clean checkout/build and compare installed/runtime artifacts without replacing them |
+| Critical regression coverage | complete for Phase 0 | normal route, durable ledger, scanner, snapshot filters, secret redaction, legacy, plugin, and native suites pass |
+| Secrets accounted for | partial | inventory is precise; Nick must confirm Anthropic rotation, decide `.env.save`, and later migrate plaintext OpenClaw secrets |
+| Existing ORION reproducible | complete for Phase 0 | clean checkpoint reproduction passed; installed app comparison is semantic/signing parity, not bitwise identity |
 | Security-sensitive capabilities known | complete for Phase 0 | versioned 157-entry snapshot is generated from live enforcement metadata and fails closed on malformed/duplicate rows |
 
-**Do not start Phase 1 yet.** The next safe work is still Phase 0: checkpoint the
-inherited dirty baseline, close the credential decisions, and reproduce the
-current source state from a clean checkout. Only then should module boundaries
-move.
+**Do not start Phase 1 integration yet.** The only remaining Phase 0 exit issue
+is the credential decision above. Phase 1 is designed in
+`planning/v2/PHASE_1_PLAN.md`, and collaboration ownership is fixed in
+`planning/v2/COLLABORATION_BOUNDARIES.md`, but no working Mac/UI/runtime file is
+rewired until the credential gate is explicitly closed.
 
 ## Commands for the next pass
 
@@ -338,6 +374,7 @@ move.
 uv run python -m unittest discover -s tests -v
 uv run python scripts/orion_v2_live_smoke.py
 uv run python scripts/orion_v2_authority_snapshot.py --check
+uv run python scripts/orion_v2_secret_inventory.py --check
 cd openclaw-plugins/orion-control && npm test && npm run build
 cd native/Orion && ./Tests/run-domain-test.sh && ./make_app_bundle.sh
 python3 scripts/orion_v2_secret_scan.py \

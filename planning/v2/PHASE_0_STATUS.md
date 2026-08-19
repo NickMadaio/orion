@@ -261,6 +261,14 @@ inventory. Nick still needs to confirm whether the active Anthropic credential
 was rotated after the historical exposure and decide whether `.env.save` is an
 obsolete old key that may be securely removed.
 
+OpenClaw's own `secrets audit --json` independently found exactly three
+plaintext residues: the gateway token, Anthropic provider key, and main-agent
+Ollama profile token. It found no unresolved refs, shadowed refs, or legacy
+residue. Two proposed macOS Keychain-backed exec-provider definitions passed
+OpenClaw schema dry-run. The coordinated apply/reload procedure is documented
+in `planning/v2/PHASE_0_SECRET_MIGRATION.md`; it is intentionally not applied
+while another agent may be exercising the live Mac UI.
+
 ## Error handling and logging
 
 - Native components write structured subsystem-prefixed diagnostics, but some
@@ -291,11 +299,12 @@ obsolete old key that may be securely removed.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 224/224 passed on the current tree; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 227/227 passed on the current tree; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
 | Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
 | Phase 0 source checkpoint | 3/3 filter tests passed; active index/worktree invariance verified |
 | Phase 0 secret inventory | 3/3 redaction tests passed; live metadata snapshot current |
+| Phase 0 machine-readable gate | 3/3 passed; `--require-open` correctly refuses Phase 1 |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |
 | Installed ORION Control parity | repo dist and manifest match the installed extension |
@@ -367,6 +376,10 @@ is the credential decision above. Phase 1 is designed in
 `planning/v2/PHASE_1_PLAN.md`, and collaboration ownership is fixed in
 `planning/v2/COLLABORATION_BOUNDARIES.md`, but no working Mac/UI/runtime file is
 rewired until the credential gate is explicitly closed.
+
+`planning/v2/PHASE_GATES.json` is the machine-readable enforcement record.
+`scripts/orion_v2_phase_gate.py --phase 0 --require-open` exits non-zero while
+the credential requirement is blocked, preventing an accidental phase skip.
 
 ## Commands for the next pass
 

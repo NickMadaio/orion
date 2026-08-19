@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "phases": {
+    "0": {
+      "name": "Freeze, Inventory, and Understand Existing ORION",
+      "status": "blocked",
+      "requirements": [
+        {
+          "id": "development_checkpoint",
+          "status": "passed",
+          "evidence": "planning/v2/SOURCE_CHECKPOINT.md"
+        },
+        {
+          "id": "architecture_documented",
+          "status": "passed",
+          "evidence": "planning/v2/PHASE_0_STATUS.md"
+        },
+        {
+          "id": "critical_regression_coverage",
+          "status": "passed",
+          "evidence": "227 Python, 134 plugin, and 287 native tests plus live ledger smoke"
+        },
+        {
+          "id": "secrets_accounted_for",
+          "status": "blocked",
+          "evidence": "planning/v2/PHASE_0_SECRET_MIGRATION.md",
+          "reason": "Anthropic rotation and .env.save disposition need Nick confirmation; live SecretRef apply needs a coordinated runtime window"
+        },
+        {
+          "id": "existing_orion_reproducible",
+          "status": "passed",
+          "evidence": "clean detached checkpoint reproduction at 613c6acbc899"
+        },
+        {
+          "id": "security_capabilities_known",
+          "status": "passed",
+          "evidence": "planning/v2/CURRENT_AUTHORITY.json"
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "1": {
+      "name": "Establish Repository and Module Boundaries",
+      "status": "planned",
+      "entryRequiresPhase": "0",
+      "entrySatisfied": false,
+      "evidence": "planning/v2/PHASE_1_PLAN.md"
+    }
+  }
+}

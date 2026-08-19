@@ -29,6 +29,8 @@ This pass added only Phase 0 safeguards and documentation:
 - a redacted secret-location inventory plus three no-value-leakage tests;
 - a value-free three-target SecretRef plan and native Keychain seeding helper,
   each with three safety tests and a disposable live Keychain proof;
+- a fingerprinted register of all 85 manifest phases, grouped into ten program
+  tracks, plus three tests preventing omissions, gaps, or gate-status drift;
 - explicit Codex/Claude collaboration boundaries and an additive Phase 1 plan;
 - a local repeatable command that scans the working tree and full Git history;
 - a fingerprint allowlist containing only deliberate security-test fixtures;
@@ -310,13 +312,14 @@ credential, OpenClaw config, gateway process, installed plugin, or app changed.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 233/233 passed on the current tree; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 236/236 passed on the current tree; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
 | Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
 | Phase 0 source checkpoint | 3/3 filter tests passed; active index/worktree invariance verified |
 | Phase 0 secret inventory | 3/3 redaction tests passed; live metadata snapshot current |
 | Phase 0 SecretRef plan | 3/3 contract tests passed; deterministic three-target plan current |
 | Phase 0 Keychain seed | 3/3 safety tests passed; disposable native insert/read/delete proof passed |
+| Manifest traceability | 3/3 registry tests passed; phases 0-84 complete and sequential |
 | Phase 0 machine-readable gate | 3/3 passed; `--require-open` correctly refuses Phase 1 |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |
@@ -393,6 +396,9 @@ rewired until the credential gate is explicitly closed.
 `planning/v2/PHASE_GATES.json` is the machine-readable enforcement record.
 `scripts/orion_v2_phase_gate.py --phase 0 --require-open` exits non-zero while
 the credential requirement is blocked, preventing an accidental phase skip.
+`planning/v2/MANIFEST_PHASES.json` and `MANIFEST_TRACEABILITY.md` retain the
+complete Phase 0-84 sequence so planning later work cannot silently omit or
+reorder a manifest phase.
 
 ## Commands for the next pass
 

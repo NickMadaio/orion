@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import io
 import json
+import os
+import select
 import sqlite3
 import subprocess
 import sys
@@ -15,6 +18,7 @@ from typing import Protocol
 
 
 ACCOUNT = "openclaw"
+LOGIN_KEYCHAIN = Path.home() / "Library" / "Keychains" / "login.keychain-db"
 SERVICES = {
     "gateway": "ORION OpenClaw Gateway",
     "anthropic": "ORION OpenClaw Anthropic",
@@ -75,9 +79,15 @@ class Keychain(Protocol):
 class MacKeychain:
     ITEM_NOT_FOUND = -25300
 
-    def __init__(self, security: str = "/usr/bin/security", timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        security: str = "/usr/bin/security",
+        timeout: float = 45.0,
+        keychain_path: Path = LOGIN_KEYCHAIN,
+    ) -> None:
         self.security = security
         self.timeout = timeout
+        self.keychain_path = keychain_path
         self._security_framework = ctypes.CDLL(
             "/System/Library/Frameworks/Security.framework/Security"
         )
@@ -88,6 +98,11 @@ class MacKeychain:
 
     def _configure_frameworks(self) -> None:
         security = self._security_framework
+        security.SecKeychainOpen.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        security.SecKeychainOpen.restype = ctypes.c_int32
         security.SecKeychainAddGenericPassword.argtypes = [
             ctypes.c_void_p,
             ctypes.c_uint32,
@@ -132,13 +147,25 @@ class MacKeychain:
         core.CFRelease.argtypes = [ctypes.c_void_p]
 
     def get(self, service: str) -> str | None:
-        completed = subprocess.run(
-            [self.security, "find-generic-password", "-w", "-a", ACCOUNT, "-s", service],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-        )
+        try:
+            completed = subprocess.run(
+                [
+                    self.security,
+                    "find-generic-password",
+                    "-w",
+                    "-a",
+                    ACCOUNT,
+                    "-s",
+                    service,
+                    str(self.keychain_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"Keychain read timed out for {service!r}") from error
         if completed.returncode == 44:
             return None
         if completed.returncode != 0:
@@ -152,12 +179,18 @@ class MacKeychain:
         item = ctypes.c_void_p()
         trusted_application = ctypes.c_void_p()
         access = ctypes.c_void_p()
+        keychain = ctypes.c_void_p()
         trusted_list = None
         descriptor = None
         added = False
         try:
+            status = self._security_framework.SecKeychainOpen(
+                os.fsencode(self.keychain_path), ctypes.byref(keychain)
+            )
+            if status != 0:
+                return False
             status = self._security_framework.SecKeychainAddGenericPassword(
-                None,
+                keychain,
                 len(service_bytes),
                 service_bytes,
                 len(account_bytes),
@@ -199,13 +232,28 @@ class MacKeychain:
         finally:
             if added and item:
                 self._security_framework.SecKeychainItemDelete(item)
-            for reference in (access, descriptor, trusted_list, trusted_application, item):
+            for reference in (
+                access,
+                descriptor,
+                trusted_list,
+                trusted_application,
+                item,
+                keychain,
+            ):
                 if reference:
                     self._core_foundation.CFRelease(reference)
 
     def delete(self, service: str) -> bool:
         completed = subprocess.run(
-            [self.security, "delete-generic-password", "-a", ACCOUNT, "-s", service],
+            [
+                self.security,
+                "delete-generic-password",
+                "-a",
+                ACCOUNT,
+                "-s",
+                service,
+                str(self.keychain_path),
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -269,6 +317,58 @@ def disposable_self_test(keychain: Keychain) -> bool:
         keychain.delete(service)
 
 
+def read_anthropic_secret(stream: io.TextIOBase) -> str:
+    value = stream.read(4097)
+    if len(value) > 4096:
+        raise ValueError("Anthropic key input is too large")
+    value = value.strip()
+    if not value.startswith("sk-ant-") or not 50 <= len(value) <= 500:
+        raise ValueError("Anthropic key input has an invalid shape")
+    if any(character.isspace() for character in value):
+        raise ValueError("Anthropic key input contains whitespace")
+    return value
+
+
+def clear_macos_clipboard() -> None:
+    completed = subprocess.run(
+        ["/usr/bin/pbcopy"],
+        input=b"",
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("macOS clipboard clear failed")
+
+
+def validate_anthropic_fifo_path(path: Path) -> None:
+    resolved_parent = path.parent.resolve()
+    if resolved_parent != Path("/private/tmp"):
+        raise ValueError("Anthropic FIFO must be directly under /private/tmp")
+    if not path.name.startswith("orion-v2-anthropic-") or not path.name.endswith(".fifo"):
+        raise ValueError("Anthropic FIFO name is invalid")
+
+
+def read_anthropic_fifo(path: Path, timeout: float = 60.0) -> str:
+    if path.exists():
+        raise ValueError("Anthropic FIFO already exists")
+    os.mkfifo(path, 0o600)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        readable, _, _ = select.select([descriptor], [], [], timeout)
+        if not readable:
+            raise RuntimeError("Anthropic FIFO timed out")
+        data = os.read(descriptor, 4097)
+        try:
+            text = data.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise ValueError("Anthropic FIFO input is not UTF-8") from error
+        return read_anthropic_secret(io.StringIO(text))
+    finally:
+        os.close(descriptor)
+        path.unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     home = Path.home()
     parser = argparse.ArgumentParser(description=__doc__)
@@ -281,8 +381,11 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--status", action="store_true")
     mode.add_argument("--install", action="store_true")
+    mode.add_argument("--install-anthropic-stdin", action="store_true")
+    mode.add_argument("--install-anthropic-fifo", type=Path)
     mode.add_argument("--self-test-disposable", action="store_true")
     parser.add_argument("--confirm-live-values-to-keychain", action="store_true")
+    parser.add_argument("--clear-macos-clipboard", action="store_true")
     parser.add_argument("--items", nargs="+", choices=ITEM_ORDER, default=list(ITEM_ORDER))
     arguments = parser.parse_args(argv)
     keychain = MacKeychain()
@@ -292,6 +395,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"keychain seed: disposable_self_test={'ok' if ok else 'FAIL'}")
         return 0 if ok else 1
     try:
+        if arguments.install_anthropic_stdin:
+            if not arguments.confirm_live_values_to_keychain:
+                print("keychain seed: FAIL install requires --confirm-live-values-to-keychain")
+                return 2
+            try:
+                values = {"anthropic": read_anthropic_secret(sys.stdin)}
+            finally:
+                if arguments.clear_macos_clipboard:
+                    clear_macos_clipboard()
+            result = seed(values, keychain)
+            print(f"keychain seed: installed and verified ({render_status(result)})")
+            return 0
+        if arguments.install_anthropic_fifo is not None:
+            if not arguments.confirm_live_values_to_keychain:
+                print("keychain seed: FAIL install requires --confirm-live-values-to-keychain")
+                return 2
+            validate_anthropic_fifo_path(arguments.install_anthropic_fifo)
+            values = {"anthropic": read_anthropic_fifo(arguments.install_anthropic_fifo)}
+            result = seed(values, keychain)
+            print(f"keychain seed: installed and verified ({render_status(result)})")
+            return 0
         names = tuple(dict.fromkeys(arguments.items))
         values = source_values(arguments.config, arguments.database, names)
         if arguments.install:
@@ -302,7 +426,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"keychain seed: installed and verified ({render_status(result)})")
         else:
             print(f"keychain seed: status ({render_status(statuses(values, keychain))})")
-    except (OSError, RuntimeError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        json.JSONDecodeError,
+        sqlite3.Error,
+        subprocess.SubprocessError,
+    ) as error:
         print(f"keychain seed: FAIL {error}")
         return 1
     return 0

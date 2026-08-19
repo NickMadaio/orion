@@ -60,12 +60,30 @@ copied and no OpenClaw config or process was changed.
 
 Nick approved the live migration on 2026-08-18 and confirmed that the current
 Anthropic key has not yet been rotated. The helper was therefore tightened to
-require an explicit mode and support named subsets; four safety tests pass.
+require an explicit mode and support named subsets. Its one-time Anthropic
+stdin mode accepts only a key-shaped bounded value, never renders it, and can
+clear the macOS clipboard immediately after ingestion. For the isolated in-app
+browser clipboard, a permission-`0600` one-use FIFO under `/private/tmp` carries
+the value directly in memory; the helper validates the path and key shape and
+deletes the FIFO on every exit.
 The first gateway/Ollama-only seed reached `/usr/bin/security` readback but
 waited for macOS Keychain authorization. It was stopped, its rollback ran, and
 independent metadata checks proved that neither named item remained. Retry only
 while Nick is present to approve the visible Keychain dialog. The Anthropic
 value must not be loaded or seeded until rotation succeeds.
+
+A reboot on 2026-08-19 showed that the first replacement Anthropic item was not
+present in the login Keychain, despite successful immediate read-back before the
+restart. That replacement must be disabled and must not be treated as verified.
+The helper now opens and targets `~/Library/Keychains/login.keychain-db`
+explicitly for add, read, and delete operations; persistence must be proven with
+a disposable non-secret item before another replacement is created.
+
+Nick deferred further Anthropic rotation work on 2026-08-19. The prepared key
+form was closed without submission. No key was created, disabled, deleted, or
+revoked in that session; `orionKey` remains the active runtime credential. Keep
+the secret gate blocked and continue only reversible Phase 0 preparation until
+Nick resumes rotation explicitly.
 
 The Ollama auth-profile token should be migrated through `openclaw secrets
 configure --agent main`, because that supported planner understands the agent
@@ -112,3 +130,8 @@ Nick authorized deletion of the different July 27 `.env.save` value only after
 it is proven obsolete. Secure deletion is intentionally not inferred from age
 alone. No runtime or source path loads `.env.save`; remaining proof requires
 revocation/invalidity confirmation from Anthropic before deletion.
+
+`scripts/orion_v2_anthropic_key_status.py --live-check` reads the replacement
+from its dedicated Keychain item and the saved historical value from
+`.env.save`, sends each only to Anthropic's official models endpoint, and emits
+status labels only. It never reads response bodies or renders key material.

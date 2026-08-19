@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sqlite3
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -97,6 +100,55 @@ class KeychainSeedTests(unittest.TestCase):
                 config, database.with_name("missing.sqlite"), ("gateway",)
             )
         self.assertEqual(values, {"gateway": "gateway-value"})
+
+    def test_reads_anthropic_key_from_memory_stream(self):
+        key = "sk-ant-" + ("a" * 80)
+        self.assertEqual(seed_module.read_anthropic_secret(io.StringIO(key + "\n")), key)
+
+    def test_rejects_malformed_anthropic_stdin(self):
+        with self.assertRaisesRegex(ValueError, "invalid shape"):
+            seed_module.read_anthropic_secret(io.StringIO("not-a-key"))
+
+    def test_fifo_transfers_key_and_removes_itself(self):
+        key = "sk-ant-" + ("b" * 80)
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as directory:
+            fifo = Path(directory) / "secret.fifo"
+
+            def write_secret():
+                while not fifo.exists():
+                    pass
+                fifo.write_text(key, encoding="utf-8")
+
+            writer = threading.Thread(target=write_secret)
+            writer.start()
+            self.assertEqual(seed_module.read_anthropic_fifo(fifo, timeout=2), key)
+            writer.join(timeout=2)
+            self.assertFalse(writer.is_alive())
+            self.assertFalse(fifo.exists())
+
+    def test_cli_fifo_path_is_narrowly_scoped(self):
+        seed_module.validate_anthropic_fifo_path(
+            Path("/private/tmp/orion-v2-anthropic-test.fifo")
+        )
+        with self.assertRaisesRegex(ValueError, "directly under"):
+            seed_module.validate_anthropic_fifo_path(
+                Path("/tmp/nested/orion-v2-anthropic-test.fifo")
+            )
+
+    def test_security_reads_and_deletes_target_the_explicit_login_keychain(self):
+        keychain = object.__new__(seed_module.MacKeychain)
+        keychain.security = "/usr/bin/security"
+        keychain.timeout = 1
+        keychain.keychain_path = Path("/Users/test/Library/Keychains/login.keychain-db")
+        completed = seed_module.subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="private-value\n", stderr=""
+        )
+        with mock.patch.object(seed_module.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(keychain.get("service"), "private-value")
+            self.assertEqual(run.call_args.args[0][-1], str(keychain.keychain_path))
+        with mock.patch.object(seed_module.subprocess, "run", return_value=completed) as run:
+            self.assertTrue(keychain.delete("service"))
+            self.assertEqual(run.call_args.args[0][-1], str(keychain.keychain_path))
 
     def test_seed_is_idempotent_and_refuses_silent_replacement(self):
         values = {"gateway": "g", "anthropic": "a", "ollama": "o"}

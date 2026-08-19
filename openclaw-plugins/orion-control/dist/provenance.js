@@ -9,7 +9,17 @@ const DEFAULT_POLICY = {
     allowSessionBinding: true,
     allowRecentBinding: true,
     ttlMs: 15 * 60 * 1000,
-    recentWindowMs: 2 * 60 * 1000,
+    /*
+     Ten minutes, raised from two, and paired with the multi-turn fix in
+     `resolve`. Two minutes is shorter than a single sentence of thinking-out-loud
+     followed by a decision: "text Gia and ask about Saturday… actually hold on…
+     yeah okay do it" crosses it easily, and when it did, the request was refused
+     for naming a recipient Nick had demonstrably named. Ten matches
+     MAX_TRANSCRIPT_AGE_MS in transcript.ts, which is the real ceiling anyway —
+     past it the session file is not read at all, so a larger number here would
+     be a promise this class cannot keep.
+    */
+    recentWindowMs: 10 * 60 * 1000,
 };
 /** Tools whose output is text from somewhere that is not Nick. */
 /**
@@ -295,9 +305,48 @@ export class HarnessProvenance {
             anchor = pick(usable.filter((turn) => turn.sessionKey === binding.sessionKey && fresh(turn, effective.ttlMs)), "session");
         }
         if (!anchor && effective.allowRecentBinding) {
-            const recent = usable.filter((turn) => fresh(turn, effective.recentWindowMs));
-            const newest = recent.at(-1);
-            anchor = newest ? pick([newest], "recent") : undefined;
+            /*
+             The conversational window, and why it is no longer a single turn.
+      
+             This branch used to take `recent.at(-1)` — the newest turn and nothing
+             else — while the `run` and `session` branches above both pass EVERY
+             matching turn. That asymmetry was not a decision, it was an oversight,
+             and on this gateway it was the one that mattered: neither
+             `message_received` nor `llm_input` fires for locally-initiated runs, so
+             `recent` is the tier essentially every real request lands in. Orion was
+             running the whole system on a one-turn memory.
+      
+             What it cost, from the ledger (2026-08-13T14:53:46Z):
+      
+                 Nick, turn N-1:  "text Gia ..."
+                 Nick, turn N:    (anything else at all)
+                 -> argument_not_from_user: "'Gia' does not appear in anything
+                    you said"
+      
+             He HAD said it. One turn earlier. `argumentNotFromUser` searches the
+             authenticated turns for the recipient, was handed exactly one of them,
+             and truthfully reported not finding it. The feature read as broken
+             because it was.
+      
+             WHY WIDENING THIS IS NOT A WEAKENING.
+      
+             Everything in `this.turns` arrived from a host hook or from a
+             `role: "user"` transcript entry — text OpenClaw attributes to Nick.
+             Content Orion merely READ never lands here: tool results go to
+             `this.observed` via `recordUntrustedResult`, and `userTextFromLine` in
+             transcript.ts accepts only `type: "text"` blocks, explicitly skipping
+             `tool_result`. So this widens the window over Nick's OWN authenticated
+             words and over nothing else. An incoming text naming its own recipient
+             is refused exactly as before — it is not in this array to be found, at
+             any window size. That is `refuses a recipient that came out of a message
+             Orion read`, and `a wider window still refuses a recipient that only a
+             read message named`, which exists to pin this specific reasoning.
+      
+             Bounded on both ends: `recentWindowMs` by time, and `readRecentUserTurns`
+             reads at most RECENT_TURN_LIMIT (8) turns, so "the conversation" stays a
+             window rather than becoming a transcript.
+            */
+            anchor = pick(usable.filter((turn) => fresh(turn, effective.recentWindowMs)), "recent");
         }
         const resolved = anchor ?? { turns: [], binding: "none" };
         this.lastBinding = resolved.binding;
@@ -340,6 +389,55 @@ function normalizeArtifactPath(value) {
 function optionalText(key, value) {
     const text = normalizeText(value);
     return text ? { [key]: text } : {};
+}
+/**
+ * Find the approval hash wherever the model put it.
+ *
+ * Observed, live, on 2026-08-13, on the turn AFTER Nick said "yes, go ahead":
+ *
+ *     steps: [ { id, action, arguments, approvalHash: "dac4df2f…" } ]
+ *
+ * The schema wanted `approval: { status: "approved", canonicalHash: "…" }`.
+ * A flat `approvalHash` on the step matched no field, was dropped in silence,
+ * and the run came back `needs_approval` with the identical hash — so Orion
+ * approved, re-ran, and was refused for not having done the thing he had just
+ * done. From the outside that is indistinguishable from the approval gate
+ * being broken, and it is exactly how "he said he sent it" happens: the model
+ * has no way to tell a rejected approval from a bug, and eventually stops
+ * reporting the difference.
+ *
+ * WHY ACCEPTING EVERY SHAPE IS NOT A WEAKENING.
+ *
+ * The canonical hash is not a secret and it is not a credential. It is derived
+ * server-side in `canonicalActionHash` from the action, the arguments, and the
+ * working context, and the gate is that the supplied value EQUALS the one
+ * recomputed from the bytes actually submitted. Change any argument and the
+ * hash no longer matches; replay an approval from a different message and it
+ * no longer matches. The security lives entirely in that equality check, and
+ * none of it lives in which JSON key the value arrived under. Refusing a
+ * correct hash for being in the wrong field protects nobody — it only fails
+ * the one user who did everything right.
+ */
+function approvalCanonicalHash(step, graphLevel) {
+    const nested = step.approval;
+    if (nested?.status === "approved" &&
+        typeof nested.canonicalHash === "string" &&
+        nested.canonicalHash.length > 0) {
+        return nested.canonicalHash;
+    }
+    // Flat on the step, which is what the model actually reaches for.
+    if (typeof step.approvalHash === "string" && step.approvalHash.length > 0) {
+        return step.approvalHash;
+    }
+    // A bare string where the object was expected: `approval: "dac4df…"`.
+    if (typeof nested === "string" && nested.length > 0) {
+        return nested;
+    }
+    // One approval covering a single-step graph.
+    if (typeof graphLevel === "string" && graphLevel.length > 0) {
+        return graphLevel;
+    }
+    return undefined;
 }
 /**
  * Build the internal, authorized TaskGraph.
@@ -402,10 +500,12 @@ export function authorizeTaskGraph(graph, anchor) {
             expectedEffect: typeof step.expectedEffect === "string"
                 ? step.expectedEffect
                 : step.action,
-            ...(step.approval?.status === "approved" &&
-                typeof step.approval.canonicalHash === "string"
-                ? { approval: step.approval }
-                : {}),
+            ...(() => {
+                const canonicalHash = approvalCanonicalHash(step, graph.approvalHash);
+                return canonicalHash
+                    ? { approval: { status: "approved", canonicalHash } }
+                    : {};
+            })(),
         };
         return authorized;
     });

@@ -2,10 +2,9 @@
 //  The month and week grids, and what a day looks like when you glance at it.
 //
 //  A day cell has to answer one question without being read: was this a good
-//  day. So the cell is TINTED by its score rather than sitting in a grey box —
-//  and where there is no score, it stays neutral instead of being coloured by a
-//  guess. "No score" and "a bad score" must not look similar, because one of
-//  them is an accusation and the other is an absence of data.
+//  day. A score uses the accent hue; an unscored day with completed work uses a
+//  calmer green state. "No score" and "a bad score" must not look similar, but
+//  a day with real completed work should still be easy to find at a glance.
 //
 //  Everything drawn here is a fact: events, things ticked off, focus sessions,
 //  deadlines. The tint is the only derived thing on screen and it refuses to
@@ -23,10 +22,12 @@ struct CalendarDayCell: View {
     let score: DayScore?
     let inMonth: Bool
     let isToday: Bool
+    let isPast: Bool
     let isSelected: Bool
     let height: CGFloat
     let compact: Bool
     let onTap: () -> Void
+    let onDoubleTap: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -40,9 +41,12 @@ struct CalendarDayCell: View {
                     // The tick is the thing he was looking for and could not
                     // find. Shown as a count, because "three things done" and
                     // "one thing done" are different days.
-                    Text("✓\(count)")
-                        .font(.system(size: 9, weight: .medium))
+                    Label("\(count)", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(OrionTheme.green)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(OrionTheme.green.opacity(0.18)))
                 }
 
                 Spacer(minLength: 0)
@@ -92,16 +96,19 @@ struct CalendarDayCell: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded(onDoubleTap)
+        )
     }
 
     // MARK: What the colour means
 
-    /// Tinted by the score, and NEUTRAL when there isn't one.
+    /// Tinted by the score, recorded completed work, or the simple fact that
+    /// the date is already behind us. The past-date state is intentionally
+    /// neutral: it communicates time passing, not performance.
     ///
-    /// The temptation is to colour an unscored day grey-red so the grid looks
-    /// complete. That would tell him a day went badly when the truth is that a
-    /// watch did not sync — and he would believe it, because a calendar is the
-    /// sort of thing people believe.
+    /// Completion is a recorded fact, unlike a missing score. It earns a calm
+    /// state without implying that the day was good or bad overall.
     private var background: some View {
         RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(fill)
@@ -110,9 +117,8 @@ struct CalendarDayCell: View {
     private var fill: Color {
         guard inMonth else { return .clear }
         guard let value = score?.value else {
-            // Scored days and unscored days both need to look like days. This
-            // is the same neutral the grid always had.
-            return OrionTheme.card
+            if completedCount != nil { return OrionTheme.green.opacity(0.24) }
+            return isPast ? OrionTheme.textSoft.opacity(0.13) : OrionTheme.card
         }
         // One hue, varying weight. A red-to-green ramp reads as pass/fail and
         // invites arguing with the number; a single accent that gets stronger
@@ -173,17 +179,28 @@ struct MonthGrid: View {
             ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
                 HStack(spacing: 5) {
                     ForEach(week, id: \.self) { day in
-                        CalendarDayCell(
-                            day: day,
-                            entries: model.entries(on: day),
-                            score: model.score(on: day),
-                            inMonth: model.range.isInMonth(day, as: model.focusDate),
-                            isToday: model.range.isSameDay(day, Date()),
-                            isSelected: model.range.isSameDay(day, model.selectedDay),
-                            height: rowHeight,
-                            compact: rowHeight < 74,
-                            onTap: { model.select(day) }
-                        )
+                        // Month pages are about this month. Neighbouring-month
+                        // dates used to crowd the last row with a misleading
+                        // preview; keep their place in the seven-column grid,
+                        // but leave those cells intentionally blank.
+                        if model.range.isInMonth(day, as: model.focusDate) {
+                            CalendarDayCell(
+                                day: day,
+                                entries: model.entries(on: day),
+                                score: model.score(on: day),
+                                inMonth: true,
+                                isToday: model.range.isSameDay(day, Date()),
+                                isPast: day < Calendar.current.startOfDay(for: Date()),
+                                isSelected: model.range.isSameDay(day, model.selectedDay),
+                                height: rowHeight,
+                                compact: rowHeight < 74,
+                                onTap: { model.select(day) },
+                                onDoubleTap: { model.showDay(day) }
+                            )
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight)
+                        }
                     }
                 }
             }
@@ -217,10 +234,12 @@ struct WeekGrid: View {
                             score: model.score(on: day),
                             inMonth: true,
                             isToday: model.range.isSameDay(day, Date()),
+                            isPast: day < Calendar.current.startOfDay(for: Date()),
                             isSelected: model.range.isSameDay(day, model.selectedDay),
                             height: min(150, max(96, height * 0.34)),
                             compact: false,
-                            onTap: { model.select(day) }
+                            onTap: { model.select(day) },
+                            onDoubleTap: { model.showDay(day) }
                         )
                     }
                 }

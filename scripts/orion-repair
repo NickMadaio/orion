@@ -1,0 +1,787 @@
+#!/bin/zsh
+#
+# Orion repairs himself beyond his own Swift.
+#
+# `orion-forge` let him rewrite the app's UI and reinstall it. It could not
+# touch the three things that actually break underneath: the plugin that gives
+# him his tools, the wrapper scripts he runs, and the OpenClaw config beneath
+# both. Asked to fix a misconfiguration he answered, correctly, that he could
+# not. That was a missing capability wearing the costume of a safety property.
+#
+# This is the same shape as orion-forge and for the same reason: the dangerous
+# logic is ONE file somebody can read end to end, not a branch buried in a ten
+# thousand line plugin. The plugin's job is to get the request through the gate.
+# This script's job is to make the change survivable — and to refuse the ones
+# that are not.
+#
+# THE RULE
+#
+#   Orion may widen what he is allowed to do, but only when Nick asked for it
+#   by name.
+#
+# Not a denylist. A denylist has to predict every route to authority and is
+# wrong the first time somebody adds one. Instead every target is sorted into
+# operational, authority-bearing or forbidden by `src/selfrepair.ts` — the
+# plugin's own tables, read here through `lib/orion-repair-classify.mjs` so
+# there is exactly one copy of them — and the class decides the gate:
+#
+#   OPERATIONAL   the ordinary path. Build it, test it, install it, prove it
+#                 still works, roll it back if it does not.
+#   AUTHORITY     everything above, plus: the plugin must have passed a
+#                 `--authority` flag that only its approval-gated actions set,
+#                 and the change is written to the audit trail with the
+#                 instruction that authorised it.
+#   FORBIDDEN     refused, with a sentence naming what a human has to do
+#                 instead. Credentials, gateway networking, the audit paths, and
+#                 this script.
+#
+# FOUR GATES, and only the last of them can ask a human anything:
+#
+#   1. CLASS.   The target is in a table, the table says which gate applies, and
+#               a target in no table is refused. Resolved by realpath and by
+#               on-disk name, so `../`, an absolute path, a symlink and a
+#               case-folded spelling all die before anything is opened.
+#   2. BUILD.   It must compile, and the whole test suite must pass. A change
+#               that fails either is reverted and never reaches the dist.
+#   3. PROOF.   A change to the code that decides what Orion may do must pass
+#               the gate self-test — a forged anchor, an absent anchor, generic
+#               assent and a tainted target must all still be refused by the
+#               javascript that was just built. This is the gate that makes an
+#               enforcement edit safe to allow at all: a capability grant is
+#               scoped and reversible, but an edit that removes the requirement
+#               to ask removes it for every future change including the next
+#               one. So it has to prove it did not.
+#   4. HEALTH.  It must still run. The gateway is restarted and has to answer,
+#               with the plugin reporting itself loaded. The previous dist is
+#               kept and restored if it does not — the same lesson orion-forge
+#               learned from an app that compiled perfectly and aborted on
+#               launch.
+#
+# Everything is ledgered. Authority changes are additionally audited with the
+# authorising instruction, because "what changed and what did Nick say that
+# allowed it" has to be answerable from one file afterwards.
+#
+#   orion-repair plugin-list|script-list|config-list
+#   orion-repair plugin-read <file.ts>          script-read <name>
+#   orion-repair plugin-modify <file.ts> <find-file> <replace-file> [flags]
+#   orion-repair script-modify <name> <find-file> <replace-file> [flags]
+#   orion-repair config-modify <key> <value-json-file> [flags]
+#   orion-repair plugin-revert|script-revert|config-revert
+#   orion-repair plugin-status
+#
+#   flags: --authority  the caller's action carries the approval gate
+#          --detach-restart  hand the restart to a launchd job that outlives
+#                            the gateway (the plugin always passes this, because
+#                            the gateway is the process making the request)
+#          --instruction <file>  the authenticated user turn, for the audit line
+#
+set -uo pipefail
+
+DEFAULT_REPO="$HOME/Desktop/ORION"
+REPO="${ORION_REPO:-$DEFAULT_REPO}"
+
+# A repo override must redirect the backups too, or it poisons them.
+#
+# Found the hard way while testing this script: the mutation checks pointed
+# ORION_REPO at a scratch tree, `revert` did not follow, and 25-byte stubs from
+# that tree were written into the REAL backup set as `script.orion-agenda.previous`.
+# A `script-revert` at that moment would have replaced an 8kB working wrapper
+# with a two-line stub — a restore that destroys the thing it claims to protect.
+#
+# So the two switches move together or not at all. Pointing the engine at
+# another tree without also redirecting its state is refused rather than
+# silently half-applied.
+if [[ "$REPO" != "$DEFAULT_REPO" && -z "${ORION_REPAIR_SELFTEST:-}" ]]; then
+  print -r -- "refused: ORION_REPO points somewhere other than $DEFAULT_REPO but" >&2
+  print -r -- "         ORION_REPAIR_SELFTEST is not set, so backups would still be" >&2
+  print -r -- "         written to the real state directory and would not match the" >&2
+  print -r -- "         tree they came from. Set both, or neither." >&2
+  exit 2
+fi
+PLUGIN="$REPO/openclaw-plugins/orion-control"
+SRC="$PLUGIN/src"
+SCRIPTS="$REPO/scripts"
+LIB="$SCRIPTS/lib"
+OPENCLAW="$HOME/.openclaw/bin/openclaw"
+
+# The test seam. It can only ever point the engine at a scratch copy of the
+# things it installs to; it cannot widen what the engine accepts, because the
+# class tables are not read from here. Used to prove the rollback path works
+# from a genuinely broken state without breaking the real one.
+if [[ -n "${ORION_REPAIR_SELFTEST:-}" ]]; then
+  INSTALLED_ROOT="$ORION_REPAIR_SELFTEST/extensions/orion-control"
+  STATE="$ORION_REPAIR_SELFTEST/state"
+  mkdir -p "$INSTALLED_ROOT/dist" "$STATE"
+else
+  INSTALLED_ROOT="$HOME/.openclaw/extensions/orion-control"
+  STATE="$HOME/.openclaw/orion-controlled"
+fi
+INSTALLED_DIST="$INSTALLED_ROOT/dist"
+BACKUPS="$STATE/repair-backups"
+LEDGER="$STATE/repair-ledger.jsonl"
+AUDIT="$STATE/repair-audit.jsonl"
+STATUSFILE="$STATE/repair-status.json"
+CONFIG="${ORION_REPAIR_CONFIG:-$HOME/.openclaw/openclaw.json}"
+
+mkdir -p "$BACKUPS"
+
+# The node the gateway itself runs on, so a build here is the build it loads.
+NODE=""
+for candidate in "$HOME/.openclaw/tools/node/bin/node" "/opt/homebrew/bin/node" "/usr/local/bin/node"; do
+  [[ -x "$candidate" ]] && { NODE="$candidate"; break }
+done
+
+log() { print -r -- "$@" >&2 }
+
+ledger() {
+  local outcome="$1" detail="$2" surface="${3:-}" target="${4:-}"
+  python3 - "$LEDGER" "$outcome" "$detail" "$surface" "$target" <<'PY' 2>/dev/null || true
+import json, sys, time
+path, outcome, detail, surface, target = sys.argv[1:6]
+with open(path, "a") as handle:
+    handle.write(json.dumps({
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "outcome": outcome, "detail": detail,
+        "surface": surface, "target": target,
+    }) + "\n")
+PY
+}
+
+# Authority changes get a second, separate record.
+#
+# Not redundancy. The ledger answers "what has this engine done"; this answers
+# "what is Orion allowed to do that he was not before, and what did Nick say
+# that allowed it". The second question is the one somebody will ask in six
+# months, and it should not require reading every line of the first.
+audit_authority() {
+  local surface="$1" target="$2" outcome="$3" instruction_file="${4:-}"
+  python3 - "$AUDIT" "$surface" "$target" "$outcome" "$instruction_file" <<'PY' 2>/dev/null || true
+import json, sys, time
+path, surface, target, outcome, instruction_file = sys.argv[1:6]
+instruction = ""
+if instruction_file:
+    try:
+        instruction = open(instruction_file, encoding="utf-8").read()[:4000]
+    except OSError:
+        instruction = "(unreadable)"
+with open(path, "a") as handle:
+    handle.write(json.dumps({
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "kind": "authority_change",
+        "surface": surface, "target": target, "outcome": outcome,
+        "authorisingInstruction": instruction,
+    }) + "\n")
+PY
+}
+
+status_write() {
+  local state="$1" detail="$2" target="${3:-}"
+  python3 - "$STATUSFILE" "$state" "$detail" "$target" <<'PY' 2>/dev/null || true
+import json, sys, time
+path, state, detail, target = sys.argv[1:5]
+with open(path, "w") as handle:
+    json.dump({"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+               "state": state, "detail": detail, "target": target}, handle)
+PY
+}
+
+# --- gate 1: the class ------------------------------------------------------
+#
+# Read out of the plugin's own tables rather than restated here. The INSTALLED
+# plugin is preferred over the repo build because that is the policy in force:
+# checking a proposed edit against the policy it would INTRODUCE, rather than
+# the one it is subject to, is how a change to the class tables would authorise
+# itself.
+POLICY_DIST=""
+resolve_policy() {
+  [[ -n "$POLICY_DIST" ]] && return 0
+  local candidate
+  for candidate in "$INSTALLED_DIST" "$PLUGIN/dist"; do
+    if [[ -f "$candidate/selfrepair.js" ]]; then POLICY_DIST="$candidate"; return 0; fi
+  done
+  log "refused: no compiled repair policy found. Build the plugin first."
+  return 1
+}
+
+classify() {  # classify <surface> <target>; sets KLASS and REASON
+  resolve_policy || return 1
+  local raw
+  raw="$("$NODE" "$LIB/orion-repair-classify.mjs" "$POLICY_DIST" classify "$1" "$2" 2>&1)" || {
+    log "refused: could not classify '$2': $raw"
+    return 1
+  }
+  KLASS="$(print -r -- "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("klass",""))' 2>/dev/null)"
+  REASON="$(print -r -- "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","") or "")' 2>/dev/null)"
+  [[ -n "$KLASS" ]]
+}
+
+# The class the caller claimed has to be the class the tables say.
+#
+# Checked in both directions on purpose. An authority target arriving without
+# `--authority` is the attack — it would mean the approval gate and the naming
+# requirement were skipped — and it is refused with the sentence Orion needs in
+# order to ask Nick properly rather than a bare denial.
+require_class() {  # require_class <surface> <target> <authority-flag>
+  local surface="$1" target="$2" authority="$3"
+  classify "$surface" "$target" || return 1
+  case "$KLASS" in
+    forbidden)
+      log "refused: $REASON"
+      ledger refused "forbidden: $REASON" "$surface" "$target"
+      return 1
+      ;;
+    authority)
+      if (( ! authority )); then
+        log "refused: '$target' decides what Orion is allowed to do."
+        log "         That is allowed, but not silently. Ask for it by name — say what"
+        log "         you want changed and that you mean it as a permission change — and"
+        log "         Orion will come back for your confirmation before anything moves."
+        ledger refused "authority target without approval gate" "$surface" "$target"
+        return 1
+      fi
+      ;;
+    operational)
+      if (( authority )); then
+        log "refused: '$target' is ordinary behaviour, not an authority change."
+        ledger refused "operational target on the authority path" "$surface" "$target"
+        return 1
+      fi
+      ;;
+    *)
+      log "refused: '$target' could not be classified, so it is refused."
+      ledger refused "unclassifiable" "$surface" "$target"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+# Resolve a bare name inside a fixed directory, refusing everything clever.
+#
+# Three separate checks, because each catches something the others do not:
+# the shape check kills `../` and absolute paths before any filesystem call;
+# the realpath comparison kills a symlink pointing out of the tree; and the
+# on-disk listing kills case-folded spellings, which a case-insensitive
+# filesystem would otherwise resolve happily to a file whose real name is in a
+# different class.
+resolve_in() {  # resolve_in <root> <name>; prints absolute path
+  local root_raw="$1" name="$2"
+  case "$name" in
+    ""|.|..|*/*|*\\*|.*) log "refused: '$name' is not a bare name"; return 1 ;;
+  esac
+  local root target real
+  root="${root_raw:A}"
+  [[ -d "$root" ]] || { log "refused: missing directory $root_raw"; return 1 }
+  target="$root/$name"
+  [[ -f "$target" ]] || { log "refused: no such file '$name'"; return 1 }
+  real="${target:A}"
+  if [[ "${real:h}" != "$root" ]]; then
+    log "refused: '$name' resolves outside its directory (symlink?)"
+    return 1
+  fi
+  if ! python3 -c 'import os,sys; sys.exit(0 if sys.argv[2] in os.listdir(sys.argv[1]) else 1)' "$root" "$name"; then
+    log "refused: '$name' is not spelled the way it is on disk"
+    return 1
+  fi
+  print -r -- "$real"
+}
+
+# --- gate 4: it must still run ---------------------------------------------
+#
+# Two questions, not one. "Is the gateway answering" misses the failure that
+# actually matters here: a plugin that throws on load leaves a perfectly healthy
+# gateway with none of Orion's tools in it, which from the outside looks fine
+# and from Orion's side is total.
+health_ok() {
+  if [[ -n "${ORION_REPAIR_HEALTH_CMD:-}" ]]; then
+    eval "$ORION_REPAIR_HEALTH_CMD" >/dev/null 2>&1
+    return $?
+  fi
+  curl -fsS --max-time 5 http://127.0.0.1:18789/health 2>/dev/null | grep -q '"ok":true' || return 1
+  "$OPENCLAW" plugins inspect orion-control 2>/dev/null | grep -q '^Status: loaded' || return 1
+  return 0
+}
+
+restart_gateway() {
+  if [[ -n "${ORION_REPAIR_RESTART_CMD:-}" ]]; then
+    eval "$ORION_REPAIR_RESTART_CMD" >/dev/null 2>&1
+    return $?
+  fi
+  "$OPENCLAW" daemon restart >/dev/null 2>&1
+}
+
+wait_healthy() {  # wait_healthy [seconds]
+  local budget="${1:-90}" waited=0
+  while (( waited < budget )); do
+    sleep 3
+    (( waited += 3 ))
+    health_ok && return 0
+  done
+  return 1
+}
+
+# Restore a backup only over the file it was taken from.
+#
+# A blind restore is a destructive write with no check on it, and `revert` is
+# reached exactly when something has already gone wrong. A backup with no
+# recorded target predates this rule and is skipped rather than trusted.
+restore_verified() {  # restore_verified <backup> <destination>
+  local backup="$1" destination="$2" recorded
+  if [[ ! -f "$backup.target" ]]; then
+    log "  skipping ${backup:t}: no recorded target, so it cannot be trusted"
+    return 1
+  fi
+  recorded="$(<"$backup.target")"
+  if [[ "$recorded" != "$destination" ]]; then
+    log "  skipping ${backup:t}: it was taken from $recorded, not $destination"
+    return 1
+  fi
+  cat "$backup" > "$destination"
+}
+
+backup_installed_dist() {
+  rm -rf "$BACKUPS/dist.previous"
+  [[ -d "$INSTALLED_DIST" ]] && cp -R "$INSTALLED_DIST" "$BACKUPS/dist.previous"
+  return 0
+}
+
+deploy_dist() {
+  mkdir -p "$INSTALLED_ROOT"
+  rm -rf "$INSTALLED_DIST"
+  cp -R "$PLUGIN/dist" "$INSTALLED_DIST"
+}
+
+restore_installed_dist() {
+  [[ -d "$BACKUPS/dist.previous" ]] || return 1
+  rm -rf "$INSTALLED_DIST"
+  cp -R "$BACKUPS/dist.previous" "$INSTALLED_DIST"
+}
+
+# --- plugin -----------------------------------------------------------------
+
+cmd_plugin_list() {
+  resolve_policy || return 1
+  "$NODE" "$LIB/orion-repair-classify.mjs" "$POLICY_DIST" list plugin
+}
+
+cmd_plugin_read() {
+  local file="${1:-}"
+  [[ -n "$file" ]] || { log "usage: orion-repair plugin-read <file.ts>"; return 2 }
+  classify plugin "$file" || return 2
+  [[ "$KLASS" == "forbidden" ]] && { log "refused: $REASON"; return 2 }
+  local target
+  target="$(resolve_in "$SRC" "$file")" || return 2
+  cat "$target"
+}
+
+cmd_plugin_modify() {
+  local file="${1:-}" findfile="${2:-}" replacefile="${3:-}"
+  shift 3 2>/dev/null || { log "usage: orion-repair plugin-modify <file.ts> <find-file> <replace-file> [flags]"; return 2 }
+  local authority=0 detach=0 instruction=""
+  while (( $# )); do
+    case "$1" in
+      --authority) authority=1 ;;
+      --detach-restart) detach=1 ;;
+      --instruction) shift; instruction="${1:-}" ;;
+    esac
+    shift
+  done
+  [[ -f "$findfile" && -f "$replacefile" ]] || { log "refused: missing find/replace file"; return 2 }
+  [[ -n "$NODE" ]] || { log "refused: no node runtime found"; return 2 }
+
+  require_class plugin "$file" "$authority" || return 2
+  local target
+  target="$(resolve_in "$SRC" "$file")" || { ledger refused "path rejected" plugin "$file"; return 2 }
+
+  # Stage the edit through the same unique-match rule orion-forge uses. A find
+  # string that appears twice is ambiguous, and resolving ambiguity is how an
+  # edit lands somewhere nobody meant.
+  local staged
+  staged="$(mktemp)"
+  if ! python3 "$SCRIPTS/orion_forge_edit.py" "$target" "$findfile" "$replacefile" "$staged"; then
+    rm -f "$staged"
+    ledger refused "edit did not apply" plugin "$file"
+    return 2
+  fi
+
+  local backup="$BACKUPS/src.$file.previous"
+  cp "$target" "$backup" || { rm -f "$staged"; log "refused: could not back up the source"; return 1 }
+  # What this is a backup OF. `revert` refuses a backup whose recorded target is
+  # not the file it is about to overwrite, so a backup taken against a different
+  # tree can never be restored over the real one.
+  print -r -- "$target" > "$backup.target"
+  cp "$staged" "$target"
+  rm -f "$staged"
+
+  local undo="cp \"$backup\" \"$target\""
+
+  # --- gate 2: it must compile, and the suite must pass ---------------------
+  log "→ building"
+  local buildlog; buildlog="$(mktemp)"
+  if ! ( cd "$PLUGIN" && ./node_modules/.bin/tsc -p tsconfig.json ) >"$buildlog" 2>&1; then
+    log "✗ build failed — reverted, nothing was installed"
+    grep -E 'error TS' "$buildlog" | head -20 >&2
+    eval "$undo"
+    rm -f "$buildlog"
+    ledger rejected "build failed" plugin "$file"
+    return 1
+  fi
+  rm -f "$buildlog"
+
+  log "→ running the test suite"
+  local testlog; testlog="$(mktemp)"
+  if ! ( cd "$PLUGIN" && ./node_modules/.bin/vitest run --config ./vitest.config.ts ) >"$testlog" 2>&1; then
+    log "✗ tests failed — reverted, nothing was installed"
+    grep -E '✗|×|FAIL|AssertionError' "$testlog" | head -25 >&2
+    eval "$undo"
+    ( cd "$PLUGIN" && ./node_modules/.bin/tsc -p tsconfig.json ) >/dev/null 2>&1
+    rm -f "$testlog"
+    ledger rejected "tests failed" plugin "$file"
+    return 1
+  fi
+  rm -f "$testlog"
+
+  # --- gate 3: the gate must still refuse ----------------------------------
+  if "$NODE" "$LIB/orion-repair-classify.mjs" "$POLICY_DIST" needs-selftest "$file"; then
+    log "→ proving the trusted_user gate still refuses"
+    local gatelog; gatelog="$(mktemp)"
+    if ! "$NODE" "$LIB/orion-gate-selftest.mjs" "$PLUGIN/dist" >"$gatelog" 2>&1; then
+      log "✗ the gate self-test failed — this change would have weakened the check that"
+      log "  decides whether you asked. Reverted; nothing was installed."
+      cat "$gatelog" >&2
+      eval "$undo"
+      ( cd "$PLUGIN" && ./node_modules/.bin/tsc -p tsconfig.json ) >/dev/null 2>&1
+      rm -f "$gatelog"
+      ledger rejected "gate self-test failed" plugin "$file"
+      (( authority )) && audit_authority plugin "$file" gate_selftest_failed "$instruction"
+      return 1
+    fi
+    cat "$gatelog" >&2
+    rm -f "$gatelog"
+  fi
+
+  # --- gate 4: install, restart, and prove it came back --------------------
+  backup_installed_dist
+  log "→ installing"
+  deploy_dist
+
+  (( authority )) && audit_authority plugin "$file" applied "$instruction"
+
+  if (( detach )); then
+    # The gateway is the process that asked for this, so waiting for it to
+    # restart here would mean waiting to be killed. Hand the restart, the health
+    # probe and the rollback to a launchd job that outlives it.
+    status_write restarting "deployed, waiting for the gateway to come back" "$file"
+    ledger deployed "awaiting health probe" plugin "$file"
+    launchctl submit -l "com.nickmadaio.orion.repairwatch" \
+      -o /tmp/orion-repairwatch.log -e /tmp/orion-repairwatch.log \
+      -- "$SCRIPTS/orion-repair" __watch-deploy "$target" "$backup" "$file" 2>/dev/null
+    log "✓ built, tested and installed. Restarting the gateway now — ask me for"
+    log "  self_repair_status in a moment and I will tell you whether it came back."
+    return 0
+  fi
+
+  log "→ restarting the gateway"
+  restart_gateway
+  if wait_healthy 90; then
+    status_write healthy "applied" "$file"
+    ledger applied "built, tested, installed, healthy" plugin "$file"
+    log "✓ applied — the gateway is back and the plugin is loaded"
+    return 0
+  fi
+
+  log "✗ the gateway did not come back — restoring the previous plugin"
+  restore_installed_dist
+  eval "$undo"
+  ( cd "$PLUGIN" && ./node_modules/.bin/tsc -p tsconfig.json ) >/dev/null 2>&1
+  restart_gateway
+  if wait_healthy 90; then
+    status_write rolled_back "the change was undone and the gateway is healthy" "$file"
+    log "  previous plugin restored and the gateway is healthy again"
+  else
+    status_write broken "rolled back but the gateway is still not answering" "$file"
+    log "  ROLLED BACK BUT STILL UNHEALTHY — a human needs to look at this"
+  fi
+  ledger rejected "unhealthy after deploy" plugin "$file"
+  (( authority )) && audit_authority plugin "$file" rolled_back "$instruction"
+  return 1
+}
+
+# The detached half of a plugin deploy. Runs as its own launchd job so that
+# killing the gateway cannot kill the thing whose job is to notice.
+cmd_watch_deploy() {
+  local target="${1:-}" backup="${2:-}" file="${3:-}"
+  restart_gateway
+  if wait_healthy 120; then
+    status_write healthy "applied" "$file"
+    ledger applied "built, tested, installed, healthy" plugin "$file"
+    launchctl remove com.nickmadaio.orion.repairwatch 2>/dev/null
+    return 0
+  fi
+  restore_installed_dist
+  [[ -f "$backup" && -n "$target" ]] && cp "$backup" "$target"
+  ( cd "$PLUGIN" && ./node_modules/.bin/tsc -p tsconfig.json ) >/dev/null 2>&1
+  restart_gateway
+  if wait_healthy 120; then
+    status_write rolled_back "the change was undone and the gateway is healthy" "$file"
+  else
+    status_write broken "rolled back but the gateway is still not answering" "$file"
+  fi
+  ledger rejected "unhealthy after deploy" plugin "$file"
+  launchctl remove com.nickmadaio.orion.repairwatch 2>/dev/null
+  return 1
+}
+
+cmd_plugin_revert() {
+  local restored=0 file
+  for backup in "$BACKUPS"/src.*.previous(N); do
+    file="${${backup:t}#src.}"; file="${file%.previous}"
+    restore_verified "$backup" "$SRC/$file" && { log "→ restored $file"; restored=1 }
+  done
+  (( restored )) || { log "nothing to revert"; return 1 }
+  ( cd "$PLUGIN" && ./node_modules/.bin/tsc -p tsconfig.json ) >/dev/null 2>&1 || {
+    log "✗ the restored source does not build — leaving the installed plugin alone"
+    ledger rejected "revert did not build" plugin ""
+    return 1
+  }
+  backup_installed_dist
+  deploy_dist
+  restart_gateway
+  if wait_healthy 90; then
+    status_write healthy "reverted" ""
+    ledger reverted "plugin restored and healthy" plugin ""
+    log "✓ reverted, reinstalled, gateway healthy"
+    return 0
+  fi
+  restore_installed_dist
+  restart_gateway
+  wait_healthy 90
+  status_write rolled_back "revert failed its health check and was undone" ""
+  ledger rejected "revert unhealthy" plugin ""
+  return 1
+}
+
+cmd_plugin_status() {
+  print -r -- "policy:    ${POLICY_DIST:-(unresolved)}"
+  resolve_policy 2>/dev/null && print -r -- "policy:    $POLICY_DIST"
+  print -r -- "installed: $INSTALLED_DIST"
+  print -r -- "gateway:   $(health_ok && echo healthy || echo UNHEALTHY)"
+  if [[ -f "$STATUSFILE" ]]; then
+    print -r -- "last:      $(cat "$STATUSFILE")"
+  else
+    print -r -- "last:      (no repair recorded)"
+  fi
+  print -r -- "backups:   $(ls "$BACKUPS" 2>/dev/null | tr '\n' ' ')"
+  if [[ -f "$LEDGER" ]]; then print -r -- "--- last 5 repair entries ---"; tail -5 "$LEDGER"; fi
+  return 0
+}
+
+# --- scripts ----------------------------------------------------------------
+
+cmd_script_list() {
+  resolve_policy || return 1
+  "$NODE" "$LIB/orion-repair-classify.mjs" "$POLICY_DIST" list script
+}
+
+cmd_script_read() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || { log "usage: orion-repair script-read <name>"; return 2 }
+  classify script "$name" || return 2
+  [[ "$KLASS" == "forbidden" ]] && { log "refused: $REASON"; return 2 }
+  local target
+  target="$(resolve_in "$SCRIPTS" "$name")" || return 2
+  cat "$target"
+}
+
+# A wrapper is not built, so "it must compile" becomes "it must parse and it
+# must still answer". Both are cheap and both catch the failure that matters:
+# a wrapper with a syntax error is a wrapper that fails at the moment Orion
+# needs it, silently, because `ask: off` turns a miss into an 8-second denial.
+smoke_script() {
+  local target="$1" first
+  first="$(head -1 "$target")"
+  case "$first" in
+    *zsh*)     zsh -n "$target" || return 1 ;;
+    *bash*|*sh*) bash -n "$target" || return 1 ;;
+    *node*)    "$NODE" --check "$target" || return 1 ;;
+    *python*)  python3 -m py_compile "$target" || return 1 ;;
+    *) log "  (no syntax checker for this interpreter — skipping the parse check)" ;;
+  esac
+  # A read-only subcommand if the script advertises one. Not every wrapper has a
+  # safe no-argument mode, so a missing one is not a failure — an exploding one
+  # is.
+  local out
+  if grep -qE '^\s*(status|--help|-h)\)' "$target" 2>/dev/null; then
+    out="$(timeout 20 "$target" status 2>&1)" || {
+      log "  smoke test failed: $out"
+      return 1
+    }
+  fi
+  return 0
+}
+
+cmd_script_modify() {
+  local name="${1:-}" findfile="${2:-}" replacefile="${3:-}"
+  shift 3 2>/dev/null || { log "usage: orion-repair script-modify <name> <find-file> <replace-file> [flags]"; return 2 }
+  local authority=0 instruction=""
+  while (( $# )); do
+    case "$1" in
+      --authority) authority=1 ;;
+      --instruction) shift; instruction="${1:-}" ;;
+    esac
+    shift
+  done
+  [[ -f "$findfile" && -f "$replacefile" ]] || { log "refused: missing find/replace file"; return 2 }
+
+  require_class script "$name" "$authority" || return 2
+  local target
+  target="$(resolve_in "$SCRIPTS" "$name")" || { ledger refused "path rejected" script "$name"; return 2 }
+
+  local staged; staged="$(mktemp)"
+  if ! python3 "$SCRIPTS/orion_forge_edit.py" "$target" "$findfile" "$replacefile" "$staged"; then
+    rm -f "$staged"
+    ledger refused "edit did not apply" script "$name"
+    return 2
+  fi
+
+  local backup="$BACKUPS/script.$name.previous"
+  cp "$target" "$backup" || { rm -f "$staged"; log "refused: could not back up the script"; return 1 }
+  print -r -- "$target" > "$backup.target"
+  # Preserve the mode: a wrapper that is no longer executable is a wrapper that
+  # is gone, and cp of a temp file would have made it 0600.
+  cat "$staged" > "$target"
+  rm -f "$staged"
+
+  log "→ checking it still parses and runs"
+  if ! smoke_script "$target"; then
+    log "✗ the edited script does not pass its own smoke check — restoring the previous copy"
+    cat "$backup" > "$target"
+    ledger rejected "smoke check failed" script "$name"
+    (( authority )) && audit_authority script "$name" rolled_back "$instruction"
+    return 1
+  fi
+
+  (( authority )) && audit_authority script "$name" applied "$instruction"
+  ledger applied "edited and smoke-checked" script "$name"
+  status_write healthy "script updated" "$name"
+  log "✓ $name updated, parsed and smoke-checked"
+  return 0
+}
+
+cmd_script_revert() {
+  local restored=0 name
+  for backup in "$BACKUPS"/script.*.previous(N); do
+    name="${${backup:t}#script.}"; name="${name%.previous}"
+    restore_verified "$backup" "$SCRIPTS/$name" && { log "→ restored $name"; restored=1 }
+  done
+  (( restored )) || { log "nothing to revert"; return 1 }
+  ledger reverted "scripts restored" script ""
+  return 0
+}
+
+# --- config -----------------------------------------------------------------
+
+cmd_config_list() {
+  resolve_policy || return 1
+  "$NODE" "$LIB/orion-repair-classify.mjs" "$POLICY_DIST" list config "$CONFIG"
+}
+
+cmd_config_modify() {
+  local key="${1:-}" valuefile="${2:-}"
+  shift 2 2>/dev/null || { log "usage: orion-repair config-modify <key> <value-json-file> [flags]"; return 2 }
+  local authority=0 instruction=""
+  while (( $# )); do
+    case "$1" in
+      --authority) authority=1 ;;
+      --detach-restart) ;;
+      --instruction) shift; instruction="${1:-}" ;;
+    esac
+    shift
+  done
+  [[ -f "$valuefile" ]] || { log "refused: missing value file"; return 2 }
+
+  require_class config "$key" "$authority" || return 2
+
+  # Range and shape, from the same table. `openclaw config set` validates
+  # against the schema and would catch a type error on its own, but the schema
+  # does not know that a two-second endpointing delay makes Orion unusable.
+  resolve_policy || return 2
+  local issues
+  issues="$("$NODE" "$LIB/orion-repair-classify.mjs" "$POLICY_DIST" validate-config "$key" "$valuefile" 2>&1 |
+    python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("issues",[])))' 2>/dev/null)"
+  if [[ -n "$issues" ]]; then
+    log "refused: $issues"
+    ledger refused "value rejected: $issues" config "$key"
+    return 2
+  fi
+
+  local value; value="$(cat "$valuefile")"
+  local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
+  cp "$CONFIG" "$BACKUPS/openclaw.json.previous" || { log "refused: could not back up the config"; return 1 }
+  cp "$CONFIG" "$BACKUPS/openclaw.json.$stamp"
+
+  log "→ setting $key"
+  local setlog; setlog="$(mktemp)"
+  if ! "$OPENCLAW" config set "$key" "$value" --strict-json >"$setlog" 2>&1; then
+    log "✗ the config write was refused:"
+    head -10 "$setlog" >&2
+    cp "$BACKUPS/openclaw.json.previous" "$CONFIG"
+    rm -f "$setlog"
+    ledger rejected "config set refused" config "$key"
+    return 1
+  fi
+  rm -f "$setlog"
+
+  log "→ validating"
+  if ! "$OPENCLAW" config validate >/dev/null 2>&1; then
+    log "✗ the resulting config does not validate — restoring the previous one"
+    cp "$BACKUPS/openclaw.json.previous" "$CONFIG"
+    "$OPENCLAW" config validate >/dev/null 2>&1 || log "  WARNING: the restored config does not validate either"
+    ledger rejected "config invalid after write" config "$key"
+    (( authority )) && audit_authority config "$key" rolled_back "$instruction"
+    return 1
+  fi
+
+  (( authority )) && audit_authority config "$key" applied "$instruction"
+  ledger applied "set to $value" config "$key"
+  status_write healthy "config updated" "$key"
+  log "✓ $key = $value — written and validated."
+  log "  Some settings only take effect when the gateway next restarts."
+  return 0
+}
+
+cmd_config_revert() {
+  [[ -f "$BACKUPS/openclaw.json.previous" ]] || { log "nothing to revert"; return 1 }
+  cp "$CONFIG" "$BACKUPS/openclaw.json.undo"
+  cp "$BACKUPS/openclaw.json.previous" "$CONFIG"
+  if ! "$OPENCLAW" config validate >/dev/null 2>&1; then
+    log "✗ the restored config does not validate — putting it back"
+    cp "$BACKUPS/openclaw.json.undo" "$CONFIG"
+    ledger rejected "revert invalid" config ""
+    return 1
+  fi
+  ledger reverted "config restored" config ""
+  status_write healthy "config reverted" ""
+  log "✓ the previous config is back and validates"
+  return 0
+}
+
+case "${1:-plugin-status}" in
+  plugin-list)    cmd_plugin_list ;;
+  plugin-read)    shift; cmd_plugin_read "$@" ;;
+  plugin-modify)  shift; cmd_plugin_modify "$@" ;;
+  plugin-revert)  cmd_plugin_revert ;;
+  plugin-status)  cmd_plugin_status ;;
+  script-list)    cmd_script_list ;;
+  script-read)    shift; cmd_script_read "$@" ;;
+  script-modify)  shift; cmd_script_modify "$@" ;;
+  script-revert)  cmd_script_revert ;;
+  config-list)    cmd_config_list ;;
+  config-modify)  shift; cmd_config_modify "$@" ;;
+  config-revert)  cmd_config_revert ;;
+  __watch-deploy) shift; cmd_watch_deploy "$@" ;;
+  *)
+    log "usage: orion-repair {plugin|script|config}-{list|read|modify|revert} | plugin-status"
+    exit 2
+    ;;
+esac

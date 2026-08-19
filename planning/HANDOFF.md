@@ -247,3 +247,224 @@ Break these and things get quietly worse rather than loudly broken.
 6. **Effects are acknowledged separately from being emitted.** A crash between
    the two re-emits; a crash after does not. That is what makes "exactly one
    history record per session, ever" true rather than hoped for.
+
+---
+
+## 9. Continuation update — 2026-08-11 afternoon
+
+This section supersedes the "nothing is half-built" wording above for the
+work completed after this handoff was written. These changes are **uncommitted**
+at the time of this update; preserve the existing working tree and do not reset
+or checkout over it.
+
+### Verified since the original handoff
+
+- `./Tests/run-domain-test.sh` passes: **218 tests**.
+- `./Tests/run-layout-test.sh` passes.
+- `./Tests/run-race-test.sh` passes.
+- `./make_app_bundle.sh` builds and signs the app. The remaining compiler
+  warnings are pre-existing selector/deprecation warnings, not build failures.
+- The installed app previously crashed while rendering Settings because the Do
+  Not Disturb Shortcut check synchronously launched work from SwiftUI's render
+  path. `AppState` now refreshes that configuration asynchronously and stores a
+  published result. The rebuilt app launched and remained running after install.
+
+### Calendar and Settings changes
+
+- Calendar completion markers are now visually stronger: completed task days
+  get a calm green tint and a visible check-count capsule even without a health
+  score. A missing score remains ungraded; completion is not presented as a
+  grade.
+- `CalendarModel` now reloads after asynchronous Reminders completion history
+  arrives. This fixes the original race where historical completed days could
+  remain absent from week/month views even though Reminders access was granted.
+- Settings sections start collapsed. The always-expanded Calendar inventory and
+  Connections list are nested behind their own sections.
+- The above changes compiled and were installed once, but the final visual
+  review of a real historical-completion month is still needed.
+
+### Live focus awareness
+
+- Every voice or typed request sent from the native Orion app now carries a
+  compact, app-supplied snapshot: session state, phase, task, enforcement
+  state, and the temporary **allowed work apps**. This is context supplied by
+  `SessionService`/`Enforcer`, not inferred by the model.
+- The temporary set is intentionally an allowlist, not a list of distractions.
+  Do not claim an app was hidden, blocked, or quit unless the enforcement layer
+  actually confirms the action.
+
+### Session and break surface work in progress
+
+- During a live focus block, Home now transforms into a session dashboard rather
+  than showing the normal launcher: a smaller Orion visual, the active task,
+  elapsed focus time, remaining block time, and next-break line are visible.
+- The dashboard has a truthful sound card. It says that the session is quiet
+  until clips are supplied, and does not pretend Apple Music playback controls
+  or binaural audio exist yet.
+- The existing domain already supported shortening a break. The break surface
+  now exposes a **"Make this a 3-minute reset"** action during longer breaks;
+  it uses `shortenRest`, not skip, so the session structure remains correct.
+- The session tests passed after these changes.
+
+### What is still not implemented — do not overclaim
+
+Nick's desired focus ladder is:
+
+1. Gentle: notice drift and speak once.
+2. Guided: bring the allowed work app forward after repeated drift.
+3. Firm: hide non-allowed apps without force-quitting or risking unsaved work.
+4. Shield: a full-screen Orion focus reminder that returns to the work context
+   while preserving an unconditional local escape.
+
+The current code still implements only Gentle/Firm **spoken nudge** semantics.
+It does not yet hide applications, close applications, block relaunches, or
+show the focus shield. Apple's Lockdown Mode is a security-hardening feature,
+not a focus-control mechanism, and should not be used for this feature.
+
+The existing break surface can already go full-screen, but it is still a sparse
+utility panel. It needs the mindful, guided reset redesign: a full-screen calm
+visual, mediation/guided-break choices, clip status, and the bounded
+three-minute option. It must keep a reliable exit path and never pretend it can
+capture macOS or prevent Force Quit.
+
+### Audio and permissions: current truth
+
+- The original 24 kHz mono concern remains disproved for built-in speakers. No
+  user-reported audio defect was found. Bluetooth was only a future hypothesis,
+  not an observed AirPods issue.
+- There are no focus clips in the expected clip directory, so calming/binaural
+  session sound is not currently usable. Build the visual/control surface around
+  this honest unavailable state, then add an owned sound source or user clips.
+- Music integration currently pauses/resumes Apple Music by opt-in; it has no
+  now-playing metadata, artwork, seeking, skip, or volume controls. Those need
+  a separate implementation and first-use macOS Automation consent.
+- Live Settings previously reported Accessibility, Calendars, Reminders,
+  Contacts, Microphone, Speech Recognition, and Full Disk Access granted.
+  Camera presence was toggled on, but a fresh real camera-prompt check is still
+  required. Do Not Disturb still depends on Shortcuts named `Orion Focus On`
+  and `Orion Focus Off`.
+- Messages bridge work exists in the working tree (`MessageBridge.swift` and
+  `MessageAccess.swift`) and compiles with the app, but end-to-end agent use has
+  not been proved yet.
+
+### Immediate next order
+
+1. Finish and visually review the full-screen break redesign and active-session
+   dashboard together.
+2. Implement the focus enforcement ladder as test-gated, non-forceful native
+   behavior; retain the unconditional escape and protected-system-app boundary.
+3. Add real music/clip status and controls only when the audio source exists;
+   test on the user's normal output route.
+4. Run a real month/week calendar check after Reminders sync, then verify the
+   permission states through the installed app.
+5. Test the uncommitted Messages bridge end to end before describing Messages
+   access as complete.
+
+### Aug 11 — durable daily health history
+
+- Health is now persisted in the existing private, atomically-written
+  `health-log.json` as one simple record per logical day. The records hold
+  water, manually entered calories, supplement checkmarks, workout history,
+  and only the wearable measurements actually received (recovery, sleep, HRV,
+  resting heart rate, and strain).
+- The former supplement and calorie fields remain readable for companion-plugin
+  compatibility; on the next write, their historical values are copied into
+  the day records. Nothing is discarded.
+- Water no longer comes from a separate in-memory/UserDefaults counter in the
+  Health UI or dashboard header. `HealthLog` resolves the logical day on its
+  regular poll, so a new day reads as zero without requiring a restart or a
+  water-button press.
+- Calendar scoring now consumes saved historical health facts when available;
+  it continues to show insufficient data rather than inventing missing values.
+  Scores are derived from saved facts and the versioned score policy, so the
+  score history remains explainable if the policy changes.
+- `./Tests/run-domain-test.sh` passed (218 tests) and the production app bundle
+  built, signed, installed, and launched after this change.
+
+### Aug 11 — Nutrition tracker
+
+- The former single manual calorie field is now a local-first food log. Each
+  meal entry can record its meal slot, calories, protein, carbohydrates, fat,
+  fiber, and notes. The food-log surface also exposes editable daily calorie
+  and macro targets, a same-day total, removal controls, and recent-food
+  shortcuts.
+- Nutrition entries and goals live in the same private `health-log.json` day
+  records. Existing manual totals migrate into a visible, removable imported
+  entry instead of disappearing or being silently reinterpreted.
+- Health's right rail has a compact at-a-glance grid plus a Food Log entry
+  point; the main column retains a lightweight nutrition summary. Recovery,
+  sleep, and strain cards were enlarged slightly.
+- This is a manual local tracker. It does not yet search a food database,
+  scan barcodes, infer portion sizes, or connect HealthKit; those require a
+  separately chosen source and permission path.
+
+### Aug 11 — Focus-session visual alignment
+
+- The active focus surface was rebuilt around the approved generated reference
+  instead of the earlier loose card layout. It is now one proportional
+  two-column scene: Orion identity and constellation over a full media console
+  on the left; the gold ticked timer, elapsed/next-break clocks, and Focus Guard
+  on the right. Window controls, typography, spacing, glow, and radial detail
+  were matched in the real SwiftUI render rather than inferred from a build.
+- Live sessions still use real session values. The reference track metadata is
+  preview-only; when no source exists, the installed surface says that session
+  audio is not connected and disables the pretend playback state.
+- A 1512 x 944 isolated render of the production `FocusSessionHome` was visually
+  compared with the reference after two sizing passes. The final production app
+  then built and signed, `run-domain-test.sh` passed all 218 tests, and
+  `run-layout-test.sh` passed.
+- The signed bundle was installed at `/Applications/Orion.app`. A cold-launch
+  verification paused in the pre-existing synchronous Keychain connector read
+  before the command-center window appeared; no unexpected Keychain prompt was
+  approved. The session surface itself was therefore visually verified through
+  the isolated real-view harness, not claimed from the blocked full-app route.
+
+### Aug 12 — Focus audio and Progressive Guard corrections
+
+- The continuous ticked Focus Guard meter is back in the live session surface.
+  Progressive is now the default app-allowlist mode and climbs on continued
+  drift from Gentle to Guided, Firm, and finally Shield. Every fixed level is
+  still available, and the unconditional release remains unchanged.
+- Binaural's player pause is now separate from the session's pause state. A
+  running-session heartbeat can no longer resume audio after the player itself
+  was paused; the regression is covered by repeated-heartbeat tests.
+- Selecting Apple Music now sends an explicit play command instead of toggling
+  play/pause, so a delayed status refresh cannot turn an already-playing queue
+  off. Choosing a different source from the active-player menu also activates
+  that source rather than only relabelling the card. Music still requires the
+  normal first-use macOS Automation consent.
+- The real focus-view harness rendered the five-mode control and restored meter.
+  The full domain/service suite passed all 234 tests, the native layout harness
+  passed, and the release bundle was signed, installed, signature-verified, and
+  relaunched from `/Applications/Orion.app`.
+
+### Aug 12 — Apple Music artwork and Health-inspired session polish
+
+- Apple Music status now carries the track's persistent ID. Orion fetches the
+  current track artwork only when that ID changes, decodes it locally, and uses
+  it in the session player. It no longer presents Orion's Binaural waveform as
+  Apple Music cover art; a quiet Music placeholder is used only when a track
+  has no embedded artwork or it has not arrived yet.
+- The session audio surface now follows the Health tab's visual grammar:
+  layered neutral panels, slim color rails, circular hover controls, a single
+  emphasized play/pause action, and quieter status/source controls. Guard mode
+  selection uses restrained underline states instead of five bordered boxes.
+- Both the full player and silent chooser were rendered from the production
+  SwiftUI view at 1600 x 1000 and visually reviewed. All 234 tests passed. The
+  release bundle was signed, installed, verified, and reopened from
+  `/Applications/Orion.app`. Real-track artwork retrieval still requires a
+  normal user-selected Apple Music track and the already configured Automation
+  approval; no music was started merely for an automated visual test.
+
+### Aug 12 — Player hierarchy and single allowlist prompt
+
+- The Apple Music source selector and playback state now live in a top strip
+  above the artwork/metadata row. The song title owns the full metadata column,
+  supports two lines, and is no longer squeezed out by the source control.
+- The repeated app-allowlist prompt was a real duplicate-view bug: `HomeTab`
+  created one live `FocusSessionHome` while `DashboardView` overlaid a second.
+  Home no longer creates the hidden copy; the dashboard overlay is the sole
+  session surface and sole sheet presenter. A source-level regression asserts
+  exactly one production `FocusSessionHome` owner.
+- The revised player was rendered at 1600 x 1000 and reviewed. All 234 tests
+  passed; the signed bundle was installed, verified, and reopened.

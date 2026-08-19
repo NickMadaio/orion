@@ -1,3 +1,49 @@
+import { Type } from "typebox";
+export declare const ConfigSchema: Type.TObject<{
+    ledgerPath: Type.TOptional<Type.TString>;
+    enableTestWorkspaceActions: Type.TOptional<Type.TBoolean>;
+    testWorkspaceRoot: Type.TOptional<Type.TString>;
+    enableScratchWorkspaceActions: Type.TOptional<Type.TBoolean>;
+    scratchWorkspaceRoot: Type.TOptional<Type.TString>;
+    enableDesktopReadActions: Type.TOptional<Type.TBoolean>;
+    enableDesktopTestWorkspaceActions: Type.TOptional<Type.TBoolean>;
+    enableDesktopModifyActions: Type.TOptional<Type.TBoolean>;
+    enableDesktopDirectWriteActions: Type.TOptional<Type.TBoolean>;
+    enableScratchDirectWriteActions: Type.TOptional<Type.TBoolean>;
+    enableAppControlActions: Type.TOptional<Type.TBoolean>;
+    enableBrowserControlActions: Type.TOptional<Type.TBoolean>;
+    browserPreference: Type.TOptional<Type.TString>;
+    enableMediaControlActions: Type.TOptional<Type.TBoolean>;
+    enableHomeReadActions: Type.TOptional<Type.TBoolean>;
+    homeRoot: Type.TOptional<Type.TString>;
+    enableAmbientInfoActions: Type.TOptional<Type.TBoolean>;
+    defaultWeatherLocation: Type.TOptional<Type.TString>;
+    enableReminderActions: Type.TOptional<Type.TBoolean>;
+    remindersPath: Type.TOptional<Type.TString>;
+    enableFileMutateActions: Type.TOptional<Type.TBoolean>;
+    trashRoot: Type.TOptional<Type.TString>;
+    workshopPath: Type.TOptional<Type.TString>;
+    enableHealthTrackingActions: Type.TOptional<Type.TBoolean>;
+    healthLogPath: Type.TOptional<Type.TString>;
+    enableCalendarActions: Type.TOptional<Type.TBoolean>;
+    enableEpisodicCapture: Type.TOptional<Type.TBoolean>;
+    episodicMemoryPath: Type.TOptional<Type.TString>;
+    enableSelfTuningActions: Type.TOptional<Type.TBoolean>;
+    enableSelfModificationActions: Type.TOptional<Type.TBoolean>;
+    enableSelfPluginActions: Type.TOptional<Type.TBoolean>;
+    enableSelfScriptsActions: Type.TOptional<Type.TBoolean>;
+    enableSelfConfigActions: Type.TOptional<Type.TBoolean>;
+    desktopRoot: Type.TOptional<Type.TString>;
+    trustAllowPromptSource: Type.TOptional<Type.TBoolean>;
+    trustAllowSessionBinding: Type.TOptional<Type.TBoolean>;
+    trustAllowRecentBinding: Type.TOptional<Type.TBoolean>;
+    trustAllowTranscriptSource: Type.TOptional<Type.TBoolean>;
+    trustTranscriptAgent: Type.TOptional<Type.TString>;
+    trustTtlMs: Type.TOptional<Type.TInteger>;
+    trustRecentWindowMs: Type.TOptional<Type.TInteger>;
+    permissionStatePath: Type.TOptional<Type.TString>;
+    permissionAuditPath: Type.TOptional<Type.TString>;
+}>;
 declare const entry: import("openclaw/plugin-sdk/tool-plugin").DefinedToolPluginEntry;
 /**
  * Minimal surface of the host plugin API this plugin depends on for provenance.
@@ -10,6 +56,7 @@ interface ProvenanceHostApi {
     logger?: {
         warn?: (message: string) => void;
     };
+    pluginConfig?: Record<string, unknown>;
 }
 /**
  * Install the harness-only trust channel.

@@ -143,6 +143,16 @@ final class ConsoleController: ObservableObject {
     /// there is exactly one place the rule lives.
     var commands: [ConsoleCommand] {
         let all: [ConsoleCommand] = [
+            ConsoleCommand(id: "start", title: "Start focus session",
+                           hint: "three 50-minute blocks with 10-minute breaks", tier: .auto,
+                           kind: .session(.start(plan: SessionPlanBuilder.alternating(
+                               session: SessionID(from: UUID()),
+                               focusBlocks: 3,
+                               focus: 50 * 60,
+                               rest: 10 * 60,
+                               clips: [],
+                               task: "Focus"
+                           )))),
             ConsoleCommand(id: "pause", title: "Pause the session",
                            hint: "stops the clock", tier: .auto,
                            kind: .session(.pause)),

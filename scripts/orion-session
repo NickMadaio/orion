@@ -25,7 +25,7 @@
    orion-session abandon              gave up, archived as abandoned
 
    orion-session preflight            the apps Orion would allow — CONFIRM FIRST
-   orion-session arm [--level firm] --allow com.a,com.b
+   orion-session arm [--level gentle|guided|firm|shield] --allow com.a,com.b
    orion-session release              stop enforcement, unconditionally
 
  `release` is the escape hatch and it is deliberately the simplest command
@@ -130,7 +130,9 @@ function enforcementLine(reply) {
   if (!reply.enforcement || reply.enforcement === "off") return "";
   const words = {
     gentle: "enforcement: gentle",
+    guided: "enforcement: guided",
     firm: "enforcement: firm",
+    shield: "enforcement: shield",
     released: "enforcement: released — Orion will not mention drift again",
     disengaged: "enforcement: stopped after too many nudges",
   };

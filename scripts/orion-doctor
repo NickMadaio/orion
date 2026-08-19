@@ -14,6 +14,23 @@ emulate -L zsh
 set -u
 setopt pipefail
 
+live_agent=0
+for arg in "$@"; do
+  case "$arg" in
+    --live-agent) live_agent=1 ;;
+    -h|--help)
+      print "usage: ${0:t} [--live-agent]"
+      print "       --live-agent also runs one paid end-to-end model turn"
+      exit 0
+      ;;
+    *)
+      print -u2 "unknown option: $arg"
+      print -u2 "usage: ${0:t} [--live-agent]"
+      exit 2
+      ;;
+  esac
+done
+
 repo="${0:A:h:h}"
 socket="${ORION_TTS_SOCKET:-$HOME/.openclaw/orion-tts.sock}"
 config="$HOME/.openclaw/openclaw.json"
@@ -208,7 +225,7 @@ PY
 [[ -z "$gw_port" ]] && gw_port=18789
 if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(min(1, s.connect_ex(('127.0.0.1',$gw_port))))" 2>/dev/null; then
   ok "listening on 127.0.0.1:$gw_port"
-  if [[ -x "$openclaw_bin" ]]; then
+  if (( live_agent )) && [[ -x "$openclaw_bin" ]]; then
     if "$openclaw_bin" agent --session-key orion-doctor --message "reply with the single word: ok" \
         --json --timeout 45 >/dev/null 2>&1; then
       ok "completed a live agent turn"
@@ -216,6 +233,8 @@ if "$py" -c "import socket,sys; s=socket.socket(); s.settimeout(0.6); sys.exit(m
       bad "gateway is listening but an agent turn failed"
       print "        Try:  $openclaw_bin agent --session-key t --message hi --json"
     fi
+  elif [[ -x "$openclaw_bin" ]]; then
+    note "paid agent turn skipped (use --live-agent for end-to-end verification)"
   fi
 else
   bad "nothing listening on 127.0.0.1:$gw_port"
@@ -233,8 +252,13 @@ if [[ -z "$found" ]]; then
   warn "not built — cd native/Orion && ./make_app_bundle.sh"
 else
   ok "bundle at $found"
-  ident="$(codesign -dv "$found" 2>&1 | grep -i '^Identifier=' | head -1)"
-  auth="$(codesign -dv "$found" 2>&1 | grep -i '^Authority=' | head -1)"
+  # One `-v` omits Authority for this local certificate even though the bundle
+  # has a stable certificate-leaf designated requirement. Detailed inspection
+  # prints it; using the shallow form falsely diagnosed a good signature as
+  # ad-hoc and told Nick to recreate a certificate he already had.
+  signature="$(codesign -dvvv "$found" 2>&1)"
+  ident="$(print -r -- "$signature" | grep -i '^Identifier=' | head -1)"
+  auth="$(print -r -- "$signature" | grep -i '^Authority=' | head -1)"
   [[ -n "$ident" ]] && print "        ${ident}"
   if [[ -z "$auth" ]]; then
     warn "ad-hoc signed — macOS assigns a NEW identity on every rebuild"

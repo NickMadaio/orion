@@ -1,73 +1,155 @@
 #!/usr/bin/env node
 /*
- Search Gmail read-only, returning up to five sanitized matching threads.
- The query is passed as data to gog, never interpreted by a shell.
- */
-import { readFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+ Search Gmail, read-only.
+
+   orion-gmail-search "from:mom"                 who, what, when, a preview
+   orion-gmail-search --full "from:mom"          same, plus cleaned bodies
+   orion-gmail-search --thread 19ffdec5bfe33403  one thread, in full
+   orion-gmail-search --max 10 "is:unread"       more than the default five
+   orion-gmail-search --json "from:mom"          the same data, structured
+
+ WHAT CHANGED AND WHY
+
+ This used to print `gog gmail thread get --json` for all five results, raw:
+ complete bodies, headers, label ids, size estimates, unsubscribe blocks,
+ privacy policies, quoted-printable artefacts. One `in:inbox` search returned
+ about FIFTEEN THOUSAND characters, mostly legal footer.
+
+ Orion's entire instruction file is capped at 20,000 characters. A single mail
+ search could therefore evict most of his standing instructions from context,
+ and the thing it evicted them for was a job alert's unsubscribe link. Reading
+ his email made him worse at everything else in the conversation.
+
+ So the default is now the answer to the question people actually ask -- who
+ emailed, about what, when, roughly what it says, and the thread id to go
+ deeper. A full body is still one flag away, and is cleaned and capped when it
+ comes.
+
+ READS ONLY. `--readonly` and `--gmail-no-send` are applied inside the client
+ for every call and cannot be turned off from here. The query is passed to gog
+ as an argv entry, never through a shell.
+*/
+
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { getThread, searchThreads, withSnippets } from "./lib/gmail-client.mjs";
+import { renderFull, renderSummaries, summarise } from "./lib/gmail-format.mjs";
 
-const query = process.argv.slice(2).join(" ").trim();
-if (!query) {
-  console.error("Provide a Gmail search query, such as from:school.edu or subject:(exam schedule).");
-  process.exit(2);
-}
+const ORION_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const DEFAULT_MAX = 5;
+const MAX_LIMIT = 25;
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const values = {};
-for (const line of (await readFile(join(root, ".env"), "utf8")).split(/\r?\n/)) {
-  if (!line.startsWith("#") && line.includes("=")) {
-    const [key, value] = line.split("=", 2);
-    values[key.trim()] = value.trim().replace(/^['"]|['"]$/g, "");
+const USAGE = [
+  'usage: orion-gmail-search [--full] [--max N] [--json] "<gmail query>"',
+  "       orion-gmail-search --thread <thread id> [--json]",
+].join("\n");
+
+/*
+ Only EXACT matches of the known flags are flags.
+
+ Gmail query syntax uses leading hyphens for negation -- `-in:chats`,
+ `-from:noreply` are ordinary things to search for. Treating any hyphenated
+ token as a flag would reject those, so anything not recognised here is query
+ text, which is also what makes the original `orion-gmail-search "<query>"`
+ spelling keep working untouched.
+*/
+function parseArguments(argv) {
+  const words = [];
+  let full = false;
+  let json = false;
+  let threadId = null;
+  let max = DEFAULT_MAX;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--full" || argument === "--body") {
+      full = true;
+    } else if (argument === "--json") {
+      json = true;
+    } else if (argument === "--thread" || argument === "--id") {
+      threadId = argv[index + 1] ?? null;
+      index += 1;
+    } else if (argument === "--max") {
+      const value = Number.parseInt(argv[index + 1] ?? "", 10);
+      max = Number.isInteger(value) ? Math.min(MAX_LIMIT, Math.max(1, value)) : DEFAULT_MAX;
+      index += 1;
+    } else if (argument === "--help" || argument === "-h") {
+      console.log(USAGE);
+      process.exit(0);
+    } else {
+      words.push(argument);
+    }
   }
-}
-if (!values.GOG_KEYRING_PASSWORD) {
-  console.error("Orion’s Gmail vault password is not available in local configuration.");
-  process.exit(2);
+
+  return { query: words.join(" ").trim(), full, json, threadId, max };
 }
 
-const environment = {
-  ...process.env,
-  GOG_KEYRING_BACKEND: "file",
-  GOG_KEYRING_PASSWORD: values.GOG_KEYRING_PASSWORD,
-};
-const account = "nmadaio08@gmail.com";
+async function main() {
+  const options = parseArguments(process.argv.slice(2));
 
-function run(args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("gog", args, { env: environment, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(stderr.trim() || `gog exited ${code}`));
-    });
-  });
-}
-
-try {
-  const search = JSON.parse(await run([
-    "gmail", "search", query, "--max", "5", "--account", account,
-    "--readonly", "--gmail-no-send", "--json",
-  ]));
-  const threadIds = (search.threads ?? []).map((thread) => thread?.id).filter(Boolean).slice(0, 5);
-  if (threadIds.length === 0) {
-    console.log(JSON.stringify({ threads: [], message: "No matching email found." }));
-    process.exit(0);
+  // A named thread is a fetch, not a search: no query needed, body always.
+  if (options.threadId) {
+    const payload = await getThread(ORION_ROOT, options.threadId);
+    if (!payload) {
+      console.log(`No thread with id ${options.threadId}.`);
+      return;
+    }
+    console.log(options.json ? JSON.stringify(payload) : renderFull(payload));
+    return;
   }
-  const threads = [];
-  for (const threadId of threadIds) {
-    threads.push(JSON.parse(await run([
-      "gmail", "thread", "get", threadId, "--account", account,
-      "--sanitize-content", "--readonly", "--gmail-no-send", "--json",
-    ])));
+
+  if (!options.query) {
+    console.error(
+      "Provide a Gmail search query, such as from:school.edu or subject:(exam schedule).",
+    );
+    console.error(USAGE);
+    process.exit(2);
   }
-  process.stdout.write(JSON.stringify({ query, threads }));
-} catch (error) {
+
+  const found = await searchThreads(ORION_ROOT, options.query, options.max);
+  if (found.length === 0) {
+    console.log(
+      options.json
+        ? JSON.stringify({ query: options.query, results: [] })
+        : `No mail matched ${JSON.stringify(options.query)}.`,
+    );
+    return;
+  }
+
+  /*
+   `--full` fetches whole threads; the default fetches them too but keeps only
+   the snippet. Both cost the same number of round trips -- Gmail's search
+   result carries no preview text -- but only one of them costs context.
+  */
+  if (options.full) {
+    const threads = await Promise.all(
+      found.map(async (thread) => {
+        try {
+          return await getThread(ORION_ROOT, thread.id);
+        } catch (error) {
+          return { thread: { id: thread.id, messages: [] }, error: String(error) };
+        }
+      }),
+    );
+    console.log(
+      options.json
+        ? JSON.stringify({ query: options.query, threads })
+        : threads.map((thread) => renderFull(thread)).join("\n\n===\n\n"),
+    );
+    return;
+  }
+
+  const summaries = (await withSnippets(ORION_ROOT, found)).map((thread) => summarise(thread));
+  console.log(
+    options.json
+      ? JSON.stringify({ query: options.query, results: summaries })
+      : renderSummaries(summaries, { query: options.query }),
+  );
+}
+
+main().catch((error) => {
+  // gog's own words, not a guess about them. "If the wrapper fails, report its
+  // actual error; never claim setup is missing without running it."
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-}
+});

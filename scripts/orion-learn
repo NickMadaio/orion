@@ -178,6 +178,15 @@ function load({ id, at }) {
 
 const SHELL_OPS = /(\|\||&&|[|;`]|\d?>|\$\(|\bxargs\b|-exec\b)/;
 const TOOL_NAMES = /^(read|write|exec|tool_call|tool_search|memory_search|memory_get|session_status)$/;
+const CATALOG_ACTIONS = new Set([
+  "messages_recent", "messages_from", "messages_search", "messages_chats",
+  "messages_whoami", "messages_send", "calendar_event_add",
+  "calendar_event_remove", "apple_reminder_add",
+]);
+const GUARDED_RAW_PATHS = new Set([
+  "orion-messages", "orion-messages-send", "orion-agenda-change", "sqlite3", "osascript",
+]);
+const SUBCOMMANDS_AS_PROGRAMS = new Set(["approve", "plead"]);
 const MEMORY_TREE = /workspace\/memory|MEMORY\.md|workspace\/USER\.md/;
 const DURABLE =
   /\b(before i forget|remember this|don'?t forget|from now on|going forward|i prefer|i always|i never|my (wife|birthday|address|doctor|dog|cat|goal|deadline)|for future reference|note that i)\b/i;
@@ -194,6 +203,12 @@ const detectors = [
         const head = (c.desc.trim().split(/\s+/)[0] ?? "").split("/").pop();
         const cause = TOOL_NAMES.test(head)
           ? "tool-name-as-shell-command"
+          : CATALOG_ACTIONS.has(head)
+            ? "catalog-action-as-shell-command"
+            : GUARDED_RAW_PATHS.has(head)
+              ? "guarded-raw-path"
+              : SUBCOMMANDS_AS_PROGRAMS.has(head)
+                ? "subcommand-as-program"
           : ALLOWED.has(head) && SHELL_OPS.test(c.desc)
             ? "shell-operators-on-allowed-binary"
             : ALLOWED.has(head)
@@ -278,6 +293,9 @@ function proposals() {
   const memoryGreps = of("denial", (f) => f.cause === "shell-operators-on-allowed-binary" && f.memory);
   const missing = of("denial", (f) => f.cause === "missing-capability");
   const toolNames = of("denial", (f) => f.cause === "tool-name-as-shell-command");
+  const catalogAsShell = of("denial", (f) => f.cause === "catalog-action-as-shell-command");
+  const guardedRaw = of("denial", (f) => f.cause === "guarded-raw-path");
+  const subcommands = of("denial", (f) => f.cause === "subcommand-as-program");
   const hangs = of("hang");
   const retries = of("retry");
   const unstored = of("unstored");
@@ -298,18 +316,31 @@ function proposals() {
       rollback: "Delete the added paragraph from AGENTS.md. No other state changes.",
       list: memoryGreps,
     },
+    (catalogAsShell.length || guardedRaw.length || subcommands.length) && {
+      title: "Typed actions and subcommands were sent to the shell",
+      severity: "high",
+      signal: `${catalogAsShell.length + guardedRaw.length + subcommands.length} routing mistakes — ${distinct([...catalogAsShell, ...guardedRaw, ...subcommands], (f) => f.head).join(", ")}`,
+      already: false,
+      diagnosis:
+        "These are not missing permissions. Catalog action names such as messages_search belong in orion_task_run; raw Messages/sqlite/Calendar mutation programs are intentionally gated; and words such as approve or plead are subcommands or conversation, not executable programs. Adding any of them to the allowlist would bypass the route that carries validation and approval.",
+      change:
+        "Fix the router or the missing typed action. Never add these heads to the exec allowlist: send catalog actions through orion_task_run, use the owning wrapper for a real subcommand, and keep raw database/send/mutation paths behind their typed executor.",
+      test:
+        "Replay each turn and inspect orion-trace: it should call an existing typed action or one newly added to the catalog, with no allowlist miss and no raw sensitive executable.",
+      rollback: "Revert the router/catalog change. No allowlist entry is added or removed.",
+      list: [...catalogAsShell, ...guardedRaw, ...subcommands],
+    },
     missing.length && {
-      title: "Capabilities reached for that are not allowlisted",
+      title: "Unmapped capability requests need design, not an allowlist guess",
       severity: "medium",
       signal: `${missing.length} denials — ${distinct(missing, (f) => f.head).join(", ")}`,
       already: false,
       diagnosis:
-        "These head binaries are genuinely absent from the `main` allowlist, so the refusal is correct policy but a real capability gap: Orion tried to do the job and could not.",
-      change: `Run these yourself, once you are happy he should run each unattended:\n\n\`\`\`sh\n${distinct(missing, (f) => f.head)
-        .map((h) => `openclaw approvals allowlist add --agent main "${h.startsWith("/") ? h : `**/${h}`}"`)
-        .join("\n")}\n\`\`\``,
-      test: "Re-ask the turn that failed; the command should run. Then `orion-bench` to confirm nothing else regressed.",
-      rollback: '`openclaw approvals allowlist remove --agent main "<pattern>"`',
+        "The detector cannot infer a safe permission from a denied command. The same denial could mean a typo, a catalog action routed incorrectly, or a genuinely missing capability. Treating all three as 'allow this binary forever' was the unsafe recommendation this report used to make.",
+      change:
+        "For each item, reconstruct the user's intended outcome. Reuse an existing typed action when one exists; otherwise add the smallest typed, tested executor for that outcome. Only a harmless read-only wrapper with a fixed contract should ever become a raw allowlist candidate.",
+      test: "Re-run the original request through the normal agent route and verify the resulting artifact/state plus the durable ledger entry.",
+      rollback: "Revert the typed capability or router change; the exec allowlist remains unchanged.",
       list: missing,
     },
     toolNames.length && {
@@ -332,7 +363,7 @@ function proposals() {
       already: covered(/two attempts, then talk/i),
       diagnosis: `The same call, byte-identical, three or more times in one session; the worst offender re-sent one command ${Math.max(...retries.map((f) => f.n))} times. AGENTS.md already says "two attempts, then talk to him", so the evidence is that the rule does not enforce itself. The next step is mechanical, not rhetorical.`,
       change:
-        "Ask for a repeat-call guard in the runtime: refuse a third identical exec within a session and return `you already ran this twice and it failed twice`. Until that exists, keep the AGENTS.md rule and re-measure with this script weekly.",
+        "The runtime repeat guard is now installed: it blocks a third consecutive identical tool call (and a fifth identical call anywhere in one run). Re-measure this report before adding more prompt text; remaining loops need a different mechanical classifier.",
       test: "`orion-learn --days 7` should report zero loops. Cheaper proxy: the heaviest session's token total drops below 100k.",
       rollback: "Remove the guard; behaviour returns to unlimited retries.",
       list: retries,
@@ -368,13 +399,13 @@ function proposals() {
       title: "Durable statements that were never written down",
       severity: "high",
       signal: `${unstored.length} turns across ${distinct(unstored, (f) => f.s.id).length} sessions`,
-      already: false,
+      already: true,
       diagnosis:
-        "Nick stated something with a shelf life and the session ended with no `orion-remember` call. Each one is a fact that did not survive to the next session — and because nothing errored, nothing anywhere else records that it was lost.",
+        "These legacy turns depended on the model deciding to call `orion-remember`, so a perfectly understood preference could disappear with no error. Automatic deterministic capture now writes high-signal user preferences, corrections and decisions at finalization without a model call.",
       change:
-        "Review the turns below. If they should have been kept, the gap is judgement rather than plumbing: tighten what AGENTS.md calls worth keeping instead of adding a tool.",
-      test: "`orion-bench --live` case live-01 (stores a fact stated in passing, unprompted).",
-      rollback: "Revert the wording change.",
+        "Enable `enableEpisodicCapture`, then re-measure new sessions. Tune the deterministic signal classifier from false positives/negatives; do not make the startup prompt longer and do not add a model call to the capture path.",
+      test: "State a preference in passing, finish the turn, and verify one deduplicated `[auto]` entry appears under today's `## Episodes` without an `orion-remember` tool call.",
+      rollback: "Disable `enableEpisodicCapture`; existing journal entries remain ordinary local notes.",
       list: unstored,
     },
     aborts.length && {

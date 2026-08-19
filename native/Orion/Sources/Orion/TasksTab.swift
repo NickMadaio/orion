@@ -37,6 +37,9 @@ struct TasksTab: View {
     /// silently stops being scrollable. Pinning the column to the real window
     /// height is what gives the timeline a viewport of its own.
     let availableHeight: CGFloat
+    /// The dashboard viewport less its horizontal page padding. Passing the
+    /// measured value avoids SwiftUI's ideal-width behavior inside ScrollView.
+    let availableWidth: CGFloat
 
     /// The calendar, folded in rather than living as its own tab.
     ///
@@ -54,20 +57,28 @@ struct TasksTab: View {
     @State private var composerTitle = ""
 
     var body: some View {
-        HStack(alignment: .top, spacing: 46) {
+        HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 32) {
-                dayHeader
-                tasksSection
+                OrionPanel(padding: 20) {
+                    dayHeader.frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                OrionPanel(padding: 20) {
+                    tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: splitWidths.left, alignment: .topLeading)
 
-            calendarColumn
+            OrionPanel(padding: 18) {
+                calendarColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+            }
                 // Definite on BOTH axes. The height is what turns the timeline
                 // into a scrollable region instead of a 24-hour-tall column that
                 // drags the whole page with it; whatever sits above it keeps its
                 // natural height and the timeline takes the remainder.
-                .frame(width: 470, height: max(360, availableHeight))
+                .frame(height: max(360, availableHeight), alignment: .topLeading)
+                .frame(width: splitWidths.calendar, alignment: .topLeading)
         }
+        .frame(width: max(0, availableWidth), alignment: .topLeading)
         .sheet(isPresented: Binding(
             get: { sheetMode != nil },
             set: { if !$0 { sheetMode = nil; composerTitle = "" } }
@@ -293,8 +304,20 @@ struct TasksTab: View {
             case .week:
                 WeekGrid(model: calendar, height: max(300, availableHeight - 90))
             case .month:
-                MonthGrid(model: calendar, height: max(300, availableHeight - 90))
+                // Leave a deliberate lower margin below the final week. Month
+                // cells remain easy to scan, but the grid no longer reads as
+                // pressed against the dashboard's lower edge.
+                MonthGrid(model: calendar, height: max(300, availableHeight - 132))
             }
+        }
+        // Month/week use CalendarModel; the detailed day timeline is backed by
+        // AppleCalendarSync. Keep them in lockstep when a cell promotes itself
+        // to day view, otherwise its heading can say "7th" while the timeline
+        // silently remains on the previously selected date.
+        .onChange(of: calendar.focusDate) { _, day in
+            guard calendar.granularity == .day else { return }
+            agenda.selectedDate = day
+            _ = agenda.load(for: day)
         }
     }
 
@@ -382,6 +405,16 @@ struct TasksTab: View {
         newTask = ""
         wantsDueDate = false
         newPriority = .none
+    }
+
+    /// A substantial work column, with every remaining point assigned to the
+    /// calendar. The cap keeps task rows readable on very wide displays.
+    private var splitWidths: (left: CGFloat, calendar: CGFloat) {
+        let usableWidth = max(0, availableWidth - 28)
+        let calendarFloor = min(640, max(360, usableWidth * 0.48))
+        let desiredLeft = min(820, max(480, usableWidth * 0.43))
+        let left = max(0, min(desiredLeft, usableWidth - calendarFloor))
+        return (left, max(0, usableWidth - left))
     }
 }
 

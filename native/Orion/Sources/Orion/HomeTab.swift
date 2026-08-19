@@ -25,6 +25,8 @@ struct HomeTab: View {
     let availableHeight: CGFloat
     var onAddApp: () -> Void
     var onManage: () -> Void
+    var onPreviewFocus: () -> Void
+    var onPreviewBreak: () -> Void
 
     @FocusState private var composerFocused: Bool
 
@@ -182,6 +184,17 @@ struct HomeTab: View {
 
             phaseLine
             sessionCard
+            previewControls
+        }
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.025)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(composerFocused ? OrionTheme.accent.opacity(0.45) : Color.white.opacity(0.10), lineWidth: 0.8)
+                }
         }
         .animation(.easeOut(duration: 0.18), value: composerFocused)
         .animation(.easeOut(duration: 0.18), value: canSend)
@@ -214,6 +227,25 @@ struct HomeTab: View {
         if state.sessionTabModel.snapshot.session != nil {
             SessionCard(model: state.sessionTabModel)
         }
+    }
+
+    private var previewControls: some View {
+        HStack(spacing: 10) {
+            Text("TEMPORARY PREVIEW")
+                .font(OrionTheme.mono(8, .semibold))
+                .tracking(1.5)
+                .foregroundStyle(OrionTheme.textDim)
+            Button("Focus session", action: onPreviewFocus)
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(OrionTheme.accent)
+            Button("Break", action: onPreviewBreak)
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(OrionTheme.accent)
+            Spacer()
+        }
+        .padding(.top, 2)
     }
 
     private var canSend: Bool {

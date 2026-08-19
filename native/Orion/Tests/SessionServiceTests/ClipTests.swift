@@ -113,6 +113,56 @@ final class ClipTests: XCTestCase {
                       "a stray text file is not a broken clip and must not be reported as one")
     }
 
+    func testACleanInstallGetsARealLocalBinauralLoop() throws {
+        let result = library.ensureBuiltInFocusTrack(duration: 1)
+        guard case .success(let clip) = result else {
+            return XCTFail("built-in track should be created: \(result)")
+        }
+
+        XCTAssertEqual(clip.name, ClipLibrary.builtInFocusTrackName)
+        XCTAssertEqual(clip.duration, 1, accuracy: 0.03)
+        XCTAssertEqual(library.inventory().clips.map(\.name), [ClipLibrary.builtInFocusTrackName])
+
+        let audio = try AVAudioFile(forReading: clip.url)
+        XCTAssertEqual(audio.fileFormat.channelCount, 2, "binaural audio needs separate left/right carriers")
+        let frames = AVAudioFrameCount(audio.length)
+        let buffer = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: frames)!
+        try audio.read(into: buffer)
+        let peak = (0..<Int(buffer.frameLength)).reduce(Float(0)) {
+            max($0, abs(buffer.floatChannelData![0][$1]))
+        }
+        XCTAssertGreaterThan(peak, 0.08,
+                             "the built-in bed must be audible rather than merely decoding")
+        let permissions = try FileManager.default.attributesOfItem(atPath: clip.url.path)[.posixPermissions] as? Int
+        XCTAssertEqual(permissions.map { $0 & 0o777 }, 0o600)
+    }
+
+    func testTheTooQuietFirstBuiltInTrackIsUpgradedOnce() throws {
+        let old = try writeClip(ClipLibrary.builtInFocusTrackName, seconds: 0.5)
+        let oldAudio = try AVAudioFile(forReading: old)
+        XCTAssertEqual(Double(oldAudio.length) / oldAudio.fileFormat.sampleRate, 0.5, accuracy: 0.03)
+
+        guard case .success(let upgraded) = library.ensureBuiltInFocusTrack(duration: 1) else {
+            return XCTFail("the owned legacy track should be refreshed")
+        }
+
+        XCTAssertEqual(upgraded.duration, 1, accuracy: 0.03)
+        let revision = try String(contentsOf: directory.appendingPathComponent(".orion-binaural-revision"),
+                                  encoding: .utf8)
+        XCTAssertEqual(revision, "2")
+    }
+
+    func testCreatingTheBuiltInTrackTwiceReusesTheSameValidatedFile() {
+        guard case .success(let first) = library.ensureBuiltInFocusTrack(duration: 1),
+              case .success(let second) = library.ensureBuiltInFocusTrack(duration: 4) else {
+            return XCTFail("both calls should return the built-in track")
+        }
+
+        XCTAssertEqual(first.url, second.url)
+        XCTAssertEqual(second.duration, 1, accuracy: 0.03,
+                       "a second launch validates rather than replacing the user's file")
+    }
+
     // MARK: Validation timing
 
     func testRevalidateCatchesAFileThatVanishedAfterSetup() throws {
@@ -225,6 +275,19 @@ final class ClipTests: XCTestCase {
         player.play("forest")
 
         XCTAssertEqual(player.nowPlaying, "forest")
+        player.stop()
+    }
+
+    func testSeekingMovesInsideTheClipWithoutChangingItsLoopOwnership() throws {
+        try writeClip("rain", seconds: 5)
+        let player = ClipPlayer(library: library)
+        player.play("rain")
+
+        player.seek(to: 3.25)
+
+        XCTAssertEqual(player.currentTime, 3.25, accuracy: 0.08)
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(player.nowPlaying, "rain")
         player.stop()
     }
 

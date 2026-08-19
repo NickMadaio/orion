@@ -66,8 +66,8 @@ final class BreakSurface {
 
     // MARK: Showing
 
-    func show(prompt: String, minutesRemaining: Int) {
-        if panel != nil { return update(prompt: prompt, minutesRemaining: minutesRemaining) }
+    func show(prompt: String, minutesRemaining: Int, onShorten: (() -> Void)? = nil) {
+        if panel != nil { return update(prompt: prompt, minutesRemaining: minutesRemaining, onShorten: onShorten) }
 
         previousApp = NSWorkspace.shared.frontmostApplication
 
@@ -76,6 +76,7 @@ final class BreakSurface {
             minutes: minutesRemaining,
             escapeWorks: escapeAvailable,
             fullBleed: isFullBleed,
+            onShorten: onShorten,
             onDismiss: { [weak self] in self?.dismiss() }
         )
 
@@ -115,13 +116,14 @@ final class BreakSurface {
                + "escape \(escapeAvailable ? "available" : "UNAVAILABLE")")
     }
 
-    func update(prompt: String, minutesRemaining: Int) {
+    func update(prompt: String, minutesRemaining: Int, onShorten: (() -> Void)? = nil) {
         guard let panel, let hosting = panel.contentView as? NSHostingView<BreakSurfaceView> else {
             return
         }
         hosting.rootView = BreakSurfaceView(
             prompt: prompt, minutes: minutesRemaining, escapeWorks: escapeAvailable,
             fullBleed: isFullBleed,
+            onShorten: onShorten,
             onDismiss: { [weak self] in self?.dismiss() }
         )
     }
@@ -199,6 +201,7 @@ struct BreakSurfaceView: View {
     let minutes: Int
     let escapeWorks: Bool
     var fullBleed = false
+    var onShorten: (() -> Void)?
     let onDismiss: () -> Void
 
     var body: some View {
@@ -222,6 +225,9 @@ struct BreakSurfaceView: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 14) {
+                if minutes > 3, let onShorten {
+                    InlineAction(title: "Make this a 3-minute reset", systemImage: "timer") { onShorten() }
+                }
                 // The control that always works, whatever permissions exist.
                 InlineAction(title: "Back to it", systemImage: "arrow.right") { onDismiss() }
 

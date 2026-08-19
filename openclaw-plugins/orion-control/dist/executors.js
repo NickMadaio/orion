@@ -1207,7 +1207,11 @@ async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
     };
 }
 async function observe(policy, step, context) {
-    const relativePath = step.arguments[policy.relativePathArgument];
+    const rawRelativePath = step.arguments[policy.relativePathArgument];
+    const relativePath = policy.kind === "list_directory" &&
+        (rawRelativePath === undefined || rawRelativePath === "")
+        ? "."
+        : rawRelativePath;
     if (typeof relativePath !== "string") {
         throw new ActionExecutionError("Validated relativePath is missing.");
     }
@@ -1279,6 +1283,9 @@ export async function executeAction(definition, step, context) {
     if (definition.execution.kind === "self_source") {
         return runSelfSource(definition.execution.operation, step, idempotencyKey);
     }
+    if (definition.execution.kind === "self_repair") {
+        return runSelfRepair(definition.execution, step, context, idempotencyKey);
+    }
     if (definition.execution.kind === "app_control") {
         const application = step.arguments[definition.execution.applicationArgument];
         if (typeof application !== "string") {
@@ -1306,6 +1313,15 @@ export async function executeAction(definition, step, context) {
     }
     if (definition.execution.kind === "health_log") {
         return trackHealth(definition.execution, step, context, idempotencyKey);
+    }
+    if (definition.execution.kind === "messages_read") {
+        return readMessages(definition.execution, step, idempotencyKey);
+    }
+    if (definition.execution.kind === "calendar") {
+        return changeCalendar(definition.execution, step, idempotencyKey);
+    }
+    if (definition.execution.kind === "messages_send") {
+        return sendMessage(step, idempotencyKey);
     }
     if (definition.execution.kind === "create_only_text") {
         return createOnlyText(definition.execution, step, context);
@@ -1771,6 +1787,21 @@ export async function verifyAction(definition, step, execution, context) {
             evidence: present ? `self_source:${definition.execution.operation}` : undefined,
         };
     }
+    if (definition.execution.kind === "self_repair") {
+        // Same answer as `self_modify` below, and for a stronger reason. Reaching
+        // here means `orion-repair` exited zero, and for a modify that means it
+        // compiled, the suite passed, the gate self-test passed where it applied,
+        // and the deploy either came back healthy or was already rolled back. A
+        // check re-derived here would be a weaker copy of one that already ran
+        // against the real thing.
+        const present = typeof execution.output === "string" && execution.output.length > 0;
+        return {
+            observed: present,
+            evidence: present
+                ? `self_repair:${definition.execution.surface}:${definition.execution.operation}`
+                : undefined,
+        };
+    }
     if (definition.execution.kind === "self_modify") {
         // The forge already proved it: a non-zero exit threw before reaching here,
         // and reaching here means the code compiled AND the rebuilt app survived
@@ -1789,6 +1820,52 @@ export async function verifyAction(definition, step, execution, context) {
         return {
             observed: present,
             evidence: present ? `${definition.execution.operation}:reported` : undefined,
+        };
+    }
+    if (definition.execution.kind === "messages_read") {
+        // A read has no state to re-check, so verification asks the only question
+        // that means anything: did the script actually answer. The script exits
+        // non-zero on a denied read, so reaching here at all means it did.
+        const present = typeof execution.output === "string";
+        return {
+            observed: present,
+            evidence: present ? `${definition.execution.operation}:reported` : undefined,
+        };
+    }
+    if (definition.execution.kind === "messages_send") {
+        /*
+         There is no independent verification of a send, and pretending otherwise
+         would be worse than admitting it.
+    
+         The honest options were all bad. Re-reading chat.db for the outgoing row is
+         racy — Messages writes it asynchronously and a poll either sleeps for an
+         arbitrary second or reports a false failure for a message that did go. And
+         a false failure is the dangerous direction here: the controller retries a
+         step whose verification did not observe, so a send reported as unverified
+         is a send delivered twice.
+    
+         So the evidence is the script's own confirmation line, which it prints only
+         after AppleScript returned without error. Weaker than every other verifier
+         in this file, and the reason `reversible: false` and `approvalRequired` are
+         both set on the action: the safety here comes from the gates in front of
+         it, not from a check behind it.
+        */
+        const confirmed = typeof execution.output === "string" && /^sent to /m.test(execution.output);
+        return {
+            observed: confirmed,
+            evidence: confirmed ? "message_sent:acknowledged" : undefined,
+        };
+    }
+    if (definition.execution.kind === "calendar") {
+        // The fixed wrapper already performs a post-write EventKit readback and
+        // returns only after the exact identifier is present/absent. Do not issue a
+        // second mutation or turn a slow Calendar sync into a retry of the action.
+        const output = execution.output;
+        return {
+            observed: output?.verified === true,
+            evidence: output?.verified === true
+                ? `calendar:${definition.execution.operation}:${output.identifier ?? execution.target ?? "verified"}`
+                : undefined,
         };
     }
     if (definition.execution.kind === "reminder") {
@@ -1839,7 +1916,7 @@ export async function verifyAction(definition, step, execution, context) {
             };
         }
         const taken = entry
-            ? (log.supplementLog[todayKey()] ?? []).includes(entry.id)
+            ? (log.days?.[todayKey()]?.supplementIDs ?? log.supplementLog[todayKey()] ?? []).includes(entry.id)
             : false;
         return {
             observed: taken,
@@ -1992,6 +2069,109 @@ async function runSelfModify(step, idempotencyKey) {
         await rm(replacePath, { force: true }).catch(() => { });
     }
 }
+/**
+ * Hand a plugin, script or config repair to `scripts/orion-repair`.
+ *
+ * The same shape and the same reasoning as `runSelfModify` above: this function
+ * writes the fragments to temporary files, runs one script, and turns a
+ * non-zero exit into a refusal Orion can read out. Every gate that decides
+ * whether the change is safe lives in the script — the class tables, the
+ * realpath check, the build, the test suite, the gate self-test, the health
+ * probe and the rollback — because that is the code a person has to be able to
+ * audit in one sitting.
+ *
+ * Two things here are not in `runSelfModify` and are worth naming:
+ *
+ * `--authority` is passed only for the actions the catalog marks as authority
+ * changes, and the script refuses a target whose class disagrees with the flag.
+ * The plugin has therefore already decided, the script decides again, and a bug
+ * in either one alone cannot let an authority change through the quiet path.
+ *
+ * `--instruction` carries the authenticated user turn so the script can write
+ * it into its own audit line. It grants nothing — authorization finished in the
+ * validator before any executor ran — but "what changed, and what did Nick say
+ * that authorised it" has to be answerable from one file afterwards.
+ *
+ * The restart is detached on purpose. A plugin deploy restarts the gateway, and
+ * the gateway is the process running this function: waiting for it here would
+ * mean waiting to be killed. So the script deploys, hands the restart and the
+ * health probe to a watcher that outlives this process, and the watcher rolls
+ * back if the gateway does not come back. `self_repair_status` reads its
+ * verdict.
+ */
+async function runSelfRepair(policy, step, context, idempotencyKey) {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const scratch = [];
+    const write = async (label, content) => {
+        const target = path.join(os.tmpdir(), `orion-repair-${label}-${stamp}.txt`);
+        await writeFile(target, content, "utf8");
+        scratch.push(target);
+        return target;
+    };
+    try {
+        const arguments_ = [`${policy.surface}-${policy.operation}`];
+        if (policy.operation === "read") {
+            arguments_.push(String(step.arguments.pluginFile ?? step.arguments.script ?? ""));
+        }
+        if (policy.operation === "modify") {
+            if (policy.surface === "config") {
+                arguments_.push(String(step.arguments.key ?? ""));
+                // JSON rather than a bare string so the type survives the trip: a
+                // boolean flag written as the word "true" is a string in the config and
+                // an enable flag that is a string is not an enable flag that is on.
+                arguments_.push(await write("value", JSON.stringify(step.arguments.value ?? null)));
+            }
+            else {
+                arguments_.push(String(step.arguments.pluginFile ?? step.arguments.script ?? ""));
+                // Files rather than argv: a TypeScript or zsh fragment carries
+                // newlines, quotes and braces, and routing that through a command line
+                // is a quoting bug waiting to corrupt the very text being matched.
+                arguments_.push(await write("find", String(step.arguments.find ?? "")));
+                arguments_.push(await write("replace", String(step.arguments.replace ?? "")));
+            }
+            if (policy.authority)
+                arguments_.push("--authority");
+            arguments_.push("--detach-restart");
+            if (context.trustedInstruction) {
+                arguments_.push("--instruction", await write("instruction", context.trustedInstruction));
+            }
+        }
+        // A plugin repair compiles the project and runs the whole suite before it
+        // deploys anything, which is minutes rather than seconds. Killing it
+        // halfway is the one state the script is built to avoid.
+        const timeout = policy.operation === "modify" ? 20 * 60 * 1000 : 60_000;
+        const result = await runOrionScript("orion-repair", arguments_, timeout);
+        if (result.code !== 0) {
+            // The script has already undone everything by the time it exits non-zero.
+            // Its output is the compiler error, the failing test, or the sentence
+            // naming which switch Nick has to flip — all of which are the useful part.
+            throw new ActionExecutionError(policy.operation === "modify"
+                ? `The repair was refused or rolled back. Nothing is left changed.\n${result.output}`
+                : result.output || "The repair engine did not answer.");
+        }
+        return {
+            mode: policy.operation === "modify"
+                ? "rebuilt"
+                : policy.operation === "revert"
+                    ? "replaced"
+                    : "observed",
+            idempotencyKey,
+            target: typeof step.arguments.key === "string"
+                ? step.arguments.key
+                : typeof step.arguments.pluginFile === "string"
+                    ? step.arguments.pluginFile
+                    : typeof step.arguments.script === "string"
+                        ? step.arguments.script
+                        : undefined,
+            output: result.output,
+        };
+    }
+    finally {
+        for (const file of scratch) {
+            await rm(file, { force: true }).catch(() => { });
+        }
+    }
+}
 /** Read-only companion to `runSelfModify` — see the `self_source` policy. */
 async function runSelfSource(operation, step, idempotencyKey) {
     const script = path.join(os.homedir(), "Desktop/ORION/scripts/orion-forge");
@@ -2019,4 +2199,126 @@ async function runSelfSource(operation, step, idempotencyKey) {
         throw new ActionExecutionError(result.output || "Could not read the source.");
     }
     return { mode: "observed", idempotencyKey, output: result.output };
+}
+/**
+ * Run one of the allowlisted `orion-*` wrappers and hand back what it said.
+ *
+ * The same shape as `runSelfSource` above, extracted because the messages pair
+ * makes it the third caller. Arguments go through `spawn` as argv with no shell
+ * anywhere in the path, so a message body containing quotes, semicolons or
+ * backticks is data and cannot become syntax.
+ */
+async function runOrionScript(name, arguments_, timeoutMs) {
+    const script = path.join(os.homedir(), "Desktop/ORION/scripts", name);
+    return new Promise((resolve) => {
+        const child = spawn(script, arguments_, {
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        let output = "";
+        child.stdout?.on("data", (chunk) => (output += String(chunk)));
+        child.stderr?.on("data", (chunk) => (output += String(chunk)));
+        const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+        child.on("close", (code) => {
+            clearTimeout(timer);
+            resolve({ code: code ?? 1, output: output.trim() });
+        });
+        child.on("error", (error) => {
+            clearTimeout(timer);
+            resolve({ code: 1, output: String(error) });
+        });
+    });
+}
+/**
+ * Read the Messages database through `scripts/orion-messages`.
+ *
+ * The generous timeout is because a text search scans a 500MB database, and the
+ * script bounds its own row count rather than being killed halfway.
+ */
+async function readMessages(policy, step, idempotencyKey) {
+    const limit = Number.isInteger(step.arguments.limit)
+        ? String(step.arguments.limit)
+        : "20";
+    const arguments_ = policy.operation === "from"
+        ? ["from", String(step.arguments.person ?? ""), limit]
+        : policy.operation === "search"
+            ? ["search", String(step.arguments.text ?? ""), limit]
+            // These diagnostics return fixed sets, not feeds to page through.
+            : policy.operation === "whoami" || policy.operation === "contacts_status"
+                ? [policy.operation === "contacts_status" ? "contacts-status" : "whoami"]
+                : [policy.operation, limit];
+    const result = await runOrionScript("orion-messages", arguments_, 120_000);
+    if (result.code !== 0) {
+        // The script distinguishes "no messages matched" from "Full Disk Access is
+        // missing" by design, and that distinction is the useful part of the
+        // error — pass it through verbatim rather than flattening it.
+        throw new ActionExecutionError(result.output || "Could not read Messages.");
+    }
+    return { mode: "observed", idempotencyKey, output: result.output };
+}
+/**
+ * Mutate Apple Calendar/Reminders through the fixed EventKit bridge wrapper.
+ *
+ * The wrapper is intentionally NOT on OpenClaw's exec allowlist. Calendar
+ * reads use `orion-agenda`; mutations can only arrive here after the catalog
+ * tier, trusted-origin and (for removal) approval checks have all passed.
+ */
+async function changeCalendar(policy, step, idempotencyKey) {
+    const arguments_ = policy.operation === "event_add"
+        ? [
+            "add",
+            String(step.arguments.title ?? ""),
+            String(step.arguments.start ?? ""),
+            String(step.arguments.minutes ?? 60),
+        ]
+        : policy.operation === "event_remove"
+            ? ["remove-title", String(step.arguments.title ?? "")]
+            : [
+                "task-add",
+                String(step.arguments.title ?? ""),
+                ...(step.arguments.due === undefined ? [] : [String(step.arguments.due)]),
+            ];
+    const result = await runOrionScript("orion-agenda-change", arguments_, 60_000);
+    if (result.code !== 0) {
+        throw new ActionExecutionError(result.output || "The Calendar change failed.");
+    }
+    let output;
+    try {
+        output = JSON.parse(result.output.split("\n").at(-1) ?? "");
+    }
+    catch {
+        throw new ActionExecutionError("Calendar changed but returned no verifiable result; refusing to claim success.");
+    }
+    if (output.verified !== true) {
+        throw new ActionExecutionError("Calendar did not verify the requested change.");
+    }
+    return {
+        mode: policy.operation === "event_remove" ? "cancelled" : "created",
+        idempotencyKey,
+        target: output.title ?? String(step.arguments.title ?? ""),
+        output,
+    };
+}
+/**
+ * Send one message through `scripts/orion-messages-send`.
+ *
+ * Everything that decides WHETHER this may happen has already run by the time
+ * this function is called: the tier, the recipient-origin check, the taint
+ * check, and the approval hash. What is left here is the call itself and the
+ * one thing the plugin can add that the script cannot — a clear distinction
+ * between "macOS has not been told to allow this yet" and "the send failed",
+ * because the first is a dialog a human has to click and the second is a bug.
+ */
+async function sendMessage(step, idempotencyKey) {
+    const recipient = String(step.arguments.recipient ?? "");
+    const body = String(step.arguments.body ?? "");
+    const result = await runOrionScript("orion-messages-send", [recipient, body], 60_000);
+    if (result.code !== 0) {
+        throw new ActionExecutionError(result.output || "The message was not sent.");
+    }
+    return {
+        mode: "sent",
+        idempotencyKey,
+        target: recipient,
+        output: result.output,
+    };
 }

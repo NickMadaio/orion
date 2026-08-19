@@ -140,10 +140,20 @@ enum GatewayClient {
 
         // Watchdog: the CLI has its own --timeout, this is the backstop for the
         // case where it wedges without honouring it.
+        //
+        // SIGTERM then SIGKILL. `terminate()` alone is a request, and a wedged
+        // agent is under no obligation to take it — on 2026-08-12 one did not,
+        // and because this function is called from a SERIAL queue that stranded
+        // every later turn as well as this one. `.thinking` never ended and
+        // Orion was deaf for twelve minutes. `AppState`'s watchdog is the floor
+        // under that; this is the fix for the thing that needed a floor.
         let finished = AtomicFlag(false)
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Double(timeoutSeconds + 15)) {
-            if !finished.value && process.isRunning {
-                process.terminate()
+            guard !finished.value, process.isRunning else { return }
+            process.terminate()
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+                guard !finished.value, process.isRunning else { return }
+                kill(process.processIdentifier, SIGKILL)
             }
         }
 
@@ -156,10 +166,37 @@ enum GatewayClient {
             errorDrained.signal()
         }
 
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        // Read stdout off this thread too, and wait on it with a deadline.
+        //
+        // `readDataToEndOfFile` returns when every WRITE end of the pipe is
+        // closed — not when the child exits. The agent spawns tools, and any
+        // grandchild that inherited this pipe and outlives its parent holds it
+        // open forever. Killing the agent does not help; nothing does, because
+        // the read is uninterruptible. Read it on a thread we are allowed to
+        // abandon, and the hang costs one leaked thread instead of the app's
+        // ability to hear.
+        let outBox = DataBox()
+        let outDrained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            outBox.data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            outDrained.signal()
+        }
+
+        // Generous: this is the backstop behind the backstop, and a slow but
+        // healthy answer must never trip it.
+        let deadline = DispatchTime.now() + .seconds(timeoutSeconds + 30)
+        let readInTime = outDrained.wait(timeout: deadline) == .success
+        if !readInTime {
+            finished.value = true
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            throw GatewayError.failed(
+                "the agent stopped responding and its output never closed"
+            )
+        }
+        _ = errorDrained.wait(timeout: deadline)
         process.waitUntilExit()
-        errorDrained.wait()
         finished.value = true
+        let outData = outBox.data
 
         let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
         let stdout = stripANSI(String(data: outData, encoding: .utf8) ?? "")

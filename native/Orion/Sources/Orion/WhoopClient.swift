@@ -131,7 +131,20 @@ final class WhoopClient: ObservableObject {
             OrionLog.write("[whoop] refresh skipped — one already in flight")
             return
         }
-        guard SecretStore.get(connector: .whoop, field: SecretStore.Field.accessToken) != nil else {
+        // The token check is a Keychain read, and a Keychain read can sit in
+        // securityd for as long as an unanswered authorization prompt lasts.
+        // `start()` calls this from the dashboard's `onAppear`, so doing it
+        // inline is doing it on the launch path — which is the 2026-08-12 hang
+        // one frame further down. Ask off the main thread and come back.
+        SecretStore.load([.whoop], fields: SecretStore.derivedFields) { [weak self] secrets in
+            self?.refresh(with: secrets)
+        }
+    }
+
+    /// The rest of `refresh()`, once the Keychain has actually answered.
+    private func refresh(with secrets: SecretStore.Secrets) {
+        guard !isLoading else { return }
+        guard secrets.has(.whoop, SecretStore.Field.accessToken) else {
             snapshot = nil
             lastError = nil
             OrionLog.write("[whoop] no access token — not connected")
@@ -139,14 +152,14 @@ final class WhoopClient: ObservableObject {
         }
         // A grant with no refresh token is the daily-login state. Say so here
         // rather than letting it fail as a network error in an hour's time.
-        let renewable = SecretStore.get(connector: .whoop, field: SecretStore.Field.refreshToken) != nil
+        let renewable = secrets.has(.whoop, SecretStore.Field.refreshToken)
         if !renewable {
             OrionLog.write("[whoop] grant has NO refresh token — it cannot renew itself")
         }
 
         isLoading = true
         lastError = nil
-        withFreshToken { [weak self] token in
+        withFreshToken(secrets) { [weak self] token in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard let token else {
@@ -461,9 +474,18 @@ final class WhoopClient: ObservableObject {
     /// each starting their own. Whoop invalidates the previous refresh token
     /// the moment one is used, so two exchanges in flight means the second one
     /// presents a revoked credential and permanently breaks the connection.
-    private func withFreshToken(_ completion: @escaping (String?) -> Void) {
-        let token = SecretStore.get(connector: .whoop, field: SecretStore.Field.accessToken)
-        let expiresAt = SecretStore.get(connector: .whoop, field: SecretStore.Field.expiresAt)
+    ///
+    /// Takes the snapshot its caller already paid for rather than reading the
+    /// Keychain again: these five reads used to happen on the main thread, and
+    /// five more chances to block on securityd is five more ways to hang the
+    /// launch. The values are microseconds old, which is exactly as fresh as
+    /// reading them here would have been.
+    private func withFreshToken(
+        _ secrets: SecretStore.Secrets,
+        completion: @escaping (String?) -> Void
+    ) {
+        let token = secrets.value(.whoop, SecretStore.Field.accessToken)
+        let expiresAt = secrets.value(.whoop, SecretStore.Field.expiresAt)
             .flatMap(Double.init)
             .map { Date(timeIntervalSince1970: $0) }
 
@@ -474,9 +496,9 @@ final class WhoopClient: ObservableObject {
             return
         }
 
-        guard let refresh = SecretStore.get(connector: .whoop, field: SecretStore.Field.refreshToken),
-              let clientID = SecretStore.get(connector: .whoop, field: SecretStore.Field.clientID),
-              let clientSecret = SecretStore.get(connector: .whoop, field: SecretStore.Field.clientSecret),
+        guard let refresh = secrets.value(.whoop, SecretStore.Field.refreshToken),
+              let clientID = secrets.value(.whoop, SecretStore.Field.clientID),
+              let clientSecret = secrets.value(.whoop, SecretStore.Field.clientSecret),
               let url = URL(string: "https://api.prod.whoop.com/oauth/oauth2/token")
         else {
             // Nothing to renew from. Hand back the token only if it is still

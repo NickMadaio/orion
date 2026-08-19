@@ -43,6 +43,90 @@
         "type": "boolean",
         "description": "Enable opening or gracefully quitting an explicitly named installed app."
       },
+      "enableBrowserControlActions": {
+        "type": "boolean",
+        "description": "Enable guarded http/https browser tab control and visible-page reads."
+      },
+      "browserPreference": {
+        "type": "string",
+        "description": "Preferred supported browser, such as Opera Air or Safari."
+      },
+      "enableMediaControlActions": {
+        "type": "boolean",
+        "description": "Enable play/pause, track, volume, mute and display-sleep controls."
+      },
+      "enableHomeReadActions": {
+        "type": "boolean",
+        "description": "Enable guarded read-only access to visible non-sensitive home-directory paths."
+      },
+      "homeRoot": {
+        "type": "string",
+        "description": "Root used by guarded home-directory reads."
+      },
+      "enableAmbientInfoActions": {
+        "type": "boolean",
+        "description": "Enable weather, clock and local system-status reads."
+      },
+      "defaultWeatherLocation": {
+        "type": "string",
+        "description": "Default place for an otherwise unlocated weather request."
+      },
+      "enableReminderActions": {
+        "type": "boolean",
+        "description": "Enable Orion-owned timers and alarms."
+      },
+      "remindersPath": {
+        "type": "string",
+        "description": "JSON file holding Orion-owned timers and alarms."
+      },
+      "enableFileMutateActions": {
+        "type": "boolean",
+        "description": "Enable guarded move, rename and delete-to-Trash actions in mutable roots."
+      },
+      "trashRoot": {
+        "type": "string",
+        "description": "Trash directory used for recoverable file deletion."
+      },
+      "enableHealthTrackingActions": {
+        "type": "boolean",
+        "description": "Enable supplement and workout writes to Orion's shared health log."
+      },
+      "healthLogPath": {
+        "type": "string",
+        "description": "Shared Orion health-log JSON file."
+      },
+      "enableCalendarActions": {
+        "type": "boolean",
+        "description": "Enable typed Apple Calendar and Apple Reminders mutations."
+      },
+      "enableEpisodicCapture": {
+        "type": "boolean",
+        "description": "Enable deterministic zero-model-token capture of high-signal user decisions and preferences."
+      },
+      "episodicMemoryPath": {
+        "type": "string",
+        "description": "Directory holding automatic daily episodic journals."
+      },
+      "enableSelfTuningActions": {
+        "type": "boolean",
+        "description": "Enable guarded tuning of Orion's fixed voice-timing settings."
+      },
+      "enableSelfModificationActions": {
+        "type": "boolean",
+        "description": "Enable guarded build-tested changes to Orion's native source."
+      },
+      "enableSelfPluginActions": {
+        "type": "boolean",
+        "description": "Enable build-tested, rollback-protected repair of Orion's control plugin."
+      },
+      "enableSelfScriptsActions": {
+        "type": "boolean",
+        "description": "Enable syntax-checked, rollback-protected repair of Orion wrapper scripts."
+      },
+      "enableSelfConfigActions": {
+        "type": "boolean",
+        "description": "Enable validated changes to Orion's closed configuration table."
+      },
       "desktopRoot": {
         "type": "string"
       },
@@ -57,6 +141,14 @@
       "trustAllowRecentBinding": {
         "type": "boolean",
         "description": "Accept the newest authenticated user turn when the host did not bind this tool call to a run. Default true."
+      },
+      "trustAllowTranscriptSource": {
+        "type": "boolean",
+        "description": "Recover authenticated user turns from host-written local session transcripts."
+      },
+      "trustTranscriptAgent": {
+        "type": "string",
+        "description": "Agent whose session transcript supplies locally initiated user turns."
       },
       "trustTtlMs": {
         "type": "integer",
@@ -73,6 +165,10 @@
       "permissionAuditPath": {
         "type": "string",
         "description": "Private append-only JSONL audit file for permission changes."
+      },
+      "workshopPath": {
+        "type": "string",
+        "description": "JSON file holding Orion's proposed and approved composed tools. Defaults to .orion-control/workshop.json under the gateway working directory."
       }
     }
   },
@@ -83,6 +179,9 @@
     "tools": [
       "orion_task_run",
       "orion_task_status",
+      "orion_tool_propose",
+      "orion_tool_list",
+      "orion_tool_run",
       "orion_permission_status",
       "orion_permission_change"
     ]
@@ -92,6 +191,15 @@
       "optional": true
     },
     "orion_task_status": {
+      "optional": true
+    },
+    "orion_tool_propose": {
+      "optional": true
+    },
+    "orion_tool_list": {
+      "optional": true
+    },
+    "orion_tool_run": {
       "optional": true
     },
     "orion_permission_status": {

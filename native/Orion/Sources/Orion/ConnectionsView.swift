@@ -121,7 +121,7 @@ private struct ConnectorRow: View {
             // First Platypus Bank" has a visible answer.
             if spec.id == .plaid { environmentPicker }
 
-            if spec.id == .plaid, ConnectionsModel.plaidSecretMismatch() {
+            if spec.id == .plaid, connections.plaidSecretMismatch {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
@@ -194,6 +194,13 @@ private struct ConnectorRow: View {
             ProgressView().controlSize(.small)
         } else {
             switch state {
+            case .checking:
+                // The Keychain has not answered. On the first launch after a
+                // rebuild that is a SecurityAgent prompt waiting to be
+                // answered, so this can sit here for a while — offering a
+                // Connect button against state Orion does not have yet would
+                // just start a flow that fails.
+                ProgressView().controlSize(.small)
             case .connected:
                 InlineAction(title: "Disconnect", tint: OrionTheme.textSoft) {
                     connections.disconnect(spec.id)
@@ -235,7 +242,7 @@ private struct ConnectorRow: View {
                 InlineAction(title: "Open \(spec.name) portal", systemImage: "arrow.up.right") {
                     if let url = URL(string: spec.registerURL) { NSWorkspace.shared.open(url) }
                 }
-                if case .oauth2 = spec.auth {
+                if case .oauth2 = spec.auth, spec.id != .google {
                     // The single most-mistyped field in the whole flow, and a
                     // wrong one fails with a provider error that does not say
                     // which field was wrong.
@@ -299,7 +306,7 @@ private struct ConnectorRow: View {
         case .cannotRenew: return OrionTheme.orange
         case .expired, .failed: return OrionTheme.red
         case .readyToConnect: return OrionTheme.orange
-        case .needsCredentials, .notBuilt: return OrionTheme.textDim
+        case .checking, .needsCredentials, .notBuilt: return OrionTheme.textDim
         }
     }
 

@@ -102,6 +102,9 @@ public struct ClipInventory: Equatable, Sendable {
 
 public final class ClipLibrary {
 
+    public static let builtInFocusTrackName = "Orion Binaural Focus"
+    private static let builtInFocusTrackRevision = "2"
+
     /// One directory, by convention.
     public static var directoryURL: URL {
         if let override = ProcessInfo.processInfo.environment["ORION_FOCUS_CLIPS"],
@@ -128,6 +131,107 @@ public final class ClipLibrary {
     }
 
     public var url: URL { directory }
+
+    /// Make the Binaural source useful on a clean install without downloading
+    /// media or claiming a copyrighted recording. This is a quiet, local stereo
+    /// loop: 180 Hz in the left channel and 190 Hz in the right. The ten-Hz
+    /// difference is the binaural pulse; no medical or performance claim is
+    /// attached to it.
+    ///
+    /// Thirty seconds is intentionally exact: both carriers complete a whole
+    /// number of cycles and the amplitude envelope returns to its starting
+    /// value, so AVAudioPlayer can loop the file without a boundary click.
+    @discardableResult
+    public func ensureBuiltInFocusTrack(duration: TimeInterval = 30) -> Result<Clip, ClipFailure> {
+        let destination = directory
+            .appendingPathComponent(Self.builtInFocusTrackName)
+            .appendingPathExtension("caf")
+        let revisionFile = directory.appendingPathComponent(".orion-binaural-revision")
+
+        let revision = try? String(contentsOf: revisionFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if FileManager.default.fileExists(atPath: destination.path),
+           revision == Self.builtInFocusTrackRevision {
+            switch validate(destination) {
+            case .success(let foundDuration):
+                return .success(Clip(name: Self.builtInFocusTrackName,
+                                     url: destination, duration: foundDuration))
+            case .failure(let reason):
+                return .failure(ClipFailure("The built-in focus track is damaged: \(reason)"))
+            }
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            let temporary = directory.appendingPathComponent(
+                ".orion-binaural-\(UUID().uuidString).caf"
+            )
+            do {
+                try Self.writeBinauralLoop(to: temporary, duration: duration)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                      ofItemAtPath: temporary.path)
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+                } else {
+                    try FileManager.default.moveItem(at: temporary, to: destination)
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: temporary)
+                throw error
+            }
+
+            guard case .success(let foundDuration) = validate(destination) else {
+                return .failure(ClipFailure("The built-in focus track was created but would not decode."))
+            }
+            try Self.builtInFocusTrackRevision.write(to: revisionFile, atomically: true,
+                                                     encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                  ofItemAtPath: revisionFile.path)
+            return .success(Clip(name: Self.builtInFocusTrackName,
+                                 url: destination, duration: foundDuration))
+        } catch {
+            return .failure(ClipFailure(
+                "Could not create the built-in focus track: \(error.localizedDescription)"
+            ))
+        }
+    }
+
+    private static func writeBinauralLoop(to url: URL, duration: TimeInterval) throws {
+        let sampleRate = 44_100.0
+        let seconds = max(1, duration)
+        let totalFrames = Int(sampleRate * seconds)
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                   sampleRate: sampleRate,
+                                   channels: 2,
+                                   interleaved: false)!
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let chunkSize = 4_096
+        var written = 0
+
+        while written < totalFrames {
+            let count = min(chunkSize, totalFrames - written)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format,
+                                          frameCapacity: AVAudioFrameCount(count))!
+            buffer.frameLength = AVAudioFrameCount(count)
+            let channels = buffer.floatChannelData!
+            for frame in 0..<count {
+                let time = Double(written + frame) / sampleRate
+                // One envelope cycle over the whole file, returning precisely
+                // to the same phase at the loop boundary.
+                // Around -22 dBFS before the source-volume control: quiet enough
+                // to sit under work, but audible on laptop speakers. Revision 1
+                // was ~10 dB quieter and could honestly be mistaken for silence.
+                let envelope = 0.075 + 0.025 * (0.5 + 0.5 * cos(2 * .pi * time / seconds))
+                channels[0][frame] = Float(sin(2 * .pi * 180 * time) * envelope)
+                channels[1][frame] = Float(sin(2 * .pi * 190 * time) * envelope)
+            }
+            try file.write(from: buffer)
+            written += count
+        }
+    }
 
     // MARK: Discovery
 

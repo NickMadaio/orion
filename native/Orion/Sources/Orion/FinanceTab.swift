@@ -45,15 +45,15 @@ struct FinanceTab: View {
     private var connected: some View {
         HStack(alignment: .top, spacing: 44) {
             VStack(alignment: .leading, spacing: 42) {
-                hero
-                flow
-                spendingBreakdown
-                accountsSection
-                recent
+                OrionPanel(padding: 22) { hero }
+                OrionPanel(padding: 20) { flow }
+                OrionPanel(padding: 20) { spendingBreakdown }
+                OrionPanel(padding: 20) { accountsSection }
+                OrionPanel(padding: 20) { recent }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            rail
+            OrionPanel(padding: 18) { rail }
                 .frame(width: 262)
                 .padding(.top, 44)
         }

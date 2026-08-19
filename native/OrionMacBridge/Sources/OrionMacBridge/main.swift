@@ -85,6 +85,8 @@ enum OrionMacBridge {
             return try createReminder(payload: request.payload ?? [:])
         case "create_calendar_event":
             return try createCalendarEvent(payload: request.payload ?? [:])
+        case "get_calendar_event":
+            return try getCalendarEvent(payload: request.payload ?? [:])
         case "delete_calendar_event":
             return try deleteCalendarEvent(payload: request.payload ?? [:])
         case "set_clock_timer":
@@ -192,6 +194,29 @@ enum OrionMacBridge {
         event.calendar = store.defaultCalendarForNewEvents
         try store.save(event, span: .thisEvent, commit: true)
         return ["status": "created", "identifier": event.calendarItemIdentifier]
+    }
+
+    /// Exact readback for a typed mutation. `list_upcoming_calendar_events`
+    /// intentionally covers only seven days; using it to verify an event a
+    /// month away would report a false failure and invite a duplicate retry.
+    static func getCalendarEvent(payload: [String: String]) throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Calendar access in Orion before reading an event.")
+        }
+        guard let identifier = payload["identifier"], !identifier.isEmpty else {
+            throw BridgeError.invalidRequest("Reading an event needs its identifier.")
+        }
+        let store = EKEventStore()
+        guard let event = store.calendarItem(withIdentifier: identifier) as? EKEvent else {
+            return ["exists": "false", "identifier": identifier]
+        }
+        return [
+            "exists": "true",
+            "identifier": identifier,
+            "title": event.title ?? "Untitled",
+            "start": ISO8601DateFormatter().string(from: event.startDate),
+            "end": ISO8601DateFormatter().string(from: event.endDate),
+        ]
     }
 
     /// Remove an event by the identifier `create_calendar_event` handed back.

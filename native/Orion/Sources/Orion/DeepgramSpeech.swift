@@ -179,6 +179,11 @@ final class DeepgramStream {
     private var failed = false
     private var attempt = 0
 
+    /// Audio this socket declined to send, and when we last said so.
+    private var refusedBuffers = 0
+    private var lastRefusalLog = Date.distantPast
+    private static let refusalLogInterval: TimeInterval = 2.0
+
     private let apiKey: String
     private let session: URLSession
     private var task: URLSessionWebSocketTask?
@@ -297,14 +302,35 @@ final class DeepgramStream {
 
     // MARK: Sending
 
+    /// Audio refused here used to vanish without trace, which made a dead socket
+    /// indistinguishable from a silent room — `SpeechInput` had already counted
+    /// the bytes as sent by the time this decided not to send them. The counter
+    /// and the throttled line are what make that visible; the guard itself is
+    /// correct and stays.
     func send(audio: Data) {
-        guard isOpen, !finished, !failed, let task else { return }
+        guard isOpen, !finished, !failed, let task else {
+            noteRefused()
+            return
+        }
         task.send(.data(audio)) { [weak self] error in
             guard let error else { return }
             DispatchQueue.main.async {
                 self?.fail("Deepgram stopped accepting audio: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// One line every couple of seconds, not one per buffer at 40+/sec.
+    private func noteRefused() {
+        refusedBuffers += 1
+        let now = Date()
+        guard now.timeIntervalSince(lastRefusalLog) >= DeepgramStream.refusalLogInterval else { return }
+        lastRefusalLog = now
+        // `finished` is the ordinary path — `finish()` sets it and the tap keeps
+        // producing for a moment afterwards — so it is named rather than
+        // alarming. The other two are faults.
+        let why = finished ? "stream finished" : (failed ? "stream failed" : "socket not open")
+        OrionLog.write("[deepgram] refused \(refusedBuffers) audio chunk(s) — \(why)")
     }
 
     private func send(control object: [String: Any]) {

@@ -114,6 +114,10 @@ export interface StepRecord {
       // the executor does — this is the one outcome where the thing that
       // changed is the app that wrote the row.
       | "rebuilt"
+      // A message went out. The ledger needs this one most of all: it is the
+      // only row in here that records something which cannot be undone from
+      // the ledger, so the ledger is the only account of it that exists.
+      | "sent"
       | "failed";
     target?: string;
     output?: unknown;

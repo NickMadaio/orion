@@ -157,8 +157,12 @@ else
   fi
   if cp -R native/Orion/.build/Orion.app /Applications/ 2>/dev/null; then
     ok "/Applications/Orion.app"
-    warn "new build — macOS will treat this as a new app and re-ask for Accessibility"
-    print "        That is the ad-hoc signature. ./scripts/orion-permissions explains it."
+    if [[ -n "$(security find-identity -v -p codesigning 2>/dev/null | grep 'Orion Local Signing' | tail -1)" ]]; then
+      ok "stable signature retained — existing macOS permission grants should survive"
+    else
+      warn "new ad-hoc build — macOS may re-ask for Accessibility"
+      print "        ./scripts/orion-permissions explains the one-time fix."
+    fi
   else
     warn "could not write to /Applications — running from .build instead"
   fi
@@ -363,26 +367,43 @@ step "6b. Self-knowledge"
 # TOOLS.md is generated, never hand-written. It was wrong for days -- telling
 # Orion he had no shell and no app control after both shipped -- and he believed
 # it and said so out loud. Regenerating here means it cannot lag a deploy.
-if "$HOME/.openclaw/tools/node-v24.15.0/bin/node" "$repo/scripts/orion-selfdoc" 2>/dev/null \
-   || node "$repo/scripts/orion-selfdoc" 2>/dev/null; then
-  ok "TOOLS.md regenerated from the live catalog"
-else
-  warn "could not regenerate TOOLS.md — Orion may describe himself wrongly"
-fi
+# `2>/dev/null` used to be here. It had to go: orion-selfdoc now exits non-zero
+# and explains itself on stderr when it cannot resolve a capability tier, and
+# discarding that turned the one loud failure in the generator back into the
+# silent one it was written to replace. Exit 1 means TOOLS.md WAS written but
+# something in it is a guess — a different thing from the generator not running.
+selfdoc_node="$HOME/.openclaw/tools/node-v24.15.0/bin/node"
+[[ -x "$selfdoc_node" ]] || selfdoc_node="node"
+selfdoc_out="$("$selfdoc_node" "$repo/scripts/orion-selfdoc" 2>&1)"
+selfdoc_status=$?
+case $selfdoc_status in
+  0) ok "TOOLS.md regenerated from the live catalog" ;;
+  1) bad "TOOLS.md regenerated but a capability tier could not be resolved:"
+     print "$selfdoc_out" | sed 's/^/        /'
+     print "        Orion will describe that tier as switched off, which is a GUESS." ;;
+  *) warn "could not regenerate TOOLS.md — Orion may describe himself wrongly"
+     print "$selfdoc_out" | sed 's/^/        /' ;;
+esac
 
 # --------------------------------------------------------------- daily memory
 step "6c. Daily memory"
 daily_plist="$HOME/Library/LaunchAgents/com.nickmadaio.orion.daily.plist"
-node_bin="$HOME/.openclaw/tools/node-v24.15.0/bin/node"
-[[ -x "$node_bin" ]] || node_bin="${commands[node]:-/usr/bin/env node}"
-mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.openclaw/logs"
-sed -e "s#__NODE__#$node_bin#" -e "s#__REPO__#$repo#" -e "s#__HOME__#$HOME#" \
-    "$repo/native/launchd/com.nickmadaio.orion.daily.plist" > "$daily_plist"
-launchctl unload "$daily_plist" >/dev/null 2>&1
-if launchctl load "$daily_plist" >/dev/null 2>&1; then
-  ok "end-of-day summary scheduled (00:20, catches up after sleep)"
+# OpenClaw owns the one nightly pipeline: summary, then memory index. The old
+# 00:20 LaunchAgent ran the summary first and consumed/archive the ledger, so
+# the 02:10 job always found “nothing” and only indexed. Two schedulers did not
+# add reliability; they split one transaction across owners.
+if [[ -f "$daily_plist" ]]; then
+  launchctl unload "$daily_plist" >/dev/null 2>&1
+  retired="$HOME/.openclaw/backups/orion-launchagents"
+  mkdir -p "$retired"
+  mv "$daily_plist" "$retired/com.nickmadaio.orion.daily.retired.plist"
+  ok "retired the duplicate 00:20 LaunchAgent"
+fi
+if "$HOME/.openclaw/bin/openclaw" cron list --json 2>/dev/null \
+    | grep -q '"name": "orion-daily-memory"'; then
+  ok "one nightly memory pipeline scheduled in OpenClaw (summary + index)"
 else
-  warn "could not schedule the daily summary"
+  warn "orion-daily-memory is missing from OpenClaw cron; nightly summary/index will not run"
 fi
 
 # ------------------------------------------------------------------ gateway

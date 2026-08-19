@@ -41,8 +41,13 @@ final class FocusExtras: ObservableObject {
     @Published var cameraPresence: Bool {
         didSet { UserDefaults.standard.set(cameraPresence, forKey: Key.camera) }
     }
-    /// Quitting apps needs BOTH this switch and a non-empty user-maintained
-    /// list. Two independent conditions for the one destructive capability.
+    /// Closing apps at session start. Off by default, like everything here.
+    ///
+    /// It used to need this switch AND a list Nick maintained by hand. He
+    /// refused to keep one, twice, and the list stayed empty — so the switch was
+    /// on and nothing ever closed. The second condition is now a mechanical
+    /// safety floor plus a reasoned, logged decision per app, which is a
+    /// stronger guard than a list he was never going to write.
     @Published var quitDistractions: Bool {
         didSet { UserDefaults.standard.set(quitDistractions, forKey: Key.quitApps) }
     }
@@ -66,45 +71,72 @@ final class FocusExtras: ObservableObject {
 final class FocusExtrasCoordinator {
 
     private let extras: FocusExtras
-    private let dnd = DoNotDisturbControl()
-    private let music = AppleMusicControl()
+    let focus = FocusModeControl()
+    private let music: AppleMusicControl
     private let camera = CameraPresence()
     private let quittable: QuittableApps
+    private let distractions: DistractionCloser
+    /// Started at launch, not at session start: "which apps has he actually
+    /// used" is a question that can only be answered by having been watching.
+    private let activations = ActivationHistory()
+
+    /// Off the main thread: the reasoning step talks to a model and takes
+    /// seconds, and a session must start at the moment it was asked for.
+    private let work = DispatchQueue(label: "com.nickmadaio.orion.focus-extras",
+                                     qos: .utility)
 
     private var sessionIsLive = false
-    private var turnedOnDND = false
+    private var changedFocusMode = false
 
     /// The most recent problem from each, so the UI can show them separately.
     private(set) var problems: [String] = []
 
     var onLog: ((String) -> Void)?
 
-    init(extras: FocusExtras, quittable: QuittableApps) {
+    init(extras: FocusExtras, quittable: QuittableApps,
+         music: AppleMusicControl = AppleMusicControl(),
+         reasoner: DistractionReasoning? = nil) {
         self.extras = extras
         self.quittable = quittable
-        dnd.onLog = { [weak self] in self?.onLog?($0) }
+        self.music = music
+        self.distractions = DistractionCloser(
+            apps: RunningApps(activations: activations),
+            quittable: quittable, reasoner: reasoner
+        )
+        activations.start()
+        focus.onLog = { [weak self] in self?.onLog?($0) }
         music.onLog = { [weak self] in self?.onLog?($0) }
         camera.onLog = { [weak self] in self?.onLog?($0) }
+        distractions.onLog = { [weak self] in self?.onLog?($0) }
     }
 
     /// Called on every session change.
     func apply(_ snapshot: SessionSnapshot) {
         let live = snapshot.isRunning
-        if live && !sessionIsLive { begin() }
+        if live && !sessionIsLive {
+            begin(task: snapshot.session?.plan.task ?? "",
+                  isFreshStart: SessionFreshness.startedJustNow(
+                      events: snapshot.session?.events, now: Date()))
+        }
         if !live && sessionIsLive { end() }
         sessionIsLive = live
     }
 
-    private func begin() {
+    private func begin(task: String, isFreshStart: Bool) {
         var found: [String] = []
 
         if extras.doNotDisturb {
-            let outcome = dnd.enable()
-            turnedOnDND = outcome.worked
-            if let message = outcome.message { found.append("Do Not Disturb: \(message)") }
+            let outcome = focus.enableForSession()
+            changedFocusMode = outcome.worked
+            if let message = outcome.message {
+                found.append("Focus (\(focus.sessionMode)): \(message)")
+            }
         }
 
-        if extras.pauseMusic {
+        let sessionPlayerUsesMusic = UserDefaults.standard.string(
+            forKey: "orion.focus.audioSource"
+        ) == "appleMusic"
+        if extras.pauseMusic && !sessionPlayerUsesMusic {
             let outcome = music.pauseForSession()
             // "Music is not running" is not a problem worth reporting; a refused
             // Automation consent is.
@@ -124,11 +156,24 @@ final class FocusExtrasCoordinator {
             }
         }
 
-        if extras.quitDistractions && quittable.list().isEmpty {
-            // The switch is on and the list is empty, which means it will do
-            // nothing. Say so rather than letting him believe it is working.
-            found.append("Closing distractions is on, but your quittable list is empty, "
-                         + "so nothing will be closed. Add apps to it first.")
+        if extras.quitDistractions && !isFreshStart {
+            onLog?("[distractions] this session was already running before Orion "
+                   + "started, so nothing is being closed")
+        } else if extras.quitDistractions {
+            if !AccessibilityDocumentSensor.isAvailable {
+                // Without Accessibility no app's unsaved state can be read, and
+                // an unreadable app is never closed — so this switch would do
+                // nothing at all. Say so rather than letting him believe it is
+                // working.
+                found.append("Closing distractions is on, but without Accessibility "
+                             + "Orion cannot tell which apps have unsaved work, so it "
+                             + "will close nothing.")
+            }
+            // Everything about this runs off the session's own thread and logs
+            // every decision it makes.
+            work.async { [weak self] in
+                self?.distractions.closeDistractions(task: task)
+            }
         }
 
         problems = found
@@ -137,24 +182,65 @@ final class FocusExtrasCoordinator {
 
     private func end() {
         // Only undo what was actually done.
-        if turnedOnDND {
-            _ = dnd.disable()
-            turnedOnDND = false
+        if changedFocusMode {
+            _ = focus.disableForSession()
+            changedFocusMode = false
         }
         music.resumeAfterSession()
         camera.setEnabled(false)
         problems = []
     }
 
-    /// Close the apps Nick listed. Called only when he asked for it, and only
-    /// ever against the list he maintains.
-    @discardableResult
-    func closeDistractions() -> [QuitOutcome] {
-        guard extras.quitDistractions else { return [] }
-        return quittable.list().map { quittable.quit(bundleID: $0.bundleID, name: $0.name) }
+    /// Say at launch what would happen, without doing any of it.
+    ///
+    /// Both of these used to be discoverable only by starting a session and
+    /// reading the complaint afterwards — which is how "Orion Focus On does not
+    /// exist" survived for as long as it did. This runs no model and quits
+    /// nothing: it reads what is there and writes it down.
+    func logReadiness() {
+        work.async { [weak self] in
+            guard let self else { return }
+
+            if extras.doNotDisturb {
+                let name = focus.shortcutName
+                switch focus.exists(name) {
+                case .some(true):
+                    onLog?("[focus-mode] “\(name)” is installed; a session will run "
+                           + "“\(FocusModeControl.input(mode: focus.sessionMode, intent: .on))”")
+                case .some(false):
+                    onLog?("[focus-mode] “\(name)” is not installed — a session will not "
+                           + "change your Focus until you make it")
+                case .none:
+                    onLog?("[focus-mode] the Shortcuts list could not be read")
+                }
+            }
+
+            guard extras.quitDistractions else { return }
+            guard AccessibilityDocumentSensor.isAvailable else {
+                onLog?("[distractions] Accessibility is not granted, so no app's "
+                       + "unsaved state can be read and nothing will ever be closed")
+                return
+            }
+            let review = reviewWithoutReasoning()
+            onLog?("[distractions] at rest: \(review.considered) of \(review.total) running "
+                   + "apps could be considered; held back — \(review.held)")
+        }
+    }
+
+    /// The mechanical half only: screen everything, count the refusals by
+    /// reason. No model, no side effects.
+    private func reviewWithoutReasoning() -> (total: Int, considered: Int, held: String) {
+        let facts = RunningApps(activations: activations).facts(now: Date())
+        let (eligible, blocked) = DistractionFloor.partition(facts)
+        var counts: [String: Int] = [:]
+        for (_, reason) in blocked { counts[reason, default: 0] += 1 }
+        let held = counts.sorted { $0.value > $1.value }
+            .map { "\($0.value) × \($0.key)" }
+            .joined(separator: "; ")
+        return (facts.count, eligible.count, held.isEmpty ? "nothing" : held)
     }
 
     var presenceReading: PresenceReading { camera.lastReading }
-    var isDoNotDisturbConfigured: Bool { dnd.isConfigured() }
-    var doNotDisturbSetup: String { dnd.setupInstructions }
+    var isFocusShortcutConfigured: Bool { focus.isConfigured() }
+    var focusSetup: String { focus.setupInstructions }
 }

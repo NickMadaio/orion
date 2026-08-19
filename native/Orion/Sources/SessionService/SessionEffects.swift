@@ -21,6 +21,10 @@ public final class SessionEffects: SessionEffectHandler {
     private let clips: ClipPlaying
     private let speak: (String) -> Bool
     private let log: (String) -> Void
+    private let clipStateLock = NSLock()
+    private var clipsEnabled = true
+    private var sessionAudioPaused = false
+    private var clipPausedByUser = false
 
     /// Set when a clip could not be played, so the UI can say why a focus block
     /// is silent instead of showing a contented-looking player.
@@ -48,6 +52,20 @@ public final class SessionEffects: SessionEffectHandler {
     }
 
     public func startClip(_ clip: ClipAssignment, phaseIndex: Int) -> Bool {
+        clipStateLock.lock()
+        let shouldPlay = clipsEnabled && !sessionAudioPaused && !clipPausedByUser
+        let sourceEnabled = clipsEnabled
+        clipStateLock.unlock()
+        guard shouldPlay else {
+            clips.pause()
+            clipProblem = nil
+            if !sourceEnabled {
+                log("[session] Apple Music is selected; the phase clip stays paused")
+            } else {
+                log("[session] the phase clip stays paused by request")
+            }
+            return true
+        }
         switch clips.play(clip.name) {
         case .success:
             clipProblem = nil
@@ -86,7 +104,37 @@ public final class SessionEffects: SessionEffectHandler {
     /// Pause keeps the clip's offset, so a resumed break carries on where it
     /// was instead of restarting. Idempotent in both directions.
     public func setAudioPaused(_ paused: Bool) {
-        paused ? clips.pause() : clips.resume()
+        clipStateLock.lock()
+        sessionAudioPaused = paused
+        let shouldResume = clipsEnabled && !clipPausedByUser
+        clipStateLock.unlock()
+        if paused {
+            clips.pause()
+        } else if shouldResume {
+            clips.resume()
+        }
+    }
+
+    /// A manual pause is stronger than the service heartbeat. The heartbeat is
+    /// allowed to resume audio after a session-level pause, but never after the
+    /// person pressed pause on the player itself.
+    public func setClipPausedByUser(_ paused: Bool) {
+        clipStateLock.lock()
+        clipPausedByUser = paused
+        let shouldResume = clipsEnabled && !sessionAudioPaused
+        clipStateLock.unlock()
+        if paused {
+            clips.pause()
+        } else if shouldResume {
+            clips.resume()
+        }
+    }
+
+    /// The player source switch is user-owned. Turning clips off prevents a
+    /// phase transition from starting one underneath Apple Music.
+    public func setClipPlaybackEnabled(_ enabled: Bool) {
+        clipStateLock.lock(); clipsEnabled = enabled; clipStateLock.unlock()
+        if !enabled { clips.pause() }
     }
 
     public func drainAbsences() -> [(seconds: TimeInterval, phaseIndex: Int)] {

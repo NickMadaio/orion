@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Orion listens only while you hold the Right Option key. Your voice is transcribed on this Mac and is never recorded to disk.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Orion controls Apple Music only when you choose it for a focus session, so the session player can play, pause, skip, seek, and show your current track.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

@@ -13,8 +13,9 @@
 //  camera or frontmost-app sensing changes that. Claiming otherwise would be
 //  the more damaging lie, because it is the kind of drift that actually happens.
 //
-//  Two levels only. Gentle and Firm. Anything harsher was deferred to Gate 10
-//  behind its own permission, and nothing here quits an app or takes a screen.
+//  Four visible levels. The pure policy still decides only when drift is real;
+//  SessionService maps the selected level to progressively stronger, reversible
+//  responses. Nothing here quits an app, captures input, or takes a screen.
 //
 
 import Foundation
@@ -42,10 +43,14 @@ public enum EnforcementDirection: String, Codable, Sendable, CaseIterable {
 public enum EnforcementLevel: String, Codable, Sendable, CaseIterable {
     /// Say something once when he drifts, then leave him alone.
     case gentle
-    /// Keep escalating, up to the cap.
+    /// Speak, then bring the confirmed work context forward on repeat drift.
+    case guided
+    /// Hide the current disallowed app without quitting it.
     case firm
+    /// Put up a reversible return-to-work surface. Escape always works.
+    case shield
 
-    public var escalates: Bool { self == .firm }
+    public var escalates: Bool { self != .gentle }
 }
 
 // MARK: - What the sensors saw
@@ -183,7 +188,9 @@ public struct EnforcementPolicy: Equatable, Sendable {
     }
 
     public static let gentle = EnforcementPolicy(level: .gentle)
+    public static let guided = EnforcementPolicy(level: .guided)
     public static let firm = EnforcementPolicy(level: .firm)
+    public static let shield = EnforcementPolicy(level: .shield)
 
     /// Reverse lockdown: keep him AWAY from the listed apps.
     public static func reverse(_ level: EnforcementLevel = .gentle) -> EnforcementPolicy {

@@ -77,6 +77,16 @@ public final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
     }
 
     public var isPlaying: Bool { player?.isPlaying ?? false }
+    public var duration: TimeInterval { player?.duration ?? 0 }
+    public var currentTime: TimeInterval { player?.currentTime ?? 0 }
+
+    /// Move within the owned clip. It remains looped; seeking never changes the
+    /// focus block's clock or phase boundary.
+    public func seek(to seconds: TimeInterval) {
+        guard let player, player.duration > 0 else { return }
+        player.currentTime = min(player.duration, max(0, seconds))
+        onLog?("[clip] seeking \(nowPlaying ?? "?") to \(Int(player.currentTime))s")
+    }
 
     // MARK: Playing
 

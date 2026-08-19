@@ -40,7 +40,7 @@ public struct SessionRequest: Codable, Sendable {
     public let minutes: Double?
     /// Bundle identifiers Nick has confirmed for `arm`.
     public let allow: [String]?
-    /// "gentle" or "firm".
+    /// "gentle", "guided", "firm", or "shield".
     public let level: String?
 
     public init(op: String, requestId: String? = nil, task: String? = nil,
@@ -95,6 +95,11 @@ public struct SessionResponse: Codable, Sendable {
     /// Set when a sensor cannot be read, so the UI never implies cover it does
     /// not have.
     public var sensorsUnavailable: String?
+
+    /// Message answers. Empty and unreadable are different, so both exist.
+    public var messages: [MessageLine]?
+    public var chats: [ChatLine]?
+    public var messagesUnavailable: String?
 
     public init(ok: Bool) { self.ok = ok }
 
@@ -169,6 +174,10 @@ public final class SessionIPC {
     /// enforcement commands say so rather than pretending to work.
     private let enforcer: Enforcer?
 
+    /// Supplied by the app, which is the process that actually holds Full Disk
+    /// Access. Absent in tests and headless runs, where the message ops say so.
+    private weak var messages: (any MessageReading)?
+
     private let socketURL: URL
     private var listener: Int32 = -1
     private var thread: Thread?
@@ -177,9 +186,11 @@ public final class SessionIPC {
     /// Where a stale socket file is reported. The app logs it; tests read it.
     public var onLog: ((String) -> Void)?
 
-    public init(service: SessionService, enforcer: Enforcer? = nil, socketURL: URL? = nil) {
+    public init(service: SessionService, enforcer: Enforcer? = nil,
+                messages: (any MessageReading)? = nil, socketURL: URL? = nil) {
         self.service = service
         self.enforcer = enforcer
+        self.messages = messages
         if let socketURL {
             self.socketURL = socketURL
         } else if let override = ProcessInfo.processInfo.environment["ORION_SESSION_SOCKET"],
@@ -405,6 +416,28 @@ public final class SessionIPC {
             return response
         }
 
+        // Messages. Read-only, and answered by the app because it is the only
+        // process here with Full Disk Access.
+        if request.op == "messages" || request.op == "chats" {
+            guard let messages else {
+                return .failure("Orion cannot reach the Messages database from here.")
+            }
+            var response = SessionResponse(ok: true)
+            if let why = messages.unavailable {
+                response.messagesUnavailable = why
+                return response
+            }
+            let limit = max(1, min(200, Int(request.minutes ?? 20)))
+            if request.op == "chats" {
+                response.chats = messages.chats(limit: limit)
+            } else if let who = request.task, !who.isEmpty {
+                response.messages = messages.from(who, limit: limit)
+            } else {
+                response.messages = messages.recent(limit: limit)
+            }
+            return response
+        }
+
         if request.op == "preflight" {
             guard let enforcer else { return .failure("enforcement is not available") }
             let (list, apps) = enforcer.preflight(forTask: request.task ?? "")
@@ -424,9 +457,9 @@ public final class SessionIPC {
                 return .failure("arming needs the list of apps you are confirming — "
                               + "run preflight first")
             }
-            let level: EnforcementLevel = (request.level == "firm") ? .firm : .gentle
+            let level = EnforcementLevel(rawValue: request.level ?? "gentle") ?? .gentle
             enforcer.arm(Allowlist(bundleIDs: Set(allow)),
-                         policy: level == .firm ? .firm : .gentle)
+                         policy: EnforcementPolicy(level: level))
             var response = SessionWire.describe(service.snapshot())
             annotate(&response)
             return response

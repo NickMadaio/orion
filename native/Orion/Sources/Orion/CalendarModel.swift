@@ -15,6 +15,7 @@
 
 import Foundation
 import Combine
+import Combine
 import SwiftUI
 import SessionDomain
 import SessionService
@@ -72,6 +73,8 @@ final class CalendarModel: ObservableObject {
     private let agenda: AppleCalendarSync
     private let reminders: AppleRemindersSync
     private let history: SessionHistory
+    private let health: HealthLog
+    private var cancellables = Set<AnyCancellable>()
 
     /// What has already been fetched, so paging inside it costs nothing.
     private var fetched: DateInterval?
@@ -79,10 +82,11 @@ final class CalendarModel: ObservableObject {
     private let dayFormatter: DateFormatter
 
     init(agenda: AppleCalendarSync, reminders: AppleRemindersSync,
-         history: SessionHistory, calendar: Calendar = .current) {
+         history: SessionHistory, health: HealthLog, calendar: Calendar = .current) {
         self.agenda = agenda
         self.reminders = reminders
         self.history = history
+        self.health = health
         self.range = CalendarRange(calendar: calendar)
 
         let formatter = DateFormatter()
@@ -90,6 +94,21 @@ final class CalendarModel: ObservableObject {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = calendar.timeZone
         self.dayFormatter = formatter
+
+        // EventKit returns completed reminders asynchronously. Rebuild when
+        // that answer arrives; otherwise the calendar's first pass misses the
+        // completion markers until someone manually changes the page.
+        reminders.$completedEverywhere
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reload(force: false) }
+            .store(in: &cancellables)
+
+        health.$dailyRecords
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildScores() }
+            .store(in: &cancellables)
 
         reload(force: true)
     }
@@ -120,6 +139,15 @@ final class CalendarModel: ObservableObject {
     /// Pick a day without changing the page.
     func select(_ day: Date) {
         selectedDay = day
+    }
+
+    /// A double click is an intentional request to inspect the selected date,
+    /// rather than merely move the selection inside the month/week grid.
+    func showDay(_ day: Date) {
+        granularity = .day
+        focusDate = day
+        selectedDay = day
+        reload(force: true)
     }
 
     /// The seven days around the selected one.
@@ -267,19 +295,32 @@ final class CalendarModel: ObservableObject {
     private func rebuildScores() {
         var scores: [String: DayScore] = [:]
 
-        for (day, entries) in entriesByDay {
+        let days = Set(entriesByDay.keys).union(health.dailyRecords.keys)
+        for day in days {
+            let entries = entriesByDay[day] ?? []
             let records = entries.compactMap { entry -> HistoryRecord? in
                 guard case .focus = entry.kind else { return nil }
                 return historyByDay[day]?.first { $0.sessionID == entry.id.replacingOccurrences(of: "focus:", with: "") }
             }
 
             var inputs = DayScoring.focusInputs(records: records)
-            inputs.append(ScoreInput(.recovery, value: nil,
-                                     unavailable: "recovery for past days is not stored yet"))
-            inputs.append(ScoreInput(.sleep, value: nil,
-                                     unavailable: "sleep for past days is not stored yet"))
-            inputs.append(ScoreInput(.selfCare, value: nil,
-                                     unavailable: "hydration is only kept for today"))
+            let healthDay = health.record(for: day)
+            inputs.append(ScoreInput(.recovery,
+                                     value: healthDay.flatMap { $0.recovery.map { Double($0) / 100 } },
+                                     unavailable: healthDay?.recovery == nil ? "recovery was not recorded" : nil))
+            inputs.append(ScoreInput(.sleep,
+                                     value: healthDay.flatMap { $0.sleepPerformance.map { Double($0) / 100 } },
+                                     unavailable: healthDay?.sleepPerformance == nil ? "sleep was not recorded" : nil))
+            if let healthDay {
+                let hydration = min(1, Double(healthDay.waterBottles) / 9)
+                let supplements = health.supplements.isEmpty
+                    ? 0
+                    : min(1, Double(healthDay.supplementIDs.count) / Double(health.supplements.count))
+                inputs.append(ScoreInput(.selfCare, value: max(hydration, supplements)))
+            } else {
+                inputs.append(ScoreInput(.selfCare, value: nil,
+                                         unavailable: "no self-care was recorded"))
+            }
 
             scores[day] = DayScoring.score(dayKey: day, inputs: inputs)
         }

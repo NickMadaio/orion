@@ -1,0 +1,336 @@
+#!/usr/bin/env node
+/*
+ Send one iMessage/SMS as Nick. The dangerous half of the Messages capability,
+ deliberately in its own file.
+
+   orion-messages-send "<recipient>" "<message>"
+   orion-messages-send --dry-run "<recipient>" "<message>"
+
+ WHY THIS IS NOT IN `orion-messages`. Reading his texts and sending texts as him
+ are not two features of one capability, they are two risk classes that happen
+ to share a database. Reading is recoverable by ignoring the answer; a sent
+ message is on someone else's phone and there is no unsend. Two scripts means
+ two allowlist entries, which means "Orion may read my messages" and "Orion may
+ send messages as me" can be answered differently — and the second one can be
+ revoked without losing the first.
+
+ WHAT THIS SCRIPT DOES NOT DECIDE. It does not decide whether the recipient was
+ Nick's idea. It cannot: by the time argv exists the provenance is gone. That
+ check lives in the plugin, where the user's authenticated turn is still in
+ hand — `messages_send` is refused unless the recipient appears in Nick's own
+ words, and refused again unless the send carries an approval hash bound to the
+ exact recipient and body. This script is the last gate, not the only one, and
+ the checks below are the ones that survive having no context: shape, size,
+ ambiguity, and credentials.
+
+ RESOLUTION IS STRICT. "Mom" is resolved against Contacts and the message
+ database, and refused unless it lands on EXACTLY ONE handle. Sending to the
+ wrong Dave because two Daves matched is precisely the failure that cannot be
+ undone, so an ambiguous name is an error and never a best guess.
+
+ AUTOMATION PERMISSION. Driving Messages.app needs macOS Automation (TCC)
+ consent for the RESPONSIBLE process, and the first attempt raises a dialog only
+ a human can click. If that is what happened this says so by name, because
+ "sending failed" and "nobody has clicked Allow yet" are different problems and
+ only one of them is a bug.
+*/
+
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const DB = join(homedir(), "Library/Messages/chat.db");
+const MAX_LENGTH = 2000;
+
+const argv = process.argv.slice(2);
+const dryRun = argv[0] === "--dry-run";
+const [recipientRaw, ...bodyParts] = dryRun ? argv.slice(1) : argv;
+const body = bodyParts.join(" ");
+
+function fail(message, code = 2) {
+  console.error(`orion-messages-send: ${message}`);
+  process.exit(code);
+}
+
+if (!recipientRaw || !body.trim()) {
+  fail('usage: orion-messages-send [--dry-run] "<recipient>" "<message>"');
+}
+if (body.length > MAX_LENGTH) {
+  fail(`the message is ${body.length} characters; ${MAX_LENGTH} is the limit.`);
+}
+
+/*
+ Control characters out. Not a quoting defence — argv is passed to osascript as
+ argv and is never parsed as AppleScript source — but a message body carrying a
+ NUL or an escape sequence is either a mistake or an attempt at one.
+*/
+if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(body) ||
+    /[\u0000-\u001F\u007F]/.test(recipientRaw)) {
+  fail("the message contains control characters, which do not belong in a text.");
+}
+
+/*
+ Credentials do not leave this machine in a text message.
+
+ The same list `orion-remember` refuses, plus the shapes that matter more when
+ the destination is someone else's phone rather than a local file: card numbers,
+ and the one-time codes that are the whole point of a SIM-swap. Orion is trusted
+ here; secrets arrive by accident far more often than by intent, and refusing
+ loudly costs a retype while the alternative costs a rotation.
+*/
+const SECRET_SHAPED = [
+  /\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /\b(?:\d[ -]?){13,16}\b(?=[^\d]|$)/,
+  /\b(?:one[- ]?time|verification|security|auth(?:entication)?|2fa|otp)\s+code\b/i,
+  /\b(?:password|passcode|passphrase|api[- ]?key|secret\s+key)\s*(?:is|:|=)\s*\S/i,
+];
+for (const pattern of SECRET_SHAPED) {
+  if (pattern.test(body)) {
+    fail(
+      "that message looks like it contains a credential, a card number or a one-time code. " +
+        "Those do not go out over iMessage from here — send it yourself if you meant it.",
+    );
+  }
+}
+
+/* ------------------------------------------------------------- resolution */
+
+const lastTen = (value) => String(value).replace(/\D/g, "").slice(-10);
+const isEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const isPhone = (value) => /^\+?[\d\s().-]{7,}$/.test(value.trim()) && lastTen(value).length >= 7;
+
+function sqlLike(value) {
+  const escaped = String(value)
+    .replace(/[\\%_]/g, (character) => `\\${character}`)
+    .replace(/'/g, "''");
+  return `'%${escaped}%' ESCAPE '\\'`;
+}
+
+async function queryFile(file, sql) {
+  if (!existsSync(file)) return [];
+  try {
+    const { stdout } = await run(
+      "/usr/bin/sqlite3",
+      ["-json", `file:${file}?mode=ro&immutable=1`, sql],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    return stdout.trim() ? JSON.parse(stdout) : [];
+  } catch {
+    // Resolution is best effort; an unreadable address book means a name
+    // cannot be resolved, which is refused below rather than guessed at.
+    return [];
+  }
+}
+
+/** Contact names → handles, matched on the last ten digits. See orion-messages. */
+async function resolveName(term) {
+  const needle = term.trim().toLowerCase();
+  const found = new Map();
+
+  const NAME = `TRIM(IFNULL(r.ZFIRSTNAME || ' ', '') || IFNULL(r.ZLASTNAME, ''))`;
+  const root = join(homedir(), "Library/Application Support/AddressBook");
+  const databases = [join(root, "AddressBook-v22.abcddb")];
+  try {
+    const { glob } = await import("node:fs/promises");
+    for await (const file of glob(join(root, "Sources/*/AddressBook-v22.abcddb"))) {
+      databases.push(file);
+    }
+  } catch {
+    /* the top-level database is still tried */
+  }
+
+  for (const database of databases) {
+    for (const row of await queryFile(
+      database,
+      `SELECT ${NAME} AS name, p.ZFULLNUMBER AS handle
+       FROM ZABCDPHONENUMBER AS p JOIN ZABCDRECORD AS r ON p.ZOWNER = r.Z_PK
+       WHERE p.ZFULLNUMBER IS NOT NULL;`,
+    )) {
+      const name = String(row.name ?? "").trim();
+      if (name.toLowerCase().includes(needle) && row.handle) {
+        found.set(lastTen(row.handle), { handle: String(row.handle).trim(), name });
+      }
+    }
+    for (const row of await queryFile(
+      database,
+      `SELECT ${NAME} AS name, e.ZADDRESS AS handle
+       FROM ZABCDEMAILADDRESS AS e JOIN ZABCDRECORD AS r ON e.ZOWNER = r.Z_PK
+       WHERE e.ZADDRESS IS NOT NULL;`,
+    )) {
+      const name = String(row.name ?? "").trim();
+      const handle = String(row.handle ?? "").trim().toLowerCase();
+      if (name.toLowerCase().includes(needle) && handle) {
+        found.set(handle, { handle, name });
+      }
+    }
+  }
+
+  // Someone he has actually texted, as a fallback for people who are in the
+  // thread list but not in Contacts.
+  if (found.size === 0) {
+    for (const row of await queryFile(
+      DB,
+      `SELECT DISTINCT h.id AS handle, IFNULL(c.display_name,'') AS chat
+       FROM handle AS h
+       LEFT JOIN chat_handle_join AS chj ON chj.handle_id = h.ROWID
+       LEFT JOIN chat AS c ON chj.chat_id = c.ROWID
+       WHERE h.id LIKE ${sqlLike(term)} OR IFNULL(c.display_name,'') LIKE ${sqlLike(term)}
+       LIMIT 20;`,
+    )) {
+      const handle = String(row.handle ?? "").trim();
+      if (!handle) continue;
+      const key = handle.includes("@") ? handle.toLowerCase() : lastTen(handle);
+      found.set(key, { handle, name: row.chat || handle });
+    }
+  }
+
+  return [...found.values()];
+}
+
+async function resolveRecipient(value) {
+  const trimmed = value.trim();
+  if (isEmail(trimmed)) return { handle: trimmed, label: trimmed, kind: "email" };
+  if (isPhone(trimmed)) {
+    const digits = trimmed.replace(/[^\d+]/g, "");
+    return { handle: digits, label: digits, kind: "phone" };
+  }
+
+  const matches = await resolveName(trimmed);
+  if (matches.length === 0) {
+    fail(
+      `no contact or conversation matches "${trimmed}". Give a phone number or an ` +
+        "Apple ID email, or say the name exactly as it appears in Contacts.",
+      6,
+    );
+  }
+  if (matches.length > 1) {
+    const names = [...new Set(matches.map((m) => `${m.name} <${m.handle}>`))].slice(0, 6);
+    fail(
+      `"${trimmed}" matches ${matches.length} people: ${names.join(", ")}. ` +
+        "Refusing to guess which one — name the number or the exact contact.",
+      7,
+    );
+  }
+  const [only] = matches;
+  return {
+    handle: only.handle,
+    label: `${only.name} <${only.handle}>`,
+    kind: only.handle.includes("@") ? "email" : "phone",
+  };
+}
+
+/* ------------------------------------------------------------------ send */
+
+/*
+ The body and the recipient are passed to osascript as `argv`, never
+ interpolated into the script text. AppleScript string escaping is its own
+ small horror — a message containing a double quote or a backslash would either
+ break the script or, worse, change it — and `on run argv` sidesteps the whole
+ category.
+*/
+const SCRIPT = `
+on run argv
+  set recipientHandle to item 1 of argv
+  set messageBody to item 2 of argv
+  tell application "Messages"
+    try
+      set targetService to 1st account whose service type = iMessage
+      set targetBuddy to participant recipientHandle of targetService
+      send messageBody to targetBuddy
+      return "sent:imessage"
+    on error imessageError
+      try
+        set smsService to 1st account whose service type = SMS
+        set smsBuddy to participant recipientHandle of smsService
+        send messageBody to smsBuddy
+        return "sent:sms"
+      on error smsError
+        error "iMessage: " & imessageError & " / SMS: " & smsError
+      end try
+    end try
+  end tell
+end run
+`;
+
+const target = await resolveRecipient(recipientRaw);
+
+if (dryRun) {
+  // Everything except the irreversible part: resolution, refusals, and the
+  // shape of what would go out. This is how the path gets verified without
+  // putting a message on somebody's phone.
+  console.log(
+    [
+      "dry run — nothing was sent",
+      `  to:      ${target.label}`,
+      `  handle:  ${target.handle} (${target.kind})`,
+      `  body:    ${body}`,
+      `  length:  ${body.length} characters`,
+    ].join("\n"),
+  );
+  process.exit(0);
+}
+
+try {
+  const { stdout } = await run(
+    "/usr/bin/osascript",
+    ["-e", SCRIPT, target.handle, body],
+    { timeout: 30000 },
+  );
+  const via = stdout.trim().includes("sms") ? "SMS" : "iMessage";
+  console.log(`sent to ${target.label} via ${via}`);
+} catch (error) {
+  const text = `${error.stderr ?? error.message}`;
+  /*
+   A TIMEOUT IS NOT AN UNKNOWN FAILURE.
+
+   Measured on 2026-08-13: driven from the gateway, this osascript call blocked
+   for exactly 30.068s and was killed, with empty stderr — so it fell through
+   every branch below and was reported as "the send failed for an unknown
+   reason". That is the vaguest possible answer to the one question that
+   matters, and vagueness here is what lets a send that did not happen get
+   described as one that did.
+
+   It is not unknown. The same AppleScript from a terminal returns instantly,
+   and the same gateway drives Opera Air's AppleScript instantly — so
+   AppleEvents work and Messages.app is running. What is missing is the
+   per-application Automation consent for the process running Orion, and macOS
+   answers a request it cannot prompt for by never answering at all. The
+   AppleEvent hangs until something kills it.
+
+   The -1743 branch below catches the case where macOS returns a denial. This
+   catches the commoner one, where it returns nothing.
+  */
+  if (error.killed === true || error.signal === "SIGTERM" || /ETIMEDOUT/i.test(String(error.code ?? ""))) {
+    fail(
+      "Messages did not answer within 30 seconds, and NOTHING WAS SENT. This is " +
+        "almost always the macOS Automation permission: the process running Orion " +
+        "has not been granted control of Messages, and the consent request cannot " +
+        "be shown from a background service, so the request hangs instead of being " +
+        "refused. A HUMAN has to grant it once, in System Settings ▸ Privacy & " +
+        "Security ▸ Automation — find the entry for the Orion/OpenClaw gateway and " +
+        "enable Messages under it. Until that is done, every send will hang and " +
+        "fail exactly like this one. Do not report this as sent.",
+      8,
+    );
+  }
+  if (/not authori[sz]ed|not allowed|-1743|assistive access|Operation not permitted/i.test(text)) {
+    fail(
+      "macOS has not granted this process permission to control Messages. That consent " +
+        "is a dialog a HUMAN has to click — System Settings ▸ Privacy & Security ▸ " +
+        "Automation, then enable Messages for whatever is running Orion. Nothing was sent.",
+      8,
+    );
+  }
+  if (/Messages got an error|can'?t get participant|invalid/i.test(text)) {
+    fail(
+      `Messages refused the recipient ${target.handle}. It may not be reachable on ` +
+        `iMessage or SMS from this Mac. Nothing was sent.\n${text.trim()}`,
+      9,
+    );
+  }
+  fail(text.trim() || "the send failed for an unknown reason. Nothing was sent.", 10);
+}

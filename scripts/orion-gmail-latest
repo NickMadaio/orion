@@ -1,63 +1,77 @@
 #!/usr/bin/env node
 /*
- Read only the newest inbox thread, including its readable body.
- No arguments, sending, attachments, or mailbox mutations are allowed.
- */
-import { readFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+ The newest thread in the inbox, read-only.
+
+   orion-gmail-latest            who it is from, what about, when, a preview
+   orion-gmail-latest --full     the same, plus the cleaned body
+   orion-gmail-latest --max 3    the newest three
+   orion-gmail-latest --json     the same data, structured
+
+ Same problem as `orion-gmail-search`, same fix: this printed the entire thread
+ verbatim, so "who emailed me last" cost a few thousand characters of Orion's
+ context, most of it unsubscribe boilerplate and privacy policy. The preview
+ answers the question that gets asked; `--full` is there for when it does not.
+
+ READS ONLY, and cannot send: the client applies `--readonly` and
+ `--gmail-no-send` to every call.
+*/
+
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { getThread, searchThreads, withSnippets } from "./lib/gmail-client.mjs";
+import { renderFull, renderSummaries, summarise } from "./lib/gmail-format.mjs";
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const values = {};
-for (const line of (await readFile(join(root, ".env"), "utf8")).split(/\r?\n/)) {
-  if (!line.startsWith("#") && line.includes("=")) {
-    const [key, value] = line.split("=", 2);
-    values[key.trim()] = value.trim().replace(/^['"]|['"]$/g, "");
+const ORION_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const MAX_LIMIT = 10;
+
+function parseArguments(argv) {
+  let full = false;
+  let json = false;
+  let max = 1;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--full" || argument === "--body") full = true;
+    else if (argument === "--json") json = true;
+    else if (argument === "--max") {
+      const value = Number.parseInt(argv[index + 1] ?? "", 10);
+      max = Number.isInteger(value) ? Math.min(MAX_LIMIT, Math.max(1, value)) : 1;
+      index += 1;
+    } else if (argument === "--help" || argument === "-h") {
+      console.log("usage: orion-gmail-latest [--full] [--max N] [--json]");
+      process.exit(0);
+    }
   }
-}
-if (!values.GOG_KEYRING_PASSWORD) {
-  console.error("Orion’s Gmail vault password is not available in local configuration.");
-  process.exit(2);
-}
-const environment = {
-  ...process.env,
-  GOG_KEYRING_BACKEND: "file",
-  GOG_KEYRING_PASSWORD: values.GOG_KEYRING_PASSWORD,
-};
-const account = "nmadaio08@gmail.com";
 
-function run(args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("gog", args, { env: environment, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(stderr.trim() || `gog exited ${code}`));
-    });
-  });
+  return { full, json, max };
 }
 
-try {
-  const search = JSON.parse(await run([
-    "gmail", "search", "in:inbox", "--max", "1", "--account", account,
-    "--readonly", "--gmail-no-send", "--json",
-  ]));
-  const threadId = search.threads?.[0]?.id;
-  if (!threadId) {
-    console.log(JSON.stringify({ threads: [], message: "No inbox email found." }));
-    process.exit(0);
+async function main() {
+  const options = parseArguments(process.argv.slice(2));
+
+  const found = await searchThreads(ORION_ROOT, "in:inbox", options.max);
+  if (found.length === 0) {
+    console.log(options.json ? JSON.stringify({ results: [] }) : "No inbox email found.");
+    return;
   }
-  const thread = await run([
-    "gmail", "thread", "get", threadId,
-    "--account", account, "--sanitize-content", "--readonly", "--gmail-no-send", "--json",
-  ]);
-  process.stdout.write(thread);
-} catch (error) {
+
+  if (options.full) {
+    const threads = await Promise.all(found.map((thread) => getThread(ORION_ROOT, thread.id)));
+    console.log(
+      options.json
+        ? JSON.stringify({ threads })
+        : threads.map((thread) => renderFull(thread)).join("\n\n===\n\n"),
+    );
+    return;
+  }
+
+  const summaries = (await withSnippets(ORION_ROOT, found)).map((thread) => summarise(thread));
+  console.log(
+    options.json ? JSON.stringify({ results: summaries }) : renderSummaries(summaries),
+  );
+}
+
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-}
+});

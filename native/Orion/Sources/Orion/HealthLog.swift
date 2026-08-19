@@ -87,13 +87,59 @@ struct WorkoutSession: Identifiable, Codable, Equatable {
     var volume: Double { exercises.reduce(0) { $0 + $1.volume } }
 }
 
+/// The portable, day-keyed part of Orion's health history.  It contains facts,
+/// not a fabricated verdict: the calendar can always recompute a score from
+/// the facts and the current scoring policy.
+struct HealthDayRecord: Codable, Equatable {
+    var waterBottles: Int = 0
+    var calories: Int = 0
+    var supplementIDs: [String] = []
+    var recovery: Int?
+    var sleepPerformance: Int?
+    var sleepHours: Double?
+    var hrv: Int?
+    var restingHeartRate: Int?
+    var strain: Double?
+    var updatedAt: String = ""
+}
+
+struct NutritionEntry: Identifiable, Codable, Equatable {
+    var id: String = UUID().uuidString
+    var title: String
+    var meal: String = "Meal"
+    var calories: Int
+    var protein: Int = 0
+    var carbohydrates: Int = 0
+    var fat: Int = 0
+    var fiber: Int = 0
+    var notes: String = ""
+    var loggedAt: String = ISO8601DateFormatter().string(from: Date())
+}
+
+struct NutritionGoals: Codable, Equatable {
+    var calories: Int = 2_200
+    var protein: Int = 150
+    var carbohydrates: Int = 250
+    var fat: Int = 70
+    var fiber: Int = 30
+}
+
 struct HealthLogFile: Codable {
-    var schema: String = "orion.health.v1"
+    var schema: String = "orion.health.v3"
     var updatedAt: String = ""
     var supplements: [Supplement] = []
     /// day -> supplement ids taken that day.
     var supplementLog: [String: [String]] = [:]
     var workouts: [WorkoutSession] = []
+    /// Deliberately optional for backward compatibility with the existing
+    /// on-disk log and the companion plugin. Calories are a manual daily total
+    /// until a nutrition/HealthKit source is connected.
+    var calorieLog: [String: Int]?
+    /// One plain record per logical day.  Legacy fields remain while the
+    /// companion plugin migrates, so no existing data is discarded.
+    var days: [String: HealthDayRecord]?
+    var nutritionLog: [String: [NutritionEntry]]?
+    var nutritionGoals: NutritionGoals?
 }
 
 // MARK: - Store
@@ -103,6 +149,11 @@ final class HealthLog: ObservableObject {
     @Published private(set) var supplements: [Supplement] = []
     @Published private(set) var takenToday: Set<String> = []
     @Published private(set) var workouts: [WorkoutSession] = []
+    @Published private(set) var caloriesToday = 0
+    @Published private(set) var mealsToday: [NutritionEntry] = []
+    @Published private(set) var nutritionGoals = NutritionGoals()
+    @Published private(set) var hydrationBottles = 0
+    @Published private(set) var dailyRecords: [String: HealthDayRecord] = [:]
     @Published private(set) var lastError: String?
 
     /// Shared with the plugin, so Orion can write what Nick says out loud.
@@ -152,6 +203,7 @@ final class HealthLog: ObservableObject {
     // MARK: Reading
 
     private var lastLoadedStamp: String?
+    private var lastResolvedDay: String?
 
     func load() {
         guard let data = try? Data(contentsOf: Self.fileURL) else {
@@ -164,19 +216,60 @@ final class HealthLog: ObservableObject {
         }
         // Skip the republish when nothing changed, so the 3s poll does not
         // redraw the dashboard constantly.
-        if file.updatedAt == lastLoadedStamp { return }
+        let today = Self.today
+        if file.updatedAt == lastLoadedStamp, today == lastResolvedDay { return }
         lastLoadedStamp = file.updatedAt
+        lastResolvedDay = today
         supplements = file.supplements
-        takenToday = Set(file.supplementLog[Self.today] ?? [])
+        dailyRecords = file.days ?? [:]
+        let todayRecord = dailyRecords[today]
+        takenToday = Set(todayRecord?.supplementIDs ?? file.supplementLog[today] ?? [])
         workouts = file.workouts.sorted { $0.startedAt > $1.startedAt }
+        mealsToday = (file.nutritionLog?[today] ?? []).sorted { $0.loggedAt > $1.loggedAt }
+        caloriesToday = mealsToday.reduce(0) { $0 + $1.calories }
+        if caloriesToday == 0 { caloriesToday = todayRecord?.calories ?? file.calorieLog?[today] ?? 0 }
+        nutritionGoals = file.nutritionGoals ?? NutritionGoals()
+        hydrationBottles = todayRecord?.waterBottles ?? 0
         lastError = nil
     }
 
+    private static let knownTopLevelKeys: Set<String> = [
+        "schema", "updatedAt", "supplements", "supplementLog", "workouts",
+        "calorieLog", "days", "nutritionLog", "nutritionGoals",
+    ]
+
+    /// Read the typed document and retain top-level fields introduced by a
+    /// newer companion. Swift's synthesized Codable conformance intentionally
+    /// ignores unknown keys; writing that decoded value back without retaining
+    /// them turns a harmless forward-compatible read into data loss.
+    private func readForMutation() throws -> (HealthLogFile, [String: Any]) {
+        do {
+            let data = try Data(contentsOf: Self.fileURL)
+            let file = try JSONDecoder().decode(HealthLogFile.self, from: data)
+            let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let unknown = raw.filter { !Self.knownTopLevelKeys.contains($0.key) }
+            return (file, unknown)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return (HealthLogFile(), [:])
+        }
+    }
+
     private func read() -> HealthLogFile {
-        guard let data = try? Data(contentsOf: Self.fileURL),
-              let file = try? JSONDecoder().decode(HealthLogFile.self, from: data)
-        else { return HealthLogFile() }
-        return file
+        (try? readForMutation().0) ?? HealthLogFile()
+    }
+
+    private static func retainingUnknownTopLevelFields(
+        _ data: Data,
+        unknown: [String: Any]
+    ) throws -> Data {
+        guard !unknown.isEmpty else { return data }
+        guard var encoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        for (key, value) in unknown where encoded[key] == nil {
+            encoded[key] = value
+        }
+        return try JSONSerialization.data(withJSONObject: encoded, options: [.prettyPrinted, .sortedKeys])
     }
 
     /// Read-modify-write, then republish.
@@ -204,13 +297,16 @@ final class HealthLog: ObservableObject {
                 attributes: [.posixPermissions: 0o700]
             )
             try FileLock.withLock(Self.fileURL) {
-                var file = read()
+                let (decoded, unknown) = try readForMutation()
+                var file = decoded
+                Self.migrateLegacyDays(&file)
                 change(&file)
                 file.updatedAt = ISO8601DateFormatter().string(from: Date())
 
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let data = try encoder.encode(file)
+                let encoded = try encoder.encode(file)
+                let data = try Self.retainingUnknownTopLevelFields(encoded, unknown: unknown)
                 try Self.publish(data)
             }
             lastLoadedStamp = nil
@@ -218,6 +314,35 @@ final class HealthLog: ObservableObject {
         } catch {
             lastError = "Could not save: \(error.localizedDescription)"
         }
+    }
+
+    private static func migrateLegacyDays(_ file: inout HealthLogFile) {
+        var days = file.days ?? [:]
+        for (day, ids) in file.supplementLog {
+            var record = days[day] ?? HealthDayRecord()
+            if record.supplementIDs.isEmpty { record.supplementIDs = ids }
+            days[day] = record
+        }
+        for (day, calories) in file.calorieLog ?? [:] {
+            var record = days[day] ?? HealthDayRecord()
+            if record.calories == 0 { record.calories = calories }
+            days[day] = record
+        }
+        if file.schema != "orion.health.v3" {
+            var nutrition = file.nutritionLog ?? [:]
+            for (day, record) in days where record.calories > 0 && (nutrition[day] ?? []).isEmpty {
+                nutrition[day] = [NutritionEntry(title: "Imported daily total", meal: "Other",
+                                                   calories: record.calories,
+                                                   notes: "Migrated from Orion's earlier calorie total.")]
+            }
+            file.nutritionLog = nutrition
+        }
+        file.schema = "orion.health.v3"
+        file.days = days
+    }
+
+    private static func touch(_ record: inout HealthDayRecord) {
+        record.updatedAt = ISO8601DateFormatter().string(from: Date())
     }
 
     /// Write to a scratch file, then rename it over the real one.
@@ -305,8 +430,123 @@ final class HealthLog: ObservableObject {
                 taken.append(id)
             }
             file.supplementLog[day] = taken
+            var record = file.days?[day] ?? HealthDayRecord()
+            record.supplementIDs = taken
+            Self.touch(&record)
+            file.days?[day] = record
         }
     }
+
+    // MARK: Calories
+
+    /// Records the day's food-energy total as an explicit user entry. Orion
+    /// never estimates calories from recovery or workouts, and labels this as
+    /// manual until a real nutrition provider is connected.
+    func setCaloriesToday(_ calories: Int) {
+        let day = Self.today
+        mutate { file in
+            var log = file.calorieLog ?? [:]
+            log[day] = max(0, calories)
+            file.calorieLog = log
+            var record = file.days?[day] ?? HealthDayRecord()
+            record.calories = max(0, calories)
+            Self.touch(&record)
+            file.days?[day] = record
+            var nutrition = file.nutritionLog ?? [:]
+            var meals = nutrition[day] ?? []
+            meals.removeAll { $0.id == "manual-total-\(day)" }
+            if calories > 0 {
+                meals.append(NutritionEntry(id: "manual-total-\(day)", title: "Manual daily total",
+                                             meal: "Other", calories: max(0, calories),
+                                             notes: "Set as a daily total."))
+            }
+            nutrition[day] = meals
+            file.nutritionLog = nutrition
+        }
+    }
+
+    // MARK: Nutrition
+
+    func addNutrition(_ entry: NutritionEntry) {
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, entry.calories >= 0 else { return }
+        let day = Self.today
+        mutate { file in
+            var nutrition = file.nutritionLog ?? [:]
+            var entries = nutrition[day] ?? []
+            var saved = entry
+            saved.title = title
+            entries.append(saved)
+            nutrition[day] = entries
+            file.nutritionLog = nutrition
+            var record = file.days?[day] ?? HealthDayRecord()
+            record.calories = entries.reduce(0) { $0 + $1.calories }
+            Self.touch(&record)
+            file.days?[day] = record
+        }
+    }
+
+    func removeNutrition(_ id: String) {
+        let day = Self.today
+        mutate { file in
+            var nutrition = file.nutritionLog ?? [:]
+            var entries = nutrition[day] ?? []
+            entries.removeAll { $0.id == id }
+            nutrition[day] = entries
+            file.nutritionLog = nutrition
+            var record = file.days?[day] ?? HealthDayRecord()
+            record.calories = entries.reduce(0) { $0 + $1.calories }
+            Self.touch(&record)
+            file.days?[day] = record
+        }
+    }
+
+    func setNutritionGoals(_ goals: NutritionGoals) {
+        mutate { $0.nutritionGoals = goals }
+    }
+
+    var recentFoods: [NutritionEntry] {
+        var seen = Set<String>()
+        return dailyRecords.keys.sorted(by: >).flatMap { day in
+            read().nutritionLog?[day] ?? []
+        }.filter { seen.insert($0.title.lowercased()).inserted }.prefix(8).map { $0 }
+    }
+
+    // MARK: Daily facts
+
+    func logHydration() { setHydration(hydrationBottles + 1) }
+
+    func removeHydration() { setHydration(max(0, hydrationBottles - 1)) }
+
+    func setHydration(_ bottles: Int) {
+        let day = Self.today
+        mutate { file in
+            var record = file.days?[day] ?? HealthDayRecord()
+            record.waterBottles = max(0, bottles)
+            Self.touch(&record)
+            file.days?[day] = record
+        }
+    }
+
+    /// Store only measurements actually supplied by the wearable.  Missing
+    /// readings stay missing, rather than becoming zeros in the history.
+    func recordWearable(recovery: Int?, sleepPerformance: Int?, sleepHours: Double?,
+                        hrv: Int?, restingHeartRate: Int?, strain: Double?) {
+        let day = Self.today
+        mutate { file in
+            var record = file.days?[day] ?? HealthDayRecord()
+            if let recovery { record.recovery = recovery }
+            if let sleepPerformance { record.sleepPerformance = sleepPerformance }
+            if let sleepHours { record.sleepHours = sleepHours }
+            if let hrv { record.hrv = hrv }
+            if let restingHeartRate { record.restingHeartRate = restingHeartRate }
+            if let strain { record.strain = strain }
+            Self.touch(&record)
+            file.days?[day] = record
+        }
+    }
+
+    func record(for day: String) -> HealthDayRecord? { dailyRecords[day] }
 
     /// Grouped for display. A named Identifiable type rather than a tuple:
     /// SwiftUI's ForEach needs an id key path, and `\.0` is not a legal key

@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+/*
+ Typed Apple Calendar/Reminders mutations for the orion-control executor.
+
+ This wrapper is intentionally absent from OpenClaw's raw exec allowlist. The
+ plugin calls it with argv only after its catalog, provenance and approval gates
+ have run. `orion-agenda` is the separate read-only human/agent wrapper.
+*/
+
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const BRIDGE = join(
+  homedir(),
+  "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge",
+);
+const [command, ...rest] = process.argv.slice(2);
+
+function fail(message, code = 2) {
+  console.error(`orion-agenda-change: ${message}`);
+  process.exit(code);
+}
+
+if (!existsSync(BRIDGE)) {
+  fail("the OrionMacBridge release binary is missing", 1);
+}
+
+async function ask(action, payload = {}) {
+  const request = `${JSON.stringify({ id: String(Date.now()), action, payload })}\n`;
+  const response = await new Promise((resolve, reject) => {
+    const child = spawn(BRIDGE, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+    child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      code === 0
+        ? resolve(stdout)
+        : reject(new Error(stderr.trim() || `bridge exited ${code}`));
+    });
+    child.stdin.end(request);
+  }).catch((error) => fail(`bridge did not respond — ${String(error.message ?? error).slice(0, 240)}`, 1));
+
+  const line = String(response).split("\n").find((value) => value.trim().startsWith("{"));
+  if (!line) fail("bridge returned no JSON response", 1);
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    fail("bridge returned malformed JSON", 1);
+  }
+  if (!parsed.ok) fail(parsed.error || "bridge reported an unspecified failure", 1);
+  return parsed.result ?? {};
+}
+
+function unpack(result, field) {
+  try {
+    return JSON.parse(result[field] ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+const ISO_MINUTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const stamp = (date) => date.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+if (command === "add") {
+  const [rawTitle, start, rawMinutes = "60"] = rest;
+  const title = rawTitle?.trim();
+  if (!title) fail("add needs a title");
+  if (!ISO_MINUTE.test(start ?? "")) fail("start must use YYYY-MM-DDTHH:mm local time");
+  const minutes = Number(rawMinutes);
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440) {
+    fail("duration must be a whole number from 5 to 1440 minutes");
+  }
+  const begins = new Date(`${start}:00`);
+  if (Number.isNaN(begins.getTime())) fail("start is not a real local date/time");
+  const created = await ask("create_calendar_event", {
+    title,
+    start: stamp(begins),
+    end: stamp(new Date(begins.getTime() + minutes * 60_000)),
+  });
+  if (!created.identifier) fail("bridge created an event without an identifier", 1);
+  const after = await ask("get_calendar_event", { identifier: created.identifier });
+  const landed = after.exists === "true" && after.title === title;
+  if (!landed) fail("create returned but the event was absent on readback", 1);
+  console.log(JSON.stringify({ verified: true, title, identifier: created.identifier, start, minutes }));
+} else if (command === "remove-title") {
+  const title = rest[0]?.trim();
+  if (!title) fail("remove-title needs the exact event title");
+  const before = unpack(await ask("list_upcoming_calendar_events"), "events_json");
+  const matches = before.filter(
+    (event) => String(event.title ?? "").localeCompare(title, undefined, { sensitivity: "accent" }) === 0,
+  );
+  if (matches.length === 0) fail(`no upcoming event is titled exactly ${JSON.stringify(title)}`, 1);
+  if (matches.length > 1) {
+    const choices = matches.map((event) => `${event.start} (${event.identifier})`).join(", ");
+    fail(`more than one event has that title; rename one or specify a unique title: ${choices}`, 1);
+  }
+  const match = matches[0];
+  await ask("delete_calendar_event", { identifier: match.identifier });
+  const after = await ask("get_calendar_event", { identifier: match.identifier });
+  if (after.exists !== "false") {
+    fail("delete returned but that exact event remained on readback", 1);
+  }
+  console.log(JSON.stringify({ verified: true, title: match.title, identifier: match.identifier }));
+} else if (command === "task-add") {
+  const [rawTitle, due] = rest;
+  const title = rawTitle?.trim();
+  if (!title) fail("task-add needs a title");
+  if (due && !ISO_MINUTE.test(due)) fail("due must use YYYY-MM-DDTHH:mm local time");
+  const payload = { title };
+  if (due) {
+    const dueAt = new Date(`${due}:00`);
+    if (Number.isNaN(dueAt.getTime())) fail("due is not a real local date/time");
+    payload.due_at = stamp(dueAt);
+  }
+  const created = await ask("create_reminder", payload);
+  const after = unpack(await ask("list_incomplete_reminders"), "reminders_json");
+  const landed = after.some((item) =>
+    created.identifier ? item.identifier === created.identifier : item.title === title,
+  );
+  if (!landed) fail("create returned but the reminder was absent on readback", 1);
+  console.log(JSON.stringify({ verified: true, title, identifier: created.identifier, due: due ?? null }));
+} else {
+  fail('usage: orion-agenda-change add "<title>" <YYYY-MM-DDTHH:mm> [minutes] | remove-title "<title>" | task-add "<title>" [due]');
+}

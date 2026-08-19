@@ -90,6 +90,14 @@ class KeychainSeedTests(unittest.TestCase):
         for value in values.values():
             self.assertNotIn(value, rendered)
 
+    def test_selected_sources_do_not_read_unselected_stores(self):
+        temporary, config, database = self.source_fixture()
+        with temporary:
+            values = seed_module.source_values(
+                config, database.with_name("missing.sqlite"), ("gateway",)
+            )
+        self.assertEqual(values, {"gateway": "gateway-value"})
+
     def test_seed_is_idempotent_and_refuses_silent_replacement(self):
         values = {"gateway": "g", "anthropic": "a", "ollama": "o"}
         keychain = FakeKeychain()

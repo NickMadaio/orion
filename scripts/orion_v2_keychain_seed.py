@@ -20,6 +20,7 @@ SERVICES = {
     "anthropic": "ORION OpenClaw Anthropic",
     "ollama": "ORION OpenClaw Ollama",
 }
+ITEM_ORDER = tuple(SERVICES)
 
 
 def nested_value(document: dict, path: tuple[str, ...]):
@@ -31,25 +32,38 @@ def nested_value(document: dict, path: tuple[str, ...]):
     return value
 
 
-def source_values(config_path: Path, database_path: Path) -> dict[str, str]:
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    if not isinstance(config, dict):
-        raise ValueError("OpenClaw config must be an object")
-    gateway = nested_value(config, ("gateway", "auth", "token"))
-    anthropic = nested_value(config, ("models", "providers", "anthropic", "apiKey"))
-    with sqlite3.connect(f"file:{database_path}?mode=ro", uri=True) as database:
-        row = database.execute(
-            "SELECT store_json FROM auth_profile_store WHERE store_key = ?", ("primary",)
-        ).fetchone()
-    if row is None:
-        raise ValueError("main auth profile store is missing")
-    store = json.loads(row[0])
-    ollama = nested_value(store, ("profiles", "ollama:local", "token"))
-    values = {"gateway": gateway, "anthropic": anthropic, "ollama": ollama}
+def source_values(
+    config_path: Path, database_path: Path, names: tuple[str, ...] = ITEM_ORDER
+) -> dict[str, str]:
+    unknown = set(names) - set(ITEM_ORDER)
+    if unknown:
+        raise ValueError("unknown Keychain source name")
+    values: dict[str, object] = {}
+    if "gateway" in names or "anthropic" in names:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        if not isinstance(config, dict):
+            raise ValueError("OpenClaw config must be an object")
+        if "gateway" in names:
+            values["gateway"] = nested_value(config, ("gateway", "auth", "token"))
+        if "anthropic" in names:
+            values["anthropic"] = nested_value(
+                config, ("models", "providers", "anthropic", "apiKey")
+            )
+    if "ollama" in names:
+        with sqlite3.connect(f"file:{database_path}?mode=ro", uri=True) as database:
+            row = database.execute(
+                "SELECT store_json FROM auth_profile_store WHERE store_key = ?", ("primary",)
+            ).fetchone()
+        if row is None:
+            raise ValueError("main auth profile store is missing")
+        store = json.loads(row[0])
+        values["ollama"] = nested_value(store, ("profiles", "ollama:local", "token"))
+    normalized: dict[str, str] = {}
     for name, value in values.items():
         if not isinstance(value, str) or not value:
             raise ValueError(f"{name} plaintext source is missing or already migrated")
-    return values
+        normalized[name] = value
+    return normalized
 
 
 class Keychain(Protocol):
@@ -202,7 +216,10 @@ class MacKeychain:
 
 def statuses(values: dict[str, str], keychain: Keychain) -> dict[str, str]:
     result: dict[str, str] = {}
-    for name, service in SERVICES.items():
+    for name in ITEM_ORDER:
+        if name not in values:
+            continue
+        service = SERVICES[name]
         existing = keychain.get(service)
         if existing is None:
             result[name] = "missing"
@@ -219,7 +236,10 @@ def seed(values: dict[str, str], keychain: Keychain) -> dict[str, str]:
         raise ValueError("existing Keychain item differs; manual review is required")
     added: list[str] = []
     try:
-        for name, service in SERVICES.items():
+        for name in ITEM_ORDER:
+            if name not in values:
+                continue
+            service = SERVICES[name]
             if before[name] == "matches_source":
                 continue
             if not keychain.add(service, values[name]):
@@ -235,7 +255,7 @@ def seed(values: dict[str, str], keychain: Keychain) -> dict[str, str]:
 
 
 def render_status(result: dict[str, str]) -> str:
-    return " ".join(f"{name}={result[name]}" for name in ("gateway", "anthropic", "ollama"))
+    return " ".join(f"{name}={result[name]}" for name in ITEM_ORDER if name in result)
 
 
 def disposable_self_test(keychain: Keychain) -> bool:
@@ -258,9 +278,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=home / ".openclaw/agents/main/agent/openclaw-agent.sqlite",
     )
-    parser.add_argument("--install", action="store_true")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--status", action="store_true")
+    mode.add_argument("--install", action="store_true")
+    mode.add_argument("--self-test-disposable", action="store_true")
     parser.add_argument("--confirm-live-values-to-keychain", action="store_true")
-    parser.add_argument("--self-test-disposable", action="store_true")
+    parser.add_argument("--items", nargs="+", choices=ITEM_ORDER, default=list(ITEM_ORDER))
     arguments = parser.parse_args(argv)
     keychain = MacKeychain()
 
@@ -269,7 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"keychain seed: disposable_self_test={'ok' if ok else 'FAIL'}")
         return 0 if ok else 1
     try:
-        values = source_values(arguments.config, arguments.database)
+        names = tuple(dict.fromkeys(arguments.items))
+        values = source_values(arguments.config, arguments.database, names)
         if arguments.install:
             if not arguments.confirm_live_values_to_keychain:
                 print("keychain seed: FAIL install requires --confirm-live-values-to-keychain")

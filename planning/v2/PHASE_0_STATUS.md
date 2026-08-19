@@ -261,9 +261,9 @@ OpenClaw Anthropic provider. `.env.save` contains a different Anthropic value,
 so it is not a duplicate of the current configuration. The inspected OpenClaw
 gateway, Anthropic, and Ollama credential fields are all plaintext rather than
 SecretRefs. Values and fingerprints were never emitted or written to the
-inventory. Nick still needs to confirm whether the active Anthropic credential
-was rotated after the historical exposure and decide whether `.env.save` is an
-obsolete old key that may be securely removed.
+inventory. Nick confirmed the active Anthropic credential was not rotated after
+the historical exposure and authorized `.env.save` deletion only after the old
+key is proven obsolete.
 
 OpenClaw's own `secrets audit --json` independently found exactly three
 plaintext residues: the gateway token, Anthropic provider key, and main-agent
@@ -281,6 +281,14 @@ plan. The companion seeding helper passed an end-to-end disposable Keychain
 proof, including readback through that exact command, then deleted the item.
 Its read-only live-name check reported all three intended items missing. No
 credential, OpenClaw config, gateway process, installed plugin, or app changed.
+
+Nick subsequently approved the coordinated migration and confirmed the active
+Anthropic key was not yet rotated. The selective helper now requires an
+explicit `--status`, `--install`, or disposable-test mode and can handle only
+gateway/Ollama without loading Anthropic. A two-item seed attempt triggered the
+expected macOS Keychain authorization boundary; it was stopped and rolled back,
+and metadata checks confirmed both target items remain absent. Anthropic console
+rotation and a user-approved Keychain prompt are the current live prerequisites.
 
 ## Error handling and logging
 
@@ -312,13 +320,13 @@ credential, OpenClaw config, gateway process, installed plugin, or app changed.
 |---|---|
 | Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 236/236 passed on the current tree; no background scheduler exception |
+| Legacy Python/TTS/Phase 0 | 237/237 passed on the current tree; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
 | Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
 | Phase 0 source checkpoint | 3/3 filter tests passed; active index/worktree invariance verified |
 | Phase 0 secret inventory | 3/3 redaction tests passed; live metadata snapshot current |
 | Phase 0 SecretRef plan | 3/3 contract tests passed; deterministic three-target plan current |
-| Phase 0 Keychain seed | 3/3 safety tests passed; disposable native insert/read/delete proof passed |
+| Phase 0 Keychain seed | 4/4 safety tests passed; selective source isolation and disposable native proof passed |
 | Manifest traceability | 3/3 registry tests passed; phases 0-84 complete and sequential |
 | Phase 0 machine-readable gate | 3/3 passed; `--require-open` correctly refuses Phase 1 |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
@@ -383,7 +391,7 @@ transient is retained here so recurrence can be recognized instead of hidden.
 | Dedicated v2 development branch | complete for Phase 0 | active branch plus local source-only checkpoint `613c6acbc899`; checkpoint is not pushed |
 | Architecture documented | complete for Phase 0 | live normal agent trace and installed app/signature validated |
 | Critical regression coverage | complete for Phase 0 | normal route, durable ledger, scanner, snapshot filters, secret redaction, legacy, plugin, and native suites pass |
-| Secrets accounted for | partial | inventory is precise; Nick must confirm Anthropic rotation, decide `.env.save`, and later migrate plaintext OpenClaw secrets |
+| Secrets accounted for | partial | approval is recorded; rotate Anthropic, complete the visible Keychain authorization, apply/reload SecretRefs, prove `.env.save` obsolete, then delete it |
 | Existing ORION reproducible | complete for Phase 0 | clean checkpoint reproduction passed; installed app comparison is semantic/signing parity, not bitwise identity |
 | Security-sensitive capabilities known | complete for Phase 0 | versioned 157-entry snapshot is generated from live enforcement metadata and fails closed on malformed/duplicate rows |
 

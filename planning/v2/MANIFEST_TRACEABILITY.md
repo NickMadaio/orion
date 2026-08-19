@@ -17,11 +17,11 @@ source; this file explains how implementation evidence is managed.
 | 2-84 | not started | indexed in `MANIFEST_PHASES.json` | Each phase requires its immediate predecessor's reviewed exit evidence |
 
 The Phase 0 blocker is narrow but real: live OpenClaw credentials remain
-plaintext until Nick approves the coordinated Keychain/SecretRef apply and
-confirms the historical Anthropic-key and `.env.save` decisions. Preparation,
-dry-run structure validation, rollback behavior, and a disposable Keychain
-proof are complete. This gate must not be reinterpreted as permission to begin
-Core integration.
+plaintext. Nick approved the coordinated migration and conditional `.env.save`
+deletion, and confirmed the exposed Anthropic key was not rotated. Anthropic
+console rotation, visible macOS Keychain authorization, SecretRef apply/reload,
+and obsolescence proof remain. This gate must not be reinterpreted as permission
+to begin Core integration.
 
 ## Program tracks
 

@@ -58,6 +58,15 @@ A subsequent read-only check found all three intended live service names
 missing, so no existing item will be silently replaced. No live credential was
 copied and no OpenClaw config or process was changed.
 
+Nick approved the live migration on 2026-08-18 and confirmed that the current
+Anthropic key has not yet been rotated. The helper was therefore tightened to
+require an explicit mode and support named subsets; four safety tests pass.
+The first gateway/Ollama-only seed reached `/usr/bin/security` readback but
+waited for macOS Keychain authorization. It was stopped, its rollback ran, and
+independent metadata checks proved that neither named item remained. Retry only
+while Nick is present to approve the visible Keychain dialog. The Anthropic
+value must not be loaded or seeded until rotation succeeds.
+
 The Ollama auth-profile token should be migrated through `openclaw secrets
 configure --agent main`, because that supported planner understands the agent
 database target and scrubs profile residue atomically. Do not edit the SQLite
@@ -74,9 +83,10 @@ During that window:
 1. Re-run `openclaw secrets audit --json` and the no-cloud Orion doctor.
 2. Run `scripts/orion_v2_keychain_seed.py --self-test-disposable`; the helper
    must prove native in-memory insertion, exact-command readback, and deletion.
-3. Run `scripts/orion_v2_keychain_seed.py` read-only; refuse unexpected existing
-   items for manual review, then use its explicit install confirmation to seed
-   all three values.
+3. Run `scripts/orion_v2_keychain_seed.py --status` read-only; refuse unexpected
+   existing items for manual review, then use its explicit install confirmation
+   to seed approved values. `--items` allows the gateway and Ollama values to be
+   migrated without ever loading an unrotated Anthropic value.
    The helper does not put values in process arguments or terminal output,
    verifies read-back in memory, and rolls back newly added items on failure.
 4. Generate an OpenClaw secrets plan targeting the gateway, Anthropic provider,
@@ -98,6 +108,7 @@ The Anthropic value cannot be removed from repository `.env` until the legacy
 Python provider is either migrated to Keychain/SecretRef access or proven
 unused. Removing it now could silently remove legacy fallback behavior.
 
-Nick must also decide whether the different July 27 `.env.save` value is an
-obsolete prior credential. Secure deletion is intentionally not inferred from
-age alone.
+Nick authorized deletion of the different July 27 `.env.save` value only after
+it is proven obsolete. Secure deletion is intentionally not inferred from age
+alone. No runtime or source path loads `.env.save`; remaining proof requires
+revocation/invalidity confirmation from Anthropic before deletion.

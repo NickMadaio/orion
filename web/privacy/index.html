@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orion — Privacy Policy</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    padding: 3rem 1.25rem 6rem;
+    background: #08090c;
+    color: rgba(255,255,255,0.86);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin: 0 0 0.35rem; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 0.78rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: rgba(255,255,255,0.45); margin: 2.6rem 0 0.7rem; font-weight: 600;
+  }
+  .updated { color: rgba(255,255,255,0.4); font-size: 0.85rem; margin-bottom: 2.5rem; }
+  p { margin: 0 0 1rem; color: rgba(255,255,255,0.78); }
+  ul { margin: 0 0 1rem; padding-left: 1.2rem; color: rgba(255,255,255,0.78); }
+  li { margin-bottom: 0.4rem; }
+  strong { color: #fff; }
+  a { color: #5cb8ff; }
+  .lede {
+    border-left: 2px solid #5ceb99; padding-left: 1rem;
+    color: rgba(255,255,255,0.9);
+  }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.5rem;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.38); font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Orion — Privacy Policy</h1>
+  <div class="updated">Last updated 5 August 2026</div>
+
+  <p class="lede">
+    Orion is a personal assistant that runs on one Mac, for one person. It has no
+    server, no accounts, and no other users. Nothing it reads is transmitted to
+    the developer, because there is nowhere for it to be transmitted to.
+  </p>
+
+  <h2>Who this covers</h2>
+  <p>
+    Orion is built and used by Nick Madaio as a personal tool. It is not
+    distributed, sold, or offered to anyone else. If you are reading this, it is
+    almost certainly because a service asked for a privacy policy URL before
+    granting the app access to its owner's own data.
+  </p>
+
+  <h2>What Orion reads</h2>
+  <p>When connected to a service, Orion reads only what it needs to display:</p>
+  <ul>
+    <li><strong>WHOOP</strong> — recovery score, sleep performance and duration,
+        day strain, heart rate variability, and resting heart rate.</li>
+    <li><strong>Apple Reminders</strong> — a single list named "Orion", which the
+        app creates. Other lists are never read or written.</li>
+    <li><strong>Apple Calendar</strong> — today's events, read only. Orion never
+        creates, edits, or deletes an event.</li>
+  </ul>
+  <p>
+    Every connection above is <strong>read-only</strong>. Orion does not post,
+    publish, message, purchase, or transfer anything on any connected account.
+  </p>
+
+  <h2>Where it goes</h2>
+  <p>
+    Nowhere. Data fetched from a connected service is held in memory to draw the
+    dashboard and is not written to any remote system. There is no analytics, no
+    telemetry, no crash reporting, no advertising, and no third-party processor.
+    Nothing is sold or shared, because nothing leaves the machine.
+  </p>
+
+  <h2>Access tokens</h2>
+  <p>
+    Tokens granted by a connected service are stored in the macOS Keychain on the
+    one Mac that Orion runs on. They are encrypted at rest, unlocked with the
+    login session, and marked <em>this device only</em>, so they are never synced
+    to iCloud or to any other computer.
+  </p>
+
+  <h2>Revoking access</h2>
+  <p>
+    Disconnecting inside Orion deletes the stored tokens from the Keychain
+    immediately. Access can also be revoked from the provider's own settings at
+    any time — WHOOP under Account &rsaquo; Connected Apps — which invalidates
+    the token regardless of what Orion does.
+  </p>
+
+  <h2>Retention</h2>
+  <p>
+    Orion keeps no history of fetched data. Each refresh replaces the previous
+    values. Deleting the app removes everything it held, and clearing the
+    Keychain entries removes the tokens.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this policy: <a href="mailto:nmadaio08@gmail.com">nmadaio08@gmail.com</a>
+  </p>
+
+  <footer>
+    This page exists because OAuth providers require a privacy policy URL before
+    issuing credentials. It describes a single-user, local-first application
+    honestly rather than reproducing boilerplate written for a company.
+  </footer>
+</main>
+</body>
+</html>

@@ -1,31 +1,54 @@
 # ORION
 
-Phase One local-first conversational core.
+A local-first, privacy-preserving personal assistant for macOS. Orion runs its
+reasoning locally, keeps its own memory and knowledge on disk, and asks before
+doing anything consequential.
 
-## What works
+This is a monorepo: the Python runtime, the native macOS app, the OpenClaw
+control plugin, the agent's operating context, and the knowledge vault all live
+here together.
 
-- Local GPT-OSS 20B through Ollama
-- One safe, read-only current-time tool
-- SQLite conversation and tool-execution records
-- Complete model → tool → result → model loop
-- Persistent local HTTP runtime for the desktop interface
-- A lightweight local chat screen at the runtime address
+## Layout
 
-## Run
+| Path | What it is |
+|---|---|
+| `orion/` | Python runtime — planner, executor, scheduler, memory, permissions, tool registry, HTTP server |
+| `native/` | The macOS app (SwiftUI), the Mac bridge, and the launchd agents |
+| `openclaw-plugins/orion-control/` | OpenClaw plugin exposing Orion's action catalog and executors |
+| `openclaw-workspace/` | Orion's operating context — `SELF`, `SOUL`, `MEMORY`, `USER`, `PLAYBOOK`, `AGENTS` |
+| `brain/` | The knowledge vault (Obsidian, PARA-structured) — concepts, sources, operating principles |
+| `scripts/` | Operational scripts — TTS daemon, identity checks, repair, cron delivery |
+| `launchers/` | Double-clickable `.command` entry points for everyday use |
+| `tests/` | Python test suite, plus `tests/workspace/` — artifacts from controlled live runs |
+| `planning/` | Design docs and phase plans, current and archived |
+| `docs/` | Roadmap, game plan, integration handoff |
+| `web/privacy/` | The public privacy page |
+| `vault/`, `archive/` | Legacy notes and earlier prototypes |
 
-1. Open Ollama and make sure `gpt-oss:20b` is available.
-2. Start the persistent runtime:
+## Key documents
 
-   ```bash
-   uv run python main.py serve
-   ```
+- `AGENTS.md` — how agents working in this repo should behave
+- `HANDOFF.md` — current state and what comes next
+- `NICK-TODO.md` — decisions and actions waiting on a human
+- `brain/Home.md` — map of the knowledge vault
 
-   Then open `http://127.0.0.1:8765` in a browser to use Orion’s local chat screen. It keeps the active conversation together while it is open.
+## Running it
 
-3. Or, test one message directly:
+```bash
+uv run python main.py serve        # start the persistent local runtime
+uv run python main.py "..."        # send one message
+```
 
-   ```bash
-   uv run python main.py "What time is it in New York?"
-   ```
+The local database is created at `data/orion.db` and is not tracked.
 
-The local database is created at `data/orion.db`.
+## What is deliberately not in this repo
+
+Build outputs (`.build/`, `.builds/`), dependencies (`node_modules/`, `.venv/`),
+the vendored Ollama runtime, and all local state — `data/orion.db`, logs, and
+the sandbox directories. Secrets live in `.env`, which is ignored; copy
+`.env.example` to start.
+
+## Status
+
+Private and in active development. Branch `orion-v2/phase-0-inventory` is the
+working line; `master` is the last stable point.

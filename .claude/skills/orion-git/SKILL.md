@@ -47,8 +47,8 @@ the whole tree is yours.
 
 ## Never rewrite published history
 
-`CFBundleVersion` is `git rev-list --count HEAD`. It is **122** right now.
-Sparkle offers an update only when that number goes up.
+`CFBundleVersion` is `git rev-list --count HEAD` (`git rev-list --count HEAD`
+to see it now). Sparkle offers an update only when that number goes up.
 
 Rewriting history makes it go *down*, and every installed copy of Orion
 silently stops updating. There is no error message and no user-visible symptom

@@ -280,8 +280,8 @@ with `git add <paths>` rather than `git add -A`, unless you have checked
 ### Never rewrite published history
 
 This was already a rule (see Versioning) and the remote makes it binding.
-`CFBundleVersion` is `git rev-list --count HEAD` — **122** as of writing.
-Sparkle offers an update only when that number goes up. Rewriting history makes
+`CFBundleVersion` is `git rev-list --count HEAD` — run it to see the current
+value. Sparkle offers an update only when that number goes up. Rewriting history makes
 it go down, and every installed copy of Orion silently stops updating, with no
 error and no symptom until someone notices they are months behind.
 

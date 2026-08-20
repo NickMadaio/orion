@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -n \"completeFileProtection\\\\|posixPermissions\\\\|0o600\\\\|0600\\\\|options: \\\\[.atomic\" -r /Users/nickmadaio/Desktop/ORION/native/Orion/Sources/ 2>/dev/null)",
-      "Read(//Users/nickmadaio/Desktop/ORION/native/Orion/Tests/**)"
-    ]
-  }
-}

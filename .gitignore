@@ -37,3 +37,6 @@ data/icon-preview.png
 .builds/
 _gitlocks/
 _to_delete/
+
+# Claude Code local permissions — machine-specific
+.claude/settings.local.json

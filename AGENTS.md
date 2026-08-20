@@ -241,11 +241,62 @@ Two policies that are not Sparkle defaults, both load-bearing:
 
 ---
 
+## Version control
+
+**This repo has a remote as of 2026-08-20: `github.com/NickMadaio/orion`,
+private.** Before that date nothing left the machine — no remote, no backup, and
+the project lived in four folders that did not know about each other. They are
+one tree now:
+
+| Was | Is now |
+|---|---|
+| `~/Desktop/ORION` | repo root |
+| `~/orionBrain` (Obsidian vault) | `brain/` |
+| `~/orion-privacy` | `web/privacy/` |
+| `~/Orion Controlled Test Workspace` | `tests/workspace/` |
+
+The originals still exist on disk; they were copied, not moved. **The repo is
+authoritative.** Editing `~/orionBrain` does not reach GitHub, and a session
+that reads that folder is reading a stale fork of `brain/`.
+
+Full workflow, including branch layout and the secret-scanning rules, is in
+`.claude/skills/orion-git/SKILL.md`. Claude Code loads it as a skill; anything
+else should just read the file.
+
+### You may push and pull without asking
+
+This reverses the rule that was in House rules below, which predates the remote
+existing. `gh` is authenticated on this machine through the browser flow (set up
+2026-08-20), so `git pull`, `git push`, and `git fetch` work with no token and no
+prompt. Use them.
+
+If auth breaks: `gh auth login` → GitHub.com → HTTPS → Yes → browser. Never a
+personal access token in a URL or a config file.
+
+What did not change: **the dirty tree is usually not yours.** Stage deliberately
+with `git add <paths>` rather than `git add -A`, unless you have checked
+`git log` and confirmed the whole tree is your work.
+
+### Never rewrite published history
+
+This was already a rule (see Versioning) and the remote makes it binding.
+`CFBundleVersion` is `git rev-list --count HEAD` — **122** as of writing.
+Sparkle offers an update only when that number goes up. Rewriting history makes
+it go down, and every installed copy of Orion silently stops updating, with no
+error and no symptom until someone notices they are months behind.
+
+Banned on any pushed branch: `push --force`, `push --force-with-lease`,
+`rebase`, `commit --amend`, `reset --hard` to an older commit, `filter-branch`.
+If history genuinely has to change, that is a conversation with Nick.
+
+---
+
 ## House rules
 
-- **Do not commit or push unless asked.** Note that something else in this repo
-  commits on its own schedule (a commit landed 2026-08-18 22:11 that no session
-  here authored) — check `git log` before assuming the tree is yours.
+- **Committing and pushing is allowed** as of 2026-08-20 — see Version control
+  above. The caution that came with the old rule still stands: something else in
+  this repo commits on its own schedule (a commit landed 2026-08-18 22:11 that no
+  session here authored), so check `git log` before assuming the tree is yours.
 - The working tree usually has uncommitted changes that are not yours. Builds
   include them. A release must require a clean tree.
 - Hooks are active (see `~/.claude/settings.json`): git-push review, doc

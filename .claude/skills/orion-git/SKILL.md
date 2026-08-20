@@ -82,7 +82,7 @@ a command you run.
 `.claude/settings.local.json`, and the big vendored trees. Check it before
 adding anything that holds a credential or machine-local state.
 
-All 122 commits were scanned on 2026-08-20 and are clean. **One known false
+The full history was scanned for credentials on 2026-08-20 and is clean. **One known false
 positive** — do not "fix" it:
 
 `openclaw-plugins/orion-control/src/index.test.ts` (and its `dist/` twin)

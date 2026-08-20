@@ -176,7 +176,9 @@ final class AppState: ObservableObject {
     /// The clip library and player, and the object that carries out whatever
     /// `reconcile` asks for. Announcements go to the log until Gate 6 routes
     /// them through Orion's real voice — recorded honestly, just not spoken.
-    private let clipPlayer = ClipPlayer()
+    private let clipLibrary = ClipLibrary()
+    private lazy var clipPlayer = ClipPlayer(library: clipLibrary)
+    private let musicControl = AppleMusicControl()
 
     /// Ducks the clip while Orion talks. Only the clip — never system volume.
     private lazy var audioCoordinator = AudioCoordinator(
@@ -192,14 +194,31 @@ final class AppState: ObservableObject {
     )
     private(set) lazy var session = SessionService(effects: sessionEffects)
 
+    /// The updater, handed over by AppDelegate which owns it.
+    ///
+    /// Here so the Settings panel can reach it without the view hierarchy
+    /// having to know about the app delegate. Optional because the delegate
+    /// sets it during launch, and nothing may assume it exists before then.
+    var updates: UpdateController?
+
     /// Drift enforcement. Off until Nick confirms an allowlist — the model
     /// proposes, he authorizes. Reachable from the socket so the escape works
     /// without the gateway, the local model, or the UI being up.
     private(set) lazy var enforcer = Enforcer(
         speak: { [weak self] line in self?.speakEnforcement(line) },
+        intervene: { [weak self] action in self?.applyEnforcementIntervention(action) },
         log: { OrionLog.write($0) }
     )
-    private lazy var sessionIPC = SessionIPC(service: session, enforcer: enforcer)
+    /// Messages, for the socket.
+    ///
+    /// AppState owns its own reader rather than borrowing the dashboard's,
+    /// because the socket has to answer whether or not a window is open — and
+    /// the whole point is that Orion can be ASKED about a text, which happens
+    /// far more often with the dashboard closed than with it open.
+    private let messagesReader = MessagesReader()
+    private lazy var messageBridge = MessageBridge(reader: messagesReader)
+    private lazy var sessionIPC = SessionIPC(service: session, enforcer: enforcer,
+                                             messages: messageBridge)
 
     /// The keyboard-first Console. ⌥Tab by default.
     private(set) lazy var console = ConsoleController(service: session, enforcer: enforcer)
@@ -208,21 +227,29 @@ final class AppState: ObservableObject {
     private(set) lazy var focusExtras = FocusExtras()
     private(set) lazy var quittableApps = QuittableApps()
     private lazy var extrasCoordinator = FocusExtrasCoordinator(
-        extras: focusExtras, quittable: quittableApps
+        extras: focusExtras, quittable: quittableApps, music: musicControl,
+        reasoner: LocalModelReasoner()
     )
 
-    /// Whether the Do Not Disturb Shortcuts exist, checked BEFORE a session
-    /// rather than at the moment one fails. A session that silently did not turn
-    /// Focus on is worse than one that never claimed to.
-    var doNotDisturbConfigured: Bool { extrasCoordinator.isDoNotDisturbConfigured }
-    var doNotDisturbSetup: String { extrasCoordinator.doNotDisturbSetup }
+    /// Cached because checking Shortcuts launches a process. SwiftUI may ask
+    /// for this value while it is rendering Settings, and process work there
+    /// can re-enter the view graph and abort the app.
+    @Published private(set) var focusShortcutConfigured = false
+    var focusSetup: String { extrasCoordinator.focusSetup }
+    var focusControl: FocusModeControl { extrasCoordinator.focus }
+
+    /// Re-check after the shortcut name is edited, so the warning clears
+    /// without a relaunch.
+    func recheckFocusShortcut() { refreshFocusConfiguration() }
 
     /// The small window that appears during a break.
     private let breakSurface = BreakSurface()
+    private let focusShield = FocusShieldSurface()
 
     /// What the Session tab reads. Held here because AppState owns and wires.
     private(set) lazy var sessionTabModel = SessionTabModel(
-        service: session, library: ClipLibrary(), enforcer: enforcer, effects: sessionEffects
+        service: session, library: clipLibrary, clipPlayer: clipPlayer,
+        music: musicControl, enforcer: enforcer, effects: sessionEffects
     )
     private let speakerVerifier = SpeakerVerifier()
 
@@ -382,6 +409,21 @@ final class AppState: ObservableObject {
         restoreDailyLog()
         wireSpeech()
         wireSession()
+        refreshFocusConfiguration()
+    }
+
+    /// Refresh away from SwiftUI's render pass, then publish the answer back
+    /// on the main thread. The setting remains safely unavailable until this
+    /// finishes; a session still reports a missing Shortcut rather than
+    /// silently pretending the Focus mode was changed.
+    private func refreshFocusConfiguration() {
+        let coordinator = extrasCoordinator
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let configured = coordinator.isFocusShortcutConfigured
+            DispatchQueue.main.async {
+                self?.focusShortcutConfigured = configured
+            }
+        }
     }
 
     func logHydration() {
@@ -535,7 +577,7 @@ final class AppState: ObservableObject {
         permissionTimer?.invalidate()
         statusTimer = nil
         permissionTimer = nil
-        disarmSpeakingWatchdog()
+        disarmWatchdog()
         speechInput.abort()
         speechOutput.stop(reason: "app shutting down")
         // Removes the socket file, so a client started after this correctly
@@ -568,8 +610,20 @@ final class AppState: ObservableObject {
             guard let self else { return }
             if onBreak {
                 self.breakSurface.onLog = { OrionLog.write($0) }
-                self.breakSurface.isFullBleed = self.focusExtras.fullBleedBreak
-                self.breakSurface.show(prompt: self.breakPrompt(), minutesRemaining: minutes)
+                self.breakSurface.guided = self.focusExtras.guidedBreathing
+                self.breakSurface.ambience = self.focusExtras.breakAmbience
+                self.breakSurface.presence = self.focusExtras.cameraPresence
+                    ? "Camera is checking you are resting, not scrolling."
+                    : nil
+                // Holding the exit ends the rest phase itself, not just the
+                // window. Dismissing the surface alone would leave the session
+                // believing he is still on a break he walked out of.
+                self.breakSurface.onHoldExit = { [weak self] in
+                    self?.sessionTabModel.endActiveBreak()
+                }
+                self.breakSurface.show(remaining: now.remainingInPhase,
+                                       total: self.focusExtras.breakLength.seconds,
+                                       prompt: self.breakPrompt())
             } else if self.breakSurface.isVisible {
                 self.breakSurface.dismiss()
             }
@@ -660,8 +714,17 @@ final class AppState: ObservableObject {
 
         clipPlayer.onLog = { OrionLog.write($0) }
         clipPlayer.onFailure = { OrionLog.write("[clip] \($0)") }
+        musicControl.onLog = { OrionLog.write($0) }
+        focusShield.onLog = { OrionLog.write($0) }
+        focusShield.onReleaseGuard = { [weak self] in self?.sessionTabModel.release() }
 
-        let inventory = ClipLibrary().inventory()
+        switch clipLibrary.ensureBuiltInFocusTrack() {
+        case .success(let clip):
+            OrionLog.write("[clip] built-in focus track ready (\(Int(clip.duration))s loop)")
+        case .failure(let failure):
+            OrionLog.write("[clip] \(failure.reason)")
+        }
+        let inventory = clipLibrary.inventory()
         if let explanation = inventory.explanation {
             // Never a silent empty. If there is nothing to play, say why.
             OrionLog.write("[clip] \(explanation)")
@@ -681,6 +744,7 @@ final class AppState: ObservableObject {
             } else {
                 focusing = false
             }
+            if !focusing { self.focusShield.dismiss(restoreWork: false) }
             self.enforcer.evaluate(sessionIsFocusing: focusing)
             self.sessionTabModel.adopt(snapshot)
             self.updateBreakSurface(snapshot)
@@ -689,6 +753,11 @@ final class AppState: ObservableObject {
 
         extrasCoordinator.onLog = { OrionLog.write($0) }
         quittableApps.onLog = { OrionLog.write($0) }
+        // Say what a session would do while nobody is waiting on it, rather
+        // than only finding out at the moment it fails to do it.
+        extrasCoordinator.logReadiness()
+
+        messagesReader.start()
 
         console.onLog = { OrionLog.write($0) }
         console.install()
@@ -696,6 +765,30 @@ final class AppState: ObservableObject {
         sessionIPC.onLog = { OrionLog.write($0) }
         if !sessionIPC.start() {
             OrionLog.write("[session] command socket unavailable — scripts cannot reach the session")
+        }
+    }
+
+    /// Reversible focus corrections only. Guided activates a confirmed work
+    /// app; Firm hides the current disallowed app without terminating it;
+    /// Shield presents a surface with an unconditional local release.
+    private func applyEnforcementIntervention(_ action: EnforcementIntervention) {
+        DispatchQueue.main.async { [weak self] in
+            switch action {
+            case .restore(let bundleID):
+                NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                    .first?.activate(options: [.activateAllWindows])
+
+            case .hide(let bundleID, let restoreBundleID):
+                NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                    .forEach { _ = $0.hide() }
+                if let restoreBundleID {
+                    NSRunningApplication.runningApplications(withBundleIdentifier: restoreBundleID)
+                        .first?.activate(options: [.activateAllWindows])
+                }
+
+            case .shield(let reason, let restoreBundleID):
+                self?.focusShield.show(reason: reason, restoreBundleID: restoreBundleID)
+            }
         }
     }
 
@@ -869,11 +962,16 @@ final class AppState: ObservableObject {
         phase = next
         hologram.setState(next.hologramState)
         onSpeakingChanged?(next == .speaking)
-        // `.speaking` is the one phase that can strand the whole app, so it is
-        // the one phase with a guaranteed exit. Armed and disarmed here because
-        // this is the only function that changes `phase`, which means no future
-        // code path can enter or leave speaking without the watchdog agreeing.
-        if next == .speaking { armSpeakingWatchdog() } else { disarmSpeakingWatchdog() }
+        // Every phase that can strand the whole app gets a guaranteed exit.
+        // Armed and disarmed here because this is the only function that changes
+        // `phase`, which means no future code path can enter or leave one of
+        // them without the watchdog agreeing.
+        //
+        // This used to read `if next == .speaking`, on the belief that speaking
+        // was "the one phase that can strand the whole app". It was not.
+        // `.thinking` stranded it on 2026-08-12 and cost twelve minutes of
+        // deafness — see `armWatchdog`.
+        armWatchdog(for: next)
         // Any exit from listening ends a hands-free turn — the user pressed the
         // key, an error fired, or silence already closed it. Doing this here
         // rather than in each caller means no future path can forget and leave
@@ -895,7 +993,7 @@ final class AppState: ObservableObject {
         wakeWord.setSuspended(next != .idle)
     }
 
-    // MARK: The speaking watchdog
+    // MARK: The phase watchdogs
 
     /*
      Why this exists.
@@ -925,45 +1023,127 @@ final class AppState: ObservableObject {
      that for the case where an engine keeps emitting level events forever.
     */
 
-    private var speakingWatchdog: Timer?
-    private var lastSpeechProgressAt = Date()
-    private var speakingStartedAt = Date()
+    /*
+     The same reasoning applies to `.thinking`, which is why there is now one
+     watchdog and not two.
+
+     `.thinking` has exactly one exit: the completion block in `send(_:)`. That
+     block runs on `agentQueue`, which is SERIAL, behind `GatewayClient.ask`,
+     which blocks on `readDataToEndOfFile()`. That read returns only when every
+     write end of the pipe is closed — including any handle a grandchild of the
+     agent inherited and still holds. When that happens the read never returns,
+     the serial queue never drains, the completion never runs, and every later
+     turn queues behind the wedged one.
+
+     `wakeWord.setSuspended(next != .idle)` then does the rest: Orion is deaf,
+     the meter keeps drawing a live level at a room he cannot hear, and only
+     relaunching helps. That is the 2026-08-12 incident, twelve minutes long.
+    */
+
+    /// One timer for whichever phase is currently being watched. A single timer
+    /// rather than one per phase because `setPhase` is the only writer of
+    /// `phase`, so exactly one phase is ever under watch.
+    private var phaseWatchdogTimer: Timer?
+    private var phaseWatchdog: StallWatchdog?
+    /// Which phase the armed watchdog belongs to. A tick that finds the app
+    /// somewhere else disarms rather than recovering the wrong phase.
+    private var watchedPhase: OrionPhase?
 
     /// Any evidence that speech is genuinely still happening.
     private func noteSpeechProgress() {
-        lastSpeechProgressAt = Date()
+        guard watchedPhase == .speaking else { return }
+        phaseWatchdog?.noteProgress()
     }
 
-    private func armSpeakingWatchdog() {
-        speakingWatchdog?.invalidate()
-        let now = Date()
-        speakingStartedAt = now
-        lastSpeechProgressAt = now
-        // Polls rather than schedules one long timer, so progress can push the
-        // deadline out without tearing the timer down and rebuilding it.
-        speakingWatchdog = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            guard self.phase == .speaking else {
-                self.disarmSpeakingWatchdog()
-                return
-            }
-            let stalled = Date().timeIntervalSince(self.lastSpeechProgressAt)
-            let total = Date().timeIntervalSince(self.speakingStartedAt)
-            if stalled >= VoiceTuning.stallTimeout {
-                self.recoverFromStuckSpeaking(
-                    reason: "no audio for \(Int(stalled))s"
-                )
-            } else if total >= VoiceTuning.absoluteSpeakingCeiling {
-                self.recoverFromStuckSpeaking(
-                    reason: "reply exceeded \(Int(total))s"
-                )
-            }
+    /// Limits for the phases that need a floor, or nil for the phases that
+    /// cannot strand the app: `.idle` is where we want to be, `.error` already
+    /// settles itself after four seconds, and `.listening` is watched inside
+    /// `SpeechInput` — the only object that can see whether audio is actually
+    /// reaching an ear.
+    private func watchdogLimits(
+        for phase: OrionPhase
+    ) -> (stallAfter: TimeInterval, ceiling: TimeInterval)? {
+        switch phase {
+        case .speaking:
+            return (VoiceTuning.stallTimeout, VoiceTuning.absoluteSpeakingCeiling)
+        case .thinking:
+            // Ceiling only. There is no progress signal to measure: the agent
+            // is a subprocess that says nothing at all until it is finished.
+            return (.infinity, VoiceTuning.absoluteThinkingCeiling)
+        case .idle, .listening, .error:
+            return nil
         }
     }
 
-    private func disarmSpeakingWatchdog() {
-        speakingWatchdog?.invalidate()
-        speakingWatchdog = nil
+    private func armWatchdog(for phase: OrionPhase) {
+        phaseWatchdogTimer?.invalidate()
+        phaseWatchdogTimer = nil
+        guard let limits = watchdogLimits(for: phase) else {
+            phaseWatchdog = nil
+            watchedPhase = nil
+            return
+        }
+        phaseWatchdog = StallWatchdog(stallAfter: limits.stallAfter,
+                                      ceiling: limits.ceiling)
+        watchedPhase = phase
+        // Polls rather than scheduling one long timer, so progress can push the
+        // deadline out without tearing the timer down and rebuilding it.
+        phaseWatchdogTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkPhaseWatchdog()
+        }
+    }
+
+    private func disarmWatchdog() {
+        phaseWatchdogTimer?.invalidate()
+        phaseWatchdogTimer = nil
+        phaseWatchdog = nil
+        watchedPhase = nil
+    }
+
+    private func checkPhaseWatchdog() {
+        guard let watched = watchedPhase, let watchdog = phaseWatchdog else { return }
+        guard phase == watched else {
+            disarmWatchdog()
+            return
+        }
+        // The wording is built here rather than in `StallWatchdog` because
+        // `orion-doctor` greps for these exact lines, and sharing a type is no
+        // reason to change what it matches.
+        switch (watchdog.verdict(), watched) {
+        case (.healthy, _):
+            return
+        case (.stalled(let seconds), .speaking):
+            recoverFromStuckSpeaking(reason: "no audio for \(seconds)s")
+        case (.overCeiling(let seconds), .speaking):
+            recoverFromStuckSpeaking(reason: "reply exceeded \(seconds)s")
+        case (.stalled(let seconds), .thinking),
+             (.overCeiling(let seconds), .thinking):
+            recoverFromStuckThinking(reason: "no answer in \(seconds)s")
+        default:
+            disarmWatchdog()
+        }
+    }
+
+    /// Force the end of a thinking phase that will not end on its own.
+    ///
+    /// The in-flight `GatewayClient.ask` is not cancelled, because from here it
+    /// cannot be: it is blocked inside a read on a serial queue, which is the
+    /// whole problem. Bumping `askGeneration` is what makes that harmless — if
+    /// the call ever does return, its completion finds a stale generation and is
+    /// dropped, so a twenty-minute-late answer can never be spoken at someone
+    /// who has long since walked away.
+    ///
+    /// Unlike the speaking recovery this DOES say something in the transcript.
+    /// A cut-off reply is Orion's problem and announcing it would be noise, but
+    /// a question that never came back is the user's problem: they are owed the
+    /// difference between "still working" and "that one is gone, ask again".
+    private func recoverFromStuckThinking(reason: String) {
+        disarmWatchdog()
+        OrionLog.write("[think] watchdog recovered a stuck thinking phase — \(reason)")
+        askGeneration += 1
+        setPhase(.idle)
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        append(.system, "That question never came back — the agent stopped answering. Ask again.")
     }
 
     /// Force the end of a speaking phase that will not end on its own.
@@ -971,7 +1151,7 @@ final class AppState: ObservableObject {
     /// Deliberately loud in the log and silent in the transcript: this is a bug
     /// report, not something Orion should announce. `orion-doctor` greps for it.
     private func recoverFromStuckSpeaking(reason: String) {
-        disarmSpeakingWatchdog()
+        disarmWatchdog()
         OrionLog.write("[speech] watchdog recovered a stuck speaking phase — \(reason)")
         // Tear down the audio path before changing phase: `stop` is idempotent
         // and clears `isSpeaking`, so a late `onFinished` from the wedged
@@ -1197,11 +1377,12 @@ final class AppState: ObservableObject {
 
         askGeneration += 1
         let generation = askGeneration
+        let request = agentRequest(userText: text)
 
         agentQueue.async { [weak self] in
             let result: Result<GatewayReply, Error>
             do {
-                result = .success(try GatewayClient.ask(text))
+                result = .success(try GatewayClient.ask(request))
             } catch {
                 result = .failure(error)
             }
@@ -1216,6 +1397,49 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Every desktop turn carries a compact, app-supplied snapshot of the
+    /// current focus session. The agent must not infer a session from the
+    /// conversation, and it does not decide this boundary: SessionService and
+    /// Enforcer remain the sources of truth.
+    private func agentRequest(userText: String) -> String {
+        let snapshot = session.snapshot()
+        let response = SessionWire.describe(snapshot)
+        let sessionDescription: String
+
+        if response.status == "running" || response.status == "paused" || response.status == "waiting-for-return" {
+            let phase = response.phase ?? "focus"
+            let task = response.task?.replacingOccurrences(of: "\n", with: " ") ?? "unnamed task"
+            let block: String
+            if let number = response.blockNumber, let total = response.totalBlocks {
+                block = "block \(number) of \(total)"
+            } else {
+                block = "current block"
+            }
+            sessionDescription = "active; \(phase), \(block), user-set task: \(task)"
+        } else {
+            sessionDescription = "inactive"
+        }
+
+        let allowed = enforcer.allowlist.bundleIDs
+            .sorted()
+            .map { bundleID in
+                NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID })?.localizedName ?? bundleID
+            }
+        let allowedDescription = allowed.isEmpty ? "none established" : allowed.joined(separator: ", ")
+        let enforcement = enforcer.isArmed ? "active" : "not active"
+
+        return """
+        [Orion app context — factual state supplied by the native app]
+        Focus session: \(sessionDescription).
+        Firm enforcement: \(enforcement).
+        Temporary allowed work apps: \(allowedDescription).
+        Treat the session status and allowed apps as current operating context. Do not claim an app is blocked, hidden, or quit unless a tool confirms it.
+
+        User message:
+        \(userText)
+        """
     }
 
     private func deliver(_ reply: GatewayReply) {

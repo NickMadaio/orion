@@ -97,6 +97,44 @@ struct WhoopWeek: Equatable {
     var isEmpty: Bool { points.isEmpty }
 }
 
+extension WhoopWeek {
+
+    /// History, unioned by day, with the incoming fetch winning where both know
+    /// about a day.
+    ///
+    /// Fetches are windows, not snapshots of everything — a truncated or
+    /// re-scoped one should ADD to what is known rather than replace it. Whoop
+    /// also rescoring a day it already scored is normal (a late nap, a corrected
+    /// sleep), which is why the newer read wins per day rather than per field.
+    func merging(_ incoming: WhoopWeek) -> WhoopWeek {
+        var byDay: [Date: WhoopDayPoint] = [:]
+        for point in points { byDay[point.date] = point }
+        for point in incoming.points { byDay[point.date] = point }
+        return WhoopWeek(points: byDay.values.sorted { $0.date < $1.date })
+    }
+
+    /// The week as the health log wants it: one reading per day key.
+    ///
+    /// Keyed by the CIVIL day of each reading, not by Orion's logical day. The
+    /// calendar grid draws civil days, and this exists to colour those cells; a
+    /// recovery scored at 6am belongs in the square marked with that date even
+    /// on a morning Nick has not woken up into yet.
+    var readingsByDay: [String: WearableReading] {
+        var readings: [String: WearableReading] = [:]
+        for point in points {
+            readings[OrionDay.keyFormatter.string(from: point.date)] = WearableReading(
+                recovery: point.recovery,
+                sleepPerformance: point.sleepPerformance,
+                sleepHours: point.sleepHours,
+                hrv: point.hrv,
+                restingHeartRate: point.restingHeartRate,
+                strain: point.strain
+            )
+        }
+        return readings
+    }
+}
+
 /// What today's recovery says about how hard to go.
 ///
 /// Whoop's own model in one sentence: recovery buys you strain. A green day

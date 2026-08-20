@@ -19,13 +19,14 @@ import SessionService
 struct FocusSettings: View {
 
     @ObservedObject var extras: FocusExtras
-    let quittable: QuittableApps
-    let dndConfigured: Bool
-    let dndSetup: String
+    let focusControl: FocusModeControl
+    let focusConfigured: Bool
+    let focusSetup: String
+    var onRecheckFocus: () -> Void
 
-    @State private var quittableList: [QuittableApp] = []
-    @State private var candidates: [QuittableApp] = []
-    @State private var showingCandidates = false
+    @AppStorage(FocusModeControl.Key.shortcutName) private var shortcutName = ""
+    @AppStorage(FocusModeControl.Key.mode) private var focusMode = ""
+    @AppStorage(FocusModeControl.Key.customModes) private var customModes = ""
     @State private var cameraAuthorised = CameraPresence.isAuthorized
 
     var body: some View {
@@ -44,15 +45,7 @@ struct FocusSettings: View {
                 isOn: $extras.fullBleedBreak
             )
 
-            toggle(
-                "Do Not Disturb during a session",
-                detail: dndConfigured
-                    ? "Turns Focus on when a session starts and off when it ends. "
-                    + "Only turns it off if Orion was the one that turned it on."
-                    : dndSetup,
-                isOn: $extras.doNotDisturb,
-                warn: !dndConfigured
-            )
+            focusModeSection
 
             toggle(
                 "Pause Apple Music",
@@ -71,6 +64,61 @@ struct FocusSettings: View {
     private var onCount: Int {
         [extras.fullBleedBreak, extras.doNotDisturb, extras.pauseMusic,
          extras.cameraPresence, extras.quitDistractions].filter { $0 }.count
+    }
+
+    // MARK: Focus mode
+
+    /// One Shortcut, any Focus mode.
+    ///
+    /// The name is a field rather than a constant because the old design
+    /// hardcoded two names Nick never created, and complained about a missing
+    /// "Orion Focus On" at every single launch. A name he can correct here is a
+    /// thirty-second fix instead of a rebuild.
+    private var focusModeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            toggle(
+                "Set a Focus mode during a session",
+                detail: focusConfigured
+                    ? "Runs your Shortcut with “on \(focusControl.sessionMode)” when a session "
+                    + "starts and “off \(focusControl.sessionMode)” when it ends. Only turns it "
+                    + "off if Orion was the one that turned it on."
+                    : focusSetup,
+                isOn: $extras.doNotDisturb,
+                warn: !focusConfigured
+            )
+
+            field("Shortcut name", text: $shortcutName,
+                  placeholder: FocusModeControl.defaultShortcutName)
+            field("Mode a session turns on", text: $focusMode,
+                  placeholder: FocusModeControl.defaultMode)
+            field("Focus modes you made", text: $customModes,
+                  placeholder: "comma separated, e.g. deep work, studio")
+
+            Text("Orion knows: " + focusControl.knownModes.joined(separator: ", "))
+                .font(.system(size: 10))
+                .foregroundStyle(OrionTheme.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func field(_ title: String, text: Binding<String>,
+                       placeholder: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(OrionTheme.textDim)
+                .frame(width: 132, alignment: .leading)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(OrionTheme.mono(11))
+                .foregroundStyle(OrionTheme.textSoft)
+                .padding(.horizontal, 7).padding(.vertical, 4)
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                }
+                .onSubmit { onRecheckFocus() }
+        }
     }
 
     // MARK: Camera
@@ -110,66 +158,41 @@ struct FocusSettings: View {
         }
     }
 
-    // MARK: Quittable apps
+    // MARK: Closing distractions
 
-    /// Two independent conditions for the one destructive capability: the
-    /// switch, and a list Nick wrote himself. Either alone does nothing.
+    /// No list. That was the whole complaint — twice — and the list stayed empty
+    /// while the switch sat there claiming to do something.
+    ///
+    /// What replaced it is not "Orion decides now". It is a mechanical floor
+    /// that removes anything holding unsaved work, anything that is part of
+    /// macOS, and anything he has touched in the last two minutes; a reasoned
+    /// decision over what is left, against the task he typed; and a second run
+    /// through the floor at the moment of quitting. The disclosure below says
+    /// exactly that, because a capability that closes apps has to be legible
+    /// before it is switched on.
     private var quittableSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             toggle(
                 "Close distracting apps",
-                detail: "Only apps you list below, and only ever with a polite quit — "
-                      + "an app with unsaved work will ask you, and Orion takes no for an "
-                      + "answer. Orion never decides what goes on this list.",
+                detail: "At session start Orion looks at what is running and closes what "
+                      + "is not part of the task you typed. Never anything with unsaved "
+                      + "changes, anything it cannot read, the app you are in, anything "
+                      + "used in the last two minutes, or a terminal, editor, recorder or "
+                      + "password manager. Always a polite quit, never a force quit.",
                 isOn: $extras.quitDistractions
             )
 
-            if quittableList.isEmpty {
-                Text(extras.quitDistractions
-                     ? "Your list is empty, so nothing will be closed."
-                     : "No apps listed.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(extras.quitDistractions ? OrionTheme.orange : OrionTheme.textDim)
-            } else {
-                ForEach(quittableList) { app in
-                    HStack(spacing: 8) {
-                        Text(app.name)
-                            .font(.system(size: 12))
-                            .foregroundStyle(OrionTheme.textSoft)
-                        Spacer(minLength: 8)
-                        InlineAction(title: "remove", tint: OrionTheme.textDim) {
-                            quittable.remove(app.bundleID)
-                            quittableList = quittable.list()
-                        }
-                    }
-                }
-            }
-
-            InlineAction(title: showingCandidates ? "Done" : "Add an app…",
-                         tint: OrionTheme.textSoft) {
-                if !showingCandidates { candidates = QuittableApps.candidates() }
-                showingCandidates.toggle()
-            }
-
-            if showingCandidates {
-                ForEach(candidates.filter { candidate in
-                    !quittableList.contains { $0.bundleID == candidate.bundleID }
-                }) { candidate in
-                    HStack(spacing: 8) {
-                        Text(candidate.name)
-                            .font(.system(size: 12))
-                            .foregroundStyle(OrionTheme.textDim)
-                        Spacer(minLength: 8)
-                        InlineAction(title: "add", tint: OrionTheme.accent) {
-                            quittable.add(candidate)
-                            quittableList = quittable.list()
-                        }
-                    }
-                }
-            }
+            Text(accessibilityGranted
+                 ? "Every decision, closed or kept, is written to the log with its reason."
+                 : "Accessibility is not granted, so Orion cannot tell which apps have "
+                   + "unsaved work — with it off, nothing is ever closed.")
+                .font(.system(size: 10))
+                .foregroundStyle(accessibilityGranted ? OrionTheme.textDim : OrionTheme.orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .onAppear { quittableList = quittable.list() }
     }
+
+    private var accessibilityGranted: Bool { AccessibilityDocumentSensor.isAvailable }
 
     // MARK: A toggle with its terms
 

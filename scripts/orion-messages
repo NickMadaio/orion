@@ -10,11 +10,16 @@
 
    orion-messages recent [n]              the last n messages, newest first
    orion-messages from "<name or number>" [n]
+   orion-messages search "<text>" [n]     messages containing some words
    orion-messages chats [n]               who has been talking recently
+   orion-messages whoami                  the handles this Mac sends AS
 
  READS ONLY. There is no send here and there will not be one from this script:
  sending is a different risk class and belongs behind the permission gate, not
- behind a convenience wrapper.
+ behind a convenience wrapper. It lives in `orion-messages-send`, which is
+ reachable only through the `messages_send` catalog action — so "Orion may read
+ my texts" and "Orion may send texts as me" are two decisions and are answered
+ in two different places.
 
  Two things chat.db will lie about if you let it, both learned the hard way in
  MessagesReader.swift and repeated here because a second reader that gets them
@@ -29,6 +34,11 @@
     recent conversations as empty, which looks like the messages being gone
     rather than the reader being wrong.
 
+ Every timestamp printed here is LOCAL. `toISOString()` is UTC and rolls the
+ date over at 20:00 in New York, which has already filed one thing under
+ tomorrow in this project; a message sent at 9pm must not be reported as
+ having arrived the next day.
+
  FULL DISK ACCESS is required, and it is granted to the RESPONSIBLE PROCESS,
  not to this file. Run from a terminal it inherits the terminal's grant; run by
  the OpenClaw gateway it needs the gateway's. If it is missing this says so
@@ -41,6 +51,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { glob } from "node:fs/promises";
+import { messageBody } from "./lib/imessage-typedstream.mjs";
 
 const run = promisify(execFile);
 const DB = join(homedir(), "Library/Messages/chat.db");
@@ -66,6 +78,23 @@ function appleDate(raw) {
 }
 
 /*
+ LIKE patterns, quoted here rather than concatenated hopefully.
+
+ The previous version escaped `'` and stopped there, which blocks injection but
+ not wildcards: a "name" of `%` matches every conversation on the machine, so a
+ request to read one person's thread quietly returns all of them. Both problems
+ are the same problem — caller text being read as syntax — so both are handled
+ in one place, and the pattern carries an explicit ESCAPE clause so `%` and `_`
+ inside a real name stay literal.
+*/
+function sqlLike(value) {
+  const escaped = String(value)
+    .replace(/[\\%_]/g, (character) => `\\${character}`)
+    .replace(/'/g, "''");
+  return `'%${escaped}%' ESCAPE '\\'`;
+}
+
+/*
  `sqlite3` in read-only mode, over a URI, with immutable=1.
 
  Read-only because nothing here should ever be able to modify his message
@@ -73,20 +102,22 @@ function appleDate(raw) {
  normal open fails with "database is locked" exactly when he is using it —
  which is always.
 */
-async function query(sql) {
-  if (!existsSync(DB)) {
-    fail("There is no Messages database on this Mac (~/Library/Messages/chat.db).", 3);
+async function queryFile(file, sql, { required = true } = {}) {
+  if (!existsSync(file)) {
+    if (!required) return [];
+    fail(`There is no database at ${file.replace(homedir(), "~")}.`, 3);
   }
   try {
-    const { stdout } = await run("/usr/bin/sqlite3", [
-      "-json",
-      `file:${DB}?mode=ro&immutable=1`,
-      sql,
-    ]);
+    const { stdout } = await run(
+      "/usr/bin/sqlite3",
+      ["-json", `file:${file}?mode=ro&immutable=1`, sql],
+      { maxBuffer: 32 * 1024 * 1024 },
+    );
     return stdout.trim() ? JSON.parse(stdout) : [];
   } catch (error) {
     const text = `${error.stderr ?? error.message}`;
-    if (/authorization denied|unable to open|not permitted/i.test(text)) {
+    if (/authorization denied|unable to open|not permitted|operation not permitted/i.test(text)) {
+      if (!required) return [];
       fail(
         "Full Disk Access is required to read Messages, and the process running this " +
           "does not have it. macOS attributes it to the RESPONSIBLE process — grant it " +
@@ -95,26 +126,148 @@ async function query(sql) {
         4,
       );
     }
+    if (!required) return [];
     fail(text.trim() || "the query failed", 5);
   }
 }
 
+const query = (sql) => queryFile(DB, sql);
+
 /*
- attributedBody is a serialised NSAttributedString. Fully decoding it needs
- Foundation; the readable text is stored as plain UTF-8 inside the blob, so
- pulling the longest printable run out of it recovers the message without
- pretending to parse a format we do not own. Good enough to summarise, and
- honest about being an extraction rather than a decode.
+ Turning "+15551234567" into "Mom".
+
+ A thread keyed by phone number is technically complete and humanly useless, and
+ the app already solved this in ContactsClient.swift. The rule copied from there
+ is the one that matters: match on the LAST TEN DIGITS, never on the string. The
+ same person is "+1 (555) 123-4567" in Contacts, "+15551234567" in chat.db and
+ "5551234567" somewhere else, and comparing those as text fails every time.
+
+ The source here is the local AddressBook sqlite rather than the Contacts
+ framework, because this is a node script and has no way to hold a CNContactStore.
+ That means it is BEST EFFORT: if the address book is absent or unreadable the
+ handles are printed raw, which is a worse answer but never a wrong one. It is
+ explicitly not `required`, so a missing Contacts grant degrades the names
+ instead of failing the read.
+*/
+const lastTen = (value) => String(value).replace(/\D/g, "").slice(-10);
+
+async function contactIndex({ required = false } = {}) {
+  const root = join(homedir(), "Library/Application Support/AddressBook");
+  const byNumber = new Map();
+  const byEmail = new Map();
+
+  const databases = [join(root, "AddressBook-v22.abcddb")];
+  try {
+    for await (const found of glob(join(root, "Sources/*/AddressBook-v22.abcddb"))) {
+      databases.push(found);
+    }
+  } catch {
+    /* no Sources directory: the top-level database is still tried */
+  }
+
+  const existingDatabases = databases.filter((database) => existsSync(database));
+  if (required && existingDatabases.length === 0) {
+    fail("Apple Contacts database was not found.", 4);
+  }
+
+  const NAME = `TRIM(
+    IFNULL(r.ZFIRSTNAME || ' ', '') || IFNULL(r.ZLASTNAME, '')
+  )`;
+  for (const database of existingDatabases) {
+    const numbers = await queryFile(
+      database,
+      `SELECT ${NAME} AS name, p.ZFULLNUMBER AS handle
+       FROM ZABCDPHONENUMBER AS p
+       JOIN ZABCDRECORD AS r ON p.ZOWNER = r.Z_PK
+       WHERE p.ZFULLNUMBER IS NOT NULL;`,
+      { required },
+    );
+    for (const row of numbers) {
+      const key = lastTen(row.handle);
+      const name = (row.name ?? "").trim();
+      if (key.length === 10 && name && !byNumber.has(key)) byNumber.set(key, name);
+    }
+    const emails = await queryFile(
+      database,
+      `SELECT ${NAME} AS name, e.ZADDRESS AS handle
+       FROM ZABCDEMAILADDRESS AS e
+       JOIN ZABCDRECORD AS r ON e.ZOWNER = r.Z_PK
+       WHERE e.ZADDRESS IS NOT NULL;`,
+      { required },
+    );
+    for (const row of emails) {
+      const key = String(row.handle ?? "").trim().toLowerCase();
+      const name = (row.name ?? "").trim();
+      if (key && name && !byEmail.has(key)) byEmail.set(key, name);
+    }
+  }
+  return { byNumber, byEmail, databaseCount: existingDatabases.length };
+}
+
+/** A handle rendered as a person where possible, and as itself otherwise. */
+function personFor(handle, contacts) {
+  if (!handle) return null;
+  const raw = String(handle).trim();
+  if (!raw) return null;
+  if (raw.includes("@")) {
+    return contacts.byEmail.get(raw.toLowerCase()) ?? raw;
+  }
+  const key = lastTen(raw);
+  return (key.length === 10 ? contacts.byNumber.get(key) : undefined) ?? raw;
+}
+
+/** Every handle whose contact name mentions `term`, for `from "Mom"`. */
+function handlesMatching(term, contacts) {
+  const needle = term.trim().toLowerCase();
+  if (!needle) return [];
+  const handles = [];
+  for (const [key, name] of contacts.byNumber) {
+    if (name.toLowerCase().includes(needle)) handles.push(key);
+  }
+  for (const [key, name] of contacts.byEmail) {
+    if (name.toLowerCase().includes(needle)) handles.push(key);
+  }
+  return handles;
+}
+
+/*
+ attributedBody is a serialised NSAttributedString, and it is PARSED here, not
+ scanned. The format, and the long version of why the previous approach could
+ not be repaired, live in scripts/lib/imessage-typedstream.mjs.
+
+ The short version: this used to take the longest run of printable bytes out of
+ the blob. A typedstream writes the names of the classes it archived into the
+ archive as plain ASCII; `NSObject` is eight characters and "ok" is two; so the
+ longest run inside a short reply was the name of a class, and that is what got
+ printed. Nick's recent messages read
+
+     21:56  me: NSObject
+     21:56  Karlita: NSObject
+
+ for nine of twelve rows one evening. Long messages happened to win the
+ comparison and came through intact, which is exactly why this looked like it
+ worked and shipped.
+
+ `messageBody` returns a status next to the text, so three things that used to
+ arrive identically as "" stay apart: there was no blob, the message was an
+ attachment, and the blob could not be read.
 */
 function bodyFrom(row) {
-  if (row.text && row.text.trim()) return row.text.trim();
-  if (!row.body_hex) return "";
-  const raw = Buffer.from(row.body_hex, "hex").toString("utf8");
-  const runs = raw.match(/[\x20-\x7E -￿]{4,}/g) ?? [];
-  const best = runs
-    .filter((r) => !/^(NSString|NSAttributedString|NSDictionary|NSNumber|streamtyped|__k)/.test(r))
-    .sort((a, b) => b.length - a.length)[0];
-  return (best ?? "").trim();
+  return messageBody({ text: row.text, bodyHex: row.body_hex }).text;
+}
+
+/*
+ What SEARCH is allowed to match on, which is not the same set.
+
+ An unreadable body and an attachment both render as a bracketed marker, and a
+ marker is not something Nick typed into a search box -- letting `[attachment]`
+ match the word "attachment" would invent hits out of the reader's own
+ vocabulary. Search therefore sees only bodies that really are text, while
+ rendering still shows the markers.
+*/
+function searchableBody(row) {
+  const body = messageBody({ text: row.text, bodyHex: row.body_hex });
+  return body.status === "text" ? body.text : "";
 }
 
 const SELECT = `
@@ -128,14 +281,27 @@ const SELECT = `
   WHERE m.associated_message_type = 0
 `;
 
-function render(rows) {
+/** Local time, deliberately. See the header note about toISOString(). */
+function stampFor(date) {
+  if (!date) return "?";
+  const day = date.toLocaleDateString("en-CA");
+  const clock = date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${day} ${clock}`;
+}
+
+function render(rows, contacts) {
   const lines = rows
     .map((row) => {
-      const when = appleDate(row.date);
       const body = bodyFrom(row);
       if (!body) return null;
-      const stamp = when ? when.toLocaleString("en-CA", { hour12: false }).slice(0, 16) : "?";
-      const who = row.mine ? "me" : row.chat || row.who || "unknown";
+      const stamp = stampFor(appleDate(row.date));
+      const who = row.mine
+        ? "me"
+        : row.chat || personFor(row.who, contacts) || "unknown";
       return `${stamp}  ${who}: ${body}`;
     })
     .filter(Boolean);
@@ -149,32 +315,79 @@ function render(rows) {
 }
 
 async function main() {
-  const limit = Math.min(200, Number(rest.find((a) => /^\d+$/.test(a)) ?? 20));
+  const limit = Math.min(200, Math.max(1, Number(rest.find((a) => /^\d+$/.test(a)) ?? 20)));
 
   switch (command) {
     case "recent": {
-      render(await query(`${SELECT} ORDER BY m.date DESC LIMIT ${limit};`));
+      const contacts = await contactIndex();
+      render(await query(`${SELECT} ORDER BY m.date DESC LIMIT ${limit};`), contacts);
       break;
     }
 
     case "from": {
       const who = rest[0];
-      if (!who || /^\d+$/.test(who)) fail('from needs a name or number: orion-messages from "Carla"');
-      // Matched against the handle and the chat display name. Deliberately
-      // LIKE rather than exact: he will say "Carla", not "+1555...".
-      const safe = who.replace(/'/g, "''");
+      if (!who || /^\d+$/.test(who)) {
+        fail('from needs a name or number: orion-messages from "Carla"');
+      }
+      const contacts = await contactIndex();
+      // Three ways to name the same person, all of them things he actually
+      // says: the contact name ("Mom"), the raw handle ("+1555…"), and the
+      // group-chat title. Resolved names win where Contacts is readable; the
+      // LIKE is kept so the lookup still works when it is not.
+      const digits = handlesMatching(who, contacts).map((key) => `h.id LIKE ${sqlLike(key)}`);
+      const clauses = [
+        `h.id LIKE ${sqlLike(who)}`,
+        `IFNULL(c.display_name,'') LIKE ${sqlLike(who)}`,
+        ...digits,
+      ];
       render(
         await query(
-          `${SELECT} AND (h.id LIKE '%${safe}%' OR IFNULL(c.display_name,'') LIKE '%${safe}%')
+          `${SELECT} AND (${clauses.join(" OR ")})
            ORDER BY m.date DESC LIMIT ${limit};`,
         ),
+        contacts,
       );
       break;
     }
 
-    case "chats": {
+    case "search": {
+      const term = rest.filter((a) => !/^\d+$/.test(a)).join(" ").trim();
+      if (!term) fail('search needs some words: orion-messages search "dentist"');
+      const contacts = await contactIndex();
+      /*
+       Only `message.text` is searchable in SQL. Bodies that live in
+       attributedBody are invisible to a LIKE, so the blob is filtered in JS
+       afterwards over a wider slice of rows — otherwise a search would silently
+       miss exactly the newest messages, which are the ones most likely to be
+       wanted. The row cap keeps that scan bounded on a 500MB database.
+      */
       const rows = await query(
-        `SELECT IFNULL(c.display_name, h.id) AS who, MAX(m.date) AS date, COUNT(*) AS n
+        `${SELECT} AND (m.text LIKE ${sqlLike(term)} OR m.text IS NULL)
+         ORDER BY m.date DESC LIMIT 4000;`,
+      );
+      const needle = term.toLowerCase();
+      const matched = rows
+        .filter((row) => searchableBody(row).toLowerCase().includes(needle))
+        .slice(0, limit);
+      render(matched, contacts);
+      break;
+    }
+
+    case "chats": {
+      const contacts = await contactIndex();
+      /*
+       NULLIF before IFNULL, and the order matters more than it looks.
+
+       `chat.display_name` is not NULL for a one-to-one conversation, it is the
+       EMPTY STRING — only group chats carry a title. `IFNULL` alone therefore
+       never fires for the common case, every 1:1 thread grouped under `''`, and
+       the filter below dropped them all. The visible symptom was `chats`
+       returning nothing but group conversations, which reads as "he has barely
+       texted anyone" rather than as a broken query.
+      */
+      const rows = await query(
+        `SELECT IFNULL(NULLIF(c.display_name, ''), h.id) AS who, h.id AS handle,
+                MAX(m.date) AS date, COUNT(*) AS n
          FROM message AS m
          LEFT JOIN handle AS h ON m.handle_id = h.ROWID
          LEFT JOIN chat_message_join AS cmj ON m.ROWID = cmj.message_id
@@ -186,14 +399,77 @@ async function main() {
         .filter((r) => r.who)
         .map((r) => {
           const when = appleDate(r.date);
-          return `${when ? when.toLocaleDateString("en-CA") : "?"}  ${r.who}  (${r.n})`;
+          const name = personFor(r.handle, contacts) ?? r.who;
+          const label = name === r.handle ? r.who : `${name} (${r.who})`;
+          return `${when ? when.toLocaleDateString("en-CA") : "?"}  ${label}  (${r.n})`;
         });
       console.log(lines.length ? lines.join("\n") : "No conversations found.");
       break;
     }
 
+    /*
+     The handles this Mac sends AS, which is the only safe destination for a
+     send test. Reading it here rather than in the send script keeps the send
+     script to one job, and this is a plain read of a table the reader already
+     has open.
+    */
+    case "whoami": {
+      /*
+       The service column is `service_name`, not `service`.
+
+       This case was written and never run — `whoami` was not a catalog action
+       and `orion-messages` is not on the exec allowlist, so nothing could reach
+       it. The first real call failed with `no such column: service`.
+
+       Rather than swap one hardcoded name for another, ask the database which
+       columns it actually has. chat.db's schema has changed across macOS
+       releases before — that is the whole reason the header of this file warns
+       about `date` units and `attributedBody` — and a third assumption about it
+       is a third thing to get wrong on the next upgrade. `account_login` is the
+       only column this needs; the service label is decoration and is dropped
+       silently if it is not there.
+      */
+      const columns = new Set(
+        (await query(`PRAGMA table_info(chat);`)).map((row) => String(row.name)),
+      );
+      if (!columns.has("account_login")) {
+        console.log("No sending account is configured in Messages.");
+        break;
+      }
+      const serviceColumn = ["service_name", "service"].find((name) =>
+        columns.has(name),
+      );
+      const rows = await query(
+        `SELECT DISTINCT account_login AS login${
+          serviceColumn ? `, ${serviceColumn} AS service` : ""
+        }
+         FROM chat WHERE account_login IS NOT NULL;`,
+      );
+      const seen = new Set();
+      const lines = [];
+      for (const row of rows) {
+        const login = String(row.login ?? "").replace(/^[EP]:/, "").trim();
+        if (!login || seen.has(login)) continue;
+        seen.add(login);
+        lines.push(`${login}  (${row.service ?? "?"})`);
+      }
+      console.log(lines.length ? lines.join("\n") : "No sending account is configured in Messages.");
+      break;
+    }
+
+    case "contacts-status": {
+      const contacts = await contactIndex({ required: true });
+      console.log(
+        `Apple Contacts available: databases=${contacts.databaseCount} phone_handles=${contacts.byNumber.size} email_handles=${contacts.byEmail.size}`,
+      );
+      break;
+    }
+
     default:
-      fail("usage: orion-messages recent [n] | from \"<name>\" [n] | chats [n]", 0);
+      fail(
+        'usage: orion-messages recent [n] | from "<name>" [n] | search "<text>" [n] | chats [n] | whoami | contacts-status',
+        0,
+      );
   }
 }
 

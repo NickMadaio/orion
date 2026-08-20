@@ -32,3 +32,8 @@ orion/data/
 # Built from Resources/Orion.iconset by make_app_bundle.sh
 native/Orion/Resources/Orion.icns
 data/icon-preview.png
+
+# Local build outputs
+.builds/
+_gitlocks/
+_to_delete/

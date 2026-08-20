@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": {
-    "title": "ORION v2 — Full Implementation Manifest",
+    "title": "ORION v2 \u2014 Full Implementation Manifest",
     "sha256": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
     "lineCount": 2642
   },
@@ -10,25 +10,70 @@
   "defaultStatus": "not_started",
   "current": {
     "0": {
-      "status": "blocked",
+      "status": "complete",
       "evidence": "planning/v2/PHASE_0_STATUS.md"
     },
     "1": {
-      "status": "planned",
-      "evidence": "planning/v2/PHASE_1_PLAN.md"
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_1_PLAN.md and planning/v2/HANDOFF.md",
+      "note": "Closed against PHASE_1_PLAN.md exit criteria on 2026-08-20. The manifest's literal exit gate is not met; see the recorded deviation in PHASE_GATES.json."
+    },
+    "2": {
+      "status": "not_started",
+      "evidence": "planning/v2/PHASE_2_PLAN.md does not exist yet"
     }
   },
   "tracks": [
-    {"first": 0, "last": 9, "name": "local core and security foundation"},
-    {"first": 10, "last": 15, "name": "cloud, identity, and pairing foundation"},
-    {"first": 16, "last": 21, "name": "mobile, sync, memory, capture, and tasks"},
-    {"first": 22, "last": 29, "name": "calendar, planning, and Gmail"},
-    {"first": 30, "last": 38, "name": "local health and health-aware planning"},
-    {"first": 39, "last": 43, "name": "daily planning, time, notifications, and safety controls"},
-    {"first": 44, "last": 56, "name": "remote Mac control and bounded computer use"},
-    {"first": 57, "last": 66, "name": "automation and proactive product surfaces"},
-    {"first": 67, "last": 75, "name": "cost, reliability, security, privacy, and operations"},
-    {"first": 76, "last": 84, "name": "deferred features, expansion, and release hardening"}
+    {
+      "first": 0,
+      "last": 9,
+      "name": "local core and security foundation"
+    },
+    {
+      "first": 10,
+      "last": 15,
+      "name": "cloud, identity, and pairing foundation"
+    },
+    {
+      "first": 16,
+      "last": 21,
+      "name": "mobile, sync, memory, capture, and tasks"
+    },
+    {
+      "first": 22,
+      "last": 29,
+      "name": "calendar, planning, and Gmail"
+    },
+    {
+      "first": 30,
+      "last": 38,
+      "name": "local health and health-aware planning"
+    },
+    {
+      "first": 39,
+      "last": 43,
+      "name": "daily planning, time, notifications, and safety controls"
+    },
+    {
+      "first": 44,
+      "last": 56,
+      "name": "remote Mac control and bounded computer use"
+    },
+    {
+      "first": 57,
+      "last": 66,
+      "name": "automation and proactive product surfaces"
+    },
+    {
+      "first": 67,
+      "last": 75,
+      "name": "cost, reliability, security, privacy, and operations"
+    },
+    {
+      "first": 76,
+      "last": 84,
+      "name": "deferred features, expansion, and release hardening"
+    }
   ],
   "titles": [
     "Freeze, Inventory, and Understand Existing ORION",

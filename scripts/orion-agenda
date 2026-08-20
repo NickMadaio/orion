@@ -15,9 +15,10 @@
 
    orion-agenda today                 events for today
    orion-agenda upcoming              everything the bridge can see ahead
-   orion-agenda add "<title>" <start> [minutes]
    orion-agenda tasks                 incomplete reminders
-   orion-agenda task-add "<title>" [YYYY-MM-DDTHH:mm]
+
+ Mutations intentionally live in the non-allowlisted orion-agenda-change
+ wrapper and are reachable only through typed orion-control actions.
 */
 
 import { execFile } from "node:child_process";
@@ -115,74 +116,18 @@ function describeEvents(events, { onlyToday }) {
   }
 }
 
-const ISO_MINUTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+// This program is on OpenClaw's exec allowlist, so its contract must be
+// uniformly read-only. An allowlist cannot attach different approval policy to
+// different subcommands of the same executable.
+if (!["today", "upcoming", "tasks"].includes(command)) {
+  fail("this wrapper is read-only; Calendar changes must use Orion's typed Calendar actions");
+}
 
 switch (command) {
   case "today":
   case "upcoming": {
     const result = await ask("list_upcoming_calendar_events");
     describeEvents(unpack(result, "events_json"), { onlyToday: command === "today" });
-    break;
-  }
-
-  case "add": {
-    const [title, start, minutes] = rest;
-    if (!title?.trim()) fail('add needs a title, e.g. add "Dinner" 2026-08-10T19:00');
-    if (!ISO_MINUTE.test(start ?? "")) fail("add needs a start like 2026-08-10T19:00 (local, 24-hour)");
-
-    const length = minutes ? Number(minutes) : 60;
-    if (!Number.isInteger(length) || length < 5 || length > 1440) {
-      fail("duration must be a whole number of minutes between 5 and 1440");
-    }
-
-    /*
-     The bridge parses with ISO8601DateFormatter, which wants seconds and a zone
-     — "2026-08-10T19:00" is rejected outright. Interpreting the wall-clock time
-     locally and handing over the resulting instant in UTC is unambiguous and
-     survives Nick moving to London without an edit.
-    */
-    const begins = new Date(`${start}:00`);
-    if (Number.isNaN(begins.getTime())) fail(`could not read ${start} as a date`);
-    const ends = new Date(begins.getTime() + length * 60000);
-
-    // ...and without milliseconds. `toISOString()` emits ".000Z", and a plain
-    // ISO8601DateFormatter rejects fractional seconds unless explicitly told to
-    // accept them, which surfaces as the unhelpful "valid start and end times".
-    const stamp = (at) => at.toISOString().replace(/\.\d{3}Z$/, "Z");
-
-    const created = await ask("create_calendar_event", {
-      title: title.trim(),
-      start: stamp(begins),
-      end: stamp(ends),
-    });
-
-    /*
-     Execute, then VERIFY, then report -- never report success because a call
-     came back without throwing. Read the calendar again and find the thing.
-    */
-    const after = unpack(await ask("list_upcoming_calendar_events"), "events_json");
-    const landed = after.some(
-      (e) => e.title === title.trim() && localDay(new Date(e.start)) === start.slice(0, 10),
-    );
-
-    if (!landed) fail("the create call succeeded but the event is not in the calendar afterwards", 1);
-    console.log(`added and verified: ${title.trim()} — ${start} for ${length} min`);
-    if (created.identifier) console.log(`id: ${created.identifier}`);
-    break;
-  }
-
-  case "remove": {
-    // Identifier-only, and only what `add` printed. See the bridge for why.
-    const identifier = rest[0];
-    if (!identifier) fail("remove needs the event identifier that `add` printed");
-
-    const gone = await ask("delete_calendar_event", { identifier });
-
-    const after = unpack(await ask("list_upcoming_calendar_events"), "events_json");
-    if (after.some((e) => e.title === gone.title)) {
-      fail("the delete call succeeded but an event with that title is still there", 1);
-    }
-    console.log(`removed and verified: ${gone.title}`);
     break;
   }
 
@@ -199,21 +144,6 @@ switch (command) {
     break;
   }
 
-  case "task-add": {
-    const [title, due] = rest;
-    if (!title?.trim()) fail('task-add needs a title, e.g. task-add "Renew passport"');
-    if (due && !ISO_MINUTE.test(due)) fail("due must look like 2026-08-10T19:00");
-
-    await ask("create_reminder", { title: title.trim(), ...(due ? { due } : {}) });
-
-    const after = unpack(await ask("list_incomplete_reminders"), "reminders_json");
-    if (!after.some((t) => t.title === title.trim())) {
-      fail("the reminder call succeeded but the reminder is not there afterwards", 1);
-    }
-    console.log(`added and verified: ${title.trim()}`);
-    break;
-  }
-
   default:
-    fail('usage: orion-agenda today | upcoming | add "<title>" <start> [minutes] | tasks | task-add "<title>" [due]');
+    fail("usage: orion-agenda today | upcoming | tasks");
 }

@@ -185,8 +185,12 @@ export interface ModelTaskGraph {
             status: "approved";
             canonicalHash: string;
         };
+        /** The same value, flat. See `approvalCanonicalHash`. */
+        approvalHash?: string;
         [extra: string]: unknown;
     }>;
+    /** A single approval for the whole graph, when it carries one step. */
+    approvalHash?: string;
 }
 export interface AuthorizedGraph {
     graph: TaskGraph;

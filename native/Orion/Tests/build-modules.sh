@@ -51,5 +51,26 @@ build_module() {
 build_module SessionDomain || exit 1
 build_module SessionService -lSessionDomain || exit 1
 
-MODULE_FLAGS="-I $MODULE_BUILD -L $MODULE_BUILD -lSessionDomain -lSessionService"
+# Sparkle, for the harnesses.
+#
+# These harnesses compile the app's real sources with swiftc rather than through
+# SwiftPM, so they see none of the package's dependencies. The moment the app
+# gained `import Sparkle`, every GUI harness in this directory stopped building
+# — layout, focus-ui, tasks-layout, audio-matrix, all of them — with a "no such
+# module" error pointing at a file none of them care about.
+#
+# Pointing at the artifact SwiftPM already resolved keeps one copy of the
+# framework and no second download. If it is missing the harnesses still build
+# everything else and say what to run, rather than failing with a module error
+# that reads like the harness itself is broken.
+SPARKLE_FRAMEWORK_DIR="$(dirname "$(find "$_modules_root/.build/artifacts" -type d -name 'Sparkle.framework' 2>/dev/null | head -1)")"
+
+if [ -n "$SPARKLE_FRAMEWORK_DIR" ] && [ -d "$SPARKLE_FRAMEWORK_DIR" ]; then
+  SPARKLE_FLAGS="-F $SPARKLE_FRAMEWORK_DIR -framework Sparkle -Xlinker -rpath -Xlinker $SPARKLE_FRAMEWORK_DIR"
+else
+  SPARKLE_FLAGS=""
+  echo "  (no Sparkle artifact found — run: swift package resolve)" >&2
+fi
+
+MODULE_FLAGS="-I $MODULE_BUILD -L $MODULE_BUILD -lSessionDomain -lSessionService $SPARKLE_FLAGS"
 export MODULE_BUILD MODULE_FLAGS

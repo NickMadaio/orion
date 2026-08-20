@@ -1,0 +1,214 @@
+#!/usr/bin/env node
+/*
+ Run a scheduled command and make sure anything it says actually reaches Nick.
+
+ WHY THIS EXISTS
+ ---------------
+ Three cron jobs ran perfectly and delivered nowhere. `openclaw cron list` said
+ so, in as many words, on every one of them:
+
+     announce -> last (last -> no route, will fail-closed: Channel...)
+
+ `announce` hands the job's final text to a CHAT CHANNEL, and this gateway has
+ none installed — `openclaw channels list` returns "no configured chat
+ channels". So standing orders, focus nudges and the nightly memory summary
+ executed on schedule and evaporated. The jobs were not broken; the last hop
+ was missing.
+
+ The obvious fix is to install a real channel. That is the right long-term
+ answer and it is not one this script can take: every installable channel here
+ (Discord, Slack, Signal, Telegram…) authenticates with a bot token, and typing
+ a credential in on Nick's behalf is exactly the thing an assistant must not do.
+ The webhook Orion already has is a WEBHOOK, not a bot token, and OpenClaw's
+ Discord channel cannot be configured from one.
+
+ So this takes the other route the outbound path already proven to work:
+ `orion-discord-alert`, which posts to Nick's private channel and has been
+ delivering weather and mission alerts for a fortnight.
+
+ WHY IT IS NOT JUST `cmd | orion-discord-alert`
+ ----------------------------------------------
+ Because `orion-focus check` runs EVERY MINUTE, and prints something on almost
+ every run — "no active session", "on task (Xcode) — 40 min left". Piping that
+ straight out is 1440 Discord messages a day, which is not a proactive
+ assistant, it is a car alarm, and the rational response to a car alarm is to
+ disconnect it. orion-focus already learned this lesson internally; its own
+ comments explain why it counts every minute but speaks on a cooldown.
+
+ A delivery gate has to show the same restraint, so this adds three things a
+ pipe cannot:
+
+   --match     deliver only output that matters (an OFF TASK strike, not an
+               idle tick). No match, no message. Silence stays meaningful.
+   dedup       identical text for the same label is not sent twice in a row.
+   rate limit  at most one delivery per label per interval, whatever happens.
+
+ The command's own exit code is preserved, so cron still sees a failure as a
+ failure. A delivery problem is reported on stderr and never converted into a
+ failed job: the job DID run, and saying otherwise would be its own small lie.
+*/
+
+import { spawn } from "node:child_process";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+const ROOT = join(homedir(), "Desktop/ORION");
+const ALERT = join(ROOT, "scripts/orion-discord-alert");
+const STATE = join(homedir(), ".openclaw/orion-controlled/cron-delivery.json");
+
+/** Discord's own ceiling is 1500 bytes in orion-discord-alert. Leave headroom. */
+const MAX_BODY = 1200;
+const DEFAULT_MIN_INTERVAL_MINUTES = 10;
+
+function usage(message) {
+  console.error(
+    `orion-cron-deliver: ${message}\n` +
+      "usage: orion-cron-deliver --label <name> [--match <regex>] " +
+      "[--min-interval-minutes <n>] -- <command> [args...]",
+  );
+  process.exit(2);
+}
+
+/* ------------------------------------------------------------ arguments */
+
+const argv = process.argv.slice(2);
+const separator = argv.indexOf("--");
+if (separator === -1) usage("the command must follow a `--` separator");
+
+const flags = argv.slice(0, separator);
+const command = argv.slice(separator + 1);
+if (command.length === 0) usage("no command was given after `--`");
+
+const flagValue = (name) => {
+  const at = flags.indexOf(name);
+  return at === -1 ? undefined : flags[at + 1];
+};
+
+const label = flagValue("--label");
+if (!label || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(label)) {
+  usage("--label must be a short lowercase name");
+}
+
+const matchRaw = flagValue("--match");
+let match;
+if (matchRaw !== undefined) {
+  try {
+    match = new RegExp(matchRaw, "m");
+  } catch (error) {
+    usage(`--match is not a valid regular expression: ${error.message}`);
+  }
+}
+
+const intervalRaw = flagValue("--min-interval-minutes");
+const minIntervalMinutes =
+  intervalRaw === undefined ? DEFAULT_MIN_INTERVAL_MINUTES : Number(intervalRaw);
+if (!Number.isFinite(minIntervalMinutes) || minIntervalMinutes < 0) {
+  usage("--min-interval-minutes must be a non-negative number");
+}
+
+/* -------------------------------------------------------------- running */
+
+/**
+ * Run the wrapped command, capturing what it says without hiding it.
+ *
+ * Output is echoed through to this process's own stdout/stderr as well as
+ * captured, so `openclaw cron runs` still shows the job's real output and this
+ * wrapper stays debuggable from the outside.
+ */
+function runCommand([executable, ...rest]) {
+  return new Promise((resolve) => {
+    const child = spawn(executable, rest, { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout?.on("data", (chunk) => {
+      out += String(chunk);
+      process.stdout.write(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      err += String(chunk);
+      process.stderr.write(chunk);
+    });
+    child.on("error", (error) => resolve({ code: 127, out, err: `${err}${error.message}` }));
+    child.on("close", (code) => resolve({ code: code ?? 1, out, err }));
+  });
+}
+
+/* ------------------------------------------------------- delivery state */
+
+async function readState() {
+  try {
+    const parsed = JSON.parse(await readFile(STATE, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    // A missing or corrupt state file must not stop a delivery. The worst case
+    // is one duplicate message; the alternative is silence, which is the bug
+    // this whole file exists to fix.
+    return {};
+  }
+}
+
+async function writeState(next) {
+  try {
+    await mkdir(dirname(STATE), { recursive: true });
+    await writeFile(STATE, `${JSON.stringify(next, null, 2)}\n`);
+  } catch (error) {
+    console.error(`orion-cron-deliver: could not record delivery state — ${error.message}`);
+  }
+}
+
+function deliver(text) {
+  return new Promise((resolve) => {
+    const child = spawn(ALERT, [text], { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    child.stderr?.on("data", (chunk) => (err += String(chunk)));
+    child.on("error", (error) => resolve({ ok: false, err: error.message }));
+    child.on("close", (code) => resolve({ ok: code === 0, err: err.trim() }));
+  });
+}
+
+/* ----------------------------------------------------------------- main */
+
+const result = await runCommand(command);
+const spoken = `${result.out}\n${result.err}`.trim();
+
+// Nothing said, nothing to deliver. For orion-standing and orion-focus this is
+// the common case and it is CORRECT: they are built to stay quiet unless
+// something genuinely changed.
+if (spoken.length === 0) process.exit(result.code);
+if (match && !match.test(spoken)) process.exit(result.code);
+
+const body = spoken.length > MAX_BODY ? `${spoken.slice(0, MAX_BODY)}\n…(truncated)` : spoken;
+const message = `[${label}] ${body}`;
+
+const state = await readState();
+const previous = state[label] ?? {};
+const now = Date.now();
+const sinceLast = now - (previous.at ?? 0);
+
+if (previous.message === message && sinceLast < 6 * 60 * 60 * 1000) {
+  process.exit(result.code);
+}
+if (sinceLast < minIntervalMinutes * 60 * 1000) {
+  console.error(
+    `orion-cron-deliver: [${label}] held back — last delivery was ` +
+      `${Math.round(sinceLast / 60000)} min ago (limit ${minIntervalMinutes}).`,
+  );
+  process.exit(result.code);
+}
+
+const sent = await deliver(message);
+if (!sent.ok) {
+  // Never turn a delivery failure into a job failure: the job ran. But say so
+  // loudly, because a silent delivery failure is indistinguishable from
+  // "nothing to report", which is the exact failure mode being fixed here.
+  console.error(
+    `orion-cron-deliver: [${label}] the message was NOT delivered${sent.err ? ` — ${sent.err}` : "."}`,
+  );
+  process.exit(result.code);
+}
+
+// Immutable update: a new state object, never a mutation of the one read.
+await writeState({ ...state, [label]: { at: now, message } });
+console.error(`orion-cron-deliver: [${label}] delivered.`);
+process.exit(result.code);

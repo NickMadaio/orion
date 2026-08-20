@@ -133,12 +133,9 @@ struct SectionRule: View {
     }
 }
 
-/// Pure layout. No fill, no border, no shadow — deliberately.
-///
-/// This used to be the rounded card that every section was wrapped in, and the
-/// name is kept only so that call sites do not all have to change at once.
-/// What it does now is hold a column of content at a consistent rhythm, which
-/// is all a container on this surface is allowed to do.
+/// The shared calm dashboard surface. Health established this as Orion's
+/// visual language: depth is subtle, corners are soft, and colour only marks a
+/// live signal or action — not arbitrary decoration.
 struct OrionTile<Content: View>: View {
     var padding: CGFloat = 0
     var spacing: CGFloat = 12
@@ -164,6 +161,16 @@ struct OrionTile<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(padding)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.028)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.75)
+                }
+                .shadow(color: .black.opacity(0.18), radius: 14, y: 7)
+        }
     }
 }
 

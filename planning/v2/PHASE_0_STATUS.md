@@ -239,9 +239,10 @@ No credential value was printed during this inventory.
 | Location | Secret-shaped fields present | Current assessment |
 |---|---|---|
 | `.env` (gitignored) | Anthropic, Deepgram, ElevenLabs, Gog keyring password, Discord webhook, plus non-secret voice/config fields | expected local secret file, but plaintext |
-| `.env.save` (gitignored) | Anthropic key | redundant plaintext copy; decide whether to securely remove after verifying it is obsolete |
-| `~/.openclaw/openclaw.json` | gateway auth token, Anthropic provider key, Ollama provider key field | plaintext config; migrate appropriate fields to SecretRefs/vault before expanding authority |
-| macOS Keychain | native connector credentials | preferred current local storage; values were not read |
+| `.env.save` (gitignored) | absent | deleted after its key was rejected by Anthropic and no runtime consumer was found |
+| `~/.openclaw/openclaw.json` | gateway and provider SecretRefs | gateway and Anthropic resolve through dedicated login-Keychain items; Ollama provider placeholder is not the main-agent auth token |
+| main-agent credential store | Ollama SecretRef | resolves through its dedicated login-Keychain item |
+| macOS Keychain | three OpenClaw credentials plus native connector credentials | preferred local storage; values and fingerprints were not recorded |
 
 The redacting scanner found three non-fixture working-tree findings across
 `.env` and `.env.save`. Four additional findings are deliberate prompt-injection
@@ -251,27 +252,21 @@ match. This is evidence for the implemented patterns, not proof that no generic
 or low-entropy secret ever entered history.
 
 An older audit records that the Anthropic key was once printed to a terminal.
-Treat rotation as still required unless Nick has already rotated it after that
-event. Rotation and deletion are deliberately not performed unattended.
+Nick rotated it on 2026-08-19; the original July 29 `orionKey` is visibly
+disabled, and the replacement passed both the official models endpoint and the
+installed normal Orion route.
 
 The refreshed redacted inventory is versioned at
-`planning/v2/CURRENT_SECRET_INVENTORY.json`. All three inspected files are mode
-`0600`. The active `.env` Anthropic value is the same value referenced by the
-OpenClaw Anthropic provider. `.env.save` contains a different Anthropic value,
-so it is not a duplicate of the current configuration. The inspected OpenClaw
-gateway, Anthropic, and Ollama credential fields are all plaintext rather than
-SecretRefs. Values and fingerprints were never emitted or written to the
-inventory. Nick confirmed the active Anthropic credential was not rotated after
-the historical exposure and authorized `.env.save` deletion only after the old
-key is proven obsolete.
+`planning/v2/CURRENT_SECRET_INVENTORY.json`. `.env` remains mode `0600`,
+gitignored, and accounted for because the legacy Python compatibility path may
+still load it. `.env.save` is absent. OpenClaw gateway and Anthropic config
+fields are SecretRefs; the main-agent Ollama auth profile is also a SecretRef.
+Values and fingerprints were never emitted or written to the inventory.
 
-OpenClaw's own `secrets audit --json` independently found exactly three
-plaintext residues: the gateway token, Anthropic provider key, and main-agent
-Ollama profile token. It found no unresolved refs, shadowed refs, or legacy
-residue. Two proposed macOS Keychain-backed exec-provider definitions passed
-OpenClaw schema dry-run. The coordinated apply/reload procedure is documented
-in `planning/v2/PHASE_0_SECRET_MIGRATION.md`; it is intentionally not applied
-while another agent may be exercising the live Mac UI.
+OpenClaw's final `secrets audit --json --allow-exec` checked all three Keychain
+refs and returned clean: zero plaintext, unresolved, shadowed, or legacy
+findings. The coordinated apply and its evidence are documented in
+`planning/v2/PHASE_0_SECRET_MIGRATION.md`.
 
 The value-free three-target apply plan is versioned at
 `planning/v2/OPENCLAW_SECRETREF_PLAN.json`. Its generator fixes every provider
@@ -282,13 +277,9 @@ proof, including readback through that exact command, then deleted the item.
 Its read-only live-name check reported all three intended items missing. No
 credential, OpenClaw config, gateway process, installed plugin, or app changed.
 
-Nick subsequently approved the coordinated migration and confirmed the active
-Anthropic key was not yet rotated. The selective helper now requires an
-explicit `--status`, `--install`, or disposable-test mode and can handle only
-gateway/Ollama without loading Anthropic. A two-item seed attempt triggered the
-expected macOS Keychain authorization boundary; it was stopped and rolled back,
-and metadata checks confirmed both target items remain absent. Anthropic console
-rotation and a user-approved Keychain prompt are the current live prerequisites.
+The selective helper requires an explicit mode, refuses silent replacement,
+targets the login Keychain directly, and passed disposable and live read-back
+proofs. All three intended items are installed and resolvable by OpenClaw.
 
 ## Error handling and logging
 
@@ -316,23 +307,23 @@ rotation and a user-approved Keychain prompt are the current live prerequisites.
 
 ## Regression and reproducibility baseline
 
-| Gate | Result on 2026-08-15 |
+| Gate | Result (latest verification 2026-08-19 unless noted) |
 |---|---|
-| Native SessionDomain/SessionService | passed; latest handoff count 287 tests |
+| Native SessionDomain/SessionService | 318/318 passed |
 | ORION Control | 134/134 passed |
-| Legacy Python/TTS/Phase 0 | 237/237 passed on the current tree; no background scheduler exception |
+| Python/TTS/Phase 0/initial Phase 1 | 267/267 passed on the current tree; no background scheduler exception |
 | Phase 0 scanner | 5/5 passed |
-| Phase 0 authority snapshot | 3/3 exporter tests passed; live 157-capability snapshot current |
+| Phase 0 authority snapshot | exporter tests passed; live 158-capability snapshot current |
 | Phase 0 source checkpoint | 3/3 filter tests passed; active index/worktree invariance verified |
 | Phase 0 secret inventory | 3/3 redaction tests passed; live metadata snapshot current |
 | Phase 0 SecretRef plan | 3/3 contract tests passed; deterministic three-target plan current |
-| Phase 0 Keychain seed | 4/4 safety tests passed; selective source isolation and disposable native proof passed |
+| Phase 0 Keychain seed | 9 focused safety tests passed; selective source isolation, explicit login-Keychain targeting, and disposable native proof passed |
 | Manifest traceability | 3/3 registry tests passed; phases 0-84 complete and sequential |
 | Phase 0 machine-readable gate | 3/3 passed; `--require-open` correctly refuses Phase 1 |
 | Native release app bundle | built and signed in-repo with `Orion Local Signing`; not installed |
 | ORION Control TypeScript build | passed; not deployed |
 | Installed ORION Control parity | repo dist and manifest match the installed extension |
-| Installed normal agent route | live doctor passed; dedicated smoke produced an authenticated, verified `system_status` ledger row |
+| Installed normal agent route | live doctor passed; dedicated smoke produced authenticated, verified `system_status` task `orion-60be9767be2cd6ca` |
 | Full Git-history high-confidence scan | completed across all currently reachable branch history; no historical match |
 
 The 2026-08-18 source-only checkpoint then reproduced independently in a fresh
@@ -391,15 +382,14 @@ transient is retained here so recurrence can be recognized instead of hidden.
 | Dedicated v2 development branch | complete for Phase 0 | active branch plus local source-only checkpoint `613c6acbc899`; checkpoint is not pushed |
 | Architecture documented | complete for Phase 0 | live normal agent trace and installed app/signature validated |
 | Critical regression coverage | complete for Phase 0 | normal route, durable ledger, scanner, snapshot filters, secret redaction, legacy, plugin, and native suites pass |
-| Secrets accounted for | partial | approval is recorded; rotate Anthropic, complete the visible Keychain authorization, apply/reload SecretRefs, prove `.env.save` obsolete, then delete it |
+| Secrets accounted for | complete for Phase 0 | Anthropic rotated; old key disabled; three Keychain SecretRefs resolve; audit clean; `.env.save` invalid and deleted; legacy `.env` explicitly retained as a scoped compatibility input |
 | Existing ORION reproducible | complete for Phase 0 | clean checkpoint reproduction passed; installed app comparison is semantic/signing parity, not bitwise identity |
-| Security-sensitive capabilities known | complete for Phase 0 | versioned 157-entry snapshot is generated from live enforcement metadata and fails closed on malformed/duplicate rows |
+| Security-sensitive capabilities known | complete for Phase 0 | versioned 158-entry snapshot is generated from live enforcement metadata and fails closed on malformed/duplicate rows |
 
-**Do not start Phase 1 integration yet.** The only remaining Phase 0 exit issue
-is the credential decision above. Phase 1 is designed in
-`planning/v2/PHASE_1_PLAN.md`, and collaboration ownership is fixed in
-`planning/v2/COLLABORATION_BOUNDARIES.md`, but no working Mac/UI/runtime file is
-rewired until the credential gate is explicitly closed.
+Phase 0 is complete and its machine gate opens Phase 1. Phase 1 is active under
+`planning/v2/PHASE_1_PLAN.md` and
+`planning/v2/COLLABORATION_BOUNDARIES.md`. Initial work remains additive and
+does not rewire a working Mac/UI/runtime file.
 
 `planning/v2/PHASE_GATES.json` is the machine-readable enforcement record.
 `scripts/orion_v2_phase_gate.py --phase 0 --require-open` exits non-zero while

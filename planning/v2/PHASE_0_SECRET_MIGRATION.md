@@ -1,6 +1,24 @@
 # ORION v2 Phase 0 — credential migration runbook
 
-Status: **prepared; provider/target validation passed; live resolution and apply deferred**.
+Status: **complete on 2026-08-19**.
+
+## Completion evidence
+
+Nick resumed the migration and created `Orion V2 API`. The value entered into
+`.env` and the OpenClaw provider config matched in memory and the official
+Anthropic models endpoint accepted it. The stale Keychain replacement and
+`.env.save` values were both rejected by that endpoint. The exact stale
+Keychain item was deleted, the valid replacement was installed with verified
+read-back, and `.env.save` was deleted only after source search and `lsof`
+showed no runtime consumer.
+
+Gateway, Anthropic, and main-agent Ollama credentials now resolve from three
+dedicated login-Keychain items. The reviewed plan dry-run passed, the live apply
+updated two OpenClaw state files, and `secrets audit --json --allow-exec`
+reported three resolved refs with zero plaintext, unresolved, shadowed, or
+legacy findings. Orion doctor passed and the authenticated normal-route smoke
+wrote verified task `orion-2fbb30acae582950`. Anthropic's console shows the
+original July 29 `orionKey` disabled and the replacement active.
 
 ## Current evidence
 

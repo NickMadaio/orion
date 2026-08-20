@@ -2,60 +2,75 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Orion</string>
 	<key>CFBundleExecutable</key>
 	<string>Orion</string>
+	<key>CFBundleIconFile</key>
+	<string>Orion.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.nickmadaio.orion.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Orion</string>
-	<key>CFBundleDisplayName</key>
 	<string>Orion</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Orion listens only while you hold the Right Option key. Your voice is transcribed on this Mac and is never recorded to disk.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.nickmadaio.orion.oauth</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.nickmadaio.orion.oauth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>orion</string>
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Orion controls Apple Music only when you choose it for a focus session, so the session player can play, pause, skip, seek, and show your current track.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Orion reads your calendar so it knows what is actually in your day before it tells you how much of it is left. It only reads; it never creates or changes events.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>Orion reads your calendar so it knows what is actually in your day before it tells you how much of it is left. It only reads; it never creates or changes events.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Orion can check whether you are at your desk during a focus session. It takes one frame every 90 seconds, turns it into a single number, and discards it — nothing is saved or sent. The green camera light will be on whenever it looks. This is off unless you turn it on.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Orion reads your contacts so a phone number in a message can be shown as the person's name. It only reads; it never adds, edits or sends anything to your contacts.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Orion listens only while you hold the Right Option key. Your voice is transcribed on this Mac and is never recorded to disk.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
 	<key>NSRemindersUsageDescription</key>
 	<string>Orion keeps your task list in a Reminders list called Orion, so the tasks you add here show up on your iPhone and remind you there. It only reads and writes that one list.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>Orion reads your contacts so a phone number in a message can be shown as the person's name. It only reads; it never adds, edits or sends anything to your contacts.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Orion turns what you say into text so it can answer you. Transcription runs on this Mac whenever your language supports it, so your speech stays local.</string>
-	<key>CFBundleIconFile</key>
-	<string>Orion.icns</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Orion can check whether you are at your desk during a focus session. It takes one frame every 90 seconds, turns it into a single number, and discards it — nothing is saved or sent. The green camera light will be on whenever it looks. This is off unless you turn it on.</string>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUPublicEDKey</key>
+	<string>XpJLRMEJj6NI7CBHBI1JNhIWr8UG94GDXywVw6YMgHI=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

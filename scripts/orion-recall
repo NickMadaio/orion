@@ -17,7 +17,7 @@
  So: one allowlisted command, semantic search over the real index, no shell
  improvisation required.
 
-   orion-recall "desk lamp"          top matches
+   orion-recall "desk lamp"          best match
    orion-recall --all "supplements"  don't collapse to one line per file
 */
 
@@ -45,10 +45,17 @@ if (query.length > MAX_QUERY) {
 
 let stdout = "";
 try {
-  ({ stdout } = await run(OPENCLAW, ["memory", "search", query], {
+  // Pull a few extra local candidates so low-value probe transcripts can be
+  // removed before any text enters the model context. This costs no cloud
+  // tokens; the index and embeddings are local.
+  ({ stdout } = await run(
+    OPENCLAW,
+    ["memory", "search", "--max-results", all ? "20" : "12", query],
+    {
     timeout: 120000,
     maxBuffer: 1024 * 1024 * 8,
-  }));
+    },
+  ));
 } catch (error) {
   // Report the real failure. A recall path that fails silently is how "Orion
   // forgot" and "the index is down" become indistinguishable again.
@@ -60,8 +67,17 @@ try {
  `memory search` interleaves `<score> <file>:<range>` headers with excerpt text
  and the occasional retry warning. Orion is going to read this out loud, so
  strip the machinery and keep the prose.
+
+ The path is matched with `.+?`, not `\S+?`, because filenames contain spaces.
+ That single character was doing real damage once the Obsidian vault joined the
+ index: every note under `50 Concepts/`, `90 System/` and the rest has a space
+ in its path, so no header line parsed, every vault block was dropped on the
+ floor, and `orion-recall` printed "nothing in memory about …" for queries the
+ underlying index answered at 0.74. Silent, total, and indistinguishable from
+ having nothing to say — the exact failure this project has already been bitten
+ by once with the embedding provider.
 */
-const HEADER = /^\s*(\d+\.\d+)\s+(\S+?):(\d+-\d+)\s*$/;
+const HEADER = /^\s*(\d+\.\d+)\s+(.+?):(\d+-\d+)\s*$/;
 const blocks = [];
 
 for (const line of stdout.split("\n")) {
@@ -74,17 +90,41 @@ for (const line of stdout.split("\n")) {
   if (blocks.length > 0) blocks[blocks.length - 1].lines.push(line);
 }
 
-if (blocks.length === 0) {
+const DIAGNOSTIC_CUE = /\b(?:diagnostic|doctor|probe|smoke|benchmark|bench|test|cron|mission)\b/i;
+const SESSION_NOISE = /\b(?:diagnostic|doctor|probe|smoke|benchmark|bench|cron|mission)\b|(?:perform|run)\s+(?:a\s+|one\s+)?safe\s+read-only\b/i;
+const candidates = DIAGNOSTIC_CUE.test(query)
+  ? blocks
+  : blocks.filter(
+      (block) =>
+        !block.file.startsWith("sessions/") ||
+        !SESSION_NOISE.test(block.lines.join(" ")),
+    );
+
+if (candidates.length === 0) {
   console.log(`nothing in memory about "${query}"`);
   process.exit(0);
 }
 
-const shown = all ? blocks : blocks.slice(0, 4);
+const shown = all ? candidates : candidates.slice(0, 1);
+
+/*
+ Obsidian notes open with a YAML frontmatter block -- title, tags, status,
+ source_type, license_notes. It is cataloguing, not recollection, and read aloud
+ it buries the answer under eight lines of metadata before the note says
+ anything. Dropped between the fences; if a chunk is nothing BUT frontmatter the
+ block falls away on the `!body` check below, which is the right outcome.
+*/
+function stripFrontmatter(lines) {
+  const start = lines.findIndex((l) => l.trim());
+  if (start === -1 || lines[start].trim() !== "---") return lines;
+  const end = lines.findIndex((l, i) => i > start && l.trim() === "---");
+  return end === -1 ? lines.slice(start + 1) : lines.slice(end + 1);
+}
 
 for (const block of shown) {
   // Headings and list bullets survive; blank runs and the generated ledger
   // block's HTML markers do not -- they are structure, not recollection.
-  const body = block.lines
+  const body = stripFrontmatter(block.lines)
     .filter((l) => l.trim() && !l.trim().startsWith("<!--"))
     .map((l) => l.replace(/^#+\s*/, "").trim())
     .filter(Boolean)

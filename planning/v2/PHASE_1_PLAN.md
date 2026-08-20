@@ -1,6 +1,57 @@
 # ORION v2 Phase 1 — additive module-boundary plan
 
-Status: **planned, not started**. Phase 0 exit gates still control entry.
+Status: **complete — 2026-08-20**, against the exit criteria at the bottom of
+this file. Phase 0 exit gates passed on 2026-08-19. All five test-gated slices
+below are done, including the coordinated default-off live integration.
+
+The manifest's own one-line exit gate ("Existing desktop ORION must run through
+ORION Core") is *not* met and was closed as an acknowledged deviation; see
+`PHASE_GATES.json` and `HANDOFF.md`.
+
+## Slice 5 evidence — the live integration, 2026-08-20
+
+- TypeScript contracts and adapter under
+  `openclaw-plugins/orion-control/src/v2/`, a default-`false`
+  `enableV2SystemStatusAdapter` flag, and the single wrapped `system_status`
+  route in `src/index.ts`.
+- The bridge **fails open**: a contract violation records `contractError`, warns
+  through the host logger, and returns the legacy record untouched. It was
+  originally fail-closed, which let it refuse a `system_status` call the legacy
+  catalog accepts (`requiredArguments: []`). Two host-seam parity tests now
+  cover the happy path and the widened-argument path.
+- ORION Control 144/144, clean `--noEmit` compile, generated metadata validated,
+  installed copy byte-identical to the tested build.
+- Live: flag-off `orion-6c7fb0773e41c616`, flag-on `orion-26e75dcb764d3884`,
+  rollback flag-off `orion-27f07824fc7291f8`. The flag-off and flag-on ledger
+  rows are structurally identical with no envelope leakage.
+- Rollback is the flag alone. Backups: `.builds/openclaw.json.pre-v2-flag-20260820`
+  and `.builds/orion-control-installed-pre-failopen-20260820/`.
+
+## Slices 1-4 evidence — 2026-08-19
+
+- Added inert, collision-free `orion.core`, `orion.shared`, `orion.security`,
+  and `orion.mac` package markers.
+- Added an AST import firewall covering static and dynamic imports and a
+  compatibility assertion that `orion.cloud` still resolves to legacy
+  `orion/cloud.py`.
+- Added strict schema-v1 proposal, decision, and execution envelopes with
+  immutable JSON payloads and fail-closed decoding.
+- Added bounded context, model, deterministic policy, authorization-bound tool
+  broker, audit, clock, identifier, agent, planning, versioned memory, and
+  authorization-bound job protocols. A denied or mismatched proposal cannot
+  construct an `AuthorizedAction`, and nested record data is immutable JSON.
+- Added canonical language-neutral JSON Schemas plus a strict read-only
+  `system_status` compatibility adapter and drift/parity tests.
+- Phase 1 contract tests pass 20/20, full Python passes 267/267, ORION Control
+  passes 134/134 with a clean no-output TypeScript compile, and native domain/
+  service passes 318/318. The redacting working-tree/history secret scan is
+  clean and the live OpenClaw audit resolves three refs with no findings.
+- A fresh authenticated normal-route smoke passed as task
+  `orion-60be9767be2cd6ca`. This proves the unchanged installed path, not the
+  still-deferred default-off v2 adapter.
+
+No existing legacy, native, plugin, installed runtime, or UI file was changed
+by these Phase 1 slices.
 
 ## Objective
 
@@ -90,25 +141,46 @@ orion/core/memory/ports.py
 orion/core/events/ports.py
 orion/core/jobs/ports.py
 orion/core/schemas/envelopes.py
+orion/core/schemas/proposal.schema.json
+orion/core/schemas/decision.schema.json
+orion/core/schemas/execution-result.schema.json
 orion/core/planning/ports.py
 orion/shared/__init__.py
 orion/shared/identifiers.py
+orion/shared/json_values.py
 orion/shared/result.py
 orion/security/__init__.py
 orion/security/decisions.py
 orion/mac/__init__.py
+orion/mac/system_status_adapter.py
 orion/cloud/__init__.py
 orion/mobile/__init__.py
 tests/test_v2_import_boundaries.py
 tests/test_v2_envelopes.py
 tests/test_v2_core_ports.py
 tests/test_v2_compatibility_contract.py
+tests/test_v2_schema_registry.py
 ```
+
+Live inspection found a compatibility collision that the manifest-level layout
+did not expose: the legacy runtime already owns `orion/cloud.py`. Creating an
+`orion/cloud/` package would change how `import orion.cloud` resolves. That
+package marker is therefore deferred until a reviewed compatibility adapter or
+rename plan exists. The first slice creates only the collision-free
+`orion/core`, `orion/shared`, and `orion/security` markers plus its import
+firewall test.
 
 Empty packages are not a milestone. Each added port or envelope must have a
 consumer-independent contract test. No existing `orion/*.py` file changes in
 these slices, and no package initializer may import legacy runtime code for
 convenience.
+
+`orion/security/decisions.py` is intentionally deferred to Phase 5 rather than
+adding a second, premature permission implementation. The Phase 1 centralized
+policy protocol is `orion/core/permissions/ports.py`; features receive its
+closed decision envelope and cannot pass a raw proposal to a broker. Empty
+`mobile` and collision-prone `cloud` package markers are likewise not counted
+as Phase 1 progress.
 
 ## Initial contract vocabulary
 
@@ -259,3 +331,9 @@ Phase 1 is complete only when:
 
 No empty directory tree or import-only package is sufficient evidence that the
 desktop app runs through ORION Core.
+
+**All five were met on 2026-08-20** — see the evidence table in `HANDOFF.md`.
+Read the last one carefully before opening Phase 2: what was demonstrated is
+that one read-only capability can be observed through the v2 envelopes at zero
+cost, not that the desktop app runs through Core. The two are not the same
+claim, and only the first one is proven.

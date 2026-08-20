@@ -42,6 +42,13 @@ const EDIT_TIERS = [
     // Supplements and workouts. Writes one JSON file Orion owns; the worst case
     // is a wrong number in his own log, which he can be told to correct.
     "health_tracking",
+    // Reading his iMessage history. A read of his own machine, so it sits with
+    // the other reads rather than behind the filesystem escalation -- but under
+    // its own tier and its own config flag, because "read my home directory" and
+    // "read every conversation I have had" deserve separate answers.
+    //
+    // `messages_send` is deliberately NOT here. See PROFILE_TIERS below.
+    "messages_read",
 ];
 const PROFILE_TIERS = {
     // Even the most restricted profile can answer "what time is it" and "what is
@@ -57,11 +64,40 @@ const PROFILE_TIERS = {
         ...EDIT_TIERS,
         "file_mutate",
         "self_modification",
+        // The three repair surfaces sit exactly where `self_modification` sits, and
+        // are listed one by one for the same reason it is: none of them is a
+        // filesystem operation, and none of them may arrive as a side effect of
+        // widening filesystem access. `self_config` is here rather than lower even
+        // though most of what it changes is a timeout, because the same tier also
+        // carries the authority half — and that half must never be reachable from a
+        // profile that promises under `separatelyGated` that permissions are not
+        // included.
+        "self_plugin",
+        "self_scripts",
+        "self_config",
+        "calendar",
     ]),
+    // The first profile that grants something no lower profile can reach.
+    //
+    // Until now `external_connected` was `consequential_local` spelled
+    // differently -- same tier set, no behavioural difference, a rung on the
+    // ladder with nothing on it. `messages_send` gives it its meaning, and the
+    // placement is not a judgement call: every profile below promises under
+    // `separatelyGated` that communications are not included, and sending a text
+    // as Nick is a communication by any reading.
+    //
+    // Listed explicitly rather than added to EDIT_TIERS for the same reason
+    // `self_modification` is: it must never arrive as a side effect of widening
+    // something else.
     external_connected: new Set([
         ...EDIT_TIERS,
         "file_mutate",
         "self_modification",
+        "self_plugin",
+        "self_scripts",
+        "self_config",
+        "calendar",
+        "messages_send",
     ]),
 };
 export const PROFILE_MATRIX = {
@@ -78,12 +114,12 @@ export const PROFILE_MATRIX = {
         separatelyGated: "Each new root, delete, move/rename, bulk operations, permissions, external/account actions, credentials, communications, network requests outside a browser tab, and elevated macOS control.",
     },
     consequential_local: {
-        enabled: "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots, each recording its exact inverse in the ledger and delete additionally requiring canonical confirmation.",
-        separatelyGated: "Permanent deletion, mutations outside configured roots or anywhere in the home directory, bulk operations, OS permissions, external/account actions, credentials, communications, and elevated macOS control.",
+        enabled: "Everything broad_local_filesystem allows, plus direct-user-authorized move, rename, and delete-to-Trash inside configured mutable roots; typed Apple Calendar and Reminders changes; and repairing Orion himself — his Swift source, his plugin, his wrapper scripts and a closed table of behaviour settings. Destructive actions require confirmation, and repair actions are built, tested, health-checked and rolled back automatically if they fail.",
+        separatelyGated: "Permanent deletion, mutations outside configured roots or anywhere in the home directory, bulk operations, OS permissions, external/account actions, credentials, communications, elevated macOS control, and every change to what Orion is permitted to do — which requires that you name it yourself and approve it.",
     },
     external_connected: {
-        enabled: "Only explicitly connected and separately approved external catalog actions; none are granted by the profile itself.",
-        separatelyGated: "Credentials, account connections, every delivery/communication, network use outside a browser tab, permanent deletion, OS permissions, and elevated macOS control.",
+        enabled: "Everything consequential_local allows, plus separately configured and separately approved external actions — currently sending one iMessage/SMS to one recipient Nick named himself, each send requiring approval bound to that exact recipient and message.",
+        separatelyGated: "Credentials, account connections, every other delivery/communication channel, network use outside a browser tab, permanent deletion, OS permissions, and elevated macOS control.",
     },
 };
 function stable(value) {

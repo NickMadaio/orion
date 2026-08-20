@@ -52,6 +52,22 @@ public final class CameraPresence {
     public private(set) var lastReading: PresenceReading = .unavailable("not sampled yet")
     public private(set) var lastSampledAt: Date?
 
+    /// The longest this may keep sampling without being told to start again.
+    ///
+    /// Belt and braces, and it exists because the braces already failed once: a
+    /// caller decided a stale session was "live" and this object dutifully
+    /// sampled the camera every ninety seconds for six days. It had no opinion
+    /// about that, which was the problem — the most invasive thing in the app
+    /// should not depend entirely on somebody else's boolean being right.
+    ///
+    /// Four hours is longer than any plausible session and far shorter than
+    /// "forever", which is the only number that actually matters here.
+    public static let maximumRun: TimeInterval = 4 * 3600
+
+    /// When sampling must stop regardless of what anyone says. Set by the
+    /// caller at start; a nil deadline means the cap applies from `start()`.
+    public var deadline: Date?
+
     public var onLog: ((String) -> Void)?
 
     private let queue = DispatchQueue(label: "com.nickmadaio.orion.presence")
@@ -108,6 +124,8 @@ public final class CameraPresence {
         self.onReading = onReading
         timer?.cancel()
 
+        if deadline == nil { deadline = Date().addingTimeInterval(Self.maximumRun) }
+
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now() + 1, repeating: Self.sampleInterval, leeway: .seconds(5))
         source.setEventHandler { [weak self] in self?.sampleOnce() }
@@ -126,6 +144,7 @@ public final class CameraPresence {
     public func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         if !enabled {
+            deadline = nil
             stop()
             lastReading = .unavailable("presence checking is off")
             onLog?("[presence] off")
@@ -138,6 +157,16 @@ public final class CameraPresence {
     /// it, so the camera cannot be left running by any path through this code —
     /// including the error paths, which is why every exit runs through `finish`.
     private func sampleOnce() {
+        // The cap, checked before the lens opens rather than after.
+        if let deadline, Date() >= deadline {
+            onLog?("[presence] stopping — ran past its \(Int(Self.maximumRun / 3600))-hour cap "
+                   + "without being restarted")
+            stop()
+            lastReading = .unavailable("presence checking stopped — no session restarted it")
+            return
+        }
+        guard isEnabled else { return }
+
         let session = AVCaptureSession()
         session.sessionPreset = .low   // the smallest frame that can answer this
 

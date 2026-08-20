@@ -17,12 +17,12 @@ struct BrandTab: View {
     var body: some View {
         HStack(alignment: .top, spacing: 54) {
             VStack(alignment: .leading, spacing: 34) {
-                audienceSection
-                reflection
+                OrionPanel(padding: 20) { audienceSection }
+                OrionPanel(padding: 20) { reflection }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            statusRail
+            OrionPanel(padding: 18) { statusRail }
                 .frame(width: 300)
                 .padding(.top, 52)
         }

@@ -14,7 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
  */
 function emptyLog() {
     return {
-        schema: "orion.health.v1",
+        schema: "orion.health.v3",
         updatedAt: new Date(0).toISOString(),
         supplements: [],
         supplementLog: {},
@@ -34,21 +34,48 @@ export function today(now = new Date()) {
     return `${year}-${month}-${day}`;
 }
 export async function readHealthLog(file) {
+    let text;
     try {
-        const parsed = JSON.parse(await readFile(file, "utf8"));
-        if (parsed?.schema !== "orion.health.v1")
+        text = await readFile(file, "utf8");
+    }
+    catch (error) {
+        if (error?.code === "ENOENT")
             return emptyLog();
-        return {
-            ...emptyLog(),
-            ...parsed,
-            supplements: Array.isArray(parsed.supplements) ? parsed.supplements : [],
-            supplementLog: parsed.supplementLog ?? {},
-            workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
-        };
+        throw error;
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(text);
     }
     catch {
-        return emptyLog();
+        throw new Error("health-log.json is unreadable; refusing to replace it");
     }
+    const schema = parsed.schema;
+    if (!["orion.health.v1", "orion.health.v2", "orion.health.v3"].includes(String(schema))) {
+        throw new Error(`unsupported health-log schema ${JSON.stringify(schema)}; refusing to replace it`);
+    }
+    /*
+     The native app owns the current v3 contract. The plugin used to accept only
+     v1, return an empty log for v3, then overwrite Nick's real supplements,
+     nutrition and daily history on the next voice write. Accept known legacy
+     versions, promote them to v3, and spread every unknown top-level field
+     through untouched so app additions do not become plugin deletions.
+    */
+    return {
+        ...emptyLog(),
+        ...parsed,
+        schema: "orion.health.v3",
+        supplements: Array.isArray(parsed.supplements)
+            ? parsed.supplements
+            : [],
+        supplementLog: parsed.supplementLog && typeof parsed.supplementLog === "object"
+            ? parsed.supplementLog
+            : {},
+        workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
+        days: parsed.days && typeof parsed.days === "object"
+            ? parsed.days
+            : undefined,
+    };
 }
 /**
  * Hold `<file>.lock` for the duration of `body`.
@@ -172,14 +199,30 @@ export async function takeSupplement(file, name, now = new Date()) {
             taken.push(entry.id);
             log.supplementLog[day] = taken;
         }
+        // v3 readers prefer the day record over the legacy supplementLog. Keep
+        // both populated while legacy clients still exist, or a voice-recorded
+        // dose is on disk but invisible in the native dashboard.
+        const days = log.days ?? {};
+        const record = days[day] ?? {
+            waterBottles: 0,
+            calories: 0,
+            supplementIDs: [],
+            updatedAt: "",
+        };
+        if (!record.supplementIDs.includes(entry.id))
+            record.supplementIDs.push(entry.id);
+        record.updatedAt = now.toISOString();
+        days[day] = record;
+        log.days = days;
     });
     return { ...(matched ? { matched } : {}), created, alreadyTaken };
 }
 export async function supplementStatus(file, now = new Date()) {
     const log = await readHealthLog(file);
-    const taken = new Set(log.supplementLog[today(now)] ?? []);
+    const day = today(now);
+    const taken = new Set(log.days?.[day]?.supplementIDs ?? log.supplementLog[day] ?? []);
     return {
-        day: today(now),
+        day,
         total: log.supplements.length,
         takenCount: taken.size,
         supplements: log.supplements.map((entry) => ({

@@ -47,14 +47,12 @@ def phase_document(secret_status: str = "blocked") -> dict:
 
 
 class PhaseGateTests(unittest.TestCase):
-    def test_current_versioned_gate_is_valid_and_blocks_phase_one(self):
+    def test_current_versioned_gate_is_valid_and_opens_phase_one(self):
         current = json.loads((REPO_ROOT / "planning/v2/PHASE_GATES.json").read_text())
         self.assertEqual(gate.validate_gate(current), [])
-        self.assertFalse(current["phases"]["0"]["nextPhaseAllowed"])
-        self.assertEqual(
-            [item["id"] for item in gate.blocked_requirements(current["phases"]["0"])],
-            ["secrets_accounted_for"],
-        )
+        self.assertTrue(current["phases"]["0"]["nextPhaseAllowed"])
+        self.assertEqual(gate.blocked_requirements(current["phases"]["0"]), [])
+        self.assertTrue(current["phases"]["1"]["entrySatisfied"])
 
     def test_all_passed_requirements_open_the_next_phase(self):
         document = phase_document("passed")

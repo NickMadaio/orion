@@ -164,6 +164,32 @@ final class SpeechInput {
     private var conversionFailures = 0
     private var bytesSentToDeepgram = 0
 
+    /// Buffers that actually reached a recogniser, either one. The Deepgram byte
+    /// count cannot answer "is anything being heard at all" because it stays at
+    /// zero for the whole of an Apple utterance, which looks identical to being
+    /// deaf.
+    private var buffersRouted = 0
+    /// Buffers `route` had nowhere to put, and when we last said so. Dropping
+    /// audio in silence is how the 2026-08-12 stall stayed invisible for twelve
+    /// minutes; dropping it 40 times a second into the log would be no better.
+    private var buffersDropped = 0
+    private var lastDropLog = Date.distantPast
+    private var lastRouteProgressAt = Date.distantPast
+    /// The last time the room was loud enough that something SHOULD have been
+    /// routed. Starvation is only meaningful against real input — a quiet room
+    /// that routes nothing is not starving, it is quiet.
+    private var lastLoudAt = Date.distantPast
+    private var starvationTimer: Timer?
+
+    /// Live microphone with nothing reaching an ear for this long means the
+    /// utterance is starved. Comfortably longer than a natural pause, and far
+    /// shorter than the user's patience.
+    private static let starvationTimeout: TimeInterval = 5
+    /// Level that counts as "someone is actually talking in this room".
+    private static let starvationFloor: Double = 0.08
+    /// How often to repeat the dropped-audio line while it keeps happening.
+    private static let dropLogInterval: TimeInterval = 2.0
+
     /// Deepgram is connected but is being fed nothing. Say so and hand the
     /// utterance to Apple rather than listening to silence.
     private func deepgramStarved(_ reason: String) {
@@ -174,15 +200,92 @@ final class SpeechInput {
 
     /// Throttled evidence that the tap is alive. Silence here means the
     /// microphone never opened; sound here means the problem is downstream.
+    ///
+    /// `ear=` reports where buffers are ACTUALLY going this second, which is not
+    /// the same as `activeProvider`. It used to print the configured provider
+    /// unconditionally, so a tap held open for the wake word between utterances
+    /// logged `ear=deepgram sent=<frozen>` at a room nobody was transcribing —
+    /// twelve minutes of that is what the 2026-08-12 stall looked like from the
+    /// log, and it read like a broken Deepgram rather than a phase that never
+    /// ended. `ear=monitor` is the honest answer: the tap is alive, the wake
+    /// word can hear, and no utterance is open.
     private func logAudio(_ level: Double) {
         peakLevel = max(peakLevel, level)
         let now = Date()
         guard now.timeIntervalSince(lastAudioLog) >= 1.0 else { return }
         lastAudioLog = now
+        let ear: String
+        if !isRunning {
+            ear = "monitor"
+        } else if request != nil {
+            ear = STTProvider.apple.rawValue
+        } else if let deepgram, deepgram.isOpen {
+            ear = STTProvider.deepgram.rawValue
+        } else {
+            // An utterance IS open and yet there is nowhere to put a buffer:
+            // Deepgram is still shaking hands, or its socket died without
+            // saying so. This is the state the starvation watchdog exists for.
+            ear = "none"
+        }
         OrionLog.write(String(format: "[audio] level=%.3f peak=%.3f ear=%@ sent=%dB",
-                              level, peakLevel, activeProvider.rawValue,
-                              bytesSentToDeepgram))
+                              level, peakLevel, ear, bytesSentToDeepgram))
         peakLevel = 0
+    }
+
+    // MARK: The listening watchdog
+
+    /*
+     `.speaking` and `.thinking` have floors in `AppState`; this is the same
+     floor for the phase `AppState` cannot see into. Only this object knows
+     whether buffers are reaching an ear, so only this object can tell the
+     difference between "the room is quiet" and "the room is loud and Orion is
+     hearing none of it".
+
+     The recovery is deliberately the one that already exists. `deepgramStarved`
+     announces the switch and replays the captured audio into Apple, so a
+     starved utterance costs a provider change rather than the words.
+    */
+
+    private func armStarvationWatchdog() {
+        starvationTimer?.invalidate()
+        let now = Date()
+        lastRouteProgressAt = now
+        lastLoudAt = now
+        starvationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkStarvation()
+        }
+    }
+
+    private func disarmStarvationWatchdog() {
+        starvationTimer?.invalidate()
+        starvationTimer = nil
+    }
+
+    private func checkStarvation() {
+        guard isRunning else {
+            disarmStarvationWatchdog()
+            return
+        }
+        let now = Date()
+        // Nothing to hear means nothing to route. Not a fault.
+        guard now.timeIntervalSince(lastLoudAt) < SpeechInput.starvationTimeout else { return }
+        guard now.timeIntervalSince(lastRouteProgressAt) >= SpeechInput.starvationTimeout else { return }
+
+        let silent = Int(now.timeIntervalSince(lastRouteProgressAt))
+        if deepgram != nil {
+            deepgramStarved("microphone is live but nothing has reached the socket in \(silent)s")
+            return
+        }
+        // Apple's turn to be starving. There is no second recogniser to fall
+        // back to, so this is a log line rather than a recovery — but a stall
+        // that names itself is one somebody can fix. The routed/dropped pair is
+        // the diagnosis: routed climbing means the recogniser is deaf, dropped
+        // climbing means the audio never got that far.
+        OrionLog.write(
+            "[audio] STARVED: utterance open, room is loud, nothing routed in \(silent)s "
+                + "(routed=\(buffersRouted) dropped=\(buffersDropped))"
+        )
+        lastRouteProgressAt = now
     }
 
     // MARK: Lifecycle
@@ -253,6 +356,9 @@ final class SpeechInput {
             return
         }
         isRunning = true
+        // Armed only for the life of an utterance: outside one, routing nothing
+        // is the correct behaviour rather than a stall.
+        armStarvationWatchdog()
     }
 
     // MARK: Monitoring
@@ -332,6 +438,9 @@ final class SpeechInput {
                 // idle Orion should not shimmer at the room.
                 self.onMonitor?(buffer, level)
                 if self.isRunning { self.onLevel?(level) }
+                // Remembered before routing, so the starvation watchdog is
+                // comparing "the room was loud" against "and nothing moved".
+                if level >= SpeechInput.starvationFloor { self.lastLoudAt = Date() }
                 // One line per second while listening: proves whether the
                 // microphone is producing audio at all, before blaming an ear.
                 self.logAudio(level)
@@ -357,9 +466,14 @@ final class SpeechInput {
     /// Only while an utterance is open: in monitoring-only mode there is no
     /// recogniser to feed and nothing to replay, so buffers stop here.
     private func route(_ buffer: AVAudioPCMBuffer) {
+        // Not a drop worth counting: with no utterance open there is nothing to
+        // route to, which is the ordinary state of a tap held open for the wake
+        // word. `logAudio` says `ear=monitor` so the log still shows which of
+        // the two situations this is.
         guard isRunning else { return }
         if let request {
             request.append(buffer)
+            noteRouted()
             return
         }
         if let deepgram, deepgram.isOpen {
@@ -384,13 +498,33 @@ final class SpeechInput {
             conversionFailures = 0
             bytesSentToDeepgram += data.count
             deepgram.send(audio: data)
+            noteRouted()
             return
         }
         // Nothing is ready to receive audio yet — Deepgram is still shaking
         // hands. Hold it so the fallback, if it happens, loses no words.
         if replaying, replay.count < SpeechInput.replayLimit {
             replay.append(buffer)
+            return
         }
+        // Past here the buffer is genuinely gone: an utterance is open, the
+        // replay buffer is full or closed, and no recogniser will ever see this
+        // audio. Say so — throttled, because this arrives 40+ times a second.
+        noteDropped()
+    }
+
+    /// A buffer reached a recogniser. Resets the starvation deadline.
+    private func noteRouted() {
+        buffersRouted += 1
+        lastRouteProgressAt = Date()
+    }
+
+    private func noteDropped() {
+        buffersDropped += 1
+        let now = Date()
+        guard now.timeIntervalSince(lastDropLog) >= SpeechInput.dropLogInterval else { return }
+        lastDropLog = now
+        OrionLog.write("[audio] DROPPED \(buffersDropped) buffer(s) — utterance open with nowhere to route")
     }
 
     // MARK: Apple
@@ -428,6 +562,7 @@ final class SpeechInput {
                     } else if self.isRunning {
                         self.stopEngine()
                         self.isRunning = false
+                        self.disarmStarvationWatchdog()
                         self.onError?("Dictation stopped unexpectedly. Hold Right Option and try again.")
                     }
                 }
@@ -524,6 +659,7 @@ final class SpeechInput {
         guard isRunning else { return }
         isRunning = false
         awaitingFinal = true
+        disarmStarvationWatchdog()
 
         stopEngine()
         onLevel?(0)
@@ -556,6 +692,7 @@ final class SpeechInput {
         cancelPendingFinal()
         awaitingFinal = false
         isRunning = false
+        disarmStarvationWatchdog()
         request?.endAudio()
         teardownRecognisers()
         latestText = ""
@@ -572,6 +709,7 @@ final class SpeechInput {
         cancelPendingFinal()
         awaitingFinal = false
         isRunning = false
+        disarmStarvationWatchdog()
         stopEngine(force: true)
         request?.endAudio()
         teardownRecognisers()

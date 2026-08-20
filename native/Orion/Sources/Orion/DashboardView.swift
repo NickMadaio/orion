@@ -44,11 +44,15 @@ struct DashboardView: View {
     private func calendarModel(_ state: AppState) -> CalendarModel {
         if let calendarModelStorage { return calendarModelStorage }
         let built = CalendarModel(agenda: agenda, reminders: reminders,
-                                  history: state.session.history)
+                                  history: state.session.history, health: health)
         DispatchQueue.main.async { calendarModelStorage = built }
         return built
     }
     @StateObject private var connections = ConnectionsModel()
+    /// Deliberately NOT loaded here. `load()` runs from the Settings view's
+    /// `onAppear`, so opening the dashboard does not read openclaw.json —
+    /// nothing new goes on the launch path. See SecretStore.queue.
+    @StateObject private var capabilities = CapabilitiesModel()
     @StateObject private var whoop = WhoopClient()
     @StateObject private var health = HealthLog()
     @StateObject private var plaid = PlaidClient()
@@ -61,6 +65,9 @@ struct DashboardView: View {
     @StateObject private var healthWriter = NarrativeWriter()
     @StateObject private var financeWriter = NarrativeWriter()
     @State private var briefPresentation: BriefPresentation = .parked
+    @State private var sessionPreview: SessionPreview?
+
+    private enum SessionPreview { case focus, breakTime }
 
     /// Bound so the Settings controls change the surface live rather than on
     /// the next launch.
@@ -107,6 +114,18 @@ struct DashboardView: View {
                             .padding(.top, 6)
                             .padding(.bottom, 18)
                             .frame(maxWidth: .infinity)
+                    } else if selectedTab == .tasks {
+                        // A vertical ScrollView gives its child an ideal width,
+                        // not a promise to fill the viewport. Tasks needs the
+                        // measured window width so its calendar can genuinely
+                        // reach the right side instead of stopping at an old
+                        // document-style ideal size.
+                        tabContent(availableHeight: proxy.size.height - 86,
+                                   availableWidth: max(0, proxy.size.width - 92))
+                            .padding(.horizontal, 46)
+                            .padding(.top, 26)
+                            .padding(.bottom, 60)
+                            .frame(width: proxy.size.width, alignment: .leading)
                     } else {
                         // Minus its own vertical padding, the same way the
                         // branch above nets off its 6+18. A tab told it has the
@@ -122,6 +141,41 @@ struct DashboardView: View {
                 }
             }
         }
+        .overlay {
+            if state.sessionTabModel.isActiveFocus || sessionPreview == .focus {
+                FocusSessionHome(
+                    hologram: state.hologram,
+                    model: state.sessionTabModel,
+                    isPreview: sessionPreview == .focus,
+                    onExitPreview: sessionPreview == .focus ? { sessionPreview = nil } : nil,
+                    onDismiss: onDismiss
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(10)
+            } else if sessionPreview == .breakTime {
+                ZStack(alignment: .topTrailing) {
+                    BreakSanctuaryView(
+                        remaining: 600,
+                        progress: 0,
+                        prompt: "Preview the reset surface before a real break takes over.",
+                        guided: true,
+                        presence: nil,
+                        onHoldExit: { sessionPreview = nil }
+                    )
+                    Button("Exit preview") { sessionPreview = nil }
+                        .buttonStyle(.plain)
+                        .font(OrionTheme.mono(9, .semibold))
+                        .tracking(1.4)
+                        .foregroundStyle(OrionTheme.textSoft)
+                        .padding(26)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+                .zIndex(10)
+            }
+        }
         .onChange(of: briefPresentation) { _, next in
             next.store(for: dayModel.day)
         }
@@ -130,6 +184,13 @@ struct DashboardView: View {
         .onChange(of: whoop.snapshot) { _, _ in
             dayModel.refresh()
             loadBrief()
+        }
+        // Every day the watch scored, written to the health log — from here
+        // rather than from the Health tab, so it happens whichever tab is open.
+        // Whoop's week is the only input that arrives on days Nick did nothing
+        // else, and it is what lets the calendar colour them.
+        .onChange(of: whoop.week) { _, week in
+            health.recordWearable(week.readingsByDay)
         }
         .onChange(of: agenda.events) { _, _ in loadBrief() }
         .onChange(of: reminders.tasks) { _, _ in loadBrief() }
@@ -242,9 +303,9 @@ struct DashboardView: View {
 
     private var vitals: some View {
         HStack(spacing: 16) {
-            StatChip(icon: "drop.fill", value: "\(state.hydrationBottles)", tint: OrionTheme.blue)
+            StatChip(icon: "drop.fill", value: "\(health.hydrationBottles)", tint: OrionTheme.blue)
             hairline
-            StatChip(icon: "pills.fill", value: "\(state.supplementsLogged)", tint: OrionTheme.violet)
+            StatChip(icon: "pills.fill", value: "\(health.takenToday.count)", tint: OrionTheme.violet)
             hairline
             StatChip(icon: "checkmark.circle",
                      value: "\(reminders.doneCount)/\(reminders.tasks.count)",
@@ -333,7 +394,10 @@ struct DashboardView: View {
         )
     }
 
-    @ViewBuilder private func tabContent(availableHeight: CGFloat) -> some View {
+    @ViewBuilder private func tabContent(
+        availableHeight: CGFloat,
+        availableWidth: CGFloat? = nil
+    ) -> some View {
         Group {
             switch selectedTab {
             case .home:
@@ -345,11 +409,14 @@ struct DashboardView: View {
                         presentation: $briefPresentation,
                         availableHeight: availableHeight,
                         onAddApp: { quickOpenAppPickerVisible = true },
-                        onManage: { quickOpenEditorVisible = true })
+                        onManage: { quickOpenEditorVisible = true },
+                        onPreviewFocus: { sessionPreview = .focus },
+                        onPreviewBreak: { sessionPreview = .breakTime })
             case .tasks:
                 TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
                          energyTitle: energyTitle, availableHeight: availableHeight,
+                         availableWidth: availableWidth ?? 1_180,
                          calendar: calendarModel(state))
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
@@ -367,9 +434,11 @@ struct DashboardView: View {
                             messagesAccess: messages.access,
                             onRecheck: { messages.refresh() },
                             focusExtras: state.focusExtras,
-                            quittable: state.quittableApps,
-                            dndConfigured: state.doNotDisturbConfigured,
-                            dndSetup: state.doNotDisturbSetup)
+                            capabilities: capabilities,
+                            focusControl: state.focusControl,
+                            focusConfigured: state.focusShortcutConfigured,
+                            focusSetup: state.focusSetup,
+                            onRecheckFocus: { state.recheckFocusShortcut() })
             }
         }
         // Content rises slightly as it arrives, which is what makes the tabs

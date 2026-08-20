@@ -43,6 +43,94 @@
         "type": "boolean",
         "description": "Enable opening or gracefully quitting an explicitly named installed app."
       },
+      "enableBrowserControlActions": {
+        "type": "boolean",
+        "description": "Enable AppleScript browser control: open an http/https URL in a new tab, open/close/switch tabs, list tabs, and read the active tab's visible text. Default off."
+      },
+      "browserPreference": {
+        "type": "string",
+        "description": "Browser to drive: Opera Air, Opera, Safari, or Google Chrome. Default: whichever supported browser is running, else the system default browser."
+      },
+      "enableMediaControlActions": {
+        "type": "boolean",
+        "description": "Enable play/pause, next/previous track, output volume, mute/unmute, and display sleep. Never system sleep, restart, shutdown, or logout. Default off."
+      },
+      "enableHomeReadActions": {
+        "type": "boolean",
+        "description": "Enable READ-ONLY listing, metadata, and plain-text reads inside the home directory. Dotfiles, credential-shaped names, keychains, cookies, symlinks, and anything outside $HOME stay refused. Never grants any home write. Default off."
+      },
+      "homeRoot": {
+        "type": "string",
+        "description": "Home directory used by home_read actions. Defaults to the OS home directory."
+      },
+      "enableAmbientInfoActions": {
+        "type": "boolean",
+        "description": "Enable weather, clock, and battery/disk/uptime status. The weather call is the only one that leaves the machine: a keyless request to open-meteo.com carrying a place name. Default off."
+      },
+      "defaultWeatherLocation": {
+        "type": "string",
+        "description": "Place used when a weather request names none. Without it, an unlocated request is refused rather than guessed."
+      },
+      "enableReminderActions": {
+        "type": "boolean",
+        "description": "Enable timers and alarms. Writes only to Orion's own reminder store; the Orion app reads it and announces them. Default off."
+      },
+      "remindersPath": {
+        "type": "string",
+        "description": "JSON file holding pending timers and alarms."
+      },
+      "enableFileMutateActions": {
+        "type": "boolean",
+        "description": "Enable move, rename, and delete-to-Trash inside configured mutable roots. Requires the consequential_local permission profile as well. Default off."
+      },
+      "trashRoot": {
+        "type": "string",
+        "description": "Trash directory used by file_delete. Defaults to ~/.Trash so deletes stay recoverable from Finder."
+      },
+      "workshopPath": {
+        "type": "string",
+        "description": "JSON file holding Orion's proposed and approved composed tools. Reviewed with the orion-tools script."
+      },
+      "enableHealthTrackingActions": {
+        "type": "boolean",
+        "description": "Let Orion record supplements taken and workout sets into the health log the Orion dashboard reads. Writes one JSON file he owns and nothing else. Default off."
+      },
+      "healthLogPath": {
+        "type": "string",
+        "description": "JSON file holding supplements and workouts, shared with the Orion app."
+      },
+      "enableCalendarActions": {
+        "type": "boolean",
+        "description": "Enable typed Apple Calendar event creation/removal and Apple Reminders creation through EventKit. Event removal still requires approval bound to the exact title. Default off."
+      },
+      "enableEpisodicCapture": {
+        "type": "boolean",
+        "description": "Automatically append high-signal user preferences, corrections and decisions to the daily episodic journal. Deterministic and local: no model call and no token cost. Default off."
+      },
+      "episodicMemoryPath": {
+        "type": "string",
+        "description": "Directory for automatic daily episodic journals. Defaults to ~/.openclaw/workspace/memory."
+      },
+      "enableSelfTuningActions": {
+        "type": "boolean",
+        "description": "Let Orion read and adjust his own voice timing — how long he waits before deciding you have stopped talking, and the watchdog that ends a wedged speaking phase. Writes a fixed, range-checked list of keys in his own preference domain and nothing else. Default off."
+      },
+      "enableSelfModificationActions": {
+        "type": "boolean",
+        "description": "Let Orion rewrite his own Swift source, rebuild, and reinstall himself. The most consequential switch here. Every change runs through scripts/orion-forge, which enforces three gates that ask nobody anything: only .swift files inside the app target (never the plugin, the gate, or the script itself), the code must compile, and the rebuilt app must still launch — verified by watching for a crash report, with the previous bundle restored automatically if it does not. Every applied change is a git commit. Default off."
+      },
+      "enableSelfPluginActions": {
+        "type": "boolean",
+        "description": "Let Orion repair the plugin that gives him his tools. Every change runs through scripts/orion-repair: it must compile, the whole test suite must pass, the built dist is deployed only after that, the gateway is restarted and has to answer a health probe, and the previous dist is restored and the gateway restarted again if any step fails. Changes to the code that decides what Orion may do additionally require that you name the file yourself, ask in terms of permission, approve the exact change, and that the rebuilt code still passes the gate self-test. Default off."
+      },
+      "enableSelfScriptsActions": {
+        "type": "boolean",
+        "description": "Let Orion repair his own orion-* wrapper scripts. Syntax-checked and smoke-run before install, previous copy restored on any failure. Wrappers that carry authority — the ones that write memory, send things off the machine, or describe his own powers — additionally require that you name them and approve the change. Default off."
+      },
+      "enableSelfConfigActions": {
+        "type": "boolean",
+        "description": "Let Orion change openclaw.json through a closed table of settings — voice timing, model selection, timeouts — each range-checked, written with `openclaw config set`, validated, and revertible from a backup taken first. The switches that decide what Orion is ALLOWED to do are in this tier too, but reachable only when you name the key yourself, ask in terms of permission, and approve the exact change. Credentials, gateway networking and audit paths are refused whatever anyone says. Default off."
+      },
       "desktopRoot": {
         "type": "string"
       },
@@ -58,13 +146,21 @@
         "type": "boolean",
         "description": "Accept the newest authenticated user turn when the host did not bind this tool call to a run. Default true."
       },
+      "trustAllowTranscriptSource": {
+        "type": "boolean",
+        "description": "Recover the user turn from the host-written session transcript when no hook supplied one. The model cannot author a role:user entry there, so this is a harness source, not a relaxation. Default true; without it, locally-initiated runs have no user text and every action fails closed."
+      },
+      "trustTranscriptAgent": {
+        "type": "string",
+        "description": "Agent whose session transcripts carry the user turn. Default \"main\"."
+      },
       "trustTtlMs": {
         "type": "integer",
-        "description": "Age limit in milliseconds for run/session-bound authenticated turns. Default 900000."
+        "minimum": 1000
       },
       "trustRecentWindowMs": {
         "type": "integer",
-        "description": "Age limit in milliseconds for the unbound recent-turn tier. Default 120000."
+        "minimum": 1000
       },
       "permissionStatePath": {
         "type": "string",
@@ -73,6 +169,10 @@
       "permissionAuditPath": {
         "type": "string",
         "description": "Private append-only JSONL audit file for permission changes."
+      },
+      "enableV2SystemStatusAdapter": {
+        "type": "boolean",
+        "description": "Route only the read-only system_status action through the ORION v2 Phase 1 contract bridge. Existing provenance, validation, execution, verification, and ledger authorities remain unchanged. Default off."
       }
     }
   },
@@ -82,6 +182,9 @@
   "contracts": {
     "tools": [
       "orion_task_run",
+      "orion_tool_propose",
+      "orion_tool_list",
+      "orion_tool_run",
       "orion_task_status",
       "orion_permission_status",
       "orion_permission_change"
@@ -89,6 +192,15 @@
   },
   "toolMetadata": {
     "orion_task_run": {
+      "optional": true
+    },
+    "orion_tool_propose": {
+      "optional": true
+    },
+    "orion_tool_list": {
+      "optional": true
+    },
+    "orion_tool_run": {
       "optional": true
     },
     "orion_task_status": {

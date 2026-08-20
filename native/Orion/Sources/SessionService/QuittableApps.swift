@@ -1,26 +1,26 @@
 //
 //  Quitting an app, which is the most destructive thing in this whole build.
 //
-//  The decision, and it is not negotiable: THE LIST IS USER-MAINTAINED, NOT
-//  MODEL JUDGEMENT. Orion may quit an app only if Nick has previously written
-//  that app down as quittable. There is no inference, no "it looks like a
-//  distraction", no proposal that becomes an authorization if he does not
-//  object. The enforcement allowlist works the other way round — the model
-//  proposes and he confirms — and that asymmetry is deliberate: confirming a
-//  list of things NOT to interrupt is low stakes, and confirming a list of
-//  things that may be closed under you while you are typing in them is not.
+//  There are exactly TWO ways to authorise a quit, and no third:
 //
-//  Everything here is built so the damaging mistake is impossible rather than
-//  unlikely:
+//    .userList  — Nick wrote this app down himself. Unchanged from the original
+//                 design, still here, still empty by default.
+//    .reviewed  — DistractionReview decided it, having first put the app through
+//                 a mechanical floor the reasoning cannot reach past. He asked
+//                 for this twice: "it should be an open ended question he
+//                 reasons, not a multiple choice."
 //
-//    • An empty list is the default and quits nothing.
+//  Both funnel into the same `quit`, so the guards are written once:
+//
+//    • The never-quit set holds whatever the authorisation says.
+//    • The app's unsaved state is re-read HERE, at the moment of quitting, from
+//      macOS rather than from whatever a caller decided earlier. Anything not
+//      provably clean is refused — including "could not tell".
 //    • `terminate()` and never `forceTerminate()`. The polite quit lets an app
 //      put up "save changes?" and lets the user say no. Force-quitting throws
 //      away work, and no focus session is worth somebody's unsaved document.
-//    • A refusal — the app declining to quit, or macOS declining to ask — is a
-//      reported outcome, not a retry. If Orion cannot close something it says so
-//      once and stops.
-//    • Orion, Finder, loginwindow and the password manager can never be added.
+//    • A refusal is a reported outcome, not a retry. If Orion cannot close
+//      something it says so once and stops.
 //
 
 import Foundation
@@ -39,51 +39,68 @@ public struct QuittableApp: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// Who said this app could be closed. There is no `.none`: a quit with no
+/// authorisation is not representable.
+public enum QuitAuthorization: Equatable, Sendable {
+    /// Nick's own list.
+    case userList
+    /// Reasoned about at session start, having already passed the floor.
+    case reviewed(reason: String)
+}
+
 public enum QuitOutcome: Equatable, Sendable {
     case quit(String)
-    /// It was not on the list. The only correct response is to do nothing.
+    /// It was not authorised. The only correct response is to do nothing.
     case notPermitted(String)
     /// Asked, and it did not go — usually an unsaved-changes sheet, which is
     /// exactly the outcome the polite quit exists to allow.
     case declined(String)
     case notRunning(String)
+    /// macOS says it has unsaved work. Refused before it is even asked, so no
+    /// save sheet ever appears and nothing is at risk of a stray Return key.
+    case holdsUnsavedWork(String)
+    /// Its state could not be read, which is not the same as it being clean.
+    case unreadable(String)
 
     public var message: String {
         switch self {
         case .quit(let name): return "Closed \(name)."
         case .notPermitted(let name):
-            return "\(name) is not on your quittable list, so Orion left it alone."
+            return "\(name) was not authorised for closing, so Orion left it alone."
         case .declined(let name):
             return "\(name) did not close — it may be asking you to save something."
         case .notRunning(let name): return "\(name) was not running."
+        case .holdsUnsavedWork(let name):
+            return "\(name) has unsaved work, so Orion left it open."
+        case .unreadable(let name):
+            return "Orion could not tell whether \(name) has unsaved work, so it left it open."
         }
     }
 }
 
 public final class QuittableApps {
 
-    /// Never quittable, whatever the list says.
+    /// Never quittable, whatever the list or the reasoning says.
     ///
-    /// Same spine as `Allowlist.alwaysAllowed`, for the same reason: closing
-    /// somebody's password manager or Finder mid-session is not enforcement.
-    /// Orion is here too — an assistant that can quit itself cannot be asked to
-    /// stop.
-    public static let neverQuittable: Set<String> = [
-        "com.nickmadaio.orion.app",
-        "com.apple.finder",
-        "com.apple.loginwindow",
-        "com.1password.1password",
-        "com.apple.systempreferences",
-        "com.apple.SecurityAgent",
-        "com.apple.Terminal"
-    ]
+    /// One definition, in the domain, so the pure floor and the thing that
+    /// actually calls `terminate()` cannot drift into two different ideas of
+    /// what is sacred. Same spine as `Allowlist.alwaysAllowed`, for the same
+    /// reason: closing somebody's password manager or Finder mid-session is not
+    /// enforcement. Orion is on it too — an assistant that can quit itself
+    /// cannot be asked to stop.
+    public static var neverQuittable: Set<String> { DistractionFloor.neverQuit }
 
     private let url: URL
     private let lock = NSLock()
+    /// Asked again at the moment of quitting. Injected so the refusal can be
+    /// tested without an app that really does hold an unsaved document.
+    private let documents: DocumentStateSensing
 
     public var onLog: ((String) -> Void)?
 
-    public init(url: URL? = nil) {
+    public init(url: URL? = nil,
+                documents: DocumentStateSensing = AccessibilityDocumentSensor()) {
+        self.documents = documents
         if let url {
             self.url = url
         } else if let override = ProcessInfo.processInfo.environment["ORION_QUITTABLE_APPS"],
@@ -150,23 +167,49 @@ public final class QuittableApps {
 
     // MARK: Quitting
 
-    /// Ask an app to quit, if and only if it is on the list.
+    /// Ask an app to quit, if and only if something authorised it AND macOS says
+    /// it has nothing unsaved.
+    ///
+    /// The order matters and is the whole safety argument:
+    ///
+    ///   never-quit set → authorisation → is it running → UNSAVED CHECK → quit
+    ///
+    /// The unsaved check is last and is done here rather than trusted from a
+    /// caller, because a caller's information is as old as whenever it looked.
+    /// A document dirtied in the seconds between deciding and acting still
+    /// stops the quit.
     ///
     /// `terminate()` rather than `forceTerminate()`, always. The polite quit
-    /// goes through the app's own shutdown path, so an unsaved document puts up
-    /// a sheet and the user gets to say no — and Orion reports that it did not
-    /// close rather than insisting. No focus session is worth somebody's work.
+    /// goes through the app's own shutdown path, so anything this missed still
+    /// puts up a sheet and the user gets to say no — and Orion reports that it
+    /// did not close rather than insisting. No focus session is worth somebody's
+    /// work.
     @discardableResult
-    public func quit(bundleID: String, name: String? = nil) -> QuitOutcome {
+    public func quit(bundleID: String, name: String? = nil,
+                     authorizedBy authorization: QuitAuthorization = .userList) -> QuitOutcome {
         let label = name ?? bundleID
 
-        guard permits(bundleID) else {
-            onLog?("[quit] refused: \(label) is not on the quittable list")
+        guard !Self.neverQuittable.contains(bundleID) else {
+            onLog?("[quit] refused: \(label) is on the never-quit list")
             return .notPermitted(label)
+        }
+
+        switch authorization {
+        case .userList:
+            guard permits(bundleID) else {
+                onLog?("[quit] refused: \(label) is not on the quittable list")
+                return .notPermitted(label)
+            }
+        case .reviewed(let reason):
+            onLog?("[quit] \(label) was reviewed for this session: \(reason)")
         }
 
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         guard !running.isEmpty else { return .notRunning(label) }
+
+        if let refusal = unsavedRefusal(pids: running.map(\.processIdentifier), label: label) {
+            return refusal
+        }
 
         var allWent = true
         for app in running where !app.terminate() { allWent = false }
@@ -178,6 +221,28 @@ public final class QuittableApps {
         // Not retried, and never escalated to force. Said once.
         onLog?("[quit] \(label) declined to close — probably an unsaved-changes sheet")
         return .declined(label)
+    }
+
+    /// The unsaved-work gate, kept separate from the app lookup on purpose.
+    ///
+    /// It is the last thing standing between a decision and `terminate()`, so it
+    /// is provable on its own rather than only reachable through whatever
+    /// happens to be running on the machine the tests are on. Nil means nothing
+    /// objected; anything else is a refusal and the caller returns it unchanged.
+    func unsavedRefusal(pids: [pid_t], label: String) -> QuitOutcome? {
+        for pid in pids {
+            switch documents.documentState(pid: pid).state {
+            case .edited:
+                onLog?("[quit] refused: \(label) has unsaved changes")
+                return .holdsUnsavedWork(label)
+            case .unknown:
+                onLog?("[quit] refused: \(label) would not say whether it has unsaved work")
+                return .unreadable(label)
+            case .clean:
+                continue
+            }
+        }
+        return nil
     }
 
     /// Candidates to OFFER Nick, which is a different thing from a list to act

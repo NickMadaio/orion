@@ -84,12 +84,17 @@ enum LocalModel {
     /// `timeout` is deliberately short. A local completion either comes back in
     /// a couple of seconds or something is wrong, and every caller here would
     /// rather show nothing than wait.
+    ///
+    /// `requireSentenceEnding` is the prose guard below, and callers that want
+    /// something other than prose have to switch it off. JSON ends in `]`, so
+    /// leaving it on would reject every well-formed answer as truncated.
     static func complete(
         prompt: String,
         model: String = LocalModel.defaultModel,
         maxTokens: Int = LocalModel.defaultMaxTokens,
         temperature: Double = 0.4,
-        timeout: TimeInterval = 90
+        timeout: TimeInterval = 90,
+        requireSentenceEnding: Bool = true
     ) throws -> String {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -137,8 +142,11 @@ enum LocalModel {
         // A completion that ran out of budget stops mid-word. Half a sentence
         // reads as a bug in the app rather than as a limit in the model, and
         // every caller here would rather show nothing.
-        guard let last = trimmed.last, ".!?\"".contains(last) else {
-            throw LocalModelError.truncated
+        guard !requireSentenceEnding else {
+            guard let last = trimmed.last, ".!?\"".contains(last) else {
+                throw LocalModelError.truncated
+            }
+            return trimmed
         }
         return trimmed
     }

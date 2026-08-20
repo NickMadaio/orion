@@ -22,8 +22,8 @@
              changed something in Nick's own space rather than Orion's.
    APPROVAL  ask first. The gate demands a bound approval hash, or the effect
              leaves the machine and cannot be taken back.
-   NEVER     not authorised at all — the tier is off, the profile forbids it,
-             or the command is not on the allowlist and the fallback is deny.
+  NEVER     not directly reachable — normally an internal implementation
+            command whose user-facing typed route enforces the real gate.
 
  THE ONE RULE THAT MATTERS: nothing here is a hand-written list of what Orion
  can do. Levels are computed from live metadata every run — `ACTION_CATALOG`
@@ -48,19 +48,24 @@
    --approvals <path>    derive against a different exec-approvals.json
 */
 
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 
-const HOME = homedir();
-const P = {
-  installed: join(HOME, ".openclaw/extensions/orion-control/dist"),
-  built: join(HOME, "Desktop/ORION/openclaw-plugins/orion-control/dist"),
-  config: join(HOME, ".openclaw/openclaw.json"),
-  approvals: join(HOME, ".openclaw/exec-approvals.json"),
-  state: join(HOME, ".openclaw/orion-controlled/permission-state.json"),
-  scripts: join(HOME, "Desktop/ORION/scripts"),
-};
+/*
+ The tier derivation, the plugin loader and the allowlist canonicaliser live in
+ `lib/orion-plugin.mjs` because `orion-selfdoc` needs exactly the same answers.
+ It used to keep its own hand-copied copy of them, that copy went stale, and
+ TOOLS.md started telling Orion that self-modification was switched off while
+ this file was correctly reporting it as NOTIFY. One derivation, two readers.
+*/
+import {
+  HOME,
+  PATHS as P,
+  collectCommands,
+  deployDrift,
+  loadPlugin,
+  readJson,
+  tierAvailability,
+} from "./lib/orion-plugin.mjs";
 
 const LEVELS = ["AUTO", "NOTIFY", "APPROVAL", "NEVER"];
 const worst = (a, b) => (LEVELS.indexOf(a) >= LEVELS.indexOf(b) ? a : b);
@@ -70,95 +75,8 @@ function die(message, cause) {
   process.exit(1);
 }
 
-async function loadJson(path, what) {
-  try {
-    return JSON.parse(await readFile(path, "utf8"));
-  } catch (error) {
-    die(`could not read ${what} at ${path}`, error.message);
-  }
-}
-
-/* ------------------------------------------------------------------ inputs */
-
-/*
- The INSTALLED plugin is the truth: that is the code the daemon loads. The
- built copy on the Desktop is only a candidate. Reporting a difference between
- them is the point — a map derived from source Nick has not deployed yet would
- be exactly the kind of confident lie this file exists to prevent.
-*/
-async function loadCatalog() {
-  for (const dist of [P.installed, P.built]) {
-    try {
-      const catalog = await import(join(dist, "catalog.js"));
-      const permissions = await import(join(dist, "permissions.js"));
-      const index = await readFile(join(dist, "index.js"), "utf8");
-      return { catalog, permissions, index, dist };
-    } catch {
-      /* try the next candidate; both missing is fatal below */
-    }
-  }
-  return die(`no built plugin found in ${P.installed} or ${P.built}`);
-}
-
-async function deployDrift() {
-  const read = (d) => readFile(join(d, "catalog.js"), "utf8").catch(() => null);
-  const [installed, built] = await Promise.all([read(P.installed), read(P.built)]);
-  return installed && built && installed !== built;
-}
-
-/* ------------------------------------------------------- tier availability */
-
-const pascal = (tier) =>
-  tier.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join("");
-
-/*
- Which config flag turns a tier on, worked out from the tier's own name rather
- than copied out of index.ts — a copy is a second source of truth and would rot
- the first time a tier is added. Both spellings the plugin actually uses are
- tried (`reminders` is switched by `enableReminderActions`), and the winner has
- to appear verbatim in the compiled plugin or it is not a real flag.
-*/
-function resolveFlag(tier, indexSource) {
-  const stem = pascal(tier);
-  const candidates = [`enable${stem}Actions`];
-  if (stem.endsWith("s")) candidates.push(`enable${stem.slice(0, -1)}Actions`);
-  return candidates.find((name) => indexSource.includes(name));
-}
-
-/*
- A tier is reachable only where the config flag AND the permission profile both
- say yes — `intersectTiers` in the plugin. Desktop-rooted tiers additionally
- need `desktopRoot` set, and that dependency is read off the catalog (does any
- action in the tier address the Desktop?) rather than hardcoded.
-*/
-function tierAvailability({ catalog, permissions, index }, config, profile) {
-  const allowed = permissions.profileAllowedTiers(profile);
-  const desktopTiers = new Set(
-    Object.values(catalog.ACTION_CATALOG)
-      .filter((d) => d.execution.root === "desktop")
-      .map((d) => d.capabilityTier),
-  );
-  const tiers = new Map();
-  for (const definition of Object.values(catalog.ACTION_CATALOG)) {
-    const tier = definition.capabilityTier;
-    if (tiers.has(tier)) continue;
-    const flag = tier === "simulation" ? null : resolveFlag(tier, index);
-    const unresolved = tier !== "simulation" && flag === undefined;
-    const needsRoot = desktopTiers.has(tier);
-    const configOn =
-      tier === "simulation" ||
-      (!unresolved && config[flag] === true && (!needsRoot || Boolean(config.desktopRoot)));
-    tiers.set(tier, {
-      tier,
-      flag,
-      unresolved,
-      configOn,
-      profileOn: allowed.has(tier),
-      available: configOn && allowed.has(tier),
-    });
-  }
-  return tiers;
-}
+const loadJson = (path, what) =>
+  readJson(path, what).catch((error) => die(error.message));
 
 /* --------------------------------------------------- the ladder, catalogue */
 
@@ -290,13 +208,32 @@ const CLASS_LEVEL = {
   orion_state: "AUTO",
 };
 
+/*
+ A line that DEFINES a regular expression is not a line that DOES anything. The
+ signals above are matched against raw source text, so the block declaring them
+ matched itself, and this file scanned as though it performed every effect it
+ knows how to look for. Any script that stores a pattern rather than running it
+ fell into the same trap. Pattern declarations are skipped; calls are not.
+
+ This does not make the scan clairvoyant: an English sentence inside a string
+ literal that happens to contain a signal word still reads as evidence, which is
+ why `orion-authority` classifies itself above AUTO. Fail closed is the right
+ direction for that, so it stands.
+*/
+const PATTERN_DECLARATION = /^\s*(?:(?:const|let|var)\s+)?[\w$]+\s*[:=]\s*\/(?![/*])/;
+
 function scanSource(source) {
-  const lines = source.split("\n");
+  // Keep the real line numbers: `check` prints them as evidence, and evidence
+  // pointing at the wrong line is worse than no evidence.
+  const lines = source
+    .split("\n")
+    .map((text, index) => ({ text, line: index + 1 }))
+    .filter(({ text }) => !PATTERN_DECLARATION.test(text));
   const hits = new Map();
   for (const signal of SIGNALS) {
     if (signal.requires) continue;
-    const at = lines.findIndex((line) => signal.re.test(line));
-    if (at !== -1) hits.set(signal.id, { line: at + 1, text: lines[at].trim().slice(0, 90) });
+    const hit = lines.find(({ text }) => signal.re.test(text));
+    if (hit) hits.set(signal.id, { line: hit.line, text: hit.text.trim().slice(0, 90) });
   }
   const found = [];
   for (const signal of SIGNALS) {
@@ -346,7 +283,8 @@ const BARE = {
   exec_vector: ["find", "env", "git"],
 };
 
-function classifyShell(pattern, allowlisted, sources) {
+function classifyShell(command) {
+  const { name, allowlisted, source } = command;
   if (!allowlisted) {
     return {
       level: "NEVER",
@@ -355,8 +293,7 @@ function classifyShell(pattern, allowlisted, sources) {
         "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
     };
   }
-  const source = sources.get(pattern);
-  if (source !== undefined) {
+  if (source !== null && source !== undefined) {
     const signals = scanSource(source);
     const level = signals.reduce((acc, s) => worst(acc, CLASS_LEVEL[s.klass]), "AUTO");
     const subs = subCapabilities(source);
@@ -371,7 +308,6 @@ function classifyShell(pattern, allowlisted, sources) {
       coarse: subs.length > 0,
     };
   }
-  const name = basename(pattern);
   if (BARE.read.includes(name)) {
     return {
       level: "AUTO",
@@ -398,7 +334,7 @@ function classifyShell(pattern, allowlisted, sources) {
 /* ------------------------------------------------------------ the full map */
 
 async function buildMap(options) {
-  const plugin = await loadCatalog();
+  const plugin = await loadPlugin().catch((error) => die(error.message));
   const configFile = await loadJson(options.config ?? P.config, "openclaw.json");
   const approvals = await loadJson(options.approvals ?? P.approvals, "exec-approvals.json");
   const state = await loadJson(options.state ?? P.state, "permission-state.json").catch(() => null);
@@ -420,25 +356,24 @@ async function buildMap(options) {
     ...classifyAction(name, definition, availability),
   }));
 
+  /*
+   One row per real command, not per spelling. `exec-approvals.json` holds both
+   `~/Desktop/ORION/scripts/orion-recall` and its absolute twin, and keying off
+   the raw pattern string used to publish each script twice — once classified
+   from its source, and once again at APPROVAL because a tilde is not a path
+   anything can open, so the fail-closed branch caught it. The map then said
+   orion-recall was simultaneously automatic and gated, and `explain` read that
+   contradiction out loud. `collectCommands` collapses spellings onto the real
+   file and reads the source once.
+  */
   const agent = approvals.agents?.main ?? {};
-  const patterns = new Set((agent.allowlist ?? []).map((entry) => entry.pattern));
-  const scriptPaths = new Set([...patterns].filter((p) => p.includes("/")));
-  const { readdir } = await import("node:fs/promises");
-  for (const file of await readdir(P.scripts).catch(() => [])) {
-    if (file.startsWith("orion-") && !file.includes(".")) scriptPaths.add(join(P.scripts, file));
-  }
-  const sources = new Map();
-  for (const path of scriptPaths) {
-    const source = await readFile(path, "utf8").catch(() => null);
-    if (source !== null) sources.set(path, source);
-  }
-
-  const commands = [...new Set([...patterns, ...scriptPaths])].map((pattern) => ({
+  const commands = (await collectCommands(approvals, P.scripts)).map((command) => ({
     kind: "command",
-    name: pattern.includes("/") ? basename(pattern) : pattern,
-    pattern,
-    enforcedBy: pattern.includes("/") || true ? "exec allowlist (allow/deny only)" : "",
-    ...classifyShell(pattern, patterns.has(pattern), sources),
+    name: command.name,
+    pattern: command.pattern,
+    spellings: command.spellings,
+    enforcedBy: "exec allowlist (allow/deny only)",
+    ...classifyShell(command),
   }));
 
   return {
@@ -469,7 +404,8 @@ function show(map) {
   console.log(`${banner(map)}\n`);
   for (const level of LEVELS) {
     const rows = map.capabilities.filter((c) => c.level === level);
-    console.log(`${level}  (${rows.length})`);
+    const label = level === "NEVER" ? "INTERNAL / OFF" : level;
+    console.log(`${label}  (${rows.length})`);
     for (const row of rows) {
       const tag = row.kind === "action" ? row.tier : "shell";
       const flag = row.escapeHatch ? " [escape hatch]" : row.coarse ? " [coarse: see check]" : "";
@@ -532,10 +468,21 @@ function explain(map) {
     `\nThere are ${by("APPROVAL").length} I will not do until you say yes: ${names("APPROVAL", 8)}. ` +
       `Those either send something off this machine or delete something you own.`,
   );
-  console.log(
-    `\nAnd ${by("NEVER").length} I cannot do at all right now — the capability is switched off in my config, your ` +
-      `permission profile forbids it, or the command is not on my allowlist. Ask me to check any one of them by name.`,
-  );
+  const unavailable = by("NEVER");
+  const unavailableActions = unavailable.filter((row) => row.kind === "action");
+  const internalCommands = unavailable.filter((row) => row.kind === "command");
+  if (internalCommands.length > 0) {
+    console.log(
+      `\nThere are also ${internalCommands.length} internal implementation commands I cannot call directly. ` +
+        `That is not ${internalCommands.length} missing user features: their supported typed routes stay available and enforce verification and approval.`,
+    );
+  }
+  if (unavailableActions.length > 0) {
+    console.log(
+      `\n${unavailableActions.length} user-facing actions are actually unavailable because their config switch or permission profile is off: ` +
+        `${unavailableActions.slice(0, 8).map((row) => row.name).join(", ")}.`,
+    );
+  }
 }
 
 /* ------------------------------------------------------------------- main */

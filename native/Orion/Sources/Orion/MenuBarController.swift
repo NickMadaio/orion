@@ -25,6 +25,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     /// Left-click on the status item. Set by `AppDelegate`.
     var onToggleTextWindow: (() -> Void)?
+    /// Set by AppDelegate. Optional because the menu is built before the
+    /// updater has started, and a menu item that does nothing for the first
+    /// thirty seconds is better than a launch that waits for the network.
+    var onCheckForUpdates: (() -> Void)?
 
     init(state: AppState,
          onTogglePanel: @escaping () -> Void,
@@ -69,6 +73,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(wakeItem)
 
         menu.addItem(.separator())
+
+        let updates = NSMenuItem(title: "Check for Updates…",
+                                 action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
 
         let preferences = NSMenuItem(title: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
         preferences.target = self
@@ -168,6 +177,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func toggleWakeWord() {
         state.wakeWordEnabled.toggle()
         refresh()
+    }
+
+    /// Asking explicitly always checks, even mid-session — see UpdateController.
+    @objc private func checkForUpdates() {
+        onCheckForUpdates?()
     }
 
     @objc private func openPreferences() {

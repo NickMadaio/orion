@@ -1,6 +1,6 @@
 # ORION v2 manifest traceability
 
-Status: **all 85 phases registered; Phase 0 blocked; Phase 1 planned**.
+Status: **all 85 phases registered; Phases 0 and 1 complete; Phase 2 not started**.
 
 `MANIFEST_PHASES.json` is the machine-readable phase index for the full ORION
 v2 implementation manifest. It records the exact source fingerprint, every
@@ -12,16 +12,31 @@ source; this file explains how implementation evidence is managed.
 
 | Phase | State | Evidence | Entry decision |
 |---|---|---|---|
-| 0 — Freeze, Inventory, and Understand Existing ORION | blocked | `PHASE_0_STATUS.md`, `PHASE_GATES.json` | Complete every exit requirement before opening Phase 1 |
-| 1 — Establish Repository and Module Boundaries | planned | `PHASE_1_PLAN.md` | No implementation while Phase 0 is blocked |
-| 2-84 | not started | indexed in `MANIFEST_PHASES.json` | Each phase requires its immediate predecessor's reviewed exit evidence |
+| 0 — Freeze, Inventory, and Understand Existing ORION | complete | `PHASE_0_STATUS.md`, `PHASE_GATES.json` | All exit requirements passed on 2026-08-19 |
+| 1 — Establish Repository and Module Boundaries | complete | `PHASE_1_PLAN.md`, `HANDOFF.md`, `PHASE_GATES.json` | Closed 2026-08-20 against the plan's five criteria, with one recorded deviation from the manifest's literal exit gate |
+| 2 — Build the Model Router | not started | none yet | Blocked on `PHASE_2_PLAN.md`, on settling the Phase 1 deviation, and on re-confirming shared-file ownership |
+| 3-84 | not started | indexed in `MANIFEST_PHASES.json` | Each phase requires its immediate predecessor's reviewed exit evidence |
 
-The Phase 0 blocker is narrow but real: live OpenClaw credentials remain
-plaintext. Nick approved the coordinated migration and conditional `.env.save`
-deletion, and confirmed the exposed Anthropic key was not rotated. Anthropic
-console rotation, visible macOS Keychain authorization, SecretRef apply/reload,
-and obsolescence proof remain. This gate must not be reinterpreted as permission
-to begin Core integration.
+Phase 0 closed after Anthropic rotation, three dedicated login-Keychain items,
+an OpenClaw SecretRef apply, a clean three-reference audit, deletion of the
+invalid unreferenced `.env.save`, doctor health, and a fresh authenticated
+normal-route ledger smoke. The legacy `.env` remains a mode-`0600`, gitignored,
+accounted compatibility input until its separate adapter migration.
+
+Phase 1 delivered collision-free package markers, an AST import firewall,
+strict versioned envelopes, canonical language-neutral JSON Schemas,
+authorization-bound Core port protocols, a read-only `system_status`
+compatibility adapter, and the coordinated TypeScript integration behind a
+default-off flag. Live inspection found that the manifest's proposed
+`orion/cloud/` package would shadow legacy `orion/cloud.py`; that marker is
+deliberately deferred rather than changing existing import behavior.
+
+Phase 1 closed on 2026-08-20 with one deviation carried forward in machine-
+readable form: nothing runs *through* Core. A fail-open observer wraps one
+read-only capability while the legacy OpenClaw route keeps every authority. A
+test asserts that deviation stays recorded, so Phase 2 cannot inherit it by
+accident. `planning/v2/HANDOFF.md` holds the full verification table, the live
+task ids, and the rollback path.
 
 ## Program tracks
 
@@ -60,7 +75,15 @@ the relevant durable artifacts, policy/audit evidence, and rollback proof.
 
 ## Collaboration rule
 
-Until Phase 0 opens Phase 1, Codex remains confined to `planning/v2/**`, new
-`scripts/orion_v2_*`, and Phase 0 tests. Native Swift/UI, SessionService,
-OpenClaw Control, legacy scripts, live configuration, and installed runtime
-remain read-only unless Nick explicitly coordinates an integration window.
+Codex and Claude both stay confined to `planning/v2/**`, new manifest packages,
+`scripts/orion_v2_*`, and `tests/test_v2_*`/`test_phase0_*`. Native Swift/UI,
+SessionService, OpenClaw Control, legacy scripts, live configuration, and
+installed runtime remain read-only unless Nick explicitly coordinates an
+integration window. Two such windows have been opened so far, both for the
+`system_status` bridge: 2026-08-19 (build and first live proof) and 2026-08-20
+(fail-open correction and Phase 1 close-out).
+
+Whichever assistant works next reads root `AGENTS.md` first — its "Relay
+protocol" section defines how the two of us hand work back and forth, including
+the rule that a handoff's date is when it was written, not when the work
+stopped.

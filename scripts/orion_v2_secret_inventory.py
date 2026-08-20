@@ -21,6 +21,7 @@ OPENCLAW_SECRET_PATHS = (
     "models.providers.anthropic.apiKey",
     "models.providers.ollama.apiKey",
 )
+ROTATION_EVIDENCE = Path("planning/v2/ANTHROPIC_ROTATION_EVIDENCE.json")
 
 
 def read_dotenv(path: Path) -> dict[str, str]:
@@ -84,6 +85,24 @@ def relationship(left: Any, right: Any) -> str:
     return "same" if left == right else "different"
 
 
+def rotation_status(repo: Path) -> dict[str, str]:
+    evidence = read_json(repo / ROTATION_EVIDENCE)
+    if (
+        evidence.get("schemaVersion") == 1
+        and evidence.get("status") == "resolved"
+        and isinstance(evidence.get("resolvedAt"), str)
+    ):
+        return {
+            "anthropicPreviouslyExposed": "rotated",
+            "resolvedAt": evidence["resolvedAt"],
+            "evidence": str(ROTATION_EVIDENCE),
+        }
+    return {
+        "anthropicPreviouslyExposed": "unresolved",
+        "requiredEvidence": "Nick confirms rotation after the historical terminal exposure",
+    }
+
+
 def build_inventory(repo: Path, home: Path) -> dict[str, Any]:
     env_path = repo / ".env"
     saved_path = repo / ".env.save"
@@ -137,10 +156,7 @@ def build_inventory(repo: Path, home: Path) -> dict[str, Any]:
         "redaction": "values and fingerprints omitted",
         "files": files,
         "relationships": relationships,
-        "rotation": {
-            "anthropicPreviouslyExposed": "unresolved",
-            "requiredEvidence": "Nick confirms rotation after the historical terminal exposure",
-        },
+        "rotation": rotation_status(repo),
     }
 
 

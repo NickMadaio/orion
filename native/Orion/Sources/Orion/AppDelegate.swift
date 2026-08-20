@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController!
     private var preferencesController: PreferencesWindowController!
     private let pushToTalk = PushToTalkMonitor()
+    /// Owns the Sparkle updater. Constructed here, STARTED late — see
+    /// `UpdateController.start`, and the launch-path note in its header.
+    private let updates = UpdateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panelController = PanelController(state: state)
@@ -27,6 +30,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.textWindowController.toggle()
         }
         menuBarController.install()
+
+        // Updates. The check is deliberately not part of launching: it starts
+        // half a minute in, and it asks first whether a focus session is
+        // running, so neither the network nor an install can interrupt the work
+        // this app exists to protect.
+        // `.running` only — NOT `snapshot().isRunning`.
+        //
+        // `isRunning` is true for any session that has not finished, which
+        // includes `waitingForReturn`: a rest phase that ended while nobody was
+        // at the desk, holding until he comes back. That state is correct and it
+        // can last for weeks — the first end-to-end update test found a session
+        // from six days earlier still sitting in it. Gating updates on that
+        // means an update that downloads, waits for a session that will never
+        // end, and never arrives, with nothing on screen to say why.
+        //
+        // Only an actively-running phase is worth protecting from a relaunch.
+        updates.isSessionRunning = { [state] in
+            if case .running = state.session.snapshot().reconciliation?.status { return true }
+            return false
+        }
+        menuBarController.onCheckForUpdates = { [weak self] in self?.updates.checkNow() }
+        state.updates = updates
+        updates.start()
 
         // The dashboard has its own large hologram. Showing a second, floating
         // copy at the same time breaks the whole "Orion is the center" idea.

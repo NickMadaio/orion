@@ -1,6 +1,7 @@
 import AppKit
 import AuthenticationServices
 import CryptoKit
+import Darwin
 import Foundation
 // SecRandomCopyBytes. Reached transitively today, but the PKCE verifier is not
 // something to leave depending on another framework's import graph.
@@ -9,12 +10,11 @@ import Security
 /*
  The authorization-code exchange, once, for every OAuth connector.
 
- `ASWebAuthenticationSession` rather than opening Safari and listening on a
- local port. It runs the provider's own login in a browser view the app cannot
- read, hands back only the redirect URL, and — the part that matters — the
- provider's real sign-in page is what the user types their password into. No
- credential ever passes through Orion, which is the only arrangement worth
- offering for something that reaches a bank.
+ `ASWebAuthenticationSession` for providers that accept Orion's callback URL.
+ Google is the exception: its Desktop-app client type requires the loopback-IP
+ redirect flow, so Orion opens the system browser and listens once on a random
+ 127.0.0.1 port. In both cases the provider's real sign-in page is what the user
+ types their password into. No account password ever passes through Orion.
 
  PKCE on every flow, not only where the provider insists. The code verifier
  makes an intercepted authorization code useless on its own, and it costs two
@@ -61,6 +61,7 @@ final class OAuthFlow: NSObject {
     static let scheme = "orion"
 
     private var session: ASWebAuthenticationSession?
+    private var googleLoopback: OAuthLoopbackReceiver?
 
     func run(
         connector: ConnectorID,
@@ -74,66 +75,40 @@ final class OAuthFlow: NSObject {
         clientIDParameter: String = "client_id",
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        let redirect = "\(Self.scheme)://oauth/\(connector.rawValue)"
         let verifier = Self.randomURLSafe(64)
         let challenge = Self.s256(verifier)
         let state = Self.randomURLSafe(24)
 
-        guard var components = URLComponents(string: authorizeURL) else {
-            completion(.failure(OAuthError.badRedirect("bad authorize URL")))
-            return
-        }
-        var items = [
-            URLQueryItem(name: clientIDParameter, value: clientID),
-            URLQueryItem(name: "redirect_uri", value: redirect),
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "state", value: state),
-        ]
-        // Instagram's authorize endpoint rejects the PKCE parameters outright
-        // rather than ignoring them, so it is the one flow that goes without.
-        // Everything else gets it whether or not the provider asks.
-        if connector != .instagram {
-            items.append(URLQueryItem(name: "code_challenge", value: challenge))
-            items.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
-        }
-        if !scopes.isEmpty {
-            items.append(URLQueryItem(name: "scope", value: scopes.joined(separator: " ")))
-        }
-        // Google hands back a refresh token only when both are present, and
-        // only on the first grant unless consent is forced.
-        if connector == .google {
-            items.append(URLQueryItem(name: "access_type", value: "offline"))
-            items.append(URLQueryItem(name: "prompt", value: "consent"))
-        }
-        components.queryItems = (components.queryItems ?? []) + items
-        guard let url = components.url else {
-            completion(.failure(OAuthError.badRedirect("could not build the authorize URL")))
-            return
+        func authorizationURL(redirect: String) -> URL? {
+            guard var components = URLComponents(string: authorizeURL) else { return nil }
+            var items = [
+                URLQueryItem(name: clientIDParameter, value: clientID),
+                URLQueryItem(name: "redirect_uri", value: redirect),
+                URLQueryItem(name: "response_type", value: "code"),
+                URLQueryItem(name: "state", value: state),
+            ]
+            // Instagram's authorize endpoint rejects the PKCE parameters
+            // outright rather than ignoring them, so it is the one exception.
+            if connector != .instagram {
+                items.append(URLQueryItem(name: "code_challenge", value: challenge))
+                items.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+            }
+            if !scopes.isEmpty {
+                items.append(URLQueryItem(name: "scope", value: scopes.joined(separator: " ")))
+            }
+            // Google returns a refresh token only when offline access is asked
+            // for and consent is explicit.
+            if connector == .google {
+                items.append(URLQueryItem(name: "access_type", value: "offline"))
+                items.append(URLQueryItem(name: "prompt", value: "consent"))
+            }
+            components.queryItems = (components.queryItems ?? []) + items
+            return components.url
         }
 
-        let session = ASWebAuthenticationSession(
-            url: url,
-            callbackURLScheme: Self.scheme
-        ) { [weak self] callback, error in
-            guard let self else { return }
-            self.session = nil
-            if let error {
-                let nsError = error as NSError
-                if nsError.domain == ASWebAuthenticationSessionErrorDomain,
-                   nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                    completion(.failure(OAuthError.cancelled))
-                } else {
-                    completion(.failure(error))
-                }
-                return
-            }
-            guard let callback,
-                  let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false)
-            else {
-                completion(.failure(OAuthError.badRedirect("no redirect URL")))
-                return
-            }
-            let query = parts.queryItems ?? []
+        func handleCallback(_ callback: URL, redirect: String) {
+            let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false)
+            let query = parts?.queryItems ?? []
             func value(_ name: String) -> String? {
                 query.first { $0.name == name }?.value
             }
@@ -143,7 +118,6 @@ final class OAuthFlow: NSObject {
                 )))
                 return
             }
-            // Checked before the code is used for anything.
             guard value("state") == state else {
                 completion(.failure(OAuthError.stateMismatch))
                 return
@@ -163,6 +137,73 @@ final class OAuthFlow: NSObject {
                 clientIDParameter: clientIDParameter,
                 completion: completion
             )
+        }
+
+        // Google Desktop clients reject Orion's custom-scheme redirect. Their
+        // supported macOS flow is a one-shot loopback listener on a random
+        // 127.0.0.1 port. Start listening before opening the browser so the
+        // authorization response can never race the receiver.
+        if connector == .google {
+            do {
+                let receiver = try OAuthLoopbackReceiver(timeout: 300) { [weak self] result in
+                    guard let self else { return }
+                    let redirect = self.googleLoopback?.redirectURI
+                    self.googleLoopback = nil
+                    switch result {
+                    case .success(let callback):
+                        guard let redirect else {
+                            completion(.failure(OAuthError.badRedirect("Google callback receiver disappeared")))
+                            return
+                        }
+                        handleCallback(callback, redirect: redirect)
+                    case .failure(let error):
+                        completion(.failure(error))
+                    }
+                }
+                googleLoopback?.cancel()
+                googleLoopback = receiver
+                guard let url = authorizationURL(redirect: receiver.redirectURI) else {
+                    receiver.cancel()
+                    googleLoopback = nil
+                    completion(.failure(OAuthError.badRedirect("could not build the authorize URL")))
+                    return
+                }
+                guard NSWorkspace.shared.open(url) else {
+                    receiver.cancel()
+                    googleLoopback = nil
+                    completion(.failure(OAuthError.badRedirect("the system browser would not open")))
+                    return
+                }
+            } catch {
+                completion(.failure(error))
+            }
+            return
+        }
+
+        let redirect = "\(Self.scheme)://oauth/\(connector.rawValue)"
+        guard let url = authorizationURL(redirect: redirect) else {
+            completion(.failure(OAuthError.badRedirect("could not build the authorize URL")))
+            return
+        }
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.scheme) {
+            [weak self] callback, error in
+            guard let self else { return }
+            self.session = nil
+            if let error {
+                let nsError = error as NSError
+                if nsError.domain == ASWebAuthenticationSessionErrorDomain,
+                   nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
+                    completion(.failure(OAuthError.cancelled))
+                } else {
+                    completion(.failure(error))
+                }
+                return
+            }
+            guard let callback else {
+                completion(.failure(OAuthError.badRedirect("no redirect URL")))
+                return
+            }
+            handleCallback(callback, redirect: redirect)
         }
         session.presentationContextProvider = self
         // Otherwise the provider's existing browser session is reused and
@@ -310,6 +351,190 @@ extension OAuthFlow: ASWebAuthenticationPresentationContextProviding {
         // Returning a detached window here is how the sheet ends up appearing
         // behind everything and looking like nothing happened.
         NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible } ?? ASPresentationAnchor()
+    }
+}
+
+/// Receives one OAuth redirect on localhost, answers the browser, and closes.
+///
+/// Google explicitly supports this for macOS Desktop OAuth clients. The socket
+/// binds only to 127.0.0.1, chooses an ephemeral port, validates nothing itself
+/// (OAuthFlow owns the state check), and cannot be reused after one request.
+private final class OAuthLoopbackReceiver {
+
+    enum ReceiverError: LocalizedError {
+        case couldNotListen
+        case timedOut
+        case invalidRequest
+
+        var errorDescription: String? {
+            switch self {
+            case .couldNotListen:
+                return "Orion could not open a temporary local callback for Google sign-in."
+            case .timedOut:
+                return "Google sign-in timed out before returning to Orion."
+            case .invalidRequest:
+                return "Google returned an unreadable sign-in response."
+            }
+        }
+    }
+
+    let redirectURI: String
+
+    private let descriptor: Int32
+    private let queue = DispatchQueue(label: "com.nickmadaio.orion.google-oauth-loopback")
+    private var source: DispatchSourceRead?
+    private var finished = false
+    private let completion: (Result<URL, Error>) -> Void
+
+    init(timeout: TimeInterval, completion: @escaping (Result<URL, Error>) -> Void) throws {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw ReceiverError.couldNotListen }
+
+        var noSigPipe: Int32 = 1
+        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe,
+                   socklen_t(MemoryLayout<Int32>.size))
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bound == 0, Darwin.listen(descriptor, 1) == 0 else {
+            Darwin.close(descriptor)
+            throw ReceiverError.couldNotListen
+        }
+
+        var actual = sockaddr_in()
+        var actualLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let named = withUnsafeMutablePointer(to: &actual) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(descriptor, $0, &actualLength)
+            }
+        }
+        guard named == 0 else {
+            Darwin.close(descriptor)
+            throw ReceiverError.couldNotListen
+        }
+
+        self.descriptor = descriptor
+        self.redirectURI = "http://127.0.0.1:\(UInt16(bigEndian: actual.sin_port))"
+        self.completion = completion
+
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        self.source = source
+        source.setEventHandler { [weak self] in self?.receive() }
+        source.setCancelHandler { Darwin.close(descriptor) }
+        source.resume()
+
+        queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
+            self?.finish(.failure(ReceiverError.timedOut))
+        }
+    }
+
+    deinit {
+        source?.cancel()
+    }
+
+    func cancel() {
+        queue.async { [weak self] in
+            guard let self, !self.finished else { return }
+            self.finished = true
+            self.source?.cancel()
+            self.source = nil
+        }
+    }
+
+    private func receive() {
+        guard !finished else { return }
+        let connection = Darwin.accept(descriptor, nil, nil)
+        guard connection >= 0 else { return }
+        defer { Darwin.close(connection) }
+
+        var noSigPipe: Int32 = 1
+        setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe,
+                   socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                   socklen_t(MemoryLayout<timeval>.size))
+
+        var data = Data()
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        let headerTerminator = Data("\r\n\r\n".utf8)
+        while data.count < 64 * 1024, data.range(of: headerTerminator) == nil {
+            let count = chunk.withUnsafeMutableBytes {
+                Darwin.recv(connection, $0.baseAddress, $0.count, 0)
+            }
+            if count <= 0 { break }
+            data.append(contentsOf: chunk[0..<count])
+        }
+
+        let callback = Self.callbackURL(from: data, redirectURI: redirectURI)
+        Self.answerBrowser(connection, success: callback != nil)
+        if let callback {
+            finish(.success(callback))
+        } else {
+            finish(.failure(ReceiverError.invalidRequest))
+        }
+    }
+
+    private func finish(_ result: Result<URL, Error>) {
+        guard !finished else { return }
+        finished = true
+        source?.cancel()
+        source = nil
+        DispatchQueue.main.async { [completion] in completion(result) }
+    }
+
+    private static func callbackURL(from request: Data, redirectURI: String) -> URL? {
+        guard let text = String(data: request, encoding: .utf8),
+              let line = text.components(separatedBy: "\r\n").first
+        else { return nil }
+        let parts = line.split(separator: " ", maxSplits: 2)
+        guard parts.count == 3, parts[0] == "GET",
+              let base = URL(string: redirectURI),
+              let url = URL(string: String(parts[1]), relativeTo: base)?.absoluteURL,
+              url.host == "127.0.0.1"
+        else { return nil }
+        return url
+    }
+
+    private static func answerBrowser(_ connection: Int32, success: Bool) {
+        let title = success ? "Google connected" : "Google sign-in failed"
+        let detail = success
+            ? "Authorization returned to Orion. You can close this tab."
+            : "Orion could not read Google's response. Return to Orion and try again."
+        let body = """
+        <!doctype html><meta charset="utf-8"><title>\(title)</title>
+        <body style="font:16px -apple-system;padding:48px;background:#111;color:#eee">
+        <h1>\(title)</h1><p>\(detail)</p></body>
+        """
+        let bodyData = Data(body.utf8)
+        let header = """
+        HTTP/1.1 200 OK\r
+        Content-Type: text/html; charset=utf-8\r
+        Content-Length: \(bodyData.count)\r
+        Cache-Control: no-store\r
+        Connection: close\r
+        \r
+
+        """
+        var response = Data(header.utf8)
+        response.append(bodyData)
+        response.withUnsafeBytes { buffer in
+            var sent = 0
+            while sent < buffer.count {
+                let count = Darwin.send(connection, buffer.baseAddress!.advanced(by: sent),
+                                        buffer.count - sent, 0)
+                if count <= 0 { break }
+                sent += count
+            }
+        }
     }
 }
 

@@ -3,8 +3,23 @@ import PackageDescription
 
 // Orion.app — the native menu-bar assistant.
 //
-// Deliberately dependency-free: Apple frameworks only. Orion is local-first and
-// its face should be too, so nothing here can fail to resolve while offline.
+// One dependency, and it is worth being precise about what that costs.
+//
+// This package was dependency-free on purpose: Orion is local-first and its face
+// should be too, so nothing here can fail to resolve while offline. Sparkle is
+// the single exception, added when updating the app by hand — rebuild, re-sign,
+// copy into /Applications, re-grant whatever macOS decided to forget — stopped
+// being a thing one person did occasionally and started being the reason
+// improvements did not ship.
+//
+// The offline principle survives intact, because it was never about the build:
+//   · Sparkle is linked at build time. Once resolved, `swift build` works
+//     offline like everything else, and Package.resolved pins the exact commit.
+//   · Nothing on the LAUNCH path touches it. The update check is deliberately
+//     late and off the critical path — see AppDelegate — so a dead network or a
+//     dead feed costs nothing at startup.
+// What it must never become is a second dependency by habit. This one carries
+// its weight; the next one has to argue for itself.
 //
 // The target opts back into the Swift 5 language mode. The audio taps, the
 // AppKit callbacks and the socket reader all hop to the main thread by hand,
@@ -16,6 +31,12 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "Orion", targets: ["Orion"])
+    ],
+    dependencies: [
+        // Pinned to a major version, not a commit: Sparkle's 2.x line is
+        // stable and its security fixes are exactly the ones worth taking
+        // automatically. Package.resolved holds the version actually in use.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6")
     ],
     targets: [
         // The pure session domain: models, reducer, reconcile(now:), clocks.
@@ -47,7 +68,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "Orion",
-            dependencies: ["SessionDomain", "SessionService"],
+            dependencies: [
+                "SessionDomain",
+                "SessionService",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],

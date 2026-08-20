@@ -93,9 +93,9 @@ final class WhoopClient: ObservableObject {
     /// supported."
     private let base = "https://api.prod.whoop.com/developer/v2"
 
-    /// How far back to look for a scored day. Long enough that a missed night
-    /// or an unscored morning still shows something true.
-    private let lookbackDays = 7
+    /// How far back the widest window reaches, for the "nothing scored" message.
+    /// The windows themselves are in `windows`.
+    private var lookbackDays: Int { Self.windows.max() ?? 7 }
 
     private var timer: Timer?
 
@@ -131,7 +131,20 @@ final class WhoopClient: ObservableObject {
             OrionLog.write("[whoop] refresh skipped — one already in flight")
             return
         }
-        guard SecretStore.get(connector: .whoop, field: SecretStore.Field.accessToken) != nil else {
+        // The token check is a Keychain read, and a Keychain read can sit in
+        // securityd for as long as an unanswered authorization prompt lasts.
+        // `start()` calls this from the dashboard's `onAppear`, so doing it
+        // inline is doing it on the launch path — which is the 2026-08-12 hang
+        // one frame further down. Ask off the main thread and come back.
+        SecretStore.load([.whoop], fields: SecretStore.derivedFields) { [weak self] secrets in
+            self?.refresh(with: secrets)
+        }
+    }
+
+    /// The rest of `refresh()`, once the Keychain has actually answered.
+    private func refresh(with secrets: SecretStore.Secrets) {
+        guard !isLoading else { return }
+        guard secrets.has(.whoop, SecretStore.Field.accessToken) else {
             snapshot = nil
             lastError = nil
             OrionLog.write("[whoop] no access token — not connected")
@@ -139,14 +152,14 @@ final class WhoopClient: ObservableObject {
         }
         // A grant with no refresh token is the daily-login state. Say so here
         // rather than letting it fail as a network error in an hour's time.
-        let renewable = SecretStore.get(connector: .whoop, field: SecretStore.Field.refreshToken) != nil
+        let renewable = secrets.has(.whoop, SecretStore.Field.refreshToken)
         if !renewable {
             OrionLog.write("[whoop] grant has NO refresh token — it cannot renew itself")
         }
 
         isLoading = true
         lastError = nil
-        withFreshToken { [weak self] token in
+        withFreshToken(secrets) { [weak self] token in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard let token else {
@@ -164,7 +177,9 @@ final class WhoopClient: ObservableObject {
 
     // MARK: - Fetch
 
-    private func load(token: String) {
+    /// `allowRetry` is spent by the one renew-and-try-again attempt below, so a
+    /// rejected token cannot loop.
+    private func load(token: String, allowRetry: Bool = true) {
         let group = DispatchGroup()
         // The three requests complete on separate URLSession queues and all
         // write here, so the shared state is behind a lock. It was not before:
@@ -182,7 +197,7 @@ final class WhoopClient: ObservableObject {
             defer { lock.unlock(); group.leave() }
             switch result {
             case .success(let records):
-                collected[path] = records
+                collected[path, default: []].append(contentsOf: records)
             case .failure(let error):
                 if case OAuthError.unauthorized = error { authFailed = true }
                 failure = error.localizedDescription
@@ -190,8 +205,10 @@ final class WhoopClient: ObservableObject {
         }
 
         for path in ["/recovery", "/activity/sleep", "/cycle"] {
-            group.enter()
-            get(path, token: token) { finish(path, $0) }
+            for lookback in Self.windows {
+                group.enter()
+                get(path, token: token, lookback: lookback) { finish(path, $0) }
+            }
         }
 
         group.notify(queue: .main) { [weak self] in
@@ -219,9 +236,30 @@ final class WhoopClient: ObservableObject {
             // Only replace a good snapshot when the new one has something in
             // it. A transient network failure should not blank the dashboard.
             let empty = next.recovery == nil && next.sleepPerformance == nil && next.strain == nil
+
+            // And never let the hero go BACKWARDS in time. The window is a month
+            // now, which is more records than one page holds; if a page is ever
+            // lost, what comes back could be the older end of the range, and
+            // silently showing a ten-day-old recovery as today's is the worst
+            // thing a health readout can do. History still merges — old days are
+            // exactly what the calendar wants — but the headline only moves
+            // forward.
+            let stale: Bool = {
+                guard let current = self.snapshot?.recordedOn, let fresh = next.recordedOn
+                else { return false }
+                return fresh < current
+            }()
+
+            if !empty, stale {
+                self.week = self.week.merging(week)
+                OrionLog.write("[whoop] kept the newer snapshot — this fetch came back older, "
+                               + "\(week.points.count) day(s) merged into history")
+                return
+            }
+
             if !empty {
                 self.snapshot = next
-                self.week = week
+                self.week = self.week.merging(week)
                 self.lastError = nil
                 OrionLog.write("[whoop] loaded recovery=\(next.recovery.map { "\($0)" } ?? "—") "
                                + "sleep=\(next.sleepPerformance.map { "\($0)" } ?? "—") "
@@ -230,15 +268,40 @@ final class WhoopClient: ObservableObject {
                 return
             }
 
+            if authFailed, allowRetry {
+                // Rejected — but a rejected token is not the same as a dead
+                // sign-in, and treating them as the same is what made Whoop
+                // disconnect itself. Renew once and try again before touching
+                // the grant. Only if the freshly minted token is ALSO rejected
+                // is the sign-in genuinely gone.
+                OrionLog.write("[whoop] token rejected — renewing and retrying once")
+                self.isLoading = true
+                SecretStore.load([.whoop], fields: SecretStore.derivedFields) { [weak self] secrets in
+                    guard let self else { return }
+                    self.withFreshToken(secrets, forceRenewal: true) { [weak self] renewed in
+                        DispatchQueue.main.async {
+                            guard let self else { return }
+                            guard let renewed else {
+                                self.isLoading = false
+                                self.failGrant(reason: "Whoop would not renew the sign-in. "
+                                               + "Reconnect it in Settings ▸ Connections.")
+                                return
+                            }
+                            self.load(token: renewed, allowRetry: false)
+                        }
+                    }
+                }
+                return
+            }
+
             if authFailed {
-                // The token was rejected outright. Clear the grant so the UI
-                // offers Connect instead of insisting it is connected — a
-                // connector that lies about its own state is the one thing this
-                // layer is supposed to prevent.
-                SecretStore.set(nil, connector: .whoop, field: SecretStore.Field.accessToken)
-                SecretStore.set(nil, connector: .whoop, field: SecretStore.Field.expiresAt)
-                NotificationCenter.default.post(name: .orionConnectionsChanged, object: nil)
-                self.lastError = "Whoop rejected the sign-in. Reconnect it in Settings ▸ Connections."
+                // The token was rejected outright, twice, the second time after
+                // a successful renewal. Clear the grant so the UI offers Connect
+                // instead of insisting it is connected — a connector that lies
+                // about its own state is the one thing this layer is supposed to
+                // prevent.
+                self.failGrant(reason: "Whoop rejected the sign-in. "
+                               + "Reconnect it in Settings ▸ Connections.")
             } else {
                 self.lastError = failure
                     ?? "Whoop has no scored day in the last \(self.lookbackDays) days. If the strap has not been worn, there is genuinely nothing to show."
@@ -247,20 +310,58 @@ final class WhoopClient: ObservableObject {
         }
     }
 
-    /// One collection request, over a date window, returning the records array.
+    /// Drop the dead access token and say so, once, in one place.
+    ///
+    /// The refresh token is deliberately LEFT alone: it is what a reconnect
+    /// would otherwise have to replace by hand, and a rejected access token says
+    /// nothing about whether the renewal path still works.
+    private func failGrant(reason: String) {
+        SecretStore.set(nil, connector: .whoop, field: SecretStore.Field.accessToken)
+        SecretStore.set(nil, connector: .whoop, field: SecretStore.Field.expiresAt)
+        NotificationCenter.default.post(name: .orionConnectionsChanged, object: nil)
+        lastError = reason
+        OrionLog.write("[whoop] grant cleared — \(reason)")
+    }
+
+    /// Whoop's per-page maximum.
+    private static let pageSize = 25
+
+    /// The two windows every collection is asked for, newest window first.
+    ///
+    /// Two fixed requests rather than following `next_token`, and the reason is
+    /// worth writing down. A month of days does not fit in Whoop's 25-record
+    /// page, and the paginated version of this worked for exactly one page:
+    /// every follow-up came back 401, reproducibly, on a token that had just
+    /// served the page before it. That is unexplained, and code that depends on
+    /// something unexplained to be CORRECT — rather than merely complete — is
+    /// the wrong shape here.
+    ///
+    /// So neither window depends on the other:
+    ///
+    ///   • 7 days always fits in one page, so today's numbers are guaranteed
+    ///     whichever end of the range Whoop chooses to return.
+    ///   • 35 days fills the calendar grid with whatever else that one page
+    ///     holds — the newest 25 if Whoop sorts newest-first, the oldest 25 if
+    ///     it does not. Either way it is days the app did not have.
+    ///
+    /// Records that arrive twice are harmless: everything downstream buckets by
+    /// day or takes the most recent, so a duplicate lands on itself.
+    private static let windows = [7, 35]
+
+    /// One collection over one window. No pagination — see `windows`.
     private func get(
         _ path: String,
         token: String,
+        lookback: Int,
         completion: @escaping (Result<[[String: Any]], Error>) -> Void
     ) {
         guard var components = URLComponents(string: base + path) else {
             completion(.failure(OAuthError.badRedirect("bad Whoop URL")))
             return
         }
-        let start = Calendar.current.date(byAdding: .day, value: -lookbackDays, to: Date()) ?? Date()
+        let start = Calendar.current.date(byAdding: .day, value: -lookback, to: Date()) ?? Date()
         components.queryItems = [
-            // 25 is Whoop's per-page maximum. A week of days fits comfortably.
-            URLQueryItem(name: "limit", value: "25"),
+            URLQueryItem(name: "limit", value: "\(Self.pageSize)"),
             URLQueryItem(name: "start", value: WhoopClient.iso8601.string(from: start)),
         ]
         guard let url = components.url else {
@@ -271,19 +372,20 @@ final class WhoopClient: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 15
         URLSession.shared.dataTask(with: request) { data, response, error in
+            let label = "\(path) (\(lookback)d)"
             if let error {
-                OrionLog.write("[whoop] GET \(path) failed — \(error.localizedDescription)")
+                OrionLog.write("[whoop] GET \(label) failed — \(error.localizedDescription)")
                 completion(.failure(error))
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 || status == 403 {
-                OrionLog.write("[whoop] GET \(path) — HTTP \(status), token rejected")
+                OrionLog.write("[whoop] GET \(label) — HTTP \(status), token rejected")
                 completion(.failure(OAuthError.unauthorized))
                 return
             }
             if status >= 400 {
-                OrionLog.write("[whoop] GET \(path) — HTTP \(status)")
+                OrionLog.write("[whoop] GET \(label) — HTTP \(status)")
                 completion(.failure(OAuthError.providerError("Whoop returned HTTP \(status) for \(path).")))
                 return
             }
@@ -294,7 +396,7 @@ final class WhoopClient: ObservableObject {
                 return
             }
             let records = json["records"] as? [[String: Any]] ?? []
-            OrionLog.write("[whoop] GET \(path) — \(records.count) record(s)")
+            OrionLog.write("[whoop] GET \(label) — \(records.count) record(s)")
             completion(.success(records))
         }.resume()
     }
@@ -461,28 +563,46 @@ final class WhoopClient: ObservableObject {
     /// each starting their own. Whoop invalidates the previous refresh token
     /// the moment one is used, so two exchanges in flight means the second one
     /// presents a revoked credential and permanently breaks the connection.
-    private func withFreshToken(_ completion: @escaping (String?) -> Void) {
-        let token = SecretStore.get(connector: .whoop, field: SecretStore.Field.accessToken)
-        let expiresAt = SecretStore.get(connector: .whoop, field: SecretStore.Field.expiresAt)
+    ///
+    /// Takes the snapshot its caller already paid for rather than reading the
+    /// Keychain again: these five reads used to happen on the main thread, and
+    /// five more chances to block on securityd is five more ways to hang the
+    /// launch. The values are microseconds old, which is exactly as fresh as
+    /// reading them here would have been.
+    /// `forceRenewal` skips the "it has not expired yet" shortcut.
+    ///
+    /// Whoop can reject a token that has not expired — a revoked grant, a
+    /// rotation on their side, a token the stored expiry disagrees with. The
+    /// only way to tell that apart from a genuinely dead sign-in is to renew and
+    /// try once more, which is what the retry in `load` does.
+    private func withFreshToken(
+        _ secrets: SecretStore.Secrets,
+        forceRenewal: Bool = false,
+        completion: @escaping (String?) -> Void
+    ) {
+        let token = secrets.value(.whoop, SecretStore.Field.accessToken)
+        let expiresAt = secrets.value(.whoop, SecretStore.Field.expiresAt)
             .flatMap(Double.init)
             .map { Date(timeIntervalSince1970: $0) }
 
         // Sixty seconds of slack, so a token does not expire between the check
         // and the request it was checked for.
-        if let expiresAt, expiresAt.timeIntervalSinceNow > 60, let token {
+        if !forceRenewal, let expiresAt, expiresAt.timeIntervalSinceNow > 60, let token {
             completion(token)
             return
         }
 
-        guard let refresh = SecretStore.get(connector: .whoop, field: SecretStore.Field.refreshToken),
-              let clientID = SecretStore.get(connector: .whoop, field: SecretStore.Field.clientID),
-              let clientSecret = SecretStore.get(connector: .whoop, field: SecretStore.Field.clientSecret),
+        guard let refresh = secrets.value(.whoop, SecretStore.Field.refreshToken),
+              let clientID = secrets.value(.whoop, SecretStore.Field.clientID),
+              let clientSecret = secrets.value(.whoop, SecretStore.Field.clientSecret),
               let url = URL(string: "https://api.prod.whoop.com/oauth/oauth2/token")
         else {
             // Nothing to renew from. Hand back the token only if it is still
             // alive; a stale one would fail as a mystery 401 rather than as the
-            // reconnect-once state it actually is.
-            let stillValid = (expiresAt.map { $0.timeIntervalSinceNow > 0 } ?? true)
+            // reconnect-once state it actually is. Under a forced renewal there
+            // is nothing honest to hand back at all — the token is the thing
+            // that was just rejected.
+            let stillValid = !forceRenewal && (expiresAt.map { $0.timeIntervalSinceNow > 0 } ?? true)
             completion(stillValid ? token : nil)
             return
         }

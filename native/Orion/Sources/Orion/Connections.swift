@@ -123,8 +123,8 @@ struct ConnectorSpec {
             setupSteps: [
                 "Create a project, then an OAuth client of type Desktop app.",
                 "Add the YouTube Data API v3 to the project's enabled APIs.",
-                "Set the redirect URI to exactly: orion://oauth/google",
                 "Copy the Client ID and Client Secret into the fields here.",
+                "Press Connect. Orion receives Google's reply on a temporary 127.0.0.1 address, which Desktop OAuth clients allow automatically — there is no redirect URI to add in Google Cloud.",
                 "Nothing in Orion reads YouTube yet, so connecting this stores a grant and shows no numbers until that reader is written.",
             ],
             readOnly: true,
@@ -226,6 +226,30 @@ enum SecretStore {
 
     private static let service = "com.nickmadaio.orion.connections"
 
+    /// Where every Keychain read that happens at launch actually runs.
+    ///
+    /// `SecItemCopyMatching` is not a local lookup. It is a mach round trip to
+    /// securityd, and securityd blocks that call for as long as it takes a
+    /// human to answer a SecurityAgent prompt — which can be forever. Keychain
+    /// ACLs are bound to the app's code signature and every rebuild changes the
+    /// signature, so the FIRST launch of every build raises that prompt.
+    ///
+    /// On 2026-08-12 that prompt arrived while `ConnectionsModel.init` was
+    /// deriving state inside `NSHostingView(DashboardView)` — on the main
+    /// thread, during view construction, before any window existed. All 2323
+    /// samples of the hung process sat in `mach_msg` under
+    /// `SecItemCopyMatching`. Orion never opened a window, and because the
+    /// audio meter reports through `DispatchQueue.main.async`, the log went
+    /// dead too: a silent, permanent hang at 0.1% CPU caused by a dialog the
+    /// user had not clicked yet.
+    ///
+    /// So nothing on the launch path calls `get` directly any more. It asks for
+    /// a `Secrets` snapshot, which is filled in here, off the main thread. An
+    /// unanswered prompt now costs a connections list that reads "checking…"
+    /// for a while instead of an assistant that never starts.
+    private static let queue = DispatchQueue(label: "com.nickmadaio.orion.keychain",
+                                             qos: .userInitiated)
+
     static func set(_ value: String?, connector: ConnectorID, field: String) {
         let account = "\(connector.rawValue).\(field)"
         var query: [String: Any] = [
@@ -263,6 +287,64 @@ enum SecretStore {
         }
     }
 
+    // MARK: Snapshots
+
+    /// A point-in-time copy of what the Keychain holds.
+    ///
+    /// Reading one of these touches securityd exactly zero times, which is the
+    /// entire point: it is safe to derive UI state from on the main thread,
+    /// whereas `get` is not and never was.
+    struct Secrets {
+        fileprivate let values: [String: String]
+
+        /// What the launch path starts with, and what it keeps if the user
+        /// walks away from the authorization prompt. Every connector derives to
+        /// "needs setup" from this, which is wrong-but-harmless and corrects
+        /// itself the moment securityd answers.
+        static let empty = Secrets(values: [:])
+
+        func value(_ connector: ConnectorID, _ field: String) -> String? {
+            values["\(connector.rawValue).\(field)"]
+        }
+
+        func has(_ connector: ConnectorID, _ field: String) -> Bool {
+            value(connector, field) != nil
+        }
+    }
+
+    /// The fields connection state is derived from.
+    ///
+    /// Deliberately not `Field.all`. Every field is its own securityd round
+    /// trip and, on the first launch after a rebuild, potentially its own
+    /// authorization prompt — so the snapshot asks for what the derivation
+    /// actually reads and nothing more.
+    static let derivedFields = [
+        Field.clientID, Field.clientSecret, Field.accessToken,
+        Field.refreshToken, Field.expiresAt, Field.secretEnvironment,
+    ]
+
+    /// Read some fields for some connectors without blocking the caller.
+    ///
+    /// The completion always arrives on the main thread, because everything
+    /// that wants one of these is about to publish to a view.
+    static func load(
+        _ connectors: [ConnectorID],
+        fields: [String],
+        completion: @escaping (Secrets) -> Void
+    ) {
+        queue.async {
+            var values: [String: String] = [:]
+            for connector in connectors {
+                for field in fields {
+                    guard let value = get(connector: connector, field: field) else { continue }
+                    values["\(connector.rawValue).\(field)"] = value
+                }
+            }
+            let secrets = Secrets(values: values)
+            DispatchQueue.main.async { completion(secrets) }
+        }
+    }
+
     enum Field {
         static let clientID = "client_id"
         static let clientSecret = "client_secret"
@@ -288,6 +370,15 @@ enum SecretStore {
 // MARK: - State
 
 enum ConnectionState: Equatable {
+    /// The Keychain has not answered yet.
+    ///
+    /// Every connector starts here now. Deriving state means reading secrets,
+    /// reading secrets can block on a SecurityAgent prompt, and blocking on
+    /// that prompt used to happen on the main thread during view construction —
+    /// see `SecretStore.queue` for the launch it hung. A named waiting state is
+    /// what lets that read move off the main thread: the row can say it does
+    /// not know yet, instead of the app having to know before it can open.
+    case checking
     /// The client exists but Orion has no implementation for it yet. Its own
     /// state rather than a failure, because offering a Connect button that
     /// always fails wastes the user's time twice: once registering an app they
@@ -327,6 +418,7 @@ enum ConnectionState: Equatable {
 
     var label: String {
         switch self {
+        case .checking: return "checking…"
         case .notBuilt: return "not built yet"
         case .needsCredentials: return "needs setup"
         case .readyToConnect: return "ready"
@@ -358,6 +450,14 @@ final class ConnectionsModel: ObservableObject {
     @Published private(set) var states: [ConnectorID: ConnectionState] = [:]
     @Published var busy: ConnectorID?
 
+    /// True when Plaid holds a secret that belongs to the other environment.
+    ///
+    /// Published rather than asked for on demand. The row that shows this used
+    /// to call a static that read the Keychain from inside `body` — which is
+    /// the main thread, which is the one thread that must never wait on
+    /// securityd. See `SecretStore.queue`.
+    @Published private(set) var plaidSecretMismatch = false
+
     private var changeObserver: NSObjectProtocol?
 
     /// Fired the moment a connector finishes authorizing.
@@ -369,6 +469,15 @@ final class ConnectionsModel: ObservableObject {
     var onConnected: ((ConnectorID) -> Void)?
 
     init() {
+        // Seeded WITHOUT touching the Keychain, and that is the whole fix.
+        //
+        // This initialiser runs inside `NSHostingView(DashboardView)`, on the
+        // main thread, before Orion has a window. It used to derive state here,
+        // which meant reading secrets here, which meant waiting on securityd
+        // here — and on the first launch after any rebuild securityd is waiting
+        // on a SecurityAgent prompt the user has not seen yet, because the app
+        // that would have drawn behind it never opened. See `SecretStore.queue`.
+        states = Dictionary(uniqueKeysWithValues: ConnectorSpec.all.map { ($0.id, .checking) })
         refreshAll()
         changeObserver = NotificationCenter.default.addObserver(
             forName: .orionConnectionsChanged,
@@ -385,31 +494,62 @@ final class ConnectionsModel: ObservableObject {
         }
     }
 
-    func refreshAll() {
-        var next: [ConnectorID: ConnectionState] = [:]
-        for spec in ConnectorSpec.all {
-            next[spec.id] = derive(spec.id)
+    /// Re-derive every connector from a fresh Keychain snapshot.
+    ///
+    /// Returns immediately. The states arrive on the main thread whenever
+    /// securityd answers, which may be never — if the user walks away from the
+    /// authorization prompt, the rows sit on "checking…" and everything else
+    /// about Orion carries on working. That is the trade this whole file's
+    /// launch path is built around.
+    func refreshAll(then: (() -> Void)? = nil) {
+        SecretStore.load(ConnectorID.allCases, fields: SecretStore.derivedFields) {
+            [weak self] secrets in
+            guard let self else { return }
+            defer { then?() }
+            // Read once, on the main thread, and hand the same value to every
+            // derivation — otherwise Plaid's environment could change between
+            // two connectors and produce a snapshot that disagrees with itself.
+            let environment = PlaidClient.environment
+            var next: [ConnectorID: ConnectionState] = [:]
+            for spec in ConnectorSpec.all {
+                next[spec.id] = ConnectionsModel.derive(spec.id, from: secrets,
+                                                        environment: environment)
+            }
+            self.plaidSecretMismatch = ConnectionsModel.plaidSecretMismatch(
+                in: secrets, environment: environment
+            )
+            self.states = next
         }
-        states = next
     }
 
     /// Derived from what is actually in the Keychain, never from a stored flag.
     /// A connector cannot claim to be connected without a token to show for it.
-    private func derive(_ id: ConnectorID) -> ConnectionState {
-        let hasCredentials = SecretStore.get(connector: id, field: SecretStore.Field.clientID) != nil
-            && SecretStore.get(connector: id, field: SecretStore.Field.clientSecret) != nil
+    ///
+    /// Pure, and static, over a snapshot rather than over live Keychain reads:
+    /// that is what lets the reads happen somewhere other than the main thread,
+    /// and it means the derivation can be reasoned about without a securityd
+    /// round trip in the middle of it.
+    static func derive(
+        _ id: ConnectorID,
+        from secrets: SecretStore.Secrets,
+        environment: String
+    ) -> ConnectionState {
+        let hasCredentials = secrets.has(id, SecretStore.Field.clientID)
+            && secrets.has(id, SecretStore.Field.clientSecret)
         guard hasCredentials else { return .needsCredentials }
         // Plaid holding the other environment's secret cannot connect, and
         // saying "ready" would send the user into a Connect that fails.
-        if id == .plaid, ConnectionsModel.plaidSecretMismatch() { return .needsCredentials }
+        if id == .plaid, plaidSecretMismatch(in: secrets, environment: environment) {
+            return .needsCredentials
+        }
 
-        guard let token = SecretStore.get(connector: id, field: SecretStore.Field.accessToken),
+        guard let token = secrets.value(id, SecretStore.Field.accessToken),
               !token.isEmpty
         else { return .readyToConnect }
 
-        let refreshable = SecretStore.get(connector: id, field: SecretStore.Field.refreshToken) != nil
+        let refreshable = secrets.has(id, SecretStore.Field.refreshToken)
 
-        if let raw = SecretStore.get(connector: id, field: SecretStore.Field.expiresAt),
+        if let raw = secrets.value(id, SecretStore.Field.expiresAt),
            let seconds = Double(raw) {
             let expires = Date(timeIntervalSince1970: seconds)
             // A grant that expires and has nothing to renew from is broken
@@ -423,8 +563,14 @@ final class ConnectionsModel: ObservableObject {
         return .connected(expires: nil)
     }
 
+    /// Unknown until the Keychain answers, rather than "needs setup".
+    ///
+    /// A connector Orion has not looked at yet is not a connector the user has
+    /// failed to configure, and saying "needs setup" next to a working Whoop
+    /// grant for the first second of every launch is the kind of small lie this
+    /// file's header is about.
     func state(_ id: ConnectorID) -> ConnectionState {
-        states[id] ?? .needsCredentials
+        states[id] ?? .checking
     }
 
     func saveCredentials(_ id: ConnectorID, clientID: String, clientSecret: String) {
@@ -447,12 +593,13 @@ final class ConnectionsModel: ObservableObject {
     /// A secret with no stamp is treated as Sandbox: that is what every
     /// existing install has, since Sandbox is the default and was the only
     /// thing reachable before there was a switch.
-    static func plaidSecretMismatch() -> Bool {
-        guard SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret) != nil
-        else { return false }
-        let saved = SecretStore.get(connector: .plaid, field: SecretStore.Field.secretEnvironment)
-            ?? "sandbox"
-        return saved != PlaidClient.environment
+    static func plaidSecretMismatch(
+        in secrets: SecretStore.Secrets,
+        environment: String
+    ) -> Bool {
+        guard secrets.has(.plaid, SecretStore.Field.clientSecret) else { return false }
+        let saved = secrets.value(.plaid, SecretStore.Field.secretEnvironment) ?? "sandbox"
+        return saved != environment
     }
 
     func disconnect(_ id: ConnectorID) {
@@ -467,6 +614,23 @@ final class ConnectionsModel: ObservableObject {
     func forget(_ id: ConnectorID) {
         SecretStore.clear(connector: id)
         refreshAll()
+    }
+
+    /// Re-read the Keychain AND ask every live connector to pull its data.
+    ///
+    /// The rows already re-derive when a grant changes, but nothing re-derives
+    /// when the grant is fine and the CLIENT is the thing that is stuck — a
+    /// connector that failed once sat there looking broken until its own timer
+    /// came round a quarter of an hour later. This is the button for that, and
+    /// it reuses `onConnected` because "pull your data now" is exactly what a
+    /// client does the moment it is connected.
+    func recheck() {
+        refreshAll { [weak self] in
+            guard let self else { return }
+            for spec in ConnectorSpec.all where self.state(spec.id).isConnected {
+                self.onConnected?(spec.id)
+            }
+        }
     }
 
     /// Set by the dashboard so Plaid's non-OAuth flow has somewhere to run.

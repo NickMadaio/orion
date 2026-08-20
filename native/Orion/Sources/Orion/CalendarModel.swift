@@ -1,11 +1,13 @@
 //
 //  What the calendar knows: facts only.
 //
-//  Gate 8 ships REAL DATA and no scoring. A coloured day that means "you did
-//  well" needs a policy, a version, and an honest "insufficient data" state, and
-//  inventing one before the facts are on screen means shipping an opinion with
-//  nothing underneath it. So: events, completed reminders, deadlines, and the
-//  focus sessions that actually happened. Nothing is rated.
+//  Facts first: events, completed reminders, deadlines, and the focus sessions
+//  that actually happened. The one derived thing is the day's score, and it is
+//  derived HERE, once per reload, rather than in a cell body — a SwiftUI grid
+//  asks a cell for its body far more often than the data changes.
+//
+//  The score's rules live in SessionDomain/DayScore.swift, including the one
+//  that matters: an input that is missing is excluded, never counted as zero.
 //
 //  Three sources, three failure modes, three separate disclosures. An empty day
 //  because Calendar access was denied and an empty day because nothing happened
@@ -14,6 +16,7 @@
 //
 
 import Foundation
+import Combine
 import Combine
 import SwiftUI
 import SessionDomain
@@ -72,6 +75,8 @@ final class CalendarModel: ObservableObject {
     private let agenda: AppleCalendarSync
     private let reminders: AppleRemindersSync
     private let history: SessionHistory
+    private let health: HealthLog
+    private var cancellables = Set<AnyCancellable>()
 
     /// What has already been fetched, so paging inside it costs nothing.
     private var fetched: DateInterval?
@@ -79,10 +84,11 @@ final class CalendarModel: ObservableObject {
     private let dayFormatter: DateFormatter
 
     init(agenda: AppleCalendarSync, reminders: AppleRemindersSync,
-         history: SessionHistory, calendar: Calendar = .current) {
+         history: SessionHistory, health: HealthLog, calendar: Calendar = .current) {
         self.agenda = agenda
         self.reminders = reminders
         self.history = history
+        self.health = health
         self.range = CalendarRange(calendar: calendar)
 
         let formatter = DateFormatter()
@@ -90,6 +96,27 @@ final class CalendarModel: ObservableObject {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = calendar.timeZone
         self.dayFormatter = formatter
+
+        // EventKit returns completed reminders asynchronously. Rebuild when
+        // that answer arrives; otherwise the calendar's first pass misses the
+        // completion markers until someone manually changes the page.
+        reminders.$completedEverywhere
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reload(force: false) }
+            .store(in: &cancellables)
+
+        health.$dailyRecords
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildScores() }
+            .store(in: &cancellables)
+
+        health.$caloriesByDay
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildScores() }
+            .store(in: &cancellables)
 
         reload(force: true)
     }
@@ -120,6 +147,15 @@ final class CalendarModel: ObservableObject {
     /// Pick a day without changing the page.
     func select(_ day: Date) {
         selectedDay = day
+    }
+
+    /// A double click is an intentional request to inspect the selected date,
+    /// rather than merely move the selection inside the month/week grid.
+    func showDay(_ day: Date) {
+        granularity = .day
+        focusDate = day
+        selectedDay = day
+        reload(force: true)
     }
 
     /// The seven days around the selected one.
@@ -258,34 +294,63 @@ final class CalendarModel: ObservableObject {
 
     /// Score each visible day from the facts already gathered.
     ///
-    /// Focus comes from history. Health is NOT available per-day here — Whoop
-    /// exposes recent days and the hand-logged hydration is today-only — so it
-    /// is passed as unavailable rather than guessed, which is why most days will
-    /// honestly report "not scored" until there is more to go on. That is the
-    /// designed behaviour, not a gap: inventing a health number to make the grid
-    /// look complete is the one thing the scoring rules forbid.
+    /// Four sources, and the point of the rewrite is that ANY of them can carry
+    /// a day on its own. Whoop is the one that arrives unattended — it scores
+    /// every night whether or not Nick ran a focus session — so a day with
+    /// nothing but a recovery and a sleep still gets a number and a colour,
+    /// marked provisional rather than withheld. Everything absent is passed as
+    /// unavailable, never as zero.
     private func rebuildScores() {
         var scores: [String: DayScore] = [:]
 
-        for (day, entries) in entriesByDay {
-            let records = entries.compactMap { entry -> HistoryRecord? in
-                guard case .focus = entry.kind else { return nil }
-                return historyByDay[day]?.first { $0.sessionID == entry.id.replacingOccurrences(of: "focus:", with: "") }
-            }
+        let days = Set(entriesByDay.keys)
+            .union(health.dailyRecords.keys)
+            .union(historyByDay.keys)
 
-            var inputs = DayScoring.focusInputs(records: records)
-            inputs.append(ScoreInput(.recovery, value: nil,
-                                     unavailable: "recovery for past days is not stored yet"))
-            inputs.append(ScoreInput(.sleep, value: nil,
-                                     unavailable: "sleep for past days is not stored yet"))
-            inputs.append(ScoreInput(.selfCare, value: nil,
-                                     unavailable: "hydration is only kept for today"))
+        for day in days {
+            let entries = entriesByDay[day] ?? []
+            var inputs = DayScoring.focusInputs(records: historyByDay[day] ?? [])
+
+            // Ticked off against left overdue. A deadline that has not passed
+            // yet is not counted against the day it is due on.
+            var completed = 0
+            var overdue = 0
+            for entry in entries {
+                switch entry.kind {
+                case .completed: completed += 1
+                case .deadline(let isOverdue): if isOverdue { overdue += 1 }
+                default: break
+                }
+            }
+            inputs.append(DayScoring.tasksInput(completed: completed, overdue: overdue))
+
+            let healthDay = health.record(for: day)
+            inputs.append(DayScoring.recoveryInput(percent: healthDay?.recovery))
+            inputs.append(DayScoring.sleepInput(percent: healthDay?.sleepPerformance))
+
+            // The band comes from that day's own recovery — a 14 strain is a
+            // good day on green and an overreach on red.
+            let band = StrainTarget.forRecovery(healthDay?.recovery)
+            inputs.append(DayScoring.exertionInput(strain: healthDay?.strain,
+                                                   bandLow: band.low, bandHigh: band.high))
+
+            inputs.append(DayScoring.selfCareInput(
+                bottles: healthDay?.waterBottles ?? 0,
+                bottleGoal: Self.bottleGoal,
+                supplementsTaken: healthDay?.supplementIDs.count ?? 0,
+                supplementsPlanned: health.supplements.count
+            ))
+            inputs.append(DayScoring.nutritionInput(calories: health.caloriesByDay[day] ?? 0,
+                                                    goal: health.nutritionGoals.calories))
 
             scores[day] = DayScoring.score(dayKey: day, inputs: inputs)
         }
 
         scoresByDay = scores
     }
+
+    /// Nine bottles is the day's water, as the hydration control already assumes.
+    private static let bottleGoal = 9
 
     /// History records grouped by day, so scoring does not re-read the file per
     /// cell.

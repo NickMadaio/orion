@@ -79,7 +79,10 @@ run_round() {
   echo
   echo "== $mode: both sides writing flat out for ${SECONDS_PER_ROUND}s =="
 
-  printf '{"schema":"orion.health.v1","updatedAt":"","supplements":[],"supplementLog":{},"workouts":[]}\n' > "$SCRATCH"
+  # Start from the real app's v3 shape, with fields the plugin does not own.
+  # The old plugin treated this as an empty log and erased every sentinel on
+  # its first write even when locking was otherwise perfect.
+  printf '{"schema":"orion.health.v3","updatedAt":"","supplements":[{"id":"keep-me","name":"Existing","dose":"","timeOfDay":"anytime"}],"supplementLog":{},"workouts":[],"days":{"2026-08-13":{"waterBottles":3,"calories":2100,"supplementIDs":["keep-me"],"updatedAt":"sentinel"}},"nutritionLog":{"2026-08-13":[{"id":"meal-1","title":"Dinner","meal":"Dinner","calories":700,"protein":30,"carbohydrates":80,"fat":20,"fiber":8,"notes":"sentinel","loggedAt":"2026-08-13T23:00:00Z"}]},"futureField":{"keep":true}}\n' > "$SCRATCH"
   rm -f "$SCRATCH.lock"
 
   ORION_HEALTH_LOG="$SCRATCH" "$BUILD/race-swift" \
@@ -131,6 +134,21 @@ unlocked_lost=$LOST
 run_round locked
 locked_lost=$LOST
 
+if ! node -e '
+  const fs = require("fs");
+  const log = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const ok = log.schema === "orion.health.v3"
+    && log.days?.["2026-08-13"]?.waterBottles === 3
+    && log.nutritionLog?.["2026-08-13"]?.[0]?.title === "Dinner"
+    && log.futureField?.keep === true
+    && log.supplements?.some((s) => s.id === "keep-me");
+  process.exit(ok ? 0 : 1);
+' "$SCRATCH"; then
+  echo "FAIL: the shipping writer discarded fields from the native v3 log."
+  exit 1
+fi
+echo "PASS: native v3 history and unknown future fields survived the race."
+
 echo
 echo "================================================================"
 echo " pre-fix (no lock) lost : $unlocked_lost"
@@ -139,6 +157,12 @@ echo "================================================================"
 
 if [ "$locked_lost" -ne 0 ]; then
   echo "FAIL: the locked path lost $locked_lost updates. Do not deploy."
+  exit 1
+fi
+locked_refused_swift=$(field "$BUILD/swift-locked.json" failures)
+locked_refused_node=$(field "$BUILD/node-locked.json" failures)
+if [ "$locked_refused_swift" -ne 0 ] || [ "$locked_refused_node" -ne 0 ]; then
+  echo "FAIL: the shipping path refused writes (swift $locked_refused_swift, node $locked_refused_node)."
   exit 1
 fi
 if [ "$unlocked_lost" -eq 0 ]; then

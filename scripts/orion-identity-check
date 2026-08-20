@@ -1,0 +1,86 @@
+#!/bin/zsh
+#
+# Does this build have the SAME identity as the one already installed?
+#
+# This is the single question an update has to answer before it is allowed to
+# reach anybody, including Nick. macOS binds every permission and every stored
+# secret to the app's DESIGNATED REQUIREMENT — for Orion that reads:
+#
+#   identifier "com.nickmadaio.orion.app" and certificate leaf = H"171a72ab…"
+#
+# TCC matches on it. The Keychain matches on it. Ship an update whose
+# requirement differs by one byte and the app is, to macOS, a different
+# application: microphone, accessibility and speech grants gone, every stored
+# token unreadable, and a second "Orion" in Privacy & Security. The user did
+# nothing wrong and has no way to tell what happened.
+#
+# So: no release goes out without this passing.
+#
+#   orion-identity-check                      .build/Orion.app vs /Applications/Orion.app
+#   orion-identity-check <candidate> [<reference>]
+#
+# Exit 0 identical · 1 they differ · 2 cannot tell (which is NOT a pass)
+#
+emulate -L zsh
+set -u
+
+REPO="${ORION_REPO:-$HOME/Desktop/ORION}"
+candidate="${1:-$REPO/native/Orion/.build/Orion.app}"
+reference="${2:-/Applications/Orion.app}"
+
+requirement_of() {
+  local bundle="$1"
+  [[ -d "$bundle" ]] || return 1
+  # `-r-` writes the requirement to stdout. The "designated =>" prefix is
+  # stripped so two requirements compare as plain strings.
+  #
+  # Both spellings are matched. An ad-hoc bundle prints the line COMMENTED —
+  # `# designated => cdhash H"..."` — and reading only the bare form made the
+  # one case this check exists to catch look like an unreadable signature
+  # rather than a mismatch. Ad-hoc is also the clearest mismatch there is:
+  # its requirement is a cdhash, which by definition changes every build.
+  codesign -d -r- "$bundle" 2>/dev/null \
+    | sed -n -e 's/^# *designated => //p' -e 's/^designated => //p'
+}
+
+candidate_req="$(requirement_of "$candidate")"
+if [[ -z "$candidate_req" ]]; then
+  print -r -- "orion-identity-check: cannot read a signature at $candidate" >&2
+  print -r -- "  Build and sign it first: native/Orion/make_app_bundle.sh" >&2
+  exit 2
+fi
+
+reference_req="$(requirement_of "$reference")"
+if [[ -z "$reference_req" ]]; then
+  # Nothing installed yet is not a failure — it is the first install, and there
+  # is no prior identity to preserve. Say which one it will establish.
+  print -r -- "No app at $reference — nothing to compare against."
+  print -r -- "This build would establish:"
+  print -r -- "  $candidate_req"
+  exit 0
+fi
+
+if [[ "$candidate_req" == "$reference_req" ]]; then
+  print -r -- "✓ identity matches — permissions and stored secrets survive this update"
+  print -r -- "  $candidate_req"
+  exit 0
+fi
+
+cat >&2 <<MISMATCH
+✗ IDENTITY MISMATCH — do not ship this build
+
+  installed:  $reference_req
+  candidate:  $candidate_req
+
+  macOS treats these as two different applications. Installing the candidate
+  would reset microphone, accessibility and speech permissions and orphan every
+  secret in the Keychain.
+
+  Usual causes:
+    · the build fell back to ad-hoc signing (no valid identity available)
+    · the signing certificate was regenerated, so the leaf hash changed
+    · the bundle identifier changed
+
+  Check what identities exist:  security find-identity -v -p codesigning
+MISMATCH
+exit 1

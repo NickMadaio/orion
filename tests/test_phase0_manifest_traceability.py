@@ -43,7 +43,20 @@ class ManifestTraceabilityTests(unittest.TestCase):
         )
         self.assertEqual(registry["current"]["0"]["status"], gates["phases"]["0"]["status"])
         self.assertEqual(registry["current"]["1"]["status"], gates["phases"]["1"]["status"])
-        self.assertFalse(gates["phases"]["1"]["entrySatisfied"])
+        self.assertTrue(gates["phases"]["1"]["entrySatisfied"])
+        self.assertEqual(registry["current"]["0"]["status"], "complete")
+        self.assertEqual(registry["current"]["1"]["status"], "complete")
+        # Phase 1 closed on 2026-08-20 against PHASE_1_PLAN.md rather than the
+        # manifest's literal exit gate. That divergence is not a footnote, so
+        # the gate file has to keep carrying it forward in machine-readable
+        # form; a later phase must not inherit it silently.
+        self.assertTrue(
+            any(
+                deviation["id"] == "manifest_literal_exit_gate_not_met"
+                for deviation in gates["phases"]["1"]["deviations"]
+            )
+        )
+        self.assertEqual(registry["current"]["2"]["status"], gates["phases"]["2"]["status"])
 
 
 if __name__ == "__main__":

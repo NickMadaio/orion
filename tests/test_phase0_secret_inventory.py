@@ -66,6 +66,29 @@ class SecretInventoryTests(unittest.TestCase):
         self.assertEqual(inventory.relationship("one", "two"), "different")
         self.assertEqual(inventory.relationship("same", "same"), "same")
 
+    def test_rotation_requires_explicit_redacted_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            self.assertEqual(
+                inventory.rotation_status(repo)["anthropicPreviouslyExposed"],
+                "unresolved",
+            )
+            evidence = repo / inventory.ROTATION_EVIDENCE
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "status": "resolved",
+                        "resolvedAt": "2026-08-19",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            resolved = inventory.rotation_status(repo)
+            self.assertEqual(resolved["anthropicPreviouslyExposed"], "rotated")
+            self.assertNotIn(str(repo), inventory.render_inventory({"rotation": resolved}))
+
 
 if __name__ == "__main__":
     unittest.main()

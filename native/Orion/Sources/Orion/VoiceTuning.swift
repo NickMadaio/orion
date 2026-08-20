@@ -116,6 +116,23 @@ enum VoiceTuning {
     /// trip the stall check.
     static let absoluteSpeakingCeiling: Double = 300
 
+    /// Absolute ceiling on one `.thinking` phase.
+    ///
+    /// `.thinking` is the same hole `.speaking` had, and on 2026-08-12 it opened:
+    /// twelve minutes of live microphone and no wake word, cured only by
+    /// relaunching. `GatewayClient.ask` blocks on `readDataToEndOfFile()` and
+    /// `agentQueue` is serial, so one wedged agent subprocess strands the phase
+    /// forever — and every input path is gated on the phase.
+    ///
+    /// There is no progress signal to measure here: the agent is a subprocess
+    /// that says nothing until it is finished, so this is a ceiling and not a
+    /// stall timeout. It sits deliberately BEHIND the gateway's own limits
+    /// (`timeoutSeconds` 180, plus its 15s terminate backstop) so that a slow
+    /// answer and a clean gateway failure both win the race. Reaching this
+    /// number means both of those failed, which is exactly when a floor is the
+    /// only thing left.
+    static let absoluteThinkingCeiling: Double = 210
+
     // MARK: - Reading back
 
     /// One line for `orion-doctor` and the preferences pane.

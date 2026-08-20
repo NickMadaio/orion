@@ -1,3 +1,4 @@
+import { classifyConfigPath, classifyPluginFile, classifyScript, validateConfigValue, } from "./selfrepair.js";
 export const MUTABLE_ROOTS = [
     "test_workspace",
     "scratch_workspace",
@@ -56,6 +57,18 @@ export const TUNABLE_SETTINGS = {
         description: "Seconds of no audio before a speaking phase is presumed wedged and force-ended. This is the guard against Orion believing he is still talking when he is not.",
     },
 };
+/**
+ * Words that make a sentence an instruction about permission rather than a
+ * sentence that merely mentions one.
+ *
+ * Deliberately broad and deliberately not a phrasing rule. It is not trying to
+ * re-derive intent — the wording checks that used to do that were deleted for
+ * good reasons written up in `validator.ts`. It asks one narrow question that
+ * the taint check and the approval hash cannot: is this turn about authority at
+ * all? Widening the list only ever lets more true requests through, and every
+ * one of them still has to name the target and clear the approval gate.
+ */
+export const AUTHORITY_INSTRUCTION = /\b(?:enable|enabled|disable|disabled|allow|allowed|grant|granted|permission|permissions|permit|authority|authorise|authorize|capability|capabilities|profile|unlock|turn\s+(?:it\s+)?(?:on|off)|switch\s+(?:it\s+)?(?:on|off)|let\s+you|give\s+you|you\s+may|you\s+can\s+now)\b/i;
 const SAFE_NAME = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 /**
  * Credential-shaped names, refused everywhere a path is accepted.
@@ -542,6 +555,73 @@ function fileMutation(operation, definition) {
         },
     };
 }
+/**
+ * The find/replace pair, checked the same way `self_modify` checks it.
+ *
+ * Whole-file contents were the wrong interface there and are the wrong
+ * interface here for the same measured reason: asking a small model to
+ * reproduce two thousand lines of `catalog.ts` verbatim is slow, expensive and
+ * one dropped brace from destroying it. A quoted fragment cannot truncate
+ * anything, and the engine refuses a fragment that does not appear exactly once.
+ */
+function editFragmentIssues(arguments_) {
+    const problems = [];
+    if (typeof arguments_.find !== "string" || arguments_.find.trim().length === 0) {
+        problems.push("find must be the exact existing text to replace, copied from the file including its whitespace, and must appear exactly once");
+    }
+    if (typeof arguments_.replace !== "string") {
+        problems.push("replace must be the text to put in its place");
+    }
+    return problems;
+}
+/**
+ * Refuse an edit routed to the wrong action.
+ *
+ * The check runs in BOTH directions, and the second direction is the one that
+ * matters. An authority file arriving at the operational action is the attack —
+ * it would skip the approval gate and the naming requirement — so it is refused
+ * with the name of the action that does have those gates, which is also the
+ * sentence Orion needs in order to ask Nick properly. An operational file
+ * arriving at the authority action is only a mistake, but routing it back keeps
+ * the two lists from quietly overlapping.
+ */
+function classIssues(klass, expected, reason, what, authorityAction) {
+    if (klass === "forbidden") {
+        return [reason ?? `${what} cannot be changed by Orion`];
+    }
+    if (klass === expected)
+        return [];
+    return klass === "authority"
+        ? [
+            `${what} decides what Orion is allowed to do, so it cannot be changed silently — ask for it by name and it goes through ${authorityAction}, which asks you first`,
+        ]
+        : [
+            `${what} is ordinary behaviour rather than an authority change, so it does not need the approval gate — use the plain action instead`,
+        ];
+}
+function pluginEditIssues(arguments_, expected) {
+    const decision = classifyPluginFile(arguments_.pluginFile);
+    return [
+        ...classIssues(decision.klass, expected, decision.reason, `'${String(arguments_.pluginFile)}'`, "self_plugin_authority_modify"),
+        ...editFragmentIssues(arguments_),
+    ];
+}
+function scriptEditIssues(arguments_, expected) {
+    const decision = classifyScript(arguments_.script);
+    return [
+        ...classIssues(decision.klass, expected, decision.reason, `'${String(arguments_.script)}'`, "self_script_authority_modify"),
+        ...editFragmentIssues(arguments_),
+    ];
+}
+function configSetIssues(arguments_, expected) {
+    const decision = classifyConfigPath(arguments_.key);
+    const issues = classIssues(decision.klass, expected, decision.reason, `'${String(arguments_.key)}'`, "self_config_authority_set");
+    if (issues.length > 0)
+        return issues;
+    return decision.setting
+        ? validateConfigValue(decision.setting, arguments_.value)
+        : ["that setting has no validation rule, so it is refused"];
+}
 export const ACTION_CATALOG = {
     /**
      * `approvalRequired: false` is a decision, not an oversight.
@@ -614,6 +694,209 @@ export const ACTION_CATALOG = {
             }
             return problems;
         },
+    },
+    // ---------------------------------------------------------------------
+    // Repairing the plugin, the wrappers and the config.
+    //
+    // Three surfaces, and each one appears twice on purpose: once for changes
+    // that make Orion work better, and once for changes that make Orion allowed
+    // to do more. Splitting them in the catalog rather than branching inside one
+    // action is what lets `approvalRequired` and `userOriginatedArguments` differ
+    // between the two, and it is what makes `orion-authority` classify the second
+    // set at APPROVAL without being told to.
+    //
+    // The reads are at the ordinary read tier for the same reason `self_source_*`
+    // is: Orion cannot quote a fragment he cannot open, and this is code on
+    // Nick's own disk.
+    // ---------------------------------------------------------------------
+    self_plugin_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_listed",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_repair", surface: "plugin", operation: "list" },
+    },
+    self_plugin_read: {
+        risk: "low",
+        requiredArguments: ["pluginFile"],
+        approvalRequired: false,
+        verification: "self_repair_read",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_repair", surface: "plugin", operation: "read" },
+        validateArguments: (arguments_) => {
+            const decision = classifyPluginFile(arguments_.pluginFile);
+            return decision.klass === "forbidden"
+                ? [decision.reason ?? "that is not a readable plugin source"]
+                : [];
+        },
+    },
+    self_plugin_modify: {
+        risk: "high",
+        requiredArguments: ["pluginFile", "find", "replace"],
+        approvalRequired: false,
+        verification: "self_repair_applied",
+        reversible: true,
+        capabilityTier: "self_plugin",
+        execution: { kind: "self_repair", surface: "plugin", operation: "modify" },
+        validateArguments: (arguments_) => pluginEditIssues(arguments_, "operational"),
+    },
+    /**
+     * The same edit, aimed at the code that decides what Orion may do.
+     *
+     * Everything that distinguishes it from the action above is a gate: Nick has
+     * to have named the file, the turn has to be about permission, and the
+     * arguments have to carry an approval hash bound to exactly this change. The
+     * engine then makes it prove itself — a change to an enforcement file has to
+     * pass the gate self-test, which asserts that a forged anchor, an absent
+     * anchor and a tainted target are all still refused by the code that was just
+     * built. Fail that and it is rolled back before it is ever loaded.
+     */
+    self_plugin_authority_modify: {
+        risk: "critical",
+        requiredArguments: ["pluginFile", "find", "replace"],
+        approvalRequired: true,
+        verification: "self_repair_applied",
+        reversible: true,
+        capabilityTier: "self_plugin",
+        execution: {
+            kind: "self_repair",
+            surface: "plugin",
+            operation: "modify",
+            authority: true,
+        },
+        authorityChange: true,
+        userOriginatedArguments: ["pluginFile"],
+        validateArguments: (arguments_) => pluginEditIssues(arguments_, "authority"),
+    },
+    self_plugin_revert: {
+        risk: "medium",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_reverted",
+        reversible: true,
+        capabilityTier: "self_plugin",
+        execution: { kind: "self_repair", surface: "plugin", operation: "revert" },
+    },
+    self_script_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_listed",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_repair", surface: "script", operation: "list" },
+    },
+    self_script_read: {
+        risk: "low",
+        requiredArguments: ["script"],
+        approvalRequired: false,
+        verification: "self_repair_read",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_repair", surface: "script", operation: "read" },
+        validateArguments: (arguments_) => {
+            const decision = classifyScript(arguments_.script);
+            return decision.klass === "forbidden"
+                ? [decision.reason ?? "that is not a readable wrapper script"]
+                : [];
+        },
+    },
+    self_script_modify: {
+        risk: "high",
+        requiredArguments: ["script", "find", "replace"],
+        approvalRequired: false,
+        verification: "self_repair_applied",
+        reversible: true,
+        capabilityTier: "self_scripts",
+        execution: { kind: "self_repair", surface: "script", operation: "modify" },
+        validateArguments: (arguments_) => scriptEditIssues(arguments_, "operational"),
+    },
+    self_script_authority_modify: {
+        risk: "critical",
+        requiredArguments: ["script", "find", "replace"],
+        approvalRequired: true,
+        verification: "self_repair_applied",
+        reversible: true,
+        capabilityTier: "self_scripts",
+        execution: {
+            kind: "self_repair",
+            surface: "script",
+            operation: "modify",
+            authority: true,
+        },
+        authorityChange: true,
+        userOriginatedArguments: ["script"],
+        validateArguments: (arguments_) => scriptEditIssues(arguments_, "authority"),
+    },
+    self_script_revert: {
+        risk: "medium",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_reverted",
+        reversible: true,
+        capabilityTier: "self_scripts",
+        execution: { kind: "self_repair", surface: "script", operation: "revert" },
+    },
+    self_config_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_listed",
+        reversible: true,
+        capabilityTier: "self_config",
+        execution: { kind: "self_repair", surface: "config", operation: "list" },
+    },
+    self_config_set: {
+        risk: "medium",
+        requiredArguments: ["key", "value"],
+        approvalRequired: false,
+        verification: "self_repair_applied",
+        reversible: true,
+        capabilityTier: "self_config",
+        execution: { kind: "self_repair", surface: "config", operation: "modify" },
+        validateArguments: (arguments_) => configSetIssues(arguments_, "operational"),
+    },
+    /**
+     * The switch-flipping half. `enableMessagesSendActions`, `tools.exec.security`,
+     * `plugins.allow` — everything that answers "what is Orion allowed to do".
+     */
+    self_config_authority_set: {
+        risk: "critical",
+        requiredArguments: ["key", "value"],
+        approvalRequired: true,
+        verification: "self_repair_applied",
+        reversible: true,
+        capabilityTier: "self_config",
+        execution: {
+            kind: "self_repair",
+            surface: "config",
+            operation: "modify",
+            authority: true,
+        },
+        authorityChange: true,
+        userOriginatedArguments: ["key"],
+        validateArguments: (arguments_) => configSetIssues(arguments_, "authority"),
+    },
+    self_config_revert: {
+        risk: "medium",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_reverted",
+        reversible: true,
+        capabilityTier: "self_config",
+        execution: { kind: "self_repair", surface: "config", operation: "revert" },
+    },
+    self_repair_status: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "self_repair_status",
+        reversible: true,
+        capabilityTier: "desktop_read",
+        execution: { kind: "self_repair", surface: "plugin", operation: "status" },
     },
     folder_create: {
         risk: "low",
@@ -867,7 +1150,7 @@ export const ACTION_CATALOG = {
     }),
     desktop_list: {
         risk: "low",
-        requiredArguments: ["relativePath"],
+        requiredArguments: [],
         approvalRequired: false,
         verification: "desktop_listing_matches",
         reversible: true,
@@ -879,7 +1162,8 @@ export const ACTION_CATALOG = {
             maxEntries: 100,
         },
         validateArguments(arguments_) {
-            return isSafeRelativePath(arguments_.relativePath, true)
+            const relativePath = arguments_.relativePath ?? ".";
+            return isSafeRelativePath(relativePath === "" ? "." : relativePath, true)
                 ? []
                 : ["relativePath must stay within Desktop and contain no hidden or sensitive path segment"];
         },
@@ -956,7 +1240,7 @@ export const ACTION_CATALOG = {
     // write policy types cannot even name the home root.
     home_list: {
         risk: "low",
-        requiredArguments: ["relativePath"],
+        requiredArguments: [],
         approvalRequired: false,
         verification: "home_listing_matches",
         reversible: true,
@@ -968,7 +1252,8 @@ export const ACTION_CATALOG = {
             maxEntries: 200,
         },
         validateArguments(arguments_) {
-            return isSafeHomeRelativePath(arguments_.relativePath, true)
+            const relativePath = arguments_.relativePath ?? ".";
+            return isSafeHomeRelativePath(relativePath === "" ? "." : relativePath, true)
                 ? []
                 : [
                     "relativePath must stay within the home directory and name no hidden, credential, keychain, or cookie path segment",
@@ -1288,4 +1573,279 @@ export const ACTION_CATALOG = {
         capabilityTier: "health_tracking",
         execution: { kind: "health_log", operation: "workout_status" },
     },
+    // ---------------------------------------------------- Calendar + Reminders
+    //
+    // These are deliberately typed actions rather than subcommands on the
+    // read-only `orion-agenda` exec wrapper. An allowlist can decide whether a
+    // program may run; it cannot distinguish `today` from `remove`. Putting the
+    // mutations here gives each one its own risk, origin and approval contract.
+    calendar_event_add: {
+        risk: "medium",
+        requiredArguments: ["title", "start"],
+        approvalRequired: false,
+        verification: "calendar_event_present",
+        reversible: true,
+        capabilityTier: "calendar",
+        execution: { kind: "calendar", operation: "event_add" },
+        userOriginatedArguments: ["title"],
+        validateArguments(arguments_) {
+            const issues = [];
+            const title = arguments_.title;
+            if (typeof title !== "string" || title.trim().length === 0) {
+                issues.push("title must name the event");
+            }
+            else if (title.length > 200) {
+                issues.push("title must be 200 characters or fewer");
+            }
+            if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(arguments_.start ?? ""))) {
+                issues.push("start must be local time in YYYY-MM-DDTHH:mm form");
+            }
+            const minutes = arguments_.minutes;
+            if (minutes !== undefined &&
+                (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440)) {
+                issues.push("minutes must be a whole number from 5 to 1440");
+            }
+            return issues;
+        },
+    },
+    calendar_event_remove: {
+        risk: "high",
+        requiredArguments: ["title"],
+        approvalRequired: true,
+        verification: "calendar_event_absent",
+        reversible: false,
+        capabilityTier: "calendar",
+        execution: { kind: "calendar", operation: "event_remove" },
+        userOriginatedArguments: ["title"],
+        validateArguments(arguments_) {
+            const title = arguments_.title;
+            return typeof title === "string" && title.trim().length > 0 && title.length <= 200
+                ? []
+                : ["title must exactly name one event and be 200 characters or fewer"];
+        },
+    },
+    apple_reminder_add: {
+        risk: "medium",
+        requiredArguments: ["title"],
+        approvalRequired: false,
+        verification: "apple_reminder_present",
+        reversible: true,
+        capabilityTier: "calendar",
+        execution: { kind: "calendar", operation: "reminder_add" },
+        userOriginatedArguments: ["title"],
+        validateArguments(arguments_) {
+            const issues = [];
+            const title = arguments_.title;
+            if (typeof title !== "string" || title.trim().length === 0 || title.length > 200) {
+                issues.push("title must name the reminder and be 200 characters or fewer");
+            }
+            const due = arguments_.due;
+            if (due !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(due))) {
+                issues.push("due must be local time in YYYY-MM-DDTHH:mm form");
+            }
+            return issues;
+        },
+    },
+    // ------------------------------------------------------------- messages
+    //
+    // Orion used to answer "I don't have access to your text messages", which was
+    // true of his toolbelt and false of the machine: chat.db was readable the
+    // whole time and the app had been reading it for weeks. The capability was
+    // missing from the CATALOG, so there was no amount of asking that would have
+    // worked. These four reads are that gap closed.
+    //
+    // No target-naming requirement on the reads, for the same reason the ambient
+    // reads have none: there is nothing to overwrite and the worst a wrong answer
+    // costs is a wrong answer. The send is a different matter entirely -- see
+    // `messages_send` at the bottom.
+    messages_recent: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "messages_reported",
+        reversible: true,
+        capabilityTier: "messages_read",
+        execution: { kind: "messages_read", operation: "recent" },
+        validateArguments(arguments_) {
+            return validateMessageLimit(arguments_.limit);
+        },
+    },
+    messages_from: {
+        risk: "low",
+        requiredArguments: ["person"],
+        approvalRequired: false,
+        verification: "messages_reported",
+        reversible: true,
+        capabilityTier: "messages_read",
+        execution: { kind: "messages_read", operation: "from" },
+        validateArguments(arguments_) {
+            const person = arguments_.person;
+            if (typeof person !== "string" || person.trim().length === 0) {
+                return ["person must name someone, such as a contact name or a number"];
+            }
+            if (person.length > 120)
+                return ["person is too long to be a name"];
+            return validateMessageLimit(arguments_.limit);
+        },
+    },
+    messages_search: {
+        risk: "low",
+        requiredArguments: ["text"],
+        approvalRequired: false,
+        verification: "messages_reported",
+        reversible: true,
+        capabilityTier: "messages_read",
+        execution: { kind: "messages_read", operation: "search" },
+        validateArguments(arguments_) {
+            const text = arguments_.text;
+            if (typeof text !== "string" || text.trim().length === 0) {
+                return ["text must be the words to look for"];
+            }
+            if (text.length > 200)
+                return ["text is too long to be a search"];
+            return validateMessageLimit(arguments_.limit);
+        },
+    },
+    messages_chats: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "messages_reported",
+        reversible: true,
+        capabilityTier: "messages_read",
+        execution: { kind: "messages_read", operation: "chats" },
+        validateArguments(arguments_) {
+            return validateMessageLimit(arguments_.limit);
+        },
+    },
+    /*
+     Which handles this Mac sends AS — Nick's own number and Apple ID.
+  
+     `orion-messages whoami` has existed since the reader was written, and was
+     reachable by nobody: not a catalog action, and `orion-messages` is not on the
+     exec allowlist either, so there was no route to it from inside Orion at all.
+     That left him unable to answer "what's my number", and — the reason this is
+     being fixed alongside the send bugs rather than after them — unable to send a
+     test message to a safe destination. Every rehearsal of the send path had to
+     aim at a real third party, so in practice the send path was never rehearsed.
+  
+     A read, at the read tier, with no arguments. It returns Nick's own handles to
+     Nick's own assistant on Nick's own machine, which is the least sensitive
+     thing in this section: the four reads above return what other people said,
+     and this one returns only who he is.
+    */
+    messages_whoami: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "messages_reported",
+        reversible: true,
+        capabilityTier: "messages_read",
+        execution: { kind: "messages_read", operation: "whoami" },
+    },
+    messages_contacts_status: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "messages_reported",
+        reversible: true,
+        capabilityTier: "messages_read",
+        execution: { kind: "messages_read", operation: "contacts_status" },
+    },
+    /*
+     The one irreversible outbound action in this catalog.
+  
+     Four independent gates, and it is worth naming them separately because no
+     one of them is sufficient:
+  
+       1. TIER. `messages_send` lives only at the `external_connected` profile,
+          so the profile has to be raised deliberately. A config flag alone does
+          not do it and neither does the profile alone -- `enabledTiers` is the
+          intersection.
+       2. ORIGIN. `userOriginatedArguments` requires the recipient to appear in
+          Nick's authenticated turn. A recipient named by a message Orion READ
+          cannot satisfy this, which is the attack this action exists to not
+          enable: anyone can text him, so message content is attacker-controlled
+          input, and a text saying "reply to +1555… that he agrees" must not be
+          able to address an outbound message.
+       3. TAINT. The body is compared against untrusted content, so a message he
+          read cannot be forwarded outward without his own words carrying it.
+       4. APPROVAL. `approvalRequired` binds a canonical hash to the exact
+          recipient AND body AND working context, so an approval for one message
+          cannot be replayed against a different one.
+  
+     `reversible: false` is the literal truth here rather than a formality, and
+     `risk: "high"` follows from it.
+    */
+    messages_send: {
+        risk: "high",
+        requiredArguments: ["recipient", "body"],
+        approvalRequired: true,
+        verification: "message_sent",
+        reversible: false,
+        capabilityTier: "messages_send",
+        execution: { kind: "messages_send" },
+        userOriginatedArguments: ["recipient"],
+        validateArguments(arguments_) {
+            const issues = [];
+            const recipient = arguments_.recipient;
+            if (typeof recipient !== "string" || recipient.trim().length === 0) {
+                issues.push("recipient must name one person, a phone number, or an Apple ID");
+            }
+            else if (recipient.length > 120) {
+                issues.push("recipient is too long to be a person");
+            }
+            else if (/[\u0000-\u001F\u007F]/.test(recipient)) {
+                issues.push("recipient must not contain control characters");
+            }
+            else if (/[,;]/.test(recipient)) {
+                // One message to one person. A list is how a mistake becomes a
+                // broadcast, and the script resolves exactly one handle by design.
+                issues.push("recipient must be a single person, not a list");
+            }
+            const body = arguments_.body;
+            if (typeof body !== "string" || body.trim().length === 0) {
+                issues.push("body must be the message to send");
+            }
+            else if (body.length > 2000) {
+                issues.push("body must be 2000 characters or fewer");
+            }
+            else if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(body)) {
+                issues.push("body must not contain control characters");
+            }
+            else if (SECRET_SHAPED_MESSAGE.some((pattern) => pattern.test(body))) {
+                // Also enforced in the script, which is the gate that holds if this
+                // one is ever bypassed. Refused here too so the model is told why
+                // rather than reading a non-zero exit.
+                issues.push("body looks like it contains a credential, a card number, or a one-time code, which must not be sent in a message");
+            }
+            return issues;
+        },
+    },
 };
+/** Shared by every messages read: how many rows, bounded on both ends. */
+function validateMessageLimit(limit) {
+    if (limit === undefined)
+        return [];
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return ["limit must be a whole number from 1 to 200"];
+    }
+    return [];
+}
+/**
+ * Credential shapes refused in an outbound message.
+ *
+ * The list `orion-remember` uses, plus the two that only matter once the
+ * destination is someone else's phone: card numbers, and the one-time codes
+ * that are the entire mechanism of a SIM-swap. Kept in sync with the copy in
+ * `scripts/orion-messages-send` on purpose -- the script must refuse these even
+ * when it is called directly, and this copy exists so the model gets a sentence
+ * back instead of an exit code.
+ */
+const SECRET_SHAPED_MESSAGE = [
+    /\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})/,
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+    /\b(?:\d[ -]?){13,16}\b(?=[^\d]|$)/,
+    /\b(?:one[- ]?time|verification|security|auth(?:entication)?|2fa|otp)\s+code\b/i,
+    /\b(?:password|passcode|passphrase|api[- ]?key|secret\s+key)\s*(?:is|:|=)\s*\S/i,
+];

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orion://schemas/decision/v1",
+  "title": "ORION Decision Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "proposal_id",
+    "outcome",
+    "policy_version",
+    "reason_codes",
+    "decided_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "decision_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
+    "proposal_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
+    "outcome": {"enum": ["ALLOW", "DENY", "REQUIRE_APPROVAL"]},
+    "policy_version": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,63}$"},
+    "reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1, "maxLength": 256}
+    },
+    "decided_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"}
+  }
+}

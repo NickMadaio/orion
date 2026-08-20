@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "status": "resolved",
+  "resolvedAt": "2026-08-19",
+  "replacement": {
+    "consoleName": "Orion V2 API",
+    "officialModelsEndpoint": "valid",
+    "normalRoute": "passed",
+    "taskLedger": "orion-2fbb30acae582950"
+  },
+  "retired": {
+    "consoleName": "orionKey",
+    "created": "2026-07-29",
+    "status": "disabled"
+  },
+  "savedCopy": {
+    "path": ".env.save",
+    "officialModelsEndpoint": "invalid",
+    "deleted": true
+  },
+  "redaction": "credential values and fingerprints omitted"
+}

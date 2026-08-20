@@ -19,22 +19,27 @@ struct SettingsTab: View {
 
     /// Gate 10's switches, which had no surface at all until now.
     @ObservedObject var focusExtras: FocusExtras
-    let quittable: QuittableApps
-    let dndConfigured: Bool
-    let dndSetup: String
+    /// What Orion is allowed to DO, as opposed to what macOS lets him see.
+    /// Lived only in openclaw.json until now, which meant editing JSON by hand
+    /// to change your assistant's powers.
+    @ObservedObject var capabilities: CapabilitiesModel
+    let focusControl: FocusModeControl
+    let focusConfigured: Bool
+    let focusSetup: String
+    var onRecheckFocus: () -> Void
 
-    /// Which sections are open. Permissions and Focus start open because they
-    /// are the two somebody actually comes here for; the rest are set once and
-    /// then in the way.
-    @State private var expanded: Set<String> = ["Permissions", "Focus session"]
+    /// Settings should open as a compact index, not as a wall of account and
+    /// integration detail. Each section expands only when it is needed.
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         HStack(alignment: .top, spacing: 54) {
             VStack(alignment: .leading, spacing: 18) {
                 section("Permissions") { permissions }
                 section("Focus session") {
-                    FocusSettings(extras: focusExtras, quittable: quittable,
-                                  dndConfigured: dndConfigured, dndSetup: dndSetup)
+                    FocusSettings(extras: focusExtras, focusControl: focusControl,
+                                  focusConfigured: focusConfigured, focusSetup: focusSetup,
+                                  onRecheckFocus: onRecheckFocus)
                 }
                 section("Surface") { surface }
                 section("Orion core") { core }
@@ -44,9 +49,12 @@ struct SettingsTab: View {
             .frame(width: 380)
             .fixedSize(horizontal: true, vertical: false)
 
-            VStack(alignment: .leading, spacing: 36) {
-                calendars
-                ConnectionsView(connections: connections)
+            VStack(alignment: .leading, spacing: 18) {
+                section("Calendars") { calendars }
+                section("Connections") { ConnectionsView(connections: connections) }
+                section("What Orion may do") {
+                    CapabilitiesView(model: capabilities)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 6)
@@ -87,6 +95,15 @@ struct SettingsTab: View {
             .buttonStyle(.plain)
 
             if isOpen { content() }
+        }
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(isOpen ? Color.white.opacity(0.055) : Color.white.opacity(0.025))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .strokeBorder(Color.white.opacity(isOpen ? 0.11 : 0.06), lineWidth: 0.75)
+                }
         }
     }
 
@@ -225,9 +242,6 @@ struct SettingsTab: View {
     /// calendar with its account and its event count answers that outright.
     private var calendars: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionRule(title: "Calendars",
-                        trailing: agenda.calendars.isEmpty ? "none" : "\(agenda.calendars.count) visible")
-
             if !agenda.access.isGranted {
                 Text(agenda.statusLine)
                     .font(.system(size: 12))

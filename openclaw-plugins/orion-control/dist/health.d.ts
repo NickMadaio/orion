@@ -23,12 +23,29 @@ export interface WorkoutSession {
     exercises: Exercise[];
     notes: string;
 }
+export interface HealthDayRecord {
+    waterBottles: number;
+    calories: number;
+    supplementIDs: string[];
+    recovery?: number;
+    sleepPerformance?: number;
+    sleepHours?: number;
+    hrv?: number;
+    restingHeartRate?: number;
+    strain?: number;
+    updatedAt: string;
+}
 export interface HealthLogFile {
-    schema: "orion.health.v1";
+    schema: "orion.health.v3";
     updatedAt: string;
     supplements: Supplement[];
     supplementLog: Record<string, string[]>;
     workouts: WorkoutSession[];
+    calorieLog?: Record<string, number>;
+    days?: Record<string, HealthDayRecord>;
+    nutritionLog?: Record<string, unknown[]>;
+    nutritionGoals?: Record<string, unknown>;
+    [key: string]: unknown;
 }
 export declare function defaultHealthLogPath(configured?: string): string;
 export declare function today(now?: Date): string;

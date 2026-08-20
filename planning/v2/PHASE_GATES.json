@@ -3,7 +3,7 @@
   "phases": {
     "0": {
       "name": "Freeze, Inventory, and Understand Existing ORION",
-      "status": "blocked",
+      "status": "complete",
       "requirements": [
         {
           "id": "development_checkpoint",
@@ -18,13 +18,12 @@
         {
           "id": "critical_regression_coverage",
           "status": "passed",
-          "evidence": "237 Python, 134 plugin, and 287 native tests plus live ledger smoke"
+          "evidence": "267 Python, 134 plugin, and 318 native tests plus authenticated live ledger smoke on 2026-08-19"
         },
         {
           "id": "secrets_accounted_for",
-          "status": "blocked",
-          "evidence": "planning/v2/PHASE_0_SECRET_MIGRATION.md",
-          "reason": "Nick approved migration and conditional .env.save deletion; Anthropic rotation, visible Keychain authorization, SecretRef apply/reload, and obsolescence verification remain"
+          "status": "passed",
+          "evidence": "planning/v2/PHASE_0_SECRET_MIGRATION.md and planning/v2/ANTHROPIC_ROTATION_EVIDENCE.json"
         },
         {
           "id": "existing_orion_reproducible",
@@ -37,14 +36,65 @@
           "evidence": "planning/v2/CURRENT_AUTHORITY.json"
         }
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": true
     },
     "1": {
       "name": "Establish Repository and Module Boundaries",
-      "status": "planned",
+      "status": "complete",
       "entryRequiresPhase": "0",
-      "entrySatisfied": false,
-      "evidence": "planning/v2/PHASE_1_PLAN.md"
+      "entrySatisfied": true,
+      "closedOn": "2026-08-20",
+      "closedAgainst": "planning/v2/PHASE_1_PLAN.md exit criteria",
+      "requirements": [
+        {
+          "id": "core_boundary_isolation",
+          "status": "passed",
+          "evidence": "AST import firewall over orion/core, orion/shared, orion/security proves no UI, macOS, cloud, provider, or executor imports; tests/test_v2_import_boundaries.py"
+        },
+        {
+          "id": "existing_suites_pass",
+          "status": "passed",
+          "evidence": "Python 267/267, ORION Control 144/144 with a clean --noEmit compile, native SessionDomain/SessionService 318/318 on 2026-08-20"
+        },
+        {
+          "id": "normal_route_ledger_smoke_through_adapter",
+          "status": "passed",
+          "evidence": "authenticated flag-on smoke orion-26e75dcb764d3884; ledger row structurally identical to flag-off orion-6c7fb0773e41c616 with no envelope leakage; in-process engagement proven by the host-seam parity tests in src/index.test.ts"
+        },
+        {
+          "id": "adapter_disableable_without_migration",
+          "status": "passed",
+          "evidence": "flag set false and gateway restarted; rollback smoke orion-27f07824fc7291f8; no state migration or uninstall required; backups at .builds/openclaw.json.pre-v2-flag-20260820 and .builds/orion-control-installed-pre-failopen-20260820"
+        },
+        {
+          "id": "integration_and_rollback_recorded",
+          "status": "passed",
+          "evidence": "planning/v2/HANDOFF.md records the coordinated files, the fail-open correction, every live task id, and the rollback path"
+        }
+      ],
+      "deviations": [
+        {
+          "id": "manifest_literal_exit_gate_not_met",
+          "severity": "acknowledged",
+          "manifestText": "Existing desktop ORION must run through ORION Core without meaningful behavioral regression.",
+          "actual": "Nothing runs through Core. One read-only capability (system_status) is envelope-wrapped by a fail-open observer behind a default-off flag, while the legacy OpenClaw route still performs validation, execution, independent verification, and the ledger append.",
+          "why": "The active product route is TypeScript/Swift. Routing live turns through the Python Core would add a process hop the runtime decision in planning/v2/PHASE_1_RUNTIME_DECISION.md explicitly rejected.",
+          "consequence": "Phase 2 entry is being taken on the PHASE_1_PLAN.md reading of the gate, not the manifest's literal one. Whoever opens Phase 2 must either accept that reading in writing or widen the bridge until the literal gate is met.",
+          "recordedBy": "Claude, 2026-08-20"
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "2": {
+      "name": "Build the Model Router",
+      "status": "not_started",
+      "entryRequiresPhase": "1",
+      "entrySatisfied": true,
+      "blockedOn": [
+        "planning/v2/PHASE_2_PLAN.md does not exist yet; the evidence protocol in MANIFEST_TRACEABILITY.md requires it before implementation",
+        "the Phase 1 exit-gate deviation above must be accepted or resolved in writing",
+        "shared plugin/native file ownership must be re-confirmed with Nick"
+      ]
     }
   }
 }

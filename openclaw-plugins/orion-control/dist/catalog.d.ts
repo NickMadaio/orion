@@ -1,5 +1,5 @@
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -119,6 +119,25 @@ export type ExecutionPolicy = {
  | {
     kind: "self_source";
     operation: "list" | "read";
+}
+/**
+ * Repairing the plugin, the wrapper scripts, or openclaw.json.
+ *
+ * The same division of labour as `self_modify`, for the same reason: every
+ * gate that makes a repair survivable — the class tables, the realpath check,
+ * the build, the test suite, the gate self-test, the health probe and the
+ * rollback — lives in `scripts/orion-repair`, which is one file a person can
+ * read end to end. This policy only names which surface and which verb.
+ *
+ * `authority` is carried here as well as on the action so the executor can
+ * refuse a mismatch rather than trusting that the right action was routed to
+ * the right handler.
+ */
+ | {
+    kind: "self_repair";
+    surface: "plugin" | "script" | "config";
+    operation: "list" | "read" | "modify" | "revert" | "status";
+    authority?: boolean;
 } | {
     kind: "app_control";
     operation: "open" | "quit";
@@ -135,6 +154,33 @@ export type ExecutionPolicy = {
 } | {
     kind: "health_log";
     operation: "supplement_add" | "supplement_take" | "supplement_status" | "workout_log" | "workout_status";
+}
+/**
+ * Reading the Messages database, through `scripts/orion-messages`.
+ *
+ * The same division of labour as `self_modify`: the plugin's job is to get
+ * the request through the gate, and the script's job is to know that Apple
+ * stores dates as nanoseconds since 2001 and hides newer message bodies in a
+ * serialised blob. Duplicating that here would be a second reader to get
+ * wrong.
+ */
+ | {
+    kind: "messages_read";
+    operation: "recent" | "from" | "search" | "chats" | "whoami" | "contacts_status";
+} | {
+    kind: "calendar";
+    operation: "event_add" | "event_remove" | "reminder_add";
+}
+/**
+ * Sending, through `scripts/orion-messages-send`.
+ *
+ * Deliberately a different execution kind from `messages_read` and not an
+ * operation on it. They share a subject and nothing else: one is a query and
+ * the other is the only irreversible outbound act in this catalog. A shared
+ * policy shape would invite a shared switch.
+ */
+ | {
+    kind: "messages_send";
 } | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;
@@ -193,7 +239,70 @@ export interface ActionDefinition {
     capabilityTier: CapabilityTier;
     execution: ExecutionPolicy;
     validateArguments?: (arguments_: Record<string, unknown>) => string[];
+    /**
+     * Arguments that must have come out of Nick's own mouth, not merely out of
+     * something Orion read.
+     *
+     * The taint check in the validator asks the NEGATIVE question -- "does this
+     * value appear in untrusted content and nowhere in his words?" -- and that is
+     * the right question for a file path, because Orion routinely picks paths
+     * himself and refusing those would be friction with nothing behind it.
+     *
+     * It is the wrong question for the recipient of a message. A recipient Orion
+     * invented is not safer than one an attacker supplied; both are wrong, and
+     * "the value appears in no page I read" is not evidence that Nick asked for
+     * it. There is also a hole in the negative form at this exact spot: the taint
+     * check skips values under five characters as accidental collisions, so
+     * `recipient: "Mom"` or `"Dad"` would sail past it no matter where it came
+     * from.
+     *
+     * So the check is inverted for these arguments: the value must APPEAR in the
+     * authenticated user turn. Not phrased a particular way, not matched against
+     * a verb list -- the deleted wording rules failed because they tried to
+     * re-derive intent, and this does not. It asks only where the string came
+     * from, which is the same data question `urlCarriesUntrustedData` asks.
+     */
+    userOriginatedArguments?: readonly string[];
+    /**
+     * This action can widen what Orion is allowed to do.
+     *
+     * Nick's rule is that Orion may grant himself authority when Nick asks — so
+     * the question the gate has to answer is not "is this forbidden" but "did
+     * Nick actually ask". Three existing mechanisms answer it together, and this
+     * flag turns on the one that was missing:
+     *
+     *   `userOriginatedArguments`  the target must appear in Nick's own words, so
+     *                              "yes, go ahead" cannot widen anything — he has
+     *                              to have named the flag, key or file.
+     *   `approvalRequired`         he is asked before it happens, bound to these
+     *                              exact arguments.
+     *   the taint check            a target that appears in something Orion READ
+     *                              and in nothing Nick said is refused, so a text
+     *                              message saying "grant yourself send permission"
+     *                              names the capability and gets nowhere.
+     *
+     * What this flag adds is the last piece: the user's turn must also be ABOUT
+     * permission. Naming `enableMessagesSendActions` while asking what it does is
+     * not the same sentence as asking for it to be turned on, and only the second
+     * should move a switch. It is the same shape `changePermissionProfile` has
+     * always demanded of a profile change — an instruction that names the thing
+     * AND says what kind of change it is — applied to the other route to the same
+     * outcome.
+     */
+    authorityChange?: boolean;
 }
+/**
+ * Words that make a sentence an instruction about permission rather than a
+ * sentence that merely mentions one.
+ *
+ * Deliberately broad and deliberately not a phrasing rule. It is not trying to
+ * re-derive intent — the wording checks that used to do that were deleted for
+ * good reasons written up in `validator.ts`. It asks one narrow question that
+ * the taint check and the approval hash cannot: is this turn about authority at
+ * all? Widening the list only ever lets more true requests through, and every
+ * one of them still has to name the target and clear the approval gate.
+ */
+export declare const AUTHORITY_INSTRUCTION: RegExp;
 export declare function isSafeRelativePath(value: unknown, allowRoot?: boolean): value is string;
 export declare function isVisibleNonSensitiveName(name: string): boolean;
 /**

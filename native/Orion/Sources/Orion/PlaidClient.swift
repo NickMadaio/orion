@@ -87,15 +87,32 @@ final class PlaidClient: ObservableObject {
     // and the app could only ever show one of them.
 
     static func storedItems() -> [PlaidItem] {
-        guard let raw = SecretStore.get(connector: .plaid, field: SecretStore.Field.items),
+        decode(raw: SecretStore.get(connector: .plaid, field: SecretStore.Field.items),
+               legacyToken: SecretStore.get(connector: .plaid, field: SecretStore.Field.accessToken),
+               legacyItemID: SecretStore.get(connector: .plaid, field: SecretStore.Field.accountID))
+    }
+
+    /// The same list, out of a snapshot somebody else already read.
+    ///
+    /// `storedItems()` blocks on securityd, which is fine from a button and
+    /// fatal on the launch path — see `refresh()`.
+    static func decodeItems(_ secrets: SecretStore.Secrets) -> [PlaidItem] {
+        decode(raw: secrets.value(.plaid, SecretStore.Field.items),
+               legacyToken: secrets.value(.plaid, SecretStore.Field.accessToken),
+               legacyItemID: secrets.value(.plaid, SecretStore.Field.accountID))
+    }
+
+    private static func decode(raw: String?, legacyToken: String?,
+                               legacyItemID: String?) -> [PlaidItem] {
+        guard let raw,
               let data = raw.data(using: .utf8),
               let decoded = try? JSONDecoder().decode([PlaidItem].self, from: data)
         else {
             // Carry a pre-multi-item install forward rather than making the
             // user re-link the bank they already connected.
-            if let legacy = SecretStore.get(connector: .plaid, field: SecretStore.Field.accessToken) {
-                let itemID = SecretStore.get(connector: .plaid, field: SecretStore.Field.accountID) ?? "legacy"
-                return [PlaidItem(itemID: itemID, accessToken: legacy, institutionName: "Bank")]
+            if let legacyToken {
+                return [PlaidItem(itemID: legacyItemID ?? "legacy",
+                                  accessToken: legacyToken, institutionName: "Bank")]
             }
             return []
         }
@@ -374,15 +391,30 @@ final class PlaidClient: ObservableObject {
     // MARK: - Reading
 
     /// Every linked institution, in parallel, merged.
+    ///
+    /// The Keychain half happens off the main thread. The dashboard calls this
+    /// from `onAppear`, so a blocking read here is a read on the launch path,
+    /// and a read on the launch path is what hung Orion on 2026-08-12 when the
+    /// first launch after a rebuild raised an authorization prompt nobody could
+    /// see. See `SecretStore.queue`.
     func refresh() {
-        let items = Self.storedItems()
+        SecretStore.load([.plaid],
+                         fields: SecretStore.derivedFields
+                             + [SecretStore.Field.items, SecretStore.Field.accountID]) {
+            [weak self] secrets in
+            self?.refresh(with: secrets)
+        }
+    }
+
+    private func refresh(with secrets: SecretStore.Secrets) {
+        let items = Self.decodeItems(secrets)
         self.items = items
         // Say WHY nothing happened. The previous version returned silently on
         // every one of these, so an empty Finances tab and a missing Keychain
         // item and a wrong environment all looked identical — from the outside
         // and in the log, which had nothing in it at all.
-        let clientID = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientID)
-        let secret = SecretStore.get(connector: .plaid, field: SecretStore.Field.clientSecret)
+        let clientID = secrets.value(.plaid, SecretStore.Field.clientID)
+        let secret = secrets.value(.plaid, SecretStore.Field.clientSecret)
         guard let clientID, let secret, !items.isEmpty else {
             var missing: [String] = []
             if clientID == nil { missing.append("client_id") }

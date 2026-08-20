@@ -9,11 +9,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 157,
+    "total": 158,
     "AUTO": 99,
     "NOTIFY": 14,
     "APPROVAL": 13,
-    "NEVER": 31
+    "NEVER": 32
   },
   "availability": [
     {
@@ -1546,6 +1546,14 @@
     {
       "kind": "command",
       "name": "orion-gog",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-identity-check",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

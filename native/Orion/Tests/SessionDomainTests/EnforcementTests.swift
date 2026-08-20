@@ -152,6 +152,13 @@ final class EnforcementTests: XCTestCase {
         XCTAssertEqual(escalations, [1, 2, 3, 4])
     }
 
+    func testEveryModeAboveGentleUsesTheBoundedEscalationLadder() {
+        XCTAssertFalse(EnforcementLevel.gentle.escalates)
+        XCTAssertTrue(EnforcementLevel.guided.escalates)
+        XCTAssertTrue(EnforcementLevel.firm.escalates)
+        XCTAssertTrue(EnforcementLevel.shield.escalates)
+    }
+
     func testNudgesAreSpacedOut() {
         var state = EnforcementState()
         step(offTask(), &state, at: 0)

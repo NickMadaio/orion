@@ -36,6 +36,7 @@ struct HealthFacts: Equatable {
     var supplementsTaken: Int
     var supplementsTotal: Int
     var workoutSets: Int
+    var calories: Int
 
     /// Keyed by the facts, not just the day and phase. Phase alone meant a
     /// summary written at 8am stood until the afternoon even after recovery,
@@ -48,7 +49,7 @@ struct HealthFacts: Equatable {
     }
 
     var hasAnything: Bool {
-        recovery != nil || sleepPerformance != nil || strain != nil || bottles > 0 || workoutSets > 0
+        recovery != nil || sleepPerformance != nil || strain != nil || bottles > 0 || workoutSets > 0 || calories > 0
     }
 
     /// Nil when there is genuinely nothing to say, so no request is made.
@@ -89,6 +90,9 @@ struct HealthFacts: Equatable {
         lines.append(workoutSets > 0
                      ? "- Trained today: \(workoutSets) sets logged."
                      : "- No workout logged today.")
+        if calories > 0 {
+            lines.append("- Food logged today: \(calories) calories, entered manually.")
+        }
 
         let timeOfDay: String
         switch phase {
@@ -108,7 +112,7 @@ struct HealthFacts: Equatable {
 
         Rules:
         - LABEL is one or two words in capitals, naming what it is about \
-        (RECOVERY, SLEEP, STRAIN, HYDRATION, TRAINING).
+        (RECOVERY, SLEEP, STRAIN, HYDRATION, TRAINING, NUTRITION).
         - One sentence each, under 18 words.
         - Each takeaway must interpret or combine, never just restate a number.
         - Exactly one takeaway names the single thing most worth doing now.

@@ -2,10 +2,13 @@
 //  The month and week grids, and what a day looks like when you glance at it.
 //
 //  A day cell has to answer one question without being read: was this a good
-//  day. So the cell is TINTED by its score rather than sitting in a grey box —
-//  and where there is no score, it stays neutral instead of being coloured by a
-//  guess. "No score" and "a bad score" must not look similar, because one of
-//  them is an accusation and the other is an absence of data.
+//  day. The colour answers it at a glance and the mark out of ten answers it
+//  exactly, in the corner, for when a glance is not enough.
+//
+//  "No score" and "a bad score" must not look similar. A scored day is tinted;
+//  an unscored day with completed work gets a calmer green state; an unscored
+//  past day is grey. Most days ARE scored now — Whoop carries them even when
+//  nothing else happened — so grey has gone back to meaning what it says.
 //
 //  Everything drawn here is a fact: events, things ticked off, focus sessions,
 //  deadlines. The tint is the only derived thing on screen and it refuses to
@@ -23,39 +26,73 @@ struct CalendarDayCell: View {
     let score: DayScore?
     let inMonth: Bool
     let isToday: Bool
+    let isPast: Bool
     let isSelected: Bool
     let height: CGFloat
     let compact: Bool
     let onTap: () -> Void
+    let onDoubleTap: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
+            // The date and the mark, and nothing else on this line.
+            //
+            // The tick count and the focus minutes used to share this row, and
+            // adding the score to it squeezed them: three small things and a
+            // number in 40 points of width means the first thing to go is the
+            // tick, which is the thing worth seeing most. They get their own
+            // line below, where they cannot be crowded out.
             HStack(spacing: 4) {
                 Text(Self.dayNumber(day))
                     .font(.system(size: compact ? 11 : 12,
                                   weight: isToday ? .bold : .regular))
                     .foregroundStyle(numberTint)
 
-                if let count = completedCount, count > 0 {
-                    // The tick is the thing he was looking for and could not
-                    // find. Shown as a count, because "three things done" and
-                    // "one thing done" are different days.
-                    Text("✓\(count)")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(OrionTheme.green)
-                }
-
                 Spacer(minLength: 0)
 
-                if let focusMinutes, focusMinutes > 0 {
-                    Text("\(focusMinutes)m")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(OrionTheme.accent)
+                // The mark out of ten. Trailing, because the day number is the
+                // thing you scan for and this is the thing you land on.
+                //
+                // A provisional score — one standing on a minority of the day's
+                // inputs, typically the watch alone — is drawn lighter rather
+                // than hidden or asterisked. It is still true, it just knows
+                // less, and dimming says that without a legend.
+                if let score, score.hasValue {
+                    Text(score.displayValue)
+                        .font(.system(size: compact ? 9 : 10, weight: .semibold,
+                                      design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(OrionTheme.accent.opacity(score.isProvisional ? 0.55 : 0.95))
                 }
             }
 
+            if completedCount != nil || (focusMinutes ?? 0) > 0 {
+                HStack(spacing: 4) {
+                    if let count = completedCount, count > 0 {
+                        // The tick is the thing he was looking for and could not
+                        // find. Shown as a count, because "three things done"
+                        // and "one thing done" are different days.
+                        Label("\(count)", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(OrionTheme.green)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(OrionTheme.green.opacity(0.18)))
+                    }
+
+                    if let focusMinutes, focusMinutes > 0 {
+                        Text("\(focusMinutes)m")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(OrionTheme.accent)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             if !compact {
-                ForEach(entries.prefix(height > 90 ? 3 : 2)) { entry in
+                ForEach(entries.prefix(entryLimit)) { entry in
                     HStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: 1, style: .continuous)
                             .fill(entry.tint)
@@ -66,8 +103,8 @@ struct CalendarDayCell: View {
                             .lineLimit(1)
                     }
                 }
-                if entries.count > (height > 90 ? 3 : 2) {
-                    Text("+\(entries.count - (height > 90 ? 3 : 2))")
+                if entries.count > entryLimit {
+                    Text("+\(entries.count - entryLimit)")
                         .font(.system(size: 9))
                         .foregroundStyle(OrionTheme.textDim)
                 }
@@ -92,16 +129,19 @@ struct CalendarDayCell: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded(onDoubleTap)
+        )
     }
 
     // MARK: What the colour means
 
-    /// Tinted by the score, and NEUTRAL when there isn't one.
+    /// Tinted by the score, recorded completed work, or the simple fact that
+    /// the date is already behind us. The past-date state is intentionally
+    /// neutral: it communicates time passing, not performance.
     ///
-    /// The temptation is to colour an unscored day grey-red so the grid looks
-    /// complete. That would tell him a day went badly when the truth is that a
-    /// watch did not sync — and he would believe it, because a calendar is the
-    /// sort of thing people believe.
+    /// Completion is a recorded fact, unlike a missing score. It earns a calm
+    /// state without implying that the day was good or bad overall.
     private var background: some View {
         RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(fill)
@@ -110,20 +150,34 @@ struct CalendarDayCell: View {
     private var fill: Color {
         guard inMonth else { return .clear }
         guard let value = score?.value else {
-            // Scored days and unscored days both need to look like days. This
-            // is the same neutral the grid always had.
-            return OrionTheme.card
+            if completedCount != nil { return OrionTheme.green.opacity(0.24) }
+            return isPast ? OrionTheme.textSoft.opacity(0.13) : OrionTheme.card
         }
         // One hue, varying weight. A red-to-green ramp reads as pass/fail and
         // invites arguing with the number; a single accent that gets stronger
         // reads as "more", which is what it actually measures.
-        return OrionTheme.accent.opacity(0.10 + 0.34 * value)
+        //
+        // The ramp is not linear in the score. Real days cluster between 5 and
+        // 9, and a linear opacity turns that whole range into four barely
+        // distinguishable washes — the grid looked flat even once every day had
+        // a number. Anchoring the bottom of the visible range at 3 and spending
+        // the opacity across what is left is what makes a 6 and an 8 read as
+        // different days from across the room.
+        let spread = min(1, max(0, (value - 0.3) / 0.7))
+        return OrionTheme.accent.opacity(0.08 + 0.42 * spread)
     }
 
     private var numberTint: Color {
         if isToday { return OrionTheme.accent }
         guard inMonth else { return OrionTheme.textDim }
         return OrionTheme.textSoft
+    }
+
+    /// How many entry titles fit, given whether the tick row is taking a line.
+    private var entryLimit: Int {
+        let base = height > 90 ? 3 : 2
+        let hasMetaRow = completedCount != nil || (focusMinutes ?? 0) > 0
+        return max(1, hasMetaRow ? base - 1 : base)
     }
 
     private var completedCount: Int? {
@@ -173,17 +227,28 @@ struct MonthGrid: View {
             ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
                 HStack(spacing: 5) {
                     ForEach(week, id: \.self) { day in
-                        CalendarDayCell(
-                            day: day,
-                            entries: model.entries(on: day),
-                            score: model.score(on: day),
-                            inMonth: model.range.isInMonth(day, as: model.focusDate),
-                            isToday: model.range.isSameDay(day, Date()),
-                            isSelected: model.range.isSameDay(day, model.selectedDay),
-                            height: rowHeight,
-                            compact: rowHeight < 74,
-                            onTap: { model.select(day) }
-                        )
+                        // Month pages are about this month. Neighbouring-month
+                        // dates used to crowd the last row with a misleading
+                        // preview; keep their place in the seven-column grid,
+                        // but leave those cells intentionally blank.
+                        if model.range.isInMonth(day, as: model.focusDate) {
+                            CalendarDayCell(
+                                day: day,
+                                entries: model.entries(on: day),
+                                score: model.score(on: day),
+                                inMonth: true,
+                                isToday: model.range.isSameDay(day, Date()),
+                                isPast: day < Calendar.current.startOfDay(for: Date()),
+                                isSelected: model.range.isSameDay(day, model.selectedDay),
+                                height: rowHeight,
+                                compact: rowHeight < 74,
+                                onTap: { model.select(day) },
+                                onDoubleTap: { model.showDay(day) }
+                            )
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight)
+                        }
                     }
                 }
             }
@@ -217,10 +282,12 @@ struct WeekGrid: View {
                             score: model.score(on: day),
                             inMonth: true,
                             isToday: model.range.isSameDay(day, Date()),
+                            isPast: day < Calendar.current.startOfDay(for: Date()),
                             isSelected: model.range.isSameDay(day, model.selectedDay),
                             height: min(150, max(96, height * 0.34)),
                             compact: false,
-                            onTap: { model.select(day) }
+                            onTap: { model.select(day) },
+                            onDoubleTap: { model.showDay(day) }
                         )
                     }
                 }
@@ -242,7 +309,7 @@ struct CalendarDayList: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionRule(title: CalendarViewSupport.longDay(model.selectedDay),
                         trailing: model.score(on: model.selectedDay)
-                            .map { $0.hasValue ? "score \($0.displayValue)" : "not scored" })
+                            .map { $0.hasValue ? "\($0.displayValue) / 10" : "not scored" })
 
             let entries = model.entries(on: model.selectedDay)
             if entries.isEmpty {

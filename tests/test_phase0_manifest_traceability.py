@@ -9,6 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ManifestTraceabilityTests(unittest.TestCase):
+    def load_gates(self):
+        return json.loads(
+            (REPO_ROOT / "planning" / "v2" / "PHASE_GATES.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
     def load_registry(self):
         return json.loads(
             (REPO_ROOT / "planning" / "v2" / "MANIFEST_PHASES.json").read_text(
@@ -57,6 +64,63 @@ class ManifestTraceabilityTests(unittest.TestCase):
             )
         )
         self.assertEqual(registry["current"]["2"]["status"], gates["phases"]["2"]["status"])
+
+    def test_an_accepted_deviation_records_who_accepted_it_and_when(self):
+        # A deviation with no name and no date on it is not an accepted
+        # deviation, it is an unreviewed one wearing the word "accepted".
+        gates = self.load_gates()
+        for phase, record in gates["phases"].items():
+            for deviation in record.get("deviations", []):
+                if deviation.get("severity") != "accepted":
+                    continue
+                for field in ("acceptedBy", "acceptedOn", "acceptedReading"):
+                    self.assertTrue(
+                        deviation.get(field),
+                        f"phase {phase} deviation {deviation['id']} is accepted "
+                        f"without {field}",
+                    )
+
+    def test_a_recorded_deviation_says_whose_acceptance_it_still_needs(self):
+        # The counterpart to the test above. "accepted" needs a name and a date;
+        # anything else needs to say what would make it accepted, or it is just
+        # a note that ages into a fact nobody agreed to.
+        gates = self.load_gates()
+        for phase, record in gates["phases"].items():
+            for deviation in record.get("deviations", []):
+                if deviation.get("severity") == "accepted":
+                    continue
+                self.assertTrue(
+                    deviation.get("acceptanceNeeded"),
+                    f"phase {phase} deviation {deviation['id']} is unaccepted and "
+                    f"does not say what acceptance would take",
+                )
+                self.assertTrue(
+                    deviation.get("closingWork"),
+                    f"phase {phase} deviation {deviation['id']} does not say what "
+                    f"work would remove it",
+                )
+
+    def test_every_deferred_gate_amendment_carries_replacement_text(self):
+        # The sweep that eventually amends these has to be reviewable in one
+        # sitting, which means each entry must already say what it would become.
+        gates = self.load_gates()
+        pending = gates.get("pendingGateAmendments", {})
+        for entry in pending.get("entries", []):
+            self.assertIn(entry["phase"], gates["phases"])
+            for field in ("gateText", "deadAssumption", "proposedText"):
+                self.assertTrue(entry.get(field), f"{entry['phase']}: missing {field}")
+            self.assertNotEqual(entry["gateText"], entry["proposedText"])
+
+    def test_scope_the_manifest_does_not_cover_is_registered_not_improvised(self):
+        # Wanting something the requirements source never mentions is normal.
+        # Building it without saying so is how the manifest stops meaning
+        # anything, so each entry has to say what exists and where it belongs.
+        gates = self.load_gates()
+        register = gates.get("scopeNotInManifest", {})
+        self.assertTrue(register.get("protocol"))
+        for entry in register.get("entries", []):
+            for field in ("id", "raisedBy", "manifestCoverage", "layer", "wouldBelongNear"):
+                self.assertTrue(entry.get(field), f"{entry.get('id')}: missing {field}")
 
 
 if __name__ == "__main__":

@@ -437,25 +437,22 @@
       "decision": "The $99 is deferred to the very end of the program by Nick. It is not a blocker and not an open decision. The obligation it leaves behind is to build so that a Team ID is a CONFIGURATION CHANGE rather than a rewrite.",
       "auditedOn": "2026-09-01",
       "alreadyFoundation": [
-        "HealthKit: MobileCore/Health.swift declares `protocol HealthStore` with `RefusingHealthStore` as the only implementation. A real HKHealthStore-backed conformance drops in behind the protocol. This is the pattern.",
-        "Code signing: native/Orion/Resources/Orion.entitlements exists and make_app_bundle.sh already signs with --options runtime and --entitlements. The identity is chosen via `security find-identity -v -p codesigning` rather than hardcoded, so a Developer ID certificate is discoverable without a script change.",
+        "HealthKit: MobileCore/Health.swift declares `protocol HealthStore` with `RefusingHealthStore` as the only implementation. A real HKHealthStore-backed conformance drops in behind the protocol.",
+        "Code signing: native/Orion/Resources/Orion.entitlements exists and make_app_bundle.sh already signs with --options runtime and --entitlements. The identity comes from `security find-identity -v -p codesigning` rather than a hardcoded name, so a Developer ID certificate is discoverable without a script change.",
+        "Keychain: the whole app touches it in exactly TWO places, four SecItem* calls total. Connections.swift's `enum SecretStore` is already a proper chokepoint (set/get/clear plus an off-main-thread snapshot, after a launch hang traced to SecItemCopyMatching on the main thread), and VoiceProviders.valueFromKeychain is a separate read-only reader against a different service and account convention because it reads the items the Phase 0 migration created. Adding kSecUseDataProtectionKeychain is four query dictionaries in two files.",
         "Notarization: recorded in AGENTS.md as a configuration change rather than a rewrite. Not re-verified here."
       ],
       "notFoundationYet": [
-        {
-          "gap": "There is NO seam for Keychain access.",
-          "measured": "grep for SecItemAdd / SecItemCopyMatching finds raw calls in at least native/Orion/Sources/Orion/Connections.swift and VoiceProviders.swift. Nothing named kSecUseDataProtectionKeychain exists anywhere in the tree.",
-          "consequence": "When a Team ID arrives, switching to the data-protection Keychain means editing every call site, not flipping a flag. That contradicts the spirit of 'a configuration change'.",
-          "proposedFix": "Mirror HealthStore exactly: a `SecretStore` protocol with the current ACL-based implementation behind it, so a data-protection implementation is added rather than retrofitted. Testable today; the entitlement-gated path is NOT, because AGENTS.md records that claiming keychain-access-groups while self-signed gets the process SIGKILLed.",
-          "status": "registered, not built"
-        },
         {
           "gap": "Sparkle has no feed, no appcast and no release script.",
           "measured": "UpdateController.defaultFeedURL is the literal placeholder ORION_OWNER/ORION_REPO.",
           "consequence": "Distribution is blocked by more than the $99.",
           "status": "registered, not built"
         }
-      ]
+      ],
+      "correctedOn": "2026-09-01",
+      "correction": "An earlier version of this entry said there was NO Keychain seam and that the migration would mean 'editing every call site'. That was wrong, and wrong in the direction that makes the work look bigger than it is. The grep behind it looked for `protocol.*Secret` and missed `enum SecretStore`. Corrected below and pinned by tests/test_keychain_call_sites.py.",
+      "guardedBy": "tests/test_keychain_call_sites.py pins WHICH files and WHICH SecItem* calls exist, asserts the known sites are still present (so deleting Keychain use entirely also fails), refuses kSecUseDataProtectionKeychain while self-signed (-34018, and claiming keychain-access-groups gets the process SIGKILLed), and refuses keychain-access-groups in the entitlements file. The real risk was never the migration; it was a THIRD call site appearing quietly before then. Mutation-proven in both directions: adding a call site fails, deleting one fails."
     }
   }
 }

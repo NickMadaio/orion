@@ -224,16 +224,29 @@ audited that on 2026-09-01 rather than assuming it:
   `security find-identity` rather than a hardcoded name — so a Developer ID
   certificate is discoverable without touching the script.
 
-**NOT foundation yet, and I would rather say so than let you find out later:**
+- **The Keychain, and I got this wrong at first.** My first pass said there was
+  no seam and the migration would mean editing every call site. That was wrong —
+  I grepped for a `protocol` and missed that `Connections.swift` already has
+  `enum SecretStore`. The truth is better: the whole app touches the Keychain in
+  **exactly two places, four calls total**. `SecretStore` is a proper chokepoint
+  (set/get/clear plus an off-main-thread snapshot, built after a launch hang),
+  and `VoiceProviders.valueFromKeychain` is a separate read-only reader against
+  the items the Phase 0 migration created. Switching to the data-protection
+  Keychain is four query dictionaries in two files.
 
-- **The Keychain has no seam.** `SecItemAdd` and `SecItemCopyMatching` are called
-  raw in at least `Connections.swift` and `VoiceProviders.swift`, and nothing
-  named `kSecUseDataProtectionKeychain` exists anywhere in the tree. So the
-  prompt-storm fix is not one flag away — today it means editing every call site.
-  The fix is to mirror `HealthStore`: a `SecretStore` protocol with the current
-  behaviour behind it. Registered in `ROADMAP_AMENDMENTS.json`, not yet built.
+**NOT foundation yet:**
+
 - **Sparkle still has no feed**, no appcast and no release script, so distribution
   is blocked by more than the $99 anyway.
+
+**What I added instead of a speculative refactor.**
+`tests/test_keychain_call_sites.py` pins which files touch the Keychain and how.
+The migration was never the risk; a *third* call site appearing quietly between
+now and then was, because that is what turns "two small edits" into an
+archaeology exercise. It also refuses `kSecUseDataProtectionKeychain` and
+`keychain-access-groups` while the app is self-signed, since claiming them today
+gets the process SIGKILLed on launch — a failure that would look like a crash,
+not like a configuration mistake.
 
 The original write-up follows, because the *technical* facts in it are still
 true and worth keeping — only its urgency has changed.

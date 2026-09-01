@@ -262,11 +262,16 @@ Two policies that are not Sparkle defaults, both load-bearing:
   program. It is not a blocker and not an open decision — do not raise it as
   either.** Build so a Team ID is a configuration change when it arrives.
   `MobileCore/Health.swift`'s `HealthStore` + `RefusingHealthStore` is the
-  pattern to copy. One place does NOT yet follow it: Keychain access is raw
-  `SecItemAdd`/`SecItemCopyMatching` at several call sites with no seam and no
-  `kSecUseDataProtectionKeychain` anywhere, so the prompt-storm fix is currently
-  a refactor rather than a flag. Registered in `ROADMAP_AMENDMENTS.json` under
-  `foundationForTheAppleDeveloperProgram`.
+  pattern. The Keychain already qualifies too, contrary to a first reading of it
+  the same day: the whole app touches it in exactly **two** places —
+  `Connections.swift`'s `enum SecretStore` and `VoiceProviders.valueFromKeychain`
+  — four `SecItem*` calls, so the data-protection switch is four query
+  dictionaries in two files. `tests/test_keychain_call_sites.py` pins that, in
+  both directions, because a third call site appearing quietly is the thing that
+  would turn a small edit into an excavation. It also refuses
+  `kSecUseDataProtectionKeychain` and `keychain-access-groups` while self-signed,
+  since claiming either today gets the process SIGKILLed on launch. Registered in
+  `ROADMAP_AMENDMENTS.json` under `foundationForTheAppleDeveloperProgram`.
 
 ---
 

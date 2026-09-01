@@ -436,6 +436,26 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
   the commit date differ, say so in the entry — otherwise the next reader cannot
   tell an honest gap from a fabricated timestamp. `sysctl -n kern.boottime`
   tells you whether the machine restarted under you.
+- **State the SCOPE of a parity result, not just its verdict.** Third instance of
+  the self-verifying family, found 2026-09-01. `orion_v2_policy_check.py` reports
+  "never more permissive than the live gate across 390 combinations" and its
+  `baseline()` docstring honestly says it uses "the most ordinary request there
+  is... no external data, nothing expired, nothing delegated." The check is
+  correctly scoped; the INFERENCE drawn from it is not. Measured at
+  `external_connected`: baseline gives 14 stricter / 0 deny, but
+  `external_data_involved=True` gives **54 stricter / 25 DENY** -- including
+  `browser_open_url`, `messages_send`, `calendar_event_add`, `file_delete` and
+  every `self_*` action. 390 is 78 actions x 5 profiles at ONE point in a
+  five-dimensional space. A headline that omits the fixed dimensions will be read
+  as covering them.
+- **`docs/` is not on the assistant read path, and a whole plan was lost in it.**
+  `CLAUDE.md` routes to `HANDOFF.md`, `NICK-TODO.md`, `planning/v2/HANDOFF.md`,
+  the charter and the amendments. `docs/GAME_PLAN.md` -- a full architectural
+  plan whose permission half shipped and whose architecture half did not -- is
+  cited by nothing except a one-line directory listing in `README.md`. It was
+  functionally unread for a month while a later plan rebuilt the machinery it
+  argued for deleting. If a document is meant to be binding, it goes on the read
+  path or it does not exist.
 - **A mechanism that verifies itself against itself always passes.** Three of
   these were found in one batch on 2026-08-28, all three cited as evidence.
   `APPLIED_CHECKSUMS = {1: MIGRATIONS[0].checksum}` made "was this migration

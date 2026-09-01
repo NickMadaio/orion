@@ -15,6 +15,115 @@ Program position: **Phases 0-32 complete; independent-review records now cover 5
 
 One-page summary of the 08-23 -> 08-25 session: **`planning/v2/SESSION_LOG_2026-08-25.md`**
 
+## 2026-09-01 PROGRAM CORRECTION — the ordering was derived from a fiction
+
+Seven independent fresh-context audits: the Mac app, the live execution path, the
+v2 stack, manifest phases 33-84, the plan lineage, a Core-convergence design and
+a full re-sequencing. Full record: **`planning/v2/PROGRAM_CORRECTION_2026-09-01.md`**.
+
+Nothing live was changed. No code was written. This is a re-planning pass.
+
+### Found state, and where the previous record was wrong
+
+There are **three** systems and the manifest describes none of them. The Mac app
+(35,433 lines, 40 SwiftUI files) plus the OpenClaw plugin (12,079 lines, 78
+actions, 24 tiers all reachable) is the live product. The Python package is dead
+-- the running assistant's own `MEMORY.md` declared it "not the implementation
+path" on 2026-07-28. The v2 backend cannot serve a request.
+
+**The manifest contains zero occurrences of "OpenClaw" in 2,644 lines.** Its
+Phase 0 says "Document the current Python runtime" and "Document how the current
+UI communicates with Python." The UI talks to a Node gateway by CLI subprocess.
+Phase 0 inventoried a system that was not running, three weeks after the
+assistant had recorded that fact. Every phase number downstream inherits it.
+
+**The requirements are sound. The ordering is not.**
+
+### The correction that matters most
+
+ORION Core is not missing. It exists, in TypeScript, on the live route:
+`permissions.ts` + `validator.ts` + `provenance.ts` + `outcome.ts` + the
+append-only ledger. Five ordered layers with documented incidents behind each.
+`orion/security/profiles.py` already concedes it: *"permissions.ts stays the
+authoritative gate on the live route."*
+
+So Phase 1's exit gate closes by **re-pointing the record**, not by a
+cross-language rewrite -- which `planning/v2/PHASE_1_RUNTIME_DECISION.md`
+already forbids ("must not make every live turn cross into a second Python
+process"). The Python engine becomes a conformance oracle, and
+`orion_v2_policy_check.py` -- which already shells into the compiled live plugin
+-- becomes a blocking CI gate.
+
+### A third self-verifying mechanism, and the sharpest one yet
+
+`orion_v2_policy_check.py:baseline()` pins `external_data_involved=False` and
+`request_source="user_direct"`. Its docstring is honest. The headline is not
+wrong either -- but "never more permissive across 390 combinations" reads as
+system-wide parity when it is parity at one point in a five-dimensional space.
+Measured at `external_connected`:
+
+    baseline                        stricter= 14   DENY=  0
+    external_data_involved=True     stricter= 54   DENY= 25
+    request_source=model_initiated  stricter= 19   DENY=  0
+
+The 25 denials include `browser_open_url`, `messages_send`, `calendar_event_add`,
+`file_delete` and every `self_*` action. Recorded in `AGENTS.md`: state the SCOPE
+of a parity result, not just its verdict.
+
+### Nick's own ranked gaps, re-checked -- two are already done
+
+From `WHAT_ORION_IS_MISSING.md` (2026-07-30). #1 proactivity is **LIVE**:
+`orion-focus-guard` every minute, `orion-standing-orders` hourly,
+`orion-daily-memory` nightly, all reporting `ok`. #2 memory retrieval is **DONE**:
+`orion-recall` does semantic search with `nomic-embed-text` local; the
+`content LIKE '%query%'` he diagnosed is dead code in the dead package. #5 taint
+was done pre-manifest. The program has delivered more than its records show --
+just not through the manifest.
+
+### Live defects found, dated
+
+- **Timezone.** Three cron jobs pinned `America/New_York`. `USER.md`: "Moving to
+  London before the end of August 2026" / "ask once afterward." It is 2026-09-01,
+  machine still EDT. Orion was told to ask and the deadline passed.
+- **The live app violates Phase 33.** `HealthSummary.swift:71,76` emit raw HRV
+  and resting heart rate into a model prompt; `MorningBrief.swift:86-92` adds
+  sleep score, recovery %, HRV delta; `:133` ties recovery to the calendar. That
+  is Phase 38 shipped before Phase 33's firewall exists.
+- **A focus session wedged open since 2026-08-12**, last heartbeat
+  2026-09-01T01:25:46Z. Two completed sessions ever, both abandoned under 25s.
+- Camera presence: 504 failures, 0 successes, enabled. Sparkle on a placeholder
+  feed. `Info.plist` claims calendar is read-only while the code deletes events.
+  Installed app 14 commits behind.
+
+### The corrected sequence
+
+A stop the lying + an off switch (3-5d) · B London/timezone (3-4d) · C close the
+1/5 gate honestly (8-12d) · D situational awareness + explainability (4-6d) ·
+E proactivity widened (10-15d) · F cost then reach (4-6d + credential) ·
+G delegation, gated · H the register.
+
+Proactivity is fifth **because it already works** and building it before the off
+switch, the timezone fix and the interruptibility signals would ship the version
+that gets muted -- which his own document names as the failure mode.
+
+### Corrected, from the previous session's framing
+
+I had said closing the Phase 1/5 gate unblocks 44-56. It does not. Those are
+blocked by a transport, a credential only Nick can create, and a phone. Phase 5's
+precondition is a self-imposed policy gate. Conflating them would put a large
+refactor on a critical path it does not sit on.
+
+### Live and installed state
+
+Unchanged. No plugin edit, no rebuild, no install, no gateway restart, no config
+write. `~/.openclaw` was read only. The gateway is running (PID observed) and the
+three cron jobs continue.
+
+### Exact next step
+
+Nick answers the six questions now at the top of `NICK-TODO.md`. Batch A needs
+none of them and can start immediately; Batch B needs question (a).
+
 ## 2026-08-28 Phases 11-20 REVIEWED and repaired -- REC-REVIEW-11-20 closed
 
 **Dates, and why three of them appear.** The review and repairs ran 01:20-23:59

@@ -33,6 +33,48 @@ when doing account setup; this documentation pass did not re-validate them.
 
 ---
 
+## 0. Six decisions, from the 2026-09-01 program review
+
+Full reasoning in `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`. These are the
+only things blocking work.
+
+**a. Have you moved to London?** `USER.md` says "Moving to London before the end
+of August 2026" and "Default timezone: America/New_York until his move; ask once
+afterward." It is now September and the machine is still on EDT, with all three
+cron jobs pinned to New York. Orion was told to ask you this and the deadline
+passed. If you have moved, the morning brief has been firing at the wrong hour.
+
+**b. Is an iPhone coming, and when?** Six manifest phases and the charter's
+`REC-USABLE-CLIENT` gate all hang on this single fact. If the answer is "not
+soon", we should say so and stop carrying mobile work as though it were pending.
+
+**c. The $99 Apple Developer Program.** Unchanged from item 2 below, but the
+review sharpened what it unblocks: HealthKit, notarization, code signing for
+Phase 48, and Face ID for Phase 49.
+
+**d. A bot token for an inbound channel** (Discord, Telegram, whatever you
+prefer). `scripts/orion-remote` is already written and safe by construction --
+seven fixed verbs, inbound text never reaches a shell or a model. It was
+deliberately built with a file transport so a real channel could be attached
+later. This is your #4 ranked gap and it is one credential away.
+
+**e. Do you want the focus feature at all?** `FocusSessionHome.swift` is 1,192
+lines plus an entire domain/service split and 26 test files. `focus-history.jsonl`
+records **two** completed sessions ever, both abandoned after under 25 seconds,
+and one session has been wedged open since 2026-08-12. Before anyone builds on
+it, it is worth knowing whether you want it.
+
+**f. Accept re-pointing Phases 1 and 5 onto the live TypeScript gate.**
+`PHASE_GATES.json` records that the Phase 1 "runs through Core" reading was
+"granted once, for Phase 1" and that any later phase inheriting it must say so
+explicitly. The review found that ORION Core already exists on the live route --
+`permissions.ts` + `validator.ts` + `provenance.ts` + `outcome.ts` + the ledger --
+and that `orion/security/profiles.py` already concedes this in its own docstring.
+Accepting this closes Phase 1's gate by naming what is true, rather than by a
+cross-language rewrite that the runtime decision record already forbids.
+
+---
+
 ## 1. Pick the break ambience clips
 
 **Why:** the synthesised rain/waves/wind sounded synthetic, because it is. Real

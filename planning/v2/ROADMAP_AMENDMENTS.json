@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "amendedOn": "2026-08-28",
+  "amendedOn": "2026-09-01",
   "authority": "Additive checkpoint register for gaps discovered after the original 85-phase manifest was fingerprinted. It does not change the source fingerprint, renumber phases, reopen historical closures, select providers, or authorize implementation.",
   "sourceManifest": {
     "title": "ORION v2 — Full Implementation Manifest",
@@ -260,5 +260,121 @@
       ],
       "amendment": "Retain battery charge limiting, visa-email alerts, finance subscriptions, consent-aware recording/notes, conversational styles, remote dispatch and context-sensitive help as unimplemented aspirations requiring their own feasibility, privacy, provider and authority decisions."
     }
-  ]
+  ],
+  "programCorrection": {
+    "id": "PC-2026-09-01",
+    "title": "Program correction — ordering superseded",
+    "document": "planning/v2/PROGRAM_CORRECTION_2026-09-01.md",
+    "method": "Seven independent fresh-context audits: Mac app, live execution path, v2 stack, manifest 33-84, plan lineage, Core convergence design, program re-sequencing.",
+    "finding": "The manifest contains zero occurrences of 'OpenClaw' in 2,644 lines and its Phase 0 inventoried a Python runtime that the running assistant's own memory had already declared not-the-implementation-path on 2026-07-28. The requirements are sound; the ORDERING is derived from an inventory of a system that was not running.",
+    "supersedes": "the manifest's phase ordering only. Not its requirements, not the fingerprint, not any closed phase.",
+    "keyCorrection": "ORION Core already exists, in TypeScript, on the live route: permissions.ts + validator.ts + provenance.ts + outcome.ts + the append-only ledger. orion/security/profiles.py already concedes this in its own docstring. Phase 1's exit gate should be closed by re-pointing the record onto the live gate and demoting the Python engine to a conformance oracle -- not by a cross-language rewrite.",
+    "correctedSequence": [
+      {
+        "batch": "A",
+        "goal": "Stop the running system lying, and give it an off switch",
+        "days": "3-5",
+        "contains": [
+          "33+38 merged",
+          "43 LOCK ORION (Mac)",
+          "71 data inventory",
+          "live defects"
+        ]
+      },
+      {
+        "batch": "B",
+        "goal": "The London batch — timezone has a deadline that has passed",
+        "days": "3-4",
+        "contains": [
+          "40 timezone/IANA",
+          "re-home cron",
+          "the move as a tracked project"
+        ]
+      },
+      {
+        "batch": "C",
+        "goal": "Close the Phase 1/5 gate honestly",
+        "days": "8-12",
+        "contains": [
+          "re-point Phases 1 and 5",
+          "parity check as blocking CI",
+          "approval consumption"
+        ]
+      },
+      {
+        "batch": "D",
+        "goal": "Situational awareness and explainability",
+        "days": "4-6",
+        "contains": [
+          "frontmost app",
+          "selected text",
+          "audio route",
+          "63+64 merged"
+        ]
+      },
+      {
+        "batch": "E",
+        "goal": "Proactivity, widened",
+        "days": "10-15",
+        "contains": [
+          "57+59 merged into a rule store",
+          "58 simulation",
+          "61 prep cards",
+          "62 waiting-on"
+        ]
+      },
+      {
+        "batch": "F",
+        "goal": "Cost, and reach beyond the Mac",
+        "days": "4-6 + credential lead time",
+        "contains": [
+          "67 cost controls FIRST",
+          "attach a channel to orion-remote"
+        ]
+      },
+      {
+        "batch": "G",
+        "goal": "Delegation and bounded work",
+        "days": "gated",
+        "contains": [
+          "50",
+          "49 device half",
+          "53+55"
+        ]
+      },
+      {
+        "batch": "H",
+        "goal": "The register",
+        "days": "-",
+        "contains": [
+          "declined: 52, 82, 83, 37"
+        ]
+      }
+    ],
+    "liveDefectsFound": [
+      "All three cron jobs pinned America/New_York; USER.md says 'moving to London before the end of August 2026' and 'ask once afterward'. It is 2026-09-01.",
+      "Phase 33 is violated by the live app: HealthSummary.swift:71,76 and MorningBrief.swift:86-92,133 put raw HRV, resting heart rate, recovery and sleep into model prompts.",
+      "A focus session has been wedged open since 2026-08-12; last heartbeat 2026-09-01T01:25:46Z.",
+      "Camera presence: 504 failures, 0 successes, still enabled.",
+      "Sparkle points at a literal ORION_OWNER/ORION_REPO placeholder.",
+      "Info.plist claims calendar access 'only reads; never creates or changes events' while AppleCalendarSync creates, updates and deletes.",
+      "The installed app is 14 commits behind the repo."
+    ],
+    "nicksRankedGapsRechecked": {
+      "1 proactivity": "LIVE — three cron jobs running, all ok",
+      "2 memory retrieval": "DONE — orion-recall, semantic, nomic-embed-text local",
+      "3 situational awareness": "open; does not need screenshots",
+      "4 reach beyond the Mac": "outbound live; inbound needs one bot token",
+      "5 capability ladder + taint": "DONE, pre-manifest",
+      "6 sub-agents": "registered, not built"
+    },
+    "decisionsForNick": [
+      "Have you moved to London? USER.md instructed Orion to ask. Blocks Batch B.",
+      "Is a phone coming? Six phases and REC-USABLE-CLIENT hang on it.",
+      "The $99 Apple Developer Program.",
+      "A bot token for the inbound channel.",
+      "Do you want the focus feature at all? Two sessions ever completed, both abandoned under 25s.",
+      "Accept re-pointing Phases 1 and 5 onto the live TypeScript gate."
+    ]
+  }
 }

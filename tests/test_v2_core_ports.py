@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
+from orion.core.context.domains import Domain, Provenance
 from orion.core.context.ports import ContextBundle, ContextEntry
 from orion.core.events.ports import AuditRecord
 from orion.core.jobs.ports import JobReceipt
@@ -45,10 +46,14 @@ def decision(outcome: str, proposal_id: str = "proposal-0001") -> DecisionEnvelo
 
 class V2CorePortTests(unittest.TestCase):
     def test_context_bundle_enforces_count_and_character_budgets(self):
+        # domain and provenance became required in Phase 3: a context entry that
+        # does not say what it is about cannot be firewalled.
         entry = ContextEntry(
             source="system",
             text="healthy",
             sensitivity=Sensitivity.INTERNAL,
+            domain=Domain.GENERAL,
+            provenance=Provenance.SYSTEM_GENERATED,
         )
         bundle = ContextBundle(correlation_id="correlation-0001", entries=(entry,))
         self.assertEqual(bundle.entries, (entry,))

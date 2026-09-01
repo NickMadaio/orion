@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orion://schemas/context-item/v1",
+  "title": "ORION Context Item v1",
+  "description": "One labelled piece of context. Every field except confidence is required: an item that does not say what domain it belongs to cannot be firewalled, and an item that does not say where it came from cannot be believed the right amount. `credentials` is a valid domain in the vocabulary but must never appear on an item -- it exists so the rule can be stated, and the Python reference validator refuses to construct one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source", "text", "sensitivity", "domain", "provenance"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,63}$"},
+    "text": {"type": "string", "minLength": 1, "maxLength": 16384},
+    "sensitivity": {"enum": ["PUBLIC", "INTERNAL", "SENSITIVE", "RESTRICTED"]},
+    "domain": {
+      "enum": [
+        "general", "conversation", "calendar", "email", "health", "computer",
+        "files", "projects", "contacts", "travel", "security", "credentials"
+      ]
+    },
+    "provenance": {
+      "description": "Orthogonal to the plugin's three trust levels, not a replacement. Trust answers whether something may authorize an action; this answers where it came from and how much to believe it.",
+      "enum": [
+        "user_asserted", "user_confirmed", "system_generated",
+        "orion_inferred", "external_untrusted", "device_observed"
+      ]
+    },
+    "confidence": {
+      "description": "Defaults to 1.0. An orion_inferred item asserting 1.0 is usually a bug: Orion concluding something is not the user saying it.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orion://schemas/model-roles/v1",
+  "title": "ORION Model Role Contract v1",
+  "description": "The single source of truth for which model answers to which role. Every ORION surface that performs inference resolves its model through this document; no model name is hardcoded elsewhere. ORION owns this contract; the platform routers execute it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "roles",
+    "providers"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reasoning",
+        "fast",
+        "vision",
+        "local",
+        "embedding",
+        "stt",
+        "tts"
+      ],
+      "properties": {
+        "reasoning": {
+          "$ref": "#/$defs/role"
+        },
+        "fast": {
+          "$ref": "#/$defs/role"
+        },
+        "vision": {
+          "$ref": "#/$defs/role"
+        },
+        "local": {
+          "$ref": "#/$defs/role"
+        },
+        "embedding": {
+          "$ref": "#/$defs/role"
+        },
+        "stt": {
+          "$ref": "#/$defs/role"
+        },
+        "tts": {
+          "$ref": "#/$defs/role"
+        }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/provider"
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+      }
+    },
+    "retired": {
+      "description": "Models that appear in historical traffic but are no longer routed, mapped to the role they served. Their providers need not be declared -- these are facts about the past, not routable targets. Without this the contract cannot describe its own history, and a telemetry pass over old sessions has to either invent a role or drop the rows.",
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "reasoning",
+          "fast",
+          "vision",
+          "local",
+          "embedding",
+          "stt",
+          "tts"
+        ]
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,31}/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      }
+    }
+  },
+  "$defs": {
+    "modelRef": {
+      "description": "provider/model. The provider must be declared in `providers`.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,31}/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "fallbacks",
+        "timeout_seconds",
+        "max_retries"
+      ],
+      "properties": {
+        "primary": {
+          "description": "null means the role is declared but unassigned. A role with no model is honest; a role invented to look complete is not.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/modelRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fallbacks": {
+          "description": "Tried in order when primary fails. `fallback` is a property of a role, not a role of its own: a model is not the fallback model in the abstract, it is what THIS role falls back to.",
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/modelRef"
+          }
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "rates": {
+          "description": "Estimated cost inputs, in USD per million tokens. Absent means cost cannot be estimated for this role and ledger rows must say so rather than record a confident zero.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_per_mtok",
+            "output_per_mtok"
+          ],
+          "properties": {
+            "input_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            },
+            "output_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache_read_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache_write_per_mtok": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 512
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credential"
+      ],
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "credential": {
+          "description": "How the EXECUTOR obtains the credential. The contract records the reference; it never carries the secret. `env_plaintext` exists to make a known gap SAYABLE, not to bless it: a provider still on it has its key readable on disk, which the manifest forbids. Phase 2 slice 5 is done when no provider declares it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "enum": [
+                "keychain",
+                "env_plaintext",
+                "none"
+              ]
+            },
+            "ref": {
+              "type": "string",
+              "maxLength": 256,
+              "description": "Keychain item name, or environment variable name for env_plaintext. Absent for none."
+            }
+          }
+        }
+      }
+    }
+  }
+}

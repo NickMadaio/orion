@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from orion.core.context.domains import Domain, Provenance
 from orion.shared.identifiers import Identifier, Symbol
 from orion.shared.result import Sensitivity
 
@@ -37,15 +38,43 @@ class AuthenticatedRequest:
 
 @dataclass(frozen=True, slots=True)
 class ContextEntry:
+    """One labelled piece of context.
+
+    Phase 1 defined source, text and sensitivity. Phase 3 added domain,
+    provenance and confidence, because the manifest's central rule -- health
+    context must not reach an email task -- cannot be enforced against a value
+    that does not record which domain it belongs to.
+
+    All three are required rather than optional. An entry that forgot to say
+    what it was about would be admitted by any policy that reasons about
+    domains, which is the failure this exists to prevent.
+    """
+
     source: Symbol
     text: str
     sensitivity: Sensitivity
+    domain: Domain
+    provenance: Provenance
+    confidence: float = 1.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source", Symbol(self.source))
         object.__setattr__(self, "sensitivity", Sensitivity(self.sensitivity))
+        object.__setattr__(self, "domain", Domain(self.domain))
+        object.__setattr__(self, "provenance", Provenance(self.provenance))
         if not isinstance(self.text, str) or not self.text or len(self.text) > MAX_CONTEXT_CHARACTERS:
             raise ValueError("context entry text is empty or too large")
+        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
+            raise ValueError("confidence must be a number")
+        confidence = float(self.confidence)
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("confidence must be between 0.0 and 1.0")
+        object.__setattr__(self, "confidence", confidence)
+        if self.domain is Domain.CREDENTIALS:
+            # Refused at construction, not merely at bundle time. A credential
+            # that exists as a context value has already been handled by more
+            # code than it should have been.
+            raise ValueError("credentials may not be represented as context")
 
 
 @dataclass(frozen=True, slots=True)

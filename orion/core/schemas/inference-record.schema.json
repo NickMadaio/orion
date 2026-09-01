@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orion://schemas/inference-record/v1",
+  "title": "ORION Inference Ledger Record v1",
+  "description": "One inference, one row. Answers what it cost and whether it worked. It is NOT a transcript: no prompt or completion text may ever appear here. This machine holds health and financial data, and a ledger that quietly became a conversation log would be a privacy regression, not a feature.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "executor",
+    "fallback",
+    "latency_ms",
+    "model",
+    "outcome",
+    "provider",
+    "role",
+    "schema_version",
+    "source",
+    "tokens",
+    "ts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "role": {
+      "enum": [
+        "reasoning",
+        "fast",
+        "vision",
+        "local",
+        "embedding",
+        "stt",
+        "tts"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens": {
+      "description": "Absent counts are null, never zero. A model that reports no token count did not use none.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input",
+        "output"
+      ],
+      "properties": {
+        "input": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_read": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_write": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "estimated_cost_usd": {
+      "description": "null when the role declares no rates. Distinguishable from 0.0, which means a real inference that genuinely cost nothing.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fired"
+      ],
+      "properties": {
+        "fired": {
+          "type": "boolean"
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        }
+      }
+    },
+    "outcome": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "failure_reason": {
+      "description": "A bounded, log-safe reason code or short message. Never a stack trace, never model output.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 256
+    },
+    "context_tokens": {
+      "description": "Prompt size at call time. This is what makes 'apply least-context principles' auditable instead of a claim.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128
+    },
+    "source": {
+      "description": "Which ORION surface performed the inference. A fact about ORION's own shape, so it survives a change of router.",
+      "enum": [
+        "agent",
+        "native_app",
+        "tts_daemon",
+        "script"
+      ]
+    },
+    "executor": {
+      "description": "Who actually routed and made the provider call. Separate from `source` on purpose: if ORION ever outgrows OpenClaw and takes routing in-house, only this field changes, and the ledger itself becomes the proof of the migration -- the day rows stop saying openclaw and start saying orion_router.",
+      "enum": [
+        "openclaw",
+        "orion_router",
+        "direct"
+      ]
+    }
+  }
+}

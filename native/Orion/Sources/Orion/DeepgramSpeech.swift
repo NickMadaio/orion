@@ -35,7 +35,12 @@ import Foundation
 enum DeepgramConfig {
     /// The rate we send at, and therefore the rate we tell Deepgram to expect.
     static let sampleRate: Double = 16000
-    static let model = "nova-3"
+    /// Resolved from the role contract; the constant remains the fallback so a
+    /// missing contract cannot cost Orion its ears.
+    static let model = ModelContract.model(role: "stt", fallback: fallbackModel)
+
+    /// What `stt` was before the contract existed.
+    static let fallbackModel = "nova-3"
     static let language = "en-US"
     /// Milliseconds of silence before Deepgram calls the utterance finished.
     ///

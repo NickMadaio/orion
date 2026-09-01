@@ -121,6 +121,15 @@ export interface ValidationOptions {
    * tests and in any caller that has no session, where it defaults to "no".
    */
   isSelfAuthored?: (candidate: string) => boolean;
+  /**
+   * Reject arguments an action does not accept.
+   *
+   * Only applies to actions with no hand-written `validateArguments`, because
+   * only there is the accepted set fully declared. Default off: turning it on
+   * makes calls fail that succeed today, which is more correct and is still a
+   * change to a working system.
+   */
+  strictArguments?: boolean;
 }
 
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */
@@ -511,6 +520,31 @@ export function validateTaskGraph(
         stepId: step.id,
       });
     }
+    // Reject unknown arguments -- the manifest's "reject unknown fields by
+    // default" -- but ONLY where the accepted set is actually knowable.
+    //
+    // An action with a hand-written `validateArguments` accepts optional keys
+    // that are declared nowhere machine-readable, so rejecting everything
+    // outside `requiredArguments` would break working calls. For the actions
+    // WITHOUT one, `requiredArguments` is the complete accepted set by
+    // construction, and an extra key is unambiguously unknown.
+    //
+    // This is the hole found on 2026-08-20: `system_status` declares no
+    // arguments and accepted any, which is why the v2 contract bridge had to be
+    // made fail-open. Default off; see PHASE_4_PLAN.md.
+    if (options.strictArguments === true && !definition.validateArguments) {
+      const accepted = new Set(definition.requiredArguments);
+      for (const supplied of Object.keys(step.arguments)) {
+        if (!accepted.has(supplied)) {
+          issues.push({
+            code: "unknown_argument",
+            message:
+              `Action '${step.action}' does not accept argument '${supplied}'.`,
+            stepId: step.id,
+          });
+        }
+      }
+    }
     for (const message of definition.validateArguments?.(step.arguments) ?? []) {
       issues.push({
         code: "invalid_argument",
@@ -633,6 +667,7 @@ export function validateTaskGraph(
     "duplicate_step_id",
     "unknown_action",
     "missing_argument",
+    "unknown_argument",
     "invalid_argument",
     "capability_disabled",
     "risk_mismatch",

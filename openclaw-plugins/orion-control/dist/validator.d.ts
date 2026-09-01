@@ -10,6 +10,15 @@ export interface ValidationOptions {
      * tests and in any caller that has no session, where it defaults to "no".
      */
     isSelfAuthored?: (candidate: string) => boolean;
+    /**
+     * Reject arguments an action does not accept.
+     *
+     * Only applies to actions with no hand-written `validateArguments`, because
+     * only there is the accepted set fully declared. Default off: turning it on
+     * makes calls fail that succeed today, which is more correct and is still a
+     * change to a working system.
+     */
+    strictArguments?: boolean;
 }
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */
 export declare const MAX_STEPS = 32;

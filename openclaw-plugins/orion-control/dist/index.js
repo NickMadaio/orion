@@ -182,6 +182,9 @@ export const ConfigSchema = Type.Object({
     permissionAuditPath: Type.Optional(Type.String({
         description: "Private append-only JSONL audit file for permission changes.",
     })),
+    enableStrictArguments: Type.Optional(Type.Boolean({
+        description: "Reject arguments an action does not accept. Applies only to actions whose accepted set is fully declared (no hand-written validateArguments); the rest are unchanged until their optional arguments are declared. Default off.",
+    })),
     enableV2SystemStatusAdapter: Type.Optional(Type.Boolean({
         description: "Route only the read-only system_status action through the ORION v2 Phase 1 contract bridge. Existing provenance, validation, execution, verification, and ledger authorities remain unchanged. Default off.",
     })),
@@ -471,8 +474,10 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
             content: observed,
         });
     }
+    const strictArguments = config.enableStrictArguments === true;
     const runOptions = {
         ledgerPath: defaultLedgerPath(config.ledgerPath),
+        ...(strictArguments ? { strictArguments: true } : {}),
         testWorkspaceRoot: defaultTestWorkspaceRoot(config.testWorkspaceRoot),
         scratchWorkspaceRoot: defaultScratchWorkspaceRoot(config.scratchWorkspaceRoot),
         ...(config.remindersPath ? { remindersPath: config.remindersPath } : {}),
@@ -499,6 +504,7 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
             validation: validateTaskGraph(authorized.graph, {
                 enabledTiers,
                 isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
+                strictArguments,
             }),
             runLegacy,
             ...(hostWarn ? { onWarning: hostWarn } : {}),

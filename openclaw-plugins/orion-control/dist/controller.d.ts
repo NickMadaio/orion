@@ -12,6 +12,8 @@ export interface RunOptions {
     trashRoot?: string;
     /** Configured browser for the `browser_control` tier. */
     browserPreference?: string;
+    /** Reject arguments an action does not accept. Default off; see PHASE_4_PLAN.md. */
+    strictArguments?: boolean;
     remindersPath?: string;
     /** Shared supplement/workout store, also read by the Orion dashboard. */
     healthLogPath?: string;

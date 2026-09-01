@@ -43,6 +43,7 @@ export declare const ConfigSchema: Type.TObject<{
     trustRecentWindowMs: Type.TOptional<Type.TInteger>;
     permissionStatePath: Type.TOptional<Type.TString>;
     permissionAuditPath: Type.TOptional<Type.TString>;
+    enableStrictArguments: Type.TOptional<Type.TBoolean>;
     enableV2SystemStatusAdapter: Type.TOptional<Type.TBoolean>;
 }>;
 declare const entry: import("openclaw/plugin-sdk/tool-plugin").DefinedToolPluginEntry;

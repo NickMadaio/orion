@@ -26,6 +26,10 @@ export async function runTaskGraph(graph, options) {
     const validation = validateTaskGraph(graph, {
         enabledTiers,
         ...(options.isSelfAuthored ? { isSelfAuthored: options.isSelfAuthored } : {}),
+        // This is the authoritative validation -- the one that actually gates
+        // execution. Wiring the flag only into the entry point's evidence copy
+        // would produce a setting that looks live and changes nothing.
+        ...(options.strictArguments ? { strictArguments: true } : {}),
     });
     const createdAt = now().toISOString();
     // A nonce keeps task ids unique: two identical graphs submitted inside the

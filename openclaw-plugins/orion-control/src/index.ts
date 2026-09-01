@@ -328,6 +328,12 @@ export const ConfigSchema = Type.Object({
       description: "Private append-only JSONL audit file for permission changes.",
     }),
   ),
+  enableStrictArguments: Type.Optional(
+    Type.Boolean({
+      description:
+        "Reject arguments an action does not accept. Applies only to actions whose accepted set is fully declared (no hand-written validateArguments); the rest are unchanged until their optional arguments are declared. Default off.",
+    }),
+  ),
   enableV2SystemStatusAdapter: Type.Optional(
     Type.Boolean({
       description:
@@ -668,8 +674,10 @@ async function runAuthorizedGraph(
       content: observed,
     });
   }
+  const strictArguments = config.enableStrictArguments === true;
   const runOptions: RunOptions = {
     ledgerPath: defaultLedgerPath(config.ledgerPath),
+    ...(strictArguments ? { strictArguments: true } : {}),
     testWorkspaceRoot: defaultTestWorkspaceRoot(config.testWorkspaceRoot),
     scratchWorkspaceRoot: defaultScratchWorkspaceRoot(config.scratchWorkspaceRoot),
     ...(config.remindersPath ? { remindersPath: config.remindersPath } : {}),
@@ -697,6 +705,7 @@ async function runAuthorizedGraph(
           validation: validateTaskGraph(authorized.graph, {
             enabledTiers,
             isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
+            strictArguments,
           }),
           runLegacy,
           ...(hostWarn ? { onWarning: hostWarn } : {}),

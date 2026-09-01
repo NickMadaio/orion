@@ -64,6 +64,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import pathlib
 import sys
 import tempfile
 import threading
@@ -171,8 +172,95 @@ def read_env_file(path: str, name: str) -> Optional[str]:
     return None
 
 
+# Keychain items for credentials this daemon uses, following the Phase 0 naming
+# already established for the OpenClaw values ("ORION OpenClaw Anthropic" etc).
+# The role contract and the inference ledger, if this daemon can reach them.
+# Imported defensively: launchd starts this with its own interpreter and the
+# repo may not be importable. Telemetry is never worth losing the voice for, so
+# a failed import degrades to the behaviour this daemon has always had.
+try:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from orion.mac import inference_ledger as _ledger
+except Exception:  # pragma: no cover - depends on how launchd starts us
+    _ledger = None
+
+
+def contract_model(role: str, default: str) -> str:
+    """The model for a role, or the compiled-in default."""
+    if _ledger is None:
+        return default
+    try:
+        return _ledger.resolve(role, default)
+    except Exception:
+        return default
+
+
+def record_synthesis(
+    reference: str,
+    latency_ms: int,
+    *,
+    outcome: str = "succeeded",
+    failure_reason: Optional[str] = None,
+    fell_back_from: Optional[str] = None,
+) -> None:
+    """Append one row for a synthesis. Silent on every failure, by design."""
+    if _ledger is None:
+        return
+    try:
+        _ledger.append(
+            "tts",
+            reference,
+            latency_ms,
+            source="tts_daemon",
+            outcome=outcome,
+            failure_reason=failure_reason,
+            fell_back_from=fell_back_from,
+        )
+    except Exception:
+        pass
+
+
+KEYCHAIN_ITEMS = {
+    "ELEVENLABS_API_KEY": "ORION ElevenLabs",
+    "DEEPGRAM_API_KEY": "ORION Deepgram",
+}
+
+
+def read_keychain(item: str) -> Optional[str]:
+    """Read one login-Keychain generic password, or None.
+
+    Runs as the user, so this does not hit the per-binary ACL problem that makes
+    the Swift app re-prompt after every rebuild -- a script is not a signed
+    binary with a sealed identity. `-w` prints only the secret, and stderr is
+    discarded so a "not found" never lands in a log next to the item name.
+    """
+    try:
+        result = subprocess.run(
+            # Account "openclaw" matches the items Phase 0 already created; a
+            # different account name here would silently never find them.
+            ["/usr/bin/security", "find-generic-password", "-a", "openclaw",
+             "-s", item, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
 def read_secret(name: str, candidates: Optional[list[str]] = None) -> Optional[str]:
-    """Environment first, then `.env`.
+    """Environment, then Keychain, then `.env`.
+
+    Keychain sits ahead of `.env` deliberately: it makes the migration a no-op
+    switch. Seed the Keychain item, restart, and the daemon prefers it without
+    any other change; the plaintext line can then be removed once that is proven
+    rather than before. Phase 0 learned this order the hard way -- verify the new
+    source works BEFORE deleting the old one.
 
     The return value is a live credential. It is passed straight into a request
     header and is never logged, never echoed into a frame, and never written
@@ -181,11 +269,33 @@ def read_secret(name: str, candidates: Optional[list[str]] = None) -> Optional[s
     value = os.environ.get(name, "").strip()
     if value:
         return value
+    item = KEYCHAIN_ITEMS.get(name)
+    if item:
+        found = read_keychain(item)
+        if found:
+            return found
     for path in (candidates if candidates is not None else env_file_candidates()):
         found = read_env_file(path, name)
         if found:
             return found
     return None
+
+
+def secret_source(name: str, candidates: Optional[list[str]] = None) -> str:
+    """Where the credential came from. Names the SOURCE, never the value.
+
+    This is what lets a diagnostic prove the migration landed without anyone
+    printing a key to check.
+    """
+    if os.environ.get(name, "").strip():
+        return "environment"
+    item = KEYCHAIN_ITEMS.get(name)
+    if item and read_keychain(item):
+        return "keychain"
+    for path in (candidates if candidates is not None else env_file_candidates()):
+        if read_env_file(path, name):
+            return "env_plaintext"
+    return "absent"
 
 
 def secret_present(name: str, candidates: Optional[list[str]] = None) -> bool:
@@ -198,6 +308,11 @@ class Config:
 
     def __init__(self) -> None:
         self.model_path = _env("ORION_TTS_MODEL", DEFAULT_MODEL)
+        # The contract names the model; DEFAULT_MODEL stays the fallback so a
+        # missing contract cannot cost Orion its voice.
+        self.tts_model_name = contract_model(
+            "tts", os.path.basename(self.model_path)
+        )
         self.mlx_cli = _env("ORION_TTS_MLX_CLI", DEFAULT_MLX_CLI)
         self.voice = _env("ORION_TTS_VOICE", "conversational_b")
         # 1.0 == the model's natural rate. The old script hard-coded 0.94,

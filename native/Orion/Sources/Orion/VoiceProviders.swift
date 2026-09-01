@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /*
  Which voice Orion speaks with, and which ears it listens through.
@@ -89,11 +90,17 @@ enum VoiceSettings {
     }
 }
 
-/// API keys: environment first, then the gitignored `.env` beside the repo.
+/// API keys: environment, then the Keychain, then the gitignored `.env`.
 ///
 /// A key read here goes straight into a request header and nowhere else. It is
 /// never logged, never shown in the UI, never written into `openclaw.json`, and
 /// never placed in a URL — URLs end up in logs and proxies.
+///
+/// The Keychain sits ahead of `.env` on purpose. It makes a migration a no-op
+/// switch: seed the item, and this prefers it with no other change, so the
+/// plaintext line can be removed once the new source is proven rather than
+/// before. Which providers have moved is not decided here — `ModelContract`
+/// says, and a provider still on a plaintext source simply falls through.
 enum Secrets {
 
     static let envPath = "/Users/nickmadaio/Desktop/ORION/.env"
@@ -108,7 +115,41 @@ enum Secrets {
            !fromEnvironment.trimmingCharacters(in: .whitespaces).isEmpty {
             return fromEnvironment.trimmingCharacters(in: .whitespaces)
         }
+        if let provider = providerForVariable[name],
+           let item = ModelContract.keychainItem(provider: provider),
+           let fromKeychain = valueFromKeychain(item: item) {
+            return fromKeychain
+        }
         return valueFromEnvFile(name, path: envPath)
+    }
+
+    /// Which provider each variable belongs to, so the contract can be asked
+    /// where that provider's credential lives.
+    private static let providerForVariable = [
+        elevenLabsVariable: "elevenlabs",
+        deepgramVariable: "deepgram",
+    ]
+
+    /// Reads one generic password from the login Keychain.
+    ///
+    /// Account `openclaw` matches the items the Phase 0 migration created; a
+    /// different account here would silently find nothing. `kSecReturnData`
+    /// with a single-item limit means only the value asked for comes back.
+    static func valueFromKeychain(item: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: item,
+            kSecAttrAccount as String: "openclaw",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8)
+        else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func valueFromEnvFile(_ name: String, path: String) -> String? {

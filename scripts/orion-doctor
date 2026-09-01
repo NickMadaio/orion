@@ -130,11 +130,32 @@ fi
 print ""
 print "voice providers"
 
+# Where a credential actually lives. Order must match every consumer's own
+# lookup -- environment, then Keychain, then .env -- or this reports a key
+# "missing" that the app and the TTS daemon are reading happily. A diagnostic
+# that is wrong about a working system is worse than no diagnostic.
+keychain_item_for() {
+  case "$1" in
+    ELEVENLABS_API_KEY) print "ORION ElevenLabs" ;;
+    DEEPGRAM_API_KEY)   print "ORION Deepgram" ;;
+    *) return 1 ;;
+  esac
+}
+
 key_source() {
   local name="$1"
   if [[ -n "$(printenv "$name" 2>/dev/null)" ]]; then
     print "environment"
     return 0
+  fi
+  local item
+  if item="$(keychain_item_for "$name")"; then
+    # Presence only, never the value: -w would print the secret.
+    if /usr/bin/security find-generic-password -a openclaw -s "$item" \
+         >/dev/null 2>&1; then
+      print "login Keychain: $item"
+      return 0
+    fi
   fi
   [[ -f "$env_file" ]] || return 1
   local found

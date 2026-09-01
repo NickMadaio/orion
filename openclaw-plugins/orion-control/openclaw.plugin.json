@@ -170,6 +170,10 @@
         "type": "string",
         "description": "Private append-only JSONL audit file for permission changes."
       },
+      "enableStrictArguments": {
+        "type": "boolean",
+        "description": "Reject arguments an action does not accept. Applies only to actions whose accepted set is fully declared (no hand-written validateArguments); the rest are unchanged until their optional arguments are declared. Default off."
+      },
       "enableV2SystemStatusAdapter": {
         "type": "boolean",
         "description": "Route only the read-only system_status action through the ORION v2 Phase 1 contract bridge. Existing provenance, validation, execution, verification, and ledger authorities remain unchanged. Default off."

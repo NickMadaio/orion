@@ -1498,6 +1498,60 @@ describe("harness-derived trust boundary", () => {
     );
   });
 
+  // Phase 4: rejecting arguments an action does not accept. Default off,
+  // because turning it on makes calls fail that succeed today -- more correct,
+  // and still a change to a working system.
+  it("accepts an unknown argument by default and refuses it under strict arguments", async () => {
+    const run = async (strict: boolean, suffix: string) => {
+      const fixture = await desktopFixture({
+        enableAmbientInfoActions: true,
+        enableStrictArguments: strict,
+        trustAllowTranscriptSource: false,
+      });
+      const harness = hostHarness(fixture.config);
+      harness.deliverUserTurn("check system status", `run-strict-${suffix}`);
+      harness.bindToolCall(`call-strict-${suffix}`, `run-strict-${suffix}`);
+      return harness.call(
+        "orion_task_run",
+        { action: "system_status", arguments: { verbose: true } },
+        `call-strict-${suffix}`,
+      );
+    };
+
+    // Flag off: unchanged. This is the parity half, and it must stay true.
+    const lenient = await run(false, "off");
+    expect(lenient.executed).toBe(true);
+    expect(lenient.status).toBe("succeeded");
+
+    // Flag on: the argument is refused, and nothing runs.
+    const strict = await run(true, "on");
+    expect(strict.executed).toBe(false);
+    expect(strict.status).toBe("rejected");
+    expect((strict.validation as { issues: Array<{ code: string }> }).issues
+      .map((issue) => issue.code)).toContain("unknown_argument");
+  });
+
+  it("leaves an action with a hand-written validator alone under strict arguments", async () => {
+    // Only actions whose accepted set is fully declared are affected. An action
+    // with its own validateArguments accepts optional keys declared nowhere
+    // machine-readable, so strict mode must not touch it -- rejecting there
+    // would break working calls on a guess.
+    const fixture = await desktopFixture({
+      enableDesktopReadActions: true,
+      enableStrictArguments: true,
+      trustAllowTranscriptSource: false,
+    });
+    const harness = hostHarness(fixture.config);
+    harness.deliverUserTurn("list the desktop", "run-strict-validator");
+    harness.bindToolCall("call-strict-validator", "run-strict-validator");
+    const result = await harness.call(
+      "orion_task_run",
+      { action: "desktop_list", arguments: {} },
+      "call-strict-validator",
+    );
+    expect(result.status).not.toBe("rejected");
+  });
+
   // The catalog declares `requiredArguments: []` for system_status and the
   // validator rejects no unknown key, so an extra argument is a normal, working
   // call on the legacy route. The v2 contract is stricter than that on purpose;

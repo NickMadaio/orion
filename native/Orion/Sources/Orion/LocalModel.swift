@@ -65,7 +65,17 @@ enum LocalModel {
     /// Both are local and cost nothing. Every caller writes once, caches, and
     /// never blocks the screen, so the seconds are spent while the numbers are
     /// already being read.
-    static let defaultModel = "gpt-oss:20b"
+    /// The model everything local runs on.
+    ///
+    /// Resolved from the role contract, with this constant as the fallback so a
+    /// missing or malformed contract cannot take local reasoning down. Changing
+    /// which model this is no longer requires a rebuild, a re-sign and a
+    /// reinstall — it is one line in one document that the Python and
+    /// TypeScript sides read too.
+    static let defaultModel = ModelContract.model(role: "local", fallback: fallbackModel)
+
+    /// What `local` was before the contract existed, and what it falls back to.
+    static let fallbackModel = "gpt-oss:20b"
 
     /// Generous, and that is not arbitrary.
     ///

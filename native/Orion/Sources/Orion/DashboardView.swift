@@ -376,12 +376,26 @@ struct DashboardView: View {
         return BriefFacts(
             day: dayModel.day,
             wokeAt: dayModel.wokeAt,
-            recovery: whoop.snapshot?.recovery,
-            sleepPerformance: whoop.snapshot?.sleepPerformance,
-            sleepHours: whoop.snapshot?.sleepHours,
-            hrvDelta: whoop.week.hrv.deltaLabel(),
-            restingHeartRate: whoop.snapshot?.restingHeartRate,
-            strainTarget: StrainTarget.forRecovery(whoop.snapshot?.recovery),
+            signal: PlanningSignal.derive(
+                recovery: whoop.snapshot?.recovery,
+                sleepPerformance: whoop.snapshot?.sleepPerformance,
+                sleepHours: whoop.snapshot?.sleepHours,
+                strain: whoop.snapshot?.strain,
+                sampleCount: whoop.week.readingsByDay.count,
+                readingAgeHours: nil
+            ),
+            strainAdvice: StrainPosition.of(
+                strain: whoop.snapshot?.strain,
+                band: StrainTarget.forRecovery(whoop.snapshot?.recovery)
+            ).line.replacingOccurrences(of: "- ", with: ""),
+            readings: BriefFacts.Readings(
+                recovery: whoop.snapshot?.recovery,
+                sleepPerformance: whoop.snapshot?.sleepPerformance,
+                sleepHours: whoop.snapshot?.sleepHours,
+                hrvDelta: whoop.week.hrv.deltaLabel(),
+                restingHeartRate: whoop.snapshot?.restingHeartRate,
+                strainTarget: StrainTarget.forRecovery(whoop.snapshot?.recovery)
+            ),
             events: agenda.events,
             committedMinutes: agenda.committedMinutesRemaining,
             dueToday: open.filter {

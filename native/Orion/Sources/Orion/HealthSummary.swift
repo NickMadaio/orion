@@ -20,16 +20,16 @@ struct HealthFacts: Equatable {
     /// morning / day / evening — part of the cache key, and part of the prompt.
     var phase: String
 
-    var recovery: Int?
-    var recoveryDelta: String?
-    var sleepPerformance: Int?
-    var sleepHours: Double?
-    var hrv: Int?
-    var hrvDelta: String?
-    var restingHeartRate: Int?
-    var rhrDelta: String?
-    var strain: Double?
-    var strainTarget: StrainTarget
+    /// The health picture, as categories. Phase 33: no raw measurement crosses
+    /// into a prompt. There is deliberately no `hrv`, `restingHeartRate`,
+    /// `recovery` or `sleepPerformance` property here any more -- the guarantee
+    /// is that `prompt()` CANNOT print them, because they are not in scope,
+    /// rather than that it happens not to.
+    var signal: PlanningSignal
+    /// Whether today's logged strain sits under, inside or over the suggested
+    /// band. Three bits, derived from the band and the reading, never the
+    /// reading itself.
+    var strainPosition: StrainPosition
 
     var bottles: Int
     var bottleTarget: Int
@@ -49,7 +49,8 @@ struct HealthFacts: Equatable {
     }
 
     var hasAnything: Bool {
-        recovery != nil || sleepPerformance != nil || strain != nil || bottles > 0 || workoutSets > 0 || calories > 0
+        signal.hasAnything || strainPosition != .nothingLogged
+            || bottles > 0 || workoutSets > 0 || calories > 0
     }
 
     /// Nil when there is genuinely nothing to say, so no request is made.
@@ -57,32 +58,8 @@ struct HealthFacts: Equatable {
         guard hasAnything else { return nil }
         var lines: [String] = []
 
-        if let recovery {
-            var line = "- Recovery \(recovery)% (\(recovery >= 67 ? "green" : recovery >= 34 ? "yellow" : "red"))"
-            if let recoveryDelta { line += ", \(recoveryDelta) vs his 7-day average" }
-            lines.append(line + ".")
-        }
-        if let sleepPerformance {
-            var line = "- Sleep score \(sleepPerformance)%"
-            if let sleepHours { line += ", \(String(format: "%.1f", sleepHours))h in bed" }
-            lines.append(line + ".")
-        }
-        if let hrv {
-            var line = "- HRV \(hrv)ms"
-            if let hrvDelta { line += " (\(hrvDelta) vs average)" }
-            lines.append(line + ".")
-        }
-        if let restingHeartRate {
-            var line = "- Resting heart rate \(restingHeartRate)"
-            if let rhrDelta { line += " (\(rhrDelta) vs average)" }
-            lines.append(line + ".")
-        }
-        if let strain {
-            lines.append("- Strain so far today \(String(format: "%.1f", strain)), "
-                         + "against a suggested band of \(Int(strainTarget.low))–\(Int(strainTarget.high)).")
-        } else {
-            lines.append("- No strain logged yet today.")
-        }
+        lines.append(contentsOf: signal.promptLines())
+        lines.append(strainPosition.line)
         lines.append("- Water \(bottles) of \(bottleTarget) bottles.")
         if supplementsTotal > 0 {
             lines.append("- Supplements \(supplementsTaken) of \(supplementsTotal) taken.")
@@ -116,8 +93,13 @@ struct HealthFacts: Equatable {
         - One sentence each, under 18 words.
         - Each takeaway must interpret or combine, never just restate a number.
         - Exactly one takeaway names the single thing most worth doing now.
-        - Never state a number that is not in the facts above, and do not \
-        calculate new ones. "3 of 9 bottles" must not become "33% of your goal".
+        - State NO health numbers at all -- no heart rate, no variability, no \
+        recovery or sleep percentage, no strain figure. There are none in the \
+        facts above; do not estimate, infer or invent one. The hydration, \
+        supplement and training counts are the only numbers you may use, and \
+        only as given: "3 of 9 bottles" must not become "33% of your goal".
+        - If the reading confidence is low, or it is not current, say so plainly \
+        rather than sounding certain about it.
         - Output nothing but the takeaway lines. No preamble, no closing line.
         - No generic wellness advice. Nothing about stretching, breathing, \
         listening to your body or staying consistent unless it follows from a \

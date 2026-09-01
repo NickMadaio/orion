@@ -90,7 +90,7 @@ struct MorningBriefPanel: View {
 
     private var readings: some View {
         HStack(alignment: .center, spacing: 40) {
-            if let recovery = facts.recovery {
+            if let recovery = facts.readings.recovery {
                 RingMeter(progress: Double(recovery) / 100,
                           value: "\(recovery)",
                           caption: "recovery",
@@ -98,14 +98,14 @@ struct MorningBriefPanel: View {
                           diameter: 118)
             }
             VStack(alignment: .leading, spacing: 14) {
-                if let sleep = facts.sleepPerformance {
+                if let sleep = facts.readings.sleepPerformance {
                     Reading(label: "sleep",
                             value: "\(sleep)",
                             unit: "%",
-                            note: facts.sleepHours.map { String(format: "%.1fh in bed", $0) },
+                            note: facts.readings.sleepHours.map { String(format: "%.1fh in bed", $0) },
                             tint: OrionTheme.violet)
                 }
-                if let hrvDelta = facts.hrvDelta {
+                if let hrvDelta = facts.readings.hrvDelta {
                     Reading(label: "hrv",
                             value: hrvDelta,
                             unit: "ms",
@@ -113,16 +113,16 @@ struct MorningBriefPanel: View {
                             tint: OrionTheme.blue)
                 }
             }
-            if facts.recovery != nil {
+            if facts.readings.recovery != nil {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("STRAIN BAND")
                         .font(OrionTheme.mono(8, .semibold))
                         .tracking(1.6)
                         .foregroundStyle(OrionTheme.textDim)
-                    Text("\(Int(facts.strainTarget.low))–\(Int(facts.strainTarget.high))")
+                    Text("\(Int(facts.readings.strainTarget.low))–\(Int(facts.readings.strainTarget.high))")
                         .font(OrionTheme.display(26))
                         .foregroundStyle(OrionTheme.orange)
-                    Text(facts.strainTarget.headline)
+                    Text(facts.readings.strainTarget.headline)
                         .font(OrionTheme.mono(10))
                         .foregroundStyle(OrionTheme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -289,7 +289,7 @@ struct ParkedBriefCard: View {
                         .tracking(1.8)
                         .foregroundStyle(OrionTheme.textDim)
 
-                    if let recovery = facts.recovery {
+                    if let recovery = facts.readings.recovery {
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             Text("\(recovery)")
                                 .font(OrionTheme.display(26))
@@ -299,7 +299,7 @@ struct ParkedBriefCard: View {
                                 .foregroundStyle(OrionTheme.textDim)
                         }
                     }
-                    if let sleep = facts.sleepPerformance {
+                    if let sleep = facts.readings.sleepPerformance {
                         Text("sleep \(sleep)%")
                             .font(OrionTheme.mono(10))
                             .foregroundStyle(OrionTheme.textSoft)

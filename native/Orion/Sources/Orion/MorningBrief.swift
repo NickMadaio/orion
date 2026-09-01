@@ -27,12 +27,31 @@ struct BriefFacts: Equatable {
     var day: LogicalDay
     var wokeAt: Date?
 
-    var recovery: Int?
-    var sleepPerformance: Int?
-    var sleepHours: Double?
-    var hrvDelta: String?
-    var restingHeartRate: Int?
-    var strainTarget: StrainTarget
+    /// Phase 33. The brief sits next to the calendar and the task list, and the
+    /// prompt asks the model to connect them -- which is Phase 38, health-aware
+    /// planning. That is the right feature and it is exactly why the raw numbers
+    /// must not be here: this is the prompt the firewall exists to protect.
+    var signal: PlanningSignal = PlanningSignal()
+    var strainAdvice: String?
+
+    /// Raw readings for the CARD ONLY. The ring meter and the figures beside it
+    /// are Nick looking at his own numbers on his own machine, which is not a
+    /// subsystem and is not what Phase 33 restricts.
+    ///
+    /// Nested rather than flat so the separation is visible at every use site:
+    /// `facts.readings.recovery` in a view is correct, and the same expression
+    /// inside `prompt()` is obviously wrong. `prompt()` does not mention
+    /// `readings` at all, and the firewall test asserts that numerically rather
+    /// than trusting it.
+    struct Readings: Equatable {
+        var recovery: Int?
+        var sleepPerformance: Int?
+        var sleepHours: Double?
+        var hrvDelta: String?
+        var restingHeartRate: Int?
+        var strainTarget: StrainTarget = StrainTarget.forRecovery(nil)
+    }
+    var readings = Readings()
 
     var events: [AgendaEvent] = []
     var committedMinutes: Int = 0
@@ -54,7 +73,7 @@ struct BriefFacts: Equatable {
         events.filter { !$0.isPast }.min { $0.start < $1.start }
     }
 
-    var hasHealth: Bool { recovery != nil || sleepPerformance != nil }
+    var hasHealth: Bool { signal.hasAnything }
 
     /// Whether there is anything worth showing at all. A parked card with no
     /// numbers, no next event and nothing due is a button that opens an empty
@@ -82,18 +101,8 @@ struct BriefFacts: Equatable {
         if let wokeAt {
             lines.append("- Woke at \(wokeAt.formatted(date: .omitted, time: .shortened)).")
         }
-        if let sleepPerformance {
-            var sleep = "- Sleep score \(sleepPerformance)%"
-            if let sleepHours { sleep += ", \(String(format: "%.1f", sleepHours))h in bed" }
-            lines.append(sleep + ".")
-        }
-        if let recovery {
-            var line = "- Recovery \(recovery)% (\(recovery >= 67 ? "green" : recovery >= 34 ? "yellow" : "red"))"
-            if let hrvDelta { line += ", HRV \(hrvDelta) vs the 7-day average" }
-            if let restingHeartRate { line += ", resting heart rate \(restingHeartRate)" }
-            lines.append(line + ".")
-            lines.append("- Suggested strain band for today: \(Int(strainTarget.low))–\(Int(strainTarget.high)).")
-        }
+        lines.append(contentsOf: signal.promptLines())
+        if let strainAdvice { lines.append("- \(strainAdvice)") }
 
         if !calendarConnected {
             lines.append("- Calendar: not connected, so what is scheduled is unknown.")
@@ -130,9 +139,16 @@ struct BriefFacts: Equatable {
         Write 2 to 3 sentences addressed to him, as one paragraph.
 
         Rules:
-        - Tie the recovery to what is actually on his calendar today.
+        - Tie the recovery STATE to what is actually on his calendar today. \
+        This is the point of the brief: a good reading on an empty day and a \
+        poor one on a full day call for different things.
         - If anything is overdue, name it.
-        - Never state a number that is not in the facts above.
+        - State NO health numbers at all -- no heart rate, no variability, no \
+        percentage, no hours slept. There are none in the facts above; do not \
+        estimate, infer or invent one. Times and task counts are fine.
+        - If the reading confidence is low, or it is not current, say so rather \
+        than sounding certain. "I have not got a fresh reading" is a useful \
+        sentence; a confident paragraph about stale numbers is not.
         - If a fact says something is not connected, say you cannot see it. \
         Never turn "not connected" into "nothing scheduled" or "nothing due".
         - No greeting, no lists, no headings, no sign-off.

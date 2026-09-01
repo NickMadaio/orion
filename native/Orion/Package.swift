@@ -36,7 +36,18 @@ let package = Package(
         // Pinned to a major version, not a commit: Sparkle's 2.x line is
         // stable and its security fixes are exactly the ones worth taking
         // automatically. Package.resolved holds the version actually in use.
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
+        // Not a third-party dependency -- this project's own domain layer, by
+        // path. It is here so the health privacy boundary reuses the derived
+        // vocabulary Phase 32 already built (SleepState, PhysicalRecovery,
+        // EnergyState, StressTrend) rather than declaring a second set of enums
+        // with the same member names. Two vocabularies that both say "moderate"
+        // and drift apart is the failure this codebase is written against.
+        //
+        // It is also the first real wire between the Mac app and MobileCore,
+        // which until now compiled for a simulator and was consumed by nothing
+        // but its own check harness.
+        .package(path: "../OrionMobile")
     ],
     targets: [
         // The pure session domain: models, reducer, reconcile(now:), clocks.
@@ -71,7 +82,8 @@ let package = Package(
             dependencies: [
                 "SessionDomain",
                 "SessionService",
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "MobileCore", package: "OrionMobile")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

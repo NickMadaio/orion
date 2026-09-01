@@ -503,16 +503,22 @@ struct HealthTab: View {
         HealthFacts(
             dayKey: day.key,
             phase: phaseName,
-            recovery: whoop.snapshot?.recovery,
-            recoveryDelta: whoop.week.recovery.deltaLabel(),
-            sleepPerformance: whoop.snapshot?.sleepPerformance,
-            sleepHours: whoop.snapshot?.sleepHours,
-            hrv: whoop.snapshot?.hrvMilliseconds,
-            hrvDelta: whoop.week.hrv.deltaLabel(),
-            restingHeartRate: whoop.snapshot?.restingHeartRate,
-            rhrDelta: whoop.week.restingHeartRate.deltaLabel(),
-            strain: whoop.snapshot?.strain,
-            strainTarget: StrainTarget.forRecovery(whoop.snapshot?.recovery),
+            // Phase 33: the raw snapshot stops here. The tiles above still read
+            // `whoop.snapshot` directly -- Nick looking at his own numbers is
+            // not an unrelated subsystem -- but only categories go on to the
+            // prompt.
+            signal: PlanningSignal.derive(
+                recovery: whoop.snapshot?.recovery,
+                sleepPerformance: whoop.snapshot?.sleepPerformance,
+                sleepHours: whoop.snapshot?.sleepHours,
+                strain: whoop.snapshot?.strain,
+                sampleCount: whoop.week.readingsByDay.count,
+                readingAgeHours: nil
+            ),
+            strainPosition: StrainPosition.of(
+                strain: whoop.snapshot?.strain,
+                band: StrainTarget.forRecovery(whoop.snapshot?.recovery)
+            ),
             bottles: health.hydrationBottles,
             bottleTarget: bottleTarget,
             supplementsTaken: health.takenToday.count,

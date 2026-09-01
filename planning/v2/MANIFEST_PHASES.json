@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": {
-    "title": "ORION v2 \u2014 Full Implementation Manifest",
+    "title": "ORION v2 — Full Implementation Manifest",
     "sha256": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
     "lineCount": 2642,
     "path": "~/Desktop/Orion v two implementation plan.md",
@@ -13,10 +13,10 @@
   "defaultStatus": "not_started",
   "additiveRoadmap": {
     "source": "planning/v2/ROADMAP_AMENDMENTS.json",
-    "latestCheckpoint": "P32.5",
+    "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-32 complete; Phase 33 not started",
+    "numberedProgramPosition": "Phases 0-33 complete; Phase 34 not started",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -154,8 +154,9 @@
       "evidence": "planning/v2/PHASE_32_PLAN.md and planning/v2/HANDOFF.md"
     },
     "33": {
-      "status": "not_started",
-      "evidence": "planning/v2/PHASE_33_PLAN.md (not yet written)"
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_GATES.json phases.33 and planning/v2/PROGRAM_CORRECTION_2026-09-01.md",
+      "note": "Built into the LIVE Mac app, not the v2 backend. The manifest draws the boundary between a health domain and a planner as if they were co-located; in this repo the real consumer was a Swift prompt builder that was emitting raw HRV into a model prompt."
     }
   },
   "tracks": [

@@ -375,6 +375,36 @@
       "A bot token for the inbound channel.",
       "Do you want the focus feature at all? Two sessions ever completed, both abandoned under 25s.",
       "Accept re-pointing Phases 1 and 5 onto the live TypeScript gate."
-    ]
+    ],
+    "batchStatus": {
+      "A": {
+        "state": "complete",
+        "closedOn": "2026-09-01",
+        "delivered": [
+          "Phase 33 + 38 merged: PlanningSignal, the health privacy boundary, built against the live app",
+          "Focus sessions expire (SessionStatus.readyToAbandon) -- a session paused 2026-08-12 had been open twenty days",
+          "Info.plist calendar promise corrected -- it claimed read-only while the code deletes events",
+          "LOCK ORION (scripts/orion-lock) -- Phase 43, the off switch that did not exist",
+          "Camera presence diagnosed and deliberately not 'fixed' -- the obvious fix breaks a tested privacy invariant",
+          "Sparkle stops failing opaquely against a placeholder feed",
+          "ElevenLabs restored: the TTS daemon had been dead since 2026-08-18 and needed ORION_TTS_CLOUD_VOICE=1"
+        ],
+        "suites": {
+          "nativeOrion": 322,
+          "healthFirewall": 38,
+          "mobileCore": 335,
+          "python": 1437,
+          "plugin": 146
+        }
+      },
+      "B": {
+        "state": "not started",
+        "note": "London / timezone. Nick moves ~2026-09-07; Northeastern starts 09-07; he lands 09-08."
+      },
+      "C": {
+        "state": "not started",
+        "note": "Close the Phase 1/5 gate by re-pointing the record onto the live TypeScript gate."
+      }
+    }
   }
 }

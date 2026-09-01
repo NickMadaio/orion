@@ -18,7 +18,7 @@ gates live in `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
 summarises phases 5-20 on one page. Read them before changing v2 contracts or
 the OpenClaw integration, and preserve the shared dirty worktree.
 
-Last updated 2026-08-28.
+Last updated 2026-09-01.
 
 ---
 
@@ -291,6 +291,17 @@ The v2 check scripts, all read-only:
 | `orion_v2_mobile_check.sh` | MobileCore compiles and its 335 assertions pass |
 | `orion_v2_phase_gate.py --phase N` | that phase's requirements are recorded and open |
 
+Two more live under `native/Orion/Tests/`, both compiling the REAL app sources:
+
+| script | what it proves |
+|---|---|
+| `run-health-firewall-test.sh` | no raw HRV, resting heart rate, recovery, sleep score or strain survives into a model prompt — asserted by pulling every number out of the generated text, not by grepping for words |
+| `run-capability-test.sh` | the profile ladder matches the plugin's, and every live config flag has a Settings switch |
+
+`scripts/orion-lock` is the off switch (Phase 43): it drops the permission
+profile to `restricted_read_only` and disables every cron job. `orion-lock
+status` reports both without changing anything.
+
 **Xcode 26.6 is installed, but `xcode-select` points at CommandLineTools**, so
 plain `xcodebuild`, `xcrun` and `swift` use the wrong toolchain and report that
 there is no iOS SDK. There is one. Override per command, no sudo needed:
@@ -428,6 +439,29 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
   ```
 
   If purging fixes it, nothing was ever wrong with the source.
+- **Before changing a constant that appears in user-facing text, grep the tests
+  for it.** `CameraPresence.sampleDuration` looked like a tuning knob — presence
+  checking had failed 504 times out of 504 because 1.5 seconds has to cover both
+  the camera warming up and the first frame arriving. Raising it to 4s broke
+  `testTheDutyCycleIsUnderTwoPercentAsClaimed`, which asserts
+  `sampleDuration / sampleInterval < 0.02`, because the disclosure states that
+  number to the user. The privacy promise was not prose; it was checked. The
+  right move was to revert and record the diagnosis, because verifying a camera
+  fix needs a camera that delivers frames.
+- **Check a writer's actual return vocabulary; do not guess it.** `orion-lock`
+  was written to treat a status of `"applied"` as success. `changePermissionProfile`
+  returns `changed | unchanged | rejected | stale | needs_approval` and never
+  `applied`, so a SUCCESSFUL emergency lockdown would have been reported as a
+  failure. Caught only by running it against a copy of the state file. Test a
+  panic button before you need it.
+- **launchd cannot read `~/Desktop`.** The TTS daemon's launch agent has never
+  been installable, because the repo lives under `~/Desktop` and a launchd job
+  gets `getcwd: cannot access parent directories: Operation not permitted` plus
+  `can't open input file`. That is why the daemon stayed dead for nineteen days
+  after being killed on 2026-08-18 — nothing could restart it. Start it the way
+  `launchers/Choose Orion Voice.command` does, with `ORION_TTS_CLOUD_VOICE=1`, or
+  it silently serves the local voice while logging `elevenlabs key found but not
+  selected`.
 - **A session can span a REBOOT, not just a day boundary.** On 2026-08-28 a
   session ran from 01:20 to 23:59, wrote its handoff at 00:00 on the 29th, and
   then resumed after the machine rebooted (`kern.boottime`: Aug 29 13:22) to make

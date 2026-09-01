@@ -33,6 +33,22 @@ when doing account setup; this documentation pass did not re-validate them.
 
 ---
 
+## 0a. Answered on 2026-09-01 — kept for the record
+
+- **London:** moving in ~6 days. **Northeastern starts Sept 7**; Nick lands in
+  London Sept 8; welcome week is the buffer. Batch B is now deadline-driven.
+  (The archived `USER.md` said "Eastern University" — voice dictation dropped the
+  "North". The current `USER.md` lost the university entirely in the 2026-08-14
+  rewrite and should have it restored.)
+- **iPhone:** coming, within this manifest. Mobile phases are the goal, not
+  parked indefinitely.
+- **The $99:** later. Build the foundation and test it; pay once it is ready.
+- **Channels:** expand them, but the destination is the phone app speaking to
+  Orion remotely and dispatching work.
+- **Focus feature:** wanted. The two 25-second sessions were Nick testing it.
+- **Phases 1 and 5 re-pointing:** delegated to Claude's judgement. Done — see
+  Batch C in `PROGRAM_CORRECTION_2026-09-01.md`.
+
 ## 0. Six decisions, from the 2026-09-01 program review
 
 Full reasoning in `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`. These are the

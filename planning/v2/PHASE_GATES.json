@@ -3132,12 +3132,89 @@
     },
     "33": {
       "name": "Health Privacy Firewall",
-      "status": "not_started",
-      "entryRequiresPhase": "32",
+      "status": "complete",
+      "entryRequiresPhase": 32,
       "entrySatisfied": true,
-      "blockedOn": [
-        "planning/v2/PHASE_33_PLAN.md must exist before implementation"
-      ]
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text at lines 1176-1198, and the live Mac app it turned out to describe",
+      "evidence": "native/Orion/Sources/Orion/PlanningSignal.swift, native/Orion/Tests/run-health-firewall-test.sh, planning/v2/PROGRAM_CORRECTION_2026-09-01.md",
+      "decisions": [
+        {
+          "id": "built_against_v1_not_v2",
+          "decision": "The firewall was built into the LIVE Mac app, not the v2 backend.",
+          "why": "The manifest draws Health Domain -> signals -> Planner as if they were co-located. In this repo the producer is Swift in MobileCore, the notional planner is Python in backend/planning with no health parameter and no caller, and the ACTUAL consumer is a Swift prompt builder in native/Orion that was emitting raw HRV. Building the firewall at the Python planner would have governed data that does not exist while the real leak stayed open."
+        },
+        {
+          "id": "first_wire_between_the_stacks",
+          "decision": "native/Orion now depends on ../OrionMobile by path.",
+          "why": "So the boundary reuses Phase 32's vocabulary BY TYPE rather than declaring a second set of enums whose members are also called 'moderate'. It is also the first real consumer MobileCore has ever had outside its own check harness."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "no_raw_measurement_reaches_a_prompt_builder",
+          "status": "passed",
+          "evidence": "HealthFacts no longer HAS hrv, restingHeartRate, recovery or sleepPerformance, so prompt() cannot print them. BriefFacts keeps them nested under .readings for the ring meter and prompt() never mentions readings. Asserted NUMERICALLY by run-health-firewall-test.sh: every number in the generated prompt is compared against that day's measurements within +/-1, over five readings drawn from the real 41-day range. 38 checks. Mutation-proven -- reintroducing 'HRV 116ms' fails with the value and the offending prompt named."
+        },
+        {
+          "id": "the_firewall_cannot_pass_by_saying_nothing",
+          "status": "passed",
+          "evidence": "The harness asserts a POSITIVE: a good day and a poor day must produce different prompts. Deleting the health block entirely would fail. This is the guard the 11-20 review's self-verifying findings taught us to add."
+        },
+        {
+          "id": "derived_signals_reuse_the_phase_32_vocabulary",
+          "status": "passed",
+          "evidence": "PlanningSignal's five state fields are MobileCore enums by type. cognitiveCapacity is a TOTAL switch over EnergyState, so adding a member is a compile error rather than a silent fallthrough."
+        },
+        {
+          "id": "reasons_carry_no_raw_values",
+          "status": "passed",
+          "evidence": "HealthStateReading.reason embeds raw values ('resting heart rate 54 against your usual 52') because it was written for a person reading the Health tab. PlanningSignal builds its own plannerReason instead. This was the easiest hole in the boundary to miss."
+        },
+        {
+          "id": "gmail_workflows_receive_no_health_information",
+          "status": "passed",
+          "evidence": "Structural at two layers. orion/core/context/policy.py is default-deny and admits only CONTACTS to EMAIL, with HEALTH absent from every allowance. And on the live route email_send is a simulation stub at simulation tier that never leaves the machine. Recorded separately because only the second is on the executing path."
+        },
+        {
+          "id": "the_morning_brief_is_not_degraded",
+          "status": "passed",
+          "evidence": "Phase 38 preserved deliberately: the prompt still ties recovery STATE to the calendar, which was always the valuable half. The brief GAINS a capability -- a raw integer carries no freshness, a signal does, so 'I have not got a fresh reading' is now expressible. That fixes the documented bug where confident prose sat under stale numbers (NarrativeKey.swift:5-10)."
+        }
+      ],
+      "deviations": [
+        {
+          "id": "confidence_is_a_category_not_a_decimal",
+          "severity": "recorded",
+          "manifestText": "confidence = 0.81",
+          "actual": "confidence is a BaselineConfidence category (low / moderate / high).",
+          "why": "Implementing the example literally would REOPEN Phase 32, whose gate categories_and_ranges_not_decimal_scores passed on the reasoning that a decimal confidence is 'precision about uncertainty, which is the same fabrication one level up'.",
+          "consequence": "Anything later that expects a numeric confidence from this layer must read the category instead. No caller does today.",
+          "recordedBy": "Claude, 2026-09-01",
+          "acceptedBy": null,
+          "acceptanceNeeded": "Nick, in one sentence: either the categorical reading stands for the rest of the health track, or Phase 32's gate is reopened and both phases move to a decimal.",
+          "closingWork": "None if accepted. If rejected: reopen Phase 32's categories_and_ranges gate, add a numeric confidence to HealthStateReading, and revise the 23-stem clinical-vocabulary check to allow it."
+        },
+        {
+          "id": "cognitive_capacity_is_a_projection_not_a_seventh_state",
+          "severity": "recorded",
+          "manifestText": "cognitive_capacity = reduced",
+          "actual": "A total switch over Phase 32's EnergyState, in the Phase 33 layer.",
+          "why": "Phase 32 shipped six derived states and its gate asserts all six. cognitive_capacity and energy_state are the same quantity at two altitudes -- what the health domain measures versus what the planner is told.",
+          "consequence": "None observed. The projection is total, so an added EnergyState member is a compile error.",
+          "recordedBy": "Claude, 2026-09-01",
+          "acceptedBy": null,
+          "acceptanceNeeded": "Nick, or any later phase that needs cognitive_capacity to vary independently of energy_state.",
+          "closingWork": "None unless the two must diverge, in which case it becomes a seventh derived state in Phase 32."
+        }
+      ],
+      "limitations": [
+        "The categories come from fixed thresholds (the app's own 67/34 recovery cut-offs), not from MobileCore's BaselineEngine over the 41 days of real history. That is the obvious next step and is what Phase 31 built the engine for. Deliberately not done in the same change that moved the boundary: it changes what the categories MEAN, and doing both at once would make a regression impossible to attribute.",
+        "physicalLoad reads unknown on this machine. The workouts array in health-log.json is empty, and Whoop strain is a logarithmic 0-21 score that cannot be summed into an acute:chronic ratio without producing a plausible number that means nothing.",
+        "No HealthKit sample has still ever been read. RefusingHealthStore remains the only implementation and needs the Apple Developer Program."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {
@@ -3171,6 +3248,13 @@
         "gateText": "Support abstract model roles rather than hardcoded providers: reasoning, fast, vision, local, fallback, embedding",
         "deadAssumption": "That `fallback` is a role. It is a property of a role -- a model is not the fallback model in the abstract, it is what a particular role falls back to. The list also omits speech-to-text and text-to-speech, which are model calls with credentials, latency and cost.",
         "proposedText": "Support abstract model roles rather than hardcoded providers: reasoning, fast, vision, local, embedding, stt, tts. Each role declares its own ordered fallback chain.",
+        "status": "deferred_to_sweep"
+      },
+      {
+        "phase": "33",
+        "gateText": "confidence = 0.81",
+        "deadAssumption": "That a derived health signal may carry a decimal confidence. Phase 32 closed a gate forbidding exactly that, three days before Phase 33 was reached.",
+        "proposedText": "confidence is a category from the Phase 31 ladder (low / moderate / high), not a decimal.",
         "status": "deferred_to_sweep"
       }
     ]

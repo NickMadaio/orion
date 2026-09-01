@@ -1,5 +1,107 @@
 # HANDOFF
 
+## 2026-09-01 BATCH A COMPLETE — Phase 33 built against the live app, and an off switch
+
+Everything here was verified against the running system, not the v2 backend.
+Full reasoning: `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`.
+
+### ElevenLabs, fixed — and it was never the credential
+
+Two faults. The TTS daemon was killed 2026-08-18 (`signal 15 -> shutting down`)
+and nothing restarted it: its launch agent has never been installable, because
+**launchd cannot read `~/Desktop`** and that is where the repo lives. And even
+running, it needs `ORION_TTS_CLOUD_VOICE=1` — without it the daemon logs
+`elevenlabs key found but not selected` and quietly serves the local MLX voice,
+which is why it sounded wrong rather than silent. Started the way
+`launchers/Choose Orion Voice.command` does. First success since 2026-08-13:
+`ok provider=elevenlabs engine=elevenlabs first_ms=633`.
+
+**Still open:** nothing supervises that daemon. It will stay dead next time.
+
+### Phase 33 — the health privacy firewall, against v1
+
+The live Mac app was violating it. `HealthSummary.swift:71,76` emitted
+`"- HRV 116ms"` and `"- Resting heart rate 54"` into a model prompt;
+`MorningBrief.swift:86-92` added sleep score, recovery and an HRV delta and then
+asked the model to tie recovery to the calendar — Phase 38 shipped before Phase
+33's firewall existed, fed exactly what the firewall withholds.
+
+`PlanningSignal` is the boundary. Categories cross it; numbers do not.
+
+- Vocabulary is MobileCore's **by type**, which required adding
+  `.package(path: "../OrionMobile")` to the Mac app — **the first real wire
+  between the two stacks.** MobileCore had no consumer but its own harness.
+- The reason string is deliberately NOT `HealthStateReading.reason`, which embeds
+  raw values and would have leaked through the reason field after the numbers
+  were stripped everywhere else.
+- Type-narrowed: `HealthFacts` no longer HAS the raw fields. `BriefFacts` keeps
+  them nested under `.readings` for the ring meter, and `prompt()` never mentions
+  `readings`.
+- Two deviations REGISTERED rather than improvised: the manifest's
+  `confidence = 0.81` would reopen Phase 32's categorical gate, and
+  `cognitive_capacity` is a projection of `EnergyState`, not a seventh state.
+
+Enforcement is numeric: `run-health-firewall-test.sh` pulls every number out of
+the generated prompt and compares it against the day's measurements. 38 checks,
+mutation-proven. It also asserts a POSITIVE, so deleting the health block fails.
+
+### Focus sessions expire
+
+Yours was not stuck — it was **paused**, and a paused session waits forever by
+design. Right for an hour, wrong for twenty days: started 2026-08-12, last
+state-change 08-19, still accruing heartbeats on 09-01. `SessionStatus` gains
+`readyToAbandon`, mirroring `readyToComplete`. Measured from the last event, not
+`dayKey`, because a day key needs a timezone. 318 -> 322 tests, mutation-proven.
+
+### LOCK ORION (Phase 43) — `scripts/orion-lock`
+
+The manifest's own precondition for anything dangerous, and it did not exist.
+Drops the profile to `restricted_read_only` and disables every cron job. It does
+NOT kill the gateway (a dead gateway cannot be asked why it is dead) and does NOT
+write `permission-state.json` itself — it calls the plugin's own
+`changePermissionProfile`, so the audit lands before the state under the same
+lock. Verified against COPIES: `external_connected v3 -> restricted_read_only
+v4`, audit written, second run `unchanged`.
+
+That test caught a bug in the script: it checked for a status of `"applied"`,
+which the writer never returns. A successful lockdown would have reported failure.
+
+### Two things I deliberately did not "fix"
+
+**Camera presence.** 504 failures, 0 successes, authorised throughout. The
+likely cause is that 1.5s covers both warm-up and first frame. Raising it to 4s
+broke `testTheDutyCycleIsUnderTwoPercentAsClaimed` — the privacy promise is a
+TESTED invariant, not prose. Reverted; the diagnosis and the two real fixes are
+recorded at the constant. Kept the improved failure message, which now names the
+device.
+
+**Sparkle.** The feed is a literal `ORION_OWNER/ORION_REPO`. Pointing it at the
+real repo would not help — it is private and there is no appcast or release. So
+automatic checks are now left off when the feed is a placeholder, and the log
+says what is actually missing rather than blaming the network.
+
+### Verification
+
+native/Orion **322**, health firewall **38**, MobileCore **335**, Python
+**1,437**, plugin **146/146**, secret scan clean over full history.
+
+### Live and installed state
+
+The TTS daemon is now RUNNING (started by this session, serving ElevenLabs). No
+rebuild, no install, no gateway restart, no permission change — the lockdown path
+was proven against copies, never against live state. The installed app is still
+build 121 and does NOT contain any of today's Swift changes; they take effect on
+the next `make_app_bundle.sh`.
+
+### Exact next step
+
+**Batch B — London and the timezone**, and it has a real deadline. Nick moves
+around 2026-09-07, Northeastern starts 09-07, he lands 09-08 with welcome week as
+buffer. All three cron jobs are pinned `America/New_York`. Also: the archived
+`USER.md` recorded the move as being to attend **Northeastern** — the current one
+lost the university entirely in the 2026-08-14 rewrite, and the archived copy
+says "Eastern University" because it was dictated by voice.
+
 ## 2026-09-01 PROGRAM CORRECTION — the ordering was derived from a fiction
 
 Seven independent fresh-context audits: the Mac app, the live execution path, the

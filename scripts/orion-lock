@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+/*
+ LOCK ORION — the off switch. Manifest Phase 43.
+
+ The manifest is explicit that this exists before the dangerous things do:
+ "stop dispatch, cancel queued jobs, suspend automations, kill delegations,
+ expire leases, reauth", and one of the Final Success Conditions is that "users
+ can stop ORION instantly". Until now nothing did. There was no panic path, no
+ kill switch, no single command — 78 actions across 24 tiers, all reachable,
+ and no way to stop them at once.
+
+ What this does, on the system that actually exists today:
+
+   1. Drops the permission profile to `restricted_read_only`, the bottom rung —
+      simulation, desktop_read and ambient_info only. Nothing writes, nothing
+      sends, nothing modifies Orion, nothing touches the browser or Messages.
+   2. Disables every cron job, which is the only thing that starts work nobody
+      asked for.
+
+ Two things it deliberately does NOT do:
+
+ • It does not kill the gateway. A dead gateway cannot be asked why it is dead,
+   cannot be unlocked, and takes the voice down with it. Removing Orion's
+   AUTHORITY is the goal; removing his ability to answer is collateral.
+ • It does not write permission-state.json itself. It calls the plugin's own
+   `changePermissionProfile`, so the append-only permission audit is written
+   BEFORE the state, under the same lock, with the same O_EXCL-and-rename that
+   every other change uses. A panic button that bypasses the audit is a panic
+   button you cannot reconstruct afterwards, which is exactly when you need to.
+
+ The unlock is deliberately not symmetrical. Locking is one word; raising the
+ profile back is a decision you make in the Settings panel or by asking Orion
+ in as many words, because "undo the emergency" should cost more than the
+ emergency did.
+
+   orion-lock            lock everything down, and say what changed
+   orion-lock status     what the current profile and jobs are
+*/
+
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { createRequire } from "node:module";
+
+const run = promisify(execFile);
+const require = createRequire(import.meta.url);
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+const STATE = join(homedir(), ".openclaw/orion-controlled/permission-state.json");
+const AUDIT = join(homedir(), ".openclaw/orion-controlled/permission-audit.jsonl");
+const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
+const FLOOR = "restricted_read_only";
+
+const ESC = String.fromCharCode(27);
+const bold = `${ESC}[1m`, dim = `${ESC}[2m`, grn = `${ESC}[32m`;
+const yel = `${ESC}[33m`, red = `${ESC}[31m`, off = `${ESC}[0m`;
+
+function permissions() {
+  // The installed plugin, not the repo copy: locking must act on what is
+  // actually running. They are byte-identical today and that is worth keeping
+  // true, but if they ever drift the running one is the one with authority.
+  const installed = join(homedir(), ".openclaw/extensions/orion-control/dist/permissions.js");
+  try { return require(installed); }
+  catch { return require(join(HERE, "../openclaw-plugins/orion-control/dist/permissions.js")); }
+}
+
+async function cronJobs() {
+  try {
+    const { stdout } = await run(OPENCLAW, ["cron", "list"], { timeout: 15000 });
+    return stdout.split("\n").slice(1)
+      .map((line) => line.trim().split(/\s+/))
+      .filter((parts) => parts.length > 2 && /^[0-9a-f-]{36}$/.test(parts[0]))
+      .map((parts) => ({ id: parts[0], name: parts[2] }));
+  } catch { return []; }
+}
+
+async function status() {
+  const { readPermissionState } = permissions();
+  const state = await readPermissionState(STATE);
+  const jobs = await cronJobs();
+  const shown = state.profile === FLOOR ? grn + state.profile + off : yel + state.profile + off;
+  console.log("");
+  console.log(`  ${bold}Orion - authority${off}`);
+  console.log(`  profile   ${shown}  ${dim}(version ${state.version})${off}`);
+  console.log(`  cron      ${jobs.length} job(s)${jobs.length ? ": " + jobs.map((j) => j.name).join(", ") : ""}`);
+  console.log("");
+  return { state, jobs };
+}
+
+async function lock() {
+  const { readPermissionState, changePermissionProfile } = permissions();
+  const before = await readPermissionState(STATE);
+  const jobs = await cronJobs();
+
+  console.log("");
+  console.log(`  ${bold}${red}LOCKING ORION${off}`);
+  console.log("");
+
+  if (before.profile === FLOOR) {
+    console.log(`  profile   ${dim}already ${FLOOR}${off}`);
+  } else {
+    const result = await changePermissionProfile(
+      {
+        requestedProfile: FLOOR,
+        expectedVersion: before.version,
+        context: "Emergency lockdown requested at the terminal by Nick (orion-lock).",
+        request: {
+          kind: "instruction",
+          trust: "trusted_user",
+          // Names the profile and carries a permission word, because the writer
+          // requires both -- a guard against the MODEL doing this, which a
+          // person at a terminal is not.
+          content: `Set the permission profile to ${FLOOR} immediately. This is an emergency lockdown.`,
+        },
+      },
+      { statePath: STATE, auditPath: AUDIT },
+    );
+    // The writer's vocabulary, checked against permissions.ts rather than
+    // guessed: changed | unchanged | rejected | stale | needs_approval. An
+    // earlier draft of this script tested for "applied", which never occurs,
+    // and would have reported a SUCCESSFUL lockdown as a failure -- caught by
+    // running it against a copy of the state rather than trusting it.
+    if (result.status !== "changed" && result.status !== "unchanged") {
+      console.log(`  profile   ${red}NOT changed${off} - ${result.reason ?? result.status}`);
+      console.log(`            ${dim}still ${before.profile}. Nothing else was touched.${off}`);
+      console.log("");
+      process.exit(1);
+    }
+    console.log(`  profile   ${before.profile} ${dim}->${off} ${grn}${FLOOR}${off}`);
+  }
+
+  for (const job of jobs) {
+    try {
+      await run(OPENCLAW, ["cron", "disable", job.id], { timeout: 15000 });
+      console.log(`  cron      ${grn}disabled${off} ${job.name}`);
+    } catch (error) {
+      console.log(`  cron      ${red}could not disable${off} ${job.name} - ${error.message.split("\n")[0]}`);
+    }
+  }
+  if (!jobs.length) console.log(`  cron      ${dim}no jobs scheduled${off}`);
+
+  console.log("");
+  console.log(`  ${dim}Orion can still answer. He can read the desktop, report status and`);
+  console.log(`  talk. He cannot write, send, modify himself, or act unasked.${off}`);
+  console.log("");
+  console.log(`  ${dim}To undo: raise the profile in Settings, or ask Orion in as many`);
+  console.log(`  words, then re-enable jobs with: openclaw cron enable <id>${off}`);
+  console.log(`  ${dim}Audit: ${AUDIT}${off}`);
+  console.log("");
+}
+
+const command = process.argv[2] ?? "lock";
+if (command === "status") { await status(); }
+else if (command === "lock") { await lock(); }
+else {
+  console.error("usage: orion-lock [lock|status]");
+  process.exit(2);
+}

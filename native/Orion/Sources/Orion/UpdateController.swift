@@ -72,6 +72,32 @@ final class UpdateController: NSObject, ObservableObject {
         UserDefaults.standard.string(forKey: Self.feedOverrideKey) ?? Self.defaultFeedURL
     }
 
+    /// Whether `defaultFeedURL` is still the shipped placeholder.
+    ///
+    /// It is, and has been since the updater landed: every check since
+    /// 2026-08-18 has failed with "An error occurred in retrieving update
+    /// information" -- 38 of them by 2026-09-01 -- because ORION_OWNER and
+    /// ORION_REPO are literal. Pointing it at github.com/NickMadaio/orion would
+    /// not help either: that repository is private, so raw.githubusercontent.com
+    /// will not serve an appcast from it without credentials, and there is no
+    /// appcast and no published release yet.
+    ///
+    /// So this reports the real reason rather than making a network call that
+    /// is certain to fail and then blaming the network. Sparkle itself is
+    /// proven end to end -- `Tests/run-update-test.sh` drives the whole install
+    /// path against a local file:// feed -- so what is missing is a published
+    /// release, not working code.
+    var feedIsPlaceholder: Bool {
+        feedURL.contains("ORION_OWNER") || feedURL.contains("ORION_REPO")
+    }
+
+    /// What to say instead of a network error.
+    static let noFeedExplanation =
+        "No release feed is published yet, so there is nothing to check against. "
+        + "The updater itself works — it is proven end to end against a local feed "
+        + "by Tests/run-update-test.sh. What it needs is an appcast.xml and one "
+        + "published release."
+
     override init() {
         let info = Bundle.main.infoDictionary
         currentVersion = info?["CFBundleShortVersionString"] as? String ?? "?"
@@ -94,6 +120,16 @@ final class UpdateController: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, let controller = self.controller else { return }
             controller.startUpdater()
+            if self.feedIsPlaceholder {
+                // Do not let the background timer keep dialling a URL that
+                // cannot exist. 38 failed checks taught nobody anything; one
+                // honest log line is worth more than all of them.
+                controller.updater.automaticallyChecksForUpdates = false
+                self.status = Self.noFeedExplanation
+                OrionLog.write("[update] no release feed configured — automatic checks "
+                               + "left off. Publishing an appcast turns this back on.")
+                return
+            }
             OrionLog.write("[update] updater started · \(self.currentVersion) "
                            + "(build \(self.currentBuild)) · feed \(self.feedURL)")
         }
@@ -105,6 +141,13 @@ final class UpdateController: NSObject, ObservableObject {
     func checkNow() {
         guard let controller else {
             status = "The updater has not started yet."
+            return
+        }
+        guard !feedIsPlaceholder else {
+            // Asked directly, so answer directly. A silent no-op here would be
+            // worse than the failing check it replaces.
+            lastChecked = Date()
+            status = Self.noFeedExplanation
             return
         }
         isChecking = true

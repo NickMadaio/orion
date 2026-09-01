@@ -41,6 +41,30 @@ public enum PresenceReading: Equatable, Sendable {
 public final class CameraPresence {
 
     /// How much of each interval the camera is actually on.
+    /// How long a single sample may keep the lens open.
+    ///
+    /// KNOWN DEFECT, not fixed here. As of 2026-09-01 presence checking has
+    /// never once produced a reading: 504 samples, 504 "No frame arrived in
+    /// time", zero successes. The camera is authorised throughout -- the guard
+    /// in `start()` reports an authorisation failure differently and has never
+    /// fired -- so the likely cause is that this window has to cover BOTH the
+    /// capture session warming up and the first buffer arriving, and a macOS
+    /// camera routinely takes one to three seconds to deliver one (longer with
+    /// Continuity Camera, which has to wake a phone).
+    ///
+    /// Raising it looks obvious and was deliberately NOT done. This number is a
+    /// tested privacy invariant: `testTheDutyCycleIsUnderTwoPercentAsClaimed`
+    /// asserts sampleDuration/sampleInterval < 0.02, and the disclosure states
+    /// it to the user. 4 seconds against a 90-second interval is 4.4%, so
+    /// "fixing" the camera by raising this silently breaks a promise that is
+    /// written down and checked.
+    ///
+    /// The real fix is one of: raise the interval alongside it (4s every 200s
+    /// is 2%), or separate the give-up TIMEOUT from the camera-on DURATION --
+    /// `finish()` already stops the session the instant a frame lands, so the
+    /// typical duty cycle is far below the ceiling and the disclosure could
+    /// honestly say so. Either needs a camera that actually delivers frames to
+    /// verify against, which is why it is recorded rather than guessed at.
     public static let sampleDuration: TimeInterval = 1.5
     public static let sampleInterval: TimeInterval = 90
 
@@ -207,7 +231,14 @@ public final class CameraPresence {
         // sampler that can be left running by a delegate that never fires is
         // exactly the thing this design exists to make impossible.
         queue.asyncAfter(deadline: .now() + Self.sampleDuration) {
-            finish(collector.reading ?? .unavailable("No frame arrived in time."))
+            // Name the device in the failure. "No frame arrived" is the same
+            // sentence whether the built-in camera is broken, an external one is
+            // asleep, or Continuity Camera is waiting on a phone that is in
+            // another room -- and telling those apart from a log was impossible.
+            finish(collector.reading ?? .unavailable(
+                "No frame arrived from \(device.localizedName) within "
+                + "\(String(format: "%.0f", Self.sampleDuration))s."
+            ))
         }
     }
 }

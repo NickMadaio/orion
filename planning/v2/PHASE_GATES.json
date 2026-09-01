@@ -3220,15 +3220,15 @@
       "name": "Travel and Timezone Support",
       "status": "in_progress",
       "entryRequiresPhase": 39,
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-01",
-      "openedAgainst": "the manifest text for PHASE 40, taken out of numeric order under Batch B of PROGRAM_CORRECTION_2026-09-01.md",
+      "openedAgainst": "the manifest text for PHASE 40. Opened OUT OF NUMERIC ORDER on 2026-09-01 under the since-withdrawn batch scheme, with entrySatisfied recorded as false rather than asserted true. Phases 34-39 were then completed the same day in numeric order, so the entry became legitimate and this flag was corrected -- the gate validator refused the document until it was, which is the sequence rule doing exactly its job.",
       "evidence": "native/Orion/Sources/SessionDomain/ZonedTime.swift, native/Orion/Sources/SessionDomain/TimeZonePolicy.swift, native/Orion/Tests/SessionDomainTests/ZonedTimeTests.swift, native/Orion/Tests/SessionDomainTests/TimeZonePolicyTests.swift, native/Orion/Tests/run-location-contract-test.sh, scripts/orion-timezone, native/Orion/Tests/run-timezone-set-test.sh",
       "decisions": [
         {
           "id": "opened_out_of_numeric_order",
-          "decision": "Phase 40 was opened while 34-39 are not started.",
-          "why": "Batch B in PROGRAM_CORRECTION_2026-09-01.md. Nick moves to London around 2026-09-07 and lands on the 08th; the three cron jobs are pinned America/New_York and macOS auto-timezone is on. The sequence rule is superseded by that document, not waived here: entrySatisfied is recorded as false rather than asserted true, so the record says plainly that 39 did not gate this."
+          "decision": "Phase 40 was opened while 34-39 were not started, and the gap was closed the same day rather than left open.",
+          "why": "Nick moves to London around 2026-09-07 and lands on the 08th; the three cron jobs are pinned America/New_York and macOS auto-timezone is on, so the deadline was real. The out-of-order entry was recorded honestly (entrySatisfied: false) rather than asserted, and phases 34-39 -- the health block, none of which touches the dead Python runtime -- were completed afterwards on the same day. The sequence rule held: the validator refused the document until the flag matched reality."
         },
         {
           "id": "all_day_is_a_separate_case_not_a_flag",
@@ -3613,6 +3613,67 @@
         "PlanningAdvisor has no caller yet. The live morning brief is scripts/orion-standing, which is node and reads its own health file; wiring the two is Phase 39's business and is not done here.",
         "`shorten` and `protectRest` are defined and never produced -- only `moveLater` is generated today. They exist because the manifest's list of permitted actions should be complete before anything reads it, but they are unexercised.",
         "The recommendation is not persisted, so a declined suggestion is only distinct from an unanswered one within a single run. Making that stick needs a store, which Phase 39 or 57 should own."
+      ],
+      "nextPhaseAllowed": true
+    },
+    "39": {
+      "name": "Daily Planning",
+      "status": "complete",
+      "entryRequiresPhase": 38,
+      "entrySatisfied": true,
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text for PHASE 39",
+      "evidence": "native/OrionMobile/Sources/MobileCore/DailyPlanning.swift, MobileCoreCheck phase-39 section",
+      "decisions": [
+        {
+          "id": "a_realistic_day_is_one_that_fits",
+          "decision": "DayPlan.propose schedules in priority order until the calibrated budget is spent and DEFERS the rest, never omitting it.",
+          "why": "The Phase 32.5 charter says an optional full-day plan 'must not become silent over-scheduling'. A planner that fits nine hours of work into six by not mentioning it is how a person stops trusting the plan -- the first time they notice, every future plan is suspect. Mutation-proven in both directions: scheduling everything fails, and dropping the overflow silently fails."
+        },
+        {
+          "id": "estimates_are_calibrated_from_history",
+          "decision": "EstimateCalibration takes the MEDIAN ratio of actual to estimate over finished, timed tasks, with a five-sample floor and a 0.5-2.0 clamp.",
+          "why": "This is the mechanism behind 'use results to improve future planning' -- the manifest's evening 'time-estimate accuracy' and that line are one thing. All three guards are load-bearing and separately mutation-proven: the mean lets one ten-times-over outlier reshape every future day, no floor lets one chaotic Tuesday do it, and no clamp turns an interrupted half-hour job into a three-hour block forever."
+        },
+        {
+          "id": "conflicts_are_reported_never_resolved",
+          "decision": "Overlapping REQUIRED commitments produce a conflict and both survive in the plan.",
+          "why": "Two lectures at once is Nick's to sort out. ORION rearranging them would be Phase 38's prohibition by the back door."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "morning_plan_shows_all_six",
+          "status": "passed",
+          "evidence": "fixed commitments, flexible time (waking hours minus commitments, floored at zero), priority tasks in order, estimated workload, relevant health state as CATEGORIES, and conflicts. Each asserted separately. There is no percentage anywhere in DayPlan -- Phase 33's boundary held through two more phases."
+        },
+        {
+          "id": "proposes_a_realistic_day",
+          "status": "passed",
+          "evidence": "workloadMinutes <= flexibleMinutes asserted on a deliberately over-loaded day of twenty two-hour tasks, and scheduled.count + deferred.count == 20 so nothing is lost. An overCommitted conflict says how much did not fit."
+        },
+        {
+          "id": "evening_review_shows_all_four",
+          "status": "passed",
+          "evidence": "completed, incomplete, estimateAccuracy (median actual/estimate), carryForward in PRIORITY order so tomorrow starts with what mattered most rather than with whatever was last in the list."
+        },
+        {
+          "id": "results_improve_future_planning",
+          "status": "passed",
+          "evidence": "Asserted end to end rather than by inspecting the factor: the same one-hour task is budgeted at 60 minutes with no history and at 90 with a history of consistently running 50% over."
+        },
+        {
+          "id": "no_data_is_distinguished_from_no_error",
+          "status": "passed",
+          "evidence": "estimateAccuracy is nil when nothing finished with a recorded time, not 1.0. Mutation-proven. 'Nothing got done' and 'every estimate was perfect' are different answers and a review that conflates them lies on the worst day."
+        }
+      ],
+      "limitations": [
+        "Not wired to anything live. scripts/orion-standing is the real morning and evening brief today -- it is node, reads its own files, and does not know this type exists. Connecting them is real work and is not done; recorded rather than implied.",
+        "The waking day is a constant 08:00-22:00 rather than being learned from OrionDay's wake time, which exists and would be better.",
+        "Task input has no source: nothing populates PlannedTask, because Reminders access has never been granted. That is a live blocker recorded in orion-standing's own blind-spot reporting, not something this phase can close.",
+        "Commitment.startMinute is an offset rather than a ZonedTime, which is deliberate for a single day but means a plan cannot yet span the London move."
       ],
       "nextPhaseAllowed": true
     }

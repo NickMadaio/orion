@@ -1888,6 +1888,120 @@ expect(Commitment(id: "x", title: "t", kind: .flexible, startMinute: 60,
 expect(Commitment(id: "", title: "t", kind: .flexible, startMinute: 60,
                   durationMinutes: 30) == nil, "an unnamed commitment is refused")
 
+// -- phase 39: daily planning ----------------------------------------------
+
+section("daily planning (phase 39)")
+
+let morningLecture = Commitment(id: "L1", title: "Lecture", kind: .required,
+                                startMinute: 9 * 60, durationMinutes: 120)!
+let seminar = Commitment(id: "L2", title: "Seminar", kind: .required,
+                         startMinute: 14 * 60, durationMinutes: 60)!
+func task(_ id: String, _ minutes: Int, priority: Int = 5,
+          actual: Int? = nil, done: Bool = false) -> PlannedTask {
+    PlannedTask(id: id, title: "task \(id)", estimateMinutes: minutes,
+                priority: priority, actualMinutes: actual, completed: done)!
+}
+
+// The six things a morning plan must show.
+let plan = DayPlan.propose(
+    commitments: [morningLecture, seminar],
+    tasks: [task("a", 60, priority: 1), task("b", 90, priority: 2)],
+    sleep: .belowBaseline, recovery: .moderate, energy: .moderate)
+expect(plan.commitments.count == 2, "fixed commitments")
+expect(plan.flexibleMinutes == (22 - 8) * 60 - 180, "flexible time is waking hours minus commitments")
+expect(plan.scheduled.map(\.id) == ["a", "b"], "priority tasks, in priority order")
+expect(plan.workloadMinutes == 150, "estimated workload")
+expect(plan.sleep == .belowBaseline && plan.recovery == .moderate,
+       "relevant health state, as CATEGORIES -- there is no percentage anywhere in this type")
+expect(plan.conflicts.isEmpty, "and no conflicts on a day that fits")
+
+// "Must not become silent over-scheduling" -- the charter's own words.
+let crammed = DayPlan.propose(
+    commitments: [morningLecture, seminar],
+    tasks: (1...20).map { task("t\($0)", 120, priority: $0) })
+expect(!crammed.deferred.isEmpty, "work that does not fit is deferred")
+expect(crammed.workloadMinutes <= crammed.flexibleMinutes,
+       "and what IS scheduled fits in the time available -- no silent over-scheduling")
+expect(crammed.conflicts.contains { $0.kind == .overCommitted },
+       "and the day says out loud that it did not all fit")
+expect(crammed.scheduled.count + crammed.deferred.count == 20,
+       "nothing is dropped -- every task is either scheduled or named as deferred")
+
+// Overlapping required commitments are REPORTED, never resolved.
+let clash = Commitment(id: "L3", title: "Lab", kind: .required,
+                       startMinute: 9 * 60 + 30, durationMinutes: 60)!
+let clashing = DayPlan.propose(commitments: [morningLecture, clash], tasks: [])
+expect(clashing.conflicts.contains { $0.kind == .overlap }, "an overlap is reported")
+expect(clashing.conflicts.first { $0.kind == .overlap }?.detail.contains("Lecture") == true,
+       "and names both commitments")
+expect(clashing.commitments.count == 2,
+       "and neither is removed -- two lectures at once is Nick's to sort out, and ORION "
+       + "resolving it would be Phase 38's prohibition by the back door")
+
+// Calibration: the mechanism behind "use results to improve future planning".
+let ranLong = (1...6).map { task("h\($0)", 60, actual: 90, done: true) }
+let calibration = EstimateCalibration.from(ranLong)
+expect(calibration.isCalibrated, "six timed, finished tasks is enough to calibrate")
+expect(abs(calibration.factor - 1.5) < 0.001, "consistently 50% over reads as a factor of 1.5")
+expect(calibration.adjusted(60) == 90, "so an hour is budgeted as ninety minutes")
+
+// One chaotic day must not permanently inflate every estimate.
+expect(EstimateCalibration.from((1...4).map { task("f\($0)", 60, actual: 300, done: true) })
+        .factor == 1,
+       "four samples is under the floor, so no factor is applied at all")
+let planOutlierHistory = (1...5).map { task("o\($0)", 60, actual: $0 == 1 ? 600 : 60, done: true) }
+expect(abs(EstimateCalibration.from(planOutlierHistory).factor - 1) < 0.001,
+       "and the MEDIAN ignores one ten-times-over outlier that a mean would not")
+expect(EstimateCalibration.from((1...6).map { task("x\($0)", 60, actual: 600, done: true) })
+        .factor == EstimateCalibration.bounds.upperBound,
+       "a consistently catastrophic history is CLAMPED -- a task that ran six times over is a "
+       + "story about an interruption, not about estimating")
+
+// Unfinished and untimed work contributes nothing to the factor.
+expect(EstimateCalibration.from((1...6).map { task("u\($0)", 60, actual: 240, done: false) })
+        .factor == 1, "unfinished tasks do not calibrate anything")
+expect(EstimateCalibration.from((1...6).map { task("n\($0)", 60, done: true) }).factor == 1,
+       "nor do finished ones with no recorded time")
+
+// A calibrated history actually changes the plan.
+let uncalibrated = DayPlan.propose(commitments: [], tasks: [task("p", 60)])
+let calibrated = DayPlan.propose(commitments: [], tasks: [task("p", 60)], history: ranLong)
+expect(uncalibrated.workloadMinutes == 60, "without history an hour is an hour")
+expect(calibrated.workloadMinutes == 90,
+       "with history it is budgeted at ninety -- this is 'use results to improve future planning'")
+
+// The evening review: the four things it must show.
+let todaysTasks = [task("d1", 60, actual: 75, done: true),
+             task("d2", 30, actual: 30, done: true),
+             task("d3", 45, priority: 1),
+             task("d4", 20, priority: 9)]
+let review = EveningReview.of(todaysTasks)
+expect(review.completed.count == 2, "completed work")
+expect(review.incomplete.count == 2, "incomplete work")
+expect(review.estimateAccuracy != nil, "time-estimate accuracy")
+expect(abs((review.estimateAccuracy ?? 0) - 1.125) < 0.001,
+       "which is the median ratio of actual to estimate")
+expect(review.carryForward.map(\.id) == ["d3", "d4"],
+       "carry-forward, in PRIORITY order so tomorrow starts with what mattered most")
+
+// "No data" and "spot on" are different answers.
+let nothingDone = EveningReview.of([task("z", 60), task("y", 30)])
+expect(nothingDone.estimateAccuracy == nil,
+       "a day where nothing finished reports NO accuracy rather than a flattering 1.0")
+expect(nothingDone.carryForward.count == 2, "and everything carries forward")
+
+// Boundaries.
+expect(PlannedTask(id: "x", title: "t", estimateMinutes: 0) == nil, "a zero estimate is refused")
+expect(PlannedTask(id: "x", title: "t", estimateMinutes: 60 * 13) == nil,
+       "and an estimate longer than any waking day is refused")
+expect(PlannedTask(id: "x", title: "t", estimateMinutes: 60, actualMinutes: -5) == nil,
+       "a negative actual is refused")
+expect(DayPlan.propose(commitments: (0..<8).compactMap {
+        Commitment(id: "c\($0)", title: "c", kind: .required,
+                   startMinute: 8 * 60 + $0 * 120, durationMinutes: 120)
+       }, tasks: [task("k", 30)]).flexibleMinutes == 0,
+       "a fully-booked day has zero flexible time, never a negative")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

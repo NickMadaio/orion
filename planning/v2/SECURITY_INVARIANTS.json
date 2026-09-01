@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "purpose": "The manifest's eighteen security invariants, and the permanent record of which are ENFORCED by a named test and which are PENDING a subsystem that does not exist yet. A test asserting that a nonexistent system cannot be attacked passes forever and reads exactly like proof; this file is what stops that being invisible.",
+  "permanent": true,
+  "suite": "tests/test_v2_security_invariants.py",
+  "openedOn": "2026-08-24",
+  "rules": [
+    "An enforced invariant must name at least one test, and the suite proves that name resolves.",
+    "A pending invariant must name its missing subject and the phase expected to build it, and must have no test.",
+    "The pending count may fall without ceremony. It cannot rise without editing this file.",
+    "No invariant may be removed. The manifest's list is the list.",
+    "An invariant closed against a primitive with no production caller must say so in enforcedScope, and must carry a structural rule that fails if a caller appears which bypasses it."
+  ],
+  "invariants": [
+    {
+      "id": "credentials_cannot_enter_model_context",
+      "manifestText": "credentials cannot enter model context",
+      "status": "enforced",
+      "tests": [
+        "CredentialInvariants.test_a_credential_cannot_enter_a_context_bundle",
+        "CredentialInvariants.test_a_credential_entry_cannot_even_be_constructed"
+      ],
+      "enforcedBy": "orion/core/context/policy.py CredentialLeak; refused by the entry constructor and again by the builder"
+    },
+    {
+      "id": "credentials_cannot_appear_in_logs",
+      "manifestText": "credentials cannot appear in logs",
+      "status": "enforced",
+      "tests": [
+        "CredentialInvariants.test_a_credential_cannot_survive_an_audit_record",
+        "CredentialInvariants.test_a_credential_cannot_travel_on_the_event_bus"
+      ],
+      "enforcedBy": "orion/core/audit/redaction.py in the AuditEvent constructor; orion/core/eventbus/envelope.py refuses outright. scripts/orion_v2_audit_check.py reports zero hits across the live ledger."
+    },
+    {
+      "id": "revoked_devices_cannot_act",
+      "manifestText": "revoked devices cannot act",
+      "status": "enforced",
+      "tests": [
+        "DeviceInvariants.test_a_revoked_device_is_denied",
+        "DeviceInvariants.test_an_unknown_device_is_denied"
+      ],
+      "enforcedBy": "orion/security/rules.py devices_are_trusted; trust is looked up in the directory, never read off the request"
+    },
+    {
+      "id": "expired_jobs_cannot_execute",
+      "manifestText": "expired jobs cannot execute",
+      "status": "enforced",
+      "tests": [
+        "JobInvariants.test_a_reconnecting_device_cannot_run_an_expired_job",
+        "JobInvariants.test_expiry_is_checked_at_every_moment_time_can_pass"
+      ],
+      "enforcedBy": "orion/core/jobs/queue.py _fresh(), called by dispatch, deliver, start and the authorization moves"
+    },
+    {
+      "id": "jobs_cannot_replay",
+      "manifestText": "jobs cannot replay",
+      "status": "enforced",
+      "tests": [
+        "JobInvariants.test_a_stale_delivery_token_cannot_complete_a_job"
+      ],
+      "enforcedBy": "orion/core/jobs/queue.py delivery tokens; a redispatch invalidates the previous one"
+    },
+    {
+      "id": "wrong_devices_cannot_execute_targeted_jobs",
+      "manifestText": "wrong devices cannot execute targeted jobs",
+      "status": "enforced",
+      "tests": [
+        "JobInvariants.test_a_device_cannot_run_a_job_targeted_elsewhere"
+      ],
+      "enforcedBy": "orion/core/jobs/queue.py start() checks the answering device against target_device. Added BY this suite: start authenticated the token and never asked who was answering."
+    },
+    {
+      "id": "unsigned_sensitive_jobs_cannot_execute",
+      "manifestText": "unsigned sensitive jobs cannot execute",
+      "status": "enforced",
+      "tests": [
+        "SignatureInvariants.test_an_unsigned_sensitive_request_from_another_device_is_denied"
+      ],
+      "enforcedBy": "orion/security/rules.py sensitive_actions_are_signed; binds on crossing a device boundary at R4+"
+    },
+    {
+      "id": "altered_signed_jobs_cannot_execute",
+      "manifestText": "altered signed jobs cannot execute",
+      "status": "enforced",
+      "tests": [
+        "SignatureInvariants.test_altering_any_signed_field_breaks_the_signature"
+      ],
+      "enforcedBy": "orion/security/signing.py canonical_bytes over every field that can change the outcome"
+    },
+    {
+      "id": "external_content_cannot_grant_permissions",
+      "manifestText": "external content cannot grant permissions",
+      "status": "enforced",
+      "tests": [
+        "ExternalContentInvariants.test_external_content_cannot_originate_an_action",
+        "ExternalContentInvariants.test_an_unclassified_source_is_untrusted",
+        "ExternalContentInvariants.test_external_data_cannot_drive_an_external_action"
+      ],
+      "enforcedBy": "orion/security/rules.py external_data_does_not_drive_action; orion/core/context/domains.py classify() defaults to EXTERNAL_UNTRUSTED"
+    },
+    {
+      "id": "malformed_tool_arguments_fail",
+      "manifestText": "malformed tool arguments fail",
+      "status": "enforced",
+      "tests": [
+        "MalformedInputInvariants.test_every_capability_closes_its_argument_schema",
+        "MalformedInputInvariants.test_every_boundary_record_refuses_unknown_fields"
+      ],
+      "enforcedBy": "orion/core/tools/registry.py requires additionalProperties:false on all 78; strict decoding on PolicyRequest, EventEnvelope, AuditEvent and the Phase 1 envelopes"
+    },
+    {
+      "id": "models_cannot_bypass_policy",
+      "manifestText": "models cannot bypass policy",
+      "status": "enforced",
+      "tests": [
+        "ModelInvariants.test_a_model_payload_cannot_smuggle_an_outcome",
+        "ModelInvariants.test_a_model_cannot_declare_its_own_risk_down",
+        "ModelInvariants.test_no_engine_input_is_model_controlled_beyond_the_proposal"
+      ],
+      "enforcedBy": "orion/security/request.py strict decoding; orion/security/risk.py derives risk and only DENIES on a declared mismatch"
+    },
+    {
+      "id": "deleted_connections_cannot_refresh_tokens",
+      "manifestText": "deleted connections cannot continue refreshing tokens",
+      "status": "enforced",
+      "tests": [
+        "ConnectionInvariants.test_deleting_a_connection_revokes_its_credentials_at_once",
+        "ConnectionInvariants.test_a_deleted_connection_cannot_be_given_a_new_credential",
+        "ConnectionInvariants.test_a_revoked_credential_cannot_be_borrowed",
+        "ConnectionInvariants.test_no_route_and_no_module_operation_returns_a_credential",
+        "ConnectionInvariants.test_a_borrowed_secret_cannot_enter_a_log_a_bundle_or_an_event"
+      ],
+      "enforcedBy": "backend/vault/credentials.py: delete_connection revokes every credential under the connection in the same call rather than through a job or an event, because anything asynchronous leaves a window in which a deleted connection can still refresh. A revoked credential cannot be borrowed, and a deleted connection cannot be given a new one.",
+      "enforcedScope": "The vault's own lifecycle, in memory. No OAuth provider is connected and nothing refreshes a real token yet, so what is proven is that the vault refuses -- not that a live refresh loop asks it. The cipher is injected: the production default raises rather than encrypting, so a deployment that forgets to configure one cannot store a credential at all.",
+      "closedBy": "Phase 12, 2026-08-25"
+    },
+    {
+      "id": "health_data_cannot_leak",
+      "manifestText": "health data cannot leak into unrelated contexts",
+      "status": "enforced",
+      "tests": [
+        "DomainLeakInvariants.test_health_context_cannot_reach_an_unrelated_task",
+        "DomainLeakInvariants.test_health_events_cannot_cascade_beyond_notifications"
+      ],
+      "enforcedBy": "orion/core/context/policy.py default-deny domain matrix; orion/core/eventbus/coupling.py cascade matrix"
+    },
+    {
+      "id": "email_data_cannot_leak",
+      "manifestText": "email data cannot leak into unrelated contexts",
+      "status": "enforced",
+      "tests": [
+        "DomainLeakInvariants.test_email_context_cannot_reach_an_unrelated_task"
+      ],
+      "enforcedBy": "orion/core/context/policy.py; email admits only contacts"
+    },
+    {
+      "id": "client_ownership_cannot_override_server_ownership",
+      "manifestText": "client-provided user ownership fields cannot override server ownership",
+      "status": "enforced",
+      "tests": [
+        "OwnershipInvariants.test_a_request_cannot_carry_its_own_trust_or_ownership",
+        "OwnershipInvariants.test_naming_a_user_does_not_make_their_device_yours"
+      ],
+      "enforcedBy": "orion/security/request.py has no trust field; orion/security/devices.py owns() answers from the directory"
+    },
+    {
+      "id": "one_user_cannot_access_another_users_data",
+      "manifestText": "one user cannot access another user's data",
+      "status": "enforced",
+      "tests": [
+        "OwnershipInvariants.test_a_repository_cannot_be_read_without_a_server_resolved_owner",
+        "OwnershipInvariants.test_one_user_cannot_read_another_users_record",
+        "OwnershipInvariants.test_a_payload_cannot_name_its_own_owner"
+      ],
+      "enforcedBy": "backend/ownership.py: an Owner can only be made from an authenticated Session, and Repository has no method that does not take one first. Phase 8 additionally scopes idempotency keys per user.",
+      "enforcedScope": "The ownership RESOLUTION layer, with an in-memory store. No database exists yet: Phase 11 must subclass Repository rather than query around it. Enforced structurally rather than by convention -- an Owner can only be built by resolve_owner (a private construction proof), every Repository method takes an owner first (owner_first_violations asserts it), and records are keyed per owner so another user gets the same answer for your record as for one that does not exist.",
+      "closedBy": "Phase 10, 2026-08-24"
+    },
+    {
+      "id": "internal_urls_cannot_be_fetched_through_ssrf",
+      "manifestText": "arbitrary internal URLs cannot be fetched through SSRF",
+      "status": "enforced",
+      "tests": [
+        "EgressInvariants.test_egress_denies_by_default",
+        "EgressInvariants.test_internal_addresses_cannot_be_fetched_even_if_allowlisted",
+        "EgressInvariants.test_a_url_cannot_smuggle_a_host_or_a_credential",
+        "EgressInvariants.test_only_the_egress_guard_may_reach_the_network"
+      ],
+      "enforcedBy": "backend/egress.py: default-deny host allowlist, https only on 443, no credentials in the URL, and refusal of loopback, private, link-local, CGNAT, reserved and cloud-metadata addresses in both literal and hostname form, including IPv4-mapped IPv6.",
+      "enforcedScope": "The URL, and only the URL. THREE things are not covered and must not be read as if they were: (1) nothing in ORION fetches a URL yet, so this guard has no production caller -- it is enforced at the only door that will exist, not at a door in use; (2) redirects must be re-checked hop by hop, because a permitted host can answer with a 302 to a forbidden one; (3) the HTTP client must pin the resolved address and connect to Target.host rather than the URL string, because DNS can answer differently between the check and the connection. Point (1) is why backend/boundaries.py additionally forbids every backend file except egress.py from importing an HTTP client: a future fetch that skips the guard fails the boundary check instead of reopening this invariant silently.",
+      "closedBy": "Phase 10, 2026-08-24"
+    },
+    {
+      "id": "remote_raw_shell_remains_disabled",
+      "manifestText": "remote raw shell remains disabled",
+      "status": "enforced",
+      "tests": [
+        "ShellInvariants.test_no_capability_offers_arbitrary_execution",
+        "ShellInvariants.test_remote_execution_is_off_by_default"
+      ],
+      "enforcedBy": "orion/core/tools/registry.py + scripts/orion_v2_capability_check.py name check across all 78; orion/security/decisions.py remote_enabled defaults False"
+    }
+  ],
+  "reviewedOn": "2026-08-25"
+}

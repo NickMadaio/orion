@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "amendedOn": "2026-08-28",
+  "authority": "Additive checkpoint register for gaps discovered after the original 85-phase manifest was fingerprinted. It does not change the source fingerprint, renumber phases, reopen historical closures, select providers, or authorize implementation.",
+  "sourceManifest": {
+    "title": "ORION v2 — Full Implementation Manifest",
+    "sha256FromLine3": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
+    "phaseCount": 85
+  },
+  "checkpoint": {
+    "id": "P32.5",
+    "title": "Capability Charter and Product Gap Review",
+    "kind": "documentation_checkpoint",
+    "status": "complete",
+    "closedOn": "2026-08-27",
+    "evidence": [
+      "planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md",
+      "planning/v2/MANIFEST_TRACEABILITY.md",
+      "planning/v2/HANDOFF.md",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "doesNotAdvanceNumberedPhase": true,
+    "numberedProgramPosition": "Phases 0-32 complete; Phase 33 not started"
+  },
+  "enforcement": {
+    "mode": "documented_human_gate",
+    "mechanicalLimitation": "scripts/orion_v2_phase_gate.py reads PHASE_GATES.json phases records, not programCheckpoints or this register. Its keys are strings; it does not inherently prohibit fractional labels. The additive register is separate to preserve historical phase structure, and is not mechanically enforced. This task changes no validator code.",
+    "requiredReadPath": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "planning/v2/HANDOFF.md",
+      "planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md",
+      "planning/v2/ROADMAP_AMENDMENTS.json"
+    ]
+  },
+  "recoveryGates": [
+    {
+      "id": "REC-REVIEW-11-20",
+      "title": "Independent review recovery for Phases 11-20",
+      "status": "satisfied",
+      "when": "before the next implementation batch",
+      "acceptance": [
+        "A fresh reviewer receives the manifest, product goal, current tree and reproducible commands without the implementer's success narrative.",
+        "Every Phase 11-20 exit claim is checked against current artifacts and meaningful mutation, failure or normal-route evidence where applicable.",
+        "Findings are repaired and rerun, with original false claims preserved as history rather than silently rewritten.",
+        "A durable batch report records findings, alternatives, verification, limitations and rollback."
+      ],
+      "closedOn": "2026-08-28",
+      "evidence": [
+        "planning/v2/PHASE_11_20_REVIEW_REPORT.md",
+        "planning/v2/PHASE_GATES.json (phases 11-20 postReviewCorrections; reviews entry)",
+        "HANDOFF.md and planning/v2/HANDOFF.md, 2026-08-28"
+      ],
+      "outcome": "Six independent reviewers, no implementer narrative. 5 of 10 phases were NOT complete as claimed; 64 defects found, 62 repaired and mutation-proven, 3 registered as needing more than a repair. Python 1,375 -> 1,437; Swift 293 -> 335. REC-OPERATIONS remains open: the mixed-backlog grouping still needs Nick's approval before anything is staged, and no commit or push was made."
+    },
+    {
+      "id": "REC-LIVE-FOUNDATION",
+      "title": "Tangible v2 backend foundation",
+      "status": "required",
+      "when": "before enabling real v2 connector, write, automation or remote-control paths; stage the read-only service before any write/control activation",
+      "acceptance": [
+        "Nick chooses the host, database, authentication and operations approach with cost and local/cloud boundaries visible.",
+        "A running API and database use owner-scoped durable repositories rather than in-memory stand-ins.",
+        "Production-quality authenticated encryption and signature verification adapters are installed through reviewed dependencies or platform services.",
+        "Restart, migration, offline/retry, monitoring and rollback behavior are proven through the normal route.",
+        "A provider operations dashboard or equivalent is distinguished from Orion's own product UI."
+      ]
+    },
+    {
+      "id": "REC-AUTHORITY-REPLAY",
+      "title": "Authority, approval consumption and replay safety",
+      "status": "required",
+      "when": "before live Calendar/Gmail writes, automatic communications or remote control",
+      "acceptance": [
+        "A sufficiently specific direct request authorizes the requested action and ordinary in-scope use of already-enabled capabilities without duplicate approval.",
+        "Each consequential approval is bound to canonical content, actor, target, expiry and nonce and is consumed once.",
+        "Retries are idempotent and cannot repeat a completed side effect.",
+        "Approval, execution, denial, revocation and recovery survive restart in an inspectable audit trail.",
+        "Automatic modes are explicit, scoped, visible, expiring, revocable and immediately stoppable; preferences never grant authority."
+      ]
+    },
+    {
+      "id": "REC-READONLY-CONNECTOR",
+      "title": "First real read-only integration slice",
+      "status": "required",
+      "when": "in the first connected-product batch, before enabling broader v2 connector actions",
+      "acceptance": [
+        "A chosen least-privilege read-only connector runs through the deployed v2 path with real provider responses, revocation, audit and failure evidence.",
+        "Google transport is not inferred from request builders or parsers.",
+        "A first Google read does not depend on HealthKit. Before enabling the separate HealthKit feature, prove local acquisition and required entitlement/privacy behavior; raw measurements remain inside the health boundary.",
+        "No write, send, monitoring or recurring automation is enabled by this checkpoint."
+      ]
+    },
+    {
+      "id": "REC-USABLE-CLIENT",
+      "title": "Visible usable client slice",
+      "status": "required",
+      "when": "in the first connected-product batch, before expanding to broad live automation; it is not deferred to Phase 84",
+      "acceptance": [
+        "A real SwiftUI iPhone target renders and runs in the simulator or on device; MobileCore compilation alone is insufficient.",
+        "The current block, next step, plan changes/reasons, focus state and important items are understandable in the home/planner experience.",
+        "A desktop/mobile settings and control path exposes synchronized state, revocation and the local emergency stop without uploading all private content.",
+        "A small end-to-end normal-route action crosses visible UI, backend boundary, durable state and truthful result with restart/offline/retry evidence."
+      ]
+    },
+    {
+      "id": "REC-OPERATIONS",
+      "title": "Reviewed batch checkpoint and recovery operations",
+      "status": "required",
+      "when": "at each roughly ten-phase batch and before release claims",
+      "acceptance": [
+        "Independent review and repairs are recorded in a durable readable batch report.",
+        "Source and history secret scans pass before a commit checkpoint.",
+        "Unrelated user-owned changes are separated and no historical commit or timestamp is fabricated.",
+        "Commit and push are recorded separately; a local commit is never called a remote backup.",
+        "Rollback, restore and monitoring evidence are reproducible."
+      ]
+    }
+  ],
+  "continuationOrder": [
+    {
+      "step": 1,
+      "work": "Review Phases 11-20, repair findings, and write the mixed-backlog grouping and checkpoint plan. Establish a reviewed local baseline with approved scope before resuming another large batch.",
+      "gates": [
+        "REC-REVIEW-11-20",
+        "REC-OPERATIONS"
+      ]
+    },
+    {
+      "step": 2,
+      "work": "Plan the first connected-product batch: obtain Nick's provider/budget and first-feature decisions; implement staged API/auth/database/persistence plus the minimal visible home/planner. UI prototypes can precede live connections. Dependencies and acceptance must be written before implementation.",
+      "gates": [
+        "REC-LIVE-FOUNDATION",
+        "REC-USABLE-CLIENT"
+      ]
+    },
+    {
+      "step": 3,
+      "work": "Connect one approved read-only source to the visible client, prove ownership/isolation, revocation, restart/offline/retry behavior and truthful results. Independently review and checkpoint the batch before broader activation.",
+      "gates": [
+        "REC-READONLY-CONNECTOR",
+        "REC-USABLE-CLIENT",
+        "REC-OPERATIONS"
+      ]
+    },
+    {
+      "step": 4,
+      "work": "Resume the remaining numbered phases under the amended scope. Close approval-consumption and durable-authority gaps before real writes, autonomous messages or remote control. Phase 33 still precedes 34 within the unchanged numbered sequence.",
+      "gates": [
+        "REC-AUTHORITY-REPLAY"
+      ]
+    }
+  ],
+  "capabilityHomes": [
+    {
+      "id": "CAP-SCHOOL-DAY",
+      "title": "School, full-day planning and focus",
+      "existingPhases": [
+        19,
+        21,
+        22,
+        23,
+        24,
+        39,
+        41,
+        60,
+        61,
+        62,
+        63,
+        84
+      ],
+      "amendment": "Add source-aware classes and assignments, progress uncertainty, optional full-day scheduling with intentional free time, transitions, completion-aware replanning and a comprehensible current/next home surface."
+    },
+    {
+      "id": "CAP-PRESENCE",
+      "title": "Proactivity, availability and optional presence",
+      "existingPhases": [
+        41,
+        59,
+        81
+      ],
+      "amendment": "Add explicit interruption modes, quiet hours, alert budgets and minimally invasive local presence options. Camera/location remain unselected future evaluations with consent and retention unresolved."
+    },
+    {
+      "id": "CAP-COMPUTER-HOME",
+      "title": "Media, reversible computer work and home control",
+      "existingPhases": [
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        53,
+        54,
+        55,
+        56,
+        65
+      ],
+      "amendment": "Add quick preference-aware media action, non-destructive desktop organization with undo/collision protection, and smart-home capability under certified-device and reviewed-authority boundaries. Remote access never bypasses Mac security."
+    },
+    {
+      "id": "CAP-MODELS-MEMORY",
+      "title": "Memory, local models, response quality and cost",
+      "existingPhases": [
+        2,
+        18,
+        63,
+        64,
+        67
+      ],
+      "amendment": "Add hardware benchmarks, compact relevant retrieval, inspectable preferences, latency/cost budgets and deterministic no-LLM paths. Candidate local model sizes are not provider selections or quality claims."
+    },
+    {
+      "id": "CAP-COMMUNICATIONS",
+      "title": "Communications and personal-assistant mode",
+      "existingPhases": [
+        26,
+        27,
+        28,
+        29,
+        41,
+        49,
+        50,
+        57,
+        59,
+        62,
+        80
+      ],
+      "amendment": "Add reviewed-to-delegated texting progression and a disclosed call-assistant mode that always identifies as Orion, Nick's assistant. Provider feasibility, privacy law, cost, audiences and exceptions remain open."
+    },
+    {
+      "id": "CAP-PRODUCT-UI",
+      "title": "Tangible backend and visible product",
+      "existingPhases": [
+        16,
+        19,
+        34,
+        39,
+        42,
+        56,
+        66,
+        84
+      ],
+      "amendment": "Add early running-backend and usable-client checkpoints. Preserve Phase 16/19 historical contract closures while requiring actual rendered screens and normal-route proof before product claims."
+    },
+    {
+      "id": "CAP-FUTURE-BACKLOG",
+      "title": "Explicit future ideas",
+      "existingPhases": [
+        57,
+        59,
+        65,
+        67,
+        76,
+        80
+      ],
+      "amendment": "Retain battery charge limiting, visa-email alerts, finance subscriptions, consent-aware recording/notes, conversational styles, remote dispatch and context-sensitive help as unimplemented aspirations requiring their own feasibility, privacy, provider and authority decisions."
+    }
+  ]
+}

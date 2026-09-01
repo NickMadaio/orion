@@ -8,6 +8,31 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 
 ---
 
+## Current v2 decisions — Phase 32.5, 2026-08-27
+
+The product charter and proposed implementation order now live in
+`planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
+`planning/v2/ROADMAP_AMENDMENTS.json`. Before setting up the new backend, choose
+the hosting/database/authentication approach, a running-cost budget and the
+first read-only feature to make visible. Distinguish the provider's operations
+dashboard from Orion's own home/control UI. No provider or plan has been chosen.
+
+The Phases 11–20 review is **done (2026-08-28)** — five of ten were not complete
+as claimed, 64 defects, 62 repaired. See `planning/v2/PHASE_11_20_REVIEW_REPORT.md`.
+What is still a coding-assistant task: the mixed-backlog commit plan, which needs
+**your approval of the grouping before anything is staged**. Nothing has been
+committed or pushed. UI taste, call/text delegation rules, presence signals and model
+budgets remain explicit choices; initial discussion is recorded in the charter.
+
+Items 9–10 below are older setup guidance, not the sole remaining blockers.
+Inventory existing Google projects/connections before creating another; choose
+the OAuth client type for the actual desktop/server flow after backend design.
+Real adapters, durable storage, production crypto and end-to-end verification
+still require implementation. Verify current provider/platform requirements
+when doing account setup; this documentation pass did not re-validate them.
+
+---
+
 ## 1. Pick the break ambience clips
 
 **Why:** the synthesised rain/waves/wind sounded synthetic, because it is. Real
@@ -58,6 +83,19 @@ install Orion.
 
 ---
 
+## 3. ~~Link GitHub~~ — DONE 2026-08-20
+
+You did this yourself: `https://github.com/NickMadaio/orion.git`, private, first
+push 2026-08-20. `.env` and the config backups stayed untracked, and the
+full-history secret scan is clean.
+
+**Still open, and smaller than it was:** the updater's feed URL is still the
+`ORION_OWNER/ORION_REPO` placeholder, so "Check for Updates" still 404s. What it
+needs now is an appcast and one published release — no account work, no decision
+from you. Say the word and I'll cut it.
+
+<details><summary>original item, kept for context</summary>
+
 ## 3. Link GitHub, so updates have somewhere to live
 
 **Why:** the updater works end to end — proven against a local feed — but points
@@ -75,6 +113,8 @@ whether it should be public or private, and I will create it and cut the first
 release.
 
 **Unblocks:** updates that actually arrive, instead of you rebuilding by hand.
+
+</details>
 
 ---
 
@@ -95,3 +135,237 @@ native/Orion/.build/artifacts/sparkle/Sparkle/bin/generate_keys -x ~/Desktop/ori
 Then move that file off the machine and delete the local copy.
 
 **Unblocks:** nothing today. Prevents a specific unrecoverable failure later.
+
+---
+
+## 5. Two v2 policy questions (2026-08-24)
+
+**Why:** Phase 5 built the policy engine and both of these are yours to answer,
+not mine. Neither blocks the phases that follow — I have kept going and recorded
+both in `planning/v2/PHASE_GATES.json` — but the second one is a live security
+posture question and I would rather you saw it now than in a handoff you read
+next month.
+
+**a. Does the Phase 1 reading still hold for Phases 5–10?**
+
+You accepted, on 2026-08-20, that "runs through Core" means the live route
+honours Core's contracts, not that Core's code executes the work. That
+acceptance was granted once, for Phase 1, on Phase 1's evidence. Phase 5's engine
+is in the same position: all 78 live actions are *evaluated* by it and it is
+proven never more permissive than the live gate across 390 combinations, but
+`validator.ts` and `permissions.ts` still make the actual call.
+
+Say yes and the rest of the local-core track proceeds the same way. Say no and
+the closing work is: wire the controller to call the engine behind a default-off
+flag, prove parity flag-off then flag-on on the live route. That is a coordinated
+window on `src/index.ts`, `src/controller.ts` and `src/validator.ts`.
+
+**b. Seven self-modification actions require no approval.**
+
+Under `consequential_local`, these rewrite Orion's own plugin, wrapper scripts,
+Swift source or settings with `approvalRequired: false`:
+
+```text
+self_modify           self_plugin_modify    self_plugin_revert
+self_script_modify    self_script_revert    self_config_set
+self_config_revert
+```
+
+Only the three `*_authority_*` variants ask you first. The engine rates every one
+of them R5 and would confirm each one; the live gate does not. The repair path
+does build, test, health-check and auto-roll-back — that is real mitigation and
+it is why this is a question rather than an alarm — but "Orion rewrote his own
+plugin and told you afterwards" is a posture, and it should be one you picked.
+
+**Unblocks:** (a) how Phases 6–10 close. (b) nothing; it is a decision, not a
+blocker.
+
+---
+
+## 6. ~~Does the backend track proceed without a host?~~ ANSWERED 2026-08-25
+
+**You said: continue with phases 11-15.** Taken as *declaration-first* — schema,
+migrations, vault contract, auth and pairing built and tested, nothing deployed
+and no new dependency added on that instruction alone. Left below for the record.
+
+(2026-08-24)
+
+**Why:** Phase 10 is "Backend Foundation" and the manifest recommends Python,
+FastAPI, PostgreSQL. This repo's Python has had **zero third-party dependencies**
+since day one. I built everything that is decidable without a server — the
+seventeen-module graph and its boundary checks, DEV/STAGING/PRODUCTION separation,
+the rule that a local runtime cannot resolve a production secret, server-side
+ownership, and the SSRF guard — and did **not** install FastAPI, add a database,
+or stand up a process. That is recorded as a deviation in `PHASE_GATES.json`, not
+smoothed over.
+
+**What to decide:** either
+
+- **declaration-first** — Phase 11 designs migrations and tables against the
+  ownership layer, still with nothing deployed, and the dependencies arrive when
+  a host does; or
+- **pause the cloud track** — stay on the Mac-local phases and come back to
+  10–15 when you actually want a server.
+
+I have not entered Phase 11 either way; you asked for through 10.
+
+**Unblocks:** Phase 11, and whether `pyproject.toml` stops being dependency-free.
+
+---
+
+## 7. Does one proof per device satisfy Phase 15's "both devices"? (2026-08-25)
+
+**Why:** the manifest says pairing needs "possession proofs from both devices". It
+has them — but not symmetrically, and I would rather you knew which shape you have.
+
+- The **joining** device (phone) signs the pairing nonce when it claims.
+- The **offering** device (Mac) signs the nonce *plus the joining device's public
+  key* when it confirms — so it is attesting to which key it is admitting, which
+  is what stops a photographed code being redeemed by a stranger.
+
+My first attempt asked the phone to sign a second challenge at confirm time. That
+is impossible: the phone is not online at that moment and would have to sign
+something that did not exist when it last was. So the phone proves possession
+once.
+
+**What to decide:** if you want a second proof from the phone, it has to stay
+connected through confirm (a socket or a poll) and the challenge has to be issued
+at claim time. That is a real change to the flow and to the mobile app, so it is
+better decided before Phase 16 than after.
+
+**Unblocks:** nothing today. It is recorded as a deviation on Phase 15 either way.
+
+---
+
+## 8. ~~Xcode is not installed~~ ANSWERED 2026-08-25
+
+**You said: "you can compile whatever you want, I don't care."** Taken as: the
+mobile track proceeds as a compiled, self-checked Swift domain layer.
+
+**Then you said you do have Xcode — and you were right, I was wrong.** Xcode 26.6
+was installed all along; `xcode-select` pointed at CommandLineTools, so every
+probe I ran reported no iOS SDK. `DEVELOPER_DIR` fixes it without sudo, and the
+mobile check now builds for the simulator on every run.
+
+**One new question, and it is small:** MobileCore is verified to compile for iOS,
+so the SwiftUI views are the only missing piece — no longer blocked, just not
+built. Say the word and a session can add the view layer, the Keychain adapter
+and push registration behind the ports that already exist. Until then the app
+still cannot be installed on a phone.
+
+**Nothing for you to run.** I had drafted a `sudo xcode-select -s` suggestion here
+and then found `AGENTS.md` already says, in the `native/Orion` section: *"Do not
+'fix' this by changing the machine's active developer directory."* The override
+is per-command and that is deliberate — your existing test wrapper has worked
+that way for months. The mobile check now does the same.
+
+Left below for the record.
+
+(2026-08-25)
+
+**Why:** Phase 16 onwards builds the iPhone app. This Mac has Command Line Tools
+only — no Xcode — which means:
+
+```text
+no iOS SDK        → SwiftUI cannot be compiled
+no simulator      → nothing can be run
+no XCTest         → the Swift checks are an executable that exits non-zero
+```
+
+So `native/OrionMobile/MobileCore` is real Swift that compiles and self-checks
+(103 assertions), and there are no views, no app bundle, no Keychain adapter and
+no push registration. Phases 19 and 20 added to the same layer on the same terms.
+
+**What to decide:** install Xcode when you want an app you can hold, or let the
+mobile phases keep producing a compiled domain layer until then. The second is
+what is happening and it is not wasted — the decisions and their tests are the
+part that is expensive to get wrong, and the views are thin once they exist.
+
+When Xcode does arrive, the first check is whether MobileCore still compiles for
+iOS **unchanged**. If it does not, something platform-specific crept in and the
+compiler was the only thing stopping it.
+
+**Unblocks:** an installable app. Nothing else — phases 21 onward are Python.
+
+---
+
+## 9. A Google Cloud project, so Calendar and Gmail can ever run (2026-08-26)
+
+**Why:** Phases 22 and 25–29 built the whole Google side — connector broker,
+webhook validation, incremental sync, calendar reads and writes, Gmail search,
+read, draft and send. Every one of them builds a request and none of them can
+send it, because there is no OAuth client and no consent screen. This is the
+single thing standing between eight completed phases and anything actually
+happening.
+
+It is account work, not a decision about the code.
+
+**What to do:**
+
+1. console.cloud.google.com → new project (name it whatever; `orion` is fine).
+2. Enable two APIs: **Google Calendar API** and **Gmail API**.
+3. OAuth consent screen → **External**, publishing status **Testing**, and add
+   your own address as a test user. Testing mode is the right choice: it avoids
+   Google's verification review entirely, and the only cost is that refresh
+   tokens expire every seven days — fine until this is something you use daily.
+4. Credentials → **OAuth client ID** → *Desktop app*. Tell me the **client ID**.
+
+**About the client secret:** a Desktop-app client's secret is not actually a
+secret — Google says so, because the binary ships with it. I still do not want
+it pasted into chat. Put it in the login Keychain yourself and tell me the item
+name, the same shape as the existing ORION credentials, and the vault will read
+it by reference.
+
+**The scopes it will ask for**, so the consent screen holds no surprises:
+
+```text
+calendar.calendarlist.readonly    calendar.events.readonly    calendar.freebusy
+calendar.events                   (only when Phase 25 writes are turned on)
+gmail.readonly                    gmail.compose               gmail.send
+```
+
+`calendar.readonly` and `gmail.modify` are deliberately **not** requested —
+they are recorded in `backend/connectors/scopes.py` as never-requested with the
+reason. The narrow trio does the same job as `calendar.readonly` and grants less.
+
+**Unblocks:** every phase from 22 to 29 stops being a set of request builders.
+It also unblocks the first real prompt-injection test against actual mail rather
+than the fourteen-payload corpus.
+
+**Not urgent.** Phases 30–38 are health and are entirely local, so the program
+does not stall waiting for this.
+
+---
+
+## 10. HealthKit needs the same thing Google does — an entitlement (2026-08-27)
+
+**Why:** Phases 30, 31 and 32 built the whole local health layer — authorization
+ledger, six personal baselines, six derived states — and none of it can read a
+single sample. `RefusingHealthStore` is the only implementation, because reading
+health data needs `HKHealthStore`, which needs the **HealthKit entitlement**,
+which needs the Apple Developer Program from item 2.
+
+So this is not a separate decision. It is one more thing item 2 unblocks, and I
+am noting it here so the list shows the true cost of that $99 rather than only
+the Keychain fix.
+
+**What it unblocks when you do enrol:**
+
+- HealthKit capability in Xcode, plus the two Info.plist usage strings
+  (`NSHealthShareUsageDescription`, `NSHealthUpdateUsageDescription`) — an app
+  without them crashes on first read rather than being denied.
+- The eight data types ORION asks for: sleep, resting heart rate, HRV,
+  respiratory rate, steps, active energy, workouts, exercise minutes. It asks for
+  nothing else, and the five categories it deliberately never requests —
+  clinical records, mental health, reproductive health, blood glucose,
+  medications — are recorded with reasons in `Health.swift`.
+
+**One thing worth knowing before you approve the sheet:** HealthKit will not tell
+an app whether you granted a *read*. A refusal and an empty data set are
+deliberately indistinguishable, so if you decline something quietly, ORION cannot
+tell you why a number is missing — it can only say it has none. That is Apple's
+design and the right one; it is modelled as `unknowable` rather than pretended
+away.
+
+**Nothing is blocked meanwhile.** Phases 33 onward are the privacy firewall, the
+UI and the journal, all of which are built against the local layer.

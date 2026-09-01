@@ -3,11 +3,22 @@
   "source": {
     "title": "ORION v2 \u2014 Full Implementation Manifest",
     "sha256": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
-    "lineCount": 2642
+    "lineCount": 2642,
+    "path": "~/Desktop/Orion v two implementation plan.md",
+    "fingerprintCoversFromLine": 3,
+    "fingerprintNote": "The file now carries a two-line wrapper header ('# Orion v2 Implementation Plan' plus a blank line) that was added after Phase 0 fingerprinted it, so hashing the whole file gives fef1937473af2128ec85e34e1a754a4b92335dde8d882ab4aefd729023dca224 and looks like tampering. It is not: the requirements text is unchanged. Reproduce with: tail -n +3 '<path>' | shasum -a 256"
   },
   "phaseCount": 85,
   "sequenceRule": "Phase N may enter only after Phase N-1 exit evidence passes.",
   "defaultStatus": "not_started",
+  "additiveRoadmap": {
+    "source": "planning/v2/ROADMAP_AMENDMENTS.json",
+    "latestCheckpoint": "P32.5",
+    "latestCheckpointStatus": "complete",
+    "doesNotRenumberPhases": true,
+    "numberedProgramPosition": "Phases 0-32 complete; Phase 33 not started",
+    "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
+  },
   "current": {
     "0": {
       "status": "complete",
@@ -19,8 +30,132 @@
       "note": "Closed against PHASE_1_PLAN.md exit criteria on 2026-08-20. The manifest's literal exit gate is not met; see the recorded deviation in PHASE_GATES.json."
     },
     "2": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_2_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "3": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_3_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "4": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_4_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "5": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_5_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "6": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_6_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "7": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_7_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "8": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_8_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "9": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_9_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "10": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_10_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "11": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_11_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "12": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_12_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "13": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_13_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "14": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_14_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "15": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_15_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "16": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_16_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "17": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_17_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "18": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_18_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "19": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_19_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "20": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_20_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "21": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_21_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "22": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_22_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "23": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_23_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "24": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_24_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "25": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_25_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "26": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_26_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "27": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_27_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "28": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_28_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "29": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_29_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "30": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_30_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "31": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_31_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "32": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_32_PLAN.md and planning/v2/HANDOFF.md"
+    },
+    "33": {
       "status": "not_started",
-      "evidence": "planning/v2/PHASE_2_PLAN.md does not exist yet"
+      "evidence": "planning/v2/PHASE_33_PLAN.md (not yet written)"
     }
   },
   "tracks": [

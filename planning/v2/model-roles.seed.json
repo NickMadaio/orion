@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "roles": {
+    "reasoning": {
+      "primary": "anthropic/claude-haiku-4-5-20251001",
+      "fallbacks": [
+        "ollama/llama3.2:3b",
+        "ollama/qwen3.6:27b"
+      ],
+      "timeout_seconds": 600,
+      "max_retries": 2,
+      "rates": {
+        "input_per_mtok": 1.0,
+        "output_per_mtok": 5.0,
+        "cache_read_per_mtok": 0.1,
+        "cache_write_per_mtok": 1.25
+      },
+      "note": "The conversational orchestrator. Haiku by the 2026-08-16 routing decision, which kept a single cloud model rather than adding a local classification hop per utterance."
+    },
+    "fast": {
+      "primary": "ollama/llama3.2:3b",
+      "fallbacks": [],
+      "timeout_seconds": 300,
+      "max_retries": 1,
+      "rates": {
+        "input_per_mtok": 0.0,
+        "output_per_mtok": 0.0
+      },
+      "note": "OpenClaw agents.defaults.utilityModel. Local, so genuinely free rather than unpriced."
+    },
+    "vision": {
+      "primary": null,
+      "fallbacks": [],
+      "timeout_seconds": 120,
+      "max_retries": 1,
+      "note": "Declared and unassigned. ORION performs no vision inference today; CameraPresence is a presence signal, not a model call. A role invented to look complete would be worse than an honest gap."
+    },
+    "local": {
+      "primary": "ollama/gpt-oss:20b",
+      "fallbacks": [],
+      "timeout_seconds": 300,
+      "max_retries": 1,
+      "rates": {
+        "input_per_mtok": 0.0,
+        "output_per_mtok": 0.0
+      },
+      "note": "LocalModel.defaultModel in the Swift app. Drives DistractionReasoner, NarrativeWriter and MorningBrief. Text transform, never an agent -- see LocalModel.swift for why."
+    },
+    "embedding": {
+      "primary": "ollama/nomic-embed-text",
+      "fallbacks": [],
+      "timeout_seconds": 120,
+      "max_retries": 1,
+      "rates": {
+        "input_per_mtok": 0.0,
+        "output_per_mtok": 0.0
+      },
+      "note": "OpenClaw agents.defaults.memorySearch. Backs selective recall over sessions and memory."
+    },
+    "stt": {
+      "primary": "deepgram/nova-3",
+      "fallbacks": [],
+      "timeout_seconds": 60,
+      "max_retries": 1,
+      "note": "DeepgramSpeech.swift, streaming. Not in the manifest's role list; added because it is a model call with a credential, latency and cost."
+    },
+    "tts": {
+      "primary": "mlx/Marvis-AI_marvis-tts-250m-v0.2-MLX-8bit",
+      "fallbacks": [
+        "elevenlabs/eleven_flash_v2_5"
+      ],
+      "timeout_seconds": 60,
+      "max_retries": 1,
+      "note": "orion_tts_daemon.py with ORION_TTS_ENGINE=auto. Local first; the cloud voice is the fallback, not the default."
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "credential": {
+        "source": "keychain",
+        "ref": "ORION OpenClaw Anthropic"
+      }
+    },
+    "ollama": {
+      "endpoint": "http://127.0.0.1:11434",
+      "credential": {
+        "source": "none"
+      }
+    },
+    "deepgram": {
+      "credential": {
+        "source": "keychain",
+        "ref": "ORION Deepgram"
+      }
+    },
+    "elevenlabs": {
+      "credential": {
+        "source": "keychain",
+        "ref": "ORION ElevenLabs"
+      }
+    },
+    "mlx": {
+      "credential": {
+        "source": "none"
+      }
+    }
+  },
+  "retired": {
+    "anthropic/claude-haiku-4-5": "reasoning",
+    "ollama/gemma4:31b": "local",
+    "openclaw/gateway-injected": "reasoning"
+  }
+}

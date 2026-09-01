@@ -1,5 +1,10 @@
 # Orion — handoff, 2026-08-11
 
+> Historical focus/session handoff. For current ORION v2 work, start with
+> root `AGENTS.md` and `planning/v2/HANDOFF.md`, then the Phase 32.5 charter and
+> `planning/v2/ROADMAP_AMENDMENTS.json`. This older record does not supersede
+> current phase gates or authorize running its historical installation commands.
+
 Written so somebody with no memory of this session can pick it up cleanly.
 Read this first, then `GATE-0-BASELINE.md` and `GATE-1-AUDIO.md` for the two
 gates whose findings changed the plan.

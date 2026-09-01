@@ -1,0 +1,2306 @@
+{
+  "schema_version": 1,
+  "capabilities": [
+    {
+      "action": "app_open",
+      "capability": "application.open",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "quits_process"
+      ],
+      "resource_scope": "app_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "application"
+        ],
+        "properties": {
+          "application": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "app_quit",
+      "capability": "application.quit",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "quits_process"
+      ],
+      "resource_scope": "app_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "application"
+        ],
+        "properties": {
+          "application": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "browser_close_tab",
+      "capability": "browser.close.tab",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "browser_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "browser_list_tabs",
+      "capability": "browser.list.tabs",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "browser_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "browser_new_tab",
+      "capability": "browser.new.tab",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "browser_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "browser_open_url",
+      "capability": "browser.open.url",
+      "domain": "computer",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "browser_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "browser_read_page",
+      "capability": "browser.read.page",
+      "domain": "computer",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "browser_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "browser_switch_tab",
+      "capability": "browser.switch.tab",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "browser_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tab"
+        ],
+        "properties": {
+          "tab": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "apple_reminder_add",
+      "capability": "calendar.apple.reminder.add",
+      "domain": "calendar",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "calendar",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "calendar_event_add",
+      "capability": "calendar.event.add",
+      "domain": "calendar",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "calendar",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "title"
+        ],
+        "properties": {
+          "start": {},
+          "title": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "calendar_event_remove",
+      "capability": "calendar.event.remove",
+      "domain": "calendar",
+      "risk": "high",
+      "approval_required": true,
+      "reversible": false,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "calendar",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "system_status",
+      "capability": "device.status.read",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_device_state"
+      ],
+      "resource_scope": "ambient_info",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "desktop_file_write_explicit",
+      "capability": "files.desktop.file.write_explicit",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "desktop_direct_write",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "operation",
+          "relativePath"
+        ],
+        "properties": {
+          "content": {},
+          "operation": {},
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_folder_create_explicit",
+      "capability": "files.desktop.folder.create_explicit",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "desktop_direct_write",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath"
+        ],
+        "properties": {
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_list",
+      "capability": "files.desktop.list",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_metadata",
+      "capability": "files.desktop.metadata",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath"
+        ],
+        "properties": {
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_test_text_create",
+      "capability": "files.desktop.test.text_create",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "desktop_test_workspace",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "extension",
+          "name"
+        ],
+        "properties": {
+          "content": {},
+          "extension": {},
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_text_append_confirmed",
+      "capability": "files.desktop.text.append_confirmed",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "desktop_modify",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "relativePath"
+        ],
+        "properties": {
+          "content": {},
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_text_create_confirmed",
+      "capability": "files.desktop.text.create_confirmed",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "desktop_modify",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "relativePath"
+        ],
+        "properties": {
+          "content": {},
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_text_read",
+      "capability": "files.desktop.text.read",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath"
+        ],
+        "properties": {
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "desktop_text_replace_confirmed",
+      "capability": "files.desktop.text.replace_confirmed",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "desktop_modify",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "relativePath"
+        ],
+        "properties": {
+          "content": {},
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "file_delete",
+      "capability": "files.file.delete",
+      "domain": "files",
+      "risk": "high",
+      "approval_required": true,
+      "reversible": true,
+      "side_effects": [
+        "moves_files",
+        "deletes_files"
+      ],
+      "resource_scope": "file_mutate",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath",
+          "root"
+        ],
+        "properties": {
+          "relativePath": {},
+          "root": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "file_move",
+      "capability": "files.file.move",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "moves_files",
+        "deletes_files"
+      ],
+      "resource_scope": "file_mutate",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "destinationPath",
+          "relativePath",
+          "root"
+        ],
+        "properties": {
+          "destinationPath": {},
+          "relativePath": {},
+          "root": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "file_rename",
+      "capability": "files.file.rename",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "moves_files",
+        "deletes_files"
+      ],
+      "resource_scope": "file_mutate",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "newName",
+          "relativePath",
+          "root"
+        ],
+        "properties": {
+          "newName": {},
+          "relativePath": {},
+          "root": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "home_list",
+      "capability": "files.home.list",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "home_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "home_metadata",
+      "capability": "files.home.metadata",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "home_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath"
+        ],
+        "properties": {
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "home_read_text",
+      "capability": "files.home.read.text",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "home_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath"
+        ],
+        "properties": {
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "scratch_file_write_explicit",
+      "capability": "files.scratch.file.write_explicit",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "scratch_direct_write",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "operation",
+          "relativePath"
+        ],
+        "properties": {
+          "content": {},
+          "operation": {},
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "scratch_folder_create_explicit",
+      "capability": "files.scratch.folder.create_explicit",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "scratch_direct_write",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath"
+        ],
+        "properties": {
+          "relativePath": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "scratch_text_create",
+      "capability": "files.scratch.text.create",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "scratch_workspace",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "extension",
+          "name"
+        ],
+        "properties": {
+          "content": {},
+          "extension": {},
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "test_marker_create",
+      "capability": "files.test.marker.create",
+      "domain": "files",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "test_workspace",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "marker"
+        ],
+        "properties": {
+          "content": {},
+          "marker": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "clock_now",
+      "capability": "general.clock.read",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_device_state"
+      ],
+      "resource_scope": "ambient_info",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "weather_now",
+      "capability": "general.weather.read",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_device_state"
+      ],
+      "resource_scope": "ambient_info",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "location"
+        ],
+        "properties": {
+          "location": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "supplement_add",
+      "capability": "health.supplement.add",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "supplement_status",
+      "capability": "health.supplement.status",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "supplement_take",
+      "capability": "health.supplement.take",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "workout_log",
+      "capability": "health.workout.log",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "exercise",
+          "sets"
+        ],
+        "properties": {
+          "exercise": {},
+          "sets": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "workout_status",
+      "capability": "health.workout.status",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "messages_chats",
+      "capability": "messages.chats",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "messages_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "messages_contacts_status",
+      "capability": "messages.contacts.status",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "messages_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "messages_from",
+      "capability": "messages.from",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "messages_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "person"
+        ],
+        "properties": {
+          "person": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "messages_recent",
+      "capability": "messages.recent",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "messages_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "messages_search",
+      "capability": "messages.search",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "messages_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "messages_send",
+      "capability": "messages.send",
+      "domain": "conversation",
+      "risk": "high",
+      "approval_required": true,
+      "reversible": false,
+      "side_effects": [
+        "sends_message"
+      ],
+      "resource_scope": "messages_send",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "body",
+          "recipient"
+        ],
+        "properties": {
+          "body": {},
+          "recipient": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "messages_whoami",
+      "capability": "messages.whoami",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "messages_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_config_authority_set",
+      "capability": "orion.config.authority.set",
+      "domain": "security",
+      "risk": "critical",
+      "approval_required": true,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_config",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {},
+          "value": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_config_list",
+      "capability": "orion.config.list",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_config",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_config_revert",
+      "capability": "orion.config.revert",
+      "domain": "security",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_config",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_config_set",
+      "capability": "orion.config.set",
+      "domain": "security",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_config",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {},
+          "value": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_plugin_authority_modify",
+      "capability": "orion.plugin.authority.modify",
+      "domain": "security",
+      "risk": "critical",
+      "approval_required": true,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_plugin",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "find",
+          "pluginFile",
+          "replace"
+        ],
+        "properties": {
+          "find": {},
+          "pluginFile": {},
+          "replace": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_plugin_list",
+      "capability": "orion.plugin.list",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_plugin_modify",
+      "capability": "orion.plugin.modify",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_plugin",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "find",
+          "pluginFile",
+          "replace"
+        ],
+        "properties": {
+          "find": {},
+          "pluginFile": {},
+          "replace": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_plugin_read",
+      "capability": "orion.plugin.read",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pluginFile"
+        ],
+        "properties": {
+          "pluginFile": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_plugin_revert",
+      "capability": "orion.plugin.revert",
+      "domain": "security",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_plugin",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_repair_status",
+      "capability": "orion.repair.status",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_script_authority_modify",
+      "capability": "orion.script.authority.modify",
+      "domain": "security",
+      "risk": "critical",
+      "approval_required": true,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_scripts",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "find",
+          "replace",
+          "script"
+        ],
+        "properties": {
+          "find": {},
+          "replace": {},
+          "script": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_script_list",
+      "capability": "orion.script.list",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_script_modify",
+      "capability": "orion.script.modify",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_scripts",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "find",
+          "replace",
+          "script"
+        ],
+        "properties": {
+          "find": {},
+          "replace": {},
+          "script": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_script_read",
+      "capability": "orion.script.read",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "script"
+        ],
+        "properties": {
+          "script": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_script_revert",
+      "capability": "orion.script.revert",
+      "domain": "security",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_scripts",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_modify",
+      "capability": "orion.self.run",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_modification",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "find",
+          "replace"
+        ],
+        "properties": {
+          "file": {},
+          "find": {},
+          "replace": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "self_source_list",
+      "capability": "orion.source.list",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "self_source_read",
+      "capability": "orion.source.read",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files"
+      ],
+      "resource_scope": "desktop_read",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "voice_tuning_read",
+      "capability": "orion.tuning.read",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_tuning",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "voice_tuning_set",
+      "capability": "orion.tuning.set",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "changes_orion_config"
+      ],
+      "resource_scope": "self_tuning",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "setting",
+          "value"
+        ],
+        "properties": {
+          "setting": {},
+          "value": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "alarm_set",
+      "capability": "reminder.alarm.set",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "reminders",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "reminder_cancel",
+      "capability": "reminder.cancel",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "reminders",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "reminder_list",
+      "capability": "reminder.list",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "reminders",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "timer_set",
+      "capability": "reminder.timer.set",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "reminders",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seconds"
+        ],
+        "properties": {
+          "seconds": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "email_send",
+      "capability": "simulation.email.send",
+      "domain": "general",
+      "risk": "high",
+      "approval_required": true,
+      "reversible": false,
+      "side_effects": [],
+      "resource_scope": "simulation",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "body",
+          "subject",
+          "to"
+        ],
+        "properties": {
+          "body": {},
+          "subject": {},
+          "to": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "folder_create",
+      "capability": "simulation.folder.create",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [],
+      "resource_scope": "simulation",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "display_sleep",
+      "capability": "system.display.sleep",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "media_next_track",
+      "capability": "system.media.next.track",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "media_play_pause",
+      "capability": "system.media.play.pause",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "media_previous_track",
+      "capability": "system.media.previous.track",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "volume_mute",
+      "capability": "system.volume.mute",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "volume_set",
+      "capability": "system.volume.set",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "level"
+        ],
+        "properties": {
+          "level": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "volume_unmute",
+      "capability": "system.volume.unmute",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    }
+  ]
+}

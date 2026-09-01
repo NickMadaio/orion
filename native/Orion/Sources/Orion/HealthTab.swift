@@ -33,6 +33,10 @@ struct HealthTab: View {
     let day: LogicalDay
     @ObservedObject var writer: NarrativeWriter
 
+    /// Phase 35. Owned here rather than injected because nothing else on the
+    /// Mac reads the journal yet; when Phase 36 does, it moves up.
+    @StateObject private var journal = JournalStore()
+
     @State private var workoutSheetVisible = false
     @State private var supplementSheetVisible = false
     @State private var nutritionSheetVisible = false
@@ -58,7 +62,7 @@ struct HealthTab: View {
             VStack(alignment: .leading, spacing: 40) {
                 headline
                 if !whoop.week.isEmpty { week }
-                HealthSectionsView(model: sectionsModel)
+                HealthSectionsView(model: sectionsModel, journal: journal)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -124,9 +128,7 @@ struct HealthTab: View {
             recentSleepHours: HealthSectionsModel.newestFirst(points.compactMap(\.sleepHours)),
             recentRecovery: HealthSectionsModel.newestFirst(
                 points.compactMap { $0.recovery.map(Double.init) }),
-            // Phase 35 fills this in. Zero is the honest answer until it does,
-            // and the Journal section already says so rather than vanishing.
-            journalEntryCount: 0))
+            journalEntryCount: journal.entryCount(on: Date())))
     }
 
     // MARK: - Headline

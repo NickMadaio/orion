@@ -3369,6 +3369,62 @@
         "The trend DIRECTION uses a 5% threshold over a split-half mean. That is a deliberate placeholder for Phase 36, which is where correlations and sample sizes are actually specified."
       ],
       "nextPhaseAllowed": true
+    },
+    "35": {
+      "name": "Natural-Language Health Journal",
+      "status": "complete",
+      "entryRequiresPhase": 34,
+      "entrySatisfied": true,
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text for PHASE 35",
+      "evidence": "native/OrionMobile/Sources/MobileCore/HealthJournal.swift, native/Orion/Sources/Orion/JournalStore.swift, native/Orion/Tests/run-journal-store-test.sh, MobileCoreCheck phase-35 section",
+      "decisions": [
+        {
+          "id": "deterministic_extraction_not_a_model",
+          "decision": "A readable vocabulary table, not an LLM.",
+          "why": "orion-standing already made this call -- 'a rule that can be read is a rule that can be corrected when it nags about the wrong thing'. A journal is worse than a timer: it is Phase 36's input, so a silent misreading does not annoy, it fabricates a finding. A model's guess about whether 'I was wrecked' means exhaustion or intoxication cannot be argued with."
+        },
+        {
+          "id": "orions_vocabulary_is_filtered_nicks_is_not",
+          "decision": "JournalEventType case names are checked against ClinicalVocabulary; `notes` never is.",
+          "why": "ClinicalVocabulary's own docstring says it is 'not a filter on user input -- a check on ORION's OWN vocabulary'. If Nick writes 'my anxiety was bad today' that is his sentence about his own life. A journal that argues with its author is not a journal. The rule bites in the other direction: 'feeling sick' is `.unwell`, because a case named `illness` would fail the check."
+        },
+        {
+          "id": "an_unrecognised_line_is_still_an_entry",
+          "decision": ".note is an escape hatch at low confidence, not a rejection.",
+          "why": "An extractor that must classify everything classifies wrongly. Nick wrote it; it goes in."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "accepts_the_manifests_own_example_entries",
+          "status": "passed",
+          "evidence": "All four -- 'Had caffeine around 5.', 'Worked out late.', 'Feeling sick.', 'Really stressed today.' -- extract to caffeine / exercise / unwell / stress, asserted individually."
+        },
+        {
+          "id": "extracts_structured_events_with_all_five_fields",
+          "status": "passed",
+          "evidence": "JournalEvent carries eventType, time, source, confidence, notes -- plus originalText so a correction stays reviewable. Stored confidence is the WEAKEST of category and time confidence, never an average: a confident category at a guessed time is a guess. Round-tripped through a real file by run-journal-store-test.sh, 26 checks."
+        },
+        {
+          "id": "asks_for_clarification_only_when_necessary",
+          "status": "passed",
+          "evidence": "Exactly one trigger: the sentence claims 'today' and the resolved clock lands on another day. Every other case -- an unambiguous time, a bare hour, no time at all -- asks nothing. Reaching this took a failed test: the first design asked whenever a bare hour resolved more than 18 hours back, which CAN NEVER HAPPEN because mostRecent considers both meridiems and one candidate is always within twelve hours. That branch was unreachable, and a clarification path that cannot fire is worse than none because it reads as handled."
+        },
+        {
+          "id": "allows_corrections",
+          "status": "passed",
+          "evidence": "JournalEvent.correcting() is the only door: it forces source=.correction and confidence=.high and preserves originalText and id. A caller cannot mint a low-confidence 'correction' through the memberwise init. JournalStore.correct REPLACES by id rather than appending, proven against a real file. Mutation-proven."
+        }
+      ],
+      "limitations": [
+        "The vocabulary is English and hand-written. It covers the manifest's examples and the obvious neighbours; an unrecognised line becomes .note at low confidence rather than being lost, which is the honest failure mode but is still a miss.",
+        "'half five' and other idioms are deliberately not parsed. Guessing at idiom is how an extractor becomes unpredictable.",
+        "No voice entry. Text only.",
+        "The Journal section's UI is not visually verified -- the app builds and the store is proven on disk, but the installed app is still build 121."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

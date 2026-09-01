@@ -1,8 +1,56 @@
-# Program correction — what we actually have, and what to do next
+# Program correction — what we actually have
 
-Written **2026-09-01** after seven independent fresh-context audits. This
-supersedes the *ordering* of the 85-phase manifest. It does not change the
-manifest's requirements, renumber it, or reopen closed phases.
+Written **2026-09-01** after seven independent fresh-context audits.
+
+> ## Read this first: half of this document was withdrawn, later the same day
+>
+> **What stands:** the inventory in §1, the ORION-Core-already-exists argument in
+> §2 including the scope warning about the parity harness, the re-check of Nick's
+> ranked gaps in §3, the dated live defects in §4, the blocking analysis in §6,
+> the "stop doing" list in §7 apart from item 4, and the decisions in §8. Those
+> were measured, and they were worth the seven audits.
+>
+> **What was withdrawn:** §5, "The corrected sequence" — the replacement of the
+> manifest's numbered phases with lettered batches A through H — and the claim in
+> the original header that this document "supersedes the *ordering* of the
+> 85-phase manifest". It does not. §5 is kept below as a record of what was
+> proposed and what two of its batches actually delivered, but **it is not a plan
+> and nothing should be scheduled from it.**
+>
+> **Why it was withdrawn.** The finding was real: the manifest's Phase 0
+> inventoried a Python runtime, `orion/*.py`, that was already dead. The
+> inference from it was not. "Phase 0 described the wrong stack" was generalised
+> into "every downstream phase number inherits that error", and that step was
+> never checked against the downstream phases. It does not hold. Phases 34-39 are
+> Health UI, Health Journal, Behavior Correlations, Experiment Mode,
+> Health-Aware Planning and Daily Planning; every one of them attaches to health
+> data, a firewall and a planner that live in `native/Orion`, and not one of them
+> has a Python dependency to inherit. The ordering was fine. A wrong inventory at
+> the front of a document is a reason to re-read what follows it, not a reason to
+> throw away the sequence.
+>
+> The lettered scheme also failed the person it was for. Nick tracks numbered
+> phases; "Batch C" named nothing he could locate in the manifest, and a plan
+> whose owner cannot find himself in it is not a plan.
+>
+> **What survives, as an interpretation rule:**
+>
+> > Where a phase's requirements refer to the Python runtime or to `orion/*.py`,
+> > interpret them against the LIVE stack — the Swift app in `native/Orion` and
+> > the TypeScript plugin in `openclaw-plugins/orion-control`. The Python package
+> > is not the implementation path. This changes how requirements are READ; it
+> > does not change their ORDER.
+>
+> That rule is now in `AGENTS.md` and `CLAUDE.md`, which are on the read path.
+> The governing plan is the manifest's phase numbers: **Phases 0-33 complete,
+> Phase 40 partially done, next work is Phase 34 onward in numeric order.**
+>
+> This header was added 2026-09-01, the same day as the body. The document is
+> left otherwise intact rather than quietly rewritten, because a correction that
+> hides its own history teaches the next reader nothing.
+
+This document does not change the manifest's requirements, renumber it, or reopen
+closed phases.
 
 Read with `PHASE_32_5_CAPABILITY_CHARTER.md` and `ROADMAP_AMENDMENTS.json`.
 
@@ -27,9 +75,14 @@ subprocess**. The Python package had already been declared not-the-implementatio
 -path in the running assistant's own memory three weeks before the manifest was
 written.
 
-So Phase 0 inventoried a system that was not running, and every phase number
-downstream inherits that error. **The requirements are sound. The ordering is
-derived from a fiction.**
+So Phase 0 inventoried a system that was not running. **The requirements are
+sound; they must be read against the live stack rather than against `orion/*.py`.**
+
+> *Withdrawn the same day:* this section originally continued "and every phase
+> number downstream inherits that error... the ordering is derived from a
+> fiction." That does not follow, and checking the downstream phases shows it is
+> false — see the header. A wrong inventory changes how the requirements are
+> read, not the order they come in.
 
 ## 2. The correction that matters most
 
@@ -85,6 +138,17 @@ route. The program has been more productive than its own records suggest.
 
 ## 4. Live defects, dated
 
+*Status as of later the same day, after the two batches in §5 ran. The list is
+left as written — it is a record of what an audit found, and the fixes are worth
+seeing next to the diagnosis:* the `Info.plist` calendar disclosure is **fixed**;
+the wedged focus session is **fixed** (`SessionStatus.readyToAbandon`); Phase 33's
+firewall is **built** (`PlanningSignal.swift`); the camera was **diagnosed and
+deliberately not fixed**, because the obvious fix breaks a tested privacy
+invariant; Sparkle now **reports the real reason** instead of a network error,
+but the feed is still a placeholder; the cron jobs are still on
+`America/New_York` **on purpose** until Nick lands 2026-09-08. The installed app
+is further behind than the "14 commits" below — build 121 against 146 at HEAD.
+
 - **Timezone.** All three cron jobs pinned `America/New_York`. `USER.md`:
   *"Moving to London before the end of August 2026"* and *"ask once afterward."*
   It is 2026-09-01 and the machine is EDT. **The system was told to ask a
@@ -105,7 +169,24 @@ route. The program has been more productive than its own records suggest.
 - **The installed app is 14 commits behind** the repo; the Keychain work
   committed on 2026-09-01 is not in the running binary.
 
-## 5. The corrected sequence
+## 5. The proposed sequence — WITHDRAWN, kept as a record
+
+**This section is history, not a plan.** It proposed replacing the manifest's
+phase numbers with lettered batches; that was withdrawn on 2026-09-01 for the
+reasons in the header. Nothing should be scheduled from it. It is kept because
+two of these batches were actually executed under these names, and the handoff
+entries for 2026-09-01 refer to them:
+
+| Batch | What it actually was, in phase numbers | State |
+|---|---|---|
+| A | Phase 33 (health privacy firewall, built against the live Mac app) plus Phase 43 (LOCK ORION), plus the live-defect fixes in §4 | done 2026-09-01 |
+| B | Phase 40 (travel and timezone), plus the Mac-relevant subset of Phase 68 | mostly done 2026-09-01; the cron re-homing waits for 2026-09-08 |
+| C-H | never started, and will not be — the work in them is tracked by its phase numbers | withdrawn |
+
+The groupings below still contain a useful signal: they record which phases a
+seven-audit read thought belonged together, and §"Why proactivity is fifth"
+argues something true about prerequisites. Treat that as input when a later
+phase's plan is written, not as a schedule.
 
 Batches, not phase numbers. Each has a goal.
 
@@ -160,7 +241,7 @@ Conflating the two would put a large refactor on a critical path it does not sit
     NICK: channel bot token --> F(bridge) --> 44, 45, 56-lite, 41-push
     NICK: Apple Dev $99 -----> 48-signing, 49-FaceID, 65, 66, distribution
     NICK: a phone -----------> 34-mobile, 42-mobile, 49-device, 56, 65, 66, 84
-    NICK: London/timezone ---> B
+    NICK: London/timezone ---> Phase 40 (done; re-homing due 2026-09-08)
     NICK: a timetable -------> university mode
 
 ## 7. Stop doing
@@ -170,7 +251,12 @@ Conflating the two would put a large refactor on a critical path it does not sit
 3. Building v2 duplicates of live capabilities -- Gmail, Calendar, health,
    memory, tasks are all live. `email_send` in v2 builds what the live system
    deliberately stubs.
-4. The numbered march. Phase 33 is not next in any meaningful sense.
+4. ~~The numbered march. Phase 33 is not next in any meaningful sense.~~
+   **Withdrawn 2026-09-01.** This was the over-generalisation. The numbered
+   march is exactly what to do: Phase 33 closed that day and Phase 34 is next.
+   What was worth saying is narrower — *do not build a phase against
+   `orion/*.py` just because its requirements text names Python.* Phase 33 was
+   built against the live Mac app for that reason and it was the right call.
 5. Deep-reviewing 21-32. Review depth should follow live-ness.
 6. Maintaining `orion/*.py`. Archive it.
 7. Any plan to rewrite the live gate in Python.
@@ -178,11 +264,13 @@ Conflating the two would put a large refactor on a critical path it does not sit
 **Keep from v2** (~2,000-2,500 lines): `orion/security/` as oracle and written
 spec; `orion/core/context/policy.py` (has a real consumer); `ownership.py`,
 `plaintext.py`, `broker.py` as patterns worth re-expressing in TS; and
-`orion_v2_policy_check.py`, which becomes Batch C's CI gate.
+`orion_v2_policy_check.py`, which becomes the CI gate for the Phase 1/5
+re-pointing.
 
 ## 8. Decisions only Nick can make
 
-1. **Have you moved to London?** `USER.md` told Orion to ask. Blocks Batch B.
+1. **Have you moved to London?** `USER.md` told Orion to ask. *Answered
+   2026-09-01: lands 2026-09-08. Phase 40 proceeded on that answer.*
 2. **Is a phone coming?** Six phases and `REC-USABLE-CLIENT` hang on it.
 3. **The $99 Apple Developer Program.** Unblocks HealthKit, notarization, the
    Keychain prompt storm, code signing.

@@ -18,7 +18,52 @@ gates live in `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
 summarises phases 5-20 on one page. Read them before changing v2 contracts or
 the OpenClaw integration, and preserve the shared dirty worktree.
 
-Last updated 2026-09-01 (Batch B).
+Last updated 2026-09-01.
+
+---
+
+## Where the program is, and how to read a phase
+
+**Phases 0-33 are complete. Phase 40 is partially done. Phases 34-39 are not
+started, and the next work is Phase 34 onward in numeric order.**
+
+85 numbered phases, manifest at `planning/v2/MANIFEST_PHASES.json`, generated
+from `~/Desktop/Orion v two implementation plan.md`. **Phase numbers are the only
+vocabulary for what comes next.** Phase 40 was opened out of order because Nick's
+move to London had a date on it; that is a recorded deviation with
+`entrySatisfied: false`, not a new scheme.
+
+### The interpretation rule
+
+> **Where a phase's requirements refer to the Python runtime or to `orion/*.py`,
+> interpret them against the LIVE stack — the Swift app in `native/Orion` and the
+> TypeScript plugin in `openclaw-plugins/orion-control`. The Python package is
+> not the implementation path. This changes how requirements are READ; it does
+> not change their ORDER.**
+
+The manifest's Phase 0 was told to "document the current Python runtime". By the
+time it was written the UI already talked to a Node gateway by CLI subprocess,
+and `orion/*.py` had been declared not-the-implementation-path three weeks
+earlier. So a phase whose text says "add this to the Python service" almost
+always means the Swift app or the TS plugin. Phase 33 was built that way — into
+the live Mac app — and that was right.
+
+What the rule does **not** license is reordering. On 2026-09-01 a session took
+"Phase 0 named the wrong stack" and concluded the whole sequence was invalid,
+replacing the numbered phases with lettered batches A-H. That was withdrawn the
+same day. The inference was never checked against the downstream phases and it
+does not survive checking: Phases 34-39 are Health UI, Health Journal, Behavior
+Correlations, Experiment Mode, Health-Aware Planning and Daily Planning, and not
+one of them has a Python dependency to inherit. It also lost the person it was
+for — Nick tracks numbered phases, and "Batch C" named nothing he could find in
+the manifest.
+
+**There is no Batch C onward.** "Batch A" and "Batch B" survive as labels on two
+bundles of 2026-09-01 work in the handoffs: Phase 33 plus Phase 43, and Phase 40.
+Anything telling you the next work is a letter is out of date.
+`planning/v2/PROGRAM_CORRECTION_2026-09-01.md` carries the full reasoning, and its
+findings — the three-stacks inventory, the live-defect list, the parity-harness
+scope warning — are still worth reading. Its §5 is not.
 
 ---
 
@@ -190,7 +235,7 @@ native/Orion/make_app_bundle.sh
 # Install it
 cp -R native/Orion/.build/Orion.app /Applications/
 
-# Unit tests — 318 of them. Use THIS, not `swift test`.
+# Unit tests — 367 of them. Use THIS, not `swift test`.
 native/Orion/Tests/run-domain-test.sh
 
 # End-to-end update test (builds, signs, serves, installs, asserts)
@@ -208,7 +253,8 @@ at CommandLineTools. The wrapper sets `DEVELOPER_DIR` for one invocation. Do not
 
 - `native/Orion/VERSION` holds the semantic version (currently **1.2.0**), read
   at bundle time.
-- `CFBundleVersion` is `git rev-list --count HEAD` (currently **118**). It only
+- `CFBundleVersion` is `git rev-list --count HEAD` (**146** on 2026-09-01; run
+  it, do not trust this number). It only
   ever goes up. **Do not rewrite published history** — the build number would go
   backwards and updates would stop being offered.
 - `ORION_VERSION`, `ORION_BUILD_NUMBER`, `ORION_BUNDLE_OUT` override all of this,
@@ -250,9 +296,16 @@ Two policies that are not Sparkle defaults, both load-bearing:
   `scripts/orion-forge` already solves the shape locally — keep
   `Orion-previous.app`, verify the launch, restore if it dies — and that pattern
   should be carried into the update path before anyone else installs Orion.
-- **No feed.** `UpdateController.defaultFeedURL` is a placeholder
-  (`ORION_OWNER/ORION_REPO`) and 404s, so a real "Check for Updates" fails today.
-  Needs a GitHub repo, an appcast, and one published release.
+- **No feed.** `UpdateController.defaultFeedURL` is still the placeholder
+  (`ORION_OWNER/ORION_REPO`), so "Check for Updates" has nothing to check
+  against. Since 2026-09-01 it detects this itself (`feedIsPlaceholder`) and
+  says so, instead of making a request certain to fail and blaming the network —
+  38 checks had failed that way since 2026-08-18. Pointing it at
+  `github.com/NickMadaio/orion` would not fix it either: that repo is private, so
+  `raw.githubusercontent.com` will not serve an appcast from it uncredentialed.
+  What is missing is an appcast and one published release, not working code —
+  `Tests/run-update-test.sh` drives the whole install path against a local
+  `file://` feed.
 - **No release script** yet. It must gate on: clean tree, tests green, identity
   check, deep signature verify.
 - Not notarized, so the app is Gatekeeper-blocked for anyone but Nick. Public
@@ -286,8 +339,6 @@ root finds nothing because `tests/` has no `__init__.py`:
 PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests -t tests -q
 ```
 
-The `.venv/bin/python` symlink still reports a path under `~/ORION` (the repo's
-old home) but runs correctly from `~/Desktop/ORION`.
 
 `orion_v2_secret_scan.py` has **no default allowlist path**. Run without
 `--allowlist planning/v2/secret-scan-allowlist.json` it reports the reviewed
@@ -302,7 +353,7 @@ The v2 check scripts, all read-only:
 | `orion_v2_audit_check.py` | nothing survives redaction, and every live task-ledger row fits the v2 contract |
 | `orion_v2_schema_check.py` | schema, migrations and the manifest's 26 tables agree (`--sql` prints the DDL) |
 | `orion_v2_sync_check.py` | Python and Swift order a conversation identically |
-| `orion_v2_mobile_check.sh` | MobileCore compiles and its 335 assertions pass |
+| `orion_v2_mobile_check.sh` | MobileCore compiles and its 363 assertions pass |
 | `orion_v2_phase_gate.py --phase N` | that phase's requirements are recorded and open |
 
 Two more live under `native/Orion/Tests/`, both compiling the REAL app sources:
@@ -349,7 +400,7 @@ check with exit 1.
 
 **XCTest and swift-testing both work**, through the same override — the
 `native/Orion` section above has documented this since long before the mobile
-package existed, and `Tests/run-domain-test.sh` runs 318 XCTest cases that way.
+package existed, and `Tests/run-domain-test.sh` runs 367 XCTest cases that way.
 MobileCoreCheck is an executable rather than a test target because it also runs
 with Command Line Tools alone and is proven to exit non-zero; converting it to a
 `swift test` target with the same wrapper pattern would be more consistent with
@@ -443,8 +494,8 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
   object, so a class with the right `__str__` collides with a real string.
 - **`str.lower()` is a display transform, not a security normalization.** Python
   folds U+212A KELVIN SIGN to ASCII "k", so `nic\u212a@example.com` lowercases to
-  `nick@example.com`. `egress.py` already refuses non-ASCII hosts for this
-  reason; anything comparing identifiers needs the same stance.
+  `nick@example.com`. `backend/egress.py` already refuses non-ASCII hosts for
+  this reason; anything comparing identifiers needs the same stance.
 - **`allSatisfy` over an empty collection is true, in Swift and everywhere.** An
   assertion that a still-deferred feature "cannot have lost its tokens" passed
   when the token list was emptied, and one derived from the very list it checked
@@ -541,7 +592,9 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 - **A recursive language needs a recursive scan.** `contentsOfDirectory` does not
   descend, but SwiftPM compiles subdirectories — so a deferred feature parked at
   `MobileCore/Remote/MacBridge.swift` was public, callable, compiled and green.
-  Any source-scanning guard must enumerate, not list.
+  Any source-scanning guard must enumerate, not list. (That file was deleted
+  after the finding; `MobileCore/` has no subdirectories today, which is exactly
+  the condition under which the flat scan looks correct again.)
 - **A compiler guard only covers what the compiler can see.** "MobileCore imports
   no platform framework" was enforced by the iOS build, which catches
   platform-EXCLUSIVE frameworks like AppKit and UIKit. `SwiftUI`, `Security`,

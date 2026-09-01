@@ -1338,6 +1338,179 @@ expect(HealthTrend(kind: .sleepDuration, direction: .unclear, points: [450],
                    span: 7, confidence: .low) != nil,
        "and `unclear` is the one it is allowed to claim")
 
+// -- phase 35: the health journal ------------------------------------------
+
+section("health journal (phase 35)")
+
+var journalCalendar = Calendar(identifier: .gregorian)
+journalCalendar.timeZone = TimeZone(identifier: "America/New_York")!
+
+// A fixed "now" so every time assertion is about the rule and not about when
+// the suite happened to run: 2026-09-01, 21:00 New York.
+let evening = journalCalendar.date(from: DateComponents(
+    year: 2026, month: 9, day: 1, hour: 21, minute: 0))!
+let earlyMorning = journalCalendar.date(from: DateComponents(
+    year: 2026, month: 9, day: 1, hour: 7, minute: 0))!
+
+func read(_ text: String, at when: Date = evening) -> JournalExtraction? {
+    JournalExtractor.extract(text, now: when, calendar: journalCalendar, id: "j-1")
+}
+
+// ORION's own vocabulary may not contain a diagnosis. Asserted over the LIVE
+// enum, so adding a case named `.insomnia` fails rather than ships.
+expect(JournalExtractor.vocabularyIsClean(),
+       "no JournalEventType case name is a clinical term")
+expect(JournalEventType.allCases.map(\.rawValue).contains("unwell"),
+       "and 'feeling sick' has somewhere to go that is not named 'illness'")
+expect(!JournalEventType.allCases.map(\.rawValue).contains("illness"),
+       "specifically NOT 'illness', which the forbidden list would reject")
+
+// The manifest's own four examples.
+expect(read("Had caffeine around 5.")?.event.eventType == .caffeine,
+       "'Had caffeine around 5.' is a caffeine event")
+expect(read("Worked out late.")?.event.eventType == .exercise,
+       "'Worked out late.' is exercise")
+expect(read("Feeling sick.")?.event.eventType == .unwell,
+       "'Feeling sick.' is unwell")
+expect(read("Really stressed today.")?.event.eventType == .stress,
+       "'Really stressed today.' is stress")
+
+// All five manifest fields are populated, not just the type.
+if let caffeine = read("Had caffeine around 5.")?.event {
+    expect(caffeine.source == .extracted, "source is recorded")
+    expect(caffeine.notes == "Had caffeine around 5.", "notes are Nick's words, verbatim")
+    expect(caffeine.confidence == .medium,
+           "confidence is the WEAKEST of category and time, never an average")
+    let hour = journalCalendar.component(.hour, from: caffeine.time)
+    expect(hour == 17, "'around 5' typed at 9pm resolves to 5pm, not 5am")
+} else {
+    expect(false, "the caffeine example produces an event at all")
+}
+
+// The asymmetry that matters: ORION's vocabulary is filtered, Nick's is NOT.
+// A journal that argues with its author is not a journal.
+if let his = read("My anxiety was bad today and I felt depressed.")?.event {
+    expect(his.notes.contains("anxiety") && his.notes.contains("depressed"),
+           "the user's own clinical words are stored exactly as written")
+    expect(!ClinicalVocabulary.contaminates(his.eventType.rawValue),
+           "while the category ORION assigned still is not a diagnosis")
+} else {
+    expect(false, "an entry using clinical words is still accepted")
+}
+
+// The escape hatch. An extractor that must classify everything classifies
+// wrongly, so anything unrecognised is a real entry at low confidence.
+if let odd = read("The plumber came about the boiler.")?.event {
+    expect(odd.eventType == .note, "an unrecognised line is a note, not a forced category")
+    expect(odd.confidence == .low, "and says it is unsure")
+    expect(odd.notes == "The plumber came about the boiler.", "and keeps the line")
+} else {
+    expect(false, "an unrecognised line is kept rather than discarded")
+}
+
+// Time: explicit, marker-based, and absent.
+expect(read("Coffee at 17:30")?.event.confidence == .high,
+       "an unambiguous 24-hour reading is high confidence")
+if let pm = read("Gym at 6pm")?.event {
+    expect(journalCalendar.component(.hour, from: pm.time) == 18, "6pm is 18:00")
+    expect(pm.confidence == .high, "an explicit meridiem is unambiguous")
+}
+if let late = read("Worked out late.")?.event {
+    expect(journalCalendar.component(.hour, from: late.time) == 22,
+           "'late' with no clock resolves to the evening")
+}
+if let morning = read("Big breakfast this morning.")?.event {
+    // 8, not 20. The marker already fixed the meridiem; re-deriving it from
+    // "which is more recent" turned this into 8pm in the first version.
+    expect(journalCalendar.component(.hour, from: morning.time) == 8,
+           "'this morning' resolves to the MORNING, not to whichever 8 was more recent")
+}
+expect(journalCalendar.component(
+        .hour,
+        from: JournalExtractor.mostRecent(hour: 8, minute: 0, before: evening,
+                                          calendar: journalCalendar)) == 8,
+       "mostRecent leaves a known hour alone by default")
+expect(journalCalendar.component(
+        .hour,
+        from: JournalExtractor.mostRecent(hour: 8, minute: 0, before: evening,
+                                          calendar: journalCalendar,
+                                          tryBothMeridiems: true)) == 20,
+       "and only searches both meridiems when explicitly told to")
+if let vague = read("Really stressed today.")?.event {
+    expect(abs(vague.time.timeIntervalSince(evening)) < 1,
+           "an entry with no time at all is stamped now")
+    expect(vague.confidence == .low, "and says the time is a guess")
+}
+
+// "Ask for clarification only when necessary."
+expect(read("Had caffeine around 5.")?.needsClarification == false,
+       "the common case asks nothing")
+expect(read("Really stressed today.")?.needsClarification == false,
+       "and an entry with no time is not an interrogation either")
+expect(read("Coffee at 17:30")?.needsClarification == false,
+       "nor is an unambiguous one")
+expect(read("Coffee around 5", at: earlyMorning)?.needsClarification == false,
+       "a bare hour with no claim about the day asks nothing -- the most-recent rule settles it")
+
+// The ONE case worth a question: the sentence says today and the clock says
+// yesterday. Typed at 4am, "around 5 today" resolves to 5pm yesterday.
+let smallHours = journalCalendar.date(from: DateComponents(
+    year: 2026, month: 9, day: 1, hour: 4, minute: 0))!
+if let contradicted = JournalExtractor.extract(
+    "Coffee around 5 today", now: smallHours, calendar: journalCalendar, id: "j-2") {
+    expect(contradicted.needsClarification,
+           "a sentence claiming today whose time reads as yesterday IS worth one question")
+    expect(contradicted.event.confidence == .low, "and is stored at low confidence meanwhile")
+    expect(contradicted.clarification?.contains("yesterday") == true,
+           "and the question names the actual contradiction rather than being generic")
+} else {
+    expect(false, "the contradicted entry is still stored")
+}
+// And the same sentence at a sane hour asks nothing, so the rule is about the
+// contradiction and not about the word "today".
+expect(read("Coffee around 5 today", at: evening)?.needsClarification == false,
+       "'today' alone does not trigger a question")
+
+// The trap: a bare number that is not a time.
+//
+// Asserted as "the entry has NO explicit time" rather than as "the hour is not
+// 2" -- the weaker form passed a mutation that removed the time-word guard,
+// because the both-meridiems rule turned the spurious 2 into 2pm and 14 != 2.
+// A near-miss assertion is worse than none: it reports a guard as tested.
+if let two = read("Had 2 coffees.")?.event {
+    expect(abs(two.time.timeIntervalSince(evening)) < 1,
+           "'2 coffees' has no time in it, so the entry is stamped now")
+    expect(two.confidence == .low,
+           "and says the time is a guess -- a bare digit needs a time word before it")
+    expect(two.eventType == .caffeine, "while still being recognised as caffeine")
+}
+expect(JournalExtractor.explicitHour("had 2 coffees.") == nil,
+       "and the hour parser itself finds nothing, which is the actual guard")
+expect(JournalExtractor.explicitHour("coffee around 2") != nil,
+       "while a time word in front of the same digit does make it an hour")
+
+// Corrections.
+if let original = read("Worked out late.")?.event,
+   let corrected = original.correcting(eventType: .travel) {
+    expect(corrected.eventType == .travel, "a correction changes the type")
+    expect(corrected.source == .correction, "and records that a person said so")
+    expect(corrected.confidence == .high, "a correction is always high confidence")
+    expect(corrected.id == original.id, "and is the same event, not a second one")
+    expect(corrected.originalText == "Worked out late.",
+           "the original text survives, so Phase 36 can tell a confirmed observation from a guess")
+} else {
+    expect(false, "an extracted event can be corrected")
+}
+
+// Refusals at the boundary.
+expect(read("   ") == nil, "an empty entry is not an event")
+expect(JournalEvent(id: "", eventType: .note, time: evening, source: .extracted,
+                    confidence: .low, notes: "x") == nil,
+       "an event with no id is refused")
+expect(JournalEvent(id: "j", eventType: .note, time: evening, source: .extracted,
+                    confidence: .low, notes: "   ") == nil,
+       "an event with no notes is refused")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

@@ -1511,6 +1511,141 @@ expect(JournalEvent(id: "j", eventType: .note, time: evening, source: .extracted
                     confidence: .low, notes: "   ") == nil,
        "an event with no notes is refused")
 
+// -- phase 36: behaviour correlations --------------------------------------
+
+section("behaviour correlations (phase 36)")
+
+/// Build a run of days. `withCaffeine` days get the behaviour and `hit`; the
+/// rest get `miss`. Real fixtures rather than hand-written Associations --
+/// Phase 32 shipped 23 unenforced guards by testing stand-ins.
+func makeDays(withCount: Int, withoutCount: Int, hit: Double, miss: Double,
+              jitter: Double = 0, behaviour: JournalEventType = .caffeine)
+-> [CorrelationDay] {
+    var days: [CorrelationDay] = []
+    for i in 0..<withCount {
+        days.append(CorrelationDay(dayKey: "w\(i)", behaviours: [behaviour],
+                                   recovery: hit + (i % 2 == 0 ? jitter : -jitter)))
+    }
+    for i in 0..<withoutCount {
+        days.append(CorrelationDay(dayKey: "o\(i)", behaviours: [],
+                                   recovery: miss + (i % 2 == 0 ? jitter : -jitter)))
+    }
+    return days
+}
+
+// The permitted vocabulary is exactly the manifest's, and nothing else exists.
+expect(Set(AssociationPhrase.allCases.map(\.rawValue))
+        == ["associated with", "correlated with", "tends to coincide with", "insufficient data"],
+       "the four manifest phrasings, and no fifth")
+expect(AssociationPhrase.allCases.allSatisfy { !CausalVocabulary.contaminates($0.rawValue) },
+       "none of the permitted phrasings is itself causal")
+expect(CausalVocabulary.contaminates("caffeine causes poor sleep"), "'causes' is caught")
+expect(CausalVocabulary.contaminates("your recovery improved because of the gym"),
+       "'because of' and 'improved' are caught")
+expect(!CausalVocabulary.contaminates("caffeine is associated with lower recovery"),
+       "and the approved phrasing passes")
+
+// Below the floor there is no finding at all -- and no computed effect.
+let thin = makeDays(withCount: 3, withoutCount: 20, hit: 40, miss: 70)
+if let a = CorrelationEngine.association(days: thin, behaviour: .caffeine, outcome: .recovery) {
+    expect(a.phrase == .insufficientData, "three days with is insufficient")
+    expect(a.difference == nil,
+           "and the effect is NOT computed -- a number in a field gets quoted")
+    expect(a.withCount == 3 && a.withoutCount == 20, "while the sample sizes are still reported")
+} else { expect(false, "an under-powered behaviour still produces a row") }
+
+// The floor applies to the SMALLER side, not the total.
+let lopsided = makeDays(withCount: 40, withoutCount: 2, hit: 40, miss: 70)
+expect(CorrelationEngine.association(days: lopsided, behaviour: .caffeine,
+                                     outcome: .recovery)?.phrase == .insufficientData,
+       "forty days with and two without is still insufficient -- the floor is per group")
+
+// A real, large difference over enough days.
+let strong = makeDays(withCount: 14, withoutCount: 14, hit: 45, miss: 75, jitter: 3)
+if let a = CorrelationEngine.association(days: strong, behaviour: .caffeine, outcome: .recovery) {
+    expect(a.phrase == .correlatedWith, "a large difference over 14+ each is 'correlated with'")
+    expect(a.confidence == .high, "and high confidence")
+    expect((a.difference ?? 0) < 0, "the direction is negative -- lower recovery on caffeine days")
+    expect(a.withCount == 14 && a.withoutCount == 14, "sample sizes reported")
+    expect(a.sentence?.contains("14 days with") == true, "and the sentence names them")
+    expect(a.sentence?.contains("not an explanation") == true,
+           "and says out loud that it is an observation")
+} else { expect(false, "a strong association is found") }
+
+// Same difference, fewer days: the claim is weaker, not absent.
+let fewer = makeDays(withCount: 6, withoutCount: 6, hit: 45, miss: 75, jitter: 3)
+expect(CorrelationEngine.association(days: fewer, behaviour: .caffeine,
+                                     outcome: .recovery)?.phrase == .associatedWith,
+       "the same difference over six days each is the weaker 'associated with'")
+expect(CorrelationEngine.association(days: fewer, behaviour: .caffeine,
+                                     outcome: .recovery)?.confidence == .moderate,
+       "at moderate confidence")
+
+// A difference smaller than the day-to-day spread is noise, not a weak finding.
+let noise = makeDays(withCount: 14, withoutCount: 14, hit: 61, miss: 60, jitter: 12)
+if let a = CorrelationEngine.association(days: noise, behaviour: .caffeine, outcome: .recovery) {
+    expect(a.phrase == .insufficientData,
+           "a one-point difference against a twelve-point spread is not an association")
+    expect(a.difference == nil, "and no effect size is offered for it")
+}
+
+// NOT asserted here, and deliberately so: that pooling both groups is the right
+// reference spread. It is a judgement, not a proven property. Measured
+// 2026-09-01 while trying to pin it — MAD is resistant by construction, so
+// pooling a tight 14-day group with a wide one gives a spread of 0.5 to 1.5
+// rather than the wider figure the code comment originally claimed, and no
+// fixture separated "pooled" from "within-group" at these thresholds. The
+// engine's choice stands; the claim that a test proves it does not. Recorded in
+// the phase-36 gate limitations.
+
+// Nothing this file emits may be causal, over the REAL sentences.
+for days in [strong, fewer, thin, noise] {
+    for association in CorrelationEngine.associations(days: days, outcome: .recovery) {
+        expect(!CausalVocabulary.contaminates(association.sentence ?? ""),
+               "no causal language in a generated sentence")
+        expect(association.sentence != nil, "and every association can say something")
+    }
+}
+
+// The type refuses an inconsistent finding in BOTH directions.
+expect(Association(behaviour: .caffeine, outcome: .recovery, phrase: .insufficientData,
+                   withCount: 9, withoutCount: 9, difference: -20, spread: 4,
+                   confidence: .high) == nil,
+       "'insufficient data' carrying an effect size is refused")
+expect(Association(behaviour: .caffeine, outcome: .recovery, phrase: .correlatedWith,
+                   withCount: 9, withoutCount: 9, difference: nil, spread: 4,
+                   confidence: .high) == nil,
+       "and a finding with no effect size is refused")
+expect(Association(behaviour: .caffeine, outcome: .recovery, phrase: .correlatedWith,
+                   withCount: 9, withoutCount: 9, difference: .nan, spread: 4,
+                   confidence: .high) == nil,
+       "a non-finite difference is refused at the boundary")
+
+// `.note` is the escape hatch, not a behaviour worth correlating.
+let withNotes = makeDays(withCount: 14, withoutCount: 14, hit: 45, miss: 75, behaviour: .note)
+expect(CorrelationEngine.associations(days: withNotes, outcome: .recovery).isEmpty,
+       "'things Orion could not classify' is not correlated against sleep")
+
+// Every behaviour that occurred gets a row, including the under-powered ones --
+// otherwise the screen implies the ones it can discuss are the only ones.
+var mixedBehaviours = makeDays(withCount: 14, withoutCount: 14, hit: 45, miss: 75, jitter: 3)
+mixedBehaviours.append(CorrelationDay(dayKey: "x1", behaviours: [.alcohol], recovery: 50))
+expect(CorrelationEngine.associations(days: mixedBehaviours, outcome: .recovery)
+        .contains { $0.behaviour == .alcohol && $0.phrase == .insufficientData },
+       "a behaviour seen once still appears, marked insufficient")
+
+// Days with no reading for that outcome are excluded rather than counted as zero.
+let missing = [CorrelationDay(dayKey: "m1", behaviours: [.caffeine], recovery: nil)]
+expect(CorrelationEngine.associations(days: missing, outcome: .recovery).isEmpty,
+       "a day with no recovery reading contributes nothing -- missing is not zero")
+
+// Arithmetic that must not lie.
+expect(CorrelationEngine.median([1, 2, 3]) == 2, "odd-length median")
+expect(CorrelationEngine.median([1, 2, 3, 4]) == 2.5, "even-length median")
+expect(CorrelationEngine.deviation([5, 5, 5, 5]) == 0, "no variation is zero spread")
+expect(CorrelationEngine.deviation([1]) == 0, "one value has no spread")
+expect(CorrelationEngine.mean([]) == 0, "an empty mean does not divide by zero")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

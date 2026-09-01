@@ -3425,6 +3425,71 @@
         "The Journal section's UI is not visually verified -- the app builds and the store is proven on disk, but the installed app is still build 121."
       ],
       "nextPhaseAllowed": true
+    },
+    "36": {
+      "name": "Behavior Correlations",
+      "status": "complete",
+      "entryRequiresPhase": 35,
+      "entrySatisfied": true,
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text for PHASE 36",
+      "evidence": "native/OrionMobile/Sources/MobileCore/HealthCorrelations.swift, MobileCoreCheck phase-36 section",
+      "decisions": [
+        {
+          "id": "the_permitted_wording_is_a_type",
+          "decision": "AssociationPhrase is a closed enum of exactly the manifest's four phrasings, and it is the only way a finding describes itself.",
+          "why": "The manifest names the permitted wording explicitly, so it can be a type rather than a style guide. There is no path by which this file emits 'caffeine ruins your sleep' -- it cannot spell it. CausalVocabulary then checks the assembled sentence, the same way ClinicalVocabulary checks Phase 32's."
+        },
+        {
+          "id": "below_the_floor_no_effect_is_computed",
+          "decision": "Under five days per group the phrase is .insufficientData and `difference` is nil, not a hedged number.",
+          "why": "A computed number in a field invites being quoted without its caveat. The type enforces the pairing in both directions: .insufficientData carrying an effect is refused, and a finding without one is refused."
+        },
+        {
+          "id": "no_inferential_statistics",
+          "decision": "No p-value, no confidence interval, no significance test.",
+          "why": "With forty observations of one person a p-value is a decoration that makes a weak claim look strong. The manifest's own altitude -- 'possible associations' -- is the honest one."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "analyses_journal_entries_against_sleep_and_recovery",
+          "status": "passed",
+          "evidence": "CorrelationOutcome has exactly the two the manifest names. Deliberately not strain or HRV, which would be building past the requirement. Days with no reading for an outcome are excluded rather than counted as zero -- asserted, because DayScore already records what scoring a missing input as zero costs."
+        },
+        {
+          "id": "calculates_sample_sizes",
+          "status": "passed",
+          "evidence": "withCount and withoutCount are non-optional on every Association including the insufficient ones, and the generated sentence names both. The floor applies to the SMALLER group, asserted with a 40-vs-2 fixture: forty days with and two without is still insufficient."
+        },
+        {
+          "id": "calculates_confidence",
+          "status": "passed",
+          "evidence": "BaselineConfidence from the smaller group: moderate at 5+, high at 12+. The same difference over six days each is reported with the weaker phrase 'associated with' at moderate confidence; over fourteen it is 'correlated with' at high. Mutation-proven -- dropping the floor fails."
+        },
+        {
+          "id": "identifies_possible_associations",
+          "status": "passed",
+          "evidence": "Every behaviour observed at all gets a row, including under-powered ones marked insufficient -- omitting them would make the screen imply the discussable ones were the only ones that happened. `.note` is excluded, since correlating 'things Orion could not classify' against sleep would be meaningless and look authoritative. Both mutation-proven."
+        },
+        {
+          "id": "never_claims_causation",
+          "status": "passed",
+          "evidence": "CausalVocabulary (25 stems: cause, because, due to, leads to, ruins, improves, proves, shows that...) checked against every generated sentence, and the sentence returns nil rather than a sanitised version -- a sentence that had to be cleaned is one whose author meant something else. Mutation-proven: inserting 'This is because of the caffeine' into the template fails the suite. Every finding also ends 'This is an observation, not an explanation.'"
+        },
+        {
+          "id": "uses_the_manifests_wording",
+          "status": "passed",
+          "evidence": "The four rawValues are pinned as an exact set. A difference smaller than half the day-to-day spread is reported as insufficient rather than as a weak finding, because 'correlated with, but barely' is a sentence people repeat without the second half. Mutation-proven."
+        }
+      ],
+      "limitations": [
+        "The reference spread is the POOLED set of both groups, and that choice is a judgement rather than a tested property. Trying to pin it found the opposite of what the code comment claimed: MAD is resistant by construction, so pooling a tight fourteen-day group with a wide one gives a spread of roughly 0.5-1.5 rather than a larger one, and no fixture separated pooled from within-group at these thresholds. The comment was corrected to stop overclaiming. Worth revisiting with real data once the journal has months in it.",
+        "Nothing consumes this yet. It is a domain engine with 447 MobileCore checks behind it and no UI and no caller -- Phase 37 (experiments) and a Trends surface are the intended consumers. Recorded rather than hidden, because the program correction is explicit that modules with no consumer are how this repo acquired three stacks.",
+        "minimumPerGroup = 5 and noticeable = 0.5 spreads are constants chosen conservatively so they can be argued with. They are not derived from Nick's data, which does not exist yet."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

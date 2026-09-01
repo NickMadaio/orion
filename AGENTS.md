@@ -256,8 +256,17 @@ Two policies that are not Sparkle defaults, both load-bearing:
 - **No release script** yet. It must gate on: clean tree, tests green, identity
   check, deep signature verify.
 - Not notarized, so the app is Gatekeeper-blocked for anyone but Nick. Public
-  distribution needs a Developer ID (Apple Developer Program, $99/yr). The design
-  keeps that a configuration change rather than a rewrite.
+  distribution needs a Developer ID (Apple Developer Program, $99/yr).
+
+  **Nick decided on 2026-09-01 that the $99 comes at the very END of the
+  program. It is not a blocker and not an open decision — do not raise it as
+  either.** Build so a Team ID is a configuration change when it arrives.
+  `MobileCore/Health.swift`'s `HealthStore` + `RefusingHealthStore` is the
+  pattern to copy. One place does NOT yet follow it: Keychain access is raw
+  `SecItemAdd`/`SecItemCopyMatching` at several call sites with no seam and no
+  `kSecUseDataProtectionKeychain` anywhere, so the prompt-storm fix is currently
+  a refactor rather than a flag. Registered in `ROADMAP_AMENDMENTS.json` under
+  `foundationForTheAppleDeveloperProgram`.
 
 ---
 

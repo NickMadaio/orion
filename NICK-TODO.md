@@ -116,15 +116,52 @@ unprompted, because it is your personal record and it is live runtime context.
 `REC-USABLE-CLIENT` gate all hang on this single fact. If the answer is "not
 soon", we should say so and stop carrying mobile work as though it were pending.
 
-**c. The $99 Apple Developer Program.** Unchanged from item 2 below, but the
-review sharpened what it unblocks: HealthKit, notarization, code signing for
-Phase 48, and Face ID for Phase 49.
+**c. ~~The $99 Apple Developer Program.~~ CLOSED 2026-09-01.** It comes at the
+very end of all the phases; it is not a blocker and not a question. See item 2
+for what "build the foundation" concretely means and the one place it is
+currently missing.
 
-**d. A bot token for an inbound channel** (Discord, Telegram, whatever you
-prefer). `scripts/orion-remote` is already written and safe by construction --
-seven fixed verbs, inbound text never reaches a shell or a model. It was
-deliberately built with a file transport so a real channel could be attached
-later. This is your #4 ranked gap and it is one credential away.
+**d. A bot token for an inbound channel — you asked what this means on
+2026-09-01, so here it is properly.**
+
+**It is free, and it has nothing to do with the $99.** Different company,
+different thing. Discord and Telegram both hand these out at no cost.
+
+**What you already have.** `.env` holds `ORION_DISCORD_WEBHOOK_URL`. A Discord
+*webhook* is a one-way pipe: a program can POST a message into one channel and
+that is the whole of it. It cannot read. That is exactly why Orion can tell you
+things and cannot hear you answer.
+
+**What is missing.** To read a reply, something has to log in to Discord as an
+account and listen. Discord's mechanism for that is a **bot** — you register one
+in their developer portal, it gives you a secret string (the "bot token"), and a
+program holding that string can read and send messages wherever you have invited
+the bot. A webhook cannot be upgraded into one; they are separate things.
+
+**Why it matters.** `orion-notify` can already tell you a mission is BLOCKED and
+needs approval `ap-1a2b3c4d`. Today that is a dead end — the mission sits until
+you walk back to the Mac. With an inbound channel you reply `approve ap-1a2b3c4d`
+from your phone and it proceeds.
+
+**The receiving half is already written and deliberately paranoid.**
+`scripts/orion-remote`: seven fixed verbs matched exactly, no fuzzy matching and
+no fallthrough to a model; every id must already name something Orion minted, so
+inbound text can only point at his own state and never introduce a new noun;
+inbound text never reaches a shell, a model, or a subprocess argv. It already
+knows how to reply through OpenClaw's channel system
+(`ORION_REMOTE_REPLY_CHANNEL` / `ORION_REMOTE_REPLY_TARGET`). Its transport is a
+pair of local files today precisely so the channel could be attached later
+without touching any of that.
+
+**What I would need from you:** create a Discord application + bot at
+<https://discord.com/developers/applications>, invite it to a server only you are
+in (or use a DM), and give me the token. It is a credential, so put it in `.env`
+yourself rather than pasting it into chat — I will tell you the exact variable
+name when we wire it. Telegram works equally well via @BotFather if you prefer.
+
+**What it unblocks:** your own #4 ranked gap, "reach beyond the Mac". It is also
+the interim step toward what you actually said you want — the phone app talking
+to Orion and dispatching work — and it is one free credential away.
 
 **e. Do you want the focus feature at all?** `FocusSessionHome.swift` is 1,192
 lines plus an entire domain/service split and 26 test files. `focus-history.jsonl`
@@ -167,7 +204,43 @@ by default rather than sounding cheap.
 
 ---
 
-## 2. Apple Developer Program — $99/year
+## 2. Apple Developer Program — $99/year — DEFERRED TO THE END, 2026-09-01
+
+**Your call, recorded so nobody asks again:** this comes at the very end of all
+the phases. It is not a blocker, not an open decision, and no future session
+should surface it as one. The app gets built without it.
+
+What that leaves as a real obligation is the FOUNDATION — building so that when
+a Team ID does arrive, it is a configuration change rather than a rewrite. I
+audited that on 2026-09-01 rather than assuming it:
+
+**Already foundation, genuinely:**
+
+- **HealthKit.** `MobileCore/Health.swift` declares a `HealthStore` protocol with
+  `RefusingHealthStore` as its only implementation. A real HealthKit-backed one
+  drops in behind the protocol. This is the pattern to copy.
+- **Code signing.** `Orion.entitlements` exists and `make_app_bundle.sh` already
+  signs with the hardened runtime and entitlements, choosing the identity via
+  `security find-identity` rather than a hardcoded name — so a Developer ID
+  certificate is discoverable without touching the script.
+
+**NOT foundation yet, and I would rather say so than let you find out later:**
+
+- **The Keychain has no seam.** `SecItemAdd` and `SecItemCopyMatching` are called
+  raw in at least `Connections.swift` and `VoiceProviders.swift`, and nothing
+  named `kSecUseDataProtectionKeychain` exists anywhere in the tree. So the
+  prompt-storm fix is not one flag away — today it means editing every call site.
+  The fix is to mirror `HealthStore`: a `SecretStore` protocol with the current
+  behaviour behind it. Registered in `ROADMAP_AMENDMENTS.json`, not yet built.
+- **Sparkle still has no feed**, no appcast and no release script, so distribution
+  is blocked by more than the $99 anyway.
+
+The original write-up follows, because the *technical* facts in it are still
+true and worth keeping — only its urgency has changed.
+
+---
+
+### Original entry (2026-08-18), kept for the record
 
 **Why:** it is the single fix for the Keychain prompt storm. A Team ID makes
 `keychain-access-groups` valid, which unlocks the data-protection Keychain, where

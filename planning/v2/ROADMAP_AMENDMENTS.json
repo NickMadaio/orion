@@ -370,11 +370,11 @@
     },
     "decisionsForNick": [
       "ANSWERED 2026-09-01: moving to London for Northeastern, lands 09-08. Recorded in location.json as an expectedMove and in projects.json as dated milestones. Batch B unblocked and delivered.",
-      "Is a phone coming? Six phases and REC-USABLE-CLIENT hang on it.",
-      "The $99 Apple Developer Program.",
-      "A bot token for the inbound channel.",
-      "Do you want the focus feature at all? Two sessions ever completed, both abandoned under 25s.",
-      "Accept re-pointing Phases 1 and 5 onto the live TypeScript gate."
+      "Is a phone coming? Six phases and REC-USABLE-CLIENT hang on it. (Nick 2026-09-01: yes, within this manifest.)",
+      "ANSWERED 2026-09-01, and it is CLOSED as a question: the $99 Apple Developer Program comes at the very END of all phases. Nick's words: 'dont give it mind... it will not exist for the time being. we can still create the app without it.' Do NOT raise it as a blocker or a decision again. Build the FOUNDATION so it is a configuration change when it arrives, and treat every '$99-blocked' item as 'build everything up to the point where only a Team ID is missing'. See foundationForTheAppleDeveloperProgram below.",
+      "A bot token for the inbound channel. Nick asked what this means on 2026-09-01; the answer is recorded in NICK-TODO.md section 3. It is FREE and unrelated to the $99 -- outbound already works through a Discord WEBHOOK, which can only post. Reading a reply needs a bot account, which is what a bot token is.",
+      "Do you want the focus feature at all? (Nick 2026-09-01: yes. The two 25-second sessions were him testing it.)",
+      "ANSWERED 2026-09-01: Phases 1 and 5 re-pointing delegated to Claude's judgement. Batch C."
     ],
     "batchStatus": {
       "A": {
@@ -431,6 +431,31 @@
         "state": "not started",
         "note": "Close the Phase 1/5 gate by re-pointing the record onto the live TypeScript gate. Nick delegated this call on 2026-09-01. Do NOT route the live route through the Python engine -- PHASE_1_RUNTIME_DECISION.md forbids it. Widen orion_v2_policy_check.py first: its 390 combinations are parity at ONE point in a five-dimensional space."
       }
+    },
+    "foundationForTheAppleDeveloperProgram": {
+      "decidedOn": "2026-09-01",
+      "decision": "The $99 is deferred to the very end of the program by Nick. It is not a blocker and not an open decision. The obligation it leaves behind is to build so that a Team ID is a CONFIGURATION CHANGE rather than a rewrite.",
+      "auditedOn": "2026-09-01",
+      "alreadyFoundation": [
+        "HealthKit: MobileCore/Health.swift declares `protocol HealthStore` with `RefusingHealthStore` as the only implementation. A real HKHealthStore-backed conformance drops in behind the protocol. This is the pattern.",
+        "Code signing: native/Orion/Resources/Orion.entitlements exists and make_app_bundle.sh already signs with --options runtime and --entitlements. The identity is chosen via `security find-identity -v -p codesigning` rather than hardcoded, so a Developer ID certificate is discoverable without a script change.",
+        "Notarization: recorded in AGENTS.md as a configuration change rather than a rewrite. Not re-verified here."
+      ],
+      "notFoundationYet": [
+        {
+          "gap": "There is NO seam for Keychain access.",
+          "measured": "grep for SecItemAdd / SecItemCopyMatching finds raw calls in at least native/Orion/Sources/Orion/Connections.swift and VoiceProviders.swift. Nothing named kSecUseDataProtectionKeychain exists anywhere in the tree.",
+          "consequence": "When a Team ID arrives, switching to the data-protection Keychain means editing every call site, not flipping a flag. That contradicts the spirit of 'a configuration change'.",
+          "proposedFix": "Mirror HealthStore exactly: a `SecretStore` protocol with the current ACL-based implementation behind it, so a data-protection implementation is added rather than retrofitted. Testable today; the entitlement-gated path is NOT, because AGENTS.md records that claiming keychain-access-groups while self-signed gets the process SIGKILLed.",
+          "status": "registered, not built"
+        },
+        {
+          "gap": "Sparkle has no feed, no appcast and no release script.",
+          "measured": "UpdateController.defaultFeedURL is the literal placeholder ORION_OWNER/ORION_REPO.",
+          "consequence": "Distribution is blocked by more than the $99.",
+          "status": "registered, not built"
+        }
+      ]
     }
   }
 }

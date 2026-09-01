@@ -3490,6 +3490,131 @@
         "minimumPerGroup = 5 and noticeable = 0.5 spreads are constants chosen conservatively so they can be argued with. They are not derived from Nick's data, which does not exist yet."
       ],
       "nextPhaseAllowed": true
+    },
+    "37": {
+      "name": "Experiment Mode",
+      "status": "complete",
+      "entryRequiresPhase": 36,
+      "entrySatisfied": true,
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text for PHASE 37",
+      "evidence": "native/OrionMobile/Sources/MobileCore/HealthExperiments.swift, MobileCoreCheck phase-37 section",
+      "decisions": [
+        {
+          "id": "an_experiment_has_no_verdict_field",
+          "decision": "ExperimentResult reports an Association -- Phase 36's four-phrase type -- and has no success boolean anywhere.",
+          "why": "The manifest forbids treating experiments as clinical trials. There is no randomisation, no control arm, no blinding, and one participant who knows what he is testing. A disclaimer under a verdict gets ignored; a type with no verdict in it cannot be misread."
+        },
+        {
+          "id": "a_contaminated_window_reports_nothing",
+          "decision": "Past a third of observed days carrying a declared confounder, the result is inconclusive and NO association is computed.",
+          "why": "Nick tests caffeine for a fortnight and flies to London in the middle of it. The recovery drop is real and the experiment is worthless. A contaminated result is worse than no result because he will act on it."
+        },
+        {
+          "id": "fourteen_day_minimum",
+          "decision": "Experiment.init refuses anything shorter than a fortnight.",
+          "why": "Phase 36 needs five days per group before it says anything, so a shorter experiment could only ever return 'insufficient data' -- which makes the feature look broken rather than making the user careful."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "allows_definition_of_all_five",
+          "status": "passed",
+          "evidence": "behaviour, metric, durationDays, baseline (ExperimentBaseline captured before the start), confounders. Each asserted individually rather than by counting fields."
+        },
+        {
+          "id": "tracks_experiments_automatically",
+          "status": "passed",
+          "evidence": "ExperimentEngine.track is a window over the SAME CorrelationDay list Phase 36 reads -- not a second recording path, because two sources of truth about what happened on the 8th is how they disagree. Stages notStarted/running/complete asserted at three dates. The window end uses a real calendar; mutation-proven with a 20-day experiment starting 25 August, which string arithmetic gets wrong."
+        },
+        {
+          "id": "presents_uncertainty_clearly",
+          "status": "passed",
+          "evidence": "A running experiment offers NO association at all and says why -- a partial result is the most misread thing an experiment produces. Mutation-proven. Confounded days are counted and the confounders NAMED in the summary."
+        },
+        {
+          "id": "not_a_clinical_trial_or_medical_conclusion",
+          "status": "passed",
+          "evidence": "Every summary checked against both CausalVocabulary and ClinicalVocabulary, and asserted never to contain 'worked'. The finding can only be phrased the four ways AssociationPhrase permits."
+        },
+        {
+          "id": "the_baseline_is_captured_before_the_window",
+          "status": "passed",
+          "evidence": "captureBaseline filters to days strictly before the start. Mutation-proven: drawing it from the window instead fails two assertions -- an experiment that grades itself against its own result. With nothing before the start it returns nil rather than a fabricated baseline."
+        }
+      ],
+      "limitations": [
+        "The manifest itself says 'Later add user-defined experiments'. Built now because it is a numbered phase and the block 34-39 is being closed in order; the definition surface (a UI to create one) does not exist, only the domain.",
+        "Nothing stores experiments yet. Like Phase 36's engine, this has no caller -- recorded rather than implied to be live.",
+        "confoundedThreshold = 1/3 and minimumDuration = 14 are conservative constants, not derived from data that does not exist yet."
+      ],
+      "nextPhaseAllowed": true
+    },
+    "38": {
+      "name": "Health-Aware Planning",
+      "status": "complete",
+      "entryRequiresPhase": 37,
+      "entrySatisfied": true,
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text for PHASE 38",
+      "evidence": "native/OrionMobile/Sources/MobileCore/HealthPlanning.swift, native/Orion/Sources/Orion/PlanningSignal.swift, native/Orion/Tests/run-health-firewall-test.sh, MobileCoreCheck phase-38 section",
+      "decisions": [
+        {
+          "id": "half_of_this_already_shipped_under_phase_33",
+          "decision": "The 'give planner only derived states' requirement is closed by PlanningSignal, built 2026-09-01 while doing Phase 33. Only the recommendations half was built now.",
+          "why": "Rebuilding it would have produced a second vocabulary saying the same thing. The doc-cleanup pass flagged exactly this -- 'check PlanningSignal.swift before building it twice' -- and it was right. Recorded here so the overlap is visible rather than looking like Phase 38 was cheap."
+        },
+        {
+          "id": "the_prohibitions_are_absent_enum_members",
+          "decision": "PlanningAction has moveLater / shorten / protectRest and no cancel or skip; Recommendation.init refuses a required Commitment.",
+          "why": "'Never automatically skip class' written as an if-statement holds until someone adds a second function. A prohibition implemented as a member that does not exist cannot be forgotten, and a type that will not hold the value has no code path to audit."
+        },
+        {
+          "id": "declined_is_a_state_not_an_absence",
+          "decision": "RecommendationOutcome distinguishes open / accepted / declined.",
+          "why": "'Always permit user override' means a suggestion Nick said no to must not return tomorrow as though it had never been made. Collapsing declined into open is how a proactive assistant becomes a nag."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "health_works_independently_first",
+          "status": "passed",
+          "evidence": "Phases 33-37 closed before this one. The manifest's precondition is a sequencing claim and the gate records are the evidence."
+        },
+        {
+          "id": "planner_receives_only_derived_states",
+          "status": "passed",
+          "evidence": "PlanningSignal (Phase 33) carries SleepState/PhysicalRecovery/PhysicalLoad/EnergyState/StressTrend and no measurements; run-health-firewall-test.sh proves it numerically over 38 checks by pulling every number out of the generated prompt. PlanningAdvisor.recommendations likewise takes states, never a percentage -- a recovery Int in that signature would be a hole in the firewall shaped exactly like health-aware planning, which is the hole this phase opened before Phase 33 existed."
+        },
+        {
+          "id": "health_generates_recommendations_only",
+          "status": "passed",
+          "evidence": "Recommendation has a `question` and no apply(). It is a proposal; something with a person in it decides. The generated sentence matches the manifest's own example almost word for word."
+        },
+        {
+          "id": "never_skips_class_or_cancels_required_commitments",
+          "status": "passed",
+          "evidence": "Two independent guards: no cancel/skip case exists in PlanningAction, and Recommendation.init returns nil for a Commitment of kind .required. Mutation-proven -- removing the kind guard fails. A day of only required commitments produces an empty list rather than a proposal about a lecture."
+        },
+        {
+          "id": "never_makes_medical_decisions",
+          "status": "passed",
+          "evidence": "The reason string is checked against ClinicalVocabulary AND CausalVocabulary at construction, and every generated question is checked in the suite."
+        },
+        {
+          "id": "always_permits_user_override",
+          "status": "passed",
+          "evidence": "RecommendationOutcome.declined, asserted to be distinct from .open."
+        }
+      ],
+      "limitations": [
+        "PlanningAdvisor has no caller yet. The live morning brief is scripts/orion-standing, which is node and reads its own health file; wiring the two is Phase 39's business and is not done here.",
+        "`shorten` and `protectRest` are defined and never produced -- only `moveLater` is generated today. They exist because the manifest's list of permitted actions should be complete before anything reads it, but they are unexercised.",
+        "The recommendation is not persisted, so a declined suggestion is only distinct from an unanswered one within a single run. Making that stick needs a store, which Phase 39 or 57 should own."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

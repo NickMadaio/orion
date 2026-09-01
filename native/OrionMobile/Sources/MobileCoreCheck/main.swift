@@ -1646,6 +1646,248 @@ expect(CorrelationEngine.deviation([5, 5, 5, 5]) == 0, "no variation is zero spr
 expect(CorrelationEngine.deviation([1]) == 0, "one value has no spread")
 expect(CorrelationEngine.mean([]) == 0, "an empty mean does not divide by zero")
 
+// -- phase 37: experiment mode ---------------------------------------------
+
+section("experiment mode (phase 37)")
+
+// A fortnight of caffeine days followed by a fortnight without, with recovery
+// clearly lower on the caffeine days. Real days through the real engine.
+func experimentDays(confounderOn: Int = 0) -> [CorrelationDay] {
+    var days: [CorrelationDay] = []
+    for i in 0..<14 {
+        // 2026-09-01 .. 2026-09-14, the experiment window.
+        let key = String(format: "2026-09-%02d", i + 1)
+        var behaviours: Set<JournalEventType> = [.caffeine]
+        if i < confounderOn { behaviours.insert(.travel) }
+        days.append(CorrelationDay(dayKey: key, behaviours: behaviours,
+                                   recovery: i % 2 == 0 ? 44 : 48))
+    }
+    for i in 0..<14 {
+        // 2026-08-18 .. 2026-08-31, before it started.
+        let key = String(format: "2026-08-%02d", i + 18)
+        days.append(CorrelationDay(dayKey: key, behaviours: [], recovery: i % 2 == 0 ? 74 : 78))
+    }
+    return days
+}
+
+let trial = Experiment(id: "e1", behaviour: .caffeine, metric: .recovery,
+                       durationDays: 14, startedOn: "2026-09-01",
+                       confounders: [.travel, .alcohol])
+expect(trial != nil, "an experiment with all five definable things is accepted")
+
+// The five things the manifest says must be definable.
+if let trial {
+    expect(trial.behaviour == .caffeine, "behaviour")
+    expect(trial.metric == .recovery, "metric")
+    expect(trial.durationDays == 14, "duration")
+    expect(trial.confounders == [.travel, .alcohol], "potential confounders")
+    expect(ExperimentEngine.captureBaseline(days: experimentDays(), metric: .recovery,
+                                            before: "2026-09-01") != nil, "baseline")
+}
+
+// Refusals at the boundary.
+expect(Experiment(id: "e", behaviour: .caffeine, metric: .recovery, durationDays: 3,
+                  startedOn: "2026-09-01") == nil,
+       "three days is refused -- shorter than Phase 36 can ever speak about, so it could "
+       + "only ever return 'insufficient data' and would look broken rather than careful")
+expect(Experiment(id: "e", behaviour: .caffeine, metric: .recovery, durationDays: 14,
+                  startedOn: "01/09/2026") == nil, "a non key-shaped start date is refused")
+expect(Experiment(id: "e", behaviour: .caffeine, metric: .recovery, durationDays: 14,
+                  startedOn: "2026-09-01", confounders: [.caffeine]) == nil,
+       "a confounder that IS the behaviour would contaminate every window")
+expect(Experiment(id: "e", behaviour: .note, metric: .recovery, durationDays: 14,
+                  startedOn: "2026-09-01") == nil,
+       "'things Orion could not classify' is not a testable behaviour")
+expect(ExperimentBaseline(mean: .nan, spread: 1, dayCount: 3) == nil,
+       "a non-finite baseline is refused at the boundary")
+expect(ExperimentBaseline(mean: 60, spread: -1, dayCount: 3) == nil, "a negative spread is refused")
+
+// The window is computed with a real calendar, not string arithmetic -- which
+// is what breaks at a month boundary.
+if let trial {
+    expect(ExperimentEngine.endKey(trial) == "2026-09-15",
+           "fourteen days from 01 September ends on the 15th, exclusive")
+}
+if let crossing = Experiment(id: "e2", behaviour: .caffeine, metric: .recovery,
+                             durationDays: 20, startedOn: "2026-08-25") {
+    expect(ExperimentEngine.endKey(crossing) == "2026-09-14",
+           "and twenty days from 25 August crosses the month correctly")
+}
+
+// Stages.
+if let trial {
+    expect(ExperimentEngine.track(trial, days: experimentDays(), today: "2026-08-30").stage
+            == .notStarted, "before the start date it has not started")
+    expect(ExperimentEngine.track(trial, days: experimentDays(), today: "2026-09-07").stage
+            == .running, "inside the window it is running")
+    expect(ExperimentEngine.track(trial, days: experimentDays(), today: "2026-09-20").stage
+            == .complete, "after the window it is complete")
+
+    // No partial verdicts. This is the single most misread thing an experiment
+    // can produce.
+    let midway = ExperimentEngine.track(trial, days: experimentDays(), today: "2026-09-07")
+    expect(midway.association == nil, "a running experiment offers NO finding")
+    expect(midway.summary.contains("No reading until it finishes"), "and says why")
+    expect(midway.summary.contains("of 14 days"), "while still reporting progress")
+}
+
+// A clean, finished experiment reports in Phase 36's vocabulary and nothing
+// stronger.
+if let trial {
+    let done = ExperimentEngine.track(trial, days: experimentDays(), today: "2026-09-20")
+    expect(done.association != nil, "a finished, clean experiment produces a finding")
+    expect(done.inconclusive == false, "and is not inconclusive")
+    expect(!CausalVocabulary.contaminates(done.summary),
+           "and its summary contains no causal language")
+    expect(!ClinicalVocabulary.contaminates(done.summary),
+           "and no clinical language -- it is not a trial and does not read like one")
+    // The prohibition, structurally: there is no verdict field to find.
+    expect(!done.summary.lowercased().contains("worked"),
+           "no verdict -- an experiment never says whether it 'worked'")
+    expect(done.association.map { AssociationPhrase.allCases.contains($0.phrase) } == true,
+           "the finding can only be phrased the four permitted ways")
+}
+
+// Confounders: counted, named, and able to stop a finding.
+if let trial {
+    let dirty = ExperimentEngine.track(trial, days: experimentDays(confounderOn: 10),
+                                       today: "2026-09-20")
+    expect(dirty.confoundedDays == 10, "confounded days are counted")
+    expect(dirty.confoundersSeen.contains(.travel), "and the confounder is named")
+    expect(dirty.inconclusive, "ten of fourteen days contaminated is inconclusive")
+    expect(dirty.association == nil,
+           "and NO finding is offered -- a contaminated result is worse than none, "
+           + "because it will be acted on")
+    expect(dirty.summary.contains("travel"), "the summary names what got in the way")
+
+    // Below the threshold it still reports.
+    let slightly = ExperimentEngine.track(trial, days: experimentDays(confounderOn: 2),
+                                          today: "2026-09-20")
+    expect(slightly.confoundedDays == 2, "two contaminated days are counted")
+    expect(!slightly.inconclusive, "but two of fourteen is under the third and still reportable")
+    expect(slightly.association != nil, "so a finding is offered")
+}
+
+// The baseline is captured from days BEFORE the start, never from the window.
+let baseline = ExperimentEngine.captureBaseline(days: experimentDays(), metric: .recovery,
+                                                before: "2026-09-01")
+expect(baseline?.dayCount == 14, "the baseline uses the fourteen days before the start")
+expect((baseline?.mean ?? 0) > 70,
+       "and reads the BEFORE values -- a baseline drawn from the window would grade the "
+       + "experiment against its own result")
+expect(ExperimentEngine.captureBaseline(days: experimentDays(), metric: .recovery,
+                                        before: "2026-01-01") == nil,
+       "with nothing before the start there is no baseline rather than a fabricated one")
+
+// -- phase 38: health-aware planning ---------------------------------------
+
+section("health-aware planning (phase 38)")
+
+let lecture = Commitment(id: "c1", title: "Lecture", kind: .required,
+                         startMinute: 9 * 60, durationMinutes: 60)!
+let deepWork = Commitment(id: "c2", title: "the deep work block", kind: .flexible,
+                          startMinute: 10 * 60, durationMinutes: 120, demanding: true)!
+let admin = Commitment(id: "c3", title: "email", kind: .flexible,
+                       startMinute: 13 * 60, durationMinutes: 30, demanding: false)!
+
+// The prohibition, structurally: there IS no cancel or skip to reach for.
+expect(Set(PlanningAction.allCases.map(\.rawValue)) == ["move_later", "shorten", "protect_rest"],
+       "the three permitted actions -- and no cancel, no skip")
+expect(!PlanningAction.allCases.map(\.rawValue).contains("cancel"),
+       "'never cancel required commitments' is an absent enum member, not an if-statement")
+
+// A recommendation about a REQUIRED commitment cannot be constructed at all.
+expect(Recommendation(id: "r", action: .moveLater, commitment: lecture,
+                      because: "You slept below your baseline.") == nil,
+       "no recommendation can be built against a required commitment -- so 'never skip class' "
+       + "is enforced by the type rather than by whoever wrote the caller")
+expect(Recommendation(id: "r", action: .moveLater, commitment: deepWork,
+                      because: "You slept below your baseline.") != nil,
+       "while a flexible one is fine")
+
+// No medical decisions, and no causal claims, in the reason.
+expect(Recommendation(id: "r", action: .moveLater, commitment: deepWork,
+                      because: "Your insomnia is worse today.") == nil,
+       "a clinical reason is refused")
+expect(Recommendation(id: "r", action: .moveLater, commitment: deepWork,
+                      because: "Poor sleep causes low output.") == nil,
+       "a causal reason is refused")
+expect(Recommendation(id: "r", action: .moveLater, commitment: deepWork,
+                      because: "   ") == nil, "and an empty reason is refused")
+
+// It is a proposal. The manifest's own example sentence.
+if let r = Recommendation(id: "r", action: .moveLater, commitment: deepWork,
+                          because: "You slept below your baseline.") {
+    expect(r.question == "You slept below your baseline. Would you like me to move the deep work block?",
+           "the question reads like the manifest's example")
+    expect(r.outcome == .open, "and starts unanswered")
+}
+
+// "Always permit user override" -- declined is a real state, not an absence.
+if let r = Recommendation(id: "r", action: .moveLater, commitment: deepWork,
+                          because: "You slept below your baseline."),
+   let no = r.answered(.declined) {
+    expect(no.outcome == .declined, "a recommendation can be declined")
+    expect(no.outcome != .open,
+           "and declined is NOT the same as unanswered -- otherwise it comes back tomorrow "
+           + "as though it had never been offered")
+}
+expect(Set(RecommendationOutcome.allCases.map(\.rawValue)) == ["open", "accepted", "declined"],
+       "three outcomes, with declined among them")
+
+// The advisor takes STATES, never numbers -- Phase 33's boundary, consumed.
+let strainedDay = PlanningAdvisor.recommendations(
+    sleep: .wellBelowBaseline, recovery: .limited, energy: .low,
+    confidence: .high, commitments: [lecture, deepWork, admin])
+expect(!strainedDay.isEmpty, "a hard day produces a recommendation")
+expect(strainedDay.allSatisfy { $0.commitment.kind == .flexible },
+       "and never about a required commitment")
+expect(strainedDay.contains { $0.commitment.id == "c2" }, "it targets the demanding block")
+expect(!strainedDay.contains { $0.commitment.id == "c3" },
+       "and leaves the undemanding one alone rather than rearranging the whole day")
+expect(strainedDay.allSatisfy { !ClinicalVocabulary.contaminates($0.question) },
+       "no clinical language in any generated question")
+expect(strainedDay.allSatisfy { !CausalVocabulary.contaminates($0.question) },
+       "and no causal language either")
+
+// A good day says nothing. A planner that always has an opinion gets ignored on
+// the day it matters.
+expect(PlanningAdvisor.recommendations(
+        sleep: .aboveBaseline, recovery: .good, energy: .high,
+        confidence: .high, commitments: [lecture, deepWork, admin]).isEmpty,
+       "a good day produces no recommendations at all")
+
+// No advice from a guess.
+expect(PlanningAdvisor.recommendations(
+        sleep: .wellBelowBaseline, recovery: .limited, energy: .low,
+        confidence: .low, commitments: [lecture, deepWork, admin]).isEmpty,
+       "low confidence produces no advice, matching Phase 34's rule")
+
+// A day of nothing but lectures produces nothing to propose, rather than
+// proposing something about a lecture.
+expect(PlanningAdvisor.recommendations(
+        sleep: .wellBelowBaseline, recovery: .limited, energy: .low,
+        confidence: .high, commitments: [lecture]).isEmpty,
+       "with only required commitments there is nothing ORION may touch")
+
+// At most two, so a bad day does not arrive as a list.
+let manyBlocks = (0..<6).compactMap {
+    Commitment(id: "f\($0)", title: "block \($0)", kind: .flexible,
+               startMinute: 8 * 60 + $0 * 30, durationMinutes: 30, demanding: true)
+}
+expect(PlanningAdvisor.recommendations(
+        sleep: .wellBelowBaseline, recovery: .limited, energy: .low,
+        confidence: .high, commitments: manyBlocks).count <= 2,
+       "at most two suggestions -- the day it matters most is the day he has least patience")
+
+// Commitment refuses nonsense at the boundary.
+expect(Commitment(id: "x", title: "t", kind: .flexible, startMinute: 1500,
+                  durationMinutes: 30) == nil, "a start beyond the day is refused")
+expect(Commitment(id: "x", title: "t", kind: .flexible, startMinute: 60,
+                  durationMinutes: 0) == nil, "a zero-length commitment is refused")
+expect(Commitment(id: "", title: "t", kind: .flexible, startMinute: 60,
+                  durationMinutes: 30) == nil, "an unnamed commitment is refused")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

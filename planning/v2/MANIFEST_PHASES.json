@@ -16,7 +16,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-36 complete; Phase 40 in progress; 37-39 next",
+    "numberedProgramPosition": "Phases 0-38 complete; Phase 40 in progress; 39 next",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -174,6 +174,14 @@
     "36": {
       "status": "complete",
       "evidence": "planning/v2/PHASE_GATES.json phase 36"
+    },
+    "37": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_GATES.json phase 37"
+    },
+    "38": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_GATES.json phase 38"
     }
   },
   "tracks": [

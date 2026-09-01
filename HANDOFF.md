@@ -106,6 +106,50 @@ File-level; nothing was committed. The touched files are listed in the report's
 section 7. Note `git checkout` does nothing for the untracked ones (`backend/`,
 `native/OrionMobile/`, most of `tests/`) — reverting those means deleting them.
 
+### Commit checkpoint — 2026-09-01
+
+Seven commits on branch **`orion-v2/backlog-checkpoint`**. `main` is untouched
+at `1efd37c`, so this is reversible with `git branch -D` and nothing else.
+
+```
+1c9c503 feat: Keychain-backed provider secrets, a strict-argument flag, and TTS work
+2ca9e9c docs(v2): phase records, capability charter, and the Phases 11-20 review
+e1651a3 test(v2): read-only check scripts and the unit suites
+6899867 feat(v2): MobileCore domain layer and its self-check
+4ab0f9a feat(v2): task, planning, calendar, Gmail and connector backends
+5819ca8 feat(v2): backend foundations -- database, vault, auth, devices, pairing, sync, memory
+c26272f feat(v2): core contracts, security vocabulary and Mac ledger adapters
+```
+
+231 files, 49,061 insertions. Working tree is clean for the first time in this
+program's history.
+
+**This is a LOCAL commit, not a remote backup.** Nothing was pushed. If this Mac
+dies, this work dies with it. Pushing is a separate decision Nick has not made.
+
+Grouped by subsystem rather than by phase, deliberately. Nothing here was ever
+committed, so there is no earlier state to reconstruct a per-phase history from,
+and manufacturing one would fabricate a sequence that did not happen — which the
+Phase 32.5 charter explicitly forbids. The real sequence lives in
+`PHASE_GATES.json`.
+
+The non-v2 work (Keychain secrets, the strict-argument flag, TTS and
+orion-doctor) is the other assistant's, committed last and alone so it can be
+reverted on its own. Nick confirmed it was in scope. Verified rather than
+assumed before committing: plugin **146/146**, native/Orion **318/318**, and
+`openclaw.plugin.json` matches its source, so the generated manifest was
+regenerated properly rather than hand-edited.
+
+Also cleared on the way: a **zero-byte `.git/index.lock` dated 2026-08-20 13:57**
+had been blocking every write to the index for twelve days. No git process was
+holding it -- it is a leftover from the crash-era commits `AGENTS.md` records
+around the 18th-20th. Checked for a live process before removing it.
+
+Secret scans clean before and after: source, and full history across all
+reachable commits (37 reviewed findings allowlisted). `.env`, `.env.save` and
+`.builds/openclaw.json.*` remain untracked; only `.env.example` is in history,
+which is the intended template.
+
 ### Exact next step
 
 `REC-REVIEW-11-20` is closed. `REC-OPERATIONS` is not: the mixed-backlog

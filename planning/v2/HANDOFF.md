@@ -131,8 +131,27 @@ has nothing watching it.
 
 ### Verification
 
-native/Orion **367** (was 322), location contract **20**, Python **1,437**,
-plugin **146/146**, phase-gate validator clean.
+native/Orion **367** (was 322), location contract **20**, timezone set **18**,
+Python **1,437**, plugin **146/146**, phase-gate validator clean.
+
+**The one command Nick actually runs was exercised, not just written.**
+`run-timezone-set-test.sh` drives the real script against a fake gateway over 18
+checks — happy path, idempotence, a job the gateway refuses, and five zones that
+must be refused before anything is touched. The load-bearing assertion is that a
+failed re-home **does not write the record**; both mutations of that path are
+caught.
+
+And once for real, reversibly, against the live gateway at 12:41–12:43 EDT,
+because a fake cannot prove `openclaw cron edit --tz` does what I assumed:
+
+    set Europe/London     -> all three moved; orion-daily-memory's next run went
+                             from 02:10 to 21:10 New York local, which IS 02:10
+                             London. The gateway honours the pin.
+    set America/New_York  -> all three back; next run 2026-09-02 02:10 local
+    expect ... restored   -> location.json diffs byte-identical to the pre-test copy
+
+This is the lesson `orion-lock` already paid for: a command nobody has run is a
+command with a bug in it.
 
 **Mutation tested, eight mutations.** Seven caught. The one that survived was a
 flaw in my code, not a gap in the tests: `verdict` had two identical branches,

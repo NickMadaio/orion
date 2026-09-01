@@ -3223,7 +3223,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-01",
       "openedAgainst": "the manifest text for PHASE 40, taken out of numeric order under Batch B of PROGRAM_CORRECTION_2026-09-01.md",
-      "evidence": "native/Orion/Sources/SessionDomain/ZonedTime.swift, native/Orion/Sources/SessionDomain/TimeZonePolicy.swift, native/Orion/Tests/SessionDomainTests/ZonedTimeTests.swift, native/Orion/Tests/SessionDomainTests/TimeZonePolicyTests.swift, native/Orion/Tests/run-location-contract-test.sh, scripts/orion-timezone",
+      "evidence": "native/Orion/Sources/SessionDomain/ZonedTime.swift, native/Orion/Sources/SessionDomain/TimeZonePolicy.swift, native/Orion/Tests/SessionDomainTests/ZonedTimeTests.swift, native/Orion/Tests/SessionDomainTests/TimeZonePolicyTests.swift, native/Orion/Tests/run-location-contract-test.sh, scripts/orion-timezone, native/Orion/Tests/run-timezone-set-test.sh",
       "decisions": [
         {
           "id": "opened_out_of_numeric_order",
@@ -3281,7 +3281,7 @@
           "id": "the_live_cron_weather_and_day_boundary_are_re_homed",
           "status": "blocked",
           "reason": "Deliberately NOT done today. Nick is still in New York until roughly 2026-09-07; re-homing now would be wrong for six days. The mechanism is built, dry-runnable (`orion-timezone plan`) and idempotent, and the move is recorded so orion-standing raises it the morning after he lands. This closes when `orion-timezone set Europe/London` is run.",
-          "evidence": "scripts/orion-timezone plan Europe/London currently reports the three cron jobs and shows orion-daily-memory moving 02:10 -> 07:10 local. location.json records home=America/New_York with expectedMove Europe/London on 2026-09-08."
+          "evidence": "scripts/orion-timezone plan Europe/London reports the three cron jobs and shows orion-daily-memory moving 02:10 -> 07:10 local. location.json records home=America/New_York with expectedMove Europe/London on 2026-09-08. THE COMMAND ITSELF IS EXERCISED: run-timezone-set-test.sh drives the real script against a fake gateway over 18 checks (happy path, idempotence, a job the gateway refuses, and five zones that must be refused before anything is touched), and a REAL reversible round trip against the live gateway on 2026-09-01 12:41-12:43 EDT proved `openclaw cron edit --tz` behaves as assumed -- orion-daily-memory's next run moved from 02:10 to 21:10 New York local, which is 02:10 London, then back. Live state restored byte for byte and verified by diff against a pre-test copy."
         },
         {
           "id": "the_existing_mac_app_surfaces_use_the_new_vocabulary",
@@ -3305,7 +3305,8 @@
       "limitations": [
         "The zone-name agreement between Foundation and ICU is pinned by a translation table generated on 2026-09-01 and a test that asserts it is still load-bearing. If tzdata moves under it the failure is loud (the Swift decode refuses and names the string), not silent.",
         "The node half of the verdict rule in orion-timezone and orion-standing is a READER that mirrors TimeZonePolicy.verdict. The Swift type is authoritative and has the 18 tests; the two are not mechanically proven to agree, only the stored FORMAT is.",
-        "orion-standing reports the mismatch in the morning and evening checks only, never hourly. Landing at 21:00 means the notice arrives the next morning, which costs at most one wrong-hour firing of orion-daily-memory."
+        "orion-standing reports the mismatch in the morning and evening checks only, never hourly. Landing at 21:00 means the notice arrives the next morning, which costs at most one wrong-hour firing of orion-daily-memory.",
+        "`orion-timezone set` was proven end to end against a fake gateway AND once against the live one, but the live proof was a round trip on 2026-09-01, not the real move. The real move runs the same code path with a different starting zone."
       ],
       "nextPhaseAllowed": false
     }

@@ -63,7 +63,17 @@ const HOME = homedir();
 const CONTROLLED = join(HOME, ".openclaw/orion-controlled");
 const LOCATION = join(CONTROLLED, "location.json");
 const AUDIT = join(CONTROLLED, "location-audit.jsonl");
-const OPENCLAW = join(HOME, ".openclaw/bin/openclaw");
+// Overridable so `set` -- the one command that edits live cron jobs -- can be
+// exercised end to end against a fake gateway. It is a test seam, not a
+// feature: the default is the real binary, and a bad path fails loudly below
+// rather than quietly becoming "no jobs to re-home", which would report a
+// successful move having moved nothing.
+//
+// This exists because of orion-lock, which was written to treat a status of
+// "applied" as success and would have reported a SUCCESSFUL emergency lockdown
+// as a failure. That was caught only by running it. A command nobody has run is
+// a command with a bug in it.
+const OPENCLAW = process.env.ORION_OPENCLAW_BIN || join(HOME, ".openclaw/bin/openclaw");
 
 const ESC = String.fromCharCode(27);
 const bold = `${ESC}[1m`, dim = `${ESC}[2m`, grn = `${ESC}[32m`;

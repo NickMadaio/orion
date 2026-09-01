@@ -298,6 +298,7 @@ Two more live under `native/Orion/Tests/`, both compiling the REAL app sources:
 | `run-health-firewall-test.sh` | no raw HRV, resting heart rate, recovery, sleep score or strain survives into a model prompt — asserted by pulling every number out of the generated text, not by grepping for words |
 | `run-capability-test.sh` | the profile ladder matches the plugin's, and every live config flag has a Settings switch |
 | `run-location-contract-test.sh` | the Mac app decodes the exact bytes `orion-timezone` writes, and both runtimes agree which zone NAMES are storable |
+| `run-timezone-set-test.sh` | `orion-timezone set` re-homes every cron job, is idempotent, and REFUSES TO WRITE THE RECORD when a job did not actually move |
 
 `scripts/orion-lock` is the off switch (Phase 43): it drops the permission
 profile to `restricted_read_only` and disables every cron job. `orion-lock

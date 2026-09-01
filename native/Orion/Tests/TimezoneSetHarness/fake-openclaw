@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+/*
+ A stand-in for the openclaw CLI, so `orion-timezone set` can be driven end to
+ end without touching a live cron job.
+
+ It holds the jobs in a JSON file named by ORION_FAKE_CRON, so an edit made by
+ one invocation is visible to the next -- which is the whole point: the script
+ VERIFIES by re-reading, and a fake that forgot its writes would let a broken
+ verification pass.
+
+ ORION_FAKE_REFUSE names a job that fails to edit, so the refusal path is
+ exercised rather than assumed.
+*/
+import { readFileSync, writeFileSync } from "node:fs";
+
+const store = process.env.ORION_FAKE_CRON;
+const [, , group, command, id, ...rest] = process.argv;
+const state = JSON.parse(readFileSync(store, "utf8"));
+
+if (group !== "cron") { process.exit(3); }
+
+if (command === "list") {
+  process.stdout.write(JSON.stringify({ jobs: state.jobs }));
+  process.exit(0);
+}
+
+if (command === "edit") {
+  const tzIndex = rest.indexOf("--tz");
+  const tz = tzIndex >= 0 ? rest[tzIndex + 1] : null;
+  const job = state.jobs.find((j) => j.id === id);
+  if (!job) { console.error(`no such job ${id}`); process.exit(1); }
+  if (process.env.ORION_FAKE_REFUSE === job.name) {
+    console.error(`gateway refused: ${job.name} is locked`);
+    process.exit(1);
+  }
+  job.schedule.tz = tz;
+  writeFileSync(store, JSON.stringify(state, null, 2));
+  process.exit(0);
+}
+
+console.error(`unexpected: cron ${command}`);
+process.exit(3);

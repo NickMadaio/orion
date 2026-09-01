@@ -150,6 +150,8 @@ public enum SessionWire {
             response.status = "waiting-for-return"
         case .readyToComplete:
             response.status = "finishing"
+        case .readyToAbandon:
+            response.status = "abandoning"
         case .finished(let reason):
             response.status = "finished"
             response.phase = reason.rawValue

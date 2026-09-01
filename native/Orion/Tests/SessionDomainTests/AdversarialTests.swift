@@ -283,6 +283,81 @@ final class AdversarialTests: XCTestCase {
         XCTAssertEqual(before.status, after.status)
     }
 
+    // MARK: Staleness
+
+    func testAPausedSessionSurvivesANightButNotTwo() {
+        // The design is that a paused session waits forever -- "closing the
+        // dashboard is not leaving the session". That is right for an hour and
+        // wrong for a fortnight: a real session paused 2026-08-12 was still
+        // paused on 2026-09-01, accruing heartbeats for twenty days.
+        let harness = Harness()
+        harness.start()
+        harness.advance(seconds: 30)
+        harness.send(.pause)
+
+        harness.advanceWhileDown(seconds: SessionReconciler.staleAfter - 60)
+        XCTAssertEqual(harness.status, .paused,
+                       "parked overnight is still a session")
+
+        harness.advanceWhileDown(seconds: 120)
+        XCTAssertEqual(harness.status, .readyToAbandon,
+                       "past the threshold nobody is coming back")
+    }
+
+    func testHeartbeatsDoNotKeepAStaleSessionAlive() {
+        // The wedged session had 60 processAlive events and 48 processStarted
+        // events after its last pause. A process saying "still here" is not
+        // evidence that a person intends to resume -- but it IS the freshest
+        // thing in the log, so the rule measures from it and can only ever fire
+        // later than it otherwise would, never sooner.
+        let harness = Harness()
+        harness.start()
+        harness.advance(seconds: 30)
+        harness.send(.pause)
+
+        for _ in 0..<5 {
+            harness.advanceWhileDown(seconds: SessionReconciler.staleAfter / 4)
+            _ = harness.noteProcessStart()
+        }
+        XCTAssertEqual(harness.status, .paused,
+                       "regular restarts keep resetting the clock, by design")
+
+        harness.advanceWhileDown(seconds: SessionReconciler.staleAfter + 60)
+        XCTAssertEqual(harness.status, .readyToAbandon,
+                       "but a long silence after the last one still expires it")
+    }
+
+    func testAServedSessionIsCompletedNotAbandoned() {
+        // Ordering matters: a session that served all its time and then sat
+        // unarchived is finished, not walked away from. Abandoning it would
+        // record a failure where there was a success.
+        let harness = Harness()
+        harness.start(Harness.shortPlan())
+        harness.advanceWhileDown(seconds: SessionReconciler.staleAfter * 2)
+        XCTAssertNotEqual(harness.status, .readyToAbandon,
+                          "time served is not abandonment")
+    }
+
+    func testAbandonIfStaleWritesTheTerminalEvent() {
+        // The log stays the record: the reducer emits the event rather than the
+        // arithmetic implying it, exactly as completeIfServed does.
+        let harness = Harness()
+        harness.start()
+        harness.advance(seconds: 30)
+        harness.send(.pause)
+        harness.advanceWhileDown(seconds: SessionReconciler.staleAfter + 60)
+
+        let result = SessionReducer.abandonIfStale(
+            harness.state,
+            requestID: RequestID("abandon-stale-test"),
+            clocks: harness.clocks
+        )
+        XCTAssertTrue(result.applied)
+        XCTAssertEqual(result.state?.events.finish?.reason, .abandoned)
+        XCTAssertFalse(FinishReason.abandoned.isSuccess,
+                       "a stale session must never score as a completed one")
+    }
+
     // MARK: Combinations
 
     func testPauseAcrossARestartStaysPaused() {

@@ -300,6 +300,7 @@ final class SessionTabModel: ObservableObject {
         case .paused: return "Paused"
         case .waitingForReturn: return "Waiting for you"
         case .readyToComplete: return "Wrapping up"
+        case .readyToAbandon: return "Closing out"
         case .finished(let reason):
             switch reason {
             case .completed: return "Done"
@@ -326,6 +327,10 @@ final class SessionTabModel: ObservableObject {
             return "The break is over whenever you are back."
         case .finished, .readyToComplete:
             return "\(minutes(now.servedFocus)) of focus."
+        case .readyToAbandon:
+            // Paused so long it is being archived. Say what happened rather than
+            // reporting a focus total that would read as an achievement.
+            return "Paused overnight — closing this one out."
         case .notStarted:
             return nil
         }
@@ -377,6 +382,10 @@ final class SessionTabModel: ObservableObject {
             ]
         case .readyToComplete:
             return [Action(title: "Finish", icon: "checkmark", kind: .finish)]
+        case .readyToAbandon:
+            // Nothing to offer: the service archives this on the next pass, and
+            // a "Resume" here would fight it.
+            return [Action(title: "Start another", icon: "play", kind: .start)]
         case .finished:
             return [Action(title: "Start another", icon: "play", kind: .start)]
         }

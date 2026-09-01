@@ -280,6 +280,21 @@ public final class SessionService {
             // A session whose time is fully served gets its terminal event from
             // the reducer, so the log stays the single record of what happened
             // rather than the arithmetic implying it.
+            if reconciliation.status == .readyToAbandon {
+                _ = try? store.mutate { document in
+                    let result = SessionReducer.abandonIfStale(
+                        document.session,
+                        requestID: RequestID("abandon-stale-\(session.id.raw)"),
+                        clocks: clocks
+                    )
+                    guard result.applied, let next = result.state,
+                          next != document.session else { return nil }
+                    return SessionDocument(session: next)
+                }
+                snapshot = snapshotUnlocked()
+                continue
+            }
+
             if reconciliation.status == .readyToComplete {
                 _ = try? store.mutate { document in
                     let result = SessionReducer.completeIfServed(

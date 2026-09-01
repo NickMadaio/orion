@@ -249,6 +249,30 @@ public enum SessionReducer {
         ))
     }
 
+    /// Archive a session nobody is coming back to.
+    ///
+    /// The exact shape of `completeIfServed`, and for the same reason: the
+    /// terminal event comes from the reducer so the log stays the single record
+    /// of what happened, rather than the arithmetic quietly implying it. The
+    /// reason is `.abandoned` because that is what it was -- walked away from --
+    /// and `FinishReason.isSuccess` is false for it, so a stale session never
+    /// counts as a completed one in the day score.
+    public static func abandonIfStale(_ state: SessionState?,
+                                      requestID: RequestID,
+                                      clocks: Clocks) -> ReduceResult {
+        guard let state, !state.isFinished else { return .ok(state) }
+        let stamp = ClockStamp(clocks: clocks)
+        guard SessionReconciler.reconcile(state, now: stamp).status == .readyToAbandon else {
+            return .ok(state)
+        }
+        if state.events.contains(request: requestID) {
+            return .no(.alreadyApplied(requestID), keeping: state)
+        }
+        return .ok(state.appending(
+            LifecycleEvent(id: requestID.raw, stamp: stamp, kind: .finished(.abandoned))
+        ))
+    }
+
     private static func validate(_ plan: SessionPlan) -> String? {
         if plan.phases.isEmpty { return "it has no phases" }
         if !plan.phases.contains(where: \.kind.isFocus) { return "it has no focus block" }

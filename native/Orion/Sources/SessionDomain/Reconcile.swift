@@ -42,6 +42,18 @@ public enum SessionStatus: Equatable, Sendable {
     /// turns this into a `finish` command, so the event log stays the record.
     case readyToComplete
 
+    /// Paused or waiting for so long that nobody is coming back. The service
+    /// turns this into an `abandon` command, the same way `readyToComplete`
+    /// becomes a `finish` — the log stays the record rather than the arithmetic
+    /// silently implying it.
+    ///
+    /// Exists because a paused session waits forever by design ("closing the
+    /// dashboard is not leaving the session") and nothing ever expired one. A
+    /// session paused on 2026-08-12 was still paused on 2026-09-01, accruing
+    /// heartbeats for twenty days, and the update path had to be taught to gate
+    /// on `.running` specifically to work around it.
+    case readyToAbandon
+
     case finished(FinishReason)
 
     public var isOver: Bool {
@@ -59,6 +71,7 @@ public enum SessionStatus: Equatable, Sendable {
         case .notStarted: return "not started"
         case .running(let kind): return kind.isFocus ? "focus" : "break"
         case .paused: return "paused"
+        case .readyToAbandon: return "abandoned -- paused too long to resume"
         case .waitingForReturn: return "waiting for him to come back"
         case .readyToComplete: return "finishing"
         case .finished(let reason): return "finished (\(reason.rawValue))"
@@ -127,6 +140,16 @@ public enum SessionReconciler {
     /// rather than absorbing silently.
     public static let longAbsenceThreshold: TimeInterval = 10 * 60
 
+    /// Paused or waiting for longer than this and the session is over, whatever
+    /// the log says. Measured from the last event, so it is a pure function of
+    /// the inputs and needs no timezone -- deliberately, because `dayKey` would
+    /// have made this depend on a zone the app does not yet resolve correctly.
+    ///
+    /// Eighteen hours rather than a round day: it has to be long enough to
+    /// survive a night's sleep with a session deliberately parked, and short
+    /// enough that yesterday's session is never today's.
+    public static let staleAfter: TimeInterval = 18 * 60 * 60
+
     public static func reconcile(_ state: SessionState, now: ClockStamp) -> Reconciliation {
         let plan = state.plan
         let totalFocusBlocks = plan.phases.filter(\.kind.isFocus).count
@@ -151,9 +174,23 @@ public enum SessionReconciler {
         // session ended when Nick said it ended, not when the arithmetic ran out.
         let recordedFinish = state.events.finish
 
+        // The last event of ANY kind, including heartbeats. A process that keeps
+        // starting and saying "still here" is not evidence that anyone intends
+        // to resume -- but it is the freshest thing the log has, so using it
+        // makes the rule conservative: it can only ever fire later, never sooner.
+        let lastEventWall = state.events.last?.stamp.wall ?? startEvent.at
+
         let status: SessionStatus = {
             if let recordedFinish { return .finished(recordedFinish.reason) }
             if walk.everythingServed { return .readyToComplete }
+            // Staleness is checked before paused/waiting and after the two
+            // terminal readings above: a session that actually finished, or that
+            // served all its time, is not "abandoned" just because nobody
+            // archived it promptly.
+            if (walk.paused || walk.waitingForReturn),
+               now.wall.timeIntervalSince(lastEventWall) >= staleAfter {
+                return .readyToAbandon
+            }
             if walk.waitingForReturn { return .waitingForReturn(afterRestIndex: walk.heldAfterRest) }
             if walk.paused { return .paused }
             return .running(plan.phase(at: walk.phaseIndex)?.kind ?? .focus)
@@ -331,6 +368,12 @@ public enum SessionReconciler {
             }
 
         case .paused:
+            break
+
+        case .readyToAbandon:
+            // No effects. The service is about to write the abandon event, and
+            // the `.finished(.abandoned)` pass that follows owns whatever the
+            // app should do about it -- emitting anything here would fire twice.
             break
 
         case .waitingForReturn(let afterRestIndex):

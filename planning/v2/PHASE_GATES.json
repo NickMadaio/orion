@@ -3309,6 +3309,66 @@
         "`orion-timezone set` was proven end to end against a fake gateway AND once against the live one, but the live proof was a round trip on 2026-09-01, not the real move. The real move runs the same code path with a different starting zone."
       ],
       "nextPhaseAllowed": false
+    },
+    "34": {
+      "name": "ORION Health UI",
+      "status": "complete",
+      "entryRequiresPhase": 33,
+      "entrySatisfied": true,
+      "openedOn": "2026-09-01",
+      "closedOn": "2026-09-01",
+      "closedAgainst": "the manifest text for PHASE 34, against the live Mac app",
+      "evidence": "native/OrionMobile/Sources/MobileCore/HealthSections.swift, native/Orion/Sources/Orion/HealthSectionsModel.swift, native/Orion/Sources/Orion/HealthSectionsView.swift, native/Orion/Tests/run-health-sections-test.sh",
+      "decisions": [
+        {
+          "id": "rules_live_in_a_model_not_in_swiftui",
+          "decision": "The manifest's prohibitions are properties of a type in MobileCore, not of a view.",
+          "why": "A rule spelled out in SwiftUI holds only on the screens somebody remembered to apply it to. SectionNarrative REFUSES to hold a clinical term, an over-budget wall of figures, or an interpretation the confidence cannot support -- so the view cannot render one by accident and no reviewer has to remember the rule."
+        },
+        {
+          "id": "additive_rather_than_a_redesign",
+          "decision": "HealthTab keeps its phase-aware headline; the seven sections render beneath it.",
+          "why": "That tab's own design note explains it was rebuilt because 'a dashboard whose headline never changes is one you stop looking at after breakfast'. That reasoning still holds, and replacing it with seven flat sections would be a regression dressed as a phase."
+        },
+        {
+          "id": "low_confidence_may_observe_and_may_not_interpret",
+          "decision": "likelyMeans and consider are Optional and are refused at .low confidence; happened is required.",
+          "why": "The manifest asks all three questions of every section, but two of them are inferences. A health UI that is confidently wrong at somebody on two nights of data is worse than one that says only what it saw."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "the_seven_sections_exist",
+          "status": "passed",
+          "evidence": "HealthSection is a closed enum pinned as an exact ordered LIST -- ['today','sleep','recovery','activity','energy','trends','journal'] -- not a count, because a count passed in this codebase once after two members were swapped for two others. The harness asserts all seven are produced for a full day, for two nights of history, and for a machine where nothing synced. Mutation-proven: deleting one fallback makes the section vanish and fails three named assertions."
+        },
+        {
+          "id": "each_section_answers_the_three_questions",
+          "status": "passed",
+          "evidence": "SectionNarrative carries happened / likelyMeans / consider. 127 checks over the REAL producer confirm a full day yields interpretations and suggestions, and that two nights of history yields neither anywhere in the tab while every section still reports what happened."
+        },
+        {
+          "id": "no_medical_advice_features",
+          "status": "passed",
+          "evidence": "Every string passes through MobileCore's existing ClinicalVocabulary (22 stems including diagnos, symptom, medicat, treatment, therapy). Checked on the REAL generated text of all seven sections in three data states, and separately on each field -- observation, interpretation and suggestion -- because a guard on one field is not a guard on the type. Mutation-proven in MobileCoreCheck."
+        },
+        {
+          "id": "does_not_overload_with_raw_charts",
+          "status": "passed",
+          "evidence": "SectionNarrative.figureBudget = 3, enforced on DIGITS via figureCount so it cannot be reworded around, and HealthTrend caps points at 14 in its initialiser rather than trusting the caller to slice. Mutation-proven: rewriting one builder to emit four figures makes that section refuse to construct and fails five assertions. The harness also asserts a POSITIVE -- '71' and '7h30' must reach Nick on a full day -- so the budget cannot be satisfied by saying nothing."
+        },
+        {
+          "id": "source_and_confidence_are_inspectable",
+          "status": "passed",
+          "evidence": "sources and confidence are non-optional stored properties; an empty sources array is refused. HealthSource has four named cases with human labels rather than raw values. The view shows both on EVERY section, expanding to a sentence explaining what that confidence level means -- shown always rather than only when low, because a confidence line that appears only under uncertainty teaches people its absence means certainty."
+        }
+      ],
+      "limitations": [
+        "The Journal section is a real section with an honest empty state; journalEntryCount is wired to 0 until Phase 35 exists. It reports 'nothing written down today' rather than vanishing, which is the behaviour the missing-data rule requires.",
+        "Not visually verified. The app builds and the content rules are proven numerically, but the installed app is still build 121 and nobody has looked at the rendered layout.",
+        "The trend DIRECTION uses a 5% threshold over a split-half mean. That is a deliberate placeholder for Phase 36, which is where correlations and sample sizes are actually specified."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

@@ -16,7 +16,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-33 complete; Phase 40 in progress (opened out of order under Batch B); Phases 34-39 not started",
+    "numberedProgramPosition": "Phases 0-34 complete; Phase 40 in progress; 35-39 next",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -162,6 +162,10 @@
       "status": "in_progress",
       "evidence": "planning/v2/PHASE_GATES.json phase 40, and the Batch B section of planning/v2/HANDOFF.md",
       "note": "Opened OUT OF NUMERIC ORDER under Batch B of PROGRAM_CORRECTION_2026-09-01.md, with entrySatisfied recorded as false rather than asserted true. Six of ten requirements pass; four are registered blocked, the load-bearing one being that the live cron jobs are not re-homed until Nick actually lands on 2026-09-08."
+    },
+    "34": {
+      "status": "complete",
+      "evidence": "planning/v2/PHASE_GATES.json phase 34"
     }
   },
   "tracks": [

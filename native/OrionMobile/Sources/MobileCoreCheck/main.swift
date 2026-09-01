@@ -1237,6 +1237,107 @@ expect(!HealthStateEngine.sleepState(
         .contains("vocabulary"),
        "and specifically does not blame the word list, which is not what failed")
 
+// -- phase 34: health sections ---------------------------------------------
+
+section("health sections (phase 34)")
+
+// The manifest names seven, and it names them in this order. Pinned as an exact
+// SET rather than a count -- `allCases.count == 8` passed in this codebase once
+// after two members were swapped for two others.
+expect(HealthSection.allCases.map(\.rawValue)
+        == ["today", "sleep", "recovery", "activity", "energy", "trends", "journal"],
+       "the seven manifest sections, in the manifest's order")
+expect(Set(HealthSection.allCases.map(\.title))
+        == ["Today", "Sleep", "Recovery", "Activity", "Energy", "Trends", "Journal"],
+       "every section has its own title")
+
+// The three questions. `happened` is required; the other two are inferences and
+// may be absent.
+let wholeNarrative = SectionNarrative(
+    happened: "You slept 6h20, about an hour under your usual.",
+    likelyMeans: "A short night on top of a heavy week tends to show up as lower drive.",
+    consider: "Keep the morning light and see how you feel by midday.",
+    sources: [.whoop], confidence: .high)
+expect(wholeNarrative != nil, "a full narrative is accepted")
+expect(wholeNarrative?.likelyMeans != nil && wholeNarrative?.consider != nil,
+       "and keeps both inferences")
+
+expect(SectionNarrative(happened: "   ", sources: [.whoop], confidence: .high) == nil,
+       "an empty observation is not a narrative")
+expect(SectionNarrative(happened: "You slept well.", sources: [], confidence: .high) == nil,
+       "a section with no source is making things up")
+
+// The asymmetry that matters: low confidence may OBSERVE and may not INTERPRET.
+expect(SectionNarrative(happened: "Two nights recorded so far.",
+                        sources: [.whoop], confidence: .low) != nil,
+       "low confidence may still report what happened")
+expect(SectionNarrative(happened: "Two nights recorded so far.",
+                        likelyMeans: "You are trending down.",
+                        sources: [.whoop], confidence: .low) == nil,
+       "low confidence may NOT say what it means")
+expect(SectionNarrative(happened: "Two nights recorded so far.",
+                        consider: "Go to bed earlier.",
+                        sources: [.whoop], confidence: .low) == nil,
+       "low confidence may NOT suggest what to do")
+expect(SectionNarrative(happened: "Two nights recorded.", likelyMeans: "Trending down.",
+                        sources: [.whoop], confidence: .moderate) != nil,
+       "moderate confidence may interpret, so the rule is about confidence and not a blanket ban")
+
+// No medical advice, enforced on the text rather than asserted in a comment.
+// Each of these is a different field, because a guard on one field is not a
+// guard on the type.
+expect(SectionNarrative(happened: "Signs of insomnia.", sources: [.whoop], confidence: .high) == nil,
+       "a clinical term in the observation is refused")
+expect(SectionNarrative(happened: "You slept badly.", likelyMeans: "This is a symptom of overtraining.",
+                        sources: [.whoop], confidence: .high) == nil,
+       "a clinical term in the interpretation is refused")
+expect(SectionNarrative(happened: "You slept badly.", consider: "Ask about medication.",
+                        sources: [.whoop], confidence: .high) == nil,
+       "advice about medication is refused")
+expect(SectionNarrative(happened: "You slept badly.", consider: "Consider therapy.",
+                        sources: [.whoop], confidence: .high) == nil,
+       "advice about therapy is refused")
+
+// "Do not overload users with raw charts" -- the budget is on DIGITS, so it
+// cannot be reworded around.
+expect(SectionNarrative.figureCount(in: "no numbers here") == 0, "prose with no figures counts zero")
+expect(SectionNarrative.figureCount(in: "6.5 hours") == 1, "a decimal is one figure, not two")
+expect(SectionNarrative.figureCount(in: "6:20 to 7:15") == 2, "clock times are one figure each")
+expect(SectionNarrative.figureCount(in: "1 2 3 4") == 4, "four figures are four")
+expect(SectionNarrative(happened: "Sleep 6.5, HRV 108, RHR 52, recovery 61.",
+                        sources: [.whoop], confidence: .high) == nil,
+       "four figures in one line is the table this rule exists to prevent")
+expect(SectionNarrative(happened: "You slept 6.5 hours, about an hour under your usual 7.5.",
+                        sources: [.whoop], confidence: .high) != nil,
+       "and three is still a sentence a person reads")
+
+// Sources are inspectable, and every case says something a person understands.
+expect(Set(HealthSource.allCases.map(\.rawValue))
+        == ["whoop", "manual", "apple_health", "derived"],
+       "the four sources, by name")
+expect(HealthSource.allCases.allSatisfy { !$0.label.isEmpty && $0.label != $0.rawValue },
+       "each source has a human label rather than its raw value")
+
+// Trends: summarised, capped, and honest about a direction it cannot support.
+expect(HealthTrend(kind: .sleepDuration, direction: .improving,
+                   points: Array(repeating: 450, count: 14), span: 14, confidence: .high) != nil,
+       "a fortnight of points is allowed")
+expect(HealthTrend(kind: .sleepDuration, direction: .improving,
+                   points: Array(repeating: 450, count: 15), span: 15, confidence: .high) == nil,
+       "fifteen is over the cap, and the cap is enforced here rather than by the caller slicing")
+expect(HealthTrend(kind: .sleepDuration, direction: .improving,
+                   points: [450], span: 0, confidence: .high) == nil,
+       "a span of zero days is not a trend")
+expect(HealthTrend(kind: .sleepDuration, direction: .improving, points: [.nan],
+                   span: 7, confidence: .high) == nil,
+       "a non-finite point is refused at the boundary, not turned into Int later")
+expect(HealthTrend(kind: .sleepDuration, direction: .improving, points: [450],
+                   span: 7, confidence: .low) == nil,
+       "low confidence cannot claim a direction")
+expect(HealthTrend(kind: .sleepDuration, direction: .unclear, points: [450],
+                   span: 7, confidence: .low) != nil,
+       "and `unclear` is the one it is allowed to claim")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

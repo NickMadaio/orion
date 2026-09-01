@@ -58,6 +58,7 @@ struct HealthTab: View {
             VStack(alignment: .leading, spacing: 40) {
                 headline
                 if !whoop.week.isEmpty { week }
+                HealthSectionsView(model: sectionsModel)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -89,6 +90,43 @@ struct HealthTab: View {
         .sheet(isPresented: $nutritionSheetVisible) {
             NutritionSheet(health: health) { nutritionSheetVisible = false }
         }
+    }
+
+    // MARK: - The seven sections (Phase 34)
+
+    /// Live data, shaped into the seven sections.
+    ///
+    /// Two things here are easy to get wrong and are therefore explicit:
+    ///
+    /// · `WhoopWeek.points` is OLDEST → NEWEST and the model's series are
+    ///   NEWEST FIRST. `newestFirst` does the conversion and is pinned by a
+    ///   test in both directions, because a bare `.reversed()` at a call site
+    ///   inverts every trend on the page and nothing complains.
+    /// · `sampleCount` is how many days of history exist, NOT how many readings
+    ///   today has. Phase 31's confidence ladder reads it, and passing today's
+    ///   count would report high confidence on the first morning.
+    private var sectionsModel: HealthSectionsModel {
+        let snapshot = whoop.snapshot
+        let points = whoop.week.points
+        return HealthSectionsModel(inputs: .init(
+            recovery: snapshot?.recovery,
+            sleepPerformance: snapshot?.sleepPerformance,
+            sleepHours: snapshot?.sleepHours,
+            hrv: snapshot?.hrvMilliseconds,
+            restingHeartRate: snapshot?.restingHeartRate,
+            strain: snapshot?.strain,
+            calories: health.caloriesToday,
+            calorieTarget: health.nutritionGoals.calories,
+            waterBottles: health.hydrationBottles,
+            waterTarget: bottleTarget,
+            sampleCount: health.dailyRecords.count,
+            readingAgeHours: snapshot.map { Date().timeIntervalSince($0.capturedAt) / 3600 },
+            recentSleepHours: HealthSectionsModel.newestFirst(points.compactMap(\.sleepHours)),
+            recentRecovery: HealthSectionsModel.newestFirst(
+                points.compactMap { $0.recovery.map(Double.init) }),
+            // Phase 35 fills this in. Zero is the honest answer until it does,
+            // and the Journal section already says so rather than vanishing.
+            journalEntryCount: 0))
     }
 
     // MARK: - Headline

@@ -1,0 +1,468 @@
+#!/usr/bin/env node
+/*
+ Where Orion thinks he is — and the one command that moves it.
+
+ Manifest Phase 40 (travel and timezone) on the system that actually exists.
+
+ ## The failure this is built against, which is live
+
+ Three cron jobs are pinned `America/New_York`. macOS auto-timezone is on. So
+ the moment Nick lands in London the MACHINE moves and the SCHEDULE does not:
+ everything reading the wall clock follows him, everything pinned does not, and
+ the nightly memory rollup at 02:10 New York becomes 07:10 London. Nothing
+ notices, because each half is behaving exactly as written.
+
+ Worse, the system was TOLD to handle this. `USER.md` said "Moving to London
+ before the end of August 2026" and "after the move, ask once rather than
+ assuming either". Nothing was holding that deadline, so nothing asked, and it
+ passed. A date in a sentence is not a mechanism. This file is the mechanism.
+
+ ## What home means, and why it is not the machine's zone
+
+ `location.json` records HOME: the zone Orion schedules against and the place
+ name anything needing weather should use. It is deliberately separate from
+ whatever the machine currently says, because those two disagreeing is the
+ entire signal:
+
+   home == device   nothing to say
+   home != device   either a trip (home stands) or a move (home follows)
+
+ Nothing observable distinguishes those two — a week in London and moving to
+ London look identical to the OS on day one. What distinguishes them is a fact
+ only Nick has, so it is recorded in advance as an `expectedMove`, and arriving
+ at the recorded destination is what makes a mismatch a move.
+
+ ## Why this does not fire on its own
+
+ It changes live cron jobs and a live user-facing file, so it is a command
+ someone runs and can dry-run first, not a daemon that decides. `orion-standing`
+ reports the mismatch hourly; a person acts on it. An assistant that re-homes
+ its own schedule while you are on holiday is the thing that gets muted.
+
+   orion-timezone status                      home, device, and everything pinned
+   orion-timezone plan <IANA> [--place P]     exactly what `set` would change
+   orion-timezone set  <IANA> [--place P]     re-home cron, weather and the record
+   orion-timezone expect <IANA> <YYYY-MM-DD> [--place P]    record a move ahead of time
+   orion-timezone clear-expected              drop a recorded move that is not happening
+
+ `set` is idempotent: running it twice reports `unchanged` and touches nothing.
+ Every change appends to `location-audit.jsonl` with the previous value, so the
+ undo is always printed and always available.
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, writeFile, appendFile, rename } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+const HOME = homedir();
+const CONTROLLED = join(HOME, ".openclaw/orion-controlled");
+const LOCATION = join(CONTROLLED, "location.json");
+const AUDIT = join(CONTROLLED, "location-audit.jsonl");
+const OPENCLAW = join(HOME, ".openclaw/bin/openclaw");
+
+const ESC = String.fromCharCode(27);
+const bold = `${ESC}[1m`, dim = `${ESC}[2m`, grn = `${ESC}[32m`;
+const yel = `${ESC}[33m`, red = `${ESC}[31m`, off = `${ESC}[0m`;
+
+// ---------------------------------------------------------------------------
+// Zone names: the cross-language part, and the one that bites
+// ---------------------------------------------------------------------------
+
+/*
+ This file writes a zone name that Swift's `IANAZone.resolve` has to accept, so
+ the two runtimes must agree on the spelling. They do not, and it is not
+ symmetric. Measured 2026-09-01 on this machine:
+
+   Foundation knows 443 names, ICU (node) knows 418, and 47 differ.
+   ICU canonicalises  America/Argentina/Buenos_Aires -> America/Buenos_Aires
+   Foundation does the opposite, and does not list the ICU spelling at all.
+
+ Which direction is safe is the useful finding: **Foundation preserves every
+ name ICU canonicalises** (all eleven round-trip there), but ICU rewrites
+ Foundation's spellings — `America/Montreal` becomes `America/Toronto`,
+ `America/Nuuk` becomes `America/Godthab`. So a name that survives ICU is not
+ automatically one Swift's ACCEPTED SET contains, because that set is
+ `knownTimeZoneIdentifiers` and those eleven are absent from it.
+
+ Relaxing the Swift side to "anything that round-trips" is not available:
+ `GMT+0500`, `EST`, `Zulu` and `Etc/GMT+5` all round-trip in Foundation, and
+ those are fixed offsets with no transition rules — precisely what Phase 40
+ forbids storing.
+
+ So the eleven are translated here, OUT LOUD, and everything else must be
+ ICU-canonical. Regenerate this table with:
+
+   node -e 'console.log(Intl.supportedValuesOf("timeZone").join("\n"))' > /tmp/icu
+   swift -e 'import Foundation; print(TimeZone.knownTimeZoneIdentifiers.joined(separator:"\n"))' > /tmp/foundation
+   comm -23 <(sort /tmp/icu) <(sort /tmp/foundation)
+
+ If tzdata moves under this table the failure is loud, not silent: Swift refuses
+ the decode and names the offending string.
+*/
+const ICU_TO_FOUNDATION = {
+  "Africa/Asmera": "Africa/Asmara",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Catamarca": "America/Argentina/Catamarca",
+  "America/Coral_Harbour": "America/Atikokan",
+  "America/Cordoba": "America/Argentina/Cordoba",
+  "America/Indianapolis": "America/Indiana/Indianapolis",
+  "America/Jujuy": "America/Argentina/Jujuy",
+  "America/Louisville": "America/Kentucky/Louisville",
+  "America/Mendoza": "America/Argentina/Mendoza",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+};
+
+/// Refuse anything that is not a real zone with transition rules, and report
+/// any spelling change rather than performing it quietly.
+function canonicalZone(input) {
+  const name = String(input ?? "").trim();
+  if (!name) return { error: "no timezone given" };
+  if (!name.includes("/")) {
+    // Catches UTC, GMT, EST, Zulu and every fixed-offset spelling in one rule.
+    // A zone is a place; a place has a region.
+    return { error: `"${name}" is not a Region/City zone name (try Europe/London)` };
+  }
+  if (name.startsWith("Etc/")) {
+    return { error: `"${name}" is a fixed offset, not a zone with DST rules` };
+  }
+
+  let resolved;
+  try {
+    resolved = new Intl.DateTimeFormat("en", { timeZone: name }).resolvedOptions().timeZone;
+  } catch {
+    return { error: `"${name}" is not a timezone this system knows` };
+  }
+  if (resolved !== name) {
+    return { error: `"${name}" is not canonical here — this system spells it "${resolved}"` };
+  }
+
+  const substituted = ICU_TO_FOUNDATION[name];
+  return substituted ? { zone: substituted, wasSpelled: name } : { zone: name };
+}
+
+// ---------------------------------------------------------------------------
+// The record
+// ---------------------------------------------------------------------------
+
+/*
+ The shape is exactly `TimeZonePolicy`'s Codable form in
+ native/Orion/Sources/SessionDomain/TimeZonePolicy.swift, so the Mac app decodes
+ what this writes without a translation layer. Changing either side is changing
+ a contract; `run-location-contract-test.sh` compiles the real Swift type
+ against the real bytes this file emits.
+*/
+const DEFAULT_POLICY = {
+  home: "America/New_York",
+  place: "Montvale, New Jersey",
+};
+
+async function readPolicy() {
+  if (!existsSync(LOCATION)) return { ...DEFAULT_POLICY, missing: true };
+  try {
+    const parsed = JSON.parse(await readFile(LOCATION, "utf8"));
+    if (!parsed || typeof parsed.home !== "string") {
+      throw new Error("no home zone recorded");
+    }
+    return parsed;
+  } catch (error) {
+    // Never silently fall back to a default here. A corrupt record that reads
+    // as "New York" would re-home a London machine back to New York on the
+    // next `set`, which is worse than refusing.
+    throw new Error(`${LOCATION} is unreadable: ${error.message}`);
+  }
+}
+
+async function writePolicy(policy, note) {
+  const { missing, ...clean } = policy;
+  const body = JSON.stringify(clean, null, 2) + "\n";
+  const temporary = `${LOCATION}.tmp-${process.pid}`;
+  await writeFile(temporary, body, { mode: 0o600 });
+  await rename(temporary, LOCATION);
+  await appendFile(AUDIT, JSON.stringify({ at: new Date().toISOString(), ...note }) + "\n",
+                   { mode: 0o600 });
+}
+
+const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/// Mirrors `TimeZonePolicy.verdict` in Swift. Kept deliberately small: the
+/// authoritative statement of the rule is the Swift type, which is the one with
+/// 18 tests behind it, and this is a reporting convenience.
+function verdict(policy, device, now = new Date()) {
+  const atHome = device === policy.home;
+  const move = policy.expectedMove;
+  if (!move) return atHome ? { kind: "settled" } : { kind: "travelling" };
+  if (policy.home === move.destination) {
+    return atHome ? { kind: "settled" } : { kind: "travelling" };
+  }
+  if (device === move.destination) return { kind: "moveArrived" };
+
+  const today = now.toLocaleDateString("en-CA", { timeZone: device });
+  if (today >= move.on) {
+    return atHome ? { kind: "moveDue" } : { kind: "travelling" };
+  }
+  return atHome ? { kind: "moveScheduled" } : { kind: "travelling" };
+}
+
+// ---------------------------------------------------------------------------
+// Cron
+// ---------------------------------------------------------------------------
+
+async function cronJobs() {
+  try {
+    const { stdout } = await run(OPENCLAW, ["cron", "list", "--json"], { timeout: 15000 });
+    const parsed = JSON.parse(stdout);
+    return (parsed.jobs ?? []).map((job) => ({
+      id: job.id,
+      name: job.name,
+      expr: job.schedule?.expr ?? "?",
+      tz: job.schedule?.tz ?? null,
+      enabled: job.enabled !== false,
+    }));
+  } catch (error) {
+    throw new Error(`could not read the cron jobs: ${error.message.split("\n")[0]}`);
+  }
+}
+
+/// What a pinned job's local firing time becomes when read somewhere else.
+/// Only meaningful for a job with a fixed hour; an every-minute or hourly job
+/// fires the same wall-clock-independent way in every zone, and saying
+/// otherwise would overstate the damage.
+function firingChange(job, from, to) {
+  const fields = job.expr.split(/\s+/);
+  if (fields.length < 5) return null;
+  const [minute, hour] = fields;
+  if (hour === "*" || minute === "*" || hour.includes("*") || hour.includes(",")) return null;
+
+  // Pick a real date so the offset comes from the transition rules rather than
+  // from an assumed constant.
+  const probe = new Date();
+  const stamp = (zone) => new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone, hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  // Build the instant at which the job fires today in `from`.
+  const dayThere = probe.toLocaleDateString("en-CA", { timeZone: from });
+  const guess = new Date(`${dayThere}T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:00Z`);
+  // Correct for `from`'s offset at that moment, iterating once — enough,
+  // because an offset is never more than a day out.
+  const offsetAt = (zone, at) => {
+    const asUTC = new Date(at.toLocaleString("en-US", { timeZone: "UTC" }));
+    const asZone = new Date(at.toLocaleString("en-US", { timeZone: zone }));
+    return asUTC.getTime() - asZone.getTime();
+  };
+  const instant = new Date(guess.getTime() + offsetAt(from, guess));
+  return {
+    from: stamp(from).format(instant),
+    to: stamp(to).format(instant),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+const VERDICT_TEXT = {
+  settled: [grn, "the machine and the schedule agree"],
+  travelling: [yel, "the machine has moved; home stands (a trip, unless you say otherwise)"],
+  moveArrived: [red, "you are at the recorded destination — run `orion-timezone set`"],
+  moveDue: [yel, "the recorded move day has passed and the machine is still at home"],
+  moveScheduled: [dim, "a move is recorded and has not come round yet"],
+};
+
+async function status() {
+  const policy = await readPolicy();
+  const device = deviceZone();
+  const jobs = await cronJobs();
+  const state = verdict(policy, device);
+  const [colour, sentence] = VERDICT_TEXT[state.kind];
+
+  console.log("");
+  console.log(`  ${bold}Orion — where he thinks he is${off}`);
+  console.log("");
+  console.log(`  home      ${policy.home}${policy.missing ? `  ${dim}(no record yet; this is the default)${off}` : ""}`);
+  console.log(`  place     ${policy.place ?? dim + "not set" + off}`);
+  console.log(`  machine   ${device === policy.home ? device : yel + device + off}`);
+  if (policy.expectedMove) {
+    const move = policy.expectedMove;
+    console.log(`  expected  ${move.destination} on ${move.on}${move.place ? `  ${dim}(${move.place})${off}` : ""}`);
+  }
+  console.log(`  verdict   ${colour}${state.kind}${off}  ${dim}${sentence}${off}`);
+  console.log("");
+  console.log(`  ${bold}Scheduled work${off}`);
+  for (const job of jobs) {
+    const pinned = job.tz ?? "unpinned";
+    const agrees = job.tz === policy.home;
+    const shift = job.tz && job.tz !== device ? firingChange(job, job.tz, device) : null;
+    const note = shift ? `  ${dim}fires ${shift.from} ${job.tz} = ${shift.to} here${off}` : "";
+    console.log(`  ${agrees ? grn + "ok " + off : yel + "!! " + off} ${job.name.padEnd(24)} ${job.expr.padEnd(12)} ${agrees ? pinned : yel + pinned + off}${note}`);
+  }
+  if (!jobs.length) console.log(`  ${dim}no jobs scheduled${off}`);
+  console.log("");
+  return { policy, device, jobs, state };
+}
+
+async function plan(target, place, { apply }) {
+  const resolved = canonicalZone(target);
+  if (resolved.error) {
+    console.error(`  ${red}${resolved.error}${off}`);
+    process.exit(2);
+  }
+  const zone = resolved.zone;
+  const policy = await readPolicy();
+  const jobs = await cronJobs();
+
+  console.log("");
+  console.log(`  ${bold}${apply ? "Re-homing Orion" : "Plan"} → ${zone}${off}`);
+  console.log("");
+  if (resolved.wasSpelled) {
+    console.log(`  ${yel}note${off}      you wrote "${resolved.wasSpelled}"; stored as "${zone}",`);
+    console.log(`            ${dim}which is the spelling the Mac app's zone set uses${off}`);
+    console.log("");
+  }
+
+  const changes = [];
+  if (policy.home !== zone) {
+    changes.push({ what: "home", from: policy.home, to: zone });
+  }
+  if (place && policy.place !== place) {
+    changes.push({ what: "place", from: policy.place ?? "(unset)", to: place });
+  }
+  for (const job of jobs) {
+    if (job.tz !== zone) changes.push({ what: "cron", job, from: job.tz ?? "(unpinned)", to: zone });
+  }
+  if (policy.expectedMove && policy.expectedMove.destination === zone) {
+    changes.push({ what: "expected", from: `${zone} on ${policy.expectedMove.on}`, to: "(satisfied, cleared)" });
+  }
+
+  if (!changes.length) {
+    console.log(`  ${grn}unchanged${off}  ${dim}everything already points at ${zone}${off}`);
+    console.log("");
+    return;
+  }
+
+  for (const change of changes) {
+    const label = change.what === "cron" ? `cron ${change.job.name}` : change.what;
+    const shift = change.what === "cron" ? firingChange(change.job, change.from, change.to) : null;
+    console.log(`  ${label.padEnd(28)} ${change.from} ${dim}->${off} ${bold}${change.to}${off}`
+      + (shift ? `  ${dim}(fires ${shift.from} -> ${shift.to} local)${off}` : ""));
+  }
+  console.log("");
+
+  if (!apply) {
+    console.log(`  ${dim}Nothing was changed. Run the same command with \`set\` to apply.${off}`);
+    console.log("");
+    return;
+  }
+
+  // Apply. Cron first: if a job refuses, the record must not claim the move
+  // happened. A record that is ahead of the world is the failure this whole
+  // file exists to remove.
+  let failed = 0;
+  for (const change of changes.filter((c) => c.what === "cron")) {
+    try {
+      await run(OPENCLAW, ["cron", "edit", change.job.id, "--tz", zone], { timeout: 20000 });
+      console.log(`  ${grn}re-homed${off}  cron ${change.job.name}`);
+    } catch (error) {
+      failed += 1;
+      console.log(`  ${red}FAILED${off}    cron ${change.job.name} — ${error.message.split("\n")[0]}`);
+    }
+  }
+
+  // Verify by re-reading rather than by trusting the exit codes.
+  const after = await cronJobs();
+  const stragglers = after.filter((job) => job.tz !== zone);
+  if (stragglers.length) {
+    console.log("");
+    console.log(`  ${red}${stragglers.length} job(s) are still not on ${zone}:${off} ${stragglers.map((j) => j.name).join(", ")}`);
+    console.log(`  ${dim}The record has NOT been updated. Fix those and run this again.${off}`);
+    console.log("");
+    process.exit(1);
+  }
+
+  const previous = { home: policy.home, place: policy.place ?? null,
+                     expectedMove: policy.expectedMove ?? null };
+  const next = { home: zone, place: place ?? policy.place ?? null };
+  if (policy.expectedMove && policy.expectedMove.destination !== zone) {
+    next.expectedMove = policy.expectedMove;   // a different move is still pending
+  }
+  if (next.place === null) delete next.place;
+
+  await writePolicy(next, {
+    action: "set-home", previous, next,
+    device: deviceZone(),
+    jobs: after.map((job) => ({ name: job.name, tz: job.tz })),
+  });
+
+  console.log("");
+  console.log(`  ${grn}home is now ${zone}${off}${next.place ? `, place ${next.place}` : ""}`);
+  if (failed) console.log(`  ${yel}${failed} cron edit(s) reported an error but the state verified clean${off}`);
+  console.log(`  ${dim}Audit: ${AUDIT}${off}`);
+  console.log(`  ${dim}Undo:  orion-timezone set ${previous.home}${previous.place ? ` --place "${previous.place}"` : ""}${off}`);
+  console.log("");
+}
+
+async function expect(target, day, place) {
+  const resolved = canonicalZone(target);
+  if (resolved.error) {
+    console.error(`  ${red}${resolved.error}${off}`);
+    process.exit(2);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day ?? "")) {
+    console.error(`  ${red}the move date must be YYYY-MM-DD${off}`);
+    process.exit(2);
+  }
+  const policy = await readPolicy();
+  const previous = policy.expectedMove ?? null;
+  const next = {
+    home: policy.home,
+    ...(policy.place ? { place: policy.place } : {}),
+    expectedMove: { destination: resolved.zone, on: day, ...(place ? { place } : {}) },
+  };
+  await writePolicy(next, { action: "expect-move", previous, next: next.expectedMove });
+
+  console.log("");
+  console.log(`  ${grn}recorded${off}  moving to ${resolved.zone} on ${day}${place ? ` (${place})` : ""}`);
+  console.log(`  ${dim}Home stays ${policy.home} until you run \`orion-timezone set ${resolved.zone}\`.${off}`);
+  console.log(`  ${dim}orion-standing will say so once the machine gets there.${off}`);
+  console.log("");
+}
+
+async function clearExpected() {
+  const policy = await readPolicy();
+  if (!policy.expectedMove) {
+    console.log(`\n  ${dim}no move was recorded${off}\n`);
+    return;
+  }
+  const previous = policy.expectedMove;
+  const next = { home: policy.home, ...(policy.place ? { place: policy.place } : {}) };
+  await writePolicy(next, { action: "clear-expected", previous, next: null });
+  console.log(`\n  ${grn}cleared${off}  ${previous.destination} on ${previous.on}\n`);
+}
+
+// ---------------------------------------------------------------------------
+
+function flag(name) {
+  const index = process.argv.indexOf(`--${name}`);
+  return index > 0 ? process.argv[index + 1] : undefined;
+}
+
+const command = process.argv[2] ?? "status";
+try {
+  if (command === "status") await status();
+  else if (command === "plan") await plan(process.argv[3], flag("place"), { apply: false });
+  else if (command === "set") await plan(process.argv[3], flag("place"), { apply: true });
+  else if (command === "expect") await expect(process.argv[3], process.argv[4], flag("place"));
+  else if (command === "clear-expected") await clearExpected();
+  else {
+    console.error("usage: orion-timezone [status|plan <zone>|set <zone>|expect <zone> <YYYY-MM-DD>|clear-expected] [--place \"City, Country\"]");
+    process.exit(2);
+  }
+} catch (error) {
+  console.error(`  ${red}${error.message}${off}`);
+  process.exit(1);
+}

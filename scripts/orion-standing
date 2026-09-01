@@ -348,6 +348,139 @@ async function readOpenLoops(day) {
   return { status: items.length > 0 ? "ok" : "empty", items };
 }
 
+/* ---------------------------------------------------------------- location */
+
+/*
+ Has the machine moved out from under the schedule?
+
+ This is the only source here that is not about Nick's day — it is about Orion
+ being wrong, which is the one thing he cannot notice for himself. Every cron
+ job carries a pinned timezone; everything reading the wall clock follows the
+ machine. When those two come apart, each half keeps behaving exactly as
+ written and the result is a nightly job at breakfast.
+
+ It is reported once a day, in the morning and evening checks, never in the
+ hourly `check`. An hourly "your timezone is wrong" is precisely the nag that
+ gets a proactive assistant muted, and re-homing is not a two-minute emergency.
+
+ Mirrors `TimeZonePolicy.verdict` in the Mac app. That Swift type is the
+ authoritative statement of the rule and has the tests; this is a reader.
+*/
+const LOCATION_FILE = join(HOME, ".openclaw/orion-controlled/location.json");
+
+async function readLocation() {
+  let record;
+  try {
+    record = JSON.parse(await readFile(LOCATION_FILE, "utf8"));
+  } catch (error) {
+    // No record is not a blind spot worth reporting every day — it is the
+    // pre-Phase-40 state, and `orion-timezone status` is where it belongs.
+    return { status: "skipped", reason: error.code === "ENOENT" ? "no record" : error.message };
+  }
+  if (typeof record.home !== "string") {
+    return { status: "degraded", reason: `${LOCATION_FILE} has no home zone` };
+  }
+  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const move = record.expectedMove ?? null;
+  const atHome = device === record.home;
+
+  let kind = atHome ? "settled" : "travelling";
+  if (move && record.home !== move.destination) {
+    if (device === move.destination) kind = "moveArrived";
+    else if (atHome) {
+      kind = now.toLocaleDateString("en-CA", { timeZone: device }) >= move.on
+        ? "moveDue" : "moveScheduled";
+    }
+  }
+  return { status: "ok", kind, home: record.home, place: record.place ?? null, device, move };
+}
+
+function locationFinding(location) {
+  if (location.status === "degraded") {
+    return [note(`Location: ${location.reason}. I cannot tell whether my schedule matches where you are.`)];
+  }
+  if (location.status !== "ok") return [];
+
+  const { kind, home, device, move } = location;
+  if (kind === "settled" || kind === "moveScheduled") return [];
+
+  if (kind === "moveArrived") {
+    return [note(
+      `You are in ${device} and my schedule is still pinned to ${home}. ` +
+      `This is the move you told me about${move?.on ? ` (${move.on})` : ""}. ` +
+      `Run \`orion-timezone set ${move.destination}\` and everything follows — ` +
+      `cron, the weather default, and what I think "today" means.`,
+    )];
+  }
+  if (kind === "moveDue") {
+    return [note(
+      `You were due to move to ${move.destination} on ${move.on} and this machine is still on ${home}. ` +
+      `Nothing is broken — but if the date has changed, tell me, or I will keep expecting it.`,
+    )];
+  }
+  return [note(
+    `This machine is on ${device}; I am scheduled on ${home}. ` +
+    `I am treating that as a trip and leaving your times alone. ` +
+    `If it is not a trip, run \`orion-timezone set ${device}\`.`,
+  )];
+}
+
+/* ---------------------------------------------------------------- projects */
+
+/*
+ The horizon between "a calendar event" and "something I mentioned today".
+
+ A move happening over six days with four fixed dates fell through that gap
+ entirely — nothing here could see it, because a project is neither a moment nor
+ an open loop. `orion-project` records the milestones; this reads them.
+
+ Deliberately narrow about when it speaks: a milestone inside PROJECT_HORIZON
+ days, or one whose date has passed with nothing marking it done. A project
+ whose next step is three weeks out is not news, and saying so every morning is
+ how the whole standing-orders idea dies.
+*/
+const PROJECTS_FILE = join(HOME, ".openclaw/orion-controlled/projects.json");
+const PROJECT_HORIZON = 3;
+
+async function readProjects() {
+  let store;
+  try {
+    store = JSON.parse(await readFile(PROJECTS_FILE, "utf8"));
+  } catch (error) {
+    return { status: "skipped", reason: error.code === "ENOENT" ? "none tracked" : error.message };
+  }
+  if (!Array.isArray(store.projects)) {
+    return { status: "degraded", reason: `${PROJECTS_FILE} has no projects array` };
+  }
+  return { status: "ok", projects: store.projects.filter((p) => p.status !== "closed") };
+}
+
+function projectFindings(projects, day) {
+  if (projects.status === "degraded") {
+    return [note(`Projects: ${projects.reason}. I cannot see what is coming up.`)];
+  }
+  if (projects.status !== "ok") return [];
+
+  const horizon = localDay(dayShift(now, PROJECT_HORIZON));
+
+  return projects.projects.flatMap((project) => {
+    const open = (project.milestones ?? []).filter((m) => !m.done);
+    const late = open.filter((m) => m.on < day).sort((a, b) => a.on.localeCompare(b.on));
+    const soon = open.filter((m) => m.on >= day && m.on <= horizon)
+                     .sort((a, b) => a.on.localeCompare(b.on));
+    if (!late.length && !soon.length) return [];
+
+    const lines = [
+      ...soon.map((m) => `  ${m.on === day ? "today" : m.on} — ${m.what}`),
+      // Never silently roll a missed milestone forward. If the date passed and
+      // nothing marked it done, the honest report is that it is unaccounted
+      // for, not a quietly rescheduled version of the same plan.
+      ...late.map((m) => `  ${m.on} — ${m.what} (nothing has marked this done)`),
+    ];
+    return [note([`${project.title}:`, ...lines].join("\n"))];
+  });
+}
+
 /* ----------------------------------------------------------------- findings */
 
 const note = (text) => ({ severity: "note", text });
@@ -390,7 +523,7 @@ function healthFinding(health) {
   return [note(`Body: ${poor.join(", ")} — you are starting the day short. Ease off the load.`)];
 }
 
-function morningFindings({ calendar, tasks, health, day }) {
+function morningFindings({ calendar, tasks, health, location, projects, day }) {
   const today = calendar.events.filter((event) => localDay(event.at) === day);
   const ahead = today.filter((event) => event.at > now);
   const listed = today
@@ -408,6 +541,8 @@ function morningFindings({ calendar, tasks, health, day }) {
       : []),
     ...dueFindings(tasks.tasks, day),
     ...healthFinding(health),
+    ...locationFinding(location),
+    ...projectFindings(projects, day),
     ...blindSpots([
       { label: "Calendar", source: calendar, action: "Check it yourself before assuming a free day." },
       { label: "Reminders", source: tasks, action: "Grant Orion Reminders access in System Settings › Privacy & Security." },
@@ -416,7 +551,7 @@ function morningFindings({ calendar, tasks, health, day }) {
   ];
 }
 
-function eveningFindings({ calendar, loops, day }) {
+function eveningFindings({ calendar, loops, location, day }) {
   const tomorrow = localDay(dayShift(now, 1));
   const first = calendar.events.filter((event) => localDay(event.at) === tomorrow)[0];
   const early = first && first.at.getHours() < EARLY_HOUR;
@@ -470,6 +605,7 @@ function eveningFindings({ calendar, loops, day }) {
           ),
         ]
       : []),
+    ...locationFinding(location),
     ...blindSpots([
       { label: "Calendar", source: calendar, action: "I cannot see whether tomorrow starts early." },
       { label: "Today's notes", source: loops, action: "I cannot tell what you left open." },
@@ -549,6 +685,9 @@ async function main() {
     mode !== "auto" ? mode : hour === MORNING_HOUR ? "morning" : hour === EVENING_HOUR ? "evening" : "check";
 
   const calendar = await readCalendar();
+  // Only the once-a-day checks read it; the hourly `check` must never nag.
+  const location = resolved === "check" ? { status: "skipped" } : await readLocation();
+  const projects = resolved === "morning" ? await readProjects() : { status: "skipped" };
   const [tasks, health, loops] =
     resolved === "morning"
       ? await Promise.all([readTasks(), readHealth(), Promise.resolve({ status: "skipped", items: [] })])
@@ -563,6 +702,8 @@ async function main() {
       ["reminders", tasks],
       ["health", health],
       ["open loops", loops],
+      ["location", location],
+      ["projects", projects],
     ]) {
       const detail = source.reason ? ` — ${source.reason}` : "";
       const count = source.events?.length ?? source.tasks?.length ?? source.items?.length;
@@ -572,9 +713,9 @@ async function main() {
 
   const findings =
     resolved === "morning"
-      ? morningFindings({ calendar, tasks, health, day })
+      ? morningFindings({ calendar, tasks, health, location, projects, day })
       : resolved === "evening"
-        ? eveningFindings({ calendar, loops, day })
+        ? eveningFindings({ calendar, loops, location, day })
         : imminentFindings({ calendar });
 
   // Quiet hours drop everything that is not genuinely time-critical. A 6am

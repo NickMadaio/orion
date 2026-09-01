@@ -1,5 +1,185 @@
 # HANDOFF
 
+## 2026-09-01 BATCH B — London and the timezone, and a day key that was already wrong
+
+Written 2026-09-01, same day as Batch A; the machine last booted 2026-08-29 13:22
+and this session did not span a reboot or a day boundary.
+
+Full reasoning: `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`, Batch B.
+
+### The state I found, and where the record was imprecise
+
+**Only ONE of the three cron jobs actually fires at the wrong hour.** The Batch A
+handoff and the program correction both say "all three cron jobs are pinned
+`America/New_York`", which is true, and then read that as "his morning brief
+fires at the wrong hour in London", which is not. Measured:
+
+    orion-focus-guard      * * * * *     every minute — zone-independent
+    orion-standing-orders  0 * * * *     hourly — zone-independent for FIRING
+    orion-daily-memory     10 2 * * *    02:10 New York = 07:10 London  <- the real one
+
+`orion-standing`'s morning/evening choice and its quiet hours read the MACHINE's
+clock, and macOS auto-timezone is on (`com.apple.timezone.auto Active = 1`), so
+that half self-corrects on landing. The nightly memory rollup does not: it moves
+from the dead of night to breakfast. Smaller than recorded, and worth stating
+precisely so the next reader does not go looking for three bugs.
+
+### A real defect, found while building the vocabulary and dormant until the move
+
+`CutoffDayKeys` computed the 4am day boundary in its INJECTED calendar's zone and
+then rendered it with a shared static `DateFormatter` that set a locale and **no
+time zone** — so it rendered in the machine's. Measured, London calendar on this
+New York machine:
+
+    instant  2026-09-08T04:30Z   (05:30 in London, past the cutoff)
+    dayStart 2026-09-08T03:00Z   key() -> "2026-09-07"     off by one
+
+It survived 322 tests because those tests inject `America/New_York` on a machine
+that IS `America/New_York`. The injection proved nothing — the same
+self-verifying shape `AGENTS.md` already records three times. It goes live the
+moment Orion's home zone and the machine's zone differ.
+
+Fixed by deleting the formatter: the key goes through `CivilDay`, which has no
+instant to render and therefore no zone to pick wrongly. The regression test
+sweeps all 443 zones this system knows, so it fails on any machine rather than
+only on one in the wrong zone.
+
+### Phase 40 — the vocabulary, in SessionDomain
+
+`ZonedTime` is a sum type and the enforcement is that **it has no `instant`
+property**. A `.moment` carries `ZonedInstant` (UTC instant + anchoring zone +
+original zone); a `.day` carries `AllDaySpan`, which has no instant at all.
+Getting time out of an all-day value requires naming a zone at the call site,
+where it can be reviewed. That is "never rely on plain local datetime strings"
+made structural rather than aspirational.
+
+`rezoned(to:)` keeps the moment and `reanchored(to:)` keeps the wall clock. Both
+exist, with names that cannot be confused, because picking the wrong one shifts
+an appointment by the offset between the zones and nothing complains.
+
+**Alternatives rejected.** An `isAllDay` flag beside an instant is the obvious
+model and it is the bug: an all-day value that has an instant has already had a
+zone chosen for it invisibly. Storing a fixed offset instead of an IANA name is
+the other one — `GMT+0500` is right for half the year.
+
+### Five facts measured rather than assumed, each now pinned by a test
+
+- **Foundation's `JSONEncoder` escapes forward slashes**, so a stored zone reads
+  `Europe\/London`. Legal JSON, but this format is a cross-language contract and
+  anything reaching for a substring rather than parsing will miss it.
+- **`TimeZone(identifier: "UTC").identifier` answers `"GMT"`.** Storing `UTC`
+  means reading back a name nobody wrote, so it is refused. All 443 accepted
+  names round-trip byte for byte; that is the invariant the strict set buys.
+- **Foundation and ICU canonicalise 47 zone names differently, in BOTH
+  directions.** ICU says `America/Buenos_Aires` and has never heard of
+  `America/Argentina/Buenos_Aires`; Foundation is the exact opposite, and ICU
+  rewrites Foundation's `America/Nuuk` to `America/Godthab`. The safe direction
+  is that Foundation preserves everything ICU canonicalises, but not vice versa.
+- **Round-tripping is not a safe validation rule in Foundation**: `GMT+0500`,
+  `EST`, `Zulu` and `Etc/GMT+5` all round-trip. So the accepted set stays the
+  strict known list.
+- **`Calendar.date(from:)` is lenient**: 2026-02-29 rolls forward to 1 March, and
+  then asking that date's month whether it has a 29th says yes — so the obvious
+  validation accepted every invalid date it was written to reject.
+
+### The operational half
+
+`scripts/orion-timezone` — `status`, `plan`, `set`, `expect`, `clear-expected`.
+Idempotent, dry-runnable, and it verifies by RE-READING the cron jobs rather than
+trusting exit codes; if any job did not move, the record is not written, because
+a record ahead of the world is the failure this whole batch is about.
+
+`location.json` holds home, place and an `expectedMove`, in exactly
+`TimeZonePolicy`'s Codable shape. A trip and a move are indistinguishable to the
+OS, so the move is a fact recorded in advance and arriving at the recorded
+destination is what makes a mismatch a move.
+
+`orion-standing` now reports a home-versus-machine mismatch — in the morning and
+evening checks only, **never** in the hourly one. An hourly "your timezone is
+wrong" is exactly the nag that gets a proactive assistant muted.
+
+`orion-weather-alert` no longer hardcodes `"Montvale, New Jersey"`; it reads
+`location.json`'s place, with Montvale kept only as the no-record fallback.
+
+`scripts/orion-project` plus `projects.json` — the London move with four dated
+milestones, surfaced by the morning check three days out and reported as
+unaccounted-for rather than silently rescheduled if a date passes. Kept
+deliberately tiny (milestones with dates; no dependency graph, no scheduling) and
+registered in `scopeNotInManifest`, because no phase defines a project and adding
+modules with no live consumer is how this repo got three stacks.
+
+`USER.md`, both copies — **Northeastern restored.** The 2026-08-14 rewrite lost
+the university; the archive says "Eastern University" because it was dictated by
+voice. The timezone line now points at the record instead of promising to ask
+once, since the 2026-07-31 promise expired in silence: a date written in prose
+has nothing watching it.
+
+### Verification
+
+native/Orion **367** (was 322), location contract **20**, Python **1,437**,
+plugin **146/146**, phase-gate validator clean.
+
+**Mutation tested, eight mutations.** Seven caught. The one that survived was a
+flaw in my code, not a gap in the tests: `verdict` had two identical branches,
+which made `arrivedOnTime` look like it gated the destination case when it never
+did, and made a comment claiming the device-zone reading was load-bearing simply
+false. Collapsed to one branch, comment corrected to say what is actually true,
+and the collapsed branch is now itself mutation-covered.
+
+The contract harness is mutation-proven in the way that matters: removing the
+zone translation table makes `orion-timezone` write `America/Buenos_Aires` and
+the Mac app then REFUSES the file — the exact silent breakage it exists to stop.
+
+### Live and installed state
+
+Changed on the live machine: `location.json` and `projects.json` created,
+`~/.openclaw/workspace/USER.md` rewritten. **No cron job was touched, no
+permission changed, no rebuild, no install.** The installed app is still build
+121 and contains none of today's Swift changes — Batch A's or Batch B's.
+
+Rollback, all in-repo:
+
+    git revert <this commit>                       # the code
+    git show 184c4a5:openclaw-workspace/USER.md > ~/.openclaw/workspace/USER.md
+    rm ~/.openclaw/orion-controlled/location.json ~/.openclaw/orion-controlled/projects.json
+
+`location-audit.jsonl` records every change with its previous value, and
+`orion-timezone` prints the undo command after every `set`.
+
+### What is deliberately NOT done, and why
+
+**The cron jobs are still on `America/New_York`.** Nick is in New York until
+about 09-07; re-homing today would be wrong for six days. The single command is
+`orion-timezone set Europe/London --place "London, United Kingdom"`, it is
+dry-runnable with `plan`, and `orion-standing` will raise it the morning after he
+lands. Recorded as a blocked requirement, not quietly omitted.
+
+Also blocked and registered: the existing calendar UI still uses
+`Calendar.current` and a bare `Date` plus an `isAllDay` flag — the vocabulary
+exists, migrating the app to it is bigger than Batch B; and flights, an event
+anchored to two different zones, which the travel tests do NOT cover (they cover
+a device changing zones, which is a different thing).
+
+### Exact next step
+
+**Batch C — close the Phase 1/5 gate by RE-POINTING the record** onto the live
+TypeScript gate (`permissions.ts` + `validator.ts` + `provenance.ts` +
+`outcome.ts` + the ledger), demoting `orion/security` to a conformance oracle.
+Nick delegated this call. Do NOT route the live route through the Python engine —
+`planning/v2/PHASE_1_RUNTIME_DECISION.md` forbids it.
+
+Widen `orion_v2_policy_check.py` FIRST. Its "390 combinations" is parity at one
+point in a five-dimensional space: at `external_connected`,
+`external_data_involved=True` gives 54 stricter and 25 DENY, including
+`messages_send` and every `self_*` action.
+
+Files it needs: `planning/v2/PHASE_GATES.json`, `PHASE_1_RUNTIME_DECISION.md`,
+`PROGRAM_CORRECTION_2026-09-01.md`, `scripts/orion_v2_policy_check.py`.
+
+**And one dated thing that is now on a clock:** on 2026-09-08 the London
+milestone comes due. If Batch C is running then, do not let it swallow the
+re-homing — it is one command and it is the reason Batch B existed.
+
 ## 2026-09-01 BATCH A COMPLETE — Phase 33 built against the live app, and an off switch
 
 Everything here was verified against the running system, not the v2 backend.

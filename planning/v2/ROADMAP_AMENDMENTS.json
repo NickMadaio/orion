@@ -3,7 +3,7 @@
   "amendedOn": "2026-09-01",
   "authority": "Additive checkpoint register for gaps discovered after the original 85-phase manifest was fingerprinted. It does not change the source fingerprint, renumber phases, reopen historical closures, select providers, or authorize implementation.",
   "sourceManifest": {
-    "title": "ORION v2 — Full Implementation Manifest",
+    "title": "ORION v2 \u2014 Full Implementation Manifest",
     "sha256FromLine3": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
     "phaseCount": 85
   },
@@ -263,7 +263,7 @@
   ],
   "programCorrection": {
     "id": "PC-2026-09-01",
-    "title": "Program correction — ordering superseded",
+    "title": "Program correction \u2014 ordering superseded",
     "document": "planning/v2/PROGRAM_CORRECTION_2026-09-01.md",
     "method": "Seven independent fresh-context audits: Mac app, live execution path, v2 stack, manifest 33-84, plan lineage, Core convergence design, program re-sequencing.",
     "finding": "The manifest contains zero occurrences of 'OpenClaw' in 2,644 lines and its Phase 0 inventoried a Python runtime that the running assistant's own memory had already declared not-the-implementation-path on 2026-07-28. The requirements are sound; the ORDERING is derived from an inventory of a system that was not running.",
@@ -283,7 +283,7 @@
       },
       {
         "batch": "B",
-        "goal": "The London batch — timezone has a deadline that has passed",
+        "goal": "The London batch \u2014 timezone has a deadline that has passed",
         "days": "3-4",
         "contains": [
           "40 timezone/IANA",
@@ -361,15 +361,15 @@
       "The installed app is 14 commits behind the repo."
     ],
     "nicksRankedGapsRechecked": {
-      "1 proactivity": "LIVE — three cron jobs running, all ok",
-      "2 memory retrieval": "DONE — orion-recall, semantic, nomic-embed-text local",
+      "1 proactivity": "LIVE \u2014 three cron jobs running, all ok",
+      "2 memory retrieval": "DONE \u2014 orion-recall, semantic, nomic-embed-text local",
       "3 situational awareness": "open; does not need screenshots",
       "4 reach beyond the Mac": "outbound live; inbound needs one bot token",
       "5 capability ladder + taint": "DONE, pre-manifest",
       "6 sub-agents": "registered, not built"
     },
     "decisionsForNick": [
-      "Have you moved to London? USER.md instructed Orion to ask. Blocks Batch B.",
+      "ANSWERED 2026-09-01: moving to London for Northeastern, lands 09-08. Recorded in location.json as an expectedMove and in projects.json as dated milestones. Batch B unblocked and delivered.",
       "Is a phone coming? Six phases and REC-USABLE-CLIENT hang on it.",
       "The $99 Apple Developer Program.",
       "A bot token for the inbound channel.",
@@ -398,12 +398,38 @@
         }
       },
       "B": {
-        "state": "not started",
-        "note": "London / timezone. Nick moves ~2026-09-07; Northeastern starts 09-07; he lands 09-08."
+        "state": "substantially complete; one requirement deliberately left open until Nick lands",
+        "closedOn": "2026-09-01",
+        "delivered": [
+          "Phase 40 vocabulary in SessionDomain: CivilDay, ZonedInstant, AllDaySpan, ZonedTime -- an all-day value has NO instant, so getting time out of one requires naming a zone at the call site",
+          "TimeZonePolicy: home vs device, with an ExpectedMove recorded in advance, because nothing observable separates a trip from a move",
+          "A REAL defect found and fixed: CutoffDayKeys rendered the day key in the MACHINE's zone while computing the boundary in the injected calendar's zone. Off by one whenever they disagreed -- which is exactly what happens when Nick lands in London",
+          "scripts/orion-timezone: status / plan / set / expect, idempotent, dry-runnable, audited, with the undo printed",
+          "The weather default de-hardcoded from 'Montvale, New Jersey' to location.json's place field",
+          "orion-standing reports a home-vs-machine mismatch in the morning and evening checks, never hourly",
+          "scripts/orion-project plus the London move tracked with four dated milestones, surfaced three days out",
+          "USER.md: Northeastern restored (the 2026-08-14 rewrite lost it; the archive says 'Eastern University' because it was dictated by voice), and the timezone line now points at the record rather than promising to ask",
+          "The Mac-relevant subset of Phase 68: DST, timezone travel, clock skew"
+        ],
+        "deliberatelyNotDone": [
+          "The cron jobs are still pinned America/New_York. Nick is in New York until ~09-07; re-homing today would be wrong for six days. `orion-timezone set Europe/London` does it in one command and orion-standing raises it the morning after he lands.",
+          "The existing Mac app calendar surfaces still use Calendar.current and a bare Date + isAllDay flag. The vocabulary exists; migrating the calendar UI to it is larger than Batch B.",
+          "Flights -- an event anchored to two different zones -- are registered as blocked rather than covered by the travel tests, which are about a device moving."
+        ],
+        "measured": {
+          "onlyOneCronJobActuallyFiresAtTheWrongHour": "orion-daily-memory, 10 2 * * * @ America/New_York = 07:10 in London. orion-focus-guard (* * * * *) and orion-standing-orders (0 * * * *) are zone-independent for FIRING; their CONTENT follows the machine, which auto-corrects. The Batch A handoff's 'his morning brief fires at the wrong hour' was imprecise.",
+          "foundationAndICUDisagreeOn47ZoneNames": "in both directions; ICU spells it America/Buenos_Aires, Foundation America/Argentina/Buenos_Aires, and ICU rewrites Foundation's America/Nuuk to America/Godthab"
+        },
+        "suites": {
+          "nativeOrion": 367,
+          "locationContract": 20,
+          "python": 1437,
+          "plugin": 146
+        }
       },
       "C": {
         "state": "not started",
-        "note": "Close the Phase 1/5 gate by re-pointing the record onto the live TypeScript gate."
+        "note": "Close the Phase 1/5 gate by re-pointing the record onto the live TypeScript gate. Nick delegated this call on 2026-09-01. Do NOT route the live route through the Python engine -- PHASE_1_RUNTIME_DECISION.md forbids it. Widen orion_v2_policy_check.py first: its 390 combinations are parity at ONE point in a five-dimensional space."
       }
     }
   }

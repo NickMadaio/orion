@@ -33,6 +33,37 @@ when doing account setup; this documentation pass did not re-validate them.
 
 ---
 
+## 0-now. One command, on the day you land
+
+**2026-09-08, after you land in London:**
+
+```
+orion-timezone set Europe/London --place "London, United Kingdom"
+```
+
+That is the whole thing. It re-homes all three cron jobs, switches the weather
+default off Montvale, and moves what Orion thinks "today" means — verifying each
+one by re-reading it rather than trusting the command that made the change. Run
+`orion-timezone plan Europe/London` first if you want to see exactly what it will
+touch; it changes nothing.
+
+You should not have to remember this. Orion will raise it in the morning brief
+the day after the machine's timezone changes, and the move is tracked with dates
+(`orion-project list`). But it is here because the last time this depended on
+Orion asking a question, the deadline passed in silence.
+
+**Why it was not just done today:** you are in New York until roughly the 7th.
+Re-homing now would put the nightly job at the wrong hour for six days in the
+other direction.
+
+**What is actually wrong today, precisely:** only `orion-daily-memory` (02:10 New
+York) genuinely fires at the wrong hour in London — it becomes 07:10. The other
+two jobs fire every minute and hourly, so their timing is zone-independent, and
+their content follows the machine, which macOS auto-timezone corrects for you.
+Smaller than the earlier note said.
+
+---
+
 ## 0a. Answered on 2026-09-01 — kept for the record
 
 - **London:** moving in ~6 days. **Northeastern starts Sept 7**; Nick lands in
@@ -53,6 +84,12 @@ when doing account setup; this documentation pass did not re-validate them.
 
 Full reasoning in `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`. These are the
 only things blocking work.
+
+**a. ~~Have you moved to London, and has term started?~~ ANSWERED and BUILT, 2026-09-01.**
+Northeastern is restored to `USER.md`, the move is recorded in `location.json`
+as a dated expectation, and it is tracked with milestones. Nothing here is
+blocking any more; the one remaining action is the command in section 0-now.
+The original text follows for the record.
 
 **a. Have you moved to London, and has term started?** `USER.md` says "Moving to
 London before the end of August 2026" and "Default timezone: America/New_York

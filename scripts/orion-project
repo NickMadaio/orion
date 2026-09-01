@@ -1,0 +1,178 @@
+#!/usr/bin/env node
+/*
+ Things that take more than a day, with dates attached.
+
+ ## Why this exists, and why it is deliberately small
+
+ Orion could see two horizons and nothing in between: a calendar event, which is
+ a moment, and an open loop scraped from today's notes, which has no date at
+ all. A move happening over six days with four fixed dates fell straight through
+ the gap — the single most consequential thing in Nick's month, and the only
+ place it was written down was a sentence in a handoff.
+
+ The manifest has no phase for this; the Phase 32.5 charter asks Orion to
+ understand "assignments and project deadlines" and nothing implements it. So
+ this is registered as `scopeNotInManifest` rather than smuggled in as though a
+ phase covered it.
+
+ What it is NOT is a project management system. There is no dependency graph, no
+ assignee, no percent-complete, and no attempt to schedule the work — the
+ program correction is explicit that adding modules with no live consumer is how
+ this codebase got three stacks and one working product. It is a list of
+ milestones with dates, read by `orion-standing`, which is the one thing that
+ already speaks to Nick unprompted. One file, one reader, one writer.
+
+   orion-project list                              everything, next milestone first
+   orion-project add <id> "Title" [--note "..."]   start tracking something
+   orion-project milestone <id> <YYYY-MM-DD> "What happens"
+   orion-project done <id> <YYYY-MM-DD>            mark that milestone reached
+   orion-project close <id>                        stop tracking it
+*/
+
+import { existsSync } from "node:fs";
+import { readFile, writeFile, rename } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const FILE = join(homedir(), ".openclaw/orion-controlled/projects.json");
+
+const ESC = String.fromCharCode(27);
+const bold = `${ESC}[1m`, dim = `${ESC}[2m`, grn = `${ESC}[32m`;
+const yel = `${ESC}[33m`, red = `${ESC}[31m`, off = `${ESC}[0m`;
+
+const today = () => new Date().toLocaleDateString("en-CA");
+
+const isDay = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value ?? "");
+
+function die(message) {
+  console.error(`  ${red}${message}${off}`);
+  process.exit(2);
+}
+
+async function load() {
+  if (!existsSync(FILE)) return { projects: [] };
+  try {
+    const parsed = JSON.parse(await readFile(FILE, "utf8"));
+    if (!Array.isArray(parsed.projects)) throw new Error("no projects array");
+    return parsed;
+  } catch (error) {
+    // Refuse rather than start a fresh list. Silently replacing an unreadable
+    // record with an empty one loses whatever was in it and looks like success.
+    die(`${FILE} is unreadable: ${error.message}`);
+  }
+}
+
+async function save(store) {
+  const temporary = `${FILE}.tmp-${process.pid}`;
+  await writeFile(temporary, JSON.stringify(store, null, 2) + "\n", { mode: 0o600 });
+  await rename(temporary, FILE);
+}
+
+const find = (store, id) =>
+  store.projects.find((project) => project.id === id)
+    ?? die(`no project "${id}" — run \`orion-project list\``);
+
+/// The soonest milestone not yet reached. `null` when everything is done, which
+/// is what makes a finished project stop talking.
+export function nextMilestone(project, from = today()) {
+  return (project.milestones ?? [])
+    .filter((milestone) => !milestone.done && milestone.on >= from)
+    .sort((a, b) => a.on.localeCompare(b.on))[0] ?? null;
+}
+
+/// Milestones whose date has passed without being marked done. Reported
+/// separately because "you said this would happen on Monday and nothing says it
+/// did" is a different sentence from "this is coming up".
+export function overdueMilestones(project, from = today()) {
+  return (project.milestones ?? [])
+    .filter((milestone) => !milestone.done && milestone.on < from)
+    .sort((a, b) => a.on.localeCompare(b.on));
+}
+
+async function list() {
+  const store = await load();
+  const active = store.projects.filter((project) => project.status !== "closed");
+  console.log("");
+  if (!active.length) {
+    console.log(`  ${dim}nothing tracked${off}`);
+    console.log("");
+    return;
+  }
+  for (const project of active) {
+    const next = nextMilestone(project);
+    const late = overdueMilestones(project);
+    console.log(`  ${bold}${project.title}${off}  ${dim}(${project.id})${off}`);
+    if (project.note) console.log(`    ${dim}${project.note}${off}`);
+    for (const milestone of (project.milestones ?? []).slice().sort((a, b) => a.on.localeCompare(b.on))) {
+      const mark = milestone.done ? `${grn}done${off}` : late.includes(milestone) ? `${red}late${off}` : `${dim}open${off}`;
+      const arrow = milestone === next ? `${yel}->${off}` : "  ";
+      console.log(`    ${arrow} ${milestone.on}  ${mark}  ${milestone.what}`);
+    }
+    console.log("");
+  }
+}
+
+async function add(id, title, note) {
+  if (!id || !title) die('usage: orion-project add <id> "Title" [--note "..."]');
+  const store = await load();
+  if (store.projects.some((project) => project.id === id)) die(`"${id}" is already tracked`);
+  store.projects.push({
+    id, title, status: "active", startedOn: today(),
+    ...(note ? { note } : {}), milestones: [],
+  });
+  await save(store);
+  console.log(`\n  ${grn}tracking${off}  ${title}\n`);
+}
+
+async function milestone(id, on, what) {
+  if (!isDay(on)) die("the milestone date must be YYYY-MM-DD");
+  if (!what) die('usage: orion-project milestone <id> <YYYY-MM-DD> "What happens"');
+  const store = await load();
+  const project = find(store, id);
+  project.milestones = [...(project.milestones ?? []), { on, what, done: false }];
+  await save(store);
+  console.log(`\n  ${grn}added${off}  ${on} — ${what}\n`);
+}
+
+async function done(id, on) {
+  const store = await load();
+  const project = find(store, id);
+  const hit = (project.milestones ?? []).filter((m) => m.on === on);
+  if (!hit.length) die(`no milestone on ${on} for "${id}"`);
+  hit.forEach((m) => { m.done = true; m.doneOn = today(); });
+  await save(store);
+  console.log(`\n  ${grn}done${off}  ${hit.map((m) => m.what).join("; ")}\n`);
+}
+
+async function close(id) {
+  const store = await load();
+  const project = find(store, id);
+  project.status = "closed";
+  project.closedOn = today();
+  await save(store);
+  console.log(`\n  ${grn}closed${off}  ${project.title}\n`);
+}
+
+function flag(name) {
+  const index = process.argv.indexOf(`--${name}`);
+  return index > 0 ? process.argv[index + 1] : undefined;
+}
+
+const [, , command, ...rest] = process.argv;
+const positional = rest.filter((token, index) =>
+  !token.startsWith("--") && !(index > 0 && rest[index - 1].startsWith("--")));
+
+try {
+  if (!command || command === "list") await list();
+  else if (command === "add") await add(positional[0], positional[1], flag("note"));
+  else if (command === "milestone") await milestone(positional[0], positional[1], positional[2]);
+  else if (command === "done") await done(positional[0], positional[1]);
+  else if (command === "close") await close(positional[0]);
+  else {
+    console.error('usage: orion-project [list|add <id> "Title"|milestone <id> <date> "What"|done <id> <date>|close <id>]');
+    process.exit(2);
+  }
+} catch (error) {
+  console.error(`  ${red}${error.message}${off}`);
+  process.exit(1);
+}

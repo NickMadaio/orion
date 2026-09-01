@@ -18,7 +18,7 @@ gates live in `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
 summarises phases 5-20 on one page. Read them before changing v2 contracts or
 the OpenClaw integration, and preserve the shared dirty worktree.
 
-Last updated 2026-09-01.
+Last updated 2026-09-01 (Batch B).
 
 ---
 
@@ -297,10 +297,25 @@ Two more live under `native/Orion/Tests/`, both compiling the REAL app sources:
 |---|---|
 | `run-health-firewall-test.sh` | no raw HRV, resting heart rate, recovery, sleep score or strain survives into a model prompt — asserted by pulling every number out of the generated text, not by grepping for words |
 | `run-capability-test.sh` | the profile ladder matches the plugin's, and every live config flag has a Settings switch |
+| `run-location-contract-test.sh` | the Mac app decodes the exact bytes `orion-timezone` writes, and both runtimes agree which zone NAMES are storable |
 
 `scripts/orion-lock` is the off switch (Phase 43): it drops the permission
 profile to `restricted_read_only` and disables every cron job. `orion-lock
 status` reports both without changing anything.
+
+`scripts/orion-timezone` is where Orion's HOME zone lives (Phase 40). `status`
+shows home versus the machine and what every cron job is pinned to; `plan
+<zone>` dry-runs; `set <zone>` re-homes the cron jobs, the weather default and
+the record together, verifying by re-reading rather than by trusting exit
+codes. `~/.openclaw/orion-controlled/location.json` is the record, in exactly
+`TimeZonePolicy`'s Codable shape. **Nick's cron jobs are still on
+`America/New_York` on purpose** — he lands in London 2026-09-08 and
+`orion-timezone set Europe/London` is the one command that moves everything.
+
+`scripts/orion-project` tracks work with dated milestones — the horizon between
+a calendar event (a moment) and an open loop (no date at all), which nothing
+could see before. `orion-standing` surfaces a milestone three days out and
+reports a passed one as unaccounted-for rather than rescheduling it.
 
 **Xcode 26.6 is installed, but `xcode-select` points at CommandLineTools**, so
 plain `xcodebuild`, `xcrun` and `swift` use the wrong toolchain and report that
@@ -545,6 +560,58 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 - **An empty filter must deny, not admit.** `wanted = {...} if classes else
   set(MemoryClass)` treated an empty allowlist as "no filter given" and returned
   every class. Distinguish `None` from empty.
+- **A test that injects a timezone on a machine in that same timezone proves
+  nothing.** Fourth member of the self-verifying family, found 2026-09-01.
+  `CutoffDayKeys` computed the 4am day boundary in its INJECTED calendar's zone
+  and rendered it with a static `DateFormatter` that set a locale and **no time
+  zone** — so it rendered in the MACHINE's. Off by one whenever the two
+  disagreed. Every test injected `America/New_York` on a machine that IS
+  `America/New_York`, so 322 tests were blind to it, and it would have gone live
+  the day Nick landed in London. The fix removed the formatter entirely
+  (`CivilDay` has no instant to render); the regression test sweeps all 443
+  zones, so it fails on any machine rather than only one in the wrong zone.
+- **Foundation's `JSONEncoder` escapes forward slashes.** A stored zone reads
+  `Europe\/London`. Legal JSON that every parser accepts — but a stored format
+  here is a cross-language contract, and anything reaching for a substring
+  instead of parsing (a grep, `orion-cron-deliver`'s `--match` regex) silently
+  never matches. Two assertions in a first draft of the Phase 40 tests were
+  wrong for exactly this reason.
+- **`TimeZone(identifier:)` resolves far more than IANA zones, and round-tripping
+  does not filter them.** `GMT+0500`, `EST`, `Zulu` and `Etc/GMT+5` all resolve
+  AND all round-trip — each a fixed offset with no transition rules, right for
+  half the year. `TimeZone(identifier: "UTC").identifier` answers `"GMT"`, so
+  storing `UTC` means reading back a name nobody wrote. The only safe rule is
+  membership in `knownTimeZoneIdentifiers`, whose 443 names all round-trip
+  exactly. `IANAZone` in `SessionDomain/ZonedTime.swift` is the one place that
+  decides this.
+- **Foundation and ICU (node) canonicalise 47 zone names differently, in BOTH
+  directions.** ICU spells it `America/Buenos_Aires` and has never heard of
+  `America/Argentina/Buenos_Aires`; Foundation is the exact opposite. ICU
+  rewrites Foundation's `America/Nuuk` to `America/Godthab` and `Asia/Kolkata`
+  is unknown to Foundation while `Asia/Calcutta` is canonical there. The safe
+  direction is asymmetric: **Foundation preserves everything ICU canonicalises,
+  but not the reverse.** So a node script that writes a zone name for Swift to
+  read must translate — `scripts/orion-timezone` carries the table and
+  `run-location-contract-test.sh` proves it is still load-bearing.
+- **`Calendar.date(from:)` is lenient, which breaks the obvious date
+  validation.** 29 February 2026 does not fail; it rolls forward to 1 March. Ask
+  the resulting date for its month's day-range and you are asking MARCH whether
+  it has a 29th, which it does — so the check accepts every invalid date it was
+  written to reject. Compare the components the calendar hands back.
+- **`DateInterval.contains` is CLOSED at its end**, so it cannot express a
+  half-open day boundary. Assert `interval.end == nextDay.start` instead.
+- **A day is not 86,400 seconds.** Build a day's interval from the NEXT day's
+  start, or a fall-back day loses its 25th hour and a spring-forward day gains
+  one it does not have. Some zones have no midnight at all on their transition
+  date (`America/Santiago` springs forward at 00:00), so construct via
+  `startOfDay`, never by setting hour 0.
+- **Two identical branches make the condition above them look load-bearing when
+  it is not.** A mutation test on `TimeZonePolicy.verdict` survived because
+  `if destination && onTime` and `if destination && !onTime` returned the same
+  thing — so a comment claiming the device-zone reading was the crucial subtlety
+  was simply false. If a mutation survives, suspect the CODE before adding a
+  test to cover it: the fix was to collapse the branch and correct the comment.
+
 - **Missing health data is not zero.** `SessionDomain/DayScore.swift` excludes
   absent inputs and redistributes their weight. Scoring a missing input as zero
   tells the user they had a bad day because a watch did not sync.

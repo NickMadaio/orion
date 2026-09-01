@@ -1,11 +1,46 @@
 #!/usr/bin/env node
 /* Fetch a concise local forecast and deliver it through Orion's Discord alert. */
 import { execFile, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const place = process.argv[2] || "Montvale, New Jersey";
+
+/*
+ Where "here" is, when nobody said.
+
+ This used to be the literal string "Montvale, New Jersey", which was true on
+ 2026-07-31 and stopped being true the moment Nick moved. A hardcoded home has
+ no way to be wrong out loud: it just keeps reporting the weather somewhere he
+ no longer lives, correctly and confidently, forever.
+
+ So the default comes from `location.json`, the same record `orion-timezone`
+ keeps and the Mac app reads. Montvale survives only as the fallback for a
+ machine that has no record yet — which is the state this repo was in until
+ today, and is why it is spelled out here rather than left implicit.
+
+ An explicit argument still wins, because asking for the weather somewhere else
+ is a normal thing to do and must not require moving house.
+*/
+const FALLBACK_PLACE = "Montvale, New Jersey";
+
+function homePlace() {
+  try {
+    const record = JSON.parse(
+      readFileSync(join(homedir(), ".openclaw/orion-controlled/location.json"), "utf8"),
+    );
+    if (typeof record.place === "string" && record.place.trim()) return record.place.trim();
+  } catch {
+    // No record, or an unreadable one. Fall through: a forecast for the old
+    // address is worth more than a crash, and `orion-timezone status` is where
+    // a missing record is meant to be noticed.
+  }
+  return FALLBACK_PLACE;
+}
+
+const place = process.argv[2] || homePlace();
 const curl = (url) => new Promise((resolve, reject) => {
   execFile(
     "/usr/bin/curl",

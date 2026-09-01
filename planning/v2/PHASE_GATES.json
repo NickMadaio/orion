@@ -3215,6 +3215,99 @@
         "No HealthKit sample has still ever been read. RefusingHealthStore remains the only implementation and needs the Apple Developer Program."
       ],
       "nextPhaseAllowed": true
+    },
+    "40": {
+      "name": "Travel and Timezone Support",
+      "status": "in_progress",
+      "entryRequiresPhase": 39,
+      "entrySatisfied": false,
+      "openedOn": "2026-09-01",
+      "openedAgainst": "the manifest text for PHASE 40, taken out of numeric order under Batch B of PROGRAM_CORRECTION_2026-09-01.md",
+      "evidence": "native/Orion/Sources/SessionDomain/ZonedTime.swift, native/Orion/Sources/SessionDomain/TimeZonePolicy.swift, native/Orion/Tests/SessionDomainTests/ZonedTimeTests.swift, native/Orion/Tests/SessionDomainTests/TimeZonePolicyTests.swift, native/Orion/Tests/run-location-contract-test.sh, scripts/orion-timezone",
+      "decisions": [
+        {
+          "id": "opened_out_of_numeric_order",
+          "decision": "Phase 40 was opened while 34-39 are not started.",
+          "why": "Batch B in PROGRAM_CORRECTION_2026-09-01.md. Nick moves to London around 2026-09-07 and lands on the 08th; the three cron jobs are pinned America/New_York and macOS auto-timezone is on. The sequence rule is superseded by that document, not waived here: entrySatisfied is recorded as false rather than asserted true, so the record says plainly that 39 did not gate this."
+        },
+        {
+          "id": "all_day_is_a_separate_case_not_a_flag",
+          "decision": "ZonedTime is a sum type. `.day` carries a CivilDay and has no instant at all, rather than an instant plus an isAllDay boolean.",
+          "why": "An all-day event given an instant has silently had a zone chosen for it. That choice is invisible and correct until the machine moves, at which point a day that was right starts at 7pm the evening before. With no instant on the value, reaching for time requires naming a zone at the call site, where it can be reviewed."
+        },
+        {
+          "id": "the_policy_does_not_act",
+          "decision": "TimeZonePolicy returns a verdict; scripts/orion-timezone performs the change; orion-standing reports it once a day.",
+          "why": "Re-homing touches live cron jobs and a live user-facing file. An assistant that re-homes its own schedule while the user is on holiday is the failure mode Nick's own document names -- 'gets muted within a day, permanently'. A policy that acts on its own conclusion also cannot be dry-run."
+        },
+        {
+          "id": "a_trip_and_a_move_are_distinguished_by_a_recorded_fact",
+          "decision": "ExpectedMove is stored in advance; arriving at the recorded destination is what makes a zone mismatch a move.",
+          "why": "Nothing observable separates them -- a week in London and moving to London are identical to the OS on day one. USER.md said 'ask once after the move' on 2026-07-31 and the deadline passed in silence, because a date written in prose has nothing watching it."
+        }
+      ],
+      "requirements": [
+        {
+          "id": "stores_utc_instant_iana_zone_original_zone_and_all_day_semantics",
+          "status": "passed",
+          "evidence": "ZonedInstant carries instant + zone + originalZone; AllDaySpan carries CivilDays and an optional provenance zone with no instant; ZonedTime is the sum. 27 tests in ZonedTimeTests. Codable round-trip is exact because the instant is normalised to the stored millisecond precision on construction. Mutation-proven: dropping originalZone from rezoned() fails 2 tests."
+        },
+        {
+          "id": "never_relies_on_a_plain_local_datetime_string",
+          "status": "passed",
+          "evidence": "Enforced by type rather than by convention: ZonedTime exposes no `instant` property, so an all-day value cannot yield time without a zone named at the call site. IANAZone refuses GMT+0500, EST, Zulu, Etc/GMT+5 and UTC -- every fixed-offset spelling Foundation will happily resolve. All 443 accepted names round-trip byte for byte, asserted over the whole set."
+        },
+        {
+          "id": "handles_dst",
+          "status": "passed",
+          "evidence": "CivilDay.interval is built from the next day's start, never by adding 86,400 seconds. Tests assert a 25-hour day (Europe/London 2026-10-25), a 23-hour day (2026-03-29), an ordinary 24-hour day so the test cannot pass by always answering 24, correct startOfDay in America/Santiago where midnight does not exist on the transition date, and refusal of a wall time inside a spring-forward gap. Mutation-proven: the 86,400 version fails 6 tests."
+        },
+        {
+          "id": "handles_travel_and_timezone_changes",
+          "status": "passed",
+          "evidence": "rezoned() preserves the instant, reanchored() preserves the wall clock, and they are separate names because picking the wrong one shifts an appointment by the offset between zones. TimeZonePolicy.verdict distinguishes settled / travelling / moveArrived / moveDue / moveScheduled over 18 tests, including clock skew: the verdict is a pure function of (device, instant), so a jumped clock cannot latch a wrong answer that outlives the jump."
+        },
+        {
+          "id": "handles_all_day_events",
+          "status": "passed",
+          "evidence": "The same AllDaySpan is a different interval in each zone (London 2026-09-07T23:00Z, New York 2026-09-08T04:00Z) and the test asserts both literals. `through` is inclusive, stated in the initialiser argument name; a backwards span clamps rather than inverting. A three-day span across the end of BST is 73 hours, not 72."
+        },
+        {
+          "id": "the_record_is_readable_by_both_runtimes",
+          "status": "passed",
+          "evidence": "run-location-contract-test.sh compiles the real SessionDomain sources against bytes the real scripts/orion-timezone produced in a sandboxed HOME -- not a hand-written fixture. 20 checks. It exists because Foundation and ICU canonicalise 47 zone names differently in BOTH directions (ICU: America/Buenos_Aires; Foundation: America/Argentina/Buenos_Aires, and Foundation rewrites nothing where ICU turns America/Nuuk into America/Godthab). Mutation-proven: removing the translation table makes the app refuse the file the script wrote."
+        },
+        {
+          "id": "the_live_cron_weather_and_day_boundary_are_re_homed",
+          "status": "blocked",
+          "reason": "Deliberately NOT done today. Nick is still in New York until roughly 2026-09-07; re-homing now would be wrong for six days. The mechanism is built, dry-runnable (`orion-timezone plan`) and idempotent, and the move is recorded so orion-standing raises it the morning after he lands. This closes when `orion-timezone set Europe/London` is run.",
+          "evidence": "scripts/orion-timezone plan Europe/London currently reports the three cron jobs and shows orion-daily-memory moving 02:10 -> 07:10 local. location.json records home=America/New_York with expectedMove Europe/London on 2026-09-08."
+        },
+        {
+          "id": "the_existing_mac_app_surfaces_use_the_new_vocabulary",
+          "status": "blocked",
+          "reason": "The vocabulary exists and is proven; migrating the app's existing date handling to it is not done. CalendarModel, AppleCalendarSync, EventComposer, WeekStrip and DayTimeline still use Calendar.current and a bare Date with an isAllDay flag. That is a real remaining gap and it is larger than Batch B -- it touches the calendar UI. CutoffDayKeys, which had an actual off-by-one defect, WAS migrated.",
+          "evidence": "grep for Calendar.current under native/Orion/Sources/Orion returns 20+ live sites; Identifiers.swift no longer has a DateFormatter at all."
+        },
+        {
+          "id": "handles_flights",
+          "status": "blocked",
+          "reason": "Not built. A flight is an event whose start and end are anchored to DIFFERENT zones, which ZonedInstant models one of but ZonedTime does not yet compose into a single value. Registering it rather than pretending the travel tests cover it -- they cover a device changing zones, which is a different thing from one event spanning two.",
+          "evidence": "No type in ZonedTime.swift represents a two-zone interval."
+        },
+        {
+          "id": "travel_mode",
+          "status": "blocked",
+          "reason": "The manifest itself says 'Create Travel Mode later'. Recorded so the phase cannot be read as complete while a named deliverable is absent.",
+          "evidence": "manifest PHASE 40, final line."
+        }
+      ],
+      "limitations": [
+        "The zone-name agreement between Foundation and ICU is pinned by a translation table generated on 2026-09-01 and a test that asserts it is still load-bearing. If tzdata moves under it the failure is loud (the Swift decode refuses and names the string), not silent.",
+        "The node half of the verdict rule in orion-timezone and orion-standing is a READER that mirrors TimeZonePolicy.verdict. The Swift type is authoritative and has the 18 tests; the two are not mechanically proven to agree, only the stored FORMAT is.",
+        "orion-standing reports the mismatch in the morning and evening checks only, never hourly. Landing at 21:00 means the notice arrives the next morning, which costs at most one wrong-hour firing of orion-daily-memory."
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {
@@ -3279,6 +3372,15 @@
         "alreadyLive": "nothing",
         "layer": "tool capability, not a model role. Needs its own capability tier in the ORION Control catalog with the usual approval gating, since a device that unlocks or heats something is consequential in a way reading a calendar is not",
         "wouldBelongNear": "PHASE 65 App Intents and System Integration",
+        "status": "registered"
+      },
+      {
+        "id": "projects_with_dated_milestones",
+        "raisedBy": "Nick, via the Batch B brief 2026-09-01 ('the move as a tracked project')",
+        "manifestCoverage": "none - no phase defines a project object. PHASE 39 Daily Planning is a day, PHASE 41 Notification Engine is a message. The Phase 32.5 charter asks Orion to understand 'assignments and project deadlines' and nothing implemented it.",
+        "alreadyLive": "scripts/orion-project and ~/.openclaw/orion-controlled/projects.json, read by orion-standing's morning check. Deliberately minimal: milestones with dates, no dependency graph, no scheduling, no percent-complete.",
+        "layer": "a data record plus one reader, not a subsystem. Built this small because the program correction is explicit that adding modules with no live consumer is how this repo acquired three stacks and one working product.",
+        "wouldBelongNear": "PHASE 39 Daily Planning, or the charter's CAP-SCHOOL-DAY",
         "status": "registered"
       }
     ]

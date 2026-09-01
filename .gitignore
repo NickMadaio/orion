@@ -33,6 +33,11 @@ orion/data/
 native/Orion/Resources/Orion.icns
 data/icon-preview.png
 
+# Agent worktrees — a full duplicate checkout of this repo (6.5MB and growing).
+# Was excluded only in .git/info/exclude, which is NOT committed, so a fresh
+# clone had no protection and `git add -A` would have swept the duplicate in.
+.claude/worktrees/
+
 # Local build outputs
 .builds/
 _gitlocks/

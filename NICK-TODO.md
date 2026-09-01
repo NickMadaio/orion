@@ -38,11 +38,26 @@ when doing account setup; this documentation pass did not re-validate them.
 Full reasoning in `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`. These are the
 only things blocking work.
 
-**a. Have you moved to London?** `USER.md` says "Moving to London before the end
-of August 2026" and "Default timezone: America/New_York until his move; ask once
-afterward." It is now September and the machine is still on EDT, with all three
-cron jobs pinned to New York. Orion was told to ask you this and the deadline
-passed. If you have moved, the morning brief has been firing at the wrong hour.
+**a. Have you moved to London, and has term started?** `USER.md` says "Moving to
+London before the end of August 2026" and "Default timezone: America/New_York
+until his move; ask once afterward." It is now September and the machine is still
+on EDT, with all three cron jobs pinned to New York. Orion was told to ask you
+this and the deadline passed. If you have moved, the morning brief has been
+firing at the wrong hour.
+
+**There is a memory regression attached to this.** The archived
+`planning/_archive/workspace-before-2026-08-14/USER.md:42-44` recorded the move
+as being **"to attend Eastern University"**, and told Orion to treat both the
+Montvale address *and* the timezone as expiring. The current
+`openclaw-workspace/USER.md` lost the university entirely in the 2026-08-14
+rewrite — it now says only "Moving to London."
+
+That matters more than a missing detail usually would. The Phase 32.5 charter
+carefully preserved a school/day-planning capability (`CAP-SCHOOL-DAY`), the
+85-phase manifest dropped university mode altogether, and the live assistant no
+longer knows which university, in which city, or that term is starting now. If
+you confirm it, I will restore the fact to `USER.md` — I have not edited it
+unprompted, because it is your personal record and it is live runtime context.
 
 **b. Is an iPhone coming, and when?** Six manifest phases and the charter's
 `REC-USABLE-CLIENT` gate all hang on this single fact. If the answer is "not

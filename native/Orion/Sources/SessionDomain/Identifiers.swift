@@ -122,7 +122,7 @@ public struct CutoffDayKeys: DayKeyProvider {
     }
 
     public func key(at instant: Date) -> String {
-        Self.formatter.string(from: dayStart(at: instant))
+        CivilDay(of: dayStart(at: instant), in: calendar.timeZone).key
     }
 
     /// The most recent occurrence of the cutoff hour at or before `instant`.
@@ -135,13 +135,24 @@ public struct CutoffDayKeys: DayKeyProvider {
         return calendar.date(byAdding: .day, value: -1, to: todaysCutoff) ?? todaysCutoff
     }
 
-    /// `en_US_POSIX` and a local time zone: the locale stops a user's regional
-    /// settings from reformatting the key, and the time zone is what makes it a
-    /// LOCAL day rather than a UTC one.
-    private static let formatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter
-    }()
+    // There is deliberately no `DateFormatter` here any more, and the reason is
+    // a defect this file shipped with.
+    //
+    // The key used to be rendered by a shared static formatter that set a
+    // locale and NO time zone — so it formatted in `TimeZone.current`, the
+    // MACHINE's zone, while `dayStart` computed the boundary in the INJECTED
+    // calendar's zone. Whenever those two disagreed, the key named the wrong
+    // day. Measured 2026-09-01, London calendar on a New York machine:
+    //
+    //     instant 2026-09-08T04:30Z  (05:30 in London, past the 4am cutoff)
+    //     dayStart -> 2026-09-08T03:00Z   key() -> "2026-09-07"    off by one
+    //
+    // It was invisible because the tests inject `America/New_York` on a machine
+    // that IS `America/New_York`, so the injection proved nothing — the same
+    // self-verifying shape AGENTS.md already records. It becomes live the
+    // moment the machine's zone and Orion's home zone differ, which is what
+    // happens when Nick lands in London.
+    //
+    // `CivilDay` has no instant to render, so the class of bug is gone rather
+    // than fixed: there is nothing left that could pick a zone on its own.
 }

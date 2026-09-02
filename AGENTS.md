@@ -535,11 +535,21 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
   `applied`, so a SUCCESSFUL emergency lockdown would have been reported as a
   failure. Caught only by running it against a copy of the state file. Test a
   panic button before you need it.
-- **launchd cannot read `~/Desktop`.** The TTS daemon's launch agent has never
-  been installable, because the repo lives under `~/Desktop` and a launchd job
-  gets `getcwd: cannot access parent directories: Operation not permitted` plus
-  `can't open input file`. That is why the daemon stayed dead for nineteen days
-  after being killed on 2026-08-18 — nothing could restart it. Start it the way
+- **launchd cannot read `~/Desktop`, and the way round it is to stop needing
+  it.** A launchd job rooted under `~/Desktop` gets `getcwd: cannot access
+  parent directories: Operation not permitted` plus `can't open input file`.
+  That is why the TTS daemon stayed dead for nineteen days after being killed on
+  2026-08-18 — nothing could restart it. **Solved for the remote bridge on
+  2026-09-02** and the recipe generalises: install a COPY outside `~/Desktop`
+  and point the agent at that. `scripts/orion-remote-install` puts one under
+  `~/.openclaw/orion-remote` with `WorkingDirectory=~/.openclaw`, which is
+  exactly how OpenClaw's own gateway agent has run for weeks. No TCC grant, no
+  Full Disk Access, no fight. Verified running under launchd and verified
+  restarting after `kill -9`. The same approach would revive the TTS daemon's
+  agent, which is still uninstalled.
+  The cost is that the copy is what executes: `--status` prints both
+  fingerprints and says DRIFTED when they differ, and the installed `.env`
+  carries only the two values the bridge needs rather than all eight. Start it the way
   `launchers/Choose Orion Voice.command` does, with `ORION_TTS_CLOUD_VOICE=1`, or
   it silently serves the local voice while logging `elevenlabs key found but not
   selected`.

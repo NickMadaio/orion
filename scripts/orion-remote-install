@@ -1,0 +1,166 @@
+#!/bin/bash
+#
+# Make the remote channel PERSISTENT. Orion is either there or he is not.
+#
+#   ./scripts/orion-remote-install            install and start
+#   ./scripts/orion-remote-install --status    is it running, and which copy
+#   ./scripts/orion-remote-install --remove    stop and uninstall
+#
+# WHY THIS COPIES ITSELF OUT OF THE REPO
+#
+# `launchd cannot read ~/Desktop`, and the repo lives there. AGENTS.md records
+# what that cost: the TTS daemon's launch agent has never been installable, and
+# the daemon stayed dead for nineteen days after being killed because nothing
+# could restart it. A launchd job rooted under ~/Desktop gets
+# "getcwd: cannot access parent directories: Operation not permitted".
+#
+# The fix is not to fight TCC, it is to stop needing it. OpenClaw's own gateway
+# agent has run reliably for weeks with WorkingDirectory=~/.openclaw and every
+# file it touches underneath that. This installs the bridge the same way: a copy
+# under ~/.openclaw/orion-remote, which launchd can read without any grant.
+#
+# THE COPY IS THE ONE THAT RUNS. That is the same rule `orion-lock` already
+# follows for the installed plugin -- "locking must act on what is actually
+# running" -- so `--status` prints both fingerprints and says plainly when the
+# installed copy has drifted from the repo. Re-run this after changing the
+# bridge or `orion-remote`, or you will be debugging code that is not executing.
+#
+# THE INSTALLED ENV IS SMALLER THAN .env, DELIBERATELY. Only the two values the
+# bridge actually needs are copied: the bot token and the allowlist. The
+# Anthropic key, the keyring password and the webhook stay in the repo's .env,
+# because a second copy of a secret is a second thing that can leak.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+INSTALL="$HOME/.openclaw/orion-remote"
+PLIST="$HOME/Library/LaunchAgents/com.nickmadaio.orion.remote.plist"
+LABEL="com.nickmadaio.orion.remote"
+LOGDIR="$HOME/Library/Logs/orion"
+
+NODE="$HOME/.openclaw/tools/node-v24.15.0/bin/node"
+[ -x "$NODE" ] || NODE="$(command -v node)"
+
+action="install"
+case "${1:-}" in
+  --status) action="status" ;;
+  --remove) action="remove" ;;
+  -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+  "") ;;
+  *) echo "unknown option: $1"; exit 64 ;;
+esac
+
+fingerprint() {  # a stable hash of the two files that actually matter
+    [ -f "$1/scripts/orion-remote-bridge" ] || { echo "absent"; return; }
+    cat "$1/scripts/orion-remote-bridge" "$1/scripts/orion-remote" 2>/dev/null \
+        | shasum -a 256 | cut -c1-12
+}
+
+running() { pgrep -f "orion-remote/scripts/orion-remote-bridge run" >/dev/null 2>&1; }
+
+if [ "$action" = "status" ]; then
+    echo ""
+    echo "  label      $LABEL"
+    printf '  loaded     '; launchctl list 2>/dev/null | grep -q "$LABEL" && echo "yes" || echo "no"
+    printf '  running    '; running && echo "yes (pid $(pgrep -f 'orion-remote/scripts/orion-remote-bridge run' | head -1))" || echo "no"
+    echo "  installed  $INSTALL  [$(fingerprint "$INSTALL")]"
+    echo "  repo       $REPO  [$(fingerprint "$REPO")]"
+    if [ "$(fingerprint "$INSTALL")" != "$(fingerprint "$REPO")" ]; then
+        echo ""
+        echo "  DRIFTED — the running copy is not the repo copy. Re-run this script."
+    fi
+    echo "  log        $LOGDIR/remote-bridge.log"
+    echo ""
+    exit 0
+fi
+
+if [ "$action" = "remove" ]; then
+    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl unload "$PLIST" 2>/dev/null
+    rm -f "$PLIST"
+    rm -rf "$INSTALL"
+    echo "removed. Orion no longer answers remotely."
+    exit 0
+fi
+
+# ---------- install ----------
+
+[ -n "$NODE" ] || { echo "no node found"; exit 2; }
+
+# The two values, read from the repo .env without ever printing them.
+read_env() {
+    "$NODE" -e '
+const fs = require("node:fs");
+const want = process.argv[1];
+for (const line of fs.readFileSync(process.argv[2], "utf8").split("\n")) {
+  const t = line.trim();
+  if (!t || t.startsWith("#") || !t.includes("=")) continue;
+  const [k, ...r] = t.split("=");
+  if (k.trim() === want) { process.stdout.write(r.join("=").trim().replace(/^["'"'"']|["'"'"']$/g, "")); break; }
+}' "$1" "$REPO/.env"
+}
+
+TOKEN="$(read_env ORION_DISCORD_BOT_TOKEN)"
+ALLOW="$(read_env ORION_REMOTE_ALLOW)"
+[ -n "$TOKEN" ] || { echo "no ORION_DISCORD_BOT_TOKEN in $REPO/.env — nothing to install"; exit 2; }
+if [ -z "$ALLOW" ]; then
+    echo "WARNING: ORION_REMOTE_ALLOW is not set, so the bridge will refuse every"
+    echo "         message. Installing anyway; set it and re-run."
+fi
+
+echo "== installing outside ~/Desktop, where launchd can reach it =="
+mkdir -p "$INSTALL" "$LOGDIR"
+rm -rf "$INSTALL/scripts"
+cp -R "$REPO/scripts" "$INSTALL/scripts"
+# Nothing in here needs the venv, and a stale copy of it would be confusing.
+rm -rf "$INSTALL/scripts/__pycache__" "$INSTALL/scripts/lib/__pycache__"
+
+umask 077
+printf 'ORION_DISCORD_BOT_TOKEN=%s\n' "$TOKEN" > "$INSTALL/.env"
+[ -n "$ALLOW" ] && printf 'ORION_REMOTE_ALLOW=%s\n' "$ALLOW" >> "$INSTALL/.env"
+chmod 600 "$INSTALL/.env"
+echo "   $INSTALL  [$(fingerprint "$INSTALL")]"
+echo "   .env carries 2 value(s), not the repo's $(grep -cE '^[A-Z0-9_]+=' "$REPO/.env")"
+
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE</string>
+    <string>$INSTALL/scripts/orion-remote-bridge</string>
+    <string>run</string>
+  </array>
+  <!-- Under ~/.openclaw, never ~/Desktop. This line is the whole point. -->
+  <key>WorkingDirectory</key><string>$HOME/.openclaw</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <!-- A bad token makes the bridge exit deliberately rather than retry. Without
+       a throttle that becomes a tight crash loop; thirty seconds keeps the log
+       readable and still recovers on its own once the config is fixed. -->
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>$LOGDIR/remote-bridge.log</string>
+  <key>StandardErrorPath</key><string>$LOGDIR/remote-bridge.log</string>
+</dict>
+</plist>
+PLIST
+chmod 644 "$PLIST"
+echo "   $PLIST"
+
+echo "== starting =="
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
+launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null
+launchctl kickstart -k "gui/$(id -u)/$LABEL" 2>/dev/null
+
+echo ""
+echo "  Orion answers remotely from now on, and again after a reboot."
+echo "  status:  ./scripts/orion-remote-install --status"
+echo "  log:     tail -f $LOGDIR/remote-bridge.log"
+echo "  stop:    ./scripts/orion-remote-install --remove"
+echo ""
+echo "  Re-run this after changing orion-remote or the bridge — the INSTALLED"
+echo "  copy is what runs, and --status says when it has drifted."
+echo ""

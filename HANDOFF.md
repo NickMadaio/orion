@@ -1,5 +1,55 @@
 # HANDOFF
 
+## 2026-09-02 17:42 — Orion is persistent, and talking
+
+Two things changed today that the earlier entries below do not reflect.
+
+### 1. A DM reaches the BRAIN, not just a verb
+
+Nick: *"the idea isnt i just say a word or two, the idea is that its a remote way
+to directly speak to the orion brain."* Anything that is not one of the ten verbs
+now goes to `openclaw agent --session-key orion-app-v2` — the exact key
+`GatewayClient.swift` uses, so a DM lands in the conversation standing at the
+Mac. **One Orion, one memory.** Proven live: *"hi Orion, I'm now talking
+remotely. Cool right?"* → *"Hey! Remote and working—that's the setup."*
+
+**This reverses a documented decision.** `orion-remote`'s header still states its
+founding property — seven verbs, NO FALLTHROUGH TO A MODEL. Nick was shown the
+trade (with the brain attached, whoever holds that Discord account holds the Mac)
+and chose full authority. Registered in `scopeNotInManifest`. What survives:
+every guard still runs FIRST — allowlist, LOCK ORION, routing, replay, expiry,
+rate limit — and text reaches the model as a FILE, never argv. Mutation-proven,
+including that a locked Orion will not think.
+
+### 2. launchd CAN run it — the ~/Desktop constraint is solved
+
+**This is the one worth carrying forward.** AGENTS.md has said for weeks that
+launchd cannot read `~/Desktop`, which is why the TTS daemon's agent has never
+been installable and why it stayed dead for nineteen days. The answer is not to
+fight TCC, it is to stop needing it: **install a copy outside `~/Desktop`.**
+
+`scripts/orion-remote-install` puts one under `~/.openclaw/orion-remote` with
+`WorkingDirectory=~/.openclaw` — exactly how OpenClaw's own gateway agent has run
+for weeks. No TCC grant, no Full Disk Access. Verified: launchd starts it, it
+connects, and `kill -9` is followed by an automatic restart in ~12s and a
+reconnect. **The same recipe would revive the TTS daemon's agent.**
+
+The cost, and `--status` reports it: the COPY is what executes. It prints both
+fingerprints and says DRIFTED when they differ, so re-run the installer after
+touching `orion-remote` or the bridge. The installed `.env` carries 2 values,
+not the repo's 8 — a second copy of a secret is a second thing that can leak.
+
+### Still open
+
+- **Phase 40** — the cron re-home, waiting on the 2026-09-08 move.
+- **Phase 43** — reauthentication, the only one of nine left.
+- **`files desktop` over the launchd bridge is UNVERIFIED.** The job inherits
+  launchd's TCC context, so reading `~/Desktop` may fail there even though it
+  works from a terminal. The handler names the permission error clearly if so.
+  One DM settles it.
+
+---
+
 ## 2026-09-02 13:35 — The Discord bridge is live. One line from a round trip.
 
 Nick created the bot, added it to the ORION guild and put the token in `.env`.

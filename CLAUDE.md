@@ -14,8 +14,13 @@ working rules for Claude, Codex and other coding assistants.
 - **45** — 11/12. Everything is built and proven; one full Discord round trip is
   outstanding because no account is allowlisted yet.
 
-**The Discord bridge is live** (`scripts/orion-remote-bridge`) and reaches the
-real gateway. `ORION_REMOTE_ALLOW` refuses everyone by default; the candidate id
+**The Discord channel is live and PERSISTENT.** `scripts/orion-remote-install`
+runs the bridge under launchd from a copy at `~/.openclaw/orion-remote` — which
+is how the long-standing "launchd cannot read ~/Desktop" constraint was solved:
+install outside Desktop rather than fight TCC. A DM reaches the Orion BRAIN in
+session `orion-app-v2`, the same one the Mac app uses, so it is one Orion with
+one memory. The ten verbs remain as fast paths. The INSTALLED copy is what runs;
+`--status` says when it has drifted from the repo. `ORION_REMOTE_ALLOW` refuses everyone by default; the candidate id
 sits commented out in `.env`, because granting an account authority over this Mac
 is a person's decision rather than an inference. Phase 46 must not start before
 that round trip happens; it is a registered blocked requirement, so the gate

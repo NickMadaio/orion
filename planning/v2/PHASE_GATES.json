@@ -4265,6 +4265,17 @@
         "layer": "a data record plus one reader, not a subsystem. Built this small because the program correction is explicit that adding modules with no live consumer is how this repo acquired three stacks and one working product.",
         "wouldBelongNear": "PHASE 39 Daily Planning, or the charter's CAP-SCHOOL-DAY",
         "status": "registered"
+      },
+      {
+        "id": "remote_conversation_with_the_brain",
+        "raisedBy": "Nick, 2026-09-02: \"the idea isnt i just say a word or two, the idea is that its a remote way to directly speak to the orion brain.\"",
+        "manifestCoverage": "none. The remote ladder (46 harmless actions, 47 files, 48 privilege separation, 49 remote approval, 51/52 terminal) governs what Orion may DO remotely; conversational access cuts across all of it. PHASE 17 Conversation and State Sync is the nearest relative and is about multi-device sync of conversations, not about a chat transport into the agent.",
+        "alreadyLive": "scripts/orion-remote routes any message that is not one of its ten verbs to `openclaw agent --session-key orion-app-v2 --json --message-file` -- the same path scripts/orion-mission already used, so a turn is durable, restart-surviving and inspectable with `openclaw tasks show <runId>`. orion-app-v2 is the exact key GatewayClient.swift uses, so a DM lands in the conversation Nick has at the Mac: one Orion, one memory. scripts/orion-remote-bridge carries it over Discord.",
+        "layer": "a transport into the existing agent, not a new model role and not a capability tier. It adds no action Orion could not already take; it adds a second place from which he can be asked. That is why it needed a decision about authority rather than a new entry in the capability catalogue.",
+        "wouldBelongNear": "PHASE 49 Remote Approval System, which is where the manifest puts the question of what a remote request may authorise. Nick chose full authority ahead of that phase -- remote Orion has the same 78 catalogued actions as the Orion at the desk -- so 49 will be narrowing an existing power rather than granting a new one.",
+        "status": "registered",
+        "reversesADocumentedDecision": "orion-remote's header states its original safety property outright: seven verbs, no fuzzy matching, NO FALLTHROUGH TO A MODEL. Attaching the brain gives that up deliberately and on Nick's instruction, after he was shown the trade. What survives is that every guard still runs FIRST -- allowlist, LOCK ORION, device routing, replay, expiry, rate limit -- and that inbound text reaches the model as a FILE, never as argv, so it still never becomes a shell word. Both are pinned by mutation-proven assertions in scripts/orion_v2_remote_check.sh, including that a locked Orion will not think and a stranger's question gets silence.",
+        "residualRisk": "Whoever controls that Discord account controls the Mac to the same extent Nick does at the keyboard. LOCK ORION is the backstop, and it genuinely reaches the channel now -- it was repaired the same day from a state where a lost race silently disarmed it."
       }
     ]
   },

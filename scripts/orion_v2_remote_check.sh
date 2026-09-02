@@ -48,7 +48,28 @@ check() {
     if [ "$1" = "0" ]; then printf 'ok   %s\n' "$2"; else printf 'FAIL %s\n' "$2"; failures=$((failures + 1)); fi
 }
 # Runs the REAL script against the sandbox HOME.
-remote() { HOME="$SANDBOX" ORION_REMOTE_ALLOW="${ALLOW:-local}" "$NODE" "$REMOTE" "$@" 2>&1; }
+# A stub brain, so the checks exercise ROUTING without spending a model turn --
+# and so a machine with no gateway can still run them. It answers in the real
+# envelope shape, which is the shape that matters: the first version of the
+# reply extraction guessed at fields that do not exist and would have answered
+# every question with "(Orion had nothing to say)" while reporting success.
+BRAIN_STUB="$SANDBOX/fake-openclaw"
+cat > "$BRAIN_STUB" <<'STUB'
+#!/bin/bash
+# argv: agent --session-key <k> --timeout <s> --json --message-file <path>
+for i in "$@"; do :; done
+msg=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--message-file" ] && msg="$(cat "$a")"
+  [ "$prev" = "--session-key" ] && session="$a"
+  prev="$a"
+done
+echo "{\"runId\":\"run-stub-1\",\"status\":\"ok\",\"summary\":\"completed\",\"result\":{\"payloads\":[{\"text\":\"STUBBRAIN saw [$msg] in session [$session]\",\"mediaUrl\":null}]}}"
+STUB
+chmod +x "$BRAIN_STUB"
+
+remote() { HOME="$SANDBOX" ORION_REMOTE_ALLOW="${ALLOW:-local}" ORION_BRAIN_BIN="$BRAIN_STUB" "$NODE" "$REMOTE" "$@" 2>&1; }
 seen_count() {
     "$NODE" -e "try{process.stdout.write(String((JSON.parse(require('fs').readFileSync('$CTRL/remote-inbound.json','utf8')).seen||[]).length))}catch{process.stdout.write('0')}"
 }
@@ -99,6 +120,22 @@ for BAD in "/etc/passwd" "../../etc" "~" "desktop/../.ssh"; do
     if [ $? -eq 0 ]; then check 1 "and '$BAD' listed nothing"; else check 0 "and '$BAD' listed nothing"; fi
 done
 
+# Every guard must run BEFORE the brain, or attaching it widened the attack
+# surface rather than the usefulness. These are the same four rules as above,
+# re-asserted against a message that would otherwise reach the model.
+echo ""
+echo "== the brain sits BEHIND every guard =="
+UNKNOWN="$(ALLOW=local remote handle 'tell me a secret' --from a-stranger)"
+[ -z "$UNKNOWN" ]
+check $? "a stranger's question never reaches the brain -- silence, not an answer"
+
+echo '{"locked":true,"at":"2026-09-02T00:00:00Z","by":"test"}' > "$CTRL/lock.json"
+LOCKED_Q="$(remote handle 'what is the capital of France' --from local)"
+echo "$LOCKED_Q" | grep -q "Orion is locked"
+check $? "and a locked Orion will not think either -- LOCK ORION stops the brain, not just the verbs"
+if echo "$LOCKED_Q" | grep -q "STUBBRAIN"; then check 1 "and the model was never invoked"; else check 0 "and the model was never invoked"; fi
+rm -f "$CTRL/lock.json"
+
 echo ""
 echo "== who is obeyed =="
 OUT="$(ALLOW=local remote handle 'device' --from someone-else)"
@@ -138,8 +175,17 @@ check $? "a flag with no value is an error rather than undefined (said: $NOVALUE
 
 echo ""
 echo "== malformed, replayed, stale, misaddressed =="
-echo "$(remote handle 'do the thing' --from local)" | grep -q "not a command I know"
-check $? "an unknown verb is refused by vocabulary, with no fallthrough to a model"
+# THE DESIGN CHANGED HERE, DELIBERATELY. This file used to assert "no
+# fallthrough to a model", which was the original safety property. Nick's
+# decision on 2026-09-02 -- "the idea is that its a remote way to directly speak
+# to the orion brain" -- inverts it: anything that is not one of the verbs is a
+# question, and gets an answer. What must remain true is that every guard still
+# runs FIRST, which is what the rest of this section now pins.
+BRAINED="$(remote handle 'what is the capital of France' --from local)"
+echo "$BRAINED" | grep -q "STUBBRAIN saw"
+check $? "a message that is not a verb reaches the brain rather than being refused"
+echo "$BRAINED" | grep -q "in session \[orion-app-v2\]"
+check $? "and it lands in orion-app-v2 -- the SAME session GatewayClient.swift uses, so it is one Orion with one memory rather than a forgetful lookalike"
 SHELLY="$(remote handle 'device; rm -rf /' --from local)"
 echo "$SHELLY" | grep -qE "takes no arguments|not a command|Orion \| DEVICE"
 check $? "a shell metacharacter cannot reach a shell -- it is tokenised, never interpreted (said: $(echo "$SHELLY" | head -1 | cut -c1-50))"

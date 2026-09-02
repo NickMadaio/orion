@@ -220,7 +220,16 @@ async function dispatch({ text, authorID, channelID }) {
     { timeout: 30_000, env: childEnv },
   );
   const envelopeID = (injected.stdout.match(/queued\s+([0-9a-f]+)/) || [])[1];
-  await run(process.execPath, [REMOTE, "poll"], { timeout: 120_000, env: childEnv });
+  /*
+   Three minutes, not two.
+
+   A verb answers in milliseconds, but a brain turn is allowed 90 seconds and
+   the agent call itself waits 120 before giving up. A 120-second poll timeout
+   would therefore kill the child mid-thought and report a transport failure for
+   what was actually a long answer -- the kind of bug that only appears on the
+   interesting questions.
+  */
+  await run(process.execPath, [REMOTE, "poll"], { timeout: 180_000, env: childEnv });
   if (!envelopeID) return null;
 
   // The reply is whatever orion-remote decided, read back out of its own

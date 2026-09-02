@@ -57,11 +57,47 @@ const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
 // It is recorded in the audit line whenever it differs from the real binary.
 const MISSION_BIN = process.env.ORION_REMOTE_MISSION_BIN || join(ROOT, "scripts/orion-mission");
 
+/*
+ THE BRAIN. Nick's decision, 2026-09-02: "the idea is that its a remote way to
+ directly speak to the orion brain."
+
+ This file was built on the opposite principle, and the header above still says
+ so: seven verbs, no fuzzy matching, NO FALLTHROUGH TO A MODEL. That was a
+ deliberate safety property and attaching the brain gives it up on purpose --
+ recorded here rather than quietly loosened, because someone reading this file
+ in six months needs to know it was a decision and not a drift.
+
+ What survives, and it is most of it. Everything in front of the brain still
+ runs first and in the same order: the sender allowlist, LOCK ORION, device
+ routing, replay, expiry, and the rate limit. Only a message that has passed all
+ six reaches the model, and it reaches it as a FILE rather than as argv, so
+ inbound text still never becomes a shell word or a process argument.
+
+ `orion-app-v2` is not a new session. It is the exact key `GatewayClient.swift`
+ uses, so a DM lands in the same conversation as the one Nick has standing at
+ the Mac -- one Orion with one memory, which is what he asked for. Using a
+ separate key would have been easier and would have produced a forgetful
+ stranger wearing Orion's name.
+
+ The seven verbs stay as FAST PATHS. `device` should answer from `pmset` in a
+ quarter of a second, not cost a model turn to tell you the battery level.
+*/
+const BRAIN_SESSION = process.env.ORION_BRAIN_SESSION || "orion-app-v2";
+// A test seam, not a config knob -- the same shape as MISSION_BIN above, and
+// for the same reason: a check suite must be able to exercise the routing
+// without spending a model turn, and whoever sets this already owns the process.
+const BRAIN_BIN = process.env.ORION_BRAIN_BIN || OPENCLAW;
+const BRAIN_TIMEOUT_S = 90;
+
 const MISSION_RE = /^[a-z0-9][a-z0-9-]{0,39}$/; // the shape orion-notify enforces
 const APPROVAL_RE = /^ap-[0-9a-f]{8}$/; // exactly what `ap-${randomBytes(4)}` mints
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 const TERMINAL = new Set(["succeeded", "needs_human", "needs_permission", "budget_exhausted", "unsafe", "aborted"]);
+// 200 bytes and 8 tokens were a COMMAND's dimensions. A sentence addressed to
+// the brain is not a command, so the verb grammar keeps its tight bounds and
+// anything longer is simply not a verb -- it is a question, and gets one.
 const [MAX_BYTES, MAX_TOKENS] = [200, 8];
+const MAX_BRAIN_BYTES = 4000;
 const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_CAP = 12; // per sender, counting rejects too, so garbage cannot flood
 const SEEN_KEPT = 200; // replayed envelope ids are refused, never re-executed
@@ -316,6 +352,60 @@ const usage = (verb) => {
   const wanted = shape.slice(0, Math.max(min, 1)).map((name) => HINTS[name] ?? name);
   return `${verb} needs ${wanted.join(", then ")}`;
 };
+
+/* ---------- the brain ---------- */
+
+/*
+ One conversation turn with Orion, through the same `openclaw agent` path
+ `orion-mission` uses -- durable, restart-surviving, and auditable for free with
+ `openclaw tasks show <runId>`. Not a second route to the model; the existing one.
+*/
+async function askBrain(text) {
+  await mkdir(CONTROLLED, { recursive: true });
+  // Via a FILE, never argv. The message is untrusted text and this is the one
+  // property from the original design that costs nothing to keep.
+  const file = join(CONTROLLED, `brain-${randomBytes(6).toString("hex")}.txt`);
+  await writeFile(file, text, { mode: 0o600 });
+  try {
+    const { stdout } = await run(
+      BRAIN_BIN,
+      ["agent", "--session-key", BRAIN_SESSION, "--timeout", String(BRAIN_TIMEOUT_S),
+       "--json", "--message-file", file],
+      { timeout: (BRAIN_TIMEOUT_S + 30) * 1000, maxBuffer: 32 * 1024 * 1024 },
+    );
+    const envelope = JSON.parse(stdout);
+    /*
+     `result.payloads` is an array of { text, mediaUrl }, and that is the ONLY
+     place the reply lives. The first draft of this guessed at result.reply /
+     result.text / reply / text -- none of which exist -- and would have
+     answered every question with "(Orion had nothing to say)" while reporting
+     success. Verified against the real envelope before shipping, which is the
+     only reason it is right.
+
+     Joined rather than [0], because a turn may legitimately emit several.
+    */
+    const payloads = Array.isArray(envelope?.result?.payloads) ? envelope.result.payloads : [];
+    const reply = payloads.map((p) => p?.text ?? "").filter(Boolean).join("\n\n");
+    // runId is TOP level, not under result.meta. It is the handle for
+    // `openclaw tasks show <runId>`, so the audit is worth nothing without it.
+    const runId = envelope?.runId ?? envelope?.result?.meta?.agentMeta?.runId ?? null;
+    if (envelope?.status && envelope.status !== "ok") {
+      return { ok: false, reply: `Orion did not finish: ${String(envelope.summary ?? envelope.status).slice(0, 140)}`, runId };
+    }
+    return { ok: true, reply: reply.trim() || "(Orion had nothing to say)", runId };
+  } catch (error) {
+    const detail = String(error?.stderr || error?.message || error).slice(0, 300);
+    // The gateway refuses a second turn in a session that is already running
+    // one. That is not a failure, it is Nick talking at the Mac and on his
+    // phone at the same time -- and saying so is more useful than an error.
+    if (/already running|busy/i.test(detail)) {
+      return { ok: false, reply: "You have a turn running at the Mac — give it a moment and send that again.", runId: null };
+    }
+    return { ok: false, reply: `Orion could not answer: ${detail.split("\n")[0].slice(0, 140)}`, runId: null };
+  } finally {
+    await rm(file, { force: true });
+  }
+}
 
 /* ---------- Phase 45: the read-only capabilities ---------- */
 
@@ -624,16 +714,33 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
   });
   const parsed = parse(text);
   if (parsed.error) {
-    await audit({ ...record, decision: "rejected", reason: parsed.error });
-    return {
-      ok: false,
-      // A recognised verb with bad arguments gets a straight answer; only an
-      // unrecognised word gets the whole list, because only then is the list
-      // the useful reply.
-      reply: parsed.verb
-        ? parsed.error
-        : `not a command I know (${parsed.error}). Try: ${Object.keys(VERBS).join(", ")}`,
-    };
+    // A RECOGNISED verb with bad arguments is a typo, not a question. Answering
+    // "files" with a model turn would be slower, cost money, and be less useful
+    // than naming the three folders.
+    if (parsed.verb) {
+      await audit({ ...record, decision: "rejected", reason: parsed.error });
+      return { ok: false, reply: parsed.error };
+    }
+    // Anything else is Nick talking. Every guard above has already run.
+    //
+    // MAX_BRAIN_BYTES was declared and then never used -- a cap that exists
+    // only as a constant is not a cap. Enforced here rather than in parse(),
+    // because parse()'s tight bounds are the VERB grammar and a question is
+    // not a verb.
+    if (Buffer.byteLength(text, "utf8") > MAX_BRAIN_BYTES) {
+      await audit({ ...record, decision: "rejected", reason: "message too long for one turn" });
+      return { ok: false, reply: `that is longer than ${MAX_BRAIN_BYTES} bytes — send it in pieces` };
+    }
+    const answer = await askBrain(text);
+    await audit({
+      ...record,
+      decision: answer.ok ? "accepted" : "error",
+      verb: "brain",
+      session: BRAIN_SESSION,
+      runId: answer.runId,
+      reply: answer.reply.slice(0, 200),
+    });
+    return answer;
   }
   try {
     const result = await withStateLock(async () => {

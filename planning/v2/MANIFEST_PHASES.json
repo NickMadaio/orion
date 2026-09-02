@@ -16,7 +16,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-39, 41 and 42 complete; Phase 40 has nine of ten requirements passed and stays open until the live cron jobs are re-homed on 2026-09-08. Next work is Phase 43.",
+    "numberedProgramPosition": "Phases 0-39, 41 and 42 complete. Phase 40 has nine of ten requirements passed and stays open until the live cron jobs are re-homed on 2026-09-08; Phase 43 has five of nine and stays open until Phase 44/45 provide a dispatcher, a queue and a lease to lock. Next work is Phase 44.",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -195,6 +195,11 @@
     "42": {
       "status": "complete",
       "evidence": "planning/v2/PHASE_GATES.json phase 42"
+    },
+    "43": {
+      "status": "in_progress",
+      "evidence": "planning/v2/PHASE_GATES.json phase 43",
+      "note": "The panic button was already built and working; this closed the missing gate record and gave it its first automated check. Five of nine requirements pass. Three of the four blocked ones need Phase 44/45 machinery to exist before they can be closed; the fourth is a missing explicit locked flag."
     }
   },
   "tracks": [

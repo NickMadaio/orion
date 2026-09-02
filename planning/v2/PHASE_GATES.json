@@ -3786,6 +3786,78 @@
         "scripts/orion_v2_authority_contract_check.sh needs the plugin's dist/ built. It exits 2 with a clear message when it is not, rather than passing vacuously."
       ],
       "nextPhaseAllowed": true
+    },
+    "43": {
+      "name": "LOCK ORION",
+      "status": "in_progress",
+      "entryRequiresPhase": "42",
+      "entrySatisfied": true,
+      "evidence": "scripts/orion-lock (built earlier, unchanged by this gate) and scripts/orion_v2_lock_check.sh, new: the first automated check the panic button has ever had. 14 assertions, run against the real script and the real changePermissionProfile in a scratch HOME.",
+      "decisions": [
+        "NOT rebuilt. orion-lock already existed, worked, and had been verified once by hand; this gate verifies and records it. Grepping before designing is what kept it that way -- Phase 38 was nearly rebuilt the same way.",
+        "What it was missing was a TEST, not code. A kill switch nobody re-tests is one nobody knows still works, and the failure surfaces at exactly the wrong moment. The script's own comments record that an earlier draft checked for a writer status ('applied') that never occurs, which would have reported a SUCCESSFUL lockdown as a failure -- that class of defect now has a check that catches it, and it is one of the four mutations proven to fail.",
+        "The check never touches the live system: HOME is redirected, openclaw is a stub that records argv instead of touching real cron, and the real permission-state.json is hashed before and after and asserted byte-identical. orion-lock itself was NOT run against live state during this work -- doing so would have dropped Nick's own authority and disabled his three cron jobs.",
+        "Four requirements are registered BLOCKED rather than argued into green. Three of them depend on machinery Phases 44 and 45 build, and the fourth is a concrete missing flag. A gate full of green that hides undone work is the failure this register exists to prevent."
+      ],
+      "requirements": [
+        {
+          "id": "stops_new_remote_dispatches",
+          "status": "blocked",
+          "reason": "Nothing dispatches remotely yet -- scripts/orion-remote is written but has no transport and no token, and Phase 44 is where it lands. The mechanism that will stop it is in place and proven (every verb executes through the permission layer, and the lock drops that layer to the floor), but a claim that cannot be exercised is not a passed requirement.",
+          "evidence": "Proven by construction only: no execution path bypasses the permission profile, and the floor is measured below. Registered so Phase 44 must close it against a real dispatcher rather than inheriting a green tick."
+        },
+        {
+          "id": "cancels_queued_remote_jobs_where_possible",
+          "status": "blocked",
+          "reason": "There is no remote job queue. The nearest thing that does exist is the `pending` approval map in ~/.openclaw/orion-controlled/remote.json, minted by orion-notify's `blocked` event, and orion-lock does NOT clear it -- grepped and confirmed, zero references. A pending approval id surviving a lockdown means a queued 'approve ap-xxxx' could still land afterwards. Concrete gap with a concrete fix, registered rather than waved through on 'where possible'.",
+          "evidence": "grep for remote.json/pending in scripts/orion-lock returns 0. The approval mint is in scripts/orion-notify."
+        },
+        {
+          "id": "suspends_automations",
+          "status": "passed",
+          "evidence": "Every scheduled job is asked to be disabled, asserted by ID CONTENTS rather than by count -- a count of three would pass if it disabled one job three times. Cron is the only thing that starts work nobody asked for. Mutation-proven: emptying the disable loop fails the named assertion."
+        },
+        {
+          "id": "disables_delegated_policies",
+          "status": "passed",
+          "evidence": "The permission profile IS the delegation mechanism that exists today, and the lock drops it to the bottom rung through the plugin's own changePermissionProfile rather than by writing the state file. Measured, not asserted, and read out of the live plugin and catalogue so widening the floor in permissions.ts fails the check: external_connected reaches 78 of 78 catalogued actions across 24 tiers; restricted_read_only reaches 15, across exactly ambient_info, desktop_read and simulation. Nothing writes, sends, modifies Orion, or touches the browser or Messages. Mutation-proven: setting the floor to consequential_local fails three assertions."
+        },
+        {
+          "id": "expires_remote_control_leases",
+          "status": "blocked",
+          "reason": "There is no lease. Remote control is Phase 44 and 45, and RemoteControlState (Phase 42) is a display type with no store behind it. Nothing to expire and nothing that would notice.",
+          "evidence": "No lease type or store exists in the repo; MobileCore's RemoteControlState has no producer."
+        },
+        {
+          "id": "requires_reauthentication_for_sensitive_operations",
+          "status": "blocked",
+          "reason": "Not implemented. The recovery path is deliberately asymmetric -- raising the profile takes a Settings action or asking Orion in as many words -- but asymmetry is not reauthentication. Nothing re-checks an identity before a sensitive operation after a lock.",
+          "evidence": "scripts/orion-lock's own closing text describes the recovery as a profile change, with no identity step."
+        },
+        {
+          "id": "flags_account_state_as_locked",
+          "status": "blocked",
+          "reason": "There is no locked FLAG, only an inferred one, and the inference is ambiguous: locked state is read as `profile == restricted_read_only`, which is also a profile a person could legitimately choose with no emergency involved. So 'is ORION locked' and 'is ORION at its most restrictive' are the same question today, and they are not the same question. MobileCore already has LockState.orionLocked (Phase 42's SecurityControls) with nothing writing it, which is where the real flag belongs.",
+          "evidence": "permission-state.json holds profile/version/updatedAt and no lock marker; SecurityControls.lockOrion() has no producer."
+        },
+        {
+          "id": "provides_a_deliberate_recovery_process",
+          "status": "passed",
+          "evidence": "Deliberately not symmetrical, which is the design: locking is one word, and raising the profile back is a Settings action or asking Orion in as many words, because undoing an emergency should cost more than the emergency did. The script prints the exact recovery steps and the audit path on every run. Reconstruction is possible because the change goes through the plugin's writer, so the append-only permission audit is written BEFORE the state under the same lock -- asserted, including that the audit names orion-lock as what asked. Mutation-proven: removing that attribution fails the assertion."
+        },
+        {
+          "id": "built_before_dangerous_remote_actions",
+          "status": "passed",
+          "evidence": "The manifest orders 43 before 44 on purpose, and that order held: the lock exists and now has a regression check, and no inbound channel has been built. Phase 44 has not started."
+        }
+      ],
+      "limitations": [
+        "Four requirements are blocked and three of them are Phase 44 and 45's to close: a real dispatcher to stop, a real queue to cancel, and a real lease to expire. Phase 44 must close them against live machinery rather than inherit them.",
+        "The locked FLAG is the one blocked item that does not depend on a later phase. It is small -- a marker alongside the profile, and a producer for SecurityControls.lockOrion() -- and it was left alone deliberately, because the instruction for this phase was to verify and close the gate, not to rebuild a working panic button.",
+        "orion-lock was never run against the live system during this work, so the live path is still proven only by the earlier by-hand verification plus this sandbox. The sandbox runs the real script through the real writer, which is the closest thing short of actually dropping Nick's authority.",
+        "The check depends on the plugin's dist/ being built and exits 2 with a clear message when it is not, rather than passing vacuously."
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {

@@ -3909,15 +3909,13 @@
       "requirements": [
         {
           "id": "stops_new_remote_dispatches",
-          "status": "blocked",
-          "reason": "Nothing dispatches remotely yet -- scripts/orion-remote is written but has no transport and no token, and Phase 44 is where it lands. The mechanism that will stop it is in place and proven (every verb executes through the permission layer, and the lock drops that layer to the floor), but a claim that cannot be exercised is not a passed requirement.",
-          "evidence": "Proven by construction only: no execution path bypasses the permission profile, and the floor is measured below. Registered so Phase 44 must close it against a real dispatcher rather than inheriting a green tick."
+          "status": "passed",
+          "evidence": "Closed 2026-09-02, when Phase 44's transport gave it something to stop. orion-lock now raises an explicit flag (lock.json) BEFORE it does anything slower, and orion-remote reads that flag fresh from disk on every inbound message -- not cached at startup, because a bridge running for a week would never notice it otherwise. The check is placed AFTER the allowlist and before everything else on purpose: a stranger still gets silence rather than 'he is locked', which would confirm both that the address works and that now is an interesting moment to try again. A missing or unreadable flag file is NOT treated as locked, so a disk problem cannot masquerade as an emergency and leave Nick unable to ask why. Mutation-proven: disabling the check fails a named assertion in scripts/orion_v2_remote_check.sh."
         },
         {
           "id": "cancels_queued_remote_jobs_where_possible",
-          "status": "blocked",
-          "reason": "There is no remote job queue. The nearest thing that does exist is the `pending` approval map in ~/.openclaw/orion-controlled/remote.json, minted by orion-notify's `blocked` event, and orion-lock does NOT clear it -- grepped and confirmed, zero references. A pending approval id surviving a lockdown means a queued 'approve ap-xxxx' could still land afterwards. Concrete gap with a concrete fix, registered rather than waved through on 'where possible'.",
-          "evidence": "grep for remote.json/pending in scripts/orion-lock returns 0. The approval mint is in scripts/orion-notify."
+          "status": "passed",
+          "evidence": "The inbox cursor is advanced past everything waiting, so queued envelopes are never handed to a verb -- and they are left ON DISK rather than deleted, because what was cancelled is itself something you want to be able to read afterwards. Asserted by contents against a seeded queue of two (cursor must equal 2, not merely be non-zero). The gap this closes was registered before it was fixed: orion-lock previously did not touch remote.json at all, so a `blocked` event's pending approval survived a lockdown and a queued 'approve ap-xxxx' could still land. Those approvals are now marked expired_by_lock. Both mutation-proven."
         },
         {
           "id": "suspends_automations",
@@ -3931,21 +3929,19 @@
         },
         {
           "id": "expires_remote_control_leases",
-          "status": "blocked",
-          "reason": "There is no lease. Remote control is Phase 44 and 45, and RemoteControlState (Phase 42) is a display type with no store behind it. Nothing to expire and nothing that would notice.",
-          "evidence": "No lease type or store exists in the repo; MobileCore's RemoteControlState has no producer."
+          "status": "passed",
+          "evidence": "Two leases exist now and both are expired. The pending approvals in remote.json are the standing authorisations a remote message could redeem, and a lockdown that left them redeemable would leave behind the one thing that grants permission. The live gateway session is also dropped (connectionId null, lockedOut true), so a reconnect must IDENTIFY afresh rather than RESUME the session that was open when the button was pressed. Mutation-proven separately."
         },
         {
           "id": "requires_reauthentication_for_sensitive_operations",
           "status": "blocked",
-          "reason": "Not implemented. The recovery path is deliberately asymmetric -- raising the profile takes a Settings action or asking Orion in as many words -- but asymmetry is not reauthentication. Nothing re-checks an identity before a sensitive operation after a lock.",
-          "evidence": "scripts/orion-lock's own closing text describes the recovery as a profile change, with no identity step."
+          "reason": "Still not implemented. Recovery requires being at the Mac, but that is an access control, not a reauthentication -- no identity is re-established before a sensitive operation. Narrower than it was (the remote channel is now refused outright while locked) and still open.",
+          "evidence": "scripts/orion-lock release clears the flag with no identity step. What it does require is physical access to the Mac, which is a real factor and is why release deliberately does NOT restore the permission profile or re-enable cron -- undoing the emergency stays a separate decision, and that asymmetry is asserted in the check. But nothing re-checks WHO is asking, so the requirement as written is not met."
         },
         {
           "id": "flags_account_state_as_locked",
-          "status": "blocked",
-          "reason": "There is no locked FLAG, only an inferred one, and the inference is ambiguous: locked state is read as `profile == restricted_read_only`, which is also a profile a person could legitimately choose with no emergency involved. So 'is ORION locked' and 'is ORION at its most restrictive' are the same question today, and they are not the same question. MobileCore already has LockState.orionLocked (Phase 42's SecurityControls) with nothing writing it, which is where the real flag belongs.",
-          "evidence": "permission-state.json holds profile/version/updatedAt and no lock marker; SecurityControls.lockOrion() has no producer."
+          "status": "passed",
+          "evidence": "lock.json, written atomically. This replaces an inference that was ambiguous and is now recorded as having been so: locked used to be read as profile == restricted_read_only, which is also a profile somebody could legitimately choose with no emergency involved. 'Is ORION locked' and 'is ORION at its most restrictive' were the same question and are not the same question -- and once an inbound channel existed the difference became the difference between refusing remote commands and not. `orion-lock status` reports it, and `orion-lock release` clears it."
         },
         {
           "id": "provides_a_deliberate_recovery_process",
@@ -3959,10 +3955,9 @@
         }
       ],
       "limitations": [
-        "Four requirements are blocked and three of them are Phase 44 and 45's to close: a real dispatcher to stop, a real queue to cancel, and a real lease to expire. Phase 44 must close them against live machinery rather than inherit them.",
-        "The locked FLAG is the one blocked item that does not depend on a later phase. It is small -- a marker alongside the profile, and a producer for SecurityControls.lockOrion() -- and it was left alone deliberately, because the instruction for this phase was to verify and close the gate, not to rebuild a working panic button.",
-        "orion-lock was never run against the live system during this work, so the live path is still proven only by the earlier by-hand verification plus this sandbox. The sandbox runs the real script through the real writer, which is the closest thing short of actually dropping Nick's authority.",
-        "The check depends on the plugin's dist/ being built and exits 2 with a clear message when it is not, rather than passing vacuously."
+        "One requirement remains blocked: reauthentication. Everything else closed on 2026-09-02 once the transport existed.",
+        "The lock stops the remote channel and Orion's authority; it deliberately does not kill the gateway. A dead gateway cannot be asked why it is dead, cannot be unlocked, and takes the voice down with it.",
+        "orion-lock has still never been run against live state by an assistant. Every proof is the real script through the real writer in a scratch HOME, with the live permission-state.json hashed before and after and asserted byte-identical."
       ],
       "nextPhaseAllowed": false
     },
@@ -3982,9 +3977,8 @@
       "requirements": [
         {
           "id": "have_the_mac_establish_the_connection_outbound",
-          "status": "blocked",
-          "reason": "Nothing connects. The shape is right and is enforced -- there is no way to spell a listener -- but no bytes have ever moved over this link. Needs the channel credential.",
-          "evidence": "LinkEndpoint's stored property set is pinned to {channel, host, port, pin} by reflection, so adding a listenPort fails by name. What is absent is a connector, not a design."
+          "status": "passed",
+          "evidence": "Closed 2026-09-02 against the real Discord gateway. scripts/orion-remote-bridge opens a WebSocket OUT to wss://gateway.discord.gg, IDENTIFYs, and receives READY -- verified live: 'connected as orion (1 guild(s))'. There is no listening socket anywhere in the file and nothing for a router to forward, which is the same property the security invariant scans the whole tree for. The bridge holds no authority: it appends an envelope via `orion-remote inject` and asks it to `poll`, so the allowlist, replay guard, rate limit, shape checks and audit are the ones that already had tests rather than a second copy that can drift. It cannot even compose a reply -- replies are read back out of orion-remote's own outbox, correlated by an envelopeId now carried there for exactly that reason."
         },
         {
           "id": "never_expose_a_public_python_server_on_the_mac",
@@ -3998,9 +3992,8 @@
         },
         {
           "id": "use_authenticated_encrypted_transport",
-          "status": "blocked",
-          "reason": "Needs a channel credential only Nick can create -- a Discord bot token, free and unrelated to the $99 Apple programme. The validator half is built and proven (KeyPin below); what is missing is a connection for it to validate.",
-          "evidence": "KeyPin exists and fails closed. No transport is configured; ORION_DISCORD_WEBHOOK_URL in .env is the existing ONE-WAY outbound webhook and is not an authenticated inbound channel."
+          "status": "passed",
+          "evidence": "TLS via wss, and a bot token sent in exactly two places: the IDENTIFY frame and the REST Authorization header. Certificate validation is ASSERTED rather than assumed -- the bridge refuses to start if NODE_TLS_REJECT_UNAUTHORIZED is 0, because an authenticated transport whose certificate is not checked is an unauthenticated one that looks fine. Everything the file prints goes through a redactor keyed on the token, defending against the leak nobody writes on purpose: an error echoing the frame that caused it. The finding worth recording is a permission that was NOT taken: the first attempt requested MESSAGE_CONTENT and Discord closed the socket with 4014. Enabling that privileged intent would have let the bot read every message in every channel it can see. Dropping it was the better fix -- Discord delivers full content for DMs and @mentions without it, which is exactly how Orion is addressed, so he hears you when you talk TO him and is deaf to everything else."
         },
         {
           "id": "implements_reconnect",
@@ -4034,18 +4027,18 @@
         }
       ],
       "limitations": [
-        "NOTHING CONNECTS. No bytes have ever moved over this link. Six policies are complete and mutation-proven and the phone can render four honest states, but there is no connector, no heartbeat emitter and no producer for MacLink. Every 'passed' above is a passed DECISION, not a passed connection.",
-        "The blocker is one credential: a Discord bot token, which is free and unrelated to the $99 Apple Developer Program. It belongs in the gitignored .env as ORION_DISCORD_BOT_TOKEN, alongside the existing ORION_DISCORD_WEBHOOK_URL, and Nick adds it himself -- no assistant should handle it in plaintext.",
-        "scripts/orion-remote already carries the seven-verb command vocabulary over an append-only file bridge and is untouched by this phase. Wiring it to a real channel is the remaining work, and it is deliberately the LAST step rather than the first, so the file transport keeps proving the vocabulary independently of the network.",
-        "Phase 43's three transport-dependent blocked requirements -- stop dispatches, cancel queued jobs, expire leases -- are still blocked and must be closed here once a transport exists, not inherited."
+        "A full Discord round trip -- inbound message to delivered reply -- has NOT been executed, because no account is allowlisted yet. ORION_REMOTE_ALLOW defaults to refusing everyone, and the candidate id was discovered with `orion-remote-bridge whoami` and written into .env COMMENTED OUT: granting an account authority over this Mac is a person's decision, not an inference an assistant makes from who owns the guild. One uncommented line closes it.",
+        "Nothing supervises the bridge. `run` stays connected and reconnects on its own, but no launch agent starts it, and launchd cannot read ~/Desktop on this machine -- the same constraint that already leaves the TTS daemon unsupervised.",
+        "The bridge writes remote-link.json, which is MobileCore's MacLink shape, so Phase 44's 'no producer' limitation is closed. No Mac or phone SURFACE reads it yet, so the four presences still render nowhere.",
+        "The reconnect, heartbeat and rotation numbers in the bridge mirror MobileCore's RemoteLink policies. The Swift side is authoritative and carries the tests; the two are not mechanically proven to agree -- the same shape as the TimeZonePolicy mirror under Phase 40."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": true
     },
     "45": {
       "name": "Remote Mac Read-Only",
       "status": "in_progress",
       "entryRequiresPhase": "44",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-01",
       "openedAgainst": "Phase 44's two open requirements are the transport, which waits on a credential Nick creates. All seven of Phase 45's named tests are about JOB HANDLING rather than the wire, so they are answerable now and were. Recorded as a deviation rather than asserted true.",
       "evidence": "native/OrionMobile/Sources/MobileCore/RemoteJob.swift, checked by scripts/orion_v2_mobile_check.sh (665 checks, 0 failed; iOS build clean).",
@@ -4058,12 +4051,12 @@
         {
           "id": "begins_with_the_three_low_risk_capabilities",
           "status": "passed",
-          "evidence": "ReadOnlyCapability is exactly device.status.read, application.list and files.safe_metadata, by the manifest's own dotted names, pinned by CONTENTS. Each carries the plain-words description a consent screen needs, and files.safe_metadata says out loud that it is names, sizes and dates and never contents -- asserted, because that is the one of the three where the difference matters."
+          "evidence": "Built and served as of 2026-09-02. device.status.read returns battery, uptime and free disk; application.list returns running applications by name; files.safe_metadata returns names, sizes and dates. All three shell out with FIXED argv -- no inbound value reaches any of them, and the only thing a message can influence is which of three directory names is read. Defining 'running application' took three attempts and the wrong two are worth recording: matching any bundle in the process table answered '62 running', nearly all of them agents like AirPlayUIAgent; matching the outermost bundle then reported News, Stocks and Home as running, because their widget extensions are always alive while the apps are not. The honest definition is an executable directly in a top-level bundle's Contents/MacOS."
         },
         {
           "id": "does_not_modify_anything",
           "status": "passed",
-          "evidence": "An absent enum member. There is no write capability, so a job cannot NAME one and no handler can exist for one; asserted directly, including that no capability's name contains write, delete, move, send, modify, run or exec. Reinforced by the type split above: the gate returns a verdict, never an effect."
+          "evidence": "Still an absent enum member on the Swift side, and now also true of the live handlers: not one of the three writes a file, changes a setting, starts a process or touches Orion's own state. files.safe_metadata is metadata ONLY -- nothing opens a file, and the difference between listing a name and reading a document is the whole of Phase 45. Mutation-proven: making the handler print file contents fails a named assertion. That assertion had to be rewritten to bite -- the first spelling used `grep -qv`, which inverts per line and therefore always exits 0 on multi-line output, so it could never fail. Found by mutation, not by reading."
         },
         {
           "id": "tested_replay",
@@ -4073,7 +4066,7 @@
         {
           "id": "tested_expiration",
           "status": "passed",
-          "evidence": "A job at exactly its expiry instant is expired; the boundary belongs to the expiry. Mutation-proven with > for >=. THIS RULE IS ABSENT FROM THE LIVE PATH TODAY and that is the finding: scripts/orion-remote stamps every envelope with `at` and never reads it back, so an envelope from three weeks ago executes the moment it is delivered, provided its id has not been seen. Grepped and confirmed -- there is no age check anywhere in that file."
+          "evidence": "Closed in the LIVE path, not only in the domain. scripts/orion-remote now reads back the `at` timestamp it has always written: an envelope older than ten minutes is refused and audited as expired, with the age named. Asserted against a 40-minute-old envelope in a sandbox HOME. Judged after replay, so a replayed stale message is still reported as a replay, which is the more useful of the two answers. Mutation-proven by restoring the previous behaviour -- no age check at all -- which fails the named assertion."
         },
         {
           "id": "tested_revocation",
@@ -4083,7 +4076,7 @@
         {
           "id": "tested_wrong_device_routing",
           "status": "passed",
-          "evidence": "A job addressed to another Mac is refused, and is NOT recorded as seen. That second half is the one worth having: recording it would let anybody fill this device's replay memory with jobs addressed to somebody else -- a denial of service that costs the attacker nothing and needs no valid credential. Mutation-proven."
+          "evidence": "Closed in the live path. Envelopes may now carry `to`, and one addressed to another Mac is refused before any state is written -- so it consumes no replay slot and no rate-limit hit. Both halves are asserted and both are mutation-proven, including the subtle one a naive implementation gets wrong: a mutant that records the misaddressed envelope as seen fails the assertion that the replay memory did not grow. Without that, anyone could exhaust this device's memory with envelopes meant for somebody else, at no cost and with no valid credential."
         },
         {
           "id": "tested_malformed_jobs",
@@ -4103,15 +4096,15 @@
         {
           "id": "the_read_only_path_is_served_end_to_end",
           "status": "blocked",
-          "reason": "The guards exist and are proven as decisions in RemoteJob.swift; grep confirms orion-remote has no age check and no target-device field.",
-          "evidence": "Nothing serves these capabilities. There is no handler that reads device status, lists applications or returns file metadata, and no transport to carry a job -- Phase 44's two open requirements. Separately and more importantly, scripts/orion-remote, which IS the live inbound path, enforces none of these guards: it has no expiry check and no device routing at all. Registered rather than left implicit, so Phase 46's harmless ACTIONS cannot begin before read-only actually works."
+          "reason": "One config line short. ORION_REMOTE_ALLOW is deliberately unset, so every inbound Discord message is refused; the candidate id sits commented out in .env awaiting Nick's decision. Kept blocked so Phase 46's harmless ACTIONS cannot begin on a read-only path that has never actually carried a message end to end.",
+          "evidence": "Everything is built and everything below the transport is proven: the three capabilities answer, the four guards refuse, the lock stops all of it, and scripts/orion_v2_remote_check.sh runs the real script against a sandbox HOME with 25 assertions. The bridge connects to the real gateway and receives. What has not happened is one full round trip over Discord, because no account is allowlisted."
         }
       ],
       "limitations": [
-        "TWO REAL GAPS IN LIVE CODE, found while writing this phase and not yet closed: scripts/orion-remote never checks envelope age, so a stale envelope executes on delivery if its id is unseen; and it has no device routing at all, since an envelope carries a sender but no target. Both are Phase 45 requirements that the live path does not meet, and both should be closed when the transport lands rather than left to be rediscovered.",
-        "Nothing serves the three capabilities, and the gate has no producer. Every 'passed' here is a passed DECISION -- the same standing as Phase 44's policies.",
-        "The gate's replay memory is bounded at 500 ids, newest kept. An attacker who can get 500 valid jobs judged could age a captured id out of memory and replay it. Expiry is the defence that actually covers that, which is part of why expiry being absent from orion-remote matters more than it looks.",
-        "Revocation is checked against an issuer identifier the gate is handed. Nothing yet establishes that identifier cryptographically -- that is Phase 44's authenticated transport, and until it exists the issuer is asserted rather than proven."
+        "No Discord round trip yet -- see the blocked requirement. One uncommented line in .env closes it.",
+        "files.safe_metadata reads three fixed roots (Desktop, Documents, Downloads), top level only, hidden files skipped, 40 entries maximum. A path argument was deliberately not offered: a path from an inbound message is a path an attacker chooses, and every safe-path check ever written has been bypassed by somebody patient.",
+        "application.list uses `ps` rather than System Events, so it needs no Automation permission and cannot raise a TCC prompt on a Mac nobody is sitting at. The cost is that an application installed outside /Applications or ~/Applications is not listed.",
+        "The live guards in orion-remote and the JobGate in MobileCore express the same four rules in two languages and are not mechanically proven to agree. The Swift side carries the boundary tests; the node side now carries its own."
       ],
       "nextPhaseAllowed": false
     }

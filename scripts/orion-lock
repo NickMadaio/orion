@@ -38,6 +38,9 @@
 */
 
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +52,21 @@ const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const STATE = join(homedir(), ".openclaw/orion-controlled/permission-state.json");
+const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
+/*
+ The lock FLAG, added 2026-09-02 when the remote transport made it matter.
+
+ Until now "locked" was inferred from `profile === restricted_read_only`, and
+ that inference is ambiguous: it is also a profile somebody could legitimately
+ choose with no emergency involved. "Is ORION locked" and "is ORION at its most
+ restrictive" are not the same question, and once an inbound channel exists the
+ difference is the difference between refusing remote commands and not.
+*/
+const LOCK = join(CONTROLLED, "lock.json");
+const REMOTE_STATE = join(CONTROLLED, "remote.json");
+const INBOUND = join(CONTROLLED, "remote-inbound.json");
+const INBOX = join(CONTROLLED, "inbox.jsonl");
+const LINK = join(CONTROLLED, "remote-link.json");
 const AUDIT = join(homedir(), ".openclaw/orion-controlled/permission-audit.jsonl");
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
 const FLOOR = "restricted_read_only";
@@ -56,6 +74,16 @@ const FLOOR = "restricted_read_only";
 const ESC = String.fromCharCode(27);
 const bold = `${ESC}[1m`, dim = `${ESC}[2m`, grn = `${ESC}[32m`;
 const yel = `${ESC}[33m`, red = `${ESC}[31m`, off = `${ESC}[0m`;
+
+function readJSON(path) {
+  try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
+}
+
+async function writeJSON(path, value) {
+  const temporary = `${path}.tmp-${randomBytes(4).toString("hex")}`;
+  await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
+  await rename(temporary, path); // atomic, so a crash never leaves half a lock
+}
 
 function permissions() {
   // The installed plugin, not the repo copy: locking must act on what is
@@ -85,6 +113,8 @@ async function status() {
   console.log(`  ${bold}Orion - authority${off}`);
   console.log(`  profile   ${shown}  ${dim}(version ${state.version})${off}`);
   console.log(`  cron      ${jobs.length} job(s)${jobs.length ? ": " + jobs.map((j) => j.name).join(", ") : ""}`);
+  const lock = readJSON(LOCK);
+  console.log(`  remote    ${lock?.locked ? red + "LOCKED" + off + dim + ` since ${lock.at}` + off : grn + "accepting" + off}`);
   console.log("");
   return { state, jobs };
 }
@@ -131,6 +161,52 @@ async function lock() {
     console.log(`  profile   ${before.profile} ${dim}->${off} ${grn}${FLOOR}${off}`);
   }
 
+  /*
+   Phase 43's three transport-dependent requirements, which could not be met
+   until Phase 44 gave them something to act on.
+
+   Order matters: raise the flag FIRST. Everything after it takes time, and for
+   the length of that time an inbound message would otherwise still be obeyed.
+   The flag is the thing that stops new dispatches, so it goes up before the
+   slower work of draining what is already queued.
+  */
+  await mkdir(CONTROLLED, { recursive: true });
+  await writeJSON(LOCK, {
+    locked: true,
+    at: new Date().toISOString(),
+    by: "orion-lock",
+    reason: "Emergency lockdown requested at the terminal.",
+  });
+  console.log(`  remote    ${grn}dispatch stopped${off} ${dim}(lock.json)${off}`);
+
+  // Cancel what is queued. "Where possible" is the manifest's own hedge, and
+  // this is what is possible: the inbox cursor is advanced past everything
+  // waiting, so queued envelopes are never handed to a verb. They stay on disk
+  // for the audit rather than being deleted -- what was cancelled is itself
+  // something you want to know afterwards.
+  const queued = existsSync(INBOX)
+    ? readFileSync(INBOX, "utf8").split("\n").filter(Boolean).length
+    : 0;
+  const inbound = readJSON(INBOUND) ?? { cursor: 0, seen: [], hits: [] };
+  await writeJSON(INBOUND, { ...inbound, cursor: queued });
+  console.log(`  remote    ${grn}cancelled${off} ${queued - (inbound.cursor ?? 0)} queued job(s)`);
+
+  // Expire the leases. Pending approvals are the standing authorisations a
+  // remote message could still redeem, so a lockdown that left them redeemable
+  // would leave the one thing behind that grants permission.
+  const remote = readJSON(REMOTE_STATE);
+  if (remote?.pending && Object.keys(remote.pending).length) {
+    const expired = Object.fromEntries(Object.entries(remote.pending).map(([id, item]) => [
+      id, { ...item, status: item.status === "pending" ? "expired_by_lock" : item.status },
+    ]));
+    await writeJSON(REMOTE_STATE, { ...remote, pending: expired });
+    console.log(`  remote    ${grn}expired${off} ${Object.keys(expired).length} pending approval(s)`);
+  }
+  // And drop the link's session, so a reconnect must identify afresh rather
+  // than resume the one that was live when the panic button was pressed.
+  const link = readJSON(LINK);
+  if (link) await writeJSON(LINK, { ...link, state: "offline", connectionId: null, lockedOut: true });
+
   for (const job of jobs) {
     try {
       await run(OPENCLAW, ["cron", "disable", job.id], { timeout: 15000 });
@@ -154,7 +230,24 @@ async function lock() {
 const command = process.argv[2] ?? "lock";
 if (command === "status") { await status(); }
 else if (command === "lock") { await lock(); }
+else if (command === "release") {
+  /*
+   Releases the REMOTE lock and nothing else.
+
+   Deliberately not an unlock. The permission profile stays on the floor and the
+   cron jobs stay disabled, because those are the things whose restoration
+   should cost a decision -- "undo the emergency" should be more work than the
+   emergency was. This only makes Orion willing to listen again.
+  */
+  if (!readJSON(LOCK)?.locked) { console.log("  not locked"); process.exit(0); }
+  await rm(LOCK, { force: true });
+  console.log("");
+  console.log(`  remote    ${grn}accepting commands again${off}`);
+  console.log(`  ${dim}The profile is still ${((await permissions().readPermissionState(STATE)).profile)} and cron is still disabled.`);
+  console.log(`  Raise the profile in Settings and re-enable jobs deliberately.${off}`);
+  console.log("");
+}
 else {
-  console.error("usage: orion-lock [lock|status]");
+  console.error("usage: orion-lock [lock|status|release]");
   process.exit(2);
 }

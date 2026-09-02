@@ -16,7 +16,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-39, 41 and 42 complete. Four open, none of them on unwritten logic: Phase 40 (nine of ten; the cron re-home waits for the 2026-09-08 move), Phase 43 (five of nine; three need a transport), Phase 44 (seven of nine; the transport waits on a Discord bot token from Nick) and Phase 45 (nine of ten; nothing serves the capabilities yet). One credential unblocks 43, 44 and 45 together. Phase 46 must not start before the read-only path actually works.",
+    "numberedProgramPosition": "Phases 0-39, 41, 42 and 44 complete. Three open: Phase 40 (9/10, waiting on the 2026-09-08 move), Phase 43 (8/9, reauthentication), and Phase 45 (11/12 -- everything built and proven, awaiting one Discord round trip once Nick allowlists an account). Phase 46 must not start before that round trip.",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -199,17 +199,17 @@
     "43": {
       "status": "in_progress",
       "evidence": "planning/v2/PHASE_GATES.json phase 43",
-      "note": "The panic button was already built and working; this closed the missing gate record and gave it its first automated check. Five of nine requirements pass. Three of the four blocked ones need Phase 44/45 machinery to exist before they can be closed; the fourth is a missing explicit locked flag."
+      "note": "Eight of nine pass. The three transport-dependent requirements closed on 2026-09-02 once Phase 44's Discord bridge existed; the panic button now stops dispatch, cancels the queue, expires leases and raises an explicit locked flag. Only reauthentication remains."
     },
     "44": {
-      "status": "in_progress",
+      "status": "complete",
       "evidence": "planning/v2/PHASE_GATES.json phase 44",
-      "note": "Seven of nine requirements pass. The two blocked ones are the transport itself, waiting on a Discord bot token from Nick. No transport was stubbed, deliberately."
+      "note": "Closed 2026-09-02 against the real Discord gateway. Entered with entrySatisfied false because Phase 43 needed this phase's machinery to close its own requirements."
     },
     "45": {
       "status": "in_progress",
       "evidence": "planning/v2/PHASE_GATES.json phase 45",
-      "note": "All nine of the manifest's own requirements pass as decisions. One derived requirement is blocked: nothing serves the capabilities, and orion-remote enforces none of the guards. Phase 46 must not start until it does."
+      "note": "Eleven of twelve pass. Everything below the transport is built and proven; one full Discord round trip is outstanding because no account is allowlisted yet."
     }
   },
   "tracks": [

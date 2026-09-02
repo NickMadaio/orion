@@ -32,9 +32,9 @@
 */
 
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -50,6 +50,7 @@ const OUTBOX = join(CONTROLLED, "outbox.jsonl");
 const AUDIT = join(CONTROLLED, "remote-audit.jsonl");
 const INBOUND = join(CONTROLLED, "remote-inbound.json"); // cursor + rate limits
 const RUNNER_LOG = join(CONTROLLED, "remote-runner.log");
+const LOCK = join(CONTROLLED, "lock.json");
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
 
 // A test seam, not a config knob: whoever sets this already owns the process.
@@ -65,6 +66,39 @@ const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_CAP = 12; // per sender, counting rejects too, so garbage cannot flood
 const SEEN_KEPT = 200; // replayed envelope ids are refused, never re-executed
 
+/*
+ Phase 45's two guards that were missing entirely until 2026-09-02.
+
+ EXPIRY. Every envelope has always carried `at`, and nothing ever read it back
+ -- so an envelope from three weeks ago executed the moment it was delivered,
+ provided its id had not been seen. A remote command is a thing a person wanted
+ THEN; ten minutes is generous for "still wanted now", and the replay guard
+ cannot help here because a stale envelope is not a repeated one.
+
+ ROUTING. An envelope carried a sender and no target, so "wrong-device routing"
+ had nothing to route on. A message addressed to another Mac is refused here,
+ and deliberately WITHOUT being recorded as seen: recording it would let anyone
+ fill this device's replay memory with envelopes meant for somebody else, which
+ costs the sender nothing and needs no valid credential.
+*/
+const MAX_ENVELOPE_AGE_MS = 10 * 60_000;
+const DEVICE_ID = (process.env.ORION_DEVICE_ID || hostname()).toLowerCase();
+
+/*
+ Phase 45's `files.safe_metadata`, as a closed set of roots.
+
+ Not a path argument. A path from an inbound message is a path an attacker
+ chooses, and every safe-path check ever written has been bypassed by somebody
+ patient. Three names that map to three directories cannot be traversed,
+ escaped, or pointed anywhere else, and the manifest only asked for metadata.
+*/
+const SAFE_ROOTS = new Map([
+  ["desktop", join(homedir(), "Desktop")],
+  ["documents", join(homedir(), "Documents")],
+  ["downloads", join(homedir(), "Downloads")],
+]);
+const MAX_LISTED = 40;
+
 // Only these senders are obeyed. `local` is the file transport; a real channel
 // adds Nick's handle here through the environment, never via an inbound message.
 const ALLOWED = new Set(
@@ -79,6 +113,17 @@ const VERBS = {
   approve: { aliases: ["approve", "approved", "yes", "ok"], min: 1, shape: ["approval"] },
   deny: { aliases: ["deny", "denied", "no", "reject"], min: 1, shape: ["approval"] },
   priority: { aliases: ["priority", "prioritise", "prioritize"], min: 2, shape: ["mission", "level"] },
+
+  /*
+   Phase 45 -- the three low-risk READS the manifest begins with, and nothing
+   else. Every one of them only looks: no handler below writes a file, changes a
+   setting, starts a process or touches Orion's own state. That is what makes a
+   lost reply safe to retry, and it is why the manifest puts these before
+   Phase 46's actions rather than after.
+  */
+  device: { aliases: ["device", "mac", "machine", "battery"], min: 0, shape: [] },
+  apps: { aliases: ["apps", "applications", "app"], min: 0, shape: [] },
+  files: { aliases: ["files", "file", "folder"], min: 1, shape: ["root"] },
 };
 const ALIAS_TO_VERB = new Map(Object.entries(VERBS).flatMap(([v, s]) => s.aliases.map((a) => [a, v])));
 // Dropped before matching. Phones add politeness; the grammar should not care.
@@ -189,6 +234,14 @@ const withMission = (state, id, patch) => ({
 /* ---------- parsing and the argument shapes ---------- */
 
 // Returns { verb, args } or { error }. Never throws, never partially matches.
+/// Whether the panic button is down. A missing or unreadable file is NOT a lock:
+/// failing closed here would make an unrelated disk problem look like an
+/// emergency and leave Nick unable to ask why. The lock is an explicit state.
+function isLocked() {
+  try { return JSON.parse(readFileSync(LOCK, "utf8"))?.locked === true; }
+  catch { return false; }
+}
+
 function parse(raw) {
   const text = String(raw ?? "");
   if (!text.trim()) return { error: "empty message" };
@@ -220,10 +273,124 @@ const SHAPES = {
   mission: (v, state) => (MISSION_RE.test(v) && knownMission(state, v) ? null : `no mission called ${v}`),
   approval: (v, state) => (APPROVAL_RE.test(v) && state.pending[v] ? null : `no pending approval ${v}`),
   level: (v) => (PRIORITIES.has(v) ? null : `priority must be one of ${[...PRIORITIES].join(", ")}`),
+  root: (v) => (SAFE_ROOTS.has(v) ? null : `root must be one of ${[...SAFE_ROOTS.keys()].join(", ")}`),
 };
 
 const checkArgs = (verb, args, state) =>
   args.map((arg, i) => SHAPES[VERBS[verb].shape[i]](arg, state)).find(Boolean) ?? null;
+
+/* ---------- Phase 45: the read-only capabilities ---------- */
+
+/*
+ All three shell out with FIXED argv and no inbound value anywhere in it. The
+ only thing a message can influence is which of three directory names is read,
+ and that is checked against a closed Map before any handler runs.
+*/
+
+async function doDevice() {
+  const read = async (bin, args) => {
+    try { return (await run(bin, args, { timeout: 10_000 })).stdout.trim(); }
+    catch { return ""; }
+  };
+  const [battery, up, disk] = await Promise.all([
+    read("/usr/bin/pmset", ["-g", "batt"]),
+    read("/usr/bin/uptime", []),
+    read("/bin/df", ["-k", "/"]),
+  ]);
+  const percent = (battery.match(/(\d+)%/) || [])[1];
+  const power = /AC Power/.test(battery) ? "on AC" : /Battery Power/.test(battery) ? "on battery" : "";
+  const load = (up.match(/load averages?: ([\d.]+)/) || [])[1];
+  const upFor = (up.match(/up\s+([^,]+(?:,\s*\d+:\d+)?)/) || [])[1];
+  const diskLine = disk.split("\n")[1]?.split(/\s+/) ?? [];
+  const freeGB = diskLine[3] ? Math.round(Number(diskLine[3]) / 1024 / 1024) : null;
+  return {
+    ok: true,
+    reply: [
+      "Orion | DEVICE",
+      percent ? `- battery ${percent}%${power ? ` ${power}` : ""}` : "- battery unknown",
+      upFor ? `- up ${upFor.trim()}${load ? `, load ${load}` : ""}` : "- uptime unknown",
+      freeGB !== null ? `- ${freeGB} GB free on /` : "- disk unknown",
+    ].join("\n"),
+  };
+}
+
+async function doApps() {
+  // `ps` rather than System Events: reading the process table needs no
+  // Automation permission, so this cannot start a TCC prompt on a Mac nobody
+  // is sitting at. Only bundled applications are reported -- the daemons and
+  // helpers below them are noise, not an answer.
+  let out = "";
+  try { out = (await run("/bin/ps", ["-Ao", "comm="], { timeout: 10_000 })).stdout; }
+  catch { return { ok: false, reply: "could not read the process list" }; }
+  /*
+   Only applications a person would name. The first version matched any bundle
+   in the process table and answered "62 apps running", most of which were
+   agents like AccessibilityUIServer and AirPlayUIAgent living under
+   /System/Library. That is a true list and a useless answer -- the question is
+   "what have I got open", so the bundle has to live somewhere a person installs
+   things.
+  */
+  /*
+   Only applications a person would name, which took three attempts to define.
+
+   Matching any bundle in the process table answered "62 running", nearly all of
+   them agents like AirPlayUIAgent. Matching the OUTERMOST bundle then reported
+   News, Stocks and Home as running, because their WIDGET extensions
+   (`.appex` under Contents/PlugIns) are always alive while the apps are not.
+
+   The honest definition is narrower than either: an executable sitting directly
+   in a top-level bundle's Contents/MacOS. That excludes both plugin extensions
+   and the nested helper bundles Electron apps spawn, so Discord counts once
+   rather than four times. Measured on this Mac it gives eleven names, all of
+   which are genuinely open.
+  */
+  const names = new Set();
+  for (const line of out.split("\n")) {
+    const match = line.trim().match(
+      /^(?:\/(?:System\/)?Applications\/|\/Users\/[^/]+\/Applications\/)([^/]+)\.app\/Contents\/MacOS\/[^/]+$/,
+    );
+    if (match) names.add(match[1]);
+  }
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+  return {
+    ok: true,
+    reply: sorted.length
+      ? [`Orion | ${sorted.length} APP(S) RUNNING`, ...sorted.slice(0, MAX_LISTED).map((n) => `- ${n}`)].join("\n")
+      : "Orion | no bundled applications are running",
+  };
+}
+
+async function doFiles([root]) {
+  const directory = SAFE_ROOTS.get(root);
+  if (!directory) return { ok: false, reply: "unknown folder" };
+  let entries;
+  try { entries = readdirSync(directory, { withFileTypes: true }); }
+  catch (error) {
+    // A refusal here is almost always macOS privacy, not a missing folder, and
+    // saying so is more useful than "could not read".
+    return { ok: false, reply: `cannot read ${root} (${String(error?.code ?? "error")}) — Orion may not have permission to that folder` };
+  }
+  const rows = entries
+    .filter((entry) => !entry.name.startsWith("."))
+    .slice(0, MAX_LISTED)
+    .map((entry) => {
+      // METADATA ONLY. Nothing here opens a file. The manifest's word is
+      // "safe_metadata", and the difference between listing a name and reading
+      // a document is the whole of Phase 45.
+      try {
+        const info = statSync(join(directory, entry.name));
+        const size = entry.isDirectory() ? "dir" : `${Math.max(1, Math.round(info.size / 1024))} KB`;
+        return `- ${entry.name.slice(0, 60)} · ${size} · ${info.mtime.toISOString().slice(0, 10)}`;
+      } catch { return `- ${entry.name.slice(0, 60)} · unreadable`; }
+    });
+  const total = entries.filter((e) => !e.name.startsWith(".")).length;
+  return {
+    ok: true,
+    reply: rows.length
+      ? [`Orion | ${root.toUpperCase()} (${total} item(s)${total > MAX_LISTED ? `, first ${MAX_LISTED}` : ""})`, ...rows].join("\n")
+      : `Orion | ${root} is empty`,
+  };
+}
 
 /* ---------- verb handlers: each returns one short line for Nick's phone ---------- */
 
@@ -309,11 +476,14 @@ const HANDLERS = {
   approve: (args, state) => resolveApproval(args, state, "approved"),
   deny: (args, state) => resolveApproval(args, state, "denied"),
   priority: doPriority,
+  device: doDevice,
+  apps: doApps,
+  files: doFiles,
 };
 
 /* ---------- the one path every inbound message takes ---------- */
 
-async function handle({ text, from, envelopeId }) {
+async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
   const sender = String(from ?? "").toLowerCase().trim();
   // The raw text is kept for forensics, but only ever as a JSON string field:
   // control characters out, length capped, and nothing downstream re-reads it.
@@ -323,11 +493,56 @@ async function handle({ text, from, envelopeId }) {
     await audit({ ...record, decision: "rejected", reason: "sender not allowed" });
     return { ok: false, reply: null }; // silence: never confirm the address works
   }
+  /*
+   Phase 45's order of judgement, and it is a decision rather than an accident:
+   routing, then authority, then freshness, then replay. It matches
+   MobileCore's JobGate, which carries the tests.
+
+   Routing is judged FIRST and returns before any state is written, so an
+   envelope addressed to another Mac consumes nothing here -- not a replay slot,
+   not a rate-limit hit. The alternative lets anybody exhaust this device's
+   memory with envelopes meant for somebody else.
+  */
+  if (target && String(target).toLowerCase().trim() !== DEVICE_ID) {
+    await audit({ ...record, decision: "rejected", reason: `addressed to ${String(target).slice(0, 40)}, not ${DEVICE_ID}` });
+    return { ok: false, reply: null };
+  }
+
+  /*
+   LOCK ORION, checked before anything else can happen.
+
+   Phase 43 requires the panic button to "stop new remote dispatches", and this
+   is the half that does the stopping -- orion-lock raises the flag, and every
+   inbound message dies here while it is up. Read fresh from disk on every
+   message rather than cached at startup, because a bridge that has been running
+   for a week would otherwise never notice it.
+
+   Deliberately AFTER the allowlist and BEFORE everything else: a stranger still
+   gets silence rather than "he is locked", which would confirm both that the
+   address works and that now is an interesting time to try again.
+  */
+  if (isLocked()) {
+    await audit({ ...record, decision: "rejected", reason: "ORION is locked" });
+    return { ok: false, reply: "Orion is locked. Nothing will run until it is released at the Mac." };
+  }
+
   const inbound = await readInbound();
   if (envelopeId && inbound.seen.includes(envelopeId)) {
     await audit({ ...record, decision: "rejected", reason: "replayed envelope" });
     return { ok: false, reply: null };
   }
+  /*
+   Freshness. A stale envelope is not a repeated one, so the replay guard above
+   cannot catch it: until this existed, an envelope that had sat in a queue for
+   three weeks executed on delivery. Judged after replay so a replayed stale
+   message is still reported as a replay, which is the more useful of the two.
+  */
+  const age = Number.isFinite(sentAt) ? now - Number(sentAt) : 0;
+  if (age > MAX_ENVELOPE_AGE_MS) {
+    await audit({ ...record, decision: "rejected", reason: `expired (${Math.round(age / 60_000)} min old)` });
+    return { ok: false, reply: "that command was too old to run — send it again if you still want it" };
+  }
+
   const recent = inbound.hits.filter((hit) => now - hit.at < RATE_WINDOW_MS);
   if (recent.filter((hit) => hit.from === sender).length >= RATE_CAP) {
     await audit({ ...record, decision: "rejected", reason: "rate limited" });
@@ -364,7 +579,14 @@ async function handle({ text, from, envelopeId }) {
 
 async function reply(envelope, text) {
   if (!text) return;
-  await appendFile(OUTBOX, `${JSON.stringify({ at: new Date().toISOString(), to: envelope.from, text })}\n`, { mode: 0o600 });
+  // `envelopeId` is carried so a transport can match a reply to the message it
+  // answers. Without it a bridge has to guess by position, and guessing means
+  // that under any concurrency an answer can be delivered to the wrong person.
+  await appendFile(
+    OUTBOX,
+    `${JSON.stringify({ at: new Date().toISOString(), envelopeId: envelope.id ?? null, to: envelope.from, text })}\n`,
+    { mode: 0o600 },
+  );
   // The attach point, and the reason it is environment rather than config: an
   // unconfigured Orion writes replies to a file and talks to nobody. Wiring a
   // real channel is a deliberate act, never a default.
@@ -391,7 +613,15 @@ const sender = flags.from ?? "local";
 
 if (command === "inject") {
   if (!positional.join(" ").trim()) fail('inject needs a message, e.g. inject "status"');
-  const envelope = { id: randomBytes(6).toString("hex"), from: sender, text: positional.join(" "), at: Date.now() };
+  const envelope = {
+    id: randomBytes(6).toString("hex"),
+    from: sender,
+    text: positional.join(" "),
+    at: Date.now(),
+    // Absent means "whichever Mac drains this queue", which is the local case.
+    // A transport that serves more than one device sets it.
+    ...(flags.to ? { to: String(flags.to).toLowerCase() } : {}),
+  };
   await mkdir(CONTROLLED, { recursive: true });
   await appendFile(INBOX, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
   console.log(`queued ${envelope.id}`);
@@ -408,7 +638,10 @@ if (command === "inject") {
     const envelope = parseJson(line);
     if (!envelope) await audit({ decision: "rejected", reason: "unparseable envelope" });
     else {
-      const result = await handle({ text: envelope.text, from: envelope.from, envelopeId: envelope.id });
+      const result = await handle({
+        text: envelope.text, from: envelope.from, envelopeId: envelope.id,
+        at: envelope.at, to: envelope.to,
+      });
       await reply(envelope, result.reply);
       if (result.reply) console.log(`[${envelope.from}] ${envelope.text}\n${result.reply}\n`);
     }

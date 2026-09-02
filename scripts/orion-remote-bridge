@@ -1,0 +1,517 @@
+#!/usr/bin/env node
+/*
+ The Mac's outbound link. Manifest Phase 44.
+
+ `orion-remote` has had the command vocabulary since it was written -- seven
+ fixed verbs, ids only, no shell, no model -- and no way to hear anything. This
+ is the ear. It connects OUT to Discord's gateway over TLS, listens for messages
+ from an allowlisted account, and hands each one to `orion-remote` UNCHANGED.
+
+ ## Why this shape
+
+ The manifest's requirements are mostly negatives: the Mac establishes the
+ connection outbound, never exposes a public server, never needs port
+ forwarding. A gateway WebSocket satisfies all three by construction -- there is
+ no listening socket anywhere in this file, and there is nothing for a router to
+ forward. The rest of Phase 44 is a list of six mechanisms, and Discord's
+ gateway protocol happens to name five of them itself: heartbeat, ACK, resume,
+ session invalidation, reconnect.
+
+ ## What this file does NOT do
+
+ It does not parse commands, decide anything, or hold authority. It moves bytes
+ between a socket and `orion-remote`, which is the only thing allowed to have an
+ opinion about them. Every inbound message goes through `orion-remote inject`
+ and `poll`, so the allowlist, the replay guard, the rate limit, the shape
+ checks and the audit log are the same ones that have always been there -- not
+ a second copy that can drift from them.
+
+ That is also why the reply path reads `outbox.jsonl` rather than answering
+ directly: if this file could compose a reply, it could compose one that
+ `orion-remote` never authorised.
+
+ ## The token
+
+ Read from the environment or `.env`, held in one const, and sent in exactly two
+ places: the IDENTIFY frame and the REST Authorization header. It is never
+ logged, never written to the status file, never included in an error, and
+ `redact()` is applied to everything this file prints.
+
+   orion-remote-bridge probe     connect, identify, report, disconnect
+   orion-remote-bridge run       stay connected and serve
+   orion-remote-bridge status    read the last known state, connect to nothing
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
+
+const run = promisify(execFile);
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
+const OUTBOX = join(CONTROLLED, "outbox.jsonl");
+const LINK = join(CONTROLLED, "remote-link.json");
+const REMOTE = join(ROOT, "scripts/orion-remote");
+
+const GATEWAY = "wss://gateway.discord.gg/?v=10&encoding=json";
+const API = "https://discord.com/api/v10";
+
+// GUILD_MESSAGES | DIRECT_MESSAGES. Deliberately NOT MESSAGE_CONTENT.
+//
+// MESSAGE_CONTENT is privileged, and asking for it would let this bot read
+// every message in every channel it can see. It does not need that. Discord
+// delivers full content without the intent in exactly two cases, and they are
+// both of the ones that matter here: a DM to the bot, and a message that
+// @mentions it. So Orion hears you when you talk TO him and is deaf to
+// everything else -- which is the same least-privilege reasoning as Phase 42's
+// security screen, applied to a permission rather than to an action.
+//
+// The first attempt did request it, and Discord closed the socket with 4014
+// because it is not enabled in the Developer Portal. Dropping it was the better
+// fix than switching it on.
+//
+// If channel commands without a mention are ever wanted, that needs the intent
+// enabled in the portal AND this constant changed -- two deliberate acts.
+const INTENTS = (1 << 9) | (1 << 12);
+
+const OP = {
+  DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, RESUME: 6,
+  RECONNECT: 7, INVALID_SESSION: 9, HELLO: 10, HEARTBEAT_ACK: 11,
+};
+
+// Phase 44's ReconnectPolicy, in the language that has to obey it. The Swift
+// side (MobileCore/RemoteLink.swift) is authoritative and carries the tests;
+// these are the same numbers and the same shape.
+const BACKOFF_BASE_MS = 2_000;
+const BACKOFF_CAP_MS = 300_000;
+// Phase 44's HeartbeatPolicy.standard, in milliseconds.
+const STALE_AFTER_MS = 120_000;
+const OFFLINE_AFTER_MS = 300_000;
+// Discord's own limit is 15 minutes of silence before it drops us; rotating at
+// 12 hours is Phase 44's RotationPolicy, not Discord's requirement.
+const ROTATE_AFTER_MS = 12 * 3_600_000;
+
+const fail = (message, code = 2) => {
+  console.error(`orion-remote-bridge: ${message}`);
+  process.exit(code);
+};
+
+/* ---------- the token, and keeping it out of everything ---------- */
+
+function readEnvFile() {
+  const path = join(ROOT, ".env");
+  if (!existsSync(path)) return {};
+  const values = {};
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+    const [key, ...rest] = trimmed.split("=");
+    values[key.trim()] = rest.join("=").trim().replace(/^["']|["']$/g, "");
+  }
+  return values;
+}
+
+const ENV_FILE = readEnvFile();
+const TOKEN = process.env.ORION_DISCORD_BOT_TOKEN || ENV_FILE.ORION_DISCORD_BOT_TOKEN || "";
+
+/*
+ Who is obeyed.
+
+ `orion-remote` reads this from its environment and defaults to "local", which
+ means an unconfigured bridge refuses every inbound message rather than obeying
+ whoever writes first. Reading it from `.env` too is what lets it be set once,
+ in the same gitignored file the token already lives in, instead of being baked
+ into a launch agent where nobody would look for it.
+
+ It is passed explicitly into the child process below rather than exported here,
+ so it is visible at the call site: this is the line that grants authority.
+*/
+const ALLOW = process.env.ORION_REMOTE_ALLOW || ENV_FILE.ORION_REMOTE_ALLOW || "local";
+
+/*
+ Everything printed goes through this.
+
+ Not because anything here deliberately prints the token, but because the
+ failure being defended against is the one nobody writes on purpose: a gateway
+ error echoing the frame that caused it, a stack trace with a header in it, a
+ `JSON.stringify(payload)` added later by somebody in a hurry. A credential in a
+ log is a credential that has leaked, and this file's whole job is to hold one.
+*/
+const redact = (text) => {
+  const rendered = typeof text === "string" ? text : String(text);
+  return TOKEN ? rendered.split(TOKEN).join("[redacted]") : rendered;
+};
+const say = (...parts) => console.log(redact(parts.join(" ")));
+const warn = (...parts) => console.error(redact(parts.join(" ")));
+
+/* ---------- link state, which the Mac app reads ---------- */
+
+/*
+ Written for MobileCore's `MacLink`, so the phone's four presences come from
+ one producer rather than from a second opinion. Phase 44's gate recorded "no
+ producer for MacLink" as a limitation; this is it.
+
+ It carries no token, no channel content and no message text -- only whether the
+ link is up and when it was last heard from.
+*/
+async function writeLink(patch) {
+  await mkdir(CONTROLLED, { recursive: true });
+  let current = {};
+  try { current = JSON.parse(await readFile(LINK, "utf8")); } catch { /* first run */ }
+  const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
+  const temporary = `${LINK}.tmp-${randomBytes(4).toString("hex")}`;
+  await writeFile(temporary, JSON.stringify(next, null, 2), { mode: 0o600 });
+  await rename(temporary, LINK); // atomic: a reader never sees half a state
+  return next;
+}
+
+function presenceOf(link, now = Date.now()) {
+  if (!link?.lastSeen) return "unknown";
+  const silence = now - Date.parse(link.lastSeen);
+  // A beat from the future is a clock disagreement, not good health -- the same
+  // rule as MacLink.presence, and for the same reason.
+  if (Number.isNaN(silence) || silence < 0) return "unknown";
+  if (silence >= OFFLINE_AFTER_MS) return "offline";
+  if (silence >= STALE_AFTER_MS) return "stale";
+  return "online";
+}
+
+/* ---------- handing a message to orion-remote ---------- */
+
+/*
+ The whole security boundary in one function, and the point is how little it
+ does. It does not read the text, match a verb, or decide anything: it appends
+ an envelope and asks `orion-remote` to drain the queue, exactly as a local
+ `inject` would. Anything this file believed about the message would be a second
+ opinion competing with the one that has the tests.
+*/
+async function dispatch({ text, authorID, channelID }) {
+  const childEnv = { ...process.env, ORION_REMOTE_ALLOW: ALLOW };
+  const injected = await run(process.execPath, [REMOTE, "inject", text, "--from", authorID], {
+    timeout: 30_000, env: childEnv,
+  });
+  const envelopeID = (injected.stdout.match(/queued\s+([0-9a-f]+)/) || [])[1];
+  await run(process.execPath, [REMOTE, "poll"], { timeout: 120_000, env: childEnv });
+  if (!envelopeID) return null;
+
+  // The reply is whatever orion-remote decided, read back out of its own
+  // outbox. This file cannot compose one.
+  const lines = existsSync(OUTBOX) ? (await readFile(OUTBOX, "utf8")).split("\n").filter(Boolean) : [];
+  for (const line of lines.reverse()) {
+    try {
+      const entry = JSON.parse(line);
+      if (entry.envelopeId === envelopeID) return { text: entry.text, channelID };
+    } catch { /* a malformed outbox line is not a reason to stop */ }
+  }
+  return null;
+}
+
+async function send(channelID, text) {
+  if (!text) return;
+  const response = await fetch(`${API}/channels/${channelID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bot ${TOKEN}`, "Content-Type": "application/json" },
+    // Discord's own cap is 2000 characters. Truncating here rather than letting
+    // the API refuse means a long answer arrives shortened instead of not at all.
+    body: JSON.stringify({ content: String(text).slice(0, 1900) }),
+  });
+  if (!response.ok) warn(`reply failed: ${response.status} ${(await response.text()).slice(0, 200)}`);
+}
+
+/* ---------- the connection ---------- */
+
+/*
+ One attempt. Resolves with what should happen next, so the retry policy lives
+ in `serve()` and this function has no opinion about giving up.
+*/
+let selfID = "0";
+
+function connectOnce({ session, resumeURL, sequence, onReady, once }) {
+  return new Promise((resolve) => {
+    const url = session && resumeURL ? `${resumeURL}/?v=10&encoding=json` : GATEWAY;
+    const socket = new WebSocket(url);
+    const started = Date.now();
+
+    let heartbeat = null;
+    let awaitingAck = false;
+    let seq = sequence;
+    let sessionID = session;
+    let resume = resumeURL;
+    let settled = false;
+    let warnedAboutEmpty = false;
+
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (heartbeat) clearInterval(heartbeat);
+      try { socket.close(); } catch { /* already closing */ }
+      resolve({ ...outcome, sessionID, resume, seq });
+    };
+
+    socket.addEventListener("error", () => finish({ next: "retry", why: "socket error" }));
+
+    socket.addEventListener("close", (event) => {
+      // 4004 is a bad token and 4014 is a disallowed intent. Both are
+      // configuration, not weather: retrying forever would hide them behind a
+      // reconnect loop that looks like a network problem.
+      const fatal = { 4004: "the bot token was rejected", 4013: "invalid intents", 4014: "a privileged intent (Message Content) is not enabled for this bot" };
+      if (fatal[event.code]) return finish({ next: "stop", why: fatal[event.code] });
+      finish({ next: "retry", why: `closed ${event.code}` });
+    });
+
+    socket.addEventListener("message", async (event) => {
+      let frame;
+      try { frame = JSON.parse(event.data); } catch { return; }
+      if (frame.s !== null && frame.s !== undefined) seq = frame.s;
+
+      if (frame.op === OP.HELLO) {
+        const interval = frame.d.heartbeat_interval;
+        // Discord picks the interval; the FIRST beat is deliberately jittered
+        // so a fleet of clients that all reconnected together do not then all
+        // beat together.
+        const beat = () => {
+          if (awaitingAck) {
+            // A missed ACK means this socket is a zombie: it is open and
+            // nothing is coming back. Dropping it is the only way to find out.
+            return finish({ next: "retry", why: "heartbeat not acknowledged" });
+          }
+          awaitingAck = true;
+          socket.send(JSON.stringify({ op: OP.HEARTBEAT, d: seq }));
+        };
+        setTimeout(() => {
+          beat();
+          heartbeat = setInterval(beat, interval);
+        }, Math.floor(interval * Math.random()));
+
+        socket.send(JSON.stringify(
+          sessionID && resume
+            ? { op: OP.RESUME, d: { token: TOKEN, session_id: sessionID, seq } }
+            : {
+                op: OP.IDENTIFY,
+                d: {
+                  token: TOKEN,
+                  intents: INTENTS,
+                  properties: { os: "macos", browser: "orion", device: "orion" },
+                },
+              },
+        ));
+        return;
+      }
+
+      if (frame.op === OP.HEARTBEAT_ACK) {
+        awaitingAck = false;
+        await writeLink({ lastSeen: new Date().toISOString(), state: "online" });
+        return;
+      }
+
+      if (frame.op === OP.HEARTBEAT) { // the gateway may ask out of band
+        awaitingAck = true;
+        socket.send(JSON.stringify({ op: OP.HEARTBEAT, d: seq }));
+        return;
+      }
+
+      if (frame.op === OP.RECONNECT) return finish({ next: "resume", why: "gateway asked us to reconnect" });
+
+      if (frame.op === OP.INVALID_SESSION) {
+        // d === true means the session may still be resumed; false means start
+        // clean. Obeying this rather than always re-identifying is what stops a
+        // reconnect loop turning into an identify-rate-limit ban.
+        if (frame.d !== true) { sessionID = null; resume = null; }
+        return finish({ next: frame.d === true ? "resume" : "retry", why: "session invalidated" });
+      }
+
+      if (frame.op !== OP.DISPATCH) return;
+
+      if (frame.t === "READY") {
+        selfID = frame.d.user?.id ?? selfID;
+        sessionID = frame.d.session_id;
+        resume = frame.d.resume_gateway_url;
+        const user = frame.d.user || {};
+        await writeLink({
+          state: "online",
+          lastSeen: new Date().toISOString(),
+          connectionId: sessionID,
+          establishedAt: new Date(started).toISOString(),
+          failedAttempts: 0,
+          botUser: `${user.username}#${user.discriminator ?? "0"}`,
+          guilds: (frame.d.guilds || []).length,
+        });
+        onReady?.({ user, guilds: frame.d.guilds || [], sessionID });
+        if (once) finish({ next: "stop", why: "probe complete", ok: true });
+        return;
+      }
+
+      if (frame.t === "RESUMED") {
+        await writeLink({ state: "online", lastSeen: new Date().toISOString() });
+        return;
+      }
+
+      if (frame.t === "MESSAGE_CREATE") {
+        const message = frame.d || {};
+        if (message.author?.bot) return; // never answer ourselves, or another bot
+        // "<@1234> status" -> "status". Stripping the mention is unwrapping the
+        // transport's envelope, not interpreting the message: only a mention of
+        // THIS bot at the very start is removed, and everything after it is
+        // passed on byte for byte.
+        const text = (message.content || "")
+          .replace(new RegExp(`^\\s*<@!?${selfID}>`), "")
+          .trim();
+        const authorID = String(message.author?.id || "");
+        if (!authorID) return;
+
+        if (!text) {
+          // Expected, and not an error: without MESSAGE_CONTENT this is every
+          // message that is neither a DM nor a mention. Said at most once so a
+          // busy server cannot turn the log into noise.
+          if (!warnedAboutEmpty) {
+            warnedAboutEmpty = true;
+            warn(`a message from ${authorID} had no readable content. `
+              + "This bot deliberately does not hold the Message Content intent, so it "
+              + "only reads DMs and messages that @mention it. Talk to it that way.");
+          }
+          return;
+        }
+
+        say(`<- [${authorID}] ${text.slice(0, 160)}`);
+        try {
+          const reply = await dispatch({ text, authorID, channelID: message.channel_id });
+          if (reply?.text) {
+            await send(reply.channelID, reply.text);
+            say(`-> ${reply.text.slice(0, 160)}`);
+          } else {
+            // Silence is orion-remote's answer for a sender it does not know:
+            // confirming that the address works is itself information.
+            say(`   (no reply -- orion-remote declined; see \`orion-remote audit\`)`);
+          }
+        } catch (error) {
+          warn(`dispatch failed: ${String(error?.message).slice(0, 200)}`);
+        }
+      }
+    });
+
+    // Rotation. Not Discord's requirement -- its own limit is a 15-minute
+    // silence -- but Phase 44's: a connection that has been up for half a day
+    // is replaced on purpose rather than trusted indefinitely.
+    if (!once) {
+      setTimeout(() => finish({ next: "resume", why: "rotating the connection" }), ROTATE_AFTER_MS);
+    }
+  });
+}
+
+/* ---------- retry policy ---------- */
+
+const backoff = (failures) => {
+  if (failures <= 0) return 0;
+  const raw = BACKOFF_BASE_MS * 2 ** Math.min(failures - 1, 30);
+  const ceiling = Math.min(raw, BACKOFF_CAP_MS);
+  // Jitter only ever REDUCES, by at most half, so the cap stays a cap and the
+  // delay never reaches zero. Same rule as Phase 44's ReconnectPolicy.
+  return Math.round(ceiling * (1 - 0.5 * Math.random()));
+};
+
+async function serve({ once }) {
+  let failures = 0;
+  let session = null;
+  let resumeURL = null;
+  let sequence = null;
+
+  for (;;) {
+    const outcome = await connectOnce({
+      session, resumeURL, sequence, once,
+      onReady: ({ user, guilds }) => {
+        say(`connected as ${user.username} (${guilds.length} guild(s))`);
+        if (ALLOW === "local") {
+          warn("NOTE: ORION_REMOTE_ALLOW does not name a Discord account, so every "
+            + "inbound message will be refused. The id of anyone who writes is logged "
+            + "below -- add it with ORION_REMOTE_ALLOW=<id>.");
+        }
+      },
+    });
+
+    session = outcome.sessionID;
+    resumeURL = outcome.resume;
+    sequence = outcome.seq;
+
+    if (outcome.next === "stop") {
+      if (outcome.ok) return 0;
+      warn(`stopping: ${outcome.why}`);
+      await writeLink({ state: "offline", lastError: outcome.why });
+      return 1;
+    }
+
+    failures = outcome.next === "resume" ? 0 : failures + 1;
+    const wait = backoff(failures);
+    await writeLink({
+      state: presenceOf(await readLink()),
+      failedAttempts: failures,
+      lastError: outcome.why,
+    });
+    warn(`${outcome.why}; reconnecting in ${Math.round(wait / 1000)}s`);
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+}
+
+async function readLink() {
+  try { return JSON.parse(await readFile(LINK, "utf8")); } catch { return null; }
+}
+
+/* ---------- cli ---------- */
+
+const command = process.argv[2] ?? "status";
+
+if (command === "status") {
+  const link = await readLink();
+  if (!link) fail("no link state yet -- run `orion-remote-bridge probe`", 1);
+  say(`presence   ${presenceOf(link)}`);
+  say(`last seen  ${link.lastSeen ?? "never"}`);
+  say(`session    ${link.connectionId ?? "none"}`);
+  say(`bot        ${link.botUser ?? "unknown"} in ${link.guilds ?? 0} guild(s)`);
+  if (link.lastError) say(`last error ${link.lastError}`);
+  process.exit(0);
+}
+
+if (!TOKEN) {
+  fail("no ORION_DISCORD_BOT_TOKEN in the environment or .env. This bridge is "
+    + "inert without one, deliberately: it will not fall back to any other transport.");
+}
+
+// Certificate validation, asserted rather than assumed. Node verifies the chain
+// by default, and this refuses to run if something has turned that off -- an
+// authenticated transport whose certificate is not checked is an unauthenticated
+// one that looks fine.
+if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0") {
+  fail("NODE_TLS_REJECT_UNAUTHORIZED is 0, so TLS certificates would not be verified. Refusing to connect.");
+}
+
+if (command === "whoami") {
+  // Read-only. Reports the bot and the owner of each guild it is in, so the
+  // account to allowlist can be READ off the server rather than guessed at --
+  // and so that granting authority is still a deliberate act by a person, not
+  // an inference this script made on its own.
+  const headers = { Authorization: `Bot ${TOKEN}` };
+  const me = await (await fetch(`${API}/users/@me`, { headers })).json();
+  say(`bot        ${me.username} (id ${me.id})`);
+  const guilds = await (await fetch(`${API}/users/@me/guilds`, { headers })).json();
+  for (const guild of Array.isArray(guilds) ? guilds : []) {
+    const full = await (await fetch(`${API}/guilds/${guild.id}`, { headers })).json();
+    const owner = await (await fetch(`${API}/users/${full.owner_id}`, { headers })).json();
+    say(`guild      ${guild.name} (id ${guild.id})`);
+    say(`  owner    ${owner.username} (id ${full.owner_id})`);
+  }
+  say("");
+  say("To let an account command Orion, put its id in .env:");
+  say("  ORION_REMOTE_ALLOW=<id>");
+  say("Nothing is obeyed until that is set -- the default refuses everyone.");
+  process.exit(0);
+}
+
+if (command === "probe" || command === "run") {
+  process.exit(await serve({ once: command === "probe" }));
+}
+
+fail("usage: orion-remote-bridge [status|probe|run]");

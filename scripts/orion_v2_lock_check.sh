@@ -71,6 +71,19 @@ exit 1
 STUB
 chmod +x "$SANDBOX/.openclaw/bin/openclaw"
 
+# State for the transport half: two queued jobs, one pending approval, one live
+# link. Without these the Phase 43 checks below would pass vacuously.
+cat > "$SANDBOX/.openclaw/orion-controlled/inbox.jsonl" <<'JSON'
+{"id":"aaaaaaaaaaaa","from":"local","text":"device","at":1}
+{"id":"bbbbbbbbbbbb","from":"local","text":"apps","at":2}
+JSON
+cat > "$SANDBOX/.openclaw/orion-controlled/remote.json" <<'JSON'
+{"missions":{},"pending":{"ap-11223344":{"missionId":"m1","request":"use the staging key","status":"pending"}},"notify":{"sent":[],"deferred":[]}}
+JSON
+cat > "$SANDBOX/.openclaw/orion-controlled/remote-link.json" <<'JSON'
+{"state":"online","connectionId":"session-abc","lastSeen":"2026-09-02T00:00:00.000Z"}
+JSON
+
 failures=0
 check() {
     if [ "$1" = "0" ]; then printf 'ok   %s\n' "$2"; else printf 'FAIL %s\n' "$2"; failures=$((failures + 1)); fi
@@ -131,6 +144,57 @@ if [ -s "$SANDBOX/reach.json" ]; then
     grep -q '"top":78,"total":78' "$SANDBOX/reach.json"
     check $? "down from all 78 -- that reduction is what the panic button is worth"
 fi
+
+# Phase 43's three transport-dependent requirements, which could not be checked
+# until Phase 44 gave them something to act on.
+echo ""
+echo "== what the lock does to the remote channel =="
+LOCKFILE="$SANDBOX/.openclaw/orion-controlled/lock.json"
+[ -f "$LOCKFILE" ]
+check $? "a lock FLAG is written -- 'is ORION locked' is now a fact rather than an inference from the profile"
+grep -q '"locked": true' "$LOCKFILE"
+check $? "and it says so explicitly"
+
+# The flag has to actually stop a dispatch, or it is decoration. This runs the
+# REAL orion-remote against the sandbox lock.
+DENIED=$(HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-remote" handle "device" --from local 2>&1)
+echo "$DENIED" | grep -qi "locked"
+check $? "and orion-remote refuses a command while it is up (said: $(echo "$DENIED" | head -1 | cut -c1-60))"
+
+# Queued work is cancelled by advancing the cursor past it, so nothing waiting
+# is handed to a verb when the lock is released.
+CURSOR=$("$NODE" -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('$SANDBOX/.openclaw/orion-controlled/remote-inbound.json','utf8')).cursor))" 2>/dev/null || echo missing)
+[ "$CURSOR" = "2" ]
+check $? "the inbox cursor is advanced past all 2 queued job(s), so none of them run later (cursor=$CURSOR)"
+
+# A pending approval is a standing authorisation a remote message could still
+# redeem. A lockdown that left one redeemable would leave behind the single
+# thing that grants permission.
+PENDING=$("$NODE" -e "
+const s = JSON.parse(require('fs').readFileSync('$SANDBOX/.openclaw/orion-controlled/remote.json','utf8'));
+process.stdout.write(Object.values(s.pending ?? {}).map(p => p.status).join(','));" 2>/dev/null || echo missing)
+[ "$PENDING" = "expired_by_lock" ]
+check $? "the pending approval is expired rather than left redeemable (status=$PENDING)"
+
+# The live session is dropped, so a reconnect identifies afresh instead of
+# resuming the one that was open when the button was pressed.
+RESUMED=$("$NODE" -e "
+const l = JSON.parse(require('fs').readFileSync('$SANDBOX/.openclaw/orion-controlled/remote-link.json','utf8'));
+process.stdout.write(String(l.connectionId) + '/' + String(l.lockedOut));" 2>/dev/null || echo missing)
+[ "$RESUMED" = "null/true" ]
+check $? "the link's session is dropped so it cannot be resumed (connectionId/lockedOut=$RESUMED)"
+
+echo ""
+echo "== release lets him back in without restoring authority =="
+HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-lock" release > "$SANDBOX/release.out" 2>&1
+check $? "release exits 0"
+[ ! -f "$LOCKFILE" ]
+check $? "the flag is gone"
+ALLOWED=$(HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-remote" handle "device" --from local 2>&1)
+echo "$ALLOWED" | grep -qi "locked"
+if [ $? -eq 0 ]; then check 1 "and commands are accepted again"; else check 0 "and commands are accepted again"; fi
+[ "$(profile_now)" = "restricted_read_only" ]
+check $? "but the profile is STILL on the floor -- release is not an unlock, and undoing the emergency stays a separate decision"
 
 echo ""
 echo "== locking again, when already locked =="

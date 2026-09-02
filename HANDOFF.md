@@ -1,5 +1,48 @@
 # HANDOFF
 
+## 2026-09-02 12:55 — The 34-40 review, and what it caught
+
+An oblivious reviewer checked every requirement in phases 34-40 against the
+code. **No dropped requirements. 34, 38, 39 and 40 sound. Real defects in 35, 36
+and 37**, all repaired and mutation-proven, recorded under each phase in
+`postReviewCorrections` (`4c800d9`).
+
+**The two that mattered.**
+
+*Phase 37: an experiment's finding was not computed over the experiment.*
+`window` and `observed` were computed and used for `stage`, `observedDays` and
+`confoundedDays` — then the association was built from `days`, the whole
+history. A 14-day experiment printed "34 with, 14 without" beside "14 days
+observed" on the same screen; out-of-window data **inverted the sign** of the
+finding; `durationDays` had no effect at all. Nothing could catch it — mutating
+`days:` to `window:` left the suite at 665/0.
+
+*Phase 35: "late" contains "ate".* The meal row is checked before stress,
+unwell, travel, screen and social, so it won: "Really stressed and worked late."
+→ meal. "I procrastinated." → meal. The recorded limitation claimed the failure
+mode was an honest low-confidence note. It was not, and Phase 36 eats these
+categories directly. The vocabulary already carried `"ran "`, `"run "`, `"saw "`
+with trailing spaces — the same bug patched one word at a time. Now word-boundary
+matching with one inflection allowed; both halves proven by mutating in opposite
+directions ("Had 2 coffees" breaks one way, "ranch" matches "ran" the other).
+
+**Four assertions that could not fail** — the 40-vs-2 floor fixture (no jitter →
+pooled spread 0 → returned before the floor was consulted), `originalText`
+preservation (fixtures never changed the notes), the unreadable-journal check
+(`!entries.isEmpty || lastError != nil`), and a zone precondition using
+`?? TimeZone("UTC")` whose premise was false for `Mars/Olympus` anyway.
+
+Also: the most common finding sentence read "Caffeine **is tends to coincide
+with** lower recovery"; and Phase 35's clarification rule was narrower than its
+record, so "Worked out late today." resolved to yesterday and asked nothing.
+
+Counts: domain 394, sections 130, journal store 27, MobileCore 693, firewall 38,
+location 20, timezone 18, Python 1,445. Secret scan clean, iOS build clean.
+
+**Not reviewed: phases 41-45.** Same oblivious pass is worth running on them.
+
+---
+
 ## 2026-09-01 23:45 — Phases 41-45, and one credential that unblocks three of them
 
 The git failure below was TCC and the restart fixed it. Phase 40's seven files

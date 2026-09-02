@@ -99,7 +99,21 @@ const TERMINAL = new Set(["succeeded", "needs_human", "needs_permission", "budge
 const [MAX_BYTES, MAX_TOKENS] = [200, 8];
 const MAX_BRAIN_BYTES = 4000;
 const RATE_WINDOW_MS = 10 * 60_000;
-const RATE_CAP = 12; // per sender, counting rejects too, so garbage cannot flood
+/*
+ Forty, not twelve.
+
+ Twelve per ten minutes was sized for a COMMAND channel that anyone who learned
+ the address could write to. It is far too low for a conversation: the first
+ real debugging session with Orion died on "too many commands in the last ten
+ minutes" while Nick was mid-problem, which is the worst possible moment to be
+ silenced by your own assistant.
+
+ The threat it was sized against is now handled better upstream -- the sender
+ allowlist means only named accounts are answered at all, and the bridge drops
+ everyone else before a process is even spawned. What remains for this limit to
+ do is stop a runaway loop, and forty does that without ending a conversation.
+*/
+const RATE_CAP = 40; // per sender, counting rejects too, so garbage cannot flood
 const SEEN_KEPT = 200; // replayed envelope ids are refused, never re-executed
 
 /*
@@ -310,7 +324,7 @@ function parse(raw) {
     // `verb` is carried so the caller can tell "I do not know that word" from
     // "I know it and you gave me the wrong arguments". They are different
     // things and used to produce the same sentence.
-    return { error: usage(verb), verb };
+    return { error: usage(verb), verb, args };
   }
   return { verb, args };
 }
@@ -392,8 +406,13 @@ const CHANNEL_BRIEF = [
   "- These words are handled by the transport before you ever see them, so never",
   "  claim to have run them and never describe them as things you do:",
   "  status, pause, resume, cancel, approve, deny, priority, device, apps, files.",
-  "- Approvals use ids minted by orion-notify, shaped ap-xxxxxxxx, and are answered",
-  "  by sending: approve <id>   (no slash, no other syntax).",
+  "- Approvals: you CANNOT create an approval id. Only orion-notify mints them,",
+  "  when a mission blocks, and the format is exactly ap- followed by 8 hex",
+  "  characters. If you do not have a real one in front of you, say you have no",
+  "  pending approval. Never invent an id, never guess one, and never claim one",
+  "  was truncated -- on 2026-09-02 you produced two fabricated ids in a row and",
+  "  sent Nick round a loop approving something that did not exist.",
+  "  A real one is answered by sending: approve <id>   (no slash, no other syntax).",
   "- If you do not know something about your own configuration, say so. Do not",
   "  describe your permission state from memory; it changes without you.",
   "- Discord truncates near 2000 characters. Keep replies shorter than that.",
@@ -770,10 +789,22 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
   });
   const parsed = parse(text);
   if (parsed.error) {
-    // A RECOGNISED verb with bad arguments is a typo, not a question. Answering
-    // "files" with a model turn would be slower, cost money, and be less useful
-    // than naming the three folders.
-    if (parsed.verb) {
+    /*
+     A bare verb word is CONVERSATION, not a command. This is the fix for the
+     worst moment of the first real conversation: Nick typed "pause", meaning
+     pause the music, and got "pause needs a mission id" -- the vocabulary
+     hijacked an ordinary English word and the model never saw it.
+
+     Half the verb list is ordinary English: pause, resume, cancel, status,
+     files, device, apps, priority. Once the brain is attached those are no
+     longer safe to capture on sight.
+
+     So the rule is: a verb with NO arguments falls through to the brain, which
+     can do the thing or ask what he meant. A verb WITH arguments that fail
+     validation was clearly meant as a command, and still gets the usage line.
+     "pause" reaches the brain; "files ~" still says which folders exist.
+    */
+    if (parsed.verb && parsed.args && parsed.args.length > 0) {
       await audit({ ...record, decision: "rejected", reason: parsed.error });
       return { ok: false, reply: parsed.error };
     }

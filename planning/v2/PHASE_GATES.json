@@ -4191,6 +4191,56 @@
           }
         ]
       }
+    },
+    "46": {
+      "name": "Harmless Mac Actions",
+      "status": "in_progress",
+      "entryRequiresPhase": "45",
+      "entrySatisfied": true,
+      "evidence": "The four actions already existed in the deployed catalogue. Verified against openclaw-plugins/orion-control/dist and against the real execution ledger rather than rebuilt.",
+      "decisions": [
+        "NOT BUILT. All four actions were already in the deployed ACTION_CATALOG under the live stack's names, which is the interpretation rule working as intended: the manifest's `application.launch` is `app_open`, `system.volume.set` is `volume_set`. Grepping the catalogue before designing is what stopped this becoming the third phase in this program to be built twice.",
+        "Evidence is taken from the REAL ledger -- actions that have actually run on this Mac -- rather than from a fixture. browser_open_url has seven recorded executions."
+      ],
+      "requirements": [
+        {
+          "id": "adds_application_launch_and_quit",
+          "status": "passed",
+          "evidence": "app_open and app_quit, both capabilityTier app_control, both risk low and reversible true. Present in the deployed catalogue, not only in source."
+        },
+        {
+          "id": "adds_browser_open_url",
+          "status": "passed",
+          "evidence": "browser_open_url, tier browser_control, risk medium. The best-evidenced action in the phase: seven real executions in the archived ledger, each recording the resolved browser and bundle id alongside the url."
+        },
+        {
+          "id": "adds_system_volume_set",
+          "status": "passed",
+          "evidence": "volume_set, tier media_control, risk low, reversible. volume_mute and volume_unmute exist beside it, and display_sleep and the three media transport actions share the tier."
+        },
+        {
+          "id": "requires_policy_evaluation",
+          "status": "passed",
+          "evidence": "Every one of the four is gated by capability tier, and the tiers are absent from restricted_read_only -- so all four become unreachable the moment LOCK ORION drops the profile to the floor. Measured across the five profiles: app_control, browser_control and media_control are allowed in approved_root_edit and above and in nothing below it. That is the same intersection the runtime validator computes, read from the live plugin rather than asserted."
+        },
+        {
+          "id": "audits_every_remote_action",
+          "status": "passed",
+          "evidence": "The TaskLedger records far more than the fact of execution. A real archived entry for browser_open_url carries the request (action, arguments, and sourceRefs naming the turn that authorised it), the execution (mode, target, and the resolved output), a VERIFICATION block with method browser_tab_shows_url, observed true and the actual tab as evidence, and a status of verified. Task-level records additionally carry planHash, authorization binding and turn count. An audit that records what was asked, what ran, and what was observed afterwards is the useful kind."
+        },
+        {
+          "id": "supports_mobile_cancellation",
+          "status": "blocked",
+          "reason": "No mobile surface exists, and these four actions are atomic -- an app launch has no in-flight window to cancel. The honest reading is that this requirement belongs with Phase 56's session UI, where cancelling something long-running is meaningful.",
+          "evidence": "Mission-level cancellation does exist and is reachable remotely -- `cancel <mission>` is one of orion-remote's verbs and it stops the runner. What does not exist is cancellation of an action, and there is no mobile surface to cancel from: MobileCore's types still have no producer or renderer. Registered rather than argued around, because Phase 56 (Remote Session UI) is where the manifest actually puts pause/cancel/inspect, and closing this on the mission verb would let 56 inherit a tick it did not earn."
+        }
+      ],
+      "limitations": [
+        "app_open, app_quit and volume_set are verified as PRESENT and correctly gated, not as executed. browser_open_url is the only one of the four with real executions in the ledger. Running the others would have launched applications and changed the volume on Nick's Mac while he was out, which is a poor trade for evidence that the catalogue already provides.",
+        "The manifest's names and the live names differ (application.launch -> app_open, system.volume.set -> volume_set). Recorded so a later reader does not conclude the actions are missing.",
+        "Phase 46 stays open on mobile cancellation, so Phase 47 enters with entrySatisfied false unless that closes first."
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {

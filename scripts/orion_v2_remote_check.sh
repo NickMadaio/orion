@@ -116,16 +116,36 @@ if echo "$OUT" | grep -q "hidden-file"; then check 1 "hidden files are not liste
 # never gets that far, because the tokeniser strips leading non-alphanumerics
 # and the argument ceases to exist. Both are refusals, so the assertion is that
 # it did NOT list anything -- pinning the message would pin the wrong layer.
-for BAD in "/etc/passwd" "../../etc" "~" "desktop/../.ssh"; do
+# A path that SURVIVES tokenisation is clearly a command attempt, and gets the
+# usage line naming the three roots. A bare "~" does not survive -- the
+# tokeniser strips leading non-alphanumerics, so the argument ceases to exist
+# and the message becomes indistinguishable from typing "files" in conversation.
+# Since 2026-09-02 that case goes to the brain, because capturing bare English
+# words was hijacking real messages: "pause", meaning pause the music, was
+# answered with "pause needs a mission id".
+#
+# What must hold in EVERY case is the thing that actually matters: nothing
+# outside the three roots is ever listed.
+for BAD in "/etc/passwd" "../../etc" "desktop/../.ssh"; do
     OUT="$(remote handle "files $BAD" --from local)"
-    # The refusal must also SAY what would work. A rejection that does not name
-    # the three valid roots sends a person guessing at paths, which is the one
-    # thing this closed set exists to stop.
     echo "$OUT" | grep -qE "root must be one of|files needs one of"
     check $? "files refuses '$BAD' and names the three valid roots"
-    echo "$OUT" | grep -q "Orion | "
-    if [ $? -eq 0 ]; then check 1 "and '$BAD' listed nothing"; else check 0 "and '$BAD' listed nothing"; fi
+    if echo "$OUT" | grep -q "Orion | "; then check 1 "and '$BAD' listed nothing"; else check 0 "and '$BAD' listed nothing"; fi
 done
+for BARE in "~" "."; do
+    OUT="$(remote handle "files $BARE" --from local)"
+    if echo "$OUT" | grep -q "Orion | "; then check 1 "'files $BARE' lists nothing"; else check 0 "'files $BARE' lists nothing"; fi
+done
+
+# The regression that prompted all of this: a bare verb word is CONVERSATION.
+BARE_VERB="$(remote handle 'pause' --from local)"
+echo "$BARE_VERB" | grep -q "STUBBRAIN saw \[pause\]"
+check $? "a bare 'pause' reaches the brain -- far more often about music than about a mission"
+if echo "$BARE_VERB" | grep -q "needs a mission id"; then
+    check 1 "and is NOT captured by the mission verb"
+else
+    check 0 "and is NOT captured by the mission verb"
+fi
 
 # Every guard must run BEFORE the brain, or attaching it widened the attack
 # surface rather than the usefulness. These are the same four rules as above,

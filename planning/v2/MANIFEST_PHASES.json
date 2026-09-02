@@ -210,6 +210,11 @@
       "status": "complete",
       "evidence": "planning/v2/PHASE_GATES.json phase 45",
       "note": "Closed 2026-09-02 by a real Discord round trip. Phase 46 is now unblocked."
+    },
+    "46": {
+      "status": "in_progress",
+      "evidence": "planning/v2/PHASE_GATES.json phase 46",
+      "note": "Five of six pass and nothing was built -- all four actions already existed in the deployed catalogue under the live stack's names. Mobile cancellation is blocked and belongs with Phase 56."
     }
   },
   "tracks": [

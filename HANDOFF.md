@@ -1,5 +1,56 @@
 # HANDOFF
 
+## 2026-09-02 18:50 — The manifest was amended; stopped at Phase 50
+
+### The manifest changed, and that is not tampering
+
+**Requirements were ADDED to phases 46, 48 and 49 on Nick's explicit
+instruction**, and the source was re-fingerprinted rather than left looking
+altered. Old sha `f9fceb60…`, new sha `7cb01a57…`, both recorded in
+`MANIFEST_PHASES.json` → `source.amendments` with the reasoning. Nothing was
+removed, reworded, renumbered or reordered.
+
+The additions came from an independent agent's diagnosis of a failed live
+conversation. Three classes of defect the manifest required nothing about, so
+fixing them quietly would have meant building outside the requirements source.
+
+### What that diagnosis found, ranked
+
+1. **My own channel brief was disarming a security gate.** The host records
+   `CHANNEL_BRIEF + Nick's message` as ONE user turn, so every word I wrote
+   counted as something *he* said — and the brief contained "enable" and
+   "permission", both in the plugin's `AUTHORITY_INSTRUCTION` regex. The
+   self-modification gate therefore passed on **every Discord turn**. Fixed, and
+   the check now reads the regex out of the plugin so it cannot drift.
+2. **"pause the music"** parsed as `pause(music)` → "no mission called music".
+   Mission-shaped arguments naming no mission are conversation now.
+3. **The gate Nick looped on was unsatisfiable.** `normalizeForOrigin` strips
+   dots from both sides, so "executors.ts" needs the token `executorsts`. Saying
+   "executors" could never work. NOT FIXED — Phase 49.
+4. **Approval is satisfiable by the agent.** Orion passed `approvalHash` himself
+   and the gate cleared; no human yes ever reached the plugin. NOT FIXED —
+   Phase 49, and the most consequential open item.
+5. **Music pause**: verification cost the action. The pre-flight snapshot takes
+   **120 seconds** against Apple Music and consumed the whole 10s budget, so the
+   playpause was never sent. Bounded to 3s and deployed. **But Music is not
+   answering AppleEvents at all** — a bare playpause also times out at 120s — so
+   the fix is necessary and not sufficient. A media-key route measured 291ms and
+   was deliberately NOT shipped: `key code 16` is plausibly the "y" key and
+   nothing could confirm a pause actually happened.
+
+### Position — stopped at 50 as instructed
+
+Complete: 0–39, 41, 42, 44, 45. Open: **40** (the 2026-09-08 move), **43**
+(reauthentication), **46** (6/9 after the amendment), **47** (8/9 — only
+`files.copy` missing; everything else already existed). Surveyed and largely
+unbuilt: **48**, **49**, **50**.
+
+47 needed almost nothing built — nineteen file actions already existed across six
+scoped tiers, delete already trashes and verifies. That is the third phase this
+programme has nearly rebuilt; grep first.
+
+---
+
 ## 2026-09-02 17:42 — Orion is persistent, and talking
 
 Two things changed today that the earlier entries below do not reflect.

@@ -38,7 +38,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-39 and 41-45 complete, except Phase 40 (9/10, waiting on the 2026-09-08 move) and Phase 43 (8/9, reauthentication). The Discord channel is live end to end and Phase 46 is unblocked. Next work is Phase 46, Harmless Mac Actions.",
+    "numberedProgramPosition": "Phases 0-39, 41, 42, 44 and 45 complete. Open: 40 (9/10, the 2026-09-08 move), 43 (8/9, reauthentication), 46 (6/9 after the 2026-09-02 manifest amendment), 47 (8/9, files.copy). Surveyed and largely unbuilt: 48, 49, 50. Stopped at 50 on Nick's instruction. The manifest was amended on 2026-09-02 and re-fingerprinted; see source.amendments.",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -237,6 +237,26 @@
       "status": "in_progress",
       "evidence": "planning/v2/PHASE_GATES.json phase 46",
       "note": "Five of six pass and nothing was built -- all four actions already existed in the deployed catalogue under the live stack's names. Mobile cancellation is blocked and belongs with Phase 56."
+    },
+    "47": {
+      "status": "in_progress",
+      "evidence": "planning/v2/PHASE_GATES.json phase 47",
+      "note": "Eight of nine pass and nothing was built -- the file capabilities already existed across six scoped tiers. files.copy is the one genuine gap."
+    },
+    "48": {
+      "status": "not_started",
+      "evidence": "planning/v2/PHASE_GATES.json phase 48",
+      "note": "Surveyed. Only the negative requirement (no arbitrary root command) is satisfied, and it already was. The worker/broker split is unstarted."
+    },
+    "49": {
+      "status": "not_started",
+      "evidence": "planning/v2/PHASE_GATES.json phase 49",
+      "note": "Surveyed. Canonical hashing exists; the human, the phone and the cryptography do not. Two amended requirements record that the gate is currently satisfiable by the agent itself."
+    },
+    "50": {
+      "status": "not_started",
+      "evidence": "planning/v2/PHASE_GATES.json phase 50",
+      "note": "Surveyed. Phase 42 built the Delegation vocabulary; nothing stores or enforces one."
     }
   },
   "tracks": [

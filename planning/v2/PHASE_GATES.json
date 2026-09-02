@@ -4260,6 +4260,228 @@
         "A system media-key route was measured at 291ms against the AppleEvent route's timeout, which looks like the answer to Nick's own phrasing -- 'whatever is the current fastest way to pause'. It was NOT shipped: osascript reporting success only means the script ran, `key code 16` is plausibly the 'y' key rather than a media key, and with Music unresponsive there was no way to confirm anything actually paused. Shipping an unverified fallback would be the same confidently-wrong failure this phase exists to record."
       ],
       "nextPhaseAllowed": false
+    },
+    "47": {
+      "name": "File Capabilities",
+      "status": "in_progress",
+      "entryRequiresPhase": "46",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-02",
+      "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Verified against the deployed ACTION_CATALOG. Nothing was built; almost all of it already existed.",
+      "decisions": [
+        "Surveyed before designing. Nineteen file-shaped actions already exist across six capability tiers, so the phase is a verification, not a build -- the third time in this program that grepping first avoided rebuilding something."
+      ],
+      "requirements": [
+        {
+          "id": "adds_files_list",
+          "status": "passed",
+          "evidence": "desktop_list and home_list, both desktop_read/home_read tier, risk low, reversible."
+        },
+        {
+          "id": "adds_files_read",
+          "status": "passed",
+          "evidence": "desktop_text_read and home_read_text, same read tiers. Reading is separated from listing rather than folded into it."
+        },
+        {
+          "id": "adds_files_move",
+          "status": "passed",
+          "evidence": "file_move and file_rename, tier file_mutate, risk medium, reversible true."
+        },
+        {
+          "id": "adds_files_copy",
+          "status": "blocked",
+          "reason": "Not built. Adding a catalogue action means a catalogue entry, an executor, a verification method and a plugin rebuild, and it should land with its own tests rather than be appended to a survey.",
+          "evidence": "No file_copy in the deployed catalogue. It is the one genuine gap in this phase and the only action of the four that does not exist in some form."
+        },
+        {
+          "id": "defines_path_scopes",
+          "status": "passed",
+          "evidence": "Scope is the capability tier, not a path check bolted on afterwards: desktop_read, home_read, desktop_modify, desktop_direct_write, scratch_workspace, scratch_direct_write and file_mutate are separate tiers, each independently switchable and independently allowed per permission profile. Every file action takes a `root` argument naming one of them rather than an absolute path."
+        },
+        {
+          "id": "never_gives_default_access_to_the_entire_disk",
+          "status": "passed",
+          "evidence": "There is no whole-disk tier to grant. The roots are a closed set and MUTABLE_ROOTS in catalog.ts names them; isMutableRoot gates writes. At restricted_read_only every one of these tiers is off, which is what LOCK ORION drops to."
+        },
+        {
+          "id": "respects_macos_privacy_controls",
+          "status": "passed",
+          "evidence": "Demonstrated rather than claimed, twice today. The launchd-run bridge cannot read ~/Desktop, which is why the vault lives in ~/Documents and why orion-remote-install copies itself out of the repo. And files.safe_metadata reports the OS refusal by name rather than reporting an empty folder."
+        },
+        {
+          "id": "adds_files_delete_separately_at_higher_risk",
+          "status": "passed",
+          "evidence": "file_delete is its own action at risk high with approvalRequired true, against file_move and file_rename at risk medium with no approval. Separated by risk AND by gate, not merely listed apart."
+        },
+        {
+          "id": "supports_trash_recoverable_deletion",
+          "status": "passed",
+          "evidence": "file_delete declares verification `file_in_trash` and reversible true, and the executor carries a trashRoot defaulting to ~/.Trash with a `trashed` outcome. Deletion moves rather than destroys, and the verification checks the file arrived there."
+        }
+      ],
+      "limitations": [
+        "files.copy is the single missing action. Everything else in this phase was already built and is verified here, not written."
+      ],
+      "nextPhaseAllowed": false
+    },
+    "48": {
+      "name": "Mac Privilege Separation",
+      "status": "not_started",
+      "entryRequiresPhase": "47",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-02",
+      "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-02. No worker/broker split exists. Recorded so the position is honest rather than left blank.",
+      "requirements": [
+        {
+          "id": "splits_execution_into_user_worker_and_privileged_broker",
+          "status": "blocked",
+          "reason": "Not started. This is an architectural split, not a feature, and it should be designed before it is typed.",
+          "evidence": "grep for PrivilegedBroker / UserWorker across every Swift and TypeScript source returns nothing. What does exist is native/OrionMacBridge, a separate signed binary the app shells out to for EventKit -- a real process boundary, but drawn for TCC attribution rather than for privilege, and it holds no elevated rights."
+        },
+        {
+          "id": "privileged_broker_exposes_only_a_tiny_explicit_interface",
+          "status": "blocked",
+          "reason": "Depends on the split above.",
+          "evidence": "There is no broker."
+        },
+        {
+          "id": "does_not_expose_run_arbitrary_root_command",
+          "status": "passed",
+          "evidence": "True today and worth recording as the one thing this phase already has. tools.elevated.enabled is false in openclaw.json, exec runs security=allowlist with askFallback=deny, and no allowlist entry is a shell or an interpreter -- 35 read-only utilities and a set of named wrapper scripts. There is no path to a root command because there is no path to an arbitrary command."
+        },
+        {
+          "id": "keeps_privileged_code_minimal",
+          "status": "blocked",
+          "reason": "Depends on the split.",
+          "evidence": "Vacuously true -- there is no privileged code -- which is not the same as satisfied."
+        },
+        {
+          "id": "signs_and_hardens_executables",
+          "status": "blocked",
+          "reason": "Not started, and partly gated on the Apple Developer Program Nick has chosen to leave until last.",
+          "evidence": "scripts/orion-sign-setup exists and the $99 Apple Developer Program is deliberately deferred to the end of the programme. tests/test_keychain_call_sites.py pins the two call sites a Team ID would change."
+        },
+        {
+          "id": "prevents_unauthorized_replacement_or_tampering",
+          "status": "blocked",
+          "reason": "Not started. Today's work made this more relevant, not less.",
+          "evidence": "Nothing verifies the integrity of an installed copy before running it. Two copies now run outside the repo -- ~/.openclaw/orion-remote and the installed plugin -- and only a fingerprint COMPARISON exists (orion-remote-install --status), which reports drift rather than preventing it."
+        },
+        {
+          "id": "binds_destructive_authorization_to_the_requesting_turn",
+          "status": "blocked",
+          "reason": "Not fixed. Found by an independent review of the failed conversation.",
+          "evidence": "AMENDED INTO THE MANIFEST 2026-09-02. transcript.ts documents a `perTurnOnly` rule for exactly this and the identifier appears nowhere in the codebase. A target named up to eight turns or ten minutes earlier can be spliced onto a later 'do it' -- precisely the splice the comment claims is prevented."
+        }
+      ],
+      "limitations": [
+        "Nothing in this phase is built beyond the negative requirement, which was already true. Recorded rather than skipped."
+      ],
+      "nextPhaseAllowed": false
+    },
+    "49": {
+      "name": "Remote Approval System",
+      "status": "not_started",
+      "entryRequiresPhase": "48",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-02",
+      "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-02. The canonical-hash half exists in the plugin; the human, the phone and the cryptography do not.",
+      "requirements": [
+        {
+          "id": "creates_a_canonical_job_representation_and_hashes_it",
+          "status": "passed",
+          "evidence": "permissions.ts builds a canonical string with sorted keys and digests it with sha256, and the plugin returns that canonicalHash on an approval-required rejection. Observed live on 2026-09-02: 74c7acc61ad69234ad1b1e9e47081f19cd37522fadaae14f12f29a83a1c24d0d, bound to the exact arguments."
+        },
+        {
+          "id": "shows_a_human_readable_approval_on_iphone",
+          "status": "blocked",
+          "reason": "Depends on a phone surface that does not exist.",
+          "evidence": "There is no iPhone app. MobileCore has the types and no renderer."
+        },
+        {
+          "id": "requires_face_id_where_appropriate",
+          "status": "blocked",
+          "reason": "Depends on the phone surface.",
+          "evidence": "grep for LAContext returns nothing."
+        },
+        {
+          "id": "signs_approval_with_a_device_authorization_key",
+          "status": "blocked",
+          "reason": "Depends on the phone surface.",
+          "evidence": "grep for SecureEnclave returns nothing. MobileCore's DeviceKeyReference is a display type that deliberately holds a reference and a public half, with no signing."
+        },
+        {
+          "id": "includes_target_device_capability_arguments_hash_expiration_and_nonce",
+          "status": "blocked",
+          "reason": "Half-built in two places that do not know about each other.",
+          "evidence": "The arguments hash exists. Target device, expiration and nonce exist in the Swift RemoteJob domain (Phase 45) and are enforced there; neither is carried in the plugin's approval representation."
+        },
+        {
+          "id": "mac_verifies_signatures_independently",
+          "status": "blocked",
+          "reason": "Depends on signing.",
+          "evidence": "Nothing is signed, so nothing verifies."
+        },
+        {
+          "id": "keeps_a_human_in_the_loop_for_every_approval",
+          "status": "blocked",
+          "reason": "Not fixed, and the most consequential item in this phase. An approval system the approver can satisfy on its own is not an approval system.",
+          "evidence": "AMENDED INTO THE MANIFEST 2026-09-02, because the review found the gate is satisfiable by the AGENT. During the failed conversation the approval_required issue vanished after Orion passed approvalHash himself, unprompted -- no human yes ever reached the plugin, and the approve-id exchange Nick was walked through was theatre."
+        },
+        {
+          "id": "authorization_checks_are_satisfiable_by_the_name_a_person_would_type",
+          "status": "blocked",
+          "reason": "Not fixed. The smallest correct repair is to accept the extension-stripped stem when it is long enough to be unambiguous.",
+          "evidence": "AMENDED IN 2026-09-02. normalizeForOrigin strips dots from BOTH the needle and the haystack, so the required token for 'executors.ts' is 'executorsts' -- which no human writes. Nick was asked three times to name the file, answered 'executors', and was refused each time by a check that could not have accepted it. Five identical rejections are in the session transcript."
+        },
+        {
+          "id": "never_presents_an_approval_identifier_the_system_did_not_mint",
+          "status": "passed",
+          "evidence": "AMENDED IN 2026-09-02 and repaired the same day, on the transport side. Orion truncated the plugin's 64-character canonicalHash to 13 characters, wore an ap- prefix on it, and when refused rationalised the mismatch as truncation and resent the full hash still prefixed. Real ids are ap- plus exactly 8 hex and only orion-notify mints them; remote.json's pending map was empty throughout. The channel brief now states he cannot create one, names the format, and requires him to say he has no pending approval rather than invent one."
+        }
+      ],
+      "limitations": [
+        "The two halves of approval do not know about each other: the plugin has canonical hashing with no human, and the Swift RemoteJob domain has expiry, nonce and target device with no plugin. Phase 49 is largely the work of joining them.",
+        "Everything involving the phone is blocked behind a phone application that does not exist."
+      ],
+      "nextPhaseAllowed": false
+    },
+    "50": {
+      "name": "Delegated Policies",
+      "status": "not_started",
+      "entryRequiresPhase": "49",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-02",
+      "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-02. A Delegation type exists from Phase 42; nothing stores or enforces one.",
+      "requirements": [
+        {
+          "id": "allows_preauthorizing_narrowly_defined_capabilities",
+          "status": "blocked",
+          "reason": "Not started. The vocabulary exists and the enforcement does not.",
+          "evidence": "MobileCore's Delegation (SecurityCenter.swift, Phase 42) models one -- id, what, grantedAt, expiresAt, revoked, and isActive at an injected instant, all mutation-proven. It is a DISPLAY type: nothing creates a delegation, nothing stores one, and no executor consults one before acting."
+        },
+        {
+          "id": "every_delegation_defines_capabilities_resources_exceptions_limits_expiration_ceiling_and_devices",
+          "status": "blocked",
+          "reason": "Not started.",
+          "evidence": "The existing type carries expiration and revocation only. The other five fields -- allowed capabilities, resources, exceptions, risk ceiling, target devices -- have no representation anywhere."
+        },
+        {
+          "id": "requires_explicit_user_approval_to_create_or_expand_a_delegation",
+          "status": "blocked",
+          "reason": "Depends on Phase 49.",
+          "evidence": "Depends on Phase 49's approval path, which is itself blocked on there being a human in it. Registered so this is not closed on the strength of a gate the agent can satisfy alone."
+        }
+      ],
+      "limitations": [
+        "Phase 42 deliberately built the Delegation vocabulary early, and its gate recorded at the time that nothing produced one. That is still true and is this phase's whole scope.",
+        "This phase is where the manifest itself would narrow the full remote authority Nick chose on 2026-09-02 -- preauthorised narrow capabilities are the alternative to all-or-nothing. Worth reading together with scopeNotInManifest's remote_conversation_with_the_brain entry."
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {

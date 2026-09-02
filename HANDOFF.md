@@ -1,5 +1,66 @@
 # HANDOFF
 
+## 2026-09-02 13:35 — The Discord bridge is live. One line from a round trip.
+
+Nick created the bot, added it to the ORION guild and put the token in `.env`.
+The transport is built, connects, and the three phases that were waiting on it
+are closed except for two named gaps (`0af5235`).
+
+**It really connects.** `scripts/orion-remote-bridge probe` reaches
+wss://gateway.discord.gg, IDENTIFYs and gets READY: *connected as orion (1
+guild(s))*.
+
+### The one thing left
+
+`ORION_REMOTE_ALLOW` refuses everyone by default, so no inbound message is
+obeyed yet. The candidate id — `732025545549807666`, owner of the ORION guild,
+found with `orion-remote-bridge whoami` — is in `.env` **commented out**.
+Granting an account authority over this Mac is Nick's decision, not an inference
+from who owns the guild. Uncomment it and the channel is on.
+
+### What was found
+
+**A permission not taken.** The first attempt asked for `MESSAGE_CONTENT` and
+Discord closed the socket with 4014. That privileged intent would let the bot
+read every message in every channel it can see. Dropping it was the better fix:
+Discord delivers content for DMs and @mentions without it, which is exactly how
+Orion is addressed. He hears you when you talk TO him and is deaf otherwise.
+
+**"Running application" took three definitions.** Any bundle in the process
+table gives 62, nearly all agents like `AirPlayUIAgent`. The outermost bundle
+reports News, Stocks and Home as running — their *widget extensions* are always
+alive while the apps are not. The honest one: an executable directly in a
+top-level bundle's `Contents/MacOS`. Eleven names, all genuinely open.
+
+**A test that could never fail**, mine. `grep -qv "hello"` inverts *per line*, so
+on multi-line output some line always fails to match and it exits 0. Caught by
+mutating the handler to print file contents and watching the assertion pass.
+
+**The two guards that did not exist now do, in the LIVE path.** `orion-remote`
+finally reads back the `at` it has always written (>10 min → refused, audited
+with the age), and an envelope addressed to another Mac is refused *before any
+state is written* — so it consumes no replay slot. That second half is the one a
+naive implementation gets wrong and is separately mutation-proven.
+
+**The lock reaches the channel.** `lock.json` is a real flag rather than an
+inference from `profile == restricted_read_only`. Locking stops dispatch,
+advances the inbox cursor past queued jobs (leaving them on disk for the audit),
+expires pending approvals — the one thing a lockdown must not leave redeemable —
+and drops the gateway session so a reconnect must IDENTIFY, not RESUME.
+`orion-lock release` restores listening and deliberately **not** authority.
+
+### Position
+
+0-39, 41, 42, 44 complete. Open: **40** (9/10, the 2026-09-08 move), **43** (8/9,
+reauthentication is the only gap left), **45** (11/12, one Discord round trip).
+Phase 46 must not start until that round trip happens.
+
+Two new checks: `orion_v2_remote_check.sh` (25 assertions) and the extended
+`orion_v2_lock_check.sh`, both running the real scripts against a scratch HOME
+with live state hashed and asserted untouched. Eleven mutations, all killed.
+
+---
+
 ## 2026-09-02 12:55 — The 34-40 review, and what it caught
 
 An oblivious reviewer checked every requirement in phases 34-40 against the

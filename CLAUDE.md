@@ -5,20 +5,21 @@ working rules for Claude, Codex and other coding assistants.
 
 ## Where the program is
 
-**Phases 0-39, 41 and 42 are complete. Four phases are open and NOT ONE of them
-is open on unwritten logic:**
+**Phases 0-39, 41, 42 and 44 are complete. Three are open:**
 
 - **40** — 9/10. The live cron jobs stay pinned `America/New_York` until Nick
   actually moves; `orion-timezone set Europe/London` closes it in one command.
-- **43** — 5/9. Three blocked requirements need a transport to exist.
-- **44** — 7/9. Needs a **Discord bot token** in `.env` as
-  `ORION_DISCORD_BOT_TOKEN`. Free, unrelated to the $99. Nick adds it himself.
-- **45** — 9/10. Nothing serves the read-only capabilities yet.
+- **43** — 8/9. Only reauthentication remains; the three transport-dependent
+  requirements closed on 2026-09-02.
+- **45** — 11/12. Everything is built and proven; one full Discord round trip is
+  outstanding because no account is allowlisted yet.
 
-**One credential unblocks 43, 44 and 45 together.** No transport was stubbed,
-deliberately — a fake connector would make every policy test in 44 meaningless.
-Phase 46 must not start before the read-only path works; that is a registered
-blocked requirement, so the gate validator enforces it.
+**The Discord bridge is live** (`scripts/orion-remote-bridge`) and reaches the
+real gateway. `ORION_REMOTE_ALLOW` refuses everyone by default; the candidate id
+sits commented out in `.env`, because granting an account authority over this Mac
+is a person's decision rather than an inference. Phase 46 must not start before
+that round trip happens; it is a registered blocked requirement, so the gate
+validator enforces it.
 
 The program is 85 numbered phases. The manifest is
 `planning/v2/MANIFEST_PHASES.json`, generated from

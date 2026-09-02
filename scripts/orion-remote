@@ -392,7 +392,23 @@ async function askBrain(text) {
     if (envelope?.status && envelope.status !== "ok") {
       return { ok: false, reply: `Orion did not finish: ${String(envelope.summary ?? envelope.status).slice(0, 140)}`, runId };
     }
-    return { ok: true, reply: reply.trim() || "(Orion had nothing to say)", runId };
+    /*
+     A turn CAN legitimately complete with no text -- a bare "Test" did, in
+     under a second, because there was nothing in it to answer. That is Orion
+     choosing silence rather than a bug, and the first version said only
+     "(Orion had nothing to say)", which is true and useless: it looks
+     identical to a broken reply path, and it cost a round of diagnosis to
+     tell the two apart. Naming the run makes it checkable in one command.
+    */
+    if (!reply.trim()) {
+      return {
+        ok: true,
+        reply: `Orion finished that turn without saying anything — there may have been nothing to answer.`
+          + (runId ? ` (openclaw tasks show ${runId})` : ""),
+        runId,
+      };
+    }
+    return { ok: true, reply: reply.trim(), runId };
   } catch (error) {
     const detail = String(error?.stderr || error?.message || error).slice(0, 300);
     // The gateway refuses a second turn in a session that is already running

@@ -1,6 +1,7 @@
 import AppKit
 import EventKit
 import Foundation
+import SessionDomain
 
 /*
  Today's agenda, read-only.
@@ -43,6 +44,20 @@ struct AgendaEvent: Identifiable, Equatable {
     var start: Date
     var end: Date
     var isAllDay: Bool
+    /// The civil days an all-day event covers. Nil for a timed event.
+    ///
+    /// Phase 40. EventKit hands an all-day event a pair of INSTANTS — midnight
+    /// in some zone — and deciding which day it belongs to by comparing those
+    /// instants against `Calendar.current` moves the event a day when the
+    /// machine's zone and the event's zone disagree. "8 September, all day"
+    /// written in London is stored as 2026-09-07T23:00Z, which a New York
+    /// calendar reads as the SEVENTH.
+    ///
+    /// So the span is recovered once, at fetch time, in the zone the event was
+    /// written in, and every later question about which day it is on goes
+    /// through `AgendaPlacement` and compares civil days. The instants stay for
+    /// layout, which is what they are actually good for.
+    var days: AllDaySpan?
     var calendarName: String
     /// The dot colour Calendar.app shows, so the agenda is recognisable.
     ///
@@ -150,23 +165,42 @@ final class AppleCalendarSync: ObservableObject {
     }
 
     /// Events on one day, ready to lay out.
+    ///
+    /// The membership rule lives in `AgendaPlacement` and is deliberately
+    /// different for the two kinds of event: an all-day event is compared as
+    /// CIVIL DAYS, a timed one as instants. This used to be a single instant
+    /// comparison for both, which put an all-day event on the wrong day
+    /// whenever the machine's zone differed from the event's — invisible until
+    /// the machine moves.
+    ///
+    /// A multi-day event still appears on every day it covers; otherwise a trip
+    /// vanishes from the calendar after day one.
     func events(on date: Date) -> [AgendaEvent] {
-        let calendar = Calendar.current
+        let zone = TimeZone.current
+        let day = CivilDay(of: date, in: zone)
         return windowEvents
-            .filter { calendar.isDate($0.start, inSameDayAs: date) || spans(date, $0) }
+            .filter {
+                AgendaPlacement.appears(allDay: $0.days, start: $0.start, end: $0.end,
+                                        on: day, in: zone)
+            }
             .sorted { left, right in
                 if left.isAllDay != right.isAllDay { return left.isAllDay }
                 return left.start < right.start
             }
     }
 
-    /// A multi-day event should appear on every day it covers, not only the one
-    /// it began on — otherwise a trip vanishes from the calendar after day one.
-    private func spans(_ date: Date, _ event: AgendaEvent) -> Bool {
-        let calendar = Calendar.current
-        let day = calendar.startOfDay(for: date)
-        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: day) else { return false }
-        return event.start < dayEnd && event.end > day
+    /// The civil days an all-day event covers, read in the zone it was written in.
+    ///
+    /// `event.timeZone` is nil for most all-day events, which is EventKit
+    /// saying "this one floats". Falling back to the current zone is correct at
+    /// FETCH time — it is the same zone the instants were just resolved in —
+    /// and is exactly what must not happen later, when the machine may have
+    /// moved. Doing it once, here, is what makes everything downstream
+    /// zone-independent.
+    static func allDaySpan(of event: EKEvent) -> AllDaySpan? {
+        guard event.isAllDay else { return nil }
+        return AgendaPlacement.span(from: event.startDate, to: event.endDate,
+                                    in: event.timeZone ?? TimeZone.current)
     }
 
     /// How busy each day of the week is, 0...1, for the strip's density marks.
@@ -260,6 +294,7 @@ final class AppleCalendarSync: ObservableObject {
                     start: event.startDate,
                     end: event.endDate,
                     isAllDay: event.isAllDay,
+                    days: AppleCalendarSync.allDaySpan(of: event),
                     calendarName: event.calendar?.title ?? "",
                     colorHex: AppleCalendarSync.hex(from: event.calendar?.cgColor),
                     isOrionMade: created.contains(event.eventIdentifier ?? ""),
@@ -318,6 +353,7 @@ final class AppleCalendarSync: ObservableObject {
                     start: event.startDate,
                     end: event.endDate,
                     isAllDay: event.isAllDay,
+                    days: AppleCalendarSync.allDaySpan(of: event),
                     calendarName: event.calendar?.title ?? "",
                     colorHex: AppleCalendarSync.hex(from: event.calendar?.cgColor),
                     isOrionMade: created.contains(id),

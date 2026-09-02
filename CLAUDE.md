@@ -5,9 +5,10 @@ working rules for Claude, Codex and other coding assistants.
 
 ## Where the program is
 
-**Phases 0-33 are complete. Phase 40 is partially done — it was opened out of
-numeric order because Nick's move to London had a date on it. Phases 34-39 are
-not started, and the next work is Phase 34 onward in numeric order.**
+**Phases 0-39 are complete. Phase 40 is nine-tenths done — its one remaining
+requirement is not code: the live cron jobs stay pinned `America/New_York` until
+Nick actually moves, and `orion-timezone set Europe/London` closes it in one
+command. The next work is Phase 41 onward in numeric order.**
 
 The program is 85 numbered phases. The manifest is
 `planning/v2/MANIFEST_PHASES.json`, generated from

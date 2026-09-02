@@ -1,5 +1,81 @@
 # HANDOFF
 
+## 2026-09-01 22:55 — UNCOMMITTED WORK, and why (read this first)
+
+**Phase 40 work is finished, builds and passes, and could NOT be committed.**
+Claude Code auto-updated mid-session: the running binary was
+`claude-code/2.1.247`, and by 22:54 the only installed version was `2.1.255`.
+macOS resolves the responsible process when granting access to a protected
+folder, so with that binary gone every process spawned under `~/Desktop` started
+getting `Operation not permitted` — including `git`, which cannot read
+`.git/config`. AGENTS.md documents this trap; the fix is to restart Claude Code.
+Nothing is wrong with the files or the permissions.
+
+Diagnosed rather than assumed: plain file writes and `touch .git/.probe` both
+still work, and the failure reproduces with the tool sandbox disabled, so it is
+TCC and not the harness. `swift build --scratch-path <somewhere outside Desktop>`
+is the workaround that let the work be finished and verified.
+
+**First thing the next session should do**, after `git fetch && git status -sb`:
+
+```
+git add -A && git commit    # the seven files below
+```
+
+| File | State |
+|---|---|
+| `native/Orion/Sources/SessionDomain/AgendaPlacement.swift` | new |
+| `native/Orion/Sources/SessionDomain/TravelMode.swift` | new |
+| `native/Orion/Tests/SessionDomainTests/AgendaPlacementTests.swift` | new, 11 tests |
+| `native/Orion/Tests/SessionDomainTests/TravelModeTests.swift` | new, 15 tests |
+| `native/Orion/Sources/Orion/AppleCalendarSync.swift` | modified — uses AgendaPlacement |
+| `planning/v2/PHASE_GATES.json` | phase 40 now 9 passed / 1 blocked |
+| `CLAUDE.md` | position corrected to 0-39 complete |
+
+Verified at 22:55: `swift build` clean, **393 domain tests, 0 failures** (was 367).
+
+### What it delivers
+
+Three of Phase 40's four blocked requirements, on Nick's instructions of
+2026-09-01.
+
+**A real calendar defect.** `AppleCalendarSync.events(on:)` decided which day an
+event belonged to by comparing INSTANTS against `Calendar.current`. Right for a
+timed event; wrong for an all-day one, which has no instant and gets given one
+anyway — midnight in some zone. "8 September, all day" written in London is
+stored as `2026-09-07T23:00Z`, which a New York calendar reads as the SEVENTH.
+The event is simply on the wrong day and nothing errors. `AgendaPlacement` now
+compares CIVIL DAYS for all-day events and instants for timed ones, and the span
+is recovered once at fetch time in the event's own zone. Mutation-proven: the
+old rule fails 445 assertions across the 443-zone sweep. The all-day end
+off-by-one is DETECTED (is the end exactly on a day boundary?) rather than
+assumed, so inclusive-end sources still come out right.
+
+**Travel Mode** — a reading layer only. It never re-homes anything, because
+`orion-timezone` is deliberately the only thing that touches live cron, and that
+division is what makes it safe to switch on automatically. Displacement is read
+AT THE INSTANT, so the fortnight when London has left BST and New York has not
+reports four hours rather than five.
+
+**Flights, and why they needed no new type.** Nick's call was that in-air
+precision is not worth building for, and checking showed he was right about more
+than that: EventKit stores a flight as two instants, already correct at both
+ends. `Journey` is two `ZonedInstant`s — the existing type, used twice — and
+adds only that each end is read in its own zone. The one genuine bug is pinned:
+duration comes from the instants, because New York 18:00 to London 06:00 is
+SEVEN hours and the wall clocks say twelve.
+
+### Still blocked, and not code
+
+`the_live_cron_weather_and_day_boundary_are_re_homed`. The cron jobs stay on
+`America/New_York` until Nick actually moves. One command closes it:
+`orion-timezone set Europe/London --place "London, United Kingdom"`.
+
+### Then
+
+Nick asked for **phases 41-45** next, and for an independent review sweep over
+the 34-40 work afterwards. Neither has started.
+
 **Position: Phases 0-33 complete, Phase 40 partially done, next work is Phase 34
 onward in numeric order.** The program is tracked in the manifest's phase
 NUMBERS and always has been.

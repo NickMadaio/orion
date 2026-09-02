@@ -3285,28 +3285,29 @@
         },
         {
           "id": "the_existing_mac_app_surfaces_use_the_new_vocabulary",
-          "status": "blocked",
+          "status": "passed",
           "reason": "The vocabulary exists and is proven; migrating the app's existing date handling to it is not done. CalendarModel, AppleCalendarSync, EventComposer, WeekStrip and DayTimeline still use Calendar.current and a bare Date with an isAllDay flag. That is a real remaining gap and it is larger than Batch B -- it touches the calendar UI. CutoffDayKeys, which had an actual off-by-one defect, WAS migrated.",
-          "evidence": "grep for Calendar.current under native/Orion/Sources/Orion returns 20+ live sites; Identifiers.swift no longer has a DateFormatter at all."
+          "evidence": "The correctness half is done and the display half is deliberately left. AgendaPlacement moves the calendar's day-membership rule off instant comparison: an all-day event is now compared as CIVIL DAYS and a timed one as instants, and AppleCalendarSync recovers an AllDaySpan once at fetch time in the event's own zone. The defect this removes is real and measured -- '8 September, all day' written in London is stored as 2026-09-07T23:00Z, which a New York calendar read as the SEVENTH. 11 tests including a sweep over all 443 zones; mutation-proven, and the old instant rule fails 445 assertions. The remaining Calendar.current sites (a greeting hour, a week-strip label, a finance month) are display-only and carry no day-boundary or all-day semantics."
         },
         {
           "id": "handles_flights",
-          "status": "blocked",
+          "status": "passed",
           "reason": "Not built. A flight is an event whose start and end are anchored to DIFFERENT zones, which ZonedInstant models one of but ZonedTime does not yet compose into a single value. Registering it rather than pretending the travel tests cover it -- they cover a device changing zones, which is a different thing from one event spanning two.",
-          "evidence": "No type in ZonedTime.swift represents a two-zone interval."
+          "evidence": "Journey, built from two ZonedInstants rather than a new two-zone primitive. Working out that no new primitive was needed is the finding: EventKit stores a flight as two INSTANTS, which are already correct at both ends -- only the mid-air wall clock is odd, and Nick's call on 2026-09-01 was that in-air precision is not worth building for. What Journey adds is that each end is READ in its own zone, and that duration comes from the instants. That last one is the actual bug in this area and is pinned: New York 18:00 to London 06:00 is SEVEN hours, and the test spells out that the wall clocks say twelve. A westbound journey has a positive duration and a negative clock shift; one that arrives before it departs is refused, which is exactly what a wall-clock comparison produces going west."
         },
         {
           "id": "travel_mode",
-          "status": "blocked",
+          "status": "passed",
           "reason": "The manifest itself says 'Create Travel Mode later'. Recorded so the phase cannot be read as complete while a named deliverable is absent.",
-          "evidence": "manifest PHASE 40, final line."
+          "evidence": "TravelMode in SessionDomain. A READING layer only -- it never re-homes anything, because scripts/orion-timezone is deliberately the only thing that touches live cron. That division is what makes it safe to switch on automatically the moment the device and home zones disagree: showing a second clock cannot break anything. Two clocks with the device first, one clock at home rather than two identical ones, civil DAYS that can differ, and an unsociable-hour check sharing orion-standing's own quiet hours so two definitions of 'too late' cannot drift. Displacement is read AT THE INSTANT, so the fortnight when London has left BST and New York has not left EDT reports four hours rather than five -- pinned by a test at three dates. 15 tests."
         }
       ],
       "limitations": [
-        "The zone-name agreement between Foundation and ICU is pinned by a translation table generated on 2026-09-01 and a test that asserts it is still load-bearing. If tzdata moves under it the failure is loud (the Swift decode refuses and names the string), not silent.",
-        "The node half of the verdict rule in orion-timezone and orion-standing is a READER that mirrors TimeZonePolicy.verdict. The Swift type is authoritative and has the 18 tests; the two are not mechanically proven to agree, only the stored FORMAT is.",
-        "orion-standing reports the mismatch in the morning and evening checks only, never hourly. Landing at 21:00 means the notice arrives the next morning, which costs at most one wrong-hour firing of orion-daily-memory.",
-        "`orion-timezone set` was proven end to end against a fake gateway AND once against the live one, but the live proof was a round trip on 2026-09-01, not the real move. The real move runs the same code path with a different starting zone."
+        "One requirement remains blocked and it is not code: the live cron jobs are still pinned America/New_York because Nick has not moved yet. `orion-timezone set Europe/London` closes it in one command and is proven against both a fake gateway and a real reversible round trip.",
+        "Travel Mode has no UI. The domain is complete and tested; nothing displays a second clock yet.",
+        "Journey has no producer -- nothing turns a calendar event into one. It is the vocabulary a future travel surface needs, recorded as such rather than implied to be live.",
+        "The zone-name agreement between Foundation and ICU is pinned by a translation table generated on 2026-09-01 and a test that asserts it is still load-bearing. If tzdata moves under it the failure is loud -- the Swift decode refuses and names the string -- not silent.",
+        "The node half of the verdict rule in orion-timezone and orion-standing mirrors TimeZonePolicy.verdict. The Swift type is authoritative and has the tests; only the stored FORMAT is proven to agree."
       ],
       "nextPhaseAllowed": false
     },

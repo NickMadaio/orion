@@ -2445,6 +2445,124 @@ expect(!n44Rotate.shouldRotate(MacLink(lastSeen: n44Now), at: n44Now),
        "and a link that is not connected is not 'due for rotation' -- answering true would rotate a connection that does not exist, forever")
 expect(RotationPolicy(maxAge: 0) == nil, "a zero rotation age is refused")
 
+// -- PHASE 45: remote Mac, read-only ---------------------------------------
+
+section("remote read-only jobs")
+
+let n45Now = Date(timeIntervalSince1970: 1_772_000_000)
+let n45Minute: TimeInterval = 60
+
+// "Do not modify anything", as an absent enum member. A write capability cannot
+// be NAMED, so no job can request one and no handler can exist for one.
+expect(Set(ReadOnlyCapability.allCases.map(\.rawValue)) ==
+        ["device.status.read", "application.list", "files.safe_metadata"],
+       "exactly the manifest's three low-risk capabilities, by their own dotted names")
+expect(!ReadOnlyCapability.allCases.contains { c in
+    ["write", "delete", "move", "send", "modify", "run", "exec"].contains { c.rawValue.contains($0) }
+}, "and not one of them can modify anything")
+expect(ReadOnlyCapability.allCases.allSatisfy(\.isIdempotent),
+       "every capability is a pure read -- which is precisely what makes a lost-answer retry safe, and is why the manifest starts here")
+expect(ReadOnlyCapability.filesSafeMetadata.describesReturn.contains("never contents"),
+       "and safe metadata says out loud that it is names, sizes and dates, never contents")
+
+func n45Job(_ id: String, device: String = "mac-1", capability: ReadOnlyCapability = .deviceStatusRead,
+            ttl: TimeInterval = 5 * 60) -> RemoteJob {
+    RemoteJob(id: id, capability: capability, targetDeviceID: device,
+              issuedAt: n45Now, expiresAt: n45Now.addingTimeInterval(ttl))!
+}
+let n45Gate = JobGate(deviceID: "mac-1")!
+
+// -- MALFORMED JOBS: not coped with, made unconstructable ------------------
+
+expect(RemoteJob(id: "", capability: .deviceStatusRead, targetDeviceID: "mac-1",
+                 issuedAt: n45Now, expiresAt: n45Now.addingTimeInterval(60)) == nil,
+       "a job with no id cannot be built")
+expect(RemoteJob(id: "j1", capability: .deviceStatusRead, targetDeviceID: "   ",
+                 issuedAt: n45Now, expiresAt: n45Now.addingTimeInterval(60)) == nil,
+       "nor one addressed to nobody -- an unaddressed job is refused rather than treated as a broadcast")
+expect(RemoteJob(id: "j 1; rm -rf /", capability: .deviceStatusRead, targetDeviceID: "mac-1",
+                 issuedAt: n45Now, expiresAt: n45Now.addingTimeInterval(60)) == nil,
+       "an id carrying a space or a shell word is refused -- ids are opaque handles, not text")
+expect(RemoteJob(id: "j1", capability: .deviceStatusRead, targetDeviceID: "mac-1",
+                 issuedAt: n45Now, expiresAt: n45Now) == nil,
+       "and one that expires at the instant it was issued is broken, not short-lived -- accepting it would make every freshness check meaningless")
+expect(RemoteJob(id: "j1", capability: .deviceStatusRead, targetDeviceID: "mac-1",
+                 issuedAt: n45Now, expiresAt: n45Now.addingTimeInterval(-60)) == nil,
+       "as is one that expired before it was issued")
+expect(JobGate(deviceID: " ") == nil && JobGate(deviceID: "mac-1", memory: 0) == nil,
+       "a gate with no device or no replay memory is refused")
+
+// -- WRONG-DEVICE ROUTING, and the memory it must not consume --------------
+
+let n45Foreign = n45Gate.evaluate(n45Job("f1", device: "mac-2"), at: n45Now, issuer: "phone-1")
+expect(n45Foreign.verdict == .rejected(.wrongDevice), "a job for another Mac is refused")
+expect(n45Foreign.gate.seen.isEmpty,
+       "and is NOT recorded as seen -- otherwise anyone could fill this device's replay memory with jobs addressed to somebody else, a denial of service costing them nothing and needing no credential")
+
+// -- EXPIRATION ------------------------------------------------------------
+
+expect(n45Gate.evaluate(n45Job("e1", ttl: 300), at: n45Now.addingTimeInterval(299), issuer: "phone-1")
+        .verdict == .accepted, "one second before expiry the job is good")
+expect(n45Gate.evaluate(n45Job("e2", ttl: 300), at: n45Now.addingTimeInterval(300), issuer: "phone-1")
+        .verdict == .rejected(.expired),
+       "and at the expiry instant it is expired -- the boundary belongs to the expiry")
+expect(n45Gate.evaluate(n45Job("e3", ttl: 300), at: n45Now.addingTimeInterval(86_400), issuer: "phone-1")
+        .verdict == .rejected(.expired),
+       "a job from yesterday does not become good again by being unseen. scripts/orion-remote stamps an envelope with a time and never reads it back, which is exactly this rule's absence")
+
+// -- REVOCATION ------------------------------------------------------------
+
+let n45Revoked = n45Gate.revoking("phone-2")
+expect(n45Revoked.evaluate(n45Job("r1"), at: n45Now, issuer: "phone-2").verdict == .rejected(.revoked),
+       "a revoked issuer's job is refused")
+expect(n45Revoked.evaluate(n45Job("r2"), at: n45Now, issuer: "phone-1").verdict == .accepted,
+       "and revoking one issuer does not silence the others")
+expect(n45Revoked.evaluate(n45Job("r3", ttl: 60), at: n45Now.addingTimeInterval(120), issuer: "phone-2")
+        .verdict == .rejected(.revoked),
+       "authority is judged BEFORE freshness -- reporting a revoked device's stale job as merely expired would suggest a newer one would work")
+
+// -- REPLAY vs DUPLICATE, which are deliberately different ------------------
+
+let n45First = n45Gate.evaluate(n45Job("d1"), at: n45Now, issuer: "phone-1")
+expect(n45First.verdict == .accepted, "a job is accepted once")
+expect(n45First.gate.evaluate(n45Job("d1"), at: n45Now, issuer: "phone-1").verdict == .rejected(.replay),
+       "and the SAME id a second time is a replay -- a resent id is indistinguishable from an attacker resending a captured one, and the gate must not have to guess")
+expect(n45First.gate.evaluate(n45Job("d2"), at: n45Now, issuer: "phone-1").verdict == .accepted,
+       "but the same REQUEST under a new id is a duplicate, not a replay, and is accepted -- that is what an honest client does when its answer was lost, and it is safe because the capability is a read")
+
+// A rejected id is still remembered, so it cannot be retried into a different
+// answer by waiting for the gate to forget.
+let n45AfterExpired = n45Gate.evaluate(n45Job("x1", ttl: 60), at: n45Now.addingTimeInterval(120), issuer: "phone-1")
+expect(n45AfterExpired.verdict == .rejected(.expired), "an expired job is rejected")
+expect(n45AfterExpired.gate.seen == ["x1"],
+       "and is still recorded, so the same id cannot be retried into a different verdict")
+
+// -- NETWORK FAILURE: the same job, judged twice, cannot double-answer ------
+
+// A dropped reply is indistinguishable from a dropped request, so the client
+// retries. Judging is pure and total, so replaying the WHOLE stream from any
+// point gives the same accepted set -- nothing depends on how far the network
+// got before it failed.
+let n45Stream = ["n1", "n2", "n3"].map { n45Job($0) }
+func n45Run(_ jobs: [RemoteJob]) -> [String] {
+    var gate = n45Gate
+    var accepted: [String] = []
+    for job in jobs {
+        let outcome = gate.evaluate(job, at: n45Now, issuer: "phone-1")
+        if outcome.verdict.isAccepted { accepted.append(job.id) }
+        gate = outcome.gate
+    }
+    return accepted
+}
+expect(n45Run(n45Stream) == ["n1", "n2", "n3"], "three distinct jobs are all answered")
+expect(n45Run(n45Stream + n45Stream) == ["n1", "n2", "n3"],
+       "and the whole stream re-delivered after a network failure answers each exactly once")
+expect(n45Run([n45Stream[0], n45Stream[0], n45Stream[1], n45Stream[0]]) == ["n1", "n2"],
+       "however many times the retry lands, each id is answered once and only once")
+
+expect(Set(JobRejection.allCases.map(\.rawValue)) == ["wrong_device", "revoked", "expired", "replay"],
+       "the four rejections cover the manifest's failure modes, and malformed is absent because a malformed job cannot be constructed at all")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

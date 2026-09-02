@@ -3933,6 +3933,80 @@
         "Phase 43's three transport-dependent blocked requirements -- stop dispatches, cancel queued jobs, expire leases -- are still blocked and must be closed here once a transport exists, not inherited."
       ],
       "nextPhaseAllowed": false
+    },
+    "45": {
+      "name": "Remote Mac Read-Only",
+      "status": "in_progress",
+      "entryRequiresPhase": "44",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-01",
+      "openedAgainst": "Phase 44's two open requirements are the transport, which waits on a credential Nick creates. All seven of Phase 45's named tests are about JOB HANDLING rather than the wire, so they are answerable now and were. Recorded as a deviation rather than asserted true.",
+      "evidence": "native/OrionMobile/Sources/MobileCore/RemoteJob.swift, checked by scripts/orion_v2_mobile_check.sh (665 checks, 0 failed; iOS build clean).",
+      "decisions": [
+        "Deciding and DOING are separate types. JobGate.evaluate returns a verdict and never performs an effect, so nothing in this file can touch the Mac even by accident -- which is the strongest available reading of 'do not modify anything'.",
+        "evaluate returns the verdict AND the next gate rather than mutating in place, so a caller cannot record a job as seen while failing to act on the verdict.",
+        "Replay and duplicate are deliberately DIFFERENT rejections, and working out why is the substance of this phase. See the requirement below."
+      ],
+      "requirements": [
+        {
+          "id": "begins_with_the_three_low_risk_capabilities",
+          "status": "passed",
+          "evidence": "ReadOnlyCapability is exactly device.status.read, application.list and files.safe_metadata, by the manifest's own dotted names, pinned by CONTENTS. Each carries the plain-words description a consent screen needs, and files.safe_metadata says out loud that it is names, sizes and dates and never contents -- asserted, because that is the one of the three where the difference matters."
+        },
+        {
+          "id": "does_not_modify_anything",
+          "status": "passed",
+          "evidence": "An absent enum member. There is no write capability, so a job cannot NAME one and no handler can exist for one; asserted directly, including that no capability's name contains write, delete, move, send, modify, run or exec. Reinforced by the type split above: the gate returns a verdict, never an effect."
+        },
+        {
+          "id": "tested_replay",
+          "status": "passed",
+          "evidence": "The same job id twice is refused as a replay, because a resent id is indistinguishable from an attacker resending a captured one and the gate must not have to guess which. Rejections are recorded as seen too, so a rejected id cannot be retried into a different verdict by waiting. Mutation-proven twice -- removing the replay check, and forgetting rejected jobs."
+        },
+        {
+          "id": "tested_expiration",
+          "status": "passed",
+          "evidence": "A job at exactly its expiry instant is expired; the boundary belongs to the expiry. Mutation-proven with > for >=. THIS RULE IS ABSENT FROM THE LIVE PATH TODAY and that is the finding: scripts/orion-remote stamps every envelope with `at` and never reads it back, so an envelope from three weeks ago executes the moment it is delivered, provided its id has not been seen. Grepped and confirmed -- there is no age check anywhere in that file."
+        },
+        {
+          "id": "tested_revocation",
+          "status": "passed",
+          "evidence": "A revoked issuer's job is refused, revoking one issuer does not silence the others, and authority is judged BEFORE freshness -- reporting a revoked device's stale job as merely expired would suggest a newer one would work. The ordering is mutation-proven by swapping the two checks."
+        },
+        {
+          "id": "tested_wrong_device_routing",
+          "status": "passed",
+          "evidence": "A job addressed to another Mac is refused, and is NOT recorded as seen. That second half is the one worth having: recording it would let anybody fill this device's replay memory with jobs addressed to somebody else -- a denial of service that costs the attacker nothing and needs no valid credential. Mutation-proven."
+        },
+        {
+          "id": "tested_malformed_jobs",
+          "status": "passed",
+          "evidence": "Not a handler that copes with rubbish; a type rubbish cannot become. RemoteJob.init? refuses an empty id, an unaddressed job (refused rather than treated as a broadcast), an id carrying a space or a shell word, and one whose expiry is at or before its issue time -- which is broken rather than short-lived, and accepting it would make every freshness check meaningless. Mutation-proven twice."
+        },
+        {
+          "id": "tested_network_failure",
+          "status": "passed",
+          "evidence": "A dropped reply is indistinguishable from a dropped request, so the client must retry. Judging is pure and total, so re-delivering the WHOLE stream answers each job exactly once, and so does any interleaving of retries -- asserted over three orderings. Nothing depends on how far the network got before it failed."
+        },
+        {
+          "id": "tested_duplicate_jobs",
+          "status": "passed",
+          "evidence": "Distinguished from replay on purpose, and this is the phase's real content. A DUPLICATE is the same request under a NEW id, which is what an honest client does when its answer was lost, and it is accepted. It is only safe to accept because every capability here is a pure read, so answering twice returns the same thing -- which is exactly why the manifest orders read-only before Phase 46's actions. The rule a client must follow falls out of it: mint a new id to retry, never re-send the old one."
+        },
+        {
+          "id": "the_read_only_path_is_served_end_to_end",
+          "status": "blocked",
+          "reason": "The guards exist and are proven as decisions in RemoteJob.swift; grep confirms orion-remote has no age check and no target-device field.",
+          "evidence": "Nothing serves these capabilities. There is no handler that reads device status, lists applications or returns file metadata, and no transport to carry a job -- Phase 44's two open requirements. Separately and more importantly, scripts/orion-remote, which IS the live inbound path, enforces none of these guards: it has no expiry check and no device routing at all. Registered rather than left implicit, so Phase 46's harmless ACTIONS cannot begin before read-only actually works."
+        }
+      ],
+      "limitations": [
+        "TWO REAL GAPS IN LIVE CODE, found while writing this phase and not yet closed: scripts/orion-remote never checks envelope age, so a stale envelope executes on delivery if its id is unseen; and it has no device routing at all, since an envelope carries a sender but no target. Both are Phase 45 requirements that the live path does not meet, and both should be closed when the transport lands rather than left to be rediscovered.",
+        "Nothing serves the three capabilities, and the gate has no producer. Every 'passed' here is a passed DECISION -- the same standing as Phase 44's policies.",
+        "The gate's replay memory is bounded at 500 ids, newest kept. An attacker who can get 500 valid jobs judged could age a captured id out of memory and replay it. Expiry is the defence that actually covers that, which is part of why expiry being absent from orion-remote matters more than it looks.",
+        "Revocation is checked against an issuer identifier the gate is handed. Nothing yet establishes that identifier cryptographically -- that is Phase 44's authenticated transport, and until it exists the issuer is asserted rather than proven."
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {

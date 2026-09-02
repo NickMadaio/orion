@@ -16,7 +16,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-39, 41 and 42 complete. Three phases are open on things that are not code: Phase 40 (nine of ten; the cron re-home waits for the 2026-09-08 move), Phase 43 (five of nine; three need Phase 44's transport) and Phase 44 (seven of nine; the transport waits on a Discord bot token from Nick). Phase 45 cannot start until 44 has a transport to be read-only over.",
+    "numberedProgramPosition": "Phases 0-39, 41 and 42 complete. Four open, none of them on unwritten logic: Phase 40 (nine of ten; the cron re-home waits for the 2026-09-08 move), Phase 43 (five of nine; three need a transport), Phase 44 (seven of nine; the transport waits on a Discord bot token from Nick) and Phase 45 (nine of ten; nothing serves the capabilities yet). One credential unblocks 43, 44 and 45 together. Phase 46 must not start before the read-only path actually works.",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -205,6 +205,11 @@
       "status": "in_progress",
       "evidence": "planning/v2/PHASE_GATES.json phase 44",
       "note": "Seven of nine requirements pass. The two blocked ones are the transport itself, waiting on a Discord bot token from Nick. No transport was stubbed, deliberately."
+    },
+    "45": {
+      "status": "in_progress",
+      "evidence": "planning/v2/PHASE_GATES.json phase 45",
+      "note": "All nine of the manifest's own requirements pass as decisions. One derived requirement is blocked: nothing serves the capabilities, and orion-remote enforces none of the guards. Phase 46 must not start until it does."
     }
   },
   "tracks": [

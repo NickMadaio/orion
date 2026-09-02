@@ -1,5 +1,91 @@
 # HANDOFF
 
+## 2026-09-01 23:45 — Phases 41-45, and one credential that unblocks three of them
+
+The git failure below was TCC and the restart fixed it. Phase 40's seven files
+are committed (`36ae8a0`); nothing is uncommitted now. Then 41 through 45 ran in
+numeric order. Everything is pushed to `orion-v2/backlog-checkpoint`.
+
+**Phases 41 and 42 are complete. 43, 44 and 45 are open, and not one of them is
+open on unwritten logic.** Three of them are waiting on the same thing.
+
+| Phase | | State |
+|---|---|---|
+| 41 Notification Engine | `4b49482` | complete, 6/6 |
+| 42 Security Center | `0fd0f6b` | complete, 7/7 |
+| 43 LOCK ORION | `40ee6e3` | 5 of 9 — three blocked need a transport |
+| 44 Remote Connection | `9dda027` | 7 of 9 — **needs a Discord bot token** |
+| 45 Remote Read-Only | `3a06d1f` | 9 of 10 — nothing serves the capabilities |
+
+### The one thing Nick has to do
+
+A **Discord bot token**, free, unrelated to the $99. It goes in the gitignored
+`.env` as `ORION_DISCORD_BOT_TOKEN`, next to the existing
+`ORION_DISCORD_WEBHOOK_URL` (which is the one-way OUTBOUND webhook and is not an
+inbound channel). He adds it himself; no assistant should handle it in plaintext.
+
+That single credential closes Phase 44's two blocked requirements, Phase 43's
+three transport-dependent ones, and Phase 45's serving requirement.
+
+**No transport was stubbed, deliberately.** A fake connector that pretended to
+connect would make every policy test in Phase 44 meaningless.
+
+### What was found, phase by phase
+
+**41.** A near-miss assertion, caught by mutation and fixed by changing the
+TEST. The next-brief time is a civil time, and the first test used 22:00 on the
+London spring-forward night — where adding 86,400 seconds still lands on the
+right day, so the mutant survived. The two only diverge in the last hour before
+midnight: 23:30 GMT + 86,400s is 00:30 BST on the THIRTIETH, so the naive
+version skips 29 March and the morning brief never fires. Also: urgency was
+being decided TWICE (a `mayBreakThrough` switch beside the new level routing);
+it is now derived, same answers, but it cannot disagree with itself.
+
+**42.** A real defect, found by refusing to use a fixture. The automation panel
+decodes the live `CURRENT_AUTHORITY.json`, and the new cross-language check fed
+it the actual file: it failed on the first run because the `simulation` tier
+emits `"flag": null`. A hand-written fixture would never have had a null, and
+the symptom would have been a BLANK automation panel — which reads as "nothing
+is allowed", the most dangerous wrong answer on a security screen. Also: all
+seven actions the manifest allows take authority away or read, so
+`SecurityActionEffect` has no `grantsAuthority` member, and locking ORION
+removes nothing from that screen.
+
+**43.** The panic button worked and was not rebuilt. What it lacked was a test —
+it had been verified once by hand and left. It now has 14 assertions against the
+real script through the real writer, in a scratch HOME. Measured rather than
+asserted: the lock takes ORION from **78 of 78 catalogued actions reachable to
+15**, across 3 tiers instead of 24. Four blocked requirements are registered
+honestly; the one that does NOT depend on a later phase is that there is no
+locked FLAG, only an inference — "is ORION locked" and "is ORION at its most
+restrictive" are being treated as the same question and they are not.
+
+**44.** The security test I wrote was itself the defect. "Never expose a public
+server" is a negative, so it is scanned for — and the first scan looked for the
+address alone and flagged `orion/web.py`'s SSRF denylist, a guard that names
+`0.0.0.0` because it REFUSES it. A test that reports a security control as a
+vulnerability is worse than none: the cheapest way to pass it is to delete the
+control. The detector now needs a bind token too, and is itself tested against
+lines it must catch and must not.
+
+**45.** Two real gaps in live code. `scripts/orion-remote` stamps every envelope
+with `at` and **never reads it back** — no age check anywhere in the file, so a
+three-week-old envelope executes on delivery if its id is unseen. And it has no
+device routing at all: an envelope has a sender but no target. Both are Phase 45
+requirements the live inbound path does not meet. Close them when the transport
+lands.
+
+### Position
+
+Phases 0-39, 41, 42 complete. Open: **40** (9/10, waiting on the 2026-09-08
+move), **43** (5/9), **44** (7/9), **45** (9/10). Phase 46 must NOT start before
+the read-only path actually works — registered as a blocked requirement so the
+validator enforces it.
+
+An independent review sweep over phases 34-40 was requested and launched.
+
+---
+
 ## 2026-09-01 22:55 — UNCOMMITTED WORK, and why (read this first)
 
 **Phase 40 work is finished, builds and passes, and could NOT be committed.**

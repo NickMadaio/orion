@@ -308,8 +308,13 @@ const HINTS = {
 };
 
 const usage = (verb) => {
-  const shape = VERBS[verb].shape.slice(0, Math.max(VERBS[verb].min, 1));
-  return `${verb} needs ${shape.map((name) => HINTS[name] ?? name).join(", then ")}`;
+  const { min, shape } = VERBS[verb];
+  // A verb that takes NO arguments and was given some produced "device needs "
+  // -- the empty half of a sentence -- because slicing a zero-length shape
+  // yields nothing to describe. Caught by the check suite, not by reading.
+  if (shape.length === 0) return `${verb} takes no arguments`;
+  const wanted = shape.slice(0, Math.max(min, 1)).map((name) => HINTS[name] ?? name);
+  return `${verb} needs ${wanted.join(", then ")}`;
 };
 
 /* ---------- Phase 45: the read-only capabilities ---------- */

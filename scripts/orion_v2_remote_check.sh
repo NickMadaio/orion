@@ -90,8 +90,11 @@ if echo "$OUT" | grep -q "hidden-file"; then check 1 "hidden files are not liste
 # it did NOT list anything -- pinning the message would pin the wrong layer.
 for BAD in "/etc/passwd" "../../etc" "~" "desktop/../.ssh"; do
     OUT="$(remote handle "files $BAD" --from local)"
-    echo "$OUT" | grep -qE "root must be one of|takes 1 argument"
-    check $? "files refuses '$BAD' -- the root is a closed set of three names, never a path"
+    # The refusal must also SAY what would work. A rejection that does not name
+    # the three valid roots sends a person guessing at paths, which is the one
+    # thing this closed set exists to stop.
+    echo "$OUT" | grep -qE "root must be one of|files needs one of"
+    check $? "files refuses '$BAD' and names the three valid roots"
     echo "$OUT" | grep -q "Orion | "
     if [ $? -eq 0 ]; then check 1 "and '$BAD' listed nothing"; else check 0 "and '$BAD' listed nothing"; fi
 done
@@ -137,8 +140,12 @@ echo ""
 echo "== malformed, replayed, stale, misaddressed =="
 echo "$(remote handle 'do the thing' --from local)" | grep -q "not a command I know"
 check $? "an unknown verb is refused by vocabulary, with no fallthrough to a model"
-echo "$(remote handle 'device; rm -rf /' --from local)" | grep -qE "not a command|Orion \| DEVICE"
-check $? "a shell metacharacter cannot reach a shell -- it is tokenised, never interpreted"
+SHELLY="$(remote handle 'device; rm -rf /' --from local)"
+echo "$SHELLY" | grep -qE "takes no arguments|not a command|Orion \| DEVICE"
+check $? "a shell metacharacter cannot reach a shell -- it is tokenised, never interpreted (said: $(echo "$SHELLY" | head -1 | cut -c1-50))"
+# A zero-argument verb given arguments must produce a sentence, not half of one.
+echo "$(remote handle 'device now please' --from local)" | grep -q "device takes no arguments"
+check $? "and a verb that takes no arguments says exactly that, rather than 'device needs ' with nothing after it"
 
 # Replay and expiry need the queue, because `handle` alone carries no envelope.
 NOW_MS="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"

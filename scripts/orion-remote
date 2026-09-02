@@ -271,7 +271,10 @@ function parse(raw) {
   const args = tokens.slice(start + 1).filter((t) => !FILLER.has(t));
   const { min, shape } = VERBS[verb];
   if (args.length < min || args.length > shape.length) {
-    return { error: `${verb} takes ${min === shape.length ? min : `${min}-${shape.length}`} argument(s)` };
+    // `verb` is carried so the caller can tell "I do not know that word" from
+    // "I know it and you gave me the wrong arguments". They are different
+    // things and used to produce the same sentence.
+    return { error: usage(verb), verb };
   }
   return { verb, args };
 }
@@ -287,6 +290,27 @@ const SHAPES = {
 
 const checkArgs = (verb, args, state) =>
   args.map((arg, i) => SHAPES[VERBS[verb].shape[i]](arg, state)).find(Boolean) ?? null;
+
+/*
+ What each argument shape will accept, in words.
+
+ Added because the live channel gave a genuinely bad answer on its first day:
+ typing `files` returned "not a command I know (files takes 1 argument(s))",
+ which is wrong twice over -- `files` IS a command it knows, and the reply named
+ neither what was missing nor what would satisfy it. A vocabulary this small
+ should be able to teach itself in one line.
+*/
+const HINTS = {
+  mission: "a mission id",
+  approval: "an approval id, like ap-1a2b3c4d",
+  level: `one of ${[...PRIORITIES].join(", ")}`,
+  root: `one of ${[...SAFE_ROOTS.keys()].join(", ")}`,
+};
+
+const usage = (verb) => {
+  const shape = VERBS[verb].shape.slice(0, Math.max(VERBS[verb].min, 1));
+  return `${verb} needs ${shape.map((name) => HINTS[name] ?? name).join(", then ")}`;
+};
 
 /* ---------- Phase 45: the read-only capabilities ---------- */
 
@@ -596,7 +620,15 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
   const parsed = parse(text);
   if (parsed.error) {
     await audit({ ...record, decision: "rejected", reason: parsed.error });
-    return { ok: false, reply: `not a command I know (${parsed.error}). Try: ${Object.keys(VERBS).join(", ")}` };
+    return {
+      ok: false,
+      // A recognised verb with bad arguments gets a straight answer; only an
+      // unrecognised word gets the whole list, because only then is the list
+      // the useful reply.
+      reply: parsed.verb
+        ? parsed.error
+        : `not a command I know (${parsed.error}). Try: ${Object.keys(VERBS).join(", ")}`,
+    };
   }
   try {
     const result = await withStateLock(async () => {

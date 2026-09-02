@@ -285,8 +285,163 @@ notifications.setEnabled(.requested, false)
 expect(!notifications.mayDeliver(.requested), "a category can be switched off")
 notifications.setEnabled(.security, false)
 expect(notifications.mayDeliver(.security), "security notifications cannot be switched off")
-expect(NotificationCategory.approvalRequired.mayBreakThrough && !NotificationCategory.completion.mayBreakThrough,
-       "only approval and security may interrupt")
+
+// -- PHASE 41: the three levels --------------------------------------------
+//
+// Contents, never counts. `allCases.count == 11` would pass after somebody
+// swapped two members for two others, and the members ARE the taxonomy.
+
+let n41Categories = Set(NotificationCategory.allCases.map(\.rawValue))
+expect(n41Categories == [
+    "approval_required", "security", "schedule_conflict", "remote_task_failure",
+    "morning_summary", "evening_summary", "requested", "completion",
+    "recommendation", "trend", "discovery",
+], "the category set is exactly the manifest's kinds")
+
+// The requirement "do not notify for every ORION observation" as a structural
+// fact: there is no category meaning "something happened". Every name below is
+// a judgement that has already been made.
+expect(!n41Categories.contains(where: { $0.contains("observation") || $0 == "event" || $0 == "info" }),
+       "no category means merely 'something happened'")
+
+expect(NotificationLevel.allCases == [.ambient, .brief, .immediate],
+       "levels are declared in rising order of urgency, and that order is the meaning")
+expect(NotificationLevel.ambient < .brief && NotificationLevel.brief < .immediate,
+       "and Comparable agrees with the declaration order")
+
+func n41At(_ level: NotificationLevel) -> Set<String> {
+    Set(NotificationCategory.allCases.filter { $0.level == level }.map(\.rawValue))
+}
+
+expect(n41At(.immediate) == ["approval_required", "security", "schedule_conflict", "remote_task_failure"],
+       "immediate is approvals, security, schedule conflicts and remote failures needing input")
+expect(n41At(.brief) == ["morning_summary", "evening_summary", "requested", "completion"],
+       "brief is the morning and evening summaries, plus the two non-urgent kinds that predate the taxonomy")
+expect(n41At(.ambient) == ["recommendation", "trend", "discovery"],
+       "ambient is recommendations, trends and discoveries")
+
+expect(Set(NotificationCategory.allCases.filter(\.mayBreakThrough).map(\.rawValue)) == n41At(.immediate),
+       "exactly the immediate categories may break through, because mayBreakThrough is derived from the level")
+
+// -- PHASE 41: an item points at a record, and carries none of it -----------
+
+let n41Epoch = Date(timeIntervalSince1970: 1_772_000_000)
+func n41Item(_ id: String, _ category: NotificationCategory, _ subject: String,
+             _ summary: String = "text", offset: TimeInterval = 0) -> NotificationItem {
+    NotificationItem(id: id, category: category, subject: subject, summary: summary,
+                     at: n41Epoch.addingTimeInterval(offset))!
+}
+
+expect(NotificationItem(id: "a", category: .trend, subject: "  ", summary: "s", at: n41Epoch) == nil,
+       "a notification with no subject is refused -- it would be one whose content exists only in the push")
+expect(NotificationItem(id: "", category: .trend, subject: "s1", summary: "s", at: n41Epoch) == nil,
+       "and one with no id is refused, because a duplicate push could not then collapse")
+expect(NotificationItem(id: "a", category: .trend, subject: "s1", summary: "bad\u{7}bell", at: n41Epoch) == nil,
+       "control characters in the summary are refused outright")
+expect(NotificationItem(id: "a", category: .trend, subject: "s1",
+                        summary: String(repeating: "x", count: 1201), at: n41Epoch) == nil,
+       "and an oversized summary is refused")
+expect(NotificationItem(id: "a", category: .trend, subject: "s1", summary: "  two   words  ", at: n41Epoch)?.summary
+        == "two words", "whitespace is collapsed rather than trusted")
+
+// The structural half of "do not rely on push notifications as state
+// synchronization": reflect over the stored properties and pin the set. Adding
+// a `state:` or `payload:` field fails HERE, by name, rather than at the point
+// somebody starts trusting it.
+let n41Fields = Set(Mirror(reflecting: n41Item("a", .trend, "s1")).children.compactMap(\.label))
+expect(n41Fields == ["id", "category", "subject", "summary", "at"],
+       "a notification carries a pointer and display text -- no state payload")
+
+// -- PHASE 41: routing, collapsing, and order independence ------------------
+
+let n41Stream = [
+    n41Item("i1", .approvalRequired, "ap-1", offset: 10),
+    n41Item("i2", .approvalRequired, "ap-1", offset: 20),
+    n41Item("b1", .morningSummary, "day-2026-09-02", offset: 30),
+    n41Item("a1", .trend, "sleep", "sleep is down", offset: 40),
+    n41Item("a2", .trend, "sleep", "sleep is down again", offset: 50),
+    n41Item("a3", .trend, "steps", "steps are up", offset: 60),
+    n41Item("a4", .discovery, "sleep", "a different category, same subject", offset: 70),
+]
+let n41Plan = NotificationEngine.plan(n41Stream)
+
+expect(n41Plan.interrupting.map(\.id) == ["i1", "i2"],
+       "two approvals about one subject stay two -- each is a separate decision")
+expect(n41Plan.nextBrief.map(\.id) == ["b1"], "a summary waits for the next brief")
+expect(Set(n41Plan.collected.map(\.id)) == ["a2", "a3", "a4"],
+       "ambient collapses by category AND subject, newest surviving")
+expect(n41Plan.collected.first(where: { $0.subject == "sleep" && $0.category == .trend })?.summary
+        == "sleep is down again",
+       "and the survivor is the NEWER reading, pinned by its text rather than by a count")
+
+// Ambient has no path to a push. This is the rule, not a consequence.
+expect(!n41Plan.interrupting.contains(where: { $0.level == .ambient })
+        && !n41Plan.nextBrief.contains(where: { $0.level == .ambient }),
+       "an ambient item is never pushed, however many of them there are")
+
+let n41Flood = (0..<200).map { n41Item("f\($0)", .trend, "one-subject", "reading \($0)", offset: Double($0)) }
+expect(NotificationEngine.plan(n41Flood).collected.count == 1,
+       "two hundred observations about one subject are one item, not two hundred")
+
+// A transport that loses, duplicates or reorders must not change the answer.
+expect(NotificationEngine.plan(n41Stream + n41Stream) == n41Plan,
+       "delivering everything twice yields the same plan -- pushes are idempotent")
+expect(NotificationEngine.plan(n41Stream.reversed()) == n41Plan,
+       "and reversing the arrival order changes nothing, so order is not carrying state")
+expect(NotificationEngine.plan(n41Stream.shuffled()) == n41Plan,
+       "nor does any other arrival order")
+
+// -- PHASE 41: the next brief is a CIVIL time ------------------------------
+
+let n41ISO = ISO8601DateFormatter()
+func n41Date(_ text: String) -> Date { n41ISO.date(from: text)! }
+let n41London = TimeZone(identifier: "Europe/London")!
+let n41NY = TimeZone(identifier: "America/New_York")!
+
+// London, not the machine's zone: an injected value equal to the ambient one
+// proves nothing, and this machine is America/New_York.
+expect(NotificationEngine.nextBrief(after: n41Date("2026-06-10T06:30:00Z"), in: n41London)?.slot == .morning,
+       "before 08:00 the next brief is this morning")
+expect(NotificationEngine.nextBrief(after: n41Date("2026-06-10T11:00:00Z"), in: n41London)?.slot == .evening,
+       "after it, the next brief is this evening")
+expect(NotificationEngine.nextBrief(after: n41Date("2026-06-10T21:00:00Z"), in: n41London)?.slot == .morning,
+       "and after the evening slot it is tomorrow morning")
+
+// The clocks go forward in London overnight on 2026-03-29. 22:00 to 08:00 is
+// ten hours on the wall and NINE in the world. A brief scheduled by adding
+// 86,400 seconds lands at 09:00 on exactly the morning nobody knows what time
+// it is.
+let n41LondonDST = n41Date("2026-03-28T22:00:00Z")
+expect(NotificationEngine.nextBrief(after: n41LondonDST, in: n41London)?.at
+        == n41Date("2026-03-29T07:00:00Z"),
+       "the brief after the London spring-forward is 08:00 local, which is 07:00Z")
+expect(NotificationEngine.nextBrief(after: n41LondonDST, in: n41London)
+        .map({ $0.at.timeIntervalSince(n41LondonDST) }) == 9 * 3600,
+       "so the gap is nine hours, not ten")
+
+// 22:00 is NOT enough to prove the day arithmetic is civil, and finding that out
+// is the finding. Adding 86,400 seconds to 22:00 still lands on the 29th, so the
+// hour is then set correctly and the naive version passes by luck. The two only
+// diverge in the last hour before midnight: 23:30 GMT plus 86,400 seconds is
+// 00:30 BST on the THIRTIETH, so the naive version skips 29 March entirely and
+// the morning brief simply never fires. A near-miss assertion is worse than none,
+// because it reports the guard as tested.
+let n41LondonLate = n41Date("2026-03-28T23:30:00Z")
+expect(NotificationEngine.nextBrief(after: n41LondonLate, in: n41London)?.at
+        == n41Date("2026-03-29T07:00:00Z"),
+       "late on the spring-forward night the next brief is that same morning, not the day after")
+
+// The control: the same wall-clock question a week earlier is ten hours. Without
+// this, the nine above could be arithmetic that is wrong everywhere.
+let n41LondonPlain = n41Date("2026-03-21T22:00:00Z")
+expect(NotificationEngine.nextBrief(after: n41LondonPlain, in: n41London)
+        .map({ $0.at.timeIntervalSince(n41LondonPlain) }) == 10 * 3600,
+       "and an ordinary night a week earlier is ten, so the nine is DST and not an off-by-one")
+
+// The same transition three weeks earlier in New York, where the app runs.
+let n41NYDST = n41Date("2026-03-08T03:00:00Z") // 22:00 EST on the 7th
+expect(NotificationEngine.nextBrief(after: n41NYDST, in: n41NY)?.at == n41Date("2026-03-08T12:00:00Z"),
+       "New York's spring-forward morning brief is 08:00 EDT")
 
 // -- settings --------------------------------------------------------------
 

@@ -3677,6 +3677,59 @@
         "Commitment.startMinute is an offset rather than a ZonedTime, which is deliberate for a single day but means a plan cannot yet span the London move."
       ],
       "nextPhaseAllowed": true
+    },
+    "41": {
+      "name": "Notification Engine",
+      "status": "complete",
+      "entryRequiresPhase": "40",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-01",
+      "openedAgainst": "Phase 40's one open requirement is not code -- the live cron jobs stay pinned America/New_York until Nick lands on 2026-09-08, and `orion-timezone set Europe/London` closes it in one command. Nick directed phases 41-45 next on 2026-09-01 rather than hold the program for a week on a calendar date. Recorded as a deviation with entrySatisfied false, per AGENTS.md, rather than asserted true.",
+      "evidence": "native/OrionMobile/Sources/MobileCore/Notifications.swift, checked by scripts/orion_v2_mobile_check.sh (573 checks, 0 failed; iOS build clean).",
+      "decisions": [
+        "Built into the EXISTING MobileCore/Notifications.swift rather than as a new engine. A NotificationCategory and a NotificationSettings already existed from an earlier phase, and a second vocabulary saying nearly the same thing is the mistake Phase 38 nearly repeated. The four existing categories keep their raw values because NotificationSettings persists them.",
+        "Levels live in MobileCore, which is shared with the phone and imports no platform framework, because a notification taxonomy that the Mac and the phone disagree about is worse than none. The iOS build on every check run is what keeps that true.",
+        "Time-based rate limiting was deliberately NOT reimplemented here. scripts/orion-notify already owns quiet hours, per-mission gaps and the hourly cap; a second limiter with its own numbers would be two answers to one question. This phase adds the level taxonomy that script has no concept of."
+      ],
+      "requirements": [
+        {
+          "id": "notification_levels_immediate_brief_ambient",
+          "status": "passed",
+          "evidence": "NotificationLevel, a three-member enum ordered by rising urgency and Comparable on that order. The order IS the meaning, so the test pins allCases contents ([.ambient, .brief, .immediate]) rather than a count -- a reordering would silently invert every comparison in the app and a count would not notice. NotificationCategory.level routes each of the eleven categories, as a total switch with no default: adding a category without deciding when it may interrupt somebody does not compile. That is the entire enforcement; there is no lint rule and no reviewer step."
+        },
+        {
+          "id": "immediate_carries_approvals_security_conflicts_and_remote_failures",
+          "status": "passed",
+          "evidence": "The immediate set is exactly {approval_required, security, schedule_conflict, remote_task_failure}, pinned by contents. mayBreakThrough is now DERIVED (level == .immediate) rather than being a second independent switch over the same cases -- the previous code decided urgency twice, which is a drift waiting for the first person to add a category and update one of them. Mutation-proven both ways: routing schedule_conflict to brief fails two named assertions, and widening mayBreakThrough to `level != .ambient` fails 'exactly the immediate categories may break through'. remote_task_failure is distinguished from completion deliberately: the manifest earns the interruption for a task needing INPUT, not for one that merely finished."
+        },
+        {
+          "id": "brief_carries_the_morning_and_evening_summaries",
+          "status": "passed",
+          "evidence": "morning_summary and evening_summary route to .brief, and NotificationEngine.nextBrief(after:in:) answers when the next one is due, in an INJECTED zone rather than the device's. It is computed as a civil time -- 08:00 where he is standing -- never as an instant plus 24 hours. A real defect is pinned here: 22:00 on a spring-forward night is NOT enough to tell the two apart, because adding 86,400 seconds still lands on the right day and the hour is then set correctly. They diverge only in the last hour before midnight -- 23:30 GMT plus 86,400s is 00:30 BST on the THIRTIETH, so the naive version skips 29 March entirely and the morning brief simply never fires. The first version of this test used 22:00, the mutant survived, and the fix was the test. A near-miss assertion is worse than none. Pinned in both Europe/London and America/New_York, with a non-DST control night proving the nine-hour gap is DST and not an off-by-one everywhere."
+        },
+        {
+          "id": "ambient_carries_recommendations_trends_and_discoveries",
+          "status": "passed",
+          "evidence": "The ambient set is exactly {recommendation, trend, discovery}, pinned by contents. Structurally, an ambient item is never pushed: NotificationEngine.plan can only place it in `collected`, so there is no code path from ambient to interrupt and an observation stream cannot escalate itself by volume."
+        },
+        {
+          "id": "does_not_notify_for_every_orion_observation",
+          "status": "passed",
+          "evidence": "Three mechanisms, none of them a filter on text. (1) There is no category meaning 'something happened' -- every member names a judgement already made, asserted by a test that refuses an observation/event/info member. (2) Ambient never pushes, above. (3) Ambient items COLLAPSE by category and subject, newest surviving: 200 readings about one subject yield one item, asserted directly. Mutation-proven twice -- removing the collapse fails three named assertions including the 200-item one, and collapsing to the FIRST reading instead of the newest fails the assertion that pins the survivor's TEXT rather than the count."
+        },
+        {
+          "id": "does_not_rely_on_push_notifications_as_state_synchronization",
+          "status": "passed",
+          "evidence": "Expressed in the type, three ways. (1) NotificationItem carries NO state: it has a subject (the id of a durable record) and a summary (display text), and there is no payload field and no apply(). Pinned by reflecting over the stored properties and asserting the exact set {id, category, subject, summary, at}, so adding a `state:` field fails by name rather than at the point somebody starts trusting it. (2) init? REFUSES an empty subject -- a notification pointing at nothing is one whose content exists only inside the push, which is precisely what this forbids; mutation-proven. (3) plan() is a pure function of the whole list and is idempotent and ORDER-INDEPENDENT: plan(stream + stream) and plan(stream.reversed()) and plan(stream.shuffled()) all equal plan(stream). That is the operative property -- a push may be lost, duplicated, delayed or reordered, and all four have to be survivable. Ties are broken by id as well as timestamp, because a tie is exactly where order dependence gets back in."
+        }
+      ],
+      "limitations": [
+        "BriefSlot's hours (08:00, 21:00) MIRROR MORNING_HOUR and EVENING_HOUR in scripts/orion-standing, which is the thing that actually runs the checks. They are two copies of one number and nothing mechanically proves they agree -- the same shape as the TimeZonePolicy/node mirror recorded under Phase 40.",
+        "Nothing produces a NotificationItem yet. The taxonomy, the routing and the plan are complete and tested; no Mac or phone surface emits or renders one. Recorded as such rather than implied to be live -- the same standing as Phase 36's correlations and Phase 37's experiments.",
+        "The `requested` and `completion` categories predate this phase's taxonomy and are not named anywhere in the manifest's three lists. Both are routed to `brief`, which preserves their existing mayBreakThrough answer exactly (false) while giving them a real delivery path instead of only 'do not interrupt'. Neither has a producer, so nothing depends on the choice yet; `requested` is the one worth revisiting when something finally emits it, since a thing Nick asked to be told about could be argued into immediate.",
+        "scripts/orion-notify is untouched and still speaks its own five-event mission vocabulary. The two are not yet connected: nothing maps a mission `blocked` onto NotificationCategory.approvalRequired. That mapping is a small piece of work and belongs with whatever first produces items."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

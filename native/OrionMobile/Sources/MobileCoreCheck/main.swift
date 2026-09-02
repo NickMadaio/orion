@@ -2157,6 +2157,184 @@ expect(DayPlan.propose(commitments: (0..<8).compactMap {
        }, tasks: [task("k", 30)]).flexibleMinutes == 0,
        "a fully-booked day has zero flexible time, never a negative")
 
+// -- PHASE 42: the Security Center -----------------------------------------
+
+section("security center")
+
+// The eight panels and the seven actions, by CONTENTS. These two lists ARE the
+// manifest's requirement, so a count would be worthless: swapping two members
+// for two others keeps the count and loses the phase.
+expect(Set(SecurityCenterSection.allCases.map(\.rawValue)) == [
+    "devices", "sessions", "connections", "connector_scopes",
+    "remote_control", "delegated_permissions", "automation_permissions", "security_events",
+], "the Security Center shows exactly the eight things the manifest names")
+
+expect(Set(SecurityAction.allCases.map(\.rawValue)) == [
+    "revoke_device", "revoke_session", "disconnect_gmail", "disconnect_calendar",
+    "disable_remote_control", "revoke_delegation", "inspect_audit_history",
+], "and allows exactly the seven it names")
+
+// The prohibition, as an absent enum member. There is no way to SPELL an action
+// on this screen that grants authority, so no reviewer has to notice one.
+expect(Set(SecurityActionEffect.allCases.map(\.rawValue)) == ["reduces_authority", "reads_only"],
+       "an action here either takes authority away or reads -- there is no granting effect")
+expect(SecurityAction.allCases.filter { $0.effect == .reducesAuthority }.count == 6
+        && SecurityAction.allCases.filter { $0.effect == .readsOnly } == [.inspectAuditHistory],
+       "six of the seven remove something and the seventh is the audit view")
+expect(SecurityAction.allCases.allSatisfy { $0.needsConfirmation == ($0.effect == .reducesAuthority) }
+        && !SecurityAction.inspectAuditHistory.needsConfirmation,
+       "everything destructive is confirmed and reading is not -- a confirmation on an audit view teaches people to dismiss confirmations")
+
+// -- PHASE 42: what is offered, and when -----------------------------------
+
+let n42Now = Date(timeIntervalSince1970: 1_772_000_000)
+let n42Hour: TimeInterval = 3600
+
+func n42Scope(_ raw: String, _ summary: String, writes: Bool) -> ConnectorScope {
+    ConnectorScope(raw: raw, summary: summary, writes: writes)
+}
+
+let n42GmailRead = Connection(
+    id: "c-gmail", provider: .gmail, account: "nick@example.com", connected: true,
+    scopes: [n42Scope("gmail.readonly", "read your mail", writes: false)], lastUsed: n42Now)
+let n42GmailSend = Connection(
+    id: "c-gmail", provider: .gmail, account: "nick@example.com", connected: true,
+    scopes: [n42Scope("gmail.readonly", "read your mail", writes: false),
+             n42Scope("gmail.send", "send mail as you", writes: true)], lastUsed: n42Now)
+let n42CalOff = Connection(
+    id: "c-cal", provider: .calendar, account: "nick@example.com", connected: false,
+    scopes: [], lastUsed: nil)
+
+expect(!n42GmailRead.hasWriteAccess && n42GmailSend.hasWriteAccess,
+       "a connection that can only read is distinguished from one that can send mail as you")
+expect(n42GmailSend.writeScopes.map(\.summary) == ["send mail as you"],
+       "and the screen can name the write scope rather than showing an opaque URL")
+expect(Connection.Provider.gmail.disconnectAction == .disconnectGmail
+        && Connection.Provider.calendar.disconnectAction == .disconnectCalendar,
+       "every provider maps to its own disconnect action")
+
+var n42Controls = SecurityControls()
+n42Controls.update(devices: DeviceManagement(devices: [
+    KnownDevice(id: "d1", name: "iPhone", platform: "iOS", isCurrent: true, lastSeen: n42Now, revoked: false),
+]))
+n42Controls.update(sessions: [ActiveSession(id: "s1", deviceName: "iPhone", lastUsed: n42Now, isCurrent: true)])
+
+let n42Live = SecurityCenter(
+    controls: n42Controls,
+    connections: [n42GmailSend, n42CalOff],
+    remoteControl: RemoteControlState(mode: .readOnly, channel: "discord", lastCommandAt: n42Now),
+    delegations: [Delegation(id: "g1", what: "reply to routine mail", grantedAt: n42Now,
+                             expiresAt: n42Now.addingTimeInterval(n42Hour))])
+
+expect(n42Live.offeredActions(at: n42Now) == [
+    .revokeDevice, .revokeSession, .disconnectGmail, .disableRemoteControl,
+    .revokeDelegation, .inspectAuditHistory,
+], "only the actions with something to act on are offered -- Calendar is disconnected, so disconnecting it is not")
+
+expect(SecurityCenter().offeredActions(at: n42Now) == [.inspectAuditHistory],
+       "an empty Security Center still offers the audit view -- an empty history is information, and hiding the way to look at it is how somebody concludes nothing happened")
+
+// Locking must never take a revocation away. This is the whole reason the
+// effect enum has no granting member: if every action is a removal or a read,
+// there is nothing a lock needs to withhold.
+var n42LockedControls = n42Controls
+n42LockedControls.lockOrion()
+var n42Locked = n42Live
+n42Locked.controls = n42LockedControls
+expect(n42Locked.controls.lock == .orionLocked, "the fixture really is locked")
+expect(n42Locked.offeredActions(at: n42Now) == n42Live.offeredActions(at: n42Now),
+       "locking ORION removes nothing from this screen -- a lock that stopped you revoking a stolen device would be backwards")
+
+// -- PHASE 42: delegation expiry, at an injected instant --------------------
+
+let n42Expiring = Delegation(id: "g1", what: "x", grantedAt: n42Now,
+                             expiresAt: n42Now.addingTimeInterval(n42Hour))
+expect(n42Expiring.isActive(at: n42Now), "a delegation is active before it expires")
+expect(!n42Expiring.isActive(at: n42Now.addingTimeInterval(n42Hour)),
+       "and is NOT active at the exact instant it expires -- the boundary belongs to the expiry")
+expect(Delegation(id: "g2", what: "x", grantedAt: n42Now, expiresAt: nil).isActive(at: n42Now),
+       "one with no expiry stays active, which is exactly the kind this screen exists to show")
+expect(!Delegation(id: "g3", what: "x", grantedAt: n42Now,
+                   expiresAt: n42Now.addingTimeInterval(n42Hour), revoked: true).isActive(at: n42Now),
+       "a revoked delegation is inactive even before its expiry")
+
+var n42Expired = n42Live
+n42Expired.delegations = [n42Expiring]
+expect(!n42Expired.offeredActions(at: n42Now.addingTimeInterval(n42Hour)).contains(.revokeDelegation),
+       "and once everything has expired there is nothing left to revoke")
+
+// -- PHASE 42: the audit log is append-only --------------------------------
+
+let n42E1 = SecurityEvent(id: "e1", kind: .devicePaired, at: n42Now, detail: "iPhone paired")
+let n42E2 = SecurityEvent(id: "e2", kind: .profileChanged, at: n42Now.addingTimeInterval(60),
+                          detail: "external_connected")
+let n42Log = SecurityEventLog([n42E1]).appending(n42E2)
+
+expect(SecurityEventLog([n42E1]).entries.map(\.id) == ["e1"],
+       "appending returns a new log and leaves the original alone")
+expect(n42Log.entries.map(\.id) == ["e1", "e2"], "and the new one has both")
+expect(n42Log.recent(1).map(\.id) == ["e2"], "recent() is newest first")
+expect(n42Log.recent(0).isEmpty,
+       "a limit of zero shows nothing rather than everything -- a bug here should fail closed")
+expect(n42Log.recent(50).count == 2, "and asking for more than exists is not an error")
+expect(Set(SecurityEvent.Kind.allCases.map(\.rawValue)).isSuperset(of: [
+    "device_revoked", "session_revoked", "connection_removed", "profile_changed",
+    "remote_control_changed", "delegation_revoked",
+]), "every action on this screen has an event kind that records it happening")
+
+// -- PHASE 42: automation permissions decode from the live shape ------------
+
+let n42SnapshotJSON = """
+{"schemaVersion":1,"profile":"external_connected",
+ "execPolicy":{"security":"allowlist","ask":"off","askFallback":"deny"},
+ "counts":{"total":158,"AUTO":99,"NOTIFY":14,"APPROVAL":13,"NEVER":32},
+ "availability":[
+   {"tier":"calendar","flag":"enableCalendarActions","configOn":true,"profileOn":true,"available":true,"unresolved":false},
+   {"tier":"file_mutate","flag":"enableFileMutateActions","configOn":true,"profileOn":false,"available":false,"unresolved":false}]}
+"""
+let n42Snapshot = try! AuthoritySnapshot.decode(Data(n42SnapshotJSON.utf8))
+expect(n42Snapshot.profile == .externalConnected, "the live profile decodes")
+expect(n42Snapshot.counts.isConsistent,
+       "the four gates add up to the total -- a snapshot that does not means an action was counted twice or dropped, and a dropped action is one nobody is being shown")
+expect(!AuthorityCounts(total: 158, auto: 99, notify: 14, approval: 13, never: 31).isConsistent,
+       "and one that does not add up is caught")
+expect(n42Snapshot.availability.allSatisfy(\.agreesWithItsInputs),
+       "each tier's availability equals configOn AND profileOn")
+expect(n42Snapshot.enabledTiers.map(\.tier) == ["calendar"], "only the available tiers are listed as on")
+
+// A tier really can have no configuration flag. `simulation` emits "flag": null
+// in the live snapshot, and a non-optional String here refused the real file on
+// the first run of orion_v2_authority_contract_check.sh -- which would have rendered the
+// automation panel blank, and a blank permission list reads as "nothing is
+// allowed". The most dangerous wrong answer on a security screen.
+let n42NullFlag = """
+{"schemaVersion":1,"profile":"external_connected",
+ "execPolicy":{"security":"allowlist","ask":"off","askFallback":"deny"},
+ "counts":{"total":1,"AUTO":1,"NOTIFY":0,"APPROVAL":0,"NEVER":0},
+ "availability":[
+   {"tier":"simulation","flag":null,"configOn":true,"profileOn":true,"available":true,"unresolved":false}]}
+"""
+let n42NullDecoded = try? AuthoritySnapshot.decode(Data(n42NullFlag.utf8))
+expect(n42NullDecoded?.availability.first?.flag == nil,
+       "a tier with no configuration flag decodes rather than refusing the whole snapshot")
+expect(n42NullDecoded?.availability.first?.isConfigGated == false
+        && n42Snapshot.availability.allSatisfy(\.isConfigGated),
+       "and the screen can say which tiers no configuration key can switch off")
+
+expect(Set(PermissionProfile.allCases.map(\.rawValue)) == [
+    "restricted_read_only", "approved_root_edit", "broad_local_filesystem",
+    "consequential_local", "external_connected",
+], "the five profiles are permissions.ts's five (cross-checked against the live plugin by run-authority-contract-test.sh)")
+expect(Set(AuthorityLevel.allCases.map(\.rawValue)) == ["AUTO", "NOTIFY", "APPROVAL", "NEVER"],
+       "and the four gates are orion_v2_authority_snapshot.py's four")
+
+// A profile this app has never heard of must fail LOUDLY and name the string,
+// not decode to a default that silently under-reports what ORION may do.
+let n42Unknown = n42SnapshotJSON.replacingOccurrences(of: "external_connected", with: "brand_new_profile")
+var n42Refused = false
+do { _ = try AuthoritySnapshot.decode(Data(n42Unknown.utf8)) } catch { n42Refused = true }
+expect(n42Refused, "an unrecognised permission profile is refused rather than defaulted away")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

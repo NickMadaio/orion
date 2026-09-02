@@ -3730,6 +3730,62 @@
         "scripts/orion-notify is untouched and still speaks its own five-event mission vocabulary. The two are not yet connected: nothing maps a mission `blocked` onto NotificationCategory.approvalRequired. That mapping is a small piece of work and belongs with whatever first produces items."
       ],
       "nextPhaseAllowed": true
+    },
+    "42": {
+      "name": "Security Center",
+      "status": "complete",
+      "entryRequiresPhase": "41",
+      "entrySatisfied": true,
+      "evidence": "native/OrionMobile/Sources/MobileCore/SecurityCenter.swift, checked by scripts/orion_v2_mobile_check.sh (606 checks, 0 failed; iOS build clean) and scripts/orion_v2_authority_contract_check.sh (cross-language, against the live plugin and the real snapshot).",
+      "decisions": [
+        "Built on the existing SecurityControls/DeviceIdentity types rather than beside them. SecurityControls.swift says in its own header that it exists for Phase 42; devices, sessions and the lock were already there and are reused, not restated.",
+        "The automation-permissions panel DECODES the live producer instead of re-listing it in Swift. A new cross-language check reads PERMISSION_PROFILES out of the compiled plugin at runtime and feeds AuthoritySnapshot the real planning/v2/CURRENT_AUTHORITY.json, on the Phase 40 location-contract pattern. Proven to detect drift in both directions: adding a sixth profile to the Swift enum fails the check and prints both lists.",
+        "No revocation is wired to a live effect. offeredActions returns what the screen may offer; carrying it out is the caller's job. Building the model against a real producer first is what surfaced the nullable flag below, and doing it the other way round would have shipped that defect into a screen."
+      ],
+      "requirements": [
+        {
+          "id": "displays_devices_sessions_connections_and_connector_scopes",
+          "status": "passed",
+          "evidence": "SecurityCenterSection is a closed eight-member enum pinned by CONTENTS, since the eight ARE the requirement and a count would survive swapping two of them. Devices and sessions reuse DeviceManagement and ActiveSession. Connection and ConnectorScope are new, and the field that earns its place is `writes`: 'connected to Gmail' discloses nothing, 'can send mail as you' is the fact being decided about, so hasWriteAccess and writeScopes are surfaced separately from the scope list. Mutation-proven -- making writeScopes return every scope fails two named assertions."
+        },
+        {
+          "id": "displays_remote_control_state_and_delegated_permissions",
+          "status": "passed",
+          "evidence": "RemoteControlState.Mode is off/read_only/full, matching what Phases 44 and 45 will build, and carries a channel name for display but never a token or webhook URL. Delegation evaluates expiry at an INJECTED instant rather than Date(), so the boundary is testable and is tested: a delegation is NOT active at the exact instant it expires, and a revoked one is inactive even before it expires. Both mutation-proven (<= for <, and dropping the revoked guard). A nil expiry means it never expires on its own, which is exactly the kind this screen exists to make visible."
+        },
+        {
+          "id": "displays_automation_permissions_and_recent_security_events",
+          "status": "passed",
+          "evidence": "AuthoritySnapshot decodes the REAL planning/v2/CURRENT_AUTHORITY.json, and running it against the real file rather than a fixture is what found a defect on the first run: the `simulation` tier emits \"flag\": null, and a non-optional String refused the whole snapshot. A hand-written fixture would never have contained a null, and the symptom would have been a BLANK automation panel -- which reads as 'nothing is allowed', the most dangerous possible wrong answer on a security screen. Two invariants are checked rather than assumed: the four gate counts must sum to the total (99+14+13+32 == 158 in the live file; a mismatch means an action was counted twice or dropped, and a dropped action is one nobody is shown), and each tier's `available` must equal configOn AND profileOn. An unrecognised profile is REFUSED and names the string rather than defaulting -- mutation-proven against a decoder that falls back to restricted_read_only. SecurityEvent.Kind covers every action on the screen."
+        },
+        {
+          "id": "allows_revoking_devices_sessions_and_delegations",
+          "status": "passed",
+          "evidence": "SecurityAction is a closed seven-member enum pinned by CONTENTS. offeredActions(at:) offers only what there is something to act on, at an injected instant -- mutation-proven, since offering a disconnect for a provider that is merely PRESENT rather than CONNECTED fails a named assertion, as does offering revokeDelegation once everything has expired."
+        },
+        {
+          "id": "allows_disconnecting_gmail_and_calendar_and_disabling_remote_control",
+          "status": "passed",
+          "evidence": "Connection.Provider.disconnectAction is a total switch, so a third provider must be given its own disconnect action rather than silently becoming undisconnectable. disableRemoteControl is offered exactly when mode != .off."
+        },
+        {
+          "id": "allows_inspecting_audit_history",
+          "status": "passed",
+          "evidence": "SecurityEventLog has appending() and recent() and NO removal API -- a log the app can edit is not an audit log, and the manifest's word is inspect. recent(0) returns nothing rather than everything, so a bug here fails closed; mutation-proven. inspectAuditHistory is offered even on a completely empty centre, because an empty history is itself information and hiding the way to look at it is how somebody concludes nothing happened."
+        },
+        {
+          "id": "the_security_center_can_only_reduce_authority_or_read",
+          "status": "passed",
+          "evidence": "Not in the manifest's words, registered because it is what reading the seven actually shows: six removals and one read, and not one grant. SecurityActionEffect therefore has exactly two members and there is no `grantsAuthority` -- an action that granted something could not be given an effect, so it cannot be added without deliberately widening the type. Two consequences are asserted rather than assumed: everything that reduces authority needs confirmation and the audit view does not (a confirmation on a read teaches people to dismiss confirmations), and LOCKING ORION REMOVES NOTHING from this screen. A lock that stopped you revoking a stolen device would be exactly backwards, and it is mutation-proven: making offeredActions return only the audit view while locked fails a named assertion."
+        }
+      ],
+      "limitations": [
+        "Nothing renders this and no revocation has a live effect. The model, the invariants and the cross-language contract are complete; offeredActions says what a screen MAY offer and the caller would have to carry it out. Same standing as Phase 36's correlations and Phase 41's notification items.",
+        "SecurityControls.availableActions (older, string-valued, about the lock screen) and SecurityCenter.offeredActions (this phase, about the Security Center) both answer a 'what can I do now' question and overlap on revoking a device. They are not mechanically proven to agree. Left as two because they genuinely answer different questions -- unlock and sign_out_everywhere are not among the manifest's seven -- but it is the kind of pair that drifts, and the Phase 41 mayBreakThrough finding is the precedent for merging them if a third caller appears.",
+        "Connector scopes are a display type; nothing reads real Gmail or Calendar scopes from the providers yet, so the scope lists in tests are constructed. The automation-permissions half IS read from the real producer, which is why the null-flag defect surfaced there and not here.",
+        "scripts/orion_v2_authority_contract_check.sh needs the plugin's dist/ built. It exits 2 with a clear message when it is not, rather than passing vacuously."
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

@@ -360,6 +360,12 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
         await writeLink({
           state: "online",
           lastSeen: new Date().toISOString(),
+          // Cleared on success. It used to persist, so `status` went on
+          // reporting "a privileged intent is not enabled" long after the
+          // intent had been enabled and the bridge was connected and healthy --
+          // a stale error is worse than none, because it sends whoever reads it
+          // to fix something that is not broken.
+          lastError: null,
           connectionId: sessionID,
           establishedAt: new Date(started).toISOString(),
           failedAttempts: 0,
@@ -372,7 +378,7 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
       }
 
       if (frame.t === "RESUMED") {
-        await writeLink({ state: "online", lastSeen: new Date().toISOString() });
+        await writeLink({ state: "online", lastSeen: new Date().toISOString(), lastError: null });
         return;
       }
 
@@ -533,6 +539,7 @@ if (command === "status") {
   say(`session    ${link.connectionId ?? "none"}`);
   say(`bot        ${link.botUser ?? "unknown"} in ${link.guilds ?? 0} guild(s)`);
   if (link.lastError) say(`last error ${link.lastError}`);
+  else if (link.connectionId) say(`last error none since the current session began`);
   process.exit(0);
 }
 

@@ -59,13 +59,20 @@ cat > "$BRAIN_STUB" <<'STUB'
 # argv: agent --session-key <k> --timeout <s> --json --message-file <path>
 for i in "$@"; do :; done
 msg=""
+brief="no"
 prev=""
 for a in "$@"; do
-  [ "$prev" = "--message-file" ] && msg="$(cat "$a")"
+  if [ "$prev" = "--message-file" ]; then
+    # The message file now carries a transport brief followed by Nick's line.
+    # Report them separately: the LAST line is what he actually sent, and
+    # whether the brief arrived is its own assertion below.
+    grep -q "orion-remote. Context from the transport" "$a" && brief="yes"
+    msg="$(tail -1 "$a")"
+  fi
   [ "$prev" = "--session-key" ] && session="$a"
   prev="$a"
 done
-echo "{\"runId\":\"run-stub-1\",\"status\":\"ok\",\"summary\":\"completed\",\"result\":{\"payloads\":[{\"text\":\"STUBBRAIN saw [$msg] in session [$session]\",\"mediaUrl\":null}]}}"
+echo "{\"runId\":\"run-stub-1\",\"status\":\"ok\",\"summary\":\"completed\",\"result\":{\"payloads\":[{\"text\":\"STUBBRAIN saw [$msg] in session [$session] brief=[$brief]\",\"mediaUrl\":null}]}}"
 STUB
 chmod +x "$BRAIN_STUB"
 
@@ -182,10 +189,21 @@ echo "== malformed, replayed, stale, misaddressed =="
 # question, and gets an answer. What must remain true is that every guard still
 # runs FIRST, which is what the rest of this section now pins.
 BRAINED="$(remote handle 'what is the capital of France' --from local)"
-echo "$BRAINED" | grep -q "STUBBRAIN saw"
-check $? "a message that is not a verb reaches the brain rather than being refused"
+# Pinned to the MESSAGE, not just to the brain being reached. "STUBBRAIN saw"
+# alone passed a mutant in which the transport brief REPLACED Nick's words
+# instead of preceding them -- the brain was reached and heard nothing he said.
+echo "$BRAINED" | grep -q "STUBBRAIN saw \[what is the capital of France\]"
+check $? "a message that is not a verb reaches the brain intact, rather than being refused or swallowed"
 echo "$BRAINED" | grep -q "in session \[orion-app-v2\]"
 check $? "and it lands in orion-app-v2 -- the SAME session GatewayClient.swift uses, so it is one Orion with one memory rather than a forgetful lookalike"
+
+# The brain must be TOLD what channel it is speaking through. Without this it
+# described its own permission state from memory, offered to "enable" a channel
+# it was already answering on, and invented an approval syntax that does not
+# exist -- fluent, confident and wrong, where the pre-brain answer had been a
+# true "not a command I know".
+echo "$BRAINED" | grep -q "brief=\[yes\]"
+check $? "and it arrives with the transport brief, so Orion knows the channel exists and is already working"
 SHELLY="$(remote handle 'device; rm -rf /' --from local)"
 echo "$SHELLY" | grep -qE "takes no arguments|not a command|Orion \| DEVICE"
 check $? "a shell metacharacter cannot reach a shell -- it is tokenised, never interpreted (said: $(echo "$SHELLY" | head -1 | cut -c1-50))"

@@ -360,12 +360,52 @@ const usage = (verb) => {
  `orion-mission` uses -- durable, restart-surviving, and auditable for free with
  `openclaw tasks show <runId>`. Not a second route to the model; the existing one.
 */
+/*
+ What the brain is told about the channel it is speaking through.
+
+ Without this it has no idea the remote channel exists, and the first live
+ conversation showed exactly what that costs. Asked whether it was persistent,
+ Orion answered that "orion-remote is live and gated at R1/R2 (approval level)"
+ -- a confident description of its own configuration, assembled from documents
+ in its context rather than from any fact. Told the exec had failed, it
+ announced it would "enable exec to reach remote", not realising it was ALREADY
+ reachable and was answering over that very channel. Asked about an approval id,
+ it invented a slash-command syntax that does not exist.
+
+ None of that is the model being stupid. It is the model being asked about a
+ mechanism nobody told it about, which is a question it cannot answer honestly
+ and will answer anyway. Before the brain was attached, an unknown word got a
+ true "not a command I know" and the real verb list; afterwards it got a
+ fluent fabrication. That is a regression in TRUTHFULNESS caused by attaching
+ the brain, and this is the repair.
+
+ Deliberately only facts, and only facts about this channel. It is not a
+ personality, it does not tell Orion how to be, and it must never grow into
+ one -- the assistant's own instructions live in openclaw-workspace/AGENTS.md
+ and are not this file's business.
+*/
+const CHANNEL_BRIEF = [
+  "[orion-remote] Context from the transport, not from Nick:",
+  "- This message arrived over Discord. Nick is away from the Mac.",
+  "- The remote channel is ALREADY working -- you are answering through it right now.",
+  "  Never offer to enable, configure or repair it, and never claim it is unavailable.",
+  "- These words are handled by the transport before you ever see them, so never",
+  "  claim to have run them and never describe them as things you do:",
+  "  status, pause, resume, cancel, approve, deny, priority, device, apps, files.",
+  "- Approvals use ids minted by orion-notify, shaped ap-xxxxxxxx, and are answered",
+  "  by sending: approve <id>   (no slash, no other syntax).",
+  "- If you do not know something about your own configuration, say so. Do not",
+  "  describe your permission state from memory; it changes without you.",
+  "- Discord truncates near 2000 characters. Keep replies shorter than that.",
+  "--- Nick's message follows ---",
+].join("\n");
+
 async function askBrain(text) {
   await mkdir(CONTROLLED, { recursive: true });
   // Via a FILE, never argv. The message is untrusted text and this is the one
   // property from the original design that costs nothing to keep.
   const file = join(CONTROLLED, `brain-${randomBytes(6).toString("hex")}.txt`);
-  await writeFile(file, text, { mode: 0o600 });
+  await writeFile(file, `${CHANNEL_BRIEF}\n${text}`, { mode: 0o600 });
   try {
     const { stdout } = await run(
       BRAIN_BIN,

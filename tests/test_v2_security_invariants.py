@@ -719,5 +719,123 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(self.document["permanent"])
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Where live code lives. `archive/` and `_archive/` are excluded because they are
+# kept for reference and are not run; vendored trees are excluded because they
+# are not ours to hold to this rule.
+LIVE_SOURCE_ROOTS = ("orion", "backend", "scripts", "native", "openclaw-plugins")
+SKIP_PARTS = frozenset({
+    "node_modules", ".build", "dist", "_archive", "archive", ".claude", ".git", "__pycache__",
+})
+SOURCE_SUFFIXES = (".py", ".js", ".ts", ".mjs", ".swift", ".sh")
+
+WILDCARD_ADDRESSES = ("0.0.0.0", "::/0")
+# A wildcard address is only a problem where something LISTENS. The first draft
+# of this scan looked for the address alone and flagged orion/web.py's SSRF
+# denylist -- a guard that refuses to fetch loopback URLs, which names 0.0.0.0
+# precisely because it is defending against it. A test that reports a security
+# control as a vulnerability is worse than no test: the cheapest way to make it
+# pass is to delete the control.
+BIND_TOKENS = (
+    "bind(", "listen(", "HTTPServer(", "createServer(", "serve(",
+    "host=", "hostname=", "--host", "sin_addr", "ListenAddress",
+)
+
+
+def binds_a_wildcard(line: str) -> bool:
+    """Whether one line of source opens a listener on a wildcard address."""
+    if not any(address in line for address in WILDCARD_ADDRESSES):
+        return False
+    return any(token in line for token in BIND_TOKENS)
+
+
+def live_sources():
+    for root in LIVE_SOURCE_ROOTS:
+        base = REPO_ROOT / root
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.suffix not in SOURCE_SUFFIXES or not path.is_file():
+                continue
+            if SKIP_PARTS.intersection(path.parts):
+                continue
+            yield path
+
+
+class TheMacNeverExposesAPublicServer(unittest.TestCase):
+    """Phase 44: "Never expose a public Python server on the Mac."
+
+    The requirement is a negative, so it is asserted against the tree rather
+    than against a type. Two halves: the interface bridge actively REFUSES a
+    non-loopback host, and no live source binds one in the first place.
+
+    Verified on 2026-09-01, and the reason this is a test rather than a note in
+    a gate: a negative requirement is satisfied on the day it is checked and
+    broken by the next person who adds a listener. Nothing about the Swift
+    domain in Phase 44 would notice.
+    """
+
+    def test_the_interface_bridge_refuses_a_non_loopback_host(self):
+        import subprocess
+        import sys as _sys
+
+        result = subprocess.run(
+            [_sys.executable, str(REPO_ROOT / "orion/interface/server.py"),
+             "--host", "0.0.0.0", "--port", "8770"],
+            capture_output=True, text=True, timeout=60, cwd=str(REPO_ROOT),
+        )
+        # It must refuse BEFORE binding, so this never actually opens a socket.
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("refusing to bind a non-loopback address", result.stderr)
+
+    def test_the_loopback_hosts_it_accepts_are_exactly_the_three(self):
+        source = (REPO_ROOT / "orion/interface/server.py").read_text()
+        # CONTENTS, not a count. A guard listing three hosts stays a guard
+        # listing three hosts after one of them is swapped for a wildcard.
+        self.assertIn('args.host not in ("127.0.0.1", "localhost", "::1")', source)
+        self.assertIn('ap.add_argument("--host", default="127.0.0.1")', source)
+
+    def test_the_detector_tells_a_bind_from_a_denylist(self):
+        # Without this the scan below could pass by detecting nothing at all,
+        # which reads in a report exactly like proof. Both halves are pinned:
+        # what it must catch, and what it must NOT.
+        must_catch = [
+            'server = ThreadingHTTPServer(("0.0.0.0", port), Handler)',
+            'ap.add_argument("--host", default="0.0.0.0")',
+            'app.listen(3000, "0.0.0.0")',
+            'sock.bind(("0.0.0.0", 8080))',
+        ]
+        must_not_catch = [
+            'if parsed.hostname in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:',
+            'BLOCKED_HOSTS = {"0.0.0.0", "169.254.169.254"}',
+            'server = ThreadingHTTPServer(("127.0.0.1", port), Handler)',
+        ]
+        for line in must_catch:
+            self.assertTrue(binds_a_wildcard(line), f"should have been caught: {line}")
+        for line in must_not_catch:
+            self.assertFalse(binds_a_wildcard(line), f"should NOT have been caught: {line}")
+
+    def test_no_live_source_binds_a_non_loopback_address(self):
+        offenders = []
+        for path in live_sources():
+            for lineno, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                if binds_a_wildcard(line):
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}: {line.strip()[:100]}")
+        self.assertEqual(
+            offenders,
+            [],
+            "a live source opens a listener on a wildcard address. Phase 44 requires the Mac "
+            "to connect OUTBOUND and never listen publicly:\n" + "\n".join(offenders),
+        )
+
+    def test_the_scan_actually_reaches_the_sources_it_claims_to(self):
+        # Without this, a bad glob would make the invariant above pass by
+        # scanning nothing at all -- which reads in a report exactly like proof.
+        scanned = {path.relative_to(REPO_ROOT).parts[0] for path in live_sources()}
+        self.assertEqual(scanned, set(LIVE_SOURCE_ROOTS), f"scanned only {sorted(scanned)}")
+        self.assertGreater(sum(1 for _ in live_sources()), 200)
+
+
 if __name__ == "__main__":
     unittest.main()

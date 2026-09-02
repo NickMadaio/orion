@@ -3858,6 +3858,81 @@
         "The check depends on the plugin's dist/ being built and exits 2 with a clear message when it is not, rather than passing vacuously."
       ],
       "nextPhaseAllowed": false
+    },
+    "44": {
+      "name": "Mac Remote Connection Foundation",
+      "status": "in_progress",
+      "entryRequiresPhase": "43",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-01",
+      "openedAgainst": "Phase 43 has four blocked requirements, three of which need exactly the machinery this phase builds -- a dispatcher to stop, a queue to cancel, a lease to expire. Waiting for 43 to close before starting 44 would deadlock, since 43 cannot close until 44 exists. Recorded as a deviation rather than asserted true.",
+      "evidence": "native/OrionMobile/Sources/MobileCore/RemoteLink.swift, checked by scripts/orion_v2_mobile_check.sh (638 checks, 0 failed; iOS build clean), plus a permanent security invariant in tests/test_v2_security_invariants.py.",
+      "decisions": [
+        "NO TRANSPORT WAS STUBBED. A fake transport that pretended to connect would make every test in this phase meaningless -- the policies below are only worth anything if the thing they govern is real. The credential needed for a real channel is Nick's to create, so the transport half is registered blocked and the domain half is complete and proven.",
+        "The connection VOCABULARY went in MobileCore rather than beside orion-remote, because the manifest's last line is 'mobile must clearly display Mac availability' and a phone that disagrees with the Mac about what 'offline' means is the failure this phase is supposed to prevent.",
+        "Outbound-only is enforced as a SHAPE, not a promise. LinkEndpoint has no bind address, no listen port and no backlog, pinned by reflection over its stored properties."
+      ],
+      "requirements": [
+        {
+          "id": "have_the_mac_establish_the_connection_outbound",
+          "status": "blocked",
+          "reason": "Nothing connects. The shape is right and is enforced -- there is no way to spell a listener -- but no bytes have ever moved over this link. Needs the channel credential.",
+          "evidence": "LinkEndpoint's stored property set is pinned to {channel, host, port, pin} by reflection, so adding a listenPort fails by name. What is absent is a connector, not a design."
+        },
+        {
+          "id": "never_expose_a_public_python_server_on_the_mac",
+          "status": "passed",
+          "evidence": "Verified against the tree and the running machine, not asserted. orion/interface/server.py defaults --host to 127.0.0.1 AND refuses to start on anything outside (127.0.0.1, localhost, ::1) -- proven by running it with --host 0.0.0.0 and asserting exit 2 before any socket is opened. orion/server.py hardcodes 127.0.0.1; OAuthFlow.swift binds inet_addr(\"127.0.0.1\") on an ephemeral port. On the live machine the only listener is the node gateway on 18789, bound to [::1] and 127.0.0.1 only. Made permanent as a security invariant that scans every live source for a wildcard bind. The scan's FIRST version was itself a defect and is the finding here: looking for the address alone, it flagged orion/web.py's SSRF denylist -- a guard that names 0.0.0.0 precisely because it refuses to fetch it. A test that reports a security control as a vulnerability is worse than no test, because the cheapest way to make it pass is to delete the control. The detector now requires a bind token as well, and is itself tested against four lines it must catch and three it must not."
+        },
+        {
+          "id": "do_not_require_router_port_forwarding",
+          "status": "passed",
+          "evidence": "Follows from the above and is proven by the same scan: nothing in the live tree opens a listener on a routable address, so there is nothing a router could forward to. The endpoint type can only describe somewhere to dial out."
+        },
+        {
+          "id": "use_authenticated_encrypted_transport",
+          "status": "blocked",
+          "reason": "Needs a channel credential only Nick can create -- a Discord bot token, free and unrelated to the $99 Apple programme. The validator half is built and proven (KeyPin below); what is missing is a connection for it to validate.",
+          "evidence": "KeyPin exists and fails closed. No transport is configured; ORION_DISCORD_WEBHOOK_URL in .env is the existing ONE-WAY outbound webhook and is not an authenticated inbound channel."
+        },
+        {
+          "id": "implements_reconnect",
+          "status": "passed",
+          "evidence": "ReconnectPolicy: exponential backoff bounded at BOTH ends, which is the part that matters. Uncapped, the delay grows until the link that is supposed to heal itself quietly stops trying; with no floor, jitter reduces the wait to zero and a Mac that cannot reach the endpoint hammers it -- a self-inflicted denial of service against the one channel Nick would use to find out why. So jitter only ever REDUCES, by at most half, and is clamped to 0...1 rather than trusted. Asserted across attempts 1...200, including counts large enough to overflow a naive shift. Four mutations killed: removing the cap, letting jitter reach zero, unclamping jitter, and accepting a zero base."
+        },
+        {
+          "id": "implements_heartbeat_and_last_seen",
+          "status": "passed",
+          "evidence": "HeartbeatPolicy refuses its own nonsense: a stale threshold below the beat interval would mark a healthy link stale on every beat, and an offline threshold below the stale one makes the warning state unreachable so a link jumps from online straight to offline and nobody ever sees the state the screen exists to show. Both refused by init?, mutation-proven. Boundaries are pinned at the second on both sides (119s online / 120s stale, 299s stale / 300s offline) and the boundary belongs to the WORSE state, also mutation-proven."
+        },
+        {
+          "id": "implements_online_offline_state",
+          "status": "passed",
+          "evidence": "Four presences, and the distinction the whole file is built around: `unknown` is not `offline`. 'I have never heard from your Mac' and 'your Mac is off' are different facts, and rendering the first as the second means a phone that has lost signal confidently reports the Mac is down -- the most likely wrong answer this screen can give and the one a person would act on. A heartbeat from the FUTURE is also unknown rather than online, because a wrong clock must not pin the display to the one state nobody re-checks. Both mutation-proven."
+        },
+        {
+          "id": "implements_connection_rotation",
+          "status": "passed",
+          "evidence": "RotationPolicy rotates a connection at its maximum age and refuses a zero age. The case worth having is the negative one: a link with no connection is NOT 'due for rotation', because answering true there would make the reconnect loop rotate a connection that does not exist, forever. Mutation-proven."
+        },
+        {
+          "id": "implements_certificate_key_validation",
+          "status": "passed",
+          "evidence": "KeyPin FAILS CLOSED: an unconfigured pin set accepts nothing. The usual accident is the opposite -- treating 'no pins configured' as 'allow anything' turns a missing config value into a silently unauthenticated connection, the failure that looks exactly like success. Mutation-proven against precisely that. Fingerprints are compared in one normalised spelling, so AA:BB:CC and aabbcc are the same key; a comparison that says otherwise rejects the right key on a bad day and teaches somebody to switch pinning off."
+        },
+        {
+          "id": "mobile_must_clearly_display_mac_availability",
+          "status": "passed",
+          "evidence": "'Clearly' is treated as a real requirement: the four presences produce four DIFFERENT headlines, asserted as a set of four distinct strings and by exact contents -- Online, Not responding, Offline, Never connected. Two affordances follow and are separately asserted: only an online Mac may be sent to, because queueing into silence and reporting it as sent is worse than refusing (the person walks away believing the Mac was told something it never heard); and offline suggests a retry while never-connected suggests setup, which are not the same control."
+        }
+      ],
+      "limitations": [
+        "NOTHING CONNECTS. No bytes have ever moved over this link. Six policies are complete and mutation-proven and the phone can render four honest states, but there is no connector, no heartbeat emitter and no producer for MacLink. Every 'passed' above is a passed DECISION, not a passed connection.",
+        "The blocker is one credential: a Discord bot token, which is free and unrelated to the $99 Apple Developer Program. It belongs in the gitignored .env as ORION_DISCORD_BOT_TOKEN, alongside the existing ORION_DISCORD_WEBHOOK_URL, and Nick adds it himself -- no assistant should handle it in plaintext.",
+        "scripts/orion-remote already carries the seven-verb command vocabulary over an append-only file bridge and is untouched by this phase. Wiring it to a real channel is the remaining work, and it is deliberately the LAST step rather than the first, so the file transport keeps proving the vocabulary independently of the network.",
+        "Phase 43's three transport-dependent blocked requirements -- stop dispatches, cancel queued jobs, expire leases -- are still blocked and must be closed here once a transport exists, not inherited."
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {

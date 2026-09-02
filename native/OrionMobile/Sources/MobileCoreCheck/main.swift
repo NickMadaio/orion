@@ -2335,6 +2335,116 @@ var n42Refused = false
 do { _ = try AuthoritySnapshot.decode(Data(n42Unknown.utf8)) } catch { n42Refused = true }
 expect(n42Refused, "an unrecognised permission profile is refused rather than defaulted away")
 
+// -- PHASE 44: the Mac's outbound link -------------------------------------
+
+section("remote link")
+
+let n44Now = Date(timeIntervalSince1970: 1_772_000_000)
+let n44Pin = KeyPin(["AA:BB:CC:DD"])
+
+// Outbound-only as a SHAPE. There is no way to spell a listener here, and this
+// pins that by reflection so adding `listenPort` fails by name rather than at
+// the point somebody opens a socket with it.
+let n44Endpoint = LinkEndpoint(channel: "discord", host: "gateway.example", port: 443, pin: n44Pin)!
+expect(Set(Mirror(reflecting: n44Endpoint).children.compactMap(\.label)) == ["channel", "host", "port", "pin"],
+       "an endpoint names somewhere to DIAL -- no bind address, no listen port, no backlog")
+expect(LinkEndpoint(channel: "discord", host: "  ", port: 443, pin: n44Pin) == nil
+        && LinkEndpoint(channel: "discord", host: "h", port: 0, pin: n44Pin) == nil
+        && LinkEndpoint(channel: "discord", host: "h", port: 70_000, pin: n44Pin) == nil,
+       "and an endpoint with no host or an impossible port is refused")
+
+// -- PHASE 44: key validation fails CLOSED ---------------------------------
+
+expect(!KeyPin().isConfigured && !KeyPin().accepts("aabbccdd"),
+       "an unconfigured pin set accepts NOTHING -- treating 'no pins' as 'allow anything' turns a missing config value into a silently unauthenticated connection")
+expect(n44Pin.accepts("aabbccdd") && n44Pin.accepts("AA:BB:CC:DD") && n44Pin.accepts("aa:bb:cc:dd"),
+       "the same key in any spelling is the same key")
+expect(!n44Pin.accepts("aabbccde") && !n44Pin.accepts("") && !n44Pin.accepts("not-hex-at-all"),
+       "and a different key, an empty one, or a non-fingerprint is rejected")
+
+// -- PHASE 44: presence, and the distinction the file is built around -------
+
+let n44Policy = HeartbeatPolicy.standard
+expect(MacLink().presence(at: n44Now, policy: n44Policy) == .unknown,
+       "a Mac never heard from is UNKNOWN, not offline")
+expect(MacAvailability(link: MacLink(), at: n44Now).headline == "Never connected",
+       "and the phone says never connected rather than borrowing offline's headline -- otherwise a phone with no signal confidently reports the Mac is down")
+
+func n44LinkSeen(_ secondsAgo: TimeInterval) -> MacLink {
+    MacLink(lastSeen: n44Now.addingTimeInterval(-secondsAgo), connectionID: "c1",
+            establishedAt: n44Now.addingTimeInterval(-secondsAgo))
+}
+expect(n44LinkSeen(10).presence(at: n44Now, policy: n44Policy) == .online, "a recent beat is online")
+expect(n44LinkSeen(119).presence(at: n44Now, policy: n44Policy) == .online, "one second before the stale threshold is still online")
+expect(n44LinkSeen(120).presence(at: n44Now, policy: n44Policy) == .stale, "and the threshold itself is stale -- the boundary belongs to the worse state")
+expect(n44LinkSeen(299).presence(at: n44Now, policy: n44Policy) == .stale, "one second before offline is still stale")
+expect(n44LinkSeen(300).presence(at: n44Now, policy: n44Policy) == .offline, "and the offline threshold is offline")
+
+// A beat from the FUTURE is a clock disagreement, not good health. Reporting it
+// as online would pin the screen to the one state nobody re-checks.
+expect(MacLink(lastSeen: n44Now.addingTimeInterval(60), connectionID: "c1").presence(at: n44Now) == .unknown,
+       "a heartbeat from the future is unknown, not online -- a wrong clock must not pin the screen to Online forever")
+
+expect(Set(MacPresence.allCases.map(\.rawValue)) == ["online", "stale", "offline", "unknown"],
+       "there are exactly four presences")
+let n44Headlines = [
+    MacAvailability(link: n44LinkSeen(10), at: n44Now).headline,
+    MacAvailability(link: n44LinkSeen(150), at: n44Now).headline,
+    MacAvailability(link: n44LinkSeen(400), at: n44Now).headline,
+    MacAvailability(link: MacLink(), at: n44Now).headline,
+]
+expect(Set(n44Headlines).count == 4 && n44Headlines == ["Online", "Not responding", "Offline", "Never connected"],
+       "the four presences read as four DIFFERENT things, which is what 'clearly display' has to mean")
+
+expect(MacAvailability(link: n44LinkSeen(10), at: n44Now).canSend
+        && !MacAvailability(link: n44LinkSeen(150), at: n44Now).canSend
+        && !MacAvailability(link: MacLink(), at: n44Now).canSend,
+       "only an online Mac may be sent to -- queueing into silence and reporting it as sent is worse than refusing")
+expect(MacAvailability(link: n44LinkSeen(400), at: n44Now).suggestsReconnect
+        && !MacAvailability(link: MacLink(), at: n44Now).suggestsReconnect,
+       "offline suggests a retry and never-connected suggests setup -- different affordances")
+
+// -- PHASE 44: a heartbeat policy that cannot be nonsense -------------------
+
+expect(HeartbeatPolicy(interval: 30, staleAfter: 10, offlineAfter: 300) == nil,
+       "a stale threshold below the beat interval is refused -- it would mark a healthy link stale on every beat")
+expect(HeartbeatPolicy(interval: 30, staleAfter: 120, offlineAfter: 60) == nil,
+       "and an offline threshold below the stale one is refused, because it makes the warning state unreachable")
+expect(HeartbeatPolicy(interval: 0, staleAfter: 1, offlineAfter: 2) == nil, "as is a zero interval")
+
+// -- PHASE 44: reconnect backoff, bounded at both ends ----------------------
+
+let n44Backoff = ReconnectPolicy.standard
+expect(n44Backoff.delay(afterFailures: 0) == 0, "no failures means no wait")
+expect(n44Backoff.delay(afterFailures: 1) == 2 && n44Backoff.delay(afterFailures: 2) == 4
+        && n44Backoff.delay(afterFailures: 3) == 8,
+       "and the delay doubles: 2, 4, 8")
+expect(n44Backoff.delay(afterFailures: 100) == 300,
+       "a long outage is CAPPED at 300s -- uncapped, the link that heals itself quietly stops trying")
+expect((1...200).allSatisfy { n44Backoff.delay(afterFailures: $0) <= n44Backoff.cap },
+       "no attempt count exceeds the cap, including ones large enough to overflow a naive shift")
+expect((1...200).allSatisfy { n44Backoff.delay(afterFailures: $0, jitter: 1) > 0 },
+       "and full jitter never reduces the delay to zero, which would be a reconnect storm against the one channel Nick would use to find out why")
+expect(n44Backoff.delay(afterFailures: 5, jitter: 1) == 16 && n44Backoff.delay(afterFailures: 5, jitter: 0) == 32,
+       "jitter only ever REDUCES, at most by half -- adding would let the delay exceed the cap it is meant to guarantee")
+expect(n44Backoff.delay(afterFailures: 5, jitter: 9) == n44Backoff.delay(afterFailures: 5, jitter: 1),
+       "and a jitter outside 0...1 is clamped rather than trusted")
+expect(ReconnectPolicy(base: 0, cap: 10) == nil && ReconnectPolicy(base: 10, cap: 1) == nil,
+       "a zero base or a cap below the base is refused")
+
+// -- PHASE 44: rotation -----------------------------------------------------
+
+let n44Rotate = RotationPolicy.standard
+expect(n44Rotate.shouldRotate(MacLink(lastSeen: n44Now, connectionID: "c1",
+                                      establishedAt: n44Now.addingTimeInterval(-12 * 3600)), at: n44Now),
+       "a connection at its maximum age is rotated")
+expect(!n44Rotate.shouldRotate(MacLink(lastSeen: n44Now, connectionID: "c1",
+                                       establishedAt: n44Now.addingTimeInterval(-3600)), at: n44Now),
+       "a young one is not")
+expect(!n44Rotate.shouldRotate(MacLink(lastSeen: n44Now), at: n44Now),
+       "and a link that is not connected is not 'due for rotation' -- answering true would rotate a connection that does not exist, forever")
+expect(RotationPolicy(maxAge: 0) == nil, "a zero rotation age is refused")
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

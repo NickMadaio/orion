@@ -269,6 +269,7 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
     let settled = false;
     let warnedAboutEmpty = false;
     let warnedAboutSender = false;
+    let warnedAboutAddressing = false;
 
     const finish = (outcome) => {
       if (settled) return;
@@ -322,6 +323,16 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
                   token: TOKEN,
                   intents: INTENTS,
                   properties: { os: "macos", browser: "orion", device: "orion" },
+                  // Stated explicitly rather than left to default. The member
+                  // list is the only place Nick can check whether the bridge is
+                  // up without asking the Mac, so it should be unambiguous
+                  // there -- and "offline" was the first symptom he reported.
+                  presence: {
+                    since: null,
+                    status: "online",
+                    afk: false,
+                    activities: [{ name: "the Mac", type: 3 }], // type 3 = Watching
+                  },
                 },
               },
         ));
@@ -385,6 +396,8 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
       if (frame.t === "MESSAGE_CREATE") {
         const message = frame.d || {};
         if (message.author?.bot) return; // never answer ourselves, or another bot
+        const authorID = String(message.author?.id || "");
+        if (!authorID) return;
         // "<@1234> status" -> "status". Stripping the mention is unwrapping the
         // transport's envelope, not interpreting the message: only a mention of
         // THIS bot at the very start is removed, and everything after it is
@@ -404,11 +417,27 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
         const isDM = !message.guild_id;
         const mentionsOrion = (message.mentions || []).some((u) => String(u.id) === selfID);
         const raw = message.content || "";
-        if (!isDM && !mentionsOrion) return; // heard, deliberately not obeyed
+        if (!isDM && !mentionsOrion) {
+          /*
+           Heard, deliberately not obeyed -- and SAID SO.
+
+           This used to return silently, which is the correct behaviour with no
+           way to observe it: a message typed in a channel without a mention
+           looked exactly like a bridge that was broken, deaf, or not running.
+           The first live test failed this way and cost a round trip to
+           diagnose. A rule that cannot be seen working is a rule that gets
+           debugged as a bug.
+          */
+          if (!warnedAboutAddressing) {
+            warnedAboutAddressing = true;
+            say(`   heard "${raw.slice(0, 60)}" from ${authorID} in a channel, `
+              + `but not addressed to me -- DM me, or start with @orion. `
+              + `(Said once per connection.)`);
+          }
+          return;
+        }
 
         const text = raw.replace(new RegExp(`^\\s*<@!?${selfID}>`), "").trim();
-        const authorID = String(message.author?.id || "");
-        if (!authorID) return;
 
         if (!text) {
           // Expected, and not an error: without MESSAGE_CONTENT this is every

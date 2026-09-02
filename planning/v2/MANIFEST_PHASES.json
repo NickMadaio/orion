@@ -16,7 +16,7 @@
     "latestCheckpoint": "PC-2026-09-01",
     "latestCheckpointStatus": "complete",
     "doesNotRenumberPhases": true,
-    "numberedProgramPosition": "Phases 0-39, 41, 42 and 44 complete. Three open: Phase 40 (9/10, waiting on the 2026-09-08 move), Phase 43 (8/9, reauthentication), and Phase 45 (11/12 -- everything built and proven, awaiting one Discord round trip once Nick allowlists an account). Phase 46 must not start before that round trip.",
+    "numberedProgramPosition": "Phases 0-39 and 41-45 complete, except Phase 40 (9/10, waiting on the 2026-09-08 move) and Phase 43 (8/9, reauthentication). The Discord channel is live end to end and Phase 46 is unblocked. Next work is Phase 46, Harmless Mac Actions.",
     "mechanicalEnforcement": "documented_human_gate; the current checker reads phases records, not programCheckpoints or ROADMAP_AMENDMENTS.json"
   },
   "current": {
@@ -207,9 +207,9 @@
       "note": "Closed 2026-09-02 against the real Discord gateway. Entered with entrySatisfied false because Phase 43 needed this phase's machinery to close its own requirements."
     },
     "45": {
-      "status": "in_progress",
+      "status": "complete",
       "evidence": "planning/v2/PHASE_GATES.json phase 45",
-      "note": "Eleven of twelve pass. Everything below the transport is built and proven; one full Discord round trip is outstanding because no account is allowlisted yet."
+      "note": "Closed 2026-09-02 by a real Discord round trip. Phase 46 is now unblocked."
     }
   },
   "tracks": [

@@ -4078,7 +4078,7 @@
     },
     "45": {
       "name": "Remote Mac Read-Only",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "44",
       "entrySatisfied": true,
       "openedOn": "2026-09-01",
@@ -4137,18 +4137,18 @@
         },
         {
           "id": "the_read_only_path_is_served_end_to_end",
-          "status": "blocked",
-          "reason": "One config line short. ORION_REMOTE_ALLOW is deliberately unset, so every inbound Discord message is refused; the candidate id sits commented out in .env awaiting Nick's decision. Kept blocked so Phase 46's harmless ACTIONS cannot begin on a read-only path that has never actually carried a message end to end.",
-          "evidence": "Everything is built and everything below the transport is proven: the three capabilities answer, the four guards refuse, the lock stops all of it, and scripts/orion_v2_remote_check.sh runs the real script against a sandbox HOME with 25 assertions. The bridge connects to the real gateway and receives. What has not happened is one full round trip over Discord, because no account is allowlisted."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-02 18:12 UTC by a real round trip over Discord, not by inspection. Nick DM'd the bot `device` from 732025545549807666; the bridge logged `<- [732025545549807666] device`, orion-remote's audit recorded `decision: accepted, verb: device, from: 732025545549807666`, and the reply went back to Discord carrying live values (battery 80% on AC, up 4 days, 651 GB free). Every layer was exercised at once: outbound gateway connection, MESSAGE_CONTENT, the allowlist, the verb vocabulary, a read-only capability, and the outbox correlation by envelopeId. The audit line immediately before it is the rejected `--x` sender-forgery attempt from the check suite, so the same file shows the bypass being refused and the legitimate message being attributed to the right account -- which is the live proof that the argument-injection repair holds."
         }
       ],
       "limitations": [
-        "No Discord round trip yet -- see the blocked requirement. One uncommented line in .env closes it.",
-        "files.safe_metadata reads three fixed roots (Desktop, Documents, Downloads), top level only, hidden files skipped, 40 entries maximum. A path argument was deliberately not offered: a path from an inbound message is a path an attacker chooses, and every safe-path check ever written has been bypassed by somebody patient.",
-        "application.list uses `ps` rather than System Events, so it needs no Automation permission and cannot raise a TCC prompt on a Mac nobody is sitting at. The cost is that an application installed outside /Applications or ~/Applications is not listed.",
-        "The live guards in orion-remote and the JobGate in MobileCore express the same four rules in two languages and are not mechanically proven to agree. The Swift side carries the boundary tests; the node side now carries its own."
+        "NOTHING SUPERVISES THE BRIDGE. It runs only while something runs it, so Orion is genuinely offline between sessions -- which is exactly what Nick observed in the Discord member list before the round trip. Making it persistent is its own piece of work and hits the same constraint that leaves the TTS daemon unsupervised: launchd cannot read ~/Desktop.",
+        "Commands must be addressed to Orion -- a DM, or a message starting with @orion. He READS every channel (MESSAGE_CONTENT is enabled at Nick's instruction) but only obeys what is addressed to him, so typing 'cancel that idea' in a channel cannot fire the cancel verb. Nick's stated preference is DMs, which need no mention. A message heard in a channel and not obeyed now SAYS so once per connection; it used to return silently, which was indistinguishable from a broken bridge and cost the first live attempt.",
+        "files.safe_metadata reads three fixed roots (Desktop, Documents, Downloads), top level only, hidden files skipped, 40 entries maximum. A path argument was deliberately not offered.",
+        "application.list uses `ps` rather than System Events, so it needs no Automation permission and cannot raise a TCC prompt on a Mac nobody is sitting at. The cost is that an app installed outside /Applications or ~/Applications is not listed.",
+        "The live guards in orion-remote and the JobGate in MobileCore now agree on judgement order, but that agreement is not mechanically enforced -- they are two implementations of one rule set. They differ deliberately on one point: an envelope with no target is a local broadcast here and is refused in Swift."
       ],
-      "nextPhaseAllowed": false,
+      "nextPhaseAllowed": true,
       "postReviewCorrections": {
         "reviewedOn": "2026-09-02",
         "review": "Independent adversarial review, 2026-09-02, by an agent given the manifest, the repo and the commands and NOT the implementer's conclusions. Recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",

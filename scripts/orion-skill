@@ -1,0 +1,159 @@
+#!/usr/bin/env node
+/*
+ Orion writes his own skills. Manifest-adjacent; Nick asked for it 2026-09-02:
+ "a skill on how to create new skills and update skills without needing
+ permission".
+
+ ## Why this has to exist as a wrapper
+
+ Orion has NO `file_write` tool — the `coding` tools profile strips it — so
+ every file he touches goes through `exec`, and exec is an allowlist with no
+ write commands on it at all. No `tee`, no `mkdir`, no `sed`. The practical
+ consequence, discovered 2026-09-02, is that he could not create a skill even
+ when told to: he had no way to put bytes on disk.
+
+ The fix is the pattern that already works for `orion-remember` and the rest of
+ the toolbelt: one narrow, validated wrapper rather than a general write. He
+ gets exactly the ability to author skills and nothing adjacent to it.
+
+ ## What it will not do
+
+ - Write anywhere but `~/.openclaw/workspace/skills/<name>/`. The name is
+   matched against `[a-z0-9][a-z0-9-]*` and rejected otherwise, so there is no
+   path to traverse out of: `..`, `/`, `~` and everything else fail the pattern
+   before any path is built.
+ - Delete a skill. Removing a capability should cost more than adding one, and
+   an agent that can delete its own instructions can quietly become a different
+   agent. `disable` renames it aside instead, reversibly.
+ - Overwrite without a copy. Every write keeps the previous version, because
+   "update without needing permission" and "destroy without recourse" are not
+   the same grant and Nick asked for the first one.
+ - Store anything credential-shaped, same rule as orion-remember.
+
+   orion-skill list
+   orion-skill show <name>
+   orion-skill write <name> --description "one line" --body "…\n…"
+   orion-skill disable <name>
+*/
+
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const SKILLS = join(homedir(), ".openclaw/workspace/skills");
+const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+// The same shapes orion-remember refuses. A skill is always-loaded text; a
+// credential pasted into one is a credential in every future prompt.
+const SECRET_SHAPES = [
+  /sk-[A-Za-z0-9_-]{16,}/,
+  /xox[baprs]-[A-Za-z0-9-]{10,}/,
+  /gh[pousr]_[A-Za-z0-9]{20,}/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /\b[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b/, // discord bot token
+  /AKIA[0-9A-Z]{16}/,
+];
+
+const fail = (message, code = 2) => {
+  console.error(`orion-skill: ${message}`);
+  process.exit(code);
+};
+
+function parseArgs(argv) {
+  const flags = {};
+  const positional = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      if (!["description", "body"].includes(key)) fail(`unknown option --${key.slice(0, 24)}`);
+      if (i + 1 >= argv.length) fail(`--${key} needs a value`);
+      flags[key] = argv[i + 1];
+      i += 1;
+    } else positional.push(arg);
+  }
+  return { flags, positional };
+}
+
+const { flags, positional } = parseArgs(process.argv.slice(2));
+const [command, name] = positional;
+
+const validName = (n) => {
+  if (!n) fail("which skill? give a name like calendar-handling");
+  if (!NAME_RE.test(n)) fail(`"${String(n).slice(0, 40)}" is not a skill name — use lower-case letters, digits and hyphens`);
+  return n;
+};
+
+if (command === "list" || !command) {
+  if (!existsSync(SKILLS)) fail("no skills directory yet", 1);
+  const entries = readdirSync(SKILLS, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+    .map((e) => e.name)
+    .sort();
+  console.log(`${entries.length} skill(s):`);
+  for (const entry of entries) {
+    const file = join(SKILLS, entry, "SKILL.md");
+    let summary = "(no SKILL.md)";
+    if (existsSync(file)) {
+      const text = readFileSync(file, "utf8");
+      summary = (text.match(/^description:\s*"?(.+?)"?\s*$/m) || [])[1] ?? "(no description)";
+    }
+    console.log(`- ${entry}: ${summary.slice(0, 100)}`);
+  }
+  process.exit(0);
+}
+
+if (command === "show") {
+  const file = join(SKILLS, validName(name), "SKILL.md");
+  if (!existsSync(file)) fail(`no skill called ${name}`, 1);
+  process.stdout.write(readFileSync(file, "utf8"));
+  process.exit(0);
+}
+
+if (command === "disable") {
+  const dir = join(SKILLS, validName(name));
+  if (!existsSync(dir)) fail(`no skill called ${name}`, 1);
+  const aside = `${dir}.disabled-${new Date().toISOString().slice(0, 10)}`;
+  renameSync(dir, aside);
+  console.log(`disabled ${name} — moved aside, not deleted:\n  ${aside}`);
+  process.exit(0);
+}
+
+if (command === "write") {
+  const skill = validName(name);
+  const description = String(flags.description ?? "").trim();
+  // Literal \n in argv becomes a real newline. Orion has no way to produce a
+  // multi-line argument any other way -- there is no heredoc through exec.
+  const body = String(flags.body ?? "").replace(/\\n/g, "\n").trim();
+
+  if (!description) fail("--description is required: one line saying WHEN to use this skill");
+  if (description.length > 300) fail("--description should be one line, under 300 characters");
+  if (!body) fail("--body is required");
+
+  for (const shape of SECRET_SHAPES) {
+    if (shape.test(body) || shape.test(description)) {
+      fail("that looks like it contains a credential. A skill is always-loaded text; "
+        + "a secret in one is a secret in every future prompt. Reference it by name instead.");
+    }
+  }
+
+  const dir = join(SKILLS, skill);
+  const file = join(dir, "SKILL.md");
+  mkdirSync(dir, { recursive: true });
+
+  if (existsSync(file)) {
+    // Reversible by construction. "Update without asking" is the grant; "lose
+    // the old one without recourse" is not, and they are easy to confuse.
+    const backup = join(dir, `SKILL.md.bak-${Date.now()}`);
+    writeFileSync(backup, readFileSync(file));
+    console.log(`previous version kept at ${backup}`);
+  }
+
+  const front = `---\nname: "${skill}"\ndescription: "${description.replace(/"/g, "'")}"\n---\n\n`;
+  writeFileSync(file, front + body + "\n", { mode: 0o644 });
+  console.log(`wrote ${file} (${body.split("\n").length} lines)`);
+  console.log("It is live for the next turn. `orion-skill show " + skill + "` to read it back.");
+  process.exit(0);
+}
+
+fail("usage: orion-skill list | show <name> | write <name> --description \"…\" --body \"…\" | disable <name>");

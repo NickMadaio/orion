@@ -779,10 +779,33 @@ class ServerTests(unittest.TestCase):
         ]
         self.assertEqual(leftovers, [])
         self.assertTrue(os.path.exists(self.config.socket_path))
+        # `client.connect` returns None for ANY OSError, so asserting it is not
+        # None conflates the bug under test (ECONNREFUSED -- the path was
+        # published before listen()) with a plain timeout, which is only a
+        # statement about how busy the machine is. That made this test flaky
+        # under full-suite load: roughly one run in six, and never in isolation.
+        # Connecting directly lets the two be told apart, so the assertion is
+        # about refusal specifically and the timeout stops being load-bearing.
+        refused = 0
+        timed_out = 0
         for _ in range(25):
-            sock = client.connect(self.config.socket_path, 0.5)
-            self.assertIsNotNone(sock)
-            sock.close()
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.settimeout(5.0)
+                sock.connect(self.config.socket_path)
+            except ConnectionRefusedError:
+                refused += 1
+            except (socket.timeout, TimeoutError):
+                timed_out += 1
+            except OSError as error:
+                self.fail(f"unexpected error connecting to a listening socket: {error!r}")
+            finally:
+                sock.close()
+        # The property. A single refusal means the path was published between
+        # bind() and listen(), which is the regression this guards.
+        self.assertEqual(refused, 0, "the socket path was published before it could accept")
+        # Not the property, but a real problem if it is every attempt.
+        self.assertLess(timed_out, 25, "every connection timed out; the daemon is not accepting at all")
 
     def test_probe_detects_a_live_daemon(self):
         self.assertTrue(daemon._probe(self.config.socket_path))

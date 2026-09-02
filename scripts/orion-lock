@@ -75,6 +75,18 @@ const ESC = String.fromCharCode(27);
 const bold = `${ESC}[1m`, dim = `${ESC}[2m`, grn = `${ESC}[32m`;
 const yel = `${ESC}[33m`, red = `${ESC}[31m`, off = `${ESC}[0m`;
 
+
+/// Never throws. A lockdown step that cannot complete must report and let the
+/// remaining steps run -- the whole point of doing these first is that they do
+/// not depend on anything else succeeding.
+async function writeJSONNoThrow(path, value) {
+  try { await writeJSON(path, value); return true; }
+  catch (error) {
+    console.log(`  ${red}could not write${off} ${path} - ${String(error?.message).slice(0, 60)}`);
+    return false;
+  }
+}
+
 function readJSON(path) {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
 }
@@ -120,17 +132,46 @@ async function status() {
 }
 
 async function lock() {
-  const { readPermissionState, changePermissionProfile } = permissions();
-  const before = await readPermissionState(STATE);
-  const jobs = await cronJobs();
-
   console.log("");
   console.log(`  ${bold}${red}LOCKING ORION${off}`);
   console.log("");
 
-  if (before.profile === FLOOR) {
+  /*
+   THE REMOTE STOP HAPPENS FIRST, AND UNCONDITIONALLY.
+
+   It used to happen after the permission change, and a comment claimed it went
+   first. It did not, and the consequence was a panic button that FAILED OPEN:
+   if `changePermissionProfile` returned `stale` -- which it does whenever
+   anything else writes the profile during the fifteen seconds `cron list` can
+   take -- this function exited 1 before writing the flag, and five of the six
+   things a lockdown is supposed to do silently did not happen. A corrupt
+   permission-state.json was worse: an unhandled JSON.parse threw before
+   anything was touched, and inbound commands kept executing.
+
+   So the order is inverted. Stopping the channel needs no cooperation from
+   anything that can fail, so it happens before everything that can, and each
+   step is guarded on its own -- one unwritable file must not stop the other
+   three. Found by an independent review, 2026-09-02.
+  */
+  await stopTheChannel();
+
+  let failed = false;
+  const { readPermissionState, changePermissionProfile } = permissions();
+
+  let before;
+  try {
+    before = await readPermissionState(STATE);
+  } catch (error) {
+    // Reported, not fatal, and no longer first. The channel is already stopped.
+    console.log(`  profile   ${red}unreadable${off} - ${String(error?.message).slice(0, 70)}`);
+    console.log(`            ${dim}Fix permission-state.json by hand; the remote channel IS stopped.${off}`);
+    before = null;
+    failed = true;
+  }
+
+  if (before && before.profile === FLOOR) {
     console.log(`  profile   ${dim}already ${FLOOR}${off}`);
-  } else {
+  } else if (before) {
     const result = await changePermissionProfile(
       {
         requestedProfile: FLOOR,
@@ -149,70 +190,27 @@ async function lock() {
     );
     // The writer's vocabulary, checked against permissions.ts rather than
     // guessed: changed | unchanged | rejected | stale | needs_approval. An
-    // earlier draft of this script tested for "applied", which never occurs,
-    // and would have reported a SUCCESSFUL lockdown as a failure -- caught by
-    // running it against a copy of the state rather than trusting it.
+    // earlier draft tested for "applied", which never occurs, and would have
+    // reported a SUCCESSFUL lockdown as a failure.
     if (result.status !== "changed" && result.status !== "unchanged") {
+      // NOT fatal. Refusing to disable cron as well, because the profile write
+      // lost a race, is the fail-open this ordering exists to prevent.
       console.log(`  profile   ${red}NOT changed${off} - ${result.reason ?? result.status}`);
-      console.log(`            ${dim}still ${before.profile}. Nothing else was touched.${off}`);
-      console.log("");
-      process.exit(1);
+      console.log(`            ${dim}still ${before.profile}. The remote channel IS stopped; cron follows.${off}`);
+      failed = true;
+    } else {
+      console.log(`  profile   ${before.profile} ${dim}->${off} ${grn}${FLOOR}${off}`);
     }
-    console.log(`  profile   ${before.profile} ${dim}->${off} ${grn}${FLOOR}${off}`);
   }
 
-  /*
-   Phase 43's three transport-dependent requirements, which could not be met
-   until Phase 44 gave them something to act on.
-
-   Order matters: raise the flag FIRST. Everything after it takes time, and for
-   the length of that time an inbound message would otherwise still be obeyed.
-   The flag is the thing that stops new dispatches, so it goes up before the
-   slower work of draining what is already queued.
-  */
-  await mkdir(CONTROLLED, { recursive: true });
-  await writeJSON(LOCK, {
-    locked: true,
-    at: new Date().toISOString(),
-    by: "orion-lock",
-    reason: "Emergency lockdown requested at the terminal.",
-  });
-  console.log(`  remote    ${grn}dispatch stopped${off} ${dim}(lock.json)${off}`);
-
-  // Cancel what is queued. "Where possible" is the manifest's own hedge, and
-  // this is what is possible: the inbox cursor is advanced past everything
-  // waiting, so queued envelopes are never handed to a verb. They stay on disk
-  // for the audit rather than being deleted -- what was cancelled is itself
-  // something you want to know afterwards.
-  const queued = existsSync(INBOX)
-    ? readFileSync(INBOX, "utf8").split("\n").filter(Boolean).length
-    : 0;
-  const inbound = readJSON(INBOUND) ?? { cursor: 0, seen: [], hits: [] };
-  await writeJSON(INBOUND, { ...inbound, cursor: queued });
-  console.log(`  remote    ${grn}cancelled${off} ${queued - (inbound.cursor ?? 0)} queued job(s)`);
-
-  // Expire the leases. Pending approvals are the standing authorisations a
-  // remote message could still redeem, so a lockdown that left them redeemable
-  // would leave the one thing behind that grants permission.
-  const remote = readJSON(REMOTE_STATE);
-  if (remote?.pending && Object.keys(remote.pending).length) {
-    const expired = Object.fromEntries(Object.entries(remote.pending).map(([id, item]) => [
-      id, { ...item, status: item.status === "pending" ? "expired_by_lock" : item.status },
-    ]));
-    await writeJSON(REMOTE_STATE, { ...remote, pending: expired });
-    console.log(`  remote    ${grn}expired${off} ${Object.keys(expired).length} pending approval(s)`);
-  }
-  // And drop the link's session, so a reconnect must identify afresh rather
-  // than resume the one that was live when the panic button was pressed.
-  const link = readJSON(LINK);
-  if (link) await writeJSON(LINK, { ...link, state: "offline", connectionId: null, lockedOut: true });
-
+  const jobs = await cronJobs();
   for (const job of jobs) {
     try {
       await run(OPENCLAW, ["cron", "disable", job.id], { timeout: 15000 });
       console.log(`  cron      ${grn}disabled${off} ${job.name}`);
     } catch (error) {
       console.log(`  cron      ${red}could not disable${off} ${job.name} - ${error.message.split("\n")[0]}`);
+      failed = true;
     }
   }
   if (!jobs.length) console.log(`  cron      ${dim}no jobs scheduled${off}`);
@@ -225,6 +223,51 @@ async function lock() {
   console.log(`  words, then re-enable jobs with: openclaw cron enable <id>${off}`);
   console.log(`  ${dim}Audit: ${AUDIT}${off}`);
   console.log("");
+  // Non-zero when anything failed, so a caller can tell a complete lockdown
+  // from a partial one -- but only AFTER everything has been attempted.
+  if (failed) process.exit(1);
+}
+
+/*
+ Phase 43's transport-dependent requirements. Every step is guarded on its own.
+*/
+async function stopTheChannel() {
+  await mkdir(CONTROLLED, { recursive: true });
+  await writeJSONNoThrow(LOCK, {
+    locked: true,
+    at: new Date().toISOString(),
+    by: "orion-lock",
+    reason: "Emergency lockdown requested at the terminal.",
+  });
+  console.log(`  remote    ${grn}dispatch stopped${off} ${dim}(lock.json)${off}`);
+
+  // Cancel what is queued. "Where possible" is the manifest's own hedge, and
+  // this is what is possible: the inbox cursor is advanced past everything
+  // waiting, so queued envelopes are never handed to a verb. They stay on disk
+  // for the audit -- what was cancelled is itself something you want to know.
+  const queued = existsSync(INBOX)
+    ? readFileSync(INBOX, "utf8").split("\n").filter(Boolean).length
+    : 0;
+  const inbound = readJSON(INBOUND) ?? { cursor: 0, seen: [], hits: [] };
+  await writeJSONNoThrow(INBOUND, { ...inbound, cursor: queued });
+  console.log(`  remote    ${grn}cancelled${off} ${queued - (inbound.cursor ?? 0)} queued job(s)`);
+
+  // Expire the leases. Pending approvals are the standing authorisations a
+  // remote message could still redeem, so a lockdown that left them redeemable
+  // would leave behind the one thing that grants permission.
+  const remote = readJSON(REMOTE_STATE);
+  if (remote?.pending && Object.keys(remote.pending).length) {
+    const expired = Object.fromEntries(Object.entries(remote.pending).map(([id, item]) => [
+      id, { ...item, status: item.status === "pending" ? "expired_by_lock" : item.status },
+    ]));
+    await writeJSONNoThrow(REMOTE_STATE, { ...remote, pending: expired });
+    console.log(`  remote    ${grn}expired${off} ${Object.keys(expired).length} pending approval(s)`);
+  }
+
+  // And drop the link's session, so a reconnect must identify afresh rather
+  // than resume the one that was live when the panic button was pressed.
+  const link = readJSON(LINK);
+  if (link) await writeJSONNoThrow(LINK, { ...link, state: "offline", connectionId: null, lockedOut: true });
 }
 
 const command = process.argv[2] ?? "lock";

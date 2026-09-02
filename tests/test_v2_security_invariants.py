@@ -756,11 +756,29 @@ def live_sources():
         if not base.is_dir():
             continue
         for path in base.rglob("*"):
-            if path.suffix not in SOURCE_SUFFIXES or not path.is_file():
+            if not path.is_file() or SKIP_PARTS.intersection(path.parts):
                 continue
-            if SKIP_PARTS.intersection(path.parts):
-                continue
-            yield path
+            if path.suffix in SOURCE_SUFFIXES or has_shebang(path):
+                yield path
+
+
+def has_shebang(path: Path) -> bool:
+    """Whether an extensionless file is a script.
+
+    Without this the scan skipped every file in `scripts/` -- 51 executables
+    with no suffix, including the entire Discord bridge and the inbound command
+    path. A wildcard listener planted in `scripts/orion-remote-bridge` passed
+    all 57 invariant tests. The invariant's whole stated purpose is catching
+    the next person who adds a listener, and it could not see the networking
+    code. (Independent review, 2026-09-02.)
+    """
+    if path.suffix:
+        return False
+    try:
+        with path.open("rb") as handle:
+            return handle.read(2) == b"#!"
+    except OSError:
+        return False
 
 
 class TheMacNeverExposesAPublicServer(unittest.TestCase):
@@ -835,6 +853,15 @@ class TheMacNeverExposesAPublicServer(unittest.TestCase):
         scanned = {path.relative_to(REPO_ROOT).parts[0] for path in live_sources()}
         self.assertEqual(scanned, set(LIVE_SOURCE_ROOTS), f"scanned only {sorted(scanned)}")
         self.assertGreater(sum(1 for _ in live_sources()), 200)
+
+    def test_the_scan_reaches_the_extensionless_scripts_by_name(self):
+        # Named, not counted. These three ARE the networking code -- the Discord
+        # bridge, the inbound command path, and the panic button -- and every one
+        # of them was invisible to this scan until 2026-09-02, because none of
+        # them has a file extension.
+        reached = {str(path.relative_to(REPO_ROOT)) for path in live_sources()}
+        for required in ("scripts/orion-remote-bridge", "scripts/orion-remote", "scripts/orion-lock"):
+            self.assertIn(required, reached, f"{required} is not being scanned")
 
 
 if __name__ == "__main__":

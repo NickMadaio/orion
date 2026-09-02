@@ -3959,7 +3959,25 @@
         "The lock stops the remote channel and Orion's authority; it deliberately does not kill the gateway. A dead gateway cannot be asked why it is dead, cannot be unlocked, and takes the voice down with it.",
         "orion-lock has still never been run against live state by an assistant. Every proof is the real script through the real writer in a scratch HOME, with the live permission-state.json hashed before and after and asserted byte-identical."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": false,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent given the manifest, the repo and the commands and NOT the implementer's conclusions. Recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "SEVERE. The panic button failed open. A permission change that lost a race disarmed the entire lockdown.",
+            "wasRecorded": "'Order matters: raise the flag FIRST. Everything after it takes time, and for the length of that time an inbound message would otherwise still be obeyed.'",
+            "actuallyTrue": "The comment said first and the code did last. The flag was written AFTER readPermissionState and after changePermissionProfile, which calls process.exit(1) on a `stale` result -- and stale is exactly what happens when anything else writes the profile during the fifteen seconds `cron list` can take. Five of the six things a lockdown does then silently did not happen: no flag, no queue cancellation, no expired approvals, no dropped session, no disabled cron, and inbound commands kept executing. A corrupt permission-state.json was worse: an unhandled JSON.parse threw before anything was touched at all. Evidence false at the moment it was written.",
+            "repair": "lock() now calls stopTheChannel() first and unconditionally, each step individually guarded so one unwritable file cannot stop the other three; an unreadable profile is reported and non-fatal; a failed profile change no longer aborts cron. The process still exits non-zero so a caller can tell a partial lockdown from a complete one, but only after everything has been attempted. Pinned by a new section in orion_v2_lock_check.sh that corrupts permission-state.json and asserts the flag, the cursor, the expired approval, the refusal AND cron all still happen. Mutation-proven in both shapes."
+          },
+          {
+            "finding": "Two assertions in the lock check were satisfiable by the wrong thing.",
+            "wasRecorded": "'and commands are accepted again' / 'orion-remote refuses a command while it is up'.",
+            "actuallyTrue": "The first only checked the output did NOT contain 'locked', which empty output from a crashed orion-remote also satisfies. The second matched 'locked' case-insensitively, which the unrelated error 'remote.json stayed locked for six seconds' would also satisfy.",
+            "repair": "Both are now positive and specific: the refusal is pinned to 'Orion is locked' and paired with a negative on the answer it must not give; the acceptance is pinned to 'Orion | DEVICE'."
+          }
+        ]
+      }
     },
     "44": {
       "name": "Mac Remote Connection Foundation",
@@ -4032,7 +4050,31 @@
         "The bridge writes remote-link.json, which is MobileCore's MacLink shape, so Phase 44's 'no producer' limitation is closed. No Mac or phone SURFACE reads it yet, so the four presences still render nowhere.",
         "The reconnect, heartbeat and rotation numbers in the bridge mirror MobileCore's RemoteLink policies. The Swift side is authoritative and carries the tests; the two are not mechanically proven to agree -- the same shape as the TimeZonePolicy mirror under Phase 40."
       ],
-      "nextPhaseAllowed": true
+      "nextPhaseAllowed": true,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent given the manifest, the repo and the commands and NOT the implementer's conclusions. Recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "A DECISION REVERSED BY NICK, not a defect. The bot now requests MESSAGE_CONTENT deliberately.",
+            "wasRecorded": "'Dropping it was the better fix than switching it on' -- on a least-privilege argument that the intent would let the bot read every message in every channel it can see.",
+            "actuallyTrue": "The reasoning assumed a shared server with other people's conversations to stay out of. Nick's correction, 2026-09-02: the ORION guild was built for Orion and he is its only member, so there is no third party to protect and a bot that cannot read the server is simply worse at its job. He enabled the privileged intent in the Developer Portal; verified granted against the live gateway.",
+            "repair": "INTENTS includes MESSAGE_CONTENT. Reading is now broad and OBEYING is not: isCommand gating means a message is treated as an instruction only when it is a DM or an @mention, because otherwise typing 'cancel that idea' in a channel would fire the cancel verb. The original evidence stands as written and is superseded by this entry."
+          },
+          {
+            "finding": "The security invariant Phase 44 cites never read the files it was cited for.",
+            "wasRecorded": "'Made permanent as a security invariant that scans every live source for a wildcard bind', and that the bridge has no listener 'which is the same property the security invariant scans the whole tree for'.",
+            "actuallyTrue": "live_sources() skipped any file whose suffix was not in SOURCE_SUFFIXES, and every script in scripts/ is extensionless -- 51 executables invisible, including the entire Discord bridge, the inbound command path and the panic button. Proven: a wildcard listener planted in scripts/orion-remote-bridge passed all 57 invariant tests. The scan's stated purpose is catching the next person who adds a listener, and it could not see the networking code.",
+            "repair": "The scan now includes extensionless files that begin with a shebang, and a new test names orion-remote-bridge, orion-remote and orion-lock explicitly rather than counting. Mutation-proven: re-planting the listener now fails, and reverting the fix fails the by-name test."
+          },
+          {
+            "finding": "A factual claim in the evidence was untrue, though the requirement it supports holds.",
+            "wasRecorded": "'On the live machine the only listener is the node gateway on 18789, bound to [::1] and 127.0.0.1 only.'",
+            "actuallyTrue": "That was measured with `lsof ... | grep -iE 'orion|node'`, which filtered out everything else. There are four other wildcard listeners -- rapportd, ControlCenter on 5000 and 7000, and Music. None is Orion's and none is Python, so `never_expose_a_public_python_server_on_the_mac` still holds; the sentence overstated what had been checked.",
+            "repair": "No code change. The requirement stands on the source scan and the loopback bindings, not on that sentence."
+          }
+        ]
+      }
     },
     "45": {
       "name": "Remote Mac Read-Only",
@@ -4106,7 +4148,49 @@
         "application.list uses `ps` rather than System Events, so it needs no Automation permission and cannot raise a TCC prompt on a Mac nobody is sitting at. The cost is that an application installed outside /Applications or ~/Applications is not listed.",
         "The live guards in orion-remote and the JobGate in MobileCore express the same four rules in two languages and are not mechanically proven to agree. The Swift side carries the boundary tests; the node side now carries its own."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": false,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent given the manifest, the repo and the commands and NOT the implementer's conclusions. Recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "SEVERE. A message beginning with `--` forged its own sender.",
+            "wasRecorded": "'every inbound Discord message is refused' (blocked reason), 'defaults to refusing everyone' (Phase 44 limitation), and the assertion 'an unknown sender gets SILENCE'.",
+            "actuallyTrue": "The bridge built `inject <text> --from <id>`, and the argument parser treated any argv entry starting with -- as a flag name whose value is the next entry. A message of '--x' therefore SWALLOWED the following --from: flags.from was never set, the sender fell back to 'local', and where local is allowlisted the message was authorised as the local account. Reproduced end to end -- the envelope came out as {from: 'local', text: '<the sender id>'}, so the audit also recorded the wrong person, a stranger received a reply enumerating the whole verb vocabulary, and thirteen such messages exhausted the local rate budget and locked Nick out of his own channel.",
+            "repair": "Four layers, any one of which closes it: unknown flags are REFUSED rather than silently accepted; a `--` terminator is honoured; a flag with no value is an error; and the bridge passes --from BEFORE the text with -- between them. The bridge additionally drops non-allowlisted senders before spawning anything, so a stranger can no longer grow inbox.jsonl or start two node processes per message. Three new assertions, mutation-proven."
+          },
+          {
+            "finding": "The assertion that proves the wrong-device rule tolerated the defect it names.",
+            "wasRecorded": "'a mutant that records the misaddressed envelope as seen fails the assertion that the replay memory did not grow.'",
+            "actuallyTrue": "The assertion was `[ \"$SEEN_AFTER\" -le 2 ]` where the correct value is 1, so a mutant that recorded the misaddressed envelope landed inside the bound and PASSED -- while printing the growth the message denied.",
+            "repair": "Tightened to `-eq $((SEEN_BEFORE + 1))`. Mutation-proven."
+          },
+          {
+            "finding": "Expiry failed open on an absent or malformed timestamp.",
+            "wasRecorded": "orion-remote now reads back the `at` it has always written.",
+            "actuallyTrue": "`Number.isFinite(sentAt) ? now - sentAt : 0` gave age 0 -- never expired -- to any envelope whose `at` was missing, a string, or null. The fail-open-on-absent-field pattern.",
+            "repair": "An envelope that cannot say when it was sent cannot be shown to be fresh, so it is treated as stale. Two traps surfaced while fixing it and are recorded because both produce right answers for wrong reasons: the first version also refused DIRECT `handle` invocations, which carry no envelope and are a person typing now, so poll now passes `at ?? null` and an absent field is distinguished from an unstamped envelope; and `Number(null)` is 0 rather than NaN, which dated unstamped envelopes to the epoch and reported '29806188 min old' instead of 'no usable timestamp'. Three assertions, mutation-proven in both shapes."
+          },
+          {
+            "finding": "The live path and the Swift JobGate actively DISAGREED, where a limitation claimed only that they were unproven.",
+            "wasRecorded": "'not mechanically proven to agree'.",
+            "actuallyTrue": "They disagreed on order: orion-remote judged replay before expiry and called that deliberate, while RemoteJob.swift judges expiry before replay and its doc comment calls THAT order pinned. They also disagree on an unaddressed job -- Swift refuses one, the live path treats a missing `to` as a broadcast and accepts it.",
+            "repair": "The order is aligned: the live path now judges replay last, matching the Swift. The unaddressed difference is deliberate and stays: an envelope with no target from the local CLI is legitimate, so absence means 'whichever Mac drains this queue'. The gate's tested_malformed_jobs evidence cited 'an unaddressed job refused rather than treated as a broadcast' as passed, which is true in Swift and false in the path facing Discord -- corrected here."
+          },
+          {
+            "finding": "Revocation required restarting the bridge.",
+            "wasRecorded": "Revocation was scoped to the Swift domain and not overclaimed, so this is an omission rather than a false claim.",
+            "actuallyTrue": "The bridge read ORION_REMOTE_ALLOW once at startup and `run` stays connected indefinitely, so withdrawing an account's authority meant killing the process. Revocation that depends on remembering to restart something will not happen during the incident it exists for.",
+            "repair": "The bridge re-reads it per message. Worth recording that the first fix was in the wrong file: orion-remote is spawned afresh for every message and never had stale state, and a mutation proved that fix untestable because it changed nothing observable."
+          },
+          {
+            "finding": "A pre-existing flaky test, unrelated to this work, that made every suite count unreliable.",
+            "wasRecorded": "'Python 1,445' in several gate records.",
+            "actuallyTrue": "test_tts_daemon.ServerTests.test_socket_path_is_published_only_once_it_accepts failed roughly one full-suite run in six, and never in isolation. Cause: it used client.connect, which returns None for ANY OSError, so it could not tell ECONNREFUSED -- the bug it guards, the path published between bind() and listen() -- from a plain timeout under load.",
+            "repair": "It now connects directly and counts the two separately: any refusal fails, a timeout does not. The property is asserted more sharply than before rather than relaxed. Verified the flake was timeouts and not refusals before changing anything -- 200 direct attempts gave 200 accepted, 0 refused -- then 22 consecutive full-suite runs clean."
+          }
+        ]
+      }
     }
   },
   "programCheckpoints": {

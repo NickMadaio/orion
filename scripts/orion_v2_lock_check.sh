@@ -157,9 +157,17 @@ check $? "and it says so explicitly"
 
 # The flag has to actually stop a dispatch, or it is decoration. This runs the
 # REAL orion-remote against the sandbox lock.
-DENIED=$(HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-remote" handle "device" --from local 2>&1)
-echo "$DENIED" | grep -qi "locked"
-check $? "and orion-remote refuses a command while it is up (said: $(echo "$DENIED" | head -1 | cut -c1-60))"
+# "locked" alone is too loose -- the unrelated error "remote.json stayed locked
+# for six seconds" contains it. Pinned to the actual refusal, and paired with a
+# negative on the answer it must NOT give.
+DENIED=$(HOME="$SANDBOX" ORION_REMOTE_ALLOW=local "$NODE" "$REPO/scripts/orion-remote" handle "device" --from local 2>&1)
+echo "$DENIED" | grep -q "Orion is locked"
+check $? "and orion-remote refuses a command while it is up"
+if echo "$DENIED" | grep -q "Orion | DEVICE"; then
+    check 1 "and it did NOT answer the command anyway"
+else
+    check 0 "and it did NOT answer the command anyway"
+fi
 
 # Queued work is cancelled by advancing the cursor past it, so nothing waiting
 # is handed to a verb when the lock is released.
@@ -190,9 +198,13 @@ HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-lock" release > "$SANDBOX/release.o
 check $? "release exits 0"
 [ ! -f "$LOCKFILE" ]
 check $? "the flag is gone"
-ALLOWED=$(HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-remote" handle "device" --from local 2>&1)
-echo "$ALLOWED" | grep -qi "locked"
-if [ $? -eq 0 ]; then check 1 "and commands are accepted again"; else check 0 "and commands are accepted again"; fi
+# Asserted POSITIVELY. The first spelling only checked that the output did not
+# contain "locked", which an empty reply from a crashed orion-remote also
+# satisfies -- and "remote.json stayed locked for six seconds" would have
+# satisfied the inverse. (Independent review, 2026-09-02.)
+ALLOWED=$(HOME="$SANDBOX" ORION_REMOTE_ALLOW=local "$NODE" "$REPO/scripts/orion-remote" handle "device" --from local 2>&1)
+echo "$ALLOWED" | grep -q "Orion | DEVICE"
+check $? "and commands are accepted again -- asserted by what came back, not by what did not"
 [ "$(profile_now)" = "restricted_read_only" ]
 check $? "but the profile is STILL on the floor -- release is not an unlock, and undoing the emergency stays a separate decision"
 
@@ -205,6 +217,50 @@ check $? "a second lock is not an error -- panicking twice must not fail"
 check $? "and it does not churn the version when there is nothing to change"
 grep -q "already restricted_read_only" "$SANDBOX/lock2.out"
 check $? "it says the profile was already at the floor"
+
+# THE FAIL-OPEN REGRESSION. This is the most important assertion in the file.
+#
+# The permission change can fail for reasons that have nothing to do with the
+# emergency -- a concurrent write makes it `stale`, a corrupt state file makes
+# it throw. It used to abort the whole lockdown: the flag was never written, the
+# queue was never cancelled, cron was never disabled, and inbound commands kept
+# executing. A panic button that a lost race can disarm is not a panic button.
+echo ""
+echo "== a failed permission change must NOT disarm the lockdown =="
+SANDBOX2="$(mktemp -d)"
+mkdir -p "$SANDBOX2/.openclaw/orion-controlled" "$SANDBOX2/.openclaw/bin"
+cp "$SANDBOX/.openclaw/bin/openclaw" "$SANDBOX2/.openclaw/bin/openclaw"
+# Corrupt, so readPermissionState throws exactly as it would on a damaged file.
+echo '{ this is not json' > "$SANDBOX2/.openclaw/orion-controlled/permission-state.json"
+printf '{"id":"aaaaaaaaaaaa","from":"local","text":"device","at":1}\n' \
+    > "$SANDBOX2/.openclaw/orion-controlled/inbox.jsonl"
+echo '{"missions":{},"pending":{"ap-99887766":{"missionId":"m","request":"r","status":"pending"}},"notify":{"sent":[],"deferred":[]}}' \
+    > "$SANDBOX2/.openclaw/orion-controlled/remote.json"
+
+HOME="$SANDBOX2" "$NODE" "$REPO/scripts/orion-lock" > "$SANDBOX2/lock.out" 2>&1
+BROKEN_EXIT=$?
+sed 's/^/   | /' "$SANDBOX2/lock.out" | head -8
+
+[ "$BROKEN_EXIT" -ne 0 ]
+check $? "it exits non-zero, so a caller can tell a partial lockdown from a complete one"
+[ -f "$SANDBOX2/.openclaw/orion-controlled/lock.json" ]
+check $? "but the lock FLAG is written anyway -- this is the regression: it used to abort before this line"
+STILL=$(HOME="$SANDBOX2" ORION_REMOTE_ALLOW=local "$NODE" "$REPO/scripts/orion-remote" handle "device" 2>&1)
+echo "$STILL" | grep -q "Orion is locked"
+check $? "and the remote channel really is stopped despite the failure"
+CURSOR2=$("$NODE" -e "try{process.stdout.write(String(JSON.parse(require('fs').readFileSync('$SANDBOX2/.openclaw/orion-controlled/remote-inbound.json','utf8')).cursor))}catch(e){process.stdout.write('missing')}")
+[ "$CURSOR2" = "1" ]
+check $? "the queued job is still cancelled (cursor=$CURSOR2)"
+PENDING2=$("$NODE" -e "
+const s=JSON.parse(require('fs').readFileSync('$SANDBOX2/.openclaw/orion-controlled/remote.json','utf8'));
+process.stdout.write(Object.values(s.pending??{}).map(p=>p.status).join(','));")
+[ "$PENDING2" = "expired_by_lock" ]
+check $? "and the pending approval is still expired (status=$PENDING2)"
+# Cron too. An early exit on the unreadable profile would skip this, and the
+# other four assertions would not notice -- they all pass before cron runs.
+grep -q "disabled" "$SANDBOX2/lock.out"
+check $? "and cron is STILL disabled, which an early exit on the bad profile would have skipped"
+rm -rf "$SANDBOX2"
 
 echo ""
 echo "== the live system was not touched =="

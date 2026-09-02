@@ -61,23 +61,20 @@ const REMOTE = join(ROOT, "scripts/orion-remote");
 const GATEWAY = "wss://gateway.discord.gg/?v=10&encoding=json";
 const API = "https://discord.com/api/v10";
 
-// GUILD_MESSAGES | DIRECT_MESSAGES. Deliberately NOT MESSAGE_CONTENT.
+// GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT.
 //
-// MESSAGE_CONTENT is privileged, and asking for it would let this bot read
-// every message in every channel it can see. It does not need that. Discord
-// delivers full content without the intent in exactly two cases, and they are
-// both of the ones that matter here: a DM to the bot, and a message that
-// @mentions it. So Orion hears you when you talk TO him and is deaf to
-// everything else -- which is the same least-privilege reasoning as Phase 42's
-// security screen, applied to a permission rather than to an action.
+// MESSAGE_CONTENT is privileged and is requested deliberately. It was dropped
+// once, on a least-privilege argument that assumed a shared server with other
+// people's conversations to stay out of. Nick's correction on 2026-09-02: the
+// ORION guild was built for Orion and he is its only member, so there is no
+// third party to protect and a bot that cannot read the server is simply worse
+// at its job. Enabled in the Developer Portal and verified granted.
 //
-// The first attempt did request it, and Discord closed the socket with 4014
-// because it is not enabled in the Developer Portal. Dropping it was the better
-// fix than switching it on.
-//
-// If channel commands without a mention are ever wanted, that needs the intent
-// enabled in the portal AND this constant changed -- two deliberate acts.
-const INTENTS = (1 << 9) | (1 << 12);
+// READING EVERYTHING IS NOT OBEYING EVERYTHING. Content arrives from every
+// channel, and `isCommand()` below still requires a DM or an @mention before a
+// message is treated as an instruction -- otherwise typing "cancel that idea"
+// in a channel would fire the `cancel` verb.
+const INTENTS = (1 << 9) | (1 << 12) | (1 << 15);
 
 const OP = {
   DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, RESUME: 6,
@@ -131,7 +128,22 @@ const TOKEN = process.env.ORION_DISCORD_BOT_TOKEN || ENV_FILE.ORION_DISCORD_BOT_
  It is passed explicitly into the child process below rather than exported here,
  so it is visible at the call site: this is the line that grants authority.
 */
-const ALLOW = process.env.ORION_REMOTE_ALLOW || ENV_FILE.ORION_REMOTE_ALLOW || "local";
+/*
+ Re-read PER MESSAGE, not captured at startup.
+
+ `run` stays connected indefinitely, so a value read once at launch meant
+ withdrawing an account's authority required killing the bridge -- revocation
+ that depends on remembering to restart something will not happen during the
+ incident it exists for. Editing .env now takes effect on the next message.
+
+ orion-remote re-reads it too, but that is belt and braces rather than the fix:
+ it is spawned afresh for every message, so it always sees current environment.
+ This const was the one that went stale.
+*/
+const currentAllow = () =>
+  process.env.ORION_REMOTE_ALLOW || readEnvFile().ORION_REMOTE_ALLOW || "local";
+const allowedSet = () =>
+  new Set(currentAllow().split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
 
 /*
  Everything printed goes through this.
@@ -191,10 +203,22 @@ function presenceOf(link, now = Date.now()) {
  opinion competing with the one that has the tests.
 */
 async function dispatch({ text, authorID, channelID }) {
-  const childEnv = { ...process.env, ORION_REMOTE_ALLOW: ALLOW };
-  const injected = await run(process.execPath, [REMOTE, "inject", text, "--from", authorID], {
-    timeout: 30_000, env: childEnv,
-  });
+  const childEnv = { ...process.env, ORION_REMOTE_ALLOW: currentAllow() };
+  /*
+   `--from` FIRST, then `--`, then the text.
+
+   The old order put attacker-controlled text before the flag, and a message of
+   "--x" consumed the `--from` that followed it: the sender fell back to
+   "local" and a stranger's message was attributed to the local account. The
+   parser now refuses unknown flags and honours a `--` terminator, and this
+   order means the text cannot reach the flag loop at all. Either alone would
+   close it; both is cheap.
+  */
+  const injected = await run(
+    process.execPath,
+    [REMOTE, "inject", "--from", authorID, "--", text],
+    { timeout: 30_000, env: childEnv },
+  );
   const envelopeID = (injected.stdout.match(/queued\s+([0-9a-f]+)/) || [])[1];
   await run(process.execPath, [REMOTE, "poll"], { timeout: 120_000, env: childEnv });
   if (!envelopeID) return null;
@@ -244,6 +268,7 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
     let resume = resumeURL;
     let settled = false;
     let warnedAboutEmpty = false;
+    let warnedAboutSender = false;
 
     const finish = (outcome) => {
       if (settled) return;
@@ -358,9 +383,24 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
         // transport's envelope, not interpreting the message: only a mention of
         // THIS bot at the very start is removed, and everything after it is
         // passed on byte for byte.
-        const text = (message.content || "")
-          .replace(new RegExp(`^\\s*<@!?${selfID}>`), "")
-          .trim();
+        /*
+         Reading and obeying are separated here.
+
+         With MESSAGE_CONTENT the bot sees every message in the guild, which is
+         what Nick asked for. But a message is only treated as an INSTRUCTION
+         when it is addressed to Orion -- a DM, or an @mention. Without that,
+         writing "cancel that idea" in a channel would fire the `cancel` verb
+         and "status" would fire `status`, because the parser skips filler until
+         it finds a verb and does not care what surrounds it.
+
+         `guild_id` is absent on a DM, which is how Discord distinguishes them.
+        */
+        const isDM = !message.guild_id;
+        const mentionsOrion = (message.mentions || []).some((u) => String(u.id) === selfID);
+        const raw = message.content || "";
+        if (!isDM && !mentionsOrion) return; // heard, deliberately not obeyed
+
+        const text = raw.replace(new RegExp(`^\\s*<@!?${selfID}>`), "").trim();
         const authorID = String(message.author?.id || "");
         if (!authorID) return;
 
@@ -373,6 +413,27 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
             warn(`a message from ${authorID} had no readable content. `
               + "This bot deliberately does not hold the Message Content intent, so it "
               + "only reads DMs and messages that @mention it. Talk to it that way.");
+          }
+          return;
+        }
+
+        /*
+         Strangers are dropped HERE, before anything is spawned or written.
+
+         orion-remote refuses them too and is the authority, but it only gets
+         the chance after this process has appended to inbox.jsonl and started
+         two node processes -- and nothing ever truncates that file. Anyone able
+         to DM the bot could grow it without limit and without ever being
+         allowlisted. The rate limiter cannot help: it sits behind the allowlist,
+         so it never applies to a sender who is refused.
+
+         This is a cheap pre-filter, not the security boundary. The boundary is
+         still orion-remote's own check, which runs regardless.
+        */
+        if (!allowedSet().has(authorID.toLowerCase())) {
+          if (!warnedAboutSender) {
+            warnedAboutSender = true;
+            warn(`ignoring messages from ${authorID} — not in ORION_REMOTE_ALLOW`);
           }
           return;
         }
@@ -425,7 +486,7 @@ async function serve({ once }) {
       session, resumeURL, sequence, once,
       onReady: ({ user, guilds }) => {
         say(`connected as ${user.username} (${guilds.length} guild(s))`);
-        if (ALLOW === "local") {
+        if (currentAllow() === "local") {
           warn("NOTE: ORION_REMOTE_ALLOW does not name a Discord account, so every "
             + "inbound message will be refused. The id of anyone who writes is logged "
             + "below -- add it with ORION_REMOTE_ALLOW=<id>.");

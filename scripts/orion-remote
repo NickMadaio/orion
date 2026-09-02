@@ -101,7 +101,16 @@ const MAX_LISTED = 40;
 
 // Only these senders are obeyed. `local` is the file transport; a real channel
 // adds Nick's handle here through the environment, never via an inbound message.
-const ALLOWED = new Set(
+/*
+ Read PER MESSAGE, not once at startup.
+
+ `orion-remote-bridge run` stays connected indefinitely, so a set captured at
+ process start meant withdrawing an account's authority required killing the
+ bridge -- revocation that depends on remembering to restart something is
+ revocation that will not happen during the incident it is for. `isLocked()`
+ was already re-read per message for the same reason; this now matches it.
+*/
+const allowedSenders = () => new Set(
   (process.env.ORION_REMOTE_ALLOW || "local").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
 );
 
@@ -489,7 +498,7 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
   // control characters out, length capped, and nothing downstream re-reads it.
   const record = { from: sender, text: String(text ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200) };
   const now = Date.now();
-  if (!ALLOWED.has(sender)) {
+  if (!allowedSenders().has(sender)) {
     await audit({ ...record, decision: "rejected", reason: "sender not allowed" });
     return { ok: false, reply: null }; // silence: never confirm the address works
   }
@@ -527,20 +536,49 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
   }
 
   const inbound = await readInbound();
-  if (envelopeId && inbound.seen.includes(envelopeId)) {
-    await audit({ ...record, decision: "rejected", reason: "replayed envelope" });
-    return { ok: false, reply: null };
-  }
   /*
    Freshness. A stale envelope is not a repeated one, so the replay guard above
    cannot catch it: until this existed, an envelope that had sat in a queue for
    three weeks executed on delivery. Judged after replay so a replayed stale
    message is still reported as a replay, which is the more useful of the two.
   */
-  const age = Number.isFinite(sentAt) ? now - Number(sentAt) : 0;
+  /*
+   Freshness, and a distinction that has to be made explicitly.
+
+   An envelope whose `at` is missing, a string, or null used to get age 0 and
+   never expire -- the fail-open-on-absent-field pattern. An envelope that
+   cannot say when it was sent cannot be shown to be fresh, so it is stale.
+
+   But `handle` is also invoked DIRECTLY at the terminal, with no envelope at
+   all, and that is not a stale envelope -- it is a person typing now. The first
+   version of this fix conflated the two and made the local CLI refuse every
+   command it was given. So the two cases are separated by whether the caller
+   passed the field at all: `poll` always passes it (as null if the envelope
+   lacked one), and a direct call passes nothing.
+  */
+  const fromQueue = sentAt !== undefined;
+  // `typeof === "number"`, NOT Number(). Number(null) is 0, not NaN, so an
+  // unstamped envelope coerced to the epoch and was reported as "29806188 min
+  // old" -- refused, correctly, but the audit line was nonsense. A timestamp is
+  // a number or it is absent; there is no third thing to coerce.
+  const stamped = typeof sentAt === "number" && Number.isFinite(sentAt) ? sentAt : null;
+  const age = !fromQueue ? 0 : stamped === null ? Number.POSITIVE_INFINITY : now - stamped;
   if (age > MAX_ENVELOPE_AGE_MS) {
-    await audit({ ...record, decision: "rejected", reason: `expired (${Math.round(age / 60_000)} min old)` });
+    const how = Number.isFinite(age) ? `${Math.round(age / 60_000)} min old` : "no usable timestamp";
+    await audit({ ...record, decision: "rejected", reason: `expired (${how})` });
     return { ok: false, reply: "that command was too old to run — send it again if you still want it" };
+  }
+
+  /*
+   Replay is judged LAST of the four, matching MobileCore's JobGate, whose doc
+   comment calls that order pinned. The two used to disagree -- this path put
+   replay before expiry and called THAT deliberate -- and a gate limitation
+   saying they were "not mechanically proven to agree" was describing an active
+   disagreement rather than an unproven agreement. Independent review, 2026-09-02.
+  */
+  if (envelopeId && inbound.seen.includes(envelopeId)) {
+    await audit({ ...record, decision: "rejected", reason: "replayed envelope" });
+    return { ok: false, reply: null };
   }
 
   const recent = inbound.hits.filter((hit) => now - hit.at < RATE_WINDOW_MS);
@@ -601,13 +639,45 @@ async function reply(envelope, text) {
 
 const [command, ...rest] = process.argv.slice(2);
 
-// `--flag value` pairs are lifted out so everything left is the message,
-// verbatim. It arrives as one argv entry and is never re-split by a shell.
+/*
+ Argument parsing, and an allowlist bypass it used to contain.
+
+ The old loop treated ANY argv entry beginning with `--` as a flag name and took
+ the next entry as its value. The message text is attacker-controlled and
+ arrives as an argv entry, so a message of "--x" consumed the following
+ `--from` as its value: `flags.from` was then never set, the sender silently
+ fell back to "local", and a stranger's message was attributed to -- and
+ potentially authorised as -- the local account. It also put the real sender id
+ into the audit as the message TEXT, so the log recorded the wrong person.
+
+ Three changes, because one is not enough:
+
+   1. A `--` terminator. Everything after it is positional, verbatim.
+   2. UNKNOWN FLAGS ARE REFUSED. The bypass depended on `--x` being silently
+      accepted as a flag nobody reads; now it is an error. This is the change
+      that would have caught it even without the terminator.
+   3. A flag at the end with no value is an error rather than `undefined`.
+
+ The caller (`orion-remote-bridge`) additionally passes `--from` BEFORE the text
+ and separates them with `--`, so the text cannot reach this loop as a flag at
+ all. Defence in depth: any one of the four stops it.
+*/
+const KNOWN_FLAGS = new Set(["from", "to"]);
 const flags = {};
 const positional = [];
+let terminated = false;
 for (let i = 0; i < rest.length; i += 1) {
-  if (rest[i].startsWith("--")) flags[rest[(i += 1) - 1].slice(2)] = rest[i];
-  else positional.push(rest[i]);
+  const arg = rest[i];
+  if (!terminated && arg === "--") { terminated = true; continue; }
+  if (!terminated && arg.startsWith("--")) {
+    const key = arg.slice(2);
+    if (!KNOWN_FLAGS.has(key)) fail(`unknown option --${key.slice(0, 24)}`);
+    if (i + 1 >= rest.length) fail(`--${key} needs a value`);
+    flags[key] = rest[i + 1];
+    i += 1;
+    continue;
+  }
+  positional.push(arg);
 }
 const sender = flags.from ?? "local";
 
@@ -640,7 +710,9 @@ if (command === "inject") {
     else {
       const result = await handle({
         text: envelope.text, from: envelope.from, envelopeId: envelope.id,
-        at: envelope.at, to: envelope.to,
+        // `?? null` rather than leaving it undefined: an envelope from the queue
+        // with no timestamp must read as unstampable, not as a direct call.
+        at: envelope.at ?? null, to: envelope.to,
       });
       await reply(envelope, result.reply);
       if (result.reply) console.log(`[${envelope.from}] ${envelope.text}\n${result.reply}\n`);

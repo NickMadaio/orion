@@ -103,6 +103,37 @@ OUT="$(ALLOW=local remote handle 'device' --from someone-else)"
 check $? "an unknown sender gets SILENCE, not a refusal -- confirming the address works is itself information"
 
 echo ""
+echo "== a message cannot forge its own sender =="
+#
+# The bridge builds: node orion-remote inject --from <id> -- <text>. The old
+# order put the text first, and a message beginning with "--" was taken as a
+# flag name that then SWALLOWED the --from after it: `flags.from` was never set,
+# the sender fell back to "local", and a stranger was attributed to -- and where
+# "local" is allowlisted, authorised as -- the local account. It also wrote the
+# real sender id into the audit as the message TEXT.
+rm -f "$CTRL/inbox.jsonl"
+remote inject --from "999888777" -- "--x" > /dev/null 2>&1
+FORGED="$("$NODE" -e "
+const l=require('fs').readFileSync('$CTRL/inbox.jsonl','utf8').trim().split('\n').pop();
+const e=JSON.parse(l); process.stdout.write(e.from + '|' + e.text);")"
+[ "$FORGED" = "999888777|--x" ]
+check $? "a message beginning with -- stays the message and the sender stays the sender (got: $FORGED)"
+
+# The layer that would have caught it even without the terminator.
+#
+# Output is captured BEFORE grepping. `set -o pipefail` is on and these two
+# commands correctly exit 2 when they refuse, so `remote ... | grep -q ...`
+# returns 2 even when the grep matches -- the assertion would read a working
+# refusal as a failure. This is the pipefail trap, and it is why every other
+# assertion in this file greps a variable rather than a pipeline.
+REFUSAL="$(remote inject "--x" --from "999888777")"
+echo "$REFUSAL" | grep -q "unknown option --x"
+check $? "and an unrecognised flag is REFUSED rather than silently accepted (said: $REFUSAL)"
+NOVALUE="$(remote inject --from)"
+echo "$NOVALUE" | grep -q "needs a value"
+check $? "a flag with no value is an error rather than undefined (said: $NOVALUE)"
+
+echo ""
 echo "== malformed, replayed, stale, misaddressed =="
 echo "$(remote handle 'do the thing' --from local)" | grep -q "not a command I know"
 check $? "an unknown verb is refused by vocabulary, with no fallthrough to a model"
@@ -129,10 +160,32 @@ check $? "a 40-minute-old envelope is refused as expired -- until this existed, 
 grep -q 'addressed to some-other-mac' "$AUDIT"
 check $? "an envelope for another Mac is refused"
 
+# An envelope that cannot say WHEN it was sent cannot be shown to be fresh. This
+# was the fail-open-on-absent-field pattern and nothing covered it: `at` missing
+# entirely, or present but not a number. Note Number(null) is 0, not NaN, so a
+# naive coercion dates an unstamped envelope to the epoch and "expires" it with
+# a nonsense age -- right answer, wrong reason, and it stops being the right
+# answer the moment anyone compares against a window instead of a threshold.
+cat > "$CTRL/inbox.jsonl" <<JSON
+{"id":"eeeeeeeeeeee","from":"local","text":"device"}
+{"id":"ffffffffffff","from":"local","text":"device","at":"yesterday"}
+{"id":"111111111111","from":"local","text":"device","at":null}
+JSON
+"$NODE" -e "
+const fs=require('fs'); const p='$CTRL/remote-inbound.json';
+const s=JSON.parse(fs.readFileSync(p,'utf8')); s.cursor=0; fs.writeFileSync(p,JSON.stringify(s));"
+remote poll > /dev/null 2>&1
+[ "$(grep -c 'expired (no usable timestamp)' "$AUDIT")" -ge 3 ]
+check $? "all three unstampable envelopes are refused, and the audit says WHY rather than inventing an age"
+
 # The subtle half, and the one a naive implementation gets wrong.
+# EXACTLY one, not "at most two". The loose form passed while printing growth it
+# denied: a mutant that recorded the misaddressed envelope still landed inside
+# the bound. An assertion that tolerates the defect it names is worse than none.
+# (Independent review, 2026-09-02.)
 SEEN_AFTER="$(seen_count)"
-[ "$SEEN_AFTER" -le 2 ]
-check $? "and the misaddressed one consumed no replay memory -- otherwise anyone could exhaust it with envelopes meant for somebody else (seen went $SEEN_BEFORE -> $SEEN_AFTER)"
+[ "$SEEN_AFTER" -eq $((SEEN_BEFORE + 1)) ]
+check $? "and the misaddressed one consumed no replay memory -- only the one valid envelope did (seen went $SEEN_BEFORE -> $SEEN_AFTER, expected $((SEEN_BEFORE + 1)))"
 
 echo ""
 echo "== LOCK ORION stops all of it =="

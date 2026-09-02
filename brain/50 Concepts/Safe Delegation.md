@@ -16,6 +16,8 @@ tags: [delegation, authority, verification]
 
 Delegation separates work, not responsibility.
 
+Part official documentation, part Orion's own synthesis. Treat the reasoning as unverified.
+
 ## Delegate
 
 Provide a bounded objective, minimum necessary context, allowed tools and

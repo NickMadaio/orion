@@ -13,6 +13,8 @@ tags: [recovery, idempotency, reliability]
 Recovery should make progress without turning failure into uncontrolled
 experimentation.
 
+Orion's own synthesis — not confirmed against a source.
+
 - Classify the failure: missing prerequisite, transient tool error, bad
   argument, permission boundary, stale state, or flawed plan.
 - Re-observe state before retrying.

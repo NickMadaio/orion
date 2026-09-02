@@ -14,6 +14,8 @@ tags: [orion, architecture, project]
 
 ## Outcome
 
+Orion's own synthesis over Nick's material — not independently sourced.
+
 Build a capable local-first assistant whose flexible model reasoning is
 bounded by deterministic control, explicit authority, independent
 verification, and durable state.

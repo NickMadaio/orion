@@ -24,5 +24,7 @@ tags: [orion, safety, operations]
 - Recover within explicit retry and scope bounds; do not improvise new
   authority.
 
+Orion's own synthesis over Nick's material — not independently sourced.
+
 See [[50 Concepts/Adaptive TaskGraph Control Loop]] and
 [[50 Concepts/Trust Boundaries and Prompt Injection]].

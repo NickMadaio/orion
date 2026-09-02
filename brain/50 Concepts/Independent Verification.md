@@ -14,6 +14,8 @@ Execution output describes what a tool attempted or reported. Verification
 checks the resulting world state through a separate observation whenever
 practical.
 
+Orion's own synthesis — not confirmed against a source.
+
 Examples:
 
 - After creating folders, list the parent and confirm the expected children.

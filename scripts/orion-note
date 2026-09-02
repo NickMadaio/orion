@@ -1,0 +1,181 @@
+#!/usr/bin/env node
+/*
+ Orion writes into his own brain, in the shape recall can actually return.
+
+ ## The constraint that dictates the format
+
+ `orion-recall` strips frontmatter (`stripFrontmatter`, line 117) and by default
+ prints ONE block and its first EIGHT non-empty body lines
+ (`candidates.slice(0, 1)`, `.slice(0, all ? 40 : 8)`). Both were read, not
+ assumed, on 2026-09-02.
+
+ Two consequences, and the whole file follows from them:
+
+ 1. **Provenance in YAML is invisible.** Measured on a real note: recalling
+    "bounded recovery idempotency" returns the claim and six bullets, and not
+    one word of `source_type: original-synthesis`. Orion reads his own July
+    synthesis back as though it were an established fact. That is how an
+    agent's guess becomes its own evidence -- so anything unverified says so on
+    a BODY line, where recall will actually show it.
+ 2. **The first line is nearly the whole note.** Eight lines is what he sees, so
+    line one is a single declarative sentence answering the title. Bullets and
+    context come after, and being truncated costs nothing.
+
+ ## Where it writes, and why not the repo
+
+ `~/Documents/orionBrain` is the vault OpenClaw indexes (openclaw.json,
+ memorySearch.extraPaths). `~/Desktop/ORION/brain` is its git-tracked mirror,
+ and the two were byte-identical when this was written. Writes go to the indexed
+ copy only, because the gateway runs under launchd and launchd cannot read
+ ~/Desktop -- which is why the vault lives in Documents in the first place.
+ Mirroring back to the repo is a separate, human-run step.
+
+   orion-note list [folder]
+   orion-note show "<title>"
+   orion-note write "<title>" --claim "one sentence" --body "…" \
+                   --epistemic inference|source-derived|user-stated|observed \
+                   [--source <url or name>] [--folder "50 Concepts"]
+*/
+
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const VAULT = join(homedir(), "Documents/orionBrain");
+const DEFAULT_FOLDER = "50 Concepts";
+
+/*
+ What kind of claim this is. The field the old schema lacked entirely, and the
+ one that separates "a source says this" from "I worked this out". They must
+ never look alike at recall time, so each carries the stamp it earns.
+*/
+const EPISTEMIC = {
+  "source-derived": { stamp: null, needsSource: true },
+  "user-stated": { stamp: "Told to Orion by Nick", needsSource: false },
+  observed: { stamp: "Observed by Orion from a tool result", needsSource: false },
+  inference: { stamp: "Unverified inference by Orion — not confirmed against a source", needsSource: false },
+};
+
+const SECRET_SHAPES = [
+  /sk-[A-Za-z0-9_-]{16,}/, /xox[baprs]-[A-Za-z0-9-]{10,}/, /gh[pousr]_[A-Za-z0-9]{20,}/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/, /AKIA[0-9A-Z]{16}/,
+  /\b[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b/,
+];
+
+const fail = (message, code = 2) => {
+  console.error(`orion-note: ${message}`);
+  process.exit(code);
+};
+
+const KNOWN = ["claim", "body", "epistemic", "source", "folder"];
+const flags = {};
+const positional = [];
+{
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      if (!KNOWN.includes(key)) fail(`unknown option --${key.slice(0, 24)}`);
+      if (i + 1 >= argv.length) fail(`--${key} needs a value`);
+      flags[key] = argv[i + 1];
+      i += 1;
+    } else positional.push(arg);
+  }
+}
+const [command, title] = positional;
+
+// Titles are human text with spaces; the existing vault uses them and recall
+// resolves them at 0.84, so they are NOT sanitised into slugs. What is refused
+// is anything that could leave the folder.
+function safeTitle(raw) {
+  const t = String(raw ?? "").trim();
+  if (!t) fail('which note? give a title, e.g. "Bounded Recovery"');
+  if (t.includes("/") || t.includes("..") || t.startsWith(".")) {
+    fail("a title cannot contain a path");
+  }
+  if (t.length > 120) fail("title is too long");
+  return t;
+}
+
+if (command === "list" || !command) {
+  const folder = join(VAULT, flags.folder ?? DEFAULT_FOLDER);
+  if (!existsSync(folder)) fail(`no folder ${flags.folder ?? DEFAULT_FOLDER} in the vault`, 1);
+  const notes = readdirSync(folder).filter((f) => f.endsWith(".md")).sort();
+  console.log(`${notes.length} note(s) in ${flags.folder ?? DEFAULT_FOLDER}:`);
+  for (const note of notes) console.log(`- ${note.replace(/\.md$/, "")}`);
+  process.exit(0);
+}
+
+if (command === "show") {
+  const folder = flags.folder ?? DEFAULT_FOLDER;
+  const file = join(VAULT, folder, `${safeTitle(title)}.md`);
+  if (!existsSync(file)) fail(`no note called "${title}" in ${folder}`, 1);
+  process.stdout.write(readFileSync(file, "utf8"));
+  process.exit(0);
+}
+
+if (command === "write") {
+  const name = safeTitle(title);
+  const folder = flags.folder ?? DEFAULT_FOLDER;
+  const claim = String(flags.claim ?? "").replace(/\s+/g, " ").trim();
+  const body = String(flags.body ?? "").replace(/\\n/g, "\n").trim();
+  const epistemic = String(flags.epistemic ?? "").trim();
+  const source = String(flags.source ?? "").trim();
+
+  if (!claim) fail("--claim is required: ONE sentence answering the title. It is the line recall shows.");
+  if (claim.length > 300) fail("--claim must be one sentence; put the rest in --body");
+  if (!EPISTEMIC[epistemic]) {
+    fail(`--epistemic must be one of: ${Object.keys(EPISTEMIC).join(", ")}. `
+      + "This is the field that stops your own reasoning being read back as fact.");
+  }
+  if (EPISTEMIC[epistemic].needsSource && !source) {
+    fail("--epistemic source-derived needs --source. A claim attributed to a source must name it.");
+  }
+  for (const shape of SECRET_SHAPES) {
+    if (shape.test(claim) || shape.test(body)) fail("that looks like a credential; the brain is not a vault for secrets");
+  }
+
+  const dir = join(VAULT, folder);
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${name}.md`);
+  const existed = existsSync(file);
+  const today = new Date().toISOString().slice(0, 10);
+
+  let created = today;
+  if (existed) {
+    const previous = readFileSync(file, "utf8");
+    created = (previous.match(/^created:\s*(\S+)/m) || [])[1] ?? today;
+    writeFileSync(`${file}.bak-${Date.now()}`, previous);
+  }
+
+  const front = [
+    "---",
+    `title: ${name}`,
+    "note_type: concept",
+    "status: active",
+    `epistemic: ${epistemic}`,
+    `generated_by: agent/orion`,
+    `created: ${created}`,
+    `updated: ${today}`,
+    ...(source ? [`sources: [${source}]`] : []),
+    "---",
+    "",
+  ].join("\n");
+
+  // The stamp goes in the BODY, on line two, because frontmatter never reaches
+  // recall. Exception-based on purpose: a sourced claim stays clean, and an
+  // unverified one announces itself inside the eight lines Orion reads.
+  const stamp = EPISTEMIC[epistemic].stamp;
+  const attribution = stamp ? `${stamp}, ${today}.` : `From ${source}, read ${today}.`;
+
+  const text = `${front}# ${name}\n\n${claim}\n\n${attribution}\n\n${body ? body + "\n" : ""}`;
+  writeFileSync(file, text, { mode: 0o644 });
+
+  console.log(`${existed ? "updated" : "wrote"} ${file}`);
+  console.log(`recall will show: "${claim.slice(0, 70)}${claim.length > 70 ? "…" : ""}" then "${attribution}"`);
+  if (!existed) console.log("Mirror to the repo's brain/ when convenient; this wrote only the indexed vault.");
+  process.exit(0);
+}
+
+fail('usage: orion-note list | show "<title>" | write "<title>" --claim "…" --epistemic <kind> [--body "…"] [--source …]');

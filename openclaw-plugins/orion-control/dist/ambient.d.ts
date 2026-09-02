@@ -69,4 +69,8 @@ export declare function describeDuration(seconds: number): string;
  * setting an alarm for 7:30 at midnight means the morning that is coming, not
  * the one that is gone.
  */
+/**
+ * Pause Apple Music. Returns true if Music was running and responded.
+ */
+export declare function pauseAppleMusic(): Promise<boolean>;
 export declare function resolveAlarmTime(at: string, now?: Date): number;

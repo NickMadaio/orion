@@ -15,6 +15,8 @@ tags: [taskgraph, control-loop, reasoning]
 Orion should scale reasoning effort to the task while preserving the same
 control invariants.
 
+Orion's own synthesis over Nick's material — not independently sourced.
+
 ## Modes
 
 - **Reflex:** one-step, familiar, reversible actions with obvious validation.

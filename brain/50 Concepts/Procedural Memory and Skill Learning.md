@@ -17,6 +17,8 @@ tags: [skills, learning, provenance]
 A skill stores a reusable method after evidence shows the method is durable.
 It should not absorb every successful action or one-off preference.
 
+Part official documentation, part Orion's own synthesis. Treat the reasoning as unverified.
+
 ## Learning test
 
 Create or revise a skill only when:

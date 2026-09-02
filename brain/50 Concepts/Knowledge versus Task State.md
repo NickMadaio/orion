@@ -13,6 +13,8 @@ tags: [knowledge, taskgraph, separation]
 Orion Brain answers: “What do we know, where did it come from, and how
 confident are we?”
 
+Orion's own synthesis — not confirmed against a source.
+
 The TaskGraph ledger answers: “What are we doing now, what is eligible, what
 was approved, what happened, and what comes next?”
 

@@ -329,6 +329,25 @@ export function describeDuration(seconds: number): string {
  * setting an alarm for 7:30 at midnight means the morning that is coming, not
  * the one that is gone.
  */
+// -------------------------------------------------- Apple Music control
+
+/**
+ * Pause Apple Music. Returns true if Music was running and responded.
+ */
+export async function pauseAppleMusic(): Promise<boolean> {
+  try {
+    const script = `tell application "Music"
+  pause
+  return true
+end tell`;
+    const { stdout } = await run("osascript", ["-e", script], { timeout: 3000 });
+    return stdout.toLowerCase().includes("true");
+  } catch {
+    // Music not running or no response is not an error; we tried.
+    return false;
+  }
+}
+
 export function resolveAlarmTime(at: string, now = new Date()): number {
   const trimmed = at.trim();
   const clock = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(trimmed);

@@ -16,6 +16,8 @@ tags: [orion, memory, cognition, learning, tokens]
 
 ## Decision
 
+Synthesised by Orion from research — check the sources before relying on it.
+
 Use a layered cognitive architecture, not a large “brain prompt” and not a
 folder tree dressed up as neurons.
 

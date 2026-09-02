@@ -465,7 +465,7 @@ async function runningPlayer(policy, step) {
         ? `${requested} is not running, so there is nothing to control.`
         : `No supported media player is running (${SUPPORTED_PLAYERS.join(", ")}).`);
 }
-async function playerSnapshot(player) {
+async function playerSnapshot(player, timeoutMs) {
     const raw = await runAppleScript(`tell application id "${player.bundleId}"
   set s to "unknown"
   try
@@ -484,7 +484,7 @@ async function playerSnapshot(player) {
     set p to (player position) as text
   end try
   return s & character id 1 & t & character id 1 & p
-end tell`, { application: player.name });
+end tell`, { application: player.name, timeoutMs });
     const [state = "unknown", trackId = "", position = "0"] = raw
         .trim()
         .split(TAB_FIELD_SEPARATOR);
@@ -552,7 +552,20 @@ async function controlMedia(policy, step, idempotencyKey) {
         };
     }
     const player = await runningPlayer(policy, step);
-    const before = await playerSnapshot(player);
+    /*
+     The snapshot is EVIDENCE, not the action, and it must never cost the action.
+  
+     It ran with the default 10s osascript timeout and, on 2026-09-02, spent the
+     whole budget: the task failed at 10.07s having never sent the playpause.
+     Apple Music was running and had already been resolved -- Nick asked Orion to
+     pause his music and was told "Music did not respond in time", because
+     verification consumed the thing it was verifying.
+  
+     Three seconds, and a failure degrades to an unknown previous state rather
+     than aborting. An unverified pause that actually happened beats a verified
+     one that did not. Manifest PHASE 46, added the same day.
+    */
+    const before = await playerSnapshot(player, 3000).catch(() => ({ state: "unknown", trackId: "", position: 0 }));
     const command = policy.operation === "play_pause"
         ? "playpause"
         : policy.operation === "next_track"

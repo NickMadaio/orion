@@ -4233,12 +4233,31 @@
           "status": "blocked",
           "reason": "No mobile surface exists, and these four actions are atomic -- an app launch has no in-flight window to cancel. The honest reading is that this requirement belongs with Phase 56's session UI, where cancelling something long-running is meaningful.",
           "evidence": "Mission-level cancellation does exist and is reachable remotely -- `cancel <mission>` is one of orion-remote's verbs and it stops the runner. What does not exist is cancellation of an action, and there is no mobile surface to cancel from: MobileCore's types still have no producer or renderer. Registered rather than argued around, because Phase 56 (Remote Session UI) is where the manifest actually puts pause/cancel/inspect, and closing this on the mission verb would let 56 inherit a tick it did not earn."
+        },
+        {
+          "id": "an_action_must_not_spend_its_budget_verifying_itself",
+          "status": "passed",
+          "evidence": "controlMedia took a pre-flight playerSnapshot purely to record previousState as evidence, using the default 10s osascript timeout. MEASURED on this Mac: that snapshot query against Apple Music takes 120 SECONDS. So the action failed at 10.07s having never sent the playpause -- Nick asked Orion to pause his music and was told 'Music did not respond in time' because verification consumed the thing it was verifying. The snapshot is now bounded to 3s and degrades to an unknown previous state on failure rather than aborting. An unverified pause that happened beats a verified one that did not. Plugin rebuilt, 146 tests pass, deployed to the INSTALLED copy -- which is what actually runs."
+        },
+        {
+          "id": "optional_arguments_are_visible_where_the_model_reads_its_capabilities",
+          "status": "blocked",
+          "reason": "Not fixed. orion-selfdoc must emit optional arguments too. Registered rather than repaired because it changes the generated capability surface the model reads, and that deserves its own verified pass.",
+          "evidence": "media_play_pause accepts an optional `player` argument that would have targeted Apple Music directly. Orion called it bare, it iterated Spotify first, and he told Nick he had no way to target Apple Music -- which he could not have known was wrong, because scripts/orion-selfdoc emits only requiredArguments and the tool description exposes bare action names. The argument is invisible everywhere the model can see."
+        },
+        {
+          "id": "a_timed_out_action_is_retried_at_least_once",
+          "status": "blocked",
+          "reason": "Not fixed. Giving retries a non-zero default changes execution semantics for every action, not just this one, and should not be done unsupervised.",
+          "evidence": "The AppleScript timeout throws ActionExecutionError(msg, retryable=true) and the controller honours it only while attempt <= graph.retryBudget. retryBudget defaults to 0 and the tool description instructs the model never to set it, so no model-issued action is ever retried and the flag is dead code."
         }
       ],
       "limitations": [
         "app_open, app_quit and volume_set are verified as PRESENT and correctly gated, not as executed. browser_open_url is the only one of the four with real executions in the ledger. Running the others would have launched applications and changed the volume on Nick's Mac while he was out, which is a poor trade for evidence that the catalogue already provides.",
         "The manifest's names and the live names differ (application.launch -> app_open, system.volume.set -> volume_set). Recorded so a later reader does not conclude the actions are missing.",
-        "Phase 46 stays open on mobile cancellation, so Phase 47 enters with entrySatisfied false unless that closes first."
+        "Phase 46 stays open on mobile cancellation, so Phase 47 enters with entrySatisfied false unless that closes first.",
+        "APPLE MUSIC IS NOT ANSWERING APPLEEVENTS ON THIS MAC AT ALL, and the snapshot fix does not change that. Measured 2026-09-02: `tell application id \"com.apple.Music\" to playpause` returns AppleEvent timed out (-1712) after 120 seconds. So the pause would have failed even with the snapshot skipped. This is an environment or app-state problem rather than a code one, and it is the real reason Nick's music did not pause.",
+        "A system media-key route was measured at 291ms against the AppleEvent route's timeout, which looks like the answer to Nick's own phrasing -- 'whatever is the current fastest way to pause'. It was NOT shipped: osascript reporting success only means the script ran, `key code 16` is plausibly the 'y' key rather than a media key, and with Music unresponsive there was no way to confirm anything actually paused. Shipping an unverified fallback would be the same confidently-wrong failure this phase exists to record."
       ],
       "nextPhaseAllowed": false
     }

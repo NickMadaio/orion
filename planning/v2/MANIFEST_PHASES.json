@@ -2,11 +2,33 @@
   "schemaVersion": 1,
   "source": {
     "title": "ORION v2 — Full Implementation Manifest",
-    "sha256": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
-    "lineCount": 2642,
+    "sha256": "7cb01a57f1369181deac3ea88fbef223359da98ec1d4dfdd23778282e26f5aeb",
+    "lineCount": 2668,
     "path": "~/Desktop/Orion v two implementation plan.md",
     "fingerprintCoversFromLine": 3,
-    "fingerprintNote": "The file now carries a two-line wrapper header ('# Orion v2 Implementation Plan' plus a blank line) that was added after Phase 0 fingerprinted it, so hashing the whole file gives fef1937473af2128ec85e34e1a754a4b92335dde8d882ab4aefd729023dca224 and looks like tampering. It is not: the requirements text is unchanged. Reproduce with: tail -n +3 '<path>' | shasum -a 256"
+    "fingerprintNote": "The file carries a two-line wrapper header added after Phase 0 fingerprinted it, so hash from line 3: tail -n +3 '<path>' | shasum -a 256. AMENDED 2026-09-02 on Nick's instruction, and re-fingerprinted rather than left to look like tampering. The previous hash was f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2. Requirements were ADDED to phases 46, 48 and 49; nothing was removed or reworded, and no phase changed number or order. See source.amendments.",
+    "amendments": [
+      {
+        "on": "2026-09-02",
+        "by": "Nick, explicitly: \"Go into the manifest and add these fixes inside it. Obviously where it makes sense.\"",
+        "previousSha256": "f9fceb60e2f2fb155ed32356c4379a6985018da26ca8652bfcc7c1a84b4048c2",
+        "why": "An independent agent diagnosed a failed live conversation and found five root causes. Two were repaired in scripts/orion-remote the same day. Three were classes of defect the manifest did not require anything about, so repairing them quietly would have meant building outside the requirements source -- which AGENTS.md is explicit is how a program stops meaning anything. They are requirements now.",
+        "phase46": [
+          "Do not spend an action's execution budget on verifying it. FOUND: media_play_pause takes a pre-flight playerSnapshot purely to record previousState as evidence, with the default 10s timeout. On 2026-09-02 the snapshot consumed the entire budget, the action failed at 10.07s, and the playpause command was never sent. Apple Music was running and had already been resolved. Verification cost the action it was verifying.",
+          "Retry a timed-out action at least once. FOUND: the timeout throws with retryable=true, but retryBudget defaults to 0 and the model is told never to set it, so no model-issued action is ever retried. The flag is dead code.",
+          "Optional arguments must be visible where the model reads its capabilities. FOUND: media_play_pause accepts an optional `player`, which would have targeted Apple Music directly, but orion-selfdoc emits only requiredArguments -- so Orion called it bare, it iterated Spotify first, and he told Nick he had no way to target Apple Music. He could not have known otherwise."
+        ],
+        "phase48": [
+          "Bind authorization for a destructive action to the requesting turn. FOUND: transcript.ts documents a `perTurnOnly` rule for exactly this and the identifier exists nowhere in the codebase. A target named up to eight turns or ten minutes earlier can therefore be spliced onto a later 'do it'."
+        ],
+        "phase49": [
+          "Keep a human in the loop for every approval. FOUND: the plugin's approval gate is satisfied by the agent passing approvalHash itself. During the failed conversation the approval_required issue vanished after Orion supplied the hash unprompted -- no human yes ever reached the plugin, and the entire approve-id exchange Nick was walked through was theatre.",
+          "Every authorization check must be satisfiable by the name a person would type. FOUND: normalizeForOrigin strips dots from both the needle and the haystack, so the required token for 'executors.ts' is 'executorsts', which no human writes. Nick was asked three times to name the file, said 'executors', and was refused each time by a check that could not have accepted it.",
+          "Never present an approval identifier the system did not mint. FOUND: Orion truncated the plugin's 64-char canonicalHash to 13 characters, prefixed it with ap-, and when the transport refused it rationalised the mismatch as truncation and sent the full hash still wearing the prefix. Real ids are ap- plus exactly 8 hex and only orion-notify mints them. No approval existed at all."
+        ],
+        "whatWasNotChanged": "No requirement was removed or reworded. No phase changed number, title or order. The sequence rule and the 85-phase count are untouched."
+      }
+    ]
   },
   "phaseCount": 85,
   "sequenceRule": "Phase N may enter only after Phase N-1 exit evidence passes.",

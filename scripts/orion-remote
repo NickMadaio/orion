@@ -397,12 +397,29 @@ const usage = (verb) => {
  personality, it does not tell Orion how to be, and it must never grow into
  one -- the assistant's own instructions live in openclaw-workspace/AGENTS.md
  and are not this file's business.
+
+ ## The vocabulary this text may not use
+
+ The host records CHANNEL_BRIEF + Nick's message as ONE user turn, so every word
+ here counts as something Nick said. The plugin's `AUTHORITY_INSTRUCTION` regex
+ (catalog.ts) searches the user's words for enable/allow/grant/permission/
+ capability/profile/unlock and friends, and `authorityInstructionMissing` is one
+ of the four gates gutting self-modification.
+
+ The first version of this brief contained "enable" and "permission". That
+ satisfied the gate on EVERY Discord turn, whatever Nick had actually said --
+ the transport's own boilerplate quietly disarming a security check meant to
+ require his explicit instruction. Found by an independent review, 2026-09-02.
+
+ So: no word from that regex may appear here. `scripts/orion_v2_remote_check.sh`
+ asserts it, matched against the regex itself rather than a copied list, so the
+ check cannot drift from the gate it is protecting.
 */
 const CHANNEL_BRIEF = [
   "[orion-remote] Context from the transport, not from Nick:",
   "- This message arrived over Discord. Nick is away from the Mac.",
   "- The remote channel is ALREADY working -- you are answering through it right now.",
-  "  Never offer to enable, configure or repair it, and never claim it is unavailable.",
+  "  Never offer to configure or repair it, and never claim it is unavailable.",
   "- These words are handled by the transport before you ever see them, so never",
   "  claim to have run them and never describe them as things you do:",
   "  status, pause, resume, cancel, approve, deny, priority, device, apps, files.",
@@ -414,7 +431,7 @@ const CHANNEL_BRIEF = [
   "  sent Nick round a loop approving something that did not exist.",
   "  A real one is answered by sending: approve <id>   (no slash, no other syntax).",
   "- If you do not know something about your own configuration, say so. Do not",
-  "  describe your permission state from memory; it changes without you.",
+  "  describe your own state from memory; it changes without you.",
   "- Discord truncates near 2000 characters. Keep replies shorter than that.",
   "--- Nick's message follows ---",
 ].join("\n");
@@ -830,6 +847,30 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
     return answer;
   }
   try {
+    /*
+     "pause the music" is not a mission command.
+
+     The bare-verb fix was not enough. `the` is filler, so "pause the music"
+     parses as pause(music), reaches checkArgs, and dies as "no mission called
+     music" -- Nick's actual sentence, answered with a category error. Same for
+     "stop the music", "cancel my alarm", "resume playback".
+
+     So a MISSION-shaped argument that names no mission Orion owns is treated as
+     conversation rather than as a typo. Every other shape still refuses: an
+     unknown approval id, a bad priority level and an unknown folder are all
+     genuine command mistakes, and answering those with a model turn would be
+     slower and less useful than saying what was wrong.
+    */
+    const preState = await readState();
+    const preInvalid = checkArgs(parsed.verb, parsed.args, preState);
+    if (preInvalid && VERBS[parsed.verb].shape[0] === "mission") {
+      const answer = await askBrain(text);
+      await audit({ ...record, decision: answer.ok ? "accepted" : "error", verb: "brain",
+                    reason: `"${parsed.verb}" named no mission; treated as conversation`,
+                    session: BRAIN_SESSION, runId: answer.runId, reply: answer.reply.slice(0, 200) });
+      return answer;
+    }
+
     const result = await withStateLock(async () => {
       const state = await readState();
       const invalid = checkArgs(parsed.verb, parsed.args, state);

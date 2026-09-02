@@ -137,6 +137,24 @@ for BARE in "~" "."; do
     if echo "$OUT" | grep -q "Orion | "; then check 1 "'files $BARE' lists nothing"; else check 0 "'files $BARE' lists nothing"; fi
 done
 
+# "pause the music" -- the sentence Nick actually sent. `the` is filler, so this
+# parses as pause(music) and used to die as "no mission called music": his real
+# sentence answered with a category error.
+for SENTENCE in "pause the music" "stop the music" "resume playback"; do
+    OUT="$(remote handle "$SENTENCE" --from local)"
+    echo "$OUT" | grep -q "STUBBRAIN saw"
+    check $? "'$SENTENCE' reaches the brain rather than being read as a mission command"
+    if echo "$OUT" | grep -q "no mission called"; then
+        check 1 "and '$SENTENCE' is not answered with a category error"
+    else
+        check 0 "and '$SENTENCE' is not answered with a category error"
+    fi
+done
+
+# But a genuine command mistake still gets a straight answer, not a model turn.
+echo "$(remote handle 'files nowhere' --from local)" | grep -q "root must be one of"
+check $? "while a bad folder name is still refused directly -- only the MISSION shape falls through"
+
 # The regression that prompted all of this: a bare verb word is CONVERSATION.
 BARE_VERB="$(remote handle 'pause' --from local)"
 echo "$BARE_VERB" | grep -q "STUBBRAIN saw \[pause\]"
@@ -150,6 +168,31 @@ fi
 # Every guard must run BEFORE the brain, or attaching it widened the attack
 # surface rather than the usefulness. These are the same four rules as above,
 # re-asserted against a message that would otherwise reach the model.
+# The transport's own boilerplate must not satisfy a security gate.
+#
+# The host records CHANNEL_BRIEF + Nick's message as ONE user turn, so every
+# word in the brief counts as something Nick said. The plugin searches the
+# user's words for authority language before permitting self-modification, and
+# the first brief contained "enable" and "permission" -- passing that gate on
+# every Discord turn regardless of what Nick actually asked for.
+#
+# The regex is read OUT OF THE PLUGIN rather than copied, so this cannot drift
+# from the gate it protects.
+echo ""
+echo "== the transport does not speak the gate's language =="
+LEAK="$("$NODE" -e '
+const fs = require("fs");
+const brief = fs.readFileSync("'"$REPO"'/scripts/orion-remote", "utf8")
+  .split("const CHANNEL_BRIEF = [")[1].split("].join")[0];
+const cat = fs.readFileSync("'"$REPO"'/openclaw-plugins/orion-control/src/catalog.ts", "utf8");
+const m = cat.match(/AUTHORITY_INSTRUCTION\s*=\s*\n?\s*(\/.+\/[a-z]*)/);
+if (!m) { process.stdout.write("REGEX-NOT-FOUND"); process.exit(0); }
+const re = new RegExp(m[1].slice(1, m[1].lastIndexOf("/")), "gi");
+process.stdout.write([...new Set([...brief.matchAll(re)].map((x) => x[0]))].join(",") || "none");
+')"
+[ "$LEAK" = "none" ]
+check $? "the channel brief contains no word that satisfies AUTHORITY_INSTRUCTION (found: $LEAK)"
+
 echo ""
 echo "== the brain sits BEHIND every guard =="
 UNKNOWN="$(ALLOW=local remote handle 'tell me a secret' --from a-stranger)"

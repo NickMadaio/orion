@@ -121,6 +121,23 @@ for (label, model) in [("full", goodDay), ("thin", thinHistory), ("empty", empty
 
 section("no section becomes a table")
 
+// The rule lives in SectionNarrative.init?, so that is where it is tested. The
+// sweep below cannot fail on its own -- an over-budget narrative is nil and has
+// already been compactMap'd out of `sections()` before the loop sees it, so it
+// asserts a tautology. (Independent review, 2026-09-02.) It is kept as a
+// regression over the REAL generated text, which is a genuinely weaker claim
+// than it used to look, with the actual rule pinned here first.
+expect(SectionNarrative(happened: "Recovery 41%, HRV 38 ms, RHR 62 bpm, strain 14.",
+                        sources: [.whoop], confidence: .high) == nil,
+       "four figures in one field is refused outright -- the budget is \(SectionNarrative.figureBudget)")
+expect(SectionNarrative(happened: "Recovery 41%, HRV 38 ms, RHR 62 bpm.",
+                        sources: [.whoop], confidence: .high) != nil,
+       "and three is allowed, so the cap is a boundary and not a ban on numbers")
+expect(SectionNarrative(happened: "Recovery is low.",
+                        likelyMeans: "HRV 38 ms, RHR 62 bpm, sleep 71%, strain 14.",
+                        sources: [.whoop], confidence: .high) == nil,
+       "and the budget applies per field, not only to the first one")
+
 for (label, model) in [("full", goodDay), ("thin", thinHistory), ("empty", emptyDay)] {
     for content in model.sections() {
         for (field, text) in [("happened", content.narrative.happened),

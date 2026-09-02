@@ -78,8 +78,18 @@ section("an unreadable journal is not an empty one")
 try? "{ this is not json".write(to: journalPath, atomically: true, encoding: .utf8)
 let broken = JournalStore()
 expect(broken.lastError != nil, "an unreadable file reports an error")
-expect(!broken.entries.isEmpty || broken.lastError != nil,
-       "and does NOT quietly report zero entries, which Phase 36 would read as 'nothing happened'")
+
+// This used to read `!broken.entries.isEmpty || broken.lastError != nil`, whose
+// left half is always false here and whose right half is the line above -- so it
+// asserted nothing at all. The real property is that an unreadable journal and
+// an EMPTY one are distinguishable, and the only thing that distinguishes them
+// is lastError, since both have zero entries. (Independent review, 2026-09-02.)
+try? FileManager.default.removeItem(at: journalPath)
+let genuinelyEmpty = JournalStore()
+expect(genuinelyEmpty.entries.isEmpty && genuinelyEmpty.lastError == nil,
+       "a journal that has never been written is empty with no error")
+expect(broken.entries.isEmpty && broken.lastError != nil,
+       "and an unreadable one is ALSO empty -- so emptiness cannot be the signal, and lastError is the only thing separating 'nothing happened' from 'I could not read it'")
 
 section("counting a day")
 

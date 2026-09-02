@@ -50,12 +50,28 @@ final class ZonedTimeTests: XCTestCase {
     /// The whole point of insisting on IANA names: a fixed offset is a local
     /// datetime string in disguise. It is right for half the year.
     func testFixedOffsetZonesAreRefusedEvenThoughFoundationResolvesThem() {
-        for spelling in ["GMT+0500", "EST", "Zulu", "US/Eastern", "Mars/Olympus"] {
-            XCTAssertNotNil(TimeZone(identifier: spelling) ?? TimeZone(identifier: "UTC"),
-                            "precondition")
+        // The precondition used to read
+        //   XCTAssertNotNil(TimeZone(identifier: spelling) ?? TimeZone(identifier: "UTC"))
+        // and the `??` made it unfailable, so the "even though Foundation
+        // resolves them" claim was never checked -- and it was FALSE for one
+        // entry: Mars/Olympus does not resolve at all. Split, so the premise is
+        // asserted rather than asserted-looking. (Independent review, 2026-09-02.)
+        for spelling in ["GMT+0500", "EST", "Zulu", "US/Eastern"] {
+            XCTAssertNotNil(TimeZone(identifier: spelling),
+                            "\(spelling) must really be resolvable by Foundation, or this test proves nothing")
             XCTAssertThrowsError(try IANAZone.resolve(spelling)) { error in
                 XCTAssertEqual(error as? ZoneError, .notAnIANAZone(spelling))
             }
+        }
+    }
+
+    /// A spelling Foundation does not resolve either. Refused for a different
+    /// reason, and kept separate so the test above can honestly say its
+    /// spellings ARE resolvable.
+    func testAStringThatIsNotAZoneAtAllIsAlsoRefused() {
+        XCTAssertNil(TimeZone(identifier: "Mars/Olympus"))
+        XCTAssertThrowsError(try IANAZone.resolve("Mars/Olympus")) { error in
+            XCTAssertEqual(error as? ZoneError, .notAnIANAZone("Mars/Olympus"))
         }
     }
 

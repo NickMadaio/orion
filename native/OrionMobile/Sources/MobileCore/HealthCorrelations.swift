@@ -66,6 +66,24 @@ public enum AssociationPhrase: String, CaseIterable, Sendable {
 
     /// Whether this phrase asserts anything at all.
     public var isFinding: Bool { self != .insufficientData }
+
+    /// The phrase as it appears in a sentence, carrying any copula it needs.
+    ///
+    /// `rawValue` stays exactly as the manifest words it, and `CausalVocabulary`
+    /// still checks it. But two of these are participles that need "is" in
+    /// front and one is a VERB that must not have it. A shared "is " in the
+    /// template produced "Caffeine is tends to coincide with lower recovery" --
+    /// and `.tendsToCoincideWith` is the else branch, the phrase used for every
+    /// finding below strong magnitude, so that was the most common sentence the
+    /// feature could print. The tests only asserted the sentence was non-nil
+    /// and non-causal, so nothing read it.
+    public var clause: String {
+        switch self {
+        case .associatedWith, .correlatedWith: return "is \(rawValue)"
+        case .tendsToCoincideWith: return rawValue
+        case .insufficientData: return rawValue
+        }
+    }
 }
 
 // MARK: - What is being compared against what
@@ -170,7 +188,7 @@ public struct Association: Sendable, Equatable {
         default:
             guard let difference else { return nil }
             let direction = difference > 0 ? "higher" : "lower"
-            text = "\(behaviour.rawValue.capitalized) is \(phrase.rawValue) \(direction) "
+            text = "\(behaviour.rawValue.capitalized) \(phrase.clause) \(direction) "
                 + "\(outcome.label), on \(withCount) days with and \(withoutCount) without. "
                 + "This is an observation, not an explanation."
         }

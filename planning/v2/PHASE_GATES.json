@@ -3309,7 +3309,25 @@
         "The zone-name agreement between Foundation and ICU is pinned by a translation table generated on 2026-09-01 and a test that asserts it is still load-bearing. If tzdata moves under it the failure is loud -- the Swift decode refuses and names the string -- not silent.",
         "The node half of the verdict rule in orion-timezone and orion-standing mirrors TimeZonePolicy.verdict. The Swift type is authoritative and has the tests; only the stored FORMAT is proven to agree."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": false,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent that was given the manifest, the repo and the commands and NOT the implementers' conclusions. Findings are recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "A precondition assertion could not fail, and its stated premise was false for one entry.",
+            "wasRecorded": "testFixedOffsetZonesAreRefusedEvenThoughFoundationResolvesThem.",
+            "actuallyTrue": "The precondition was XCTAssertNotNil(TimeZone(identifier: spelling) ?? TimeZone(identifier: \"UTC\")), whose ?? fallback is always non-nil, so 'even though Foundation resolves them' was never checked -- and it is false for Mars/Olympus, which Foundation does not resolve at all. Verified: GMT+0500, EST, Zulu and US/Eastern resolve; Mars/Olympus does not.",
+            "repair": "Split into two tests. The four resolvable spellings now assert Foundation really does resolve them, with no ?? to soften it, and Mars/Olympus gets its own test asserting the opposite. Domain suite 393 -> 394."
+          },
+          {
+            "finding": "Two mutation counts in the evidence do not reproduce. Both understate.",
+            "wasRecorded": "Dropping originalZone from rezoned() 'fails 2 tests'; the 86,400 mutation of CivilDay.interval 'fails 6 tests'.",
+            "actuallyTrue": "The first produces 2 assertion failures inside 1 test. The second produced 8 failures across 4 tests. The reviewer notes its mutation may differ in shape from the original.",
+            "repair": "No code change. Recorded so the numbers are not treated as reproducible constants."
+          }
+        ]
+      }
     },
     "34": {
       "name": "ORION Health UI",
@@ -3369,7 +3387,31 @@
         "Not visually verified. The app builds and the content rules are proven numerically, but the installed app is still build 121 and nobody has looked at the rendered layout.",
         "The trend DIRECTION uses a 5% threshold over a split-half mean. That is a deliberate placeholder for Phase 36, which is where correlations and sample sizes are actually specified."
       ],
-      "nextPhaseAllowed": true
+      "nextPhaseAllowed": true,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent that was given the manifest, the repo and the commands and NOT the implementers' conclusions. Findings are recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "A limitation that had stopped being true.",
+            "wasRecorded": "'journalEntryCount is wired to 0 until Phase 35 exists.'",
+            "actuallyTrue": "It is wired to the live store -- native/Orion/Sources/Orion/HealthTab.swift:131, journalEntryCount: journal.entryCount(on: Date()). Phase 35 closed the same day and the limitation was never revisited.",
+            "repair": "None needed in code. Recorded here; the original limitation stands as written and is superseded by this entry."
+          },
+          {
+            "finding": "A count in the evidence is one low.",
+            "wasRecorded": "'ClinicalVocabulary (22 stems)'",
+            "actuallyTrue": "23 stems, counted in native/OrionMobile/Sources/MobileCore/HealthState.swift.",
+            "repair": "No code change. The claim understates the guard rather than overstating it."
+          },
+          {
+            "finding": "Three assertions on the figure budget could not fail.",
+            "wasRecorded": "The budget is enforced and swept over the real generated text.",
+            "actuallyTrue": "It IS enforced -- by SectionNarrative.init? returning nil -- but the sweep iterated model.sections(), from which an over-budget narrative has already been compactMap'd out. The loop asserted a tautology; the rule was caught only by unrelated count assertions.",
+            "repair": "native/Orion/Tests/HealthSectionsHarness/main.swift now tests the rule where it lives: four figures in one field is refused, three is allowed, and the budget applies per field rather than only to the first. The sweep is kept and relabelled as the weaker regression it actually is. 127 -> 130 checks."
+          }
+        ]
+      }
     },
     "35": {
       "name": "Natural-Language Health Journal",
@@ -3425,7 +3467,37 @@
         "No voice entry. Text only.",
         "The Journal section's UI is not visually verified -- the app builds and the store is proven on disk, but the installed app is still build 121."
       ],
-      "nextPhaseAllowed": true
+      "nextPhaseAllowed": true,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent that was given the manifest, the repo and the commands and NOT the implementers' conclusions. Findings are recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "SEVERE. 'late' contains 'ate', so ordinary entries were confidently classified as meals.",
+            "wasRecorded": "The recorded limitation said the failure mode is that 'an unrecognised line becomes .note at low confidence -- the honest failure mode'.",
+            "actuallyTrue": "That was not the failure mode. The vocabulary matched bare SUBSTRINGS and the meal row is checked before stress, unwell, travel, screen and social, so it won. Measured against the real extractor: 'Really stressed and worked late.' -> meal. 'Stayed up late.' -> meal. 'I procrastinated.' -> meal. These are high category-confidence misclassifications, not honest low-confidence notes, and Phase 36 consumes JournalEventType directly -- so a misread entry becomes a correlation about the wrong behaviour. The file's own header says the reason for avoiding a model here is that 'a silent misreading does not merely annoy, it fabricates a finding'. The vocabulary already carried two ad-hoc patches for this same bug ('ran ', 'run ', 'saw ' with trailing spaces), which is what a systemic problem looks like when it is fixed one word at a time.",
+            "repair": "JournalExtractor.containsPhrase: matching now requires a word boundary at the start and either a boundary or one ordinary inflection (s, es, ed, ing, 's) at the end. Both halves are load-bearing and were found by mutation in opposite directions -- a hard boundary at both ends broke 'Had 2 coffees', and a start boundary alone lets 'ran' match 'ranch' and 'run' match 'runny', which is exactly why the trailing spaces existed. The trailing-space patches are removed. Applied to the time markers too, where 'chocolate' and 'translate' contain the 'late' marker. Three mutations killed."
+          },
+          {
+            "finding": "The originalText assertion was a near miss.",
+            "wasRecorded": "'correcting() preserves originalText and id ... Mutation-proven.'",
+            "actuallyTrue": "Both correction fixtures only changed eventType, never notes. Discarding originalText entirely (originalText: newNotes ?? notes) passed the whole suite AND the journal-store harness. A correction that edits the notes would silently destroy the provenance the code comments say Phase 36 depends on.",
+            "repair": "A second fixture that rewrites the notes and asserts originalText survives it. Mutation-proven against the exact discard."
+          },
+          {
+            "finding": "The recorded clarification rule was broader than the code.",
+            "wasRecorded": "'Exactly one trigger: the sentence claims today and the resolved clock lands on another day. Every other case ... asks nothing.'",
+            "actuallyTrue": "The contradiction test existed only inside the explicit-hour branch. The marker paths resolve BACKWARDS, so at 10:00 'Worked out late today.' resolved to yesterday at 22:00 and asked nothing, and 'Ran this morning.' at 06:00 did the same. There was exactly one trigger, but not the rule the record states.",
+            "repair": "The test is hoisted into JournalExtractor.contradictsToday and applied on all three paths, so the code now matches the rule as written -- which is also the better behaviour. Mutation-proven in both directions: removing it from the marker path fails, and firing on any today-claim regardless of contradiction also fails."
+          },
+          {
+            "finding": "An assertion in the journal-store harness could not fail.",
+            "wasRecorded": "An unreadable journal 'does NOT quietly report zero entries, which Phase 36 would read as nothing happened'.",
+            "actuallyTrue": "The assertion was `!broken.entries.isEmpty || broken.lastError != nil`. The left half is always false for a broken store and the right half was already asserted on the line above, so it tested nothing.",
+            "repair": "Replaced with the property that actually matters: a never-written journal and an unreadable one are BOTH empty, so emptiness cannot be the signal and lastError is the only thing separating 'nothing happened' from 'I could not read it'. Both are asserted. 26 -> 27 checks."
+          }
+        ]
+      }
     },
     "36": {
       "name": "Behavior Correlations",
@@ -3490,7 +3562,30 @@
         "Nothing consumes this yet. It is a domain engine with 447 MobileCore checks behind it and no UI and no caller -- Phase 37 (experiments) and a Trends surface are the intended consumers. Recorded rather than hidden, because the program correction is explicit that modules with no consumer are how this repo acquired three stacks.",
         "minimumPerGroup = 5 and noticeable = 0.5 spreads are constants chosen conservatively so they can be argued with. They are not derived from Nick's data, which does not exist yet."
       ],
-      "nextPhaseAllowed": true
+      "nextPhaseAllowed": true,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent that was given the manifest, the repo and the commands and NOT the implementers' conclusions. Findings are recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "The named 40-vs-2 fixture did not test the per-group floor.",
+            "wasRecorded": "'The floor applies to the SMALLER group, asserted with a 40-vs-2 fixture.'",
+            "actuallyTrue": "The fixture had jitter 0, so 40 of its 42 values were identical, the pooled spread was 0, and `guard spread > 0` returned insufficientData before the group floor was ever consulted. Applying the floor to the LARGER group -- the exact mutation the evidence claims is pinned -- did not fail that assertion; it was caught incidentally by an unrelated behaviour-seen-once assertion elsewhere. Both halves of that were reproduced.",
+            "repair": "jitter: 3 on the fixture. The named assertion now fails on the floor-on-larger-group mutation directly, which was verified."
+          },
+          {
+            "finding": "The most common finding sentence was ungrammatical.",
+            "wasRecorded": "'uses the manifest's wording'.",
+            "actuallyTrue": "True of the enum and false of the sentence a person reads. The template was '\\(behaviour) is \\(phrase.rawValue) ...', which suits two participles and not the one VERB phrase -- and that one is the else branch, used for every finding below strong magnitude: 'Caffeine is tends to coincide with lower recovery.' The tests only asserted the sentence was non-nil and non-causal, so nothing ever read it.",
+            "repair": "AssociationPhrase.clause carries the copula where the phrase needs one and omits it where the phrase is already a verb; rawValue is untouched, so the manifest's wording and the CausalVocabulary check are unchanged. Each phrase's opening is now pinned verbatim. Mutation-proven. Worth recording: the first version of the new grammar assertion also checked for a doubled 'is is' and fired on all three phrases, because 'Th-is is an observation' contains it -- a substring bug written while fixing a substring bug."
+          },
+          {
+            "finding": "A count in the evidence is one low.",
+            "wasRecorded": "'CausalVocabulary (25 stems)'",
+            "actuallyTrue": "26 stems. Understates the guard rather than overstating it; no code change."
+          }
+        ]
+      }
     },
     "37": {
       "name": "Experiment Mode",
@@ -3550,7 +3645,19 @@
         "Nothing stores experiments yet. Like Phase 36's engine, this has no caller -- recorded rather than implied to be live.",
         "confoundedThreshold = 1/3 and minimumDuration = 14 are conservative constants, not derived from data that does not exist yet."
       ],
-      "nextPhaseAllowed": true
+      "nextPhaseAllowed": true,
+      "postReviewCorrections": {
+        "reviewedOn": "2026-09-02",
+        "review": "Independent adversarial review, 2026-09-02, by an agent that was given the manifest, the repo and the commands and NOT the implementers' conclusions. Findings are recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
+        "findings": [
+          {
+            "finding": "SEVERE. The finding an experiment reported was not computed over the experiment.",
+            "wasRecorded": "'ExperimentEngine.track is a window over the SAME CorrelationDay list', and the file header calls it 'a NAMED WINDOW'.",
+            "actuallyTrue": "`window` and `observed` were computed and used for stage, observedDays and confoundedDays -- and then the association was built from `days`, the entire history. Measured against the real engine: a 14-day experiment reported observedDays 14 beside sample counts of 34 with and 14 without, on the same screen, from 48 days. Data from outside the window could and did INVERT the sign of the reported finding, and durationDays had no effect on the result at all. The confounder protection inherited the same hole: confoundedDays counted only the window, so a confounder outside it could not make a result inconclusive even though those days fed the association. No test could tell -- mutating `days:` to `window:`, the opposite behaviour, left the suite at 665 checks, 0 failed, because the existing assertion only checked the association was non-nil.",
+            "repair": "The association is built from `observed` -- exactly the set observedDays counts, so the sentence and the day count beside it agree by construction. Pinned three ways: twenty days of contradictory out-of-window history do not change the finding; withCount + withoutCount equals observedDays; and a 400-day experiment on the same days is still running where the 14-day one has completed, which is the signature of duration mattering again. Mutation-proven. One equivalent mutant survives and is not a gap: passing `window` instead of `observed` gives identical results, because CorrelationEngine.association compactMaps away days with no metric anyway."
+          }
+        ]
+      }
     },
     "38": {
       "name": "Health-Aware Planning",

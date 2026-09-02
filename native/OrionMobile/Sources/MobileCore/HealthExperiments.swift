@@ -205,8 +205,15 @@ public enum ExperimentEngine {
         // and a contaminated one is worse than none because it will be acted on.
         let association: Association?
         if stage == .complete && !contaminated {
+            // `observed`, NOT `days`. Passing the whole history made the
+            // reported finding a statement about every day ORION has ever seen
+            // while `observedDays` beside it counted only the window -- so a
+            // 14-day experiment printed "34 with, 14 without" on the same
+            // screen as "14 days observed", and data from outside the window
+            // could and did invert the sign of the result. `durationDays` had
+            // no effect on the finding at all.
             association = CorrelationEngine.association(
-                days: days, behaviour: experiment.behaviour, outcome: experiment.metric)
+                days: observed, behaviour: experiment.behaviour, outcome: experiment.metric)
         } else {
             association = nil
         }

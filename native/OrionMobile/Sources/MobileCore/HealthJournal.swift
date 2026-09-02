@@ -215,7 +215,9 @@ public enum JournalExtractor {
         (["tea"], .caffeine, .medium),
         (["alcohol", "beer", "wine", "drinks", "drinking", "hungover", "hangover"],
          .alcohol, .high),
-        (["worked out", "workout", "gym", "lifted", "lifting", "ran ", "running", "run ",
+        // "ran" and "run" no longer need a trailing space to avoid matching
+        // "errand" and "runny": containsPhrase requires a word boundary.
+        (["worked out", "workout", "gym", "lifted", "lifting", "ran", "running", "run",
           "cycled", "cycling", "swim", "trained", "training session", "climbed"],
          .exercise, .high),
         (["breakfast", "lunch", "dinner", "ate", "eating", "meal", "snack"], .meal, .high),
@@ -229,9 +231,64 @@ public enum JournalExtractor {
          .travel, .high),
         (["screen", "doomscroll", "phone before bed", "laptop in bed", "tv late"],
          .screen, .medium),
-        (["party", "friends", "dinner with", "drinks with", "went out", "saw "],
+        (["party", "friends", "dinner with", "drinks with", "went out", "saw"],
          .social, .medium),
     ]
+
+    /// Whether `phrase` appears in `text` as a WHOLE WORD.
+    ///
+    /// This used to be a bare `text.contains(phrase)`, and that was a real
+    /// defect rather than a tidiness problem. "ate" is a meal marker and
+    /// "late" contains it, so "Really stressed and worked late" was classified
+    /// as a MEAL at high category confidence -- and the meal row is checked
+    /// before stress, unwell, travel, screen and social, so it won.
+    /// "chocolate" and "translate" contain the "late" time marker for the same
+    /// reason. The vocabulary already carried two ad-hoc patches for this same
+    /// bug -- "ran " and "run " and "saw " with trailing spaces -- which is
+    /// what a systemic problem looks like when it is fixed one word at a time.
+    ///
+    /// This file's own header says the reason for not using a model here is
+    /// that "a silent misreading does not merely annoy, it fabricates a
+    /// finding". Phase 36 consumes these categories directly, so a misread
+    /// entry becomes a correlation about the wrong behaviour.
+    public static func containsPhrase(_ text: String, _ phrase: String) -> Bool {
+        let needle = phrase.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return false }
+        var from = text.startIndex
+        while let found = text.range(of: needle, range: from..<text.endIndex) {
+            let openBefore = found.lowerBound == text.startIndex
+                || !isWordCharacter(text[text.index(before: found.lowerBound)])
+            if openBefore && endsCleanly(text, after: found.upperBound) { return true }
+            guard found.lowerBound < text.endIndex else { break }
+            from = text.index(after: found.lowerBound)
+        }
+        return false
+    }
+
+    /// A match may end at a word boundary, or carry one ordinary inflection.
+    ///
+    /// Both halves are load-bearing and pull in opposite directions. Requiring
+    /// a hard boundary at the end broke "Had 2 coffees" -- "coffee" no longer
+    /// matched -- and allowing anything at the end brings back a milder version
+    /// of the original bug, where "ran" matches "ranch" and "run" matches
+    /// "runny". That is exactly why the vocabulary used to carry `"ran "` and
+    /// `"run "` with trailing spaces. A short closed list of suffixes keeps the
+    /// plurals and refuses the accidents.
+    private static let inflections = ["s", "es", "ed", "ing", "'s"]
+
+    private static func endsCleanly(_ text: String, after end: String.Index) -> Bool {
+        if end == text.endIndex || !isWordCharacter(text[end]) { return true }
+        let tail = text[end...]
+        return inflections.contains { suffix in
+            tail.hasPrefix(suffix)
+                && (tail.count == suffix.count
+                    || !isWordCharacter(tail[tail.index(tail.startIndex, offsetBy: suffix.count)]))
+        }
+    }
+
+    private static func isWordCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
+    }
 
     /// Words that move an event earlier or later when no clock time is given.
     static let lateMarkers = ["late", "before bed", "midnight", "after midnight", "tonight"]
@@ -262,7 +319,7 @@ public enum JournalExtractor {
         let lowered = trimmed.lowercased()
 
         let match = vocabulary.first { row in
-            row.phrases.contains { lowered.contains($0) }
+            row.phrases.contains { containsPhrase(lowered, $0) }
         }
         let type = match?.type ?? .note
         // An unrecognised line is a real entry at low confidence, not a
@@ -308,9 +365,7 @@ public enum JournalExtractor {
                                       tryBothMeridiems: !hour.unambiguous)
             // The sentence claims today; the clock says it was yesterday. That
             // is the one case a person can settle and the extractor cannot.
-            let claimsToday = todayMarkers.contains { lowered.contains($0) }
-            let landedOnAnotherDay = !calendar.isDate(resolved, inSameDayAs: now)
-            if claimsToday && landedOnAnotherDay {
+            if contradictsToday(lowered, resolved, now: now, calendar: calendar) {
                 return ResolvedTime(
                     time: resolved, confidence: .low,
                     question: "You wrote \"today\" but that time reads as yesterday — "
@@ -323,15 +378,44 @@ public enum JournalExtractor {
                                 question: nil)
         }
 
-        if lateMarkers.contains(where: { lowered.contains($0) }) {
+        if lateMarkers.contains(where: { containsPhrase(lowered, $0) }) {
             let resolved = mostRecent(hour: 22, minute: 0, before: now, calendar: calendar)
+            if contradictsToday(lowered, resolved, now: now, calendar: calendar) {
+                return ResolvedTime(
+                    time: resolved, confidence: .low,
+                    question: "You wrote \"today\" but the most recent late evening was yesterday — "
+                        + "did you mean last night?")
+            }
             return ResolvedTime(time: resolved, confidence: .medium, question: nil)
         }
-        if morningMarkers.contains(where: { lowered.contains($0) }) {
+        if morningMarkers.contains(where: { containsPhrase(lowered, $0) }) {
             let resolved = mostRecent(hour: 8, minute: 0, before: now, calendar: calendar)
+            if contradictsToday(lowered, resolved, now: now, calendar: calendar) {
+                return ResolvedTime(
+                    time: resolved, confidence: .low,
+                    question: "You wrote \"today\" but this morning has not happened yet — "
+                        + "did you mean yesterday morning?")
+            }
             return ResolvedTime(time: resolved, confidence: .medium, question: nil)
         }
         return ResolvedTime(time: now, confidence: .low, question: nil)
+    }
+
+    /// The sentence claims today and the clock landed on another day.
+    ///
+    /// The one case a person can settle and the extractor cannot. It used to be
+    /// written inline inside the explicit-hour branch ONLY, so the gate's claim
+    /// that this is the single trigger was broader than the code: "Worked out
+    /// late today" resolved to yesterday at 22:00 and asked nothing, because
+    /// `mostRecent` walks backwards and the marker paths never compared the
+    /// result against what the sentence said. Hoisted so all three paths share
+    /// one rule, which is what the record already described.
+    /// (Independent review, 2026-09-02.)
+    static func contradictsToday(
+        _ lowered: String, _ resolved: Date, now: Date, calendar: Calendar
+    ) -> Bool {
+        todayMarkers.contains { containsPhrase(lowered, $0) }
+            && !calendar.isDate(resolved, inSameDayAs: now)
     }
 
     public struct Hour { public let value: Int; public let minute: Int; public let unambiguous: Bool }

@@ -1657,6 +1657,19 @@ if let original = read("Worked out late.")?.event,
     expect(false, "an extracted event can be corrected")
 }
 
+// The assertion above is a NEAR MISS on its own: the fixture only changes the
+// type, so discarding originalText entirely still passes it. A correction that
+// edits the notes is the case that distinguishes them, and it is the case that
+// matters -- it is the one where provenance is actually destroyed.
+if let original = read("Worked out late.")?.event,
+   let rewritten = original.correcting(eventType: .travel, notes: "Flew to London.") {
+    expect(rewritten.notes == "Flew to London.", "a correction can rewrite the notes")
+    expect(rewritten.originalText == "Worked out late.",
+           "and the ORIGINAL text still survives that -- otherwise a corrected entry is indistinguishable from one that was always right")
+} else {
+    expect(false, "an extracted event can be corrected with new notes")
+}
+
 // Refusals at the boundary.
 expect(read("   ") == nil, "an empty entry is not an event")
 expect(JournalEvent(id: "", eventType: .note, time: evening, source: .extracted,
@@ -1710,7 +1723,14 @@ if let a = CorrelationEngine.association(days: thin, behaviour: .caffeine, outco
 } else { expect(false, "an under-powered behaviour still produces a row") }
 
 // The floor applies to the SMALLER side, not the total.
-let lopsided = makeDays(withCount: 40, withoutCount: 2, hit: 40, miss: 70)
+//
+// `jitter: 3` is load-bearing and was missing. With no jitter all 40 values on
+// one side are identical, the pooled spread is 0, and the `guard spread > 0`
+// returns insufficientData BEFORE the per-group floor is ever consulted -- so
+// the assertion passed without testing the rule it names. Found by an
+// independent review on 2026-09-02: applying the floor to the LARGER group
+// instead, the exact mutation this is supposed to catch, did not fail it.
+let lopsided = makeDays(withCount: 40, withoutCount: 2, hit: 40, miss: 70, jitter: 3)
 expect(CorrelationEngine.association(days: lopsided, behaviour: .caffeine,
                                      outcome: .recovery)?.phrase == .insufficientData,
        "forty days with and two without is still insufficient -- the floor is per group")
@@ -2562,6 +2582,160 @@ expect(n45Run([n45Stream[0], n45Stream[0], n45Stream[1], n45Stream[0]]) == ["n1"
 
 expect(Set(JobRejection.allCases.map(\.rawValue)) == ["wrong_device", "revoked", "expired", "replay"],
        "the four rejections cover the manifest's failure modes, and malformed is absent because a malformed job cannot be constructed at all")
+
+// -- POST-REVIEW CORRECTIONS (2026-09-02, phases 35 and 37) -----------------
+//
+// An independent reviewer that had not been told the implementers' conclusions
+// found both of these. Neither was caught by any existing assertion: the whole
+// suite stayed at 665/0 with either bug present, which is why the repairs are
+// pinned here rather than trusted.
+
+section("post-review corrections")
+
+// -- D1: an experiment's finding must be about the EXPERIMENT ---------------
+//
+// ExperimentEngine.track computed `window` and `observed`, used them for
+// observedDays / confoundedDays / stage, and then built the association from
+// `days` -- the entire history. A 14-day experiment reported "34 with, 14
+// without" beside "14 days observed" on the same screen, out-of-window data
+// could invert the sign of the finding, and durationDays had no effect on the
+// result at all.
+
+func prDay(_ key: String, _ behaviours: Set<JournalEventType>, recovery: Double) -> CorrelationDay {
+    CorrelationDay(dayKey: key, behaviours: behaviours, sleepPerformance: nil, recovery: recovery)
+}
+
+// The window itself: 7 caffeine days and 7 without, caffeine clearly worse.
+var prWindow: [CorrelationDay] = []
+for i in 1...7 { prWindow.append(prDay(String(format: "2026-09-%02d", i), [.caffeine], recovery: 40)) }
+for i in 8...14 { prWindow.append(prDay(String(format: "2026-09-%02d", i), [], recovery: 80)) }
+
+// History from outside the window that says the OPPOSITE, loudly.
+let prOutside = (1...20).map { prDay(String(format: "2025-01-%02d", $0), [.caffeine], recovery: 95) }
+
+let prExperiment = Experiment(id: "pr1", behaviour: .caffeine, metric: .recovery,
+                              durationDays: 14, startedOn: "2026-09-01")!
+let prClean = ExperimentEngine.track(prExperiment, days: prWindow, today: "2026-09-20")
+let prPolluted = ExperimentEngine.track(prExperiment, days: prOutside + prWindow, today: "2026-09-20")
+
+expect(prClean.observedDays == 14 && prPolluted.observedDays == 14,
+       "both fixtures observe the same 14 days -- only the out-of-window history differs")
+expect(prPolluted.association == prClean.association,
+       "twenty days of contradictory history from OUTSIDE the window do not change the experiment's finding")
+if let a = prPolluted.association {
+    expect(a.withCount + a.withoutCount == prPolluted.observedDays,
+           "and the sample counts in the sentence agree with the observed-day count printed beside them")
+    expect(a.withCount == 7 && a.withoutCount == 7,
+           "seven days with and seven without, which is the experiment and nothing else")
+} else {
+    expect(false, "a complete, uncontaminated experiment produces a finding")
+}
+
+// The bug's signature: duration had no effect, because the association never
+// looked at the window. A longer experiment over the same days must differ.
+let prLong = Experiment(id: "pr2", behaviour: .caffeine, metric: .recovery,
+                        durationDays: 400, startedOn: "2026-09-01")!
+expect(ExperimentEngine.track(prLong, days: prOutside + prWindow, today: "2026-09-20").stage == .running,
+       "a 400-day experiment on the same day is still running, where the 14-day one has completed")
+
+// -- D5: the clarification rule now matches the rule as written -------------
+//
+// The gate said "exactly one trigger: the sentence claims today and the
+// resolved clock lands on another day". The test for it lived only inside the
+// explicit-hour branch, so the marker paths -- which resolve BACKWARDS -- put
+// "Worked out late today" on yesterday at 22:00 and asked nothing.
+
+var prCal = Calendar(identifier: .gregorian)
+prCal.timeZone = TimeZone(identifier: "Europe/London")!
+func prAt(_ hour: Int) -> Date {
+    prCal.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: hour, minute: 0))!
+}
+func prAsk(_ text: String, at hour: Int) -> String? {
+    JournalExtractor.extract(text, now: prAt(hour), calendar: prCal, id: "pr5")?.clarification
+}
+
+expect(prAsk("Worked out late today.", at: 10) != nil,
+       "'late today' at 10am lands on YESTERDAY evening, and the sentence said today -- so it asks")
+expect(prAsk("Ran this morning.", at: 6) != nil,
+       "and 'this morning' at 6am lands on yesterday morning, which is the same contradiction")
+expect(prAsk("Worked out late.", at: 10) == nil,
+       "but with no claim about today there is nothing to contradict, so it stays quiet")
+expect(prAsk("Worked out late tonight.", at: 23) == nil,
+       "and at 11pm 'tonight' resolves to tonight, so there is no contradiction to raise")
+expect(prAsk("Really stressed today.", at: 10) == nil,
+       "a sentence with no time in it is stamped now and asks nothing -- 'today' alone is not a contradiction")
+
+// -- D6: the finding sentence has to be a sentence --------------------------
+//
+// The template said "\(behaviour) is \(phrase.rawValue) ...", which is right
+// for two participles and wrong for the one VERB phrase -- and that one is the
+// else branch, used for every finding below strong magnitude, so it was the
+// most common sentence the feature could print:
+//   "Caffeine is tends to coincide with lower recovery."
+// The existing assertions only checked the sentence was non-nil and non-causal.
+// Nothing read it.
+
+let prExpectedOpening: [AssociationPhrase: String] = [
+    .associatedWith: "Caffeine is associated with lower recovery",
+    .correlatedWith: "Caffeine is correlated with lower recovery",
+    .tendsToCoincideWith: "Caffeine tends to coincide with lower recovery",
+]
+for prPhrase in AssociationPhrase.allCases where prPhrase.isFinding {
+    let prAssociation = Association(
+        behaviour: .caffeine, outcome: .recovery, phrase: prPhrase,
+        withCount: 14, withoutCount: 14, difference: -8, spread: 4, confidence: .high)
+    guard let prSentence = prAssociation?.sentence else {
+        expect(false, "the \(prPhrase.rawValue) association produces a sentence at all")
+        continue
+    }
+    // The first draft of this guard also checked for a doubled "is is" -- and it
+    // fired on all three, because "Th-is is an observation" contains it. A
+    // substring check written while fixing a substring bug; kept in the comment
+    // because it is the same mistake one layer up, and the exact-prefix
+    // assertion below is the one that actually pins the wording.
+    expect(!prSentence.contains("is tends"),
+           "the \(prPhrase.rawValue) sentence reads as English, not as a phrase wedged after a copula")
+    expect(prSentence.hasPrefix(prExpectedOpening[prPhrase] ?? "\u{0}"),
+           "and the \(prPhrase.rawValue) sentence opens exactly as written out, copula included where the phrase needs one")
+}
+
+// -- D2: vocabulary matches WORDS, not substrings ---------------------------
+//
+// "ate" is a meal marker and "late" contains it, and the meal row is checked
+// before stress, unwell, travel, screen and social -- so "Really stressed and
+// worked late" was a MEAL. The file's own header says a silent misreading
+// "fabricates a finding", and Phase 36 consumes these categories directly.
+
+let prNow = Date(timeIntervalSince1970: 1_772_000_000)
+func prType(_ text: String) -> JournalEventType? {
+    JournalExtractor.extract(text, now: prNow, id: "pr")?.event.eventType
+}
+
+expect(prType("Really stressed and worked late.") == .stress,
+       "'worked late' is stress, not a meal -- 'late' contains 'ate' and the meal row is checked first")
+expect(prType("Stayed up late.") == .note,
+       "and a line with no category at all stays a note rather than becoming a meal")
+expect(prType("I procrastinated.") == .note, "nor does 'procrastinated' contain a meal")
+expect(JournalExtractor.containsPhrase("i ate lunch", "ate")
+        && !JournalExtractor.containsPhrase("worked late", "ate")
+        && !JournalExtractor.containsPhrase("i procrastinated", "ate")
+        && !JournalExtractor.containsPhrase("chocolate cake", "late"),
+       "containsPhrase requires a word boundary at the start, which is what kills the whole family")
+
+// The opposite failure, and the reason a hard boundary at BOTH ends is wrong:
+// requiring one broke "Had 2 coffees", because "coffee" no longer matched.
+expect(prType("Had 2 coffees.") == .caffeine, "plurals still match: 'coffees' is 'coffee'")
+expect(prType("Lifted this morning.") == .exercise && prType("Went running.") == .exercise,
+       "and ordinary inflections still match")
+
+// But an inflection is a short closed list, not 'anything may follow'. These
+// are the accidents the vocabulary used to dodge with trailing spaces on
+// "ran " and "run ", which this replaces.
+expect(!JournalExtractor.containsPhrase("had a ranch salad", "ran"),
+       "'ranch' is not 'ran' -- which is why the vocabulary used to carry a trailing space")
+expect(!JournalExtractor.containsPhrase("a runny nose", "run"), "and 'runny' is not 'run'")
+expect(!JournalExtractor.containsPhrase("the team meeting", "tea"), "'team' is not 'tea'")
+expect(!JournalExtractor.containsPhrase("went through it", "rough"), "'through' is not 'rough'")
 
 // -- result ----------------------------------------------------------------
 

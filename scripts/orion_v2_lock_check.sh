@@ -116,7 +116,7 @@ diff -q "$SANDBOX/disabled.txt" "$SANDBOX/expected.txt" >/dev/null 2>&1
 check $? "every scheduled job was asked to be disabled, by id"
 
 # What the lock is actually WORTH, measured rather than asserted. "The profile
-# string changed" is a weak claim; "78 of 78 actions were reachable and now 15
+# string changed" is a weak claim; "every action was reachable and now 15
 # are" is the thing Nick is relying on. Read out of the live plugin and the live
 # catalogue, so widening restricted_read_only in permissions.ts fails here.
 echo ""
@@ -141,8 +141,23 @@ if [ -s "$SANDBOX/reach.json" ]; then
     check $? "the floor allows exactly ambient_info, desktop_read and simulation -- nothing writes, sends or modifies Orion"
     grep -q '"floor":15' "$SANDBOX/reach.json"
     check $? "which leaves 15 of the catalogue's actions reachable"
-    grep -q '"top":78,"total":78' "$SANDBOX/reach.json"
-    check $? "down from all 78 -- that reduction is what the panic button is worth"
+    # DERIVED, not pinned. This line used to read `"top":78,"total":78`, and it
+    # broke the day Phase 51 added seven actions and Phase 57 added four --
+    # correctly, in the sense that it noticed, and uselessly, in the sense that
+    # nothing about the panic button had changed. A literal count is exactly the
+    # thing this file's own comment warns against three lines above it.
+    #
+    # The property is the REDUCTION: the top profile reaches the whole
+    # catalogue, and the floor reaches a small fraction of it. Both halves are
+    # read out of the live catalogue, so widening restricted_read_only still
+    # fails here, and so does quietly excluding an action from the top profile.
+    "$NODE" -e '
+const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const whole = r.top === r.total;
+const small = r.floor <= r.total / 4;
+process.exit(whole && small ? 0 : 1);
+' "$SANDBOX/reach.json"
+    check $? "the top profile still reaches the whole catalogue, and the floor a quarter of it at most"
 fi
 
 # Phase 43's three transport-dependent requirements, which could not be checked

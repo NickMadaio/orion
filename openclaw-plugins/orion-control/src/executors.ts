@@ -13,6 +13,13 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import {
+  AUTOMATION_ROOT,
+  describeTrigger,
+  simulate,
+  validateProposal,
+  type AutomationProposal,
+} from "./automation.js";
+import {
   MAX_OUTPUT_BYTES,
   boundOutput,
   devEnvironment,
@@ -23,6 +30,7 @@ import {
   lstat,
   mkdir,
   open,
+  readFile,
   readdir,
   realpath,
   rename,
@@ -1819,6 +1827,9 @@ export async function executeAction(
   if (definition.execution.kind === "dev_operation") {
     return runDevOperation(definition.execution, step, idempotencyKey);
   }
+  if (definition.execution.kind === "automation") {
+    return runAutomation(definition.execution.operation, step, idempotencyKey);
+  }
   if (definition.execution.kind === "app_control") {
     const application = step.arguments[definition.execution.applicationArgument];
     if (typeof application !== "string") {
@@ -2430,6 +2441,18 @@ export async function verifyAction(
       evidence: present ? `self_source:${definition.execution.operation}` : undefined,
     };
   }
+  if (definition.execution.kind === "automation") {
+    // A proposal is a file: either it was written or the write threw. Nothing
+    // further is observed, deliberately -- the thing worth verifying about an
+    // automation is whether it FIRES, and none of these operations makes
+    // anything fire.
+    const present =
+      typeof execution.output === "string" && execution.output.length > 0;
+    return {
+      observed: present,
+      evidence: present ? `automation:${definition.execution.operation}` : undefined,
+    };
+  }
   if (definition.execution.kind === "dev_operation") {
     /*
      The command exited zero, and that IS the verification.
@@ -2987,6 +3010,115 @@ async function runDevOperation(
     mode: "observed",
     idempotencyKey,
     output: boundOutput(result.output) || `${policy.operation} finished with nothing to say.`,
+  };
+}
+
+/**
+ * PHASES 57/58 — proposals in, simulations out, and no way to schedule one.
+ *
+ * Everything here works on files under `automations/proposed`. Nothing in this
+ * function starts a job, writes a cron entry or touches a LaunchAgent, and
+ * that is not an omission to be filled in later: turning a proposal into a
+ * running job is `scripts/orion-automation install`, which is off the exec
+ * allowlist for the same reason `orion-approve` is. "The model may not
+ * silently install permanent automation" is therefore a property of the shape
+ * of this file rather than a rule somebody has to keep remembering.
+ */
+async function runAutomation(
+  operation: "propose" | "list" | "simulate" | "withdraw",
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const proposed = path.join(AUTOMATION_ROOT, "proposed");
+  const installed = path.join(AUTOMATION_ROOT, "installed");
+  const readAll = async (directory: string): Promise<AutomationProposal[]> => {
+    const names = await readdir(directory).catch(() => [] as string[]);
+    const out: AutomationProposal[] = [];
+    for (const name of names.filter((n) => n.endsWith(".json"))) {
+      const parsed = await readFile(path.join(directory, name), "utf8")
+        .then((text) => JSON.parse(text) as AutomationProposal)
+        .catch(() => null);
+      if (parsed) out.push(parsed);
+    }
+    return out;
+  };
+
+  if (operation === "list") {
+    const [waiting, live] = await Promise.all([readAll(proposed), readAll(installed)]);
+    const line = (item: AutomationProposal) =>
+      `  ${item.name} — ${describeTrigger(item.trigger)}, ${item.action}, until ${item.expiresOn}\n      ${item.intent}`;
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output: [
+        `${waiting.length} proposed, waiting on Nick:`,
+        ...waiting.map(line),
+        `${live.length} installed and running:`,
+        ...live.map(line),
+        waiting.length > 0
+          ? "Nick installs one by running: orion-automation install <name>. You cannot."
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  }
+
+  if (operation === "propose") {
+    // Validated twice on purpose. The catalog refuses a malformed proposal
+    // before it is authorized; this refuses one that arrived any other way. A
+    // second copy is not redundant when the first one can be bypassed.
+    const issues = validateProposal(step.arguments);
+    if (issues.length > 0) throw new ActionExecutionError(issues.join("; "));
+    const proposal = {
+      ...(step.arguments as unknown as AutomationProposal),
+      proposedAt: new Date().toISOString(),
+    };
+    // `installedAt` is a field only a person may write. Stripped rather than
+    // rejected, because rejecting it would tell a model that setting it is a
+    // thing worth attempting.
+    delete (proposal as Record<string, unknown>).installedAt;
+    await mkdir(proposed, { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(proposed, `${proposal.name}.json`),
+      `${JSON.stringify(proposal, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    const forecast = simulate(proposal);
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output:
+        `Proposed '${proposal.name}': ${describeTrigger(proposal.trigger)}, running ${proposal.action}, until ${proposal.expiresOn}.\n` +
+        `Over 30 days that is at most ${forecast.messageCount} message(s).\n` +
+        `NOTHING IS SCHEDULED. Tell Nick to run: orion-automation install ${proposal.name}\n` +
+        `You cannot install it yourself, and you must not say it is running.`,
+    };
+  }
+
+  const name = String(step.arguments.name ?? "");
+  const file = path.join(proposed, `${name}.json`);
+  const proposal = await readFile(file, "utf8")
+    .then((text) => JSON.parse(text) as AutomationProposal)
+    .catch(() => null);
+  if (!proposal) throw new ActionExecutionError(`No proposal called '${name.slice(0, 40)}'.`);
+
+  if (operation === "withdraw") {
+    await rm(file, { force: true });
+    return { mode: "observed", idempotencyKey, output: `Withdrew the proposal '${name}'.` };
+  }
+
+  const forecast = simulate(proposal);
+  return {
+    mode: "observed",
+    idempotencyKey,
+    output: [
+      `'${proposal.name}' — ${describeTrigger(proposal.trigger)}`,
+      `Over the last ${forecast.windowDays} days it would have fired ${forecast.fireCount} time(s),`,
+      `${forecast.suppressedCount} of those suppressed by its conditions,`,
+      `and spoken at most ${forecast.messageCount} time(s).`,
+      ...forecast.notes.map((note) => `- ${note}`),
+    ].join("\n"),
   };
 }
 

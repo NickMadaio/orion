@@ -1,5 +1,6 @@
 import { classifyConfigPath, classifyPluginFile, classifyScript, validateConfigValue, } from "./selfrepair.js";
 import { DEV_REPOSITORIES } from "./devops.js";
+import { NAME_RE, validateProposal } from "./automation.js";
 export const MUTABLE_ROOTS = [
     "test_workspace",
     "scratch_workspace",
@@ -1847,6 +1848,57 @@ export const ACTION_CATALOG = {
     tests_run: devAction("tests_run", "high", true, "tests_reported"),
     build_run: devAction("build_run", "high", true, "build_reported"),
     package_install: devAction("package_install", "high", true, "install_reported"),
+    /*
+     PHASES 57/58 — proposing an automation, and nothing more than proposing it.
+  
+     `risk: medium` on `automation_propose` rather than low, because a proposal
+     is a thing Nick will be asked to read and approve, and an assistant that
+     files six of them a day has found a way to get one approved by attrition.
+     The rest are reads.
+    */
+    automation_propose: {
+        risk: "medium",
+        requiredArguments: ["name", "intent", "trigger", "action", "expiresOn"],
+        approvalRequired: false,
+        verification: "automation_proposed",
+        reversible: true,
+        capabilityTier: "automation",
+        execution: { kind: "automation", operation: "propose" },
+        validateArguments: (arguments_) => validateProposal(arguments_),
+    },
+    automation_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "automation_listed",
+        reversible: true,
+        capabilityTier: "automation",
+        execution: { kind: "automation", operation: "list" },
+    },
+    automation_simulate: {
+        risk: "low",
+        requiredArguments: ["name"],
+        approvalRequired: false,
+        verification: "automation_simulated",
+        reversible: true,
+        capabilityTier: "automation",
+        execution: { kind: "automation", operation: "simulate" },
+        validateArguments: (arguments_) => typeof arguments_.name === "string" && NAME_RE.test(arguments_.name)
+            ? []
+            : ["name must be an existing proposal's name"],
+    },
+    automation_withdraw: {
+        risk: "low",
+        requiredArguments: ["name"],
+        approvalRequired: false,
+        verification: "automation_withdrawn",
+        reversible: true,
+        capabilityTier: "automation",
+        execution: { kind: "automation", operation: "withdraw" },
+        validateArguments: (arguments_) => typeof arguments_.name === "string" && NAME_RE.test(arguments_.name)
+            ? []
+            : ["name must be an existing proposal's name"],
+    },
     messages_send: {
         risk: "high",
         requiredArguments: ["recipient", "body"],

@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 175,
-    "AUTO": 117,
+    "total": 180,
+    "AUTO": 121,
     "NOTIFY": 19,
     "APPROVAL": 15,
-    "NEVER": 24
+    "NEVER": 25
   },
   "availability": [
     {
@@ -32,6 +32,14 @@
     {
       "tier": "app_control",
       "flag": "enableAppControlActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "automation",
+      "flag": "enableAutomationActions",
       "configOn": true,
       "profileOn": true,
       "available": true,
@@ -265,6 +273,50 @@
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "calendar",
       "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "automation_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "automation",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "automation_propose",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "automation",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "automation_simulate",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "automation",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "automation_withdraw",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "automation",
+      "risk": "low",
       "reversible": true
     },
     {
@@ -1735,6 +1787,14 @@
     {
       "kind": "command",
       "name": "orion-approve",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-automation",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

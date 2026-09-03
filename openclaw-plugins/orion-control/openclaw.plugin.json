@@ -189,6 +189,10 @@
       "enableDevOperationsActions": {
         "type": "boolean",
         "description": "Enable structured git/test/build/lockfile-install operations against a closed table of repositories (Phase 51), replacing the bare `git` exec allowlist entry that cannot see its own arguments. These run code out of the repository; see src/devops.ts. Default off."
+      },
+      "enableAutomationActions": {
+        "type": "boolean",
+        "description": "Let Orion PROPOSE and simulate automations (Phases 57/58). There is deliberately no install operation: turning a proposal into a running job is scripts/orion-automation, which is off the exec allowlist. Default off."
       }
     }
   },

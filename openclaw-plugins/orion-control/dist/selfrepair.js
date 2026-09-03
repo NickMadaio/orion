@@ -266,8 +266,14 @@ export const AUTHORITY_PLUGIN_FILES = [
     // adversarial cases ARE the proof, and a change that deletes its own proof
     // should require Nick to have asked for it.
     "approvals.ts",
+    // The two capability surfaces added for Phases 51 and 57. `devops.ts` holds
+    // the repository table and the fixed argv; `automation.ts` holds the closed
+    // action table a scheduled job may draw from. Both decide what Orion may
+    // reach, which is the test for this list.
+    "automation.ts",
     "catalog.ts",
     "controller.ts",
+    "devops.ts",
     "executors.ts",
     "gate.test.ts",
     "index.test.ts",
@@ -342,6 +348,7 @@ export const FORBIDDEN_SCRIPTS = {
     */
     "orion-approve": "that is how Nick says yes. Orion editing it would be Orion arranging his own approvals. Edit ~/Desktop/ORION/scripts/orion-approve by hand",
     "orion-mode": "that is how Nick sets how much Orion has to ask. Edit ~/Desktop/ORION/scripts/orion-mode by hand",
+    "orion-automation": "that is the only thing that can schedule an automation, and you may propose but never install. Edit ~/Desktop/ORION/scripts/orion-automation by hand",
 };
 const PLUGIN_FILE_NAME = /^[A-Za-z0-9_.-]+\.ts$/;
 const SCRIPT_NAME = /^orion-[a-z0-9][a-z0-9-]*$/;

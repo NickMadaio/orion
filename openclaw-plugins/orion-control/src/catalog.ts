@@ -6,6 +6,7 @@ import {
   type RepairClass,
 } from "./selfrepair.js";
 import { DEV_REPOSITORIES, type DevOperation } from "./devops.js";
+import { NAME_RE, validateProposal } from "./automation.js";
 
 export type Risk = "low" | "medium" | "high" | "critical";
 export type CapabilityTier =
@@ -110,7 +111,13 @@ export type CapabilityTier =
   // is: running a repository's build is not a filesystem operation and must
   // not arrive as a side effect of widening filesystem access. See devops.ts
   // for what these operations genuinely still let a repository do.
-  | "dev_operations";
+  | "dev_operations"
+  // PHASES 57/58. Orion PROPOSES an automation and simulates it. There is no
+  // install action in this tier and there cannot be one: installing is
+  // `scripts/orion-automation install`, which is off the exec allowlist, so
+  // "the model may not silently install permanent automation" is enforced by
+  // the shape of the catalog rather than by a rule somebody has to remember.
+  | "automation";
 
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
@@ -339,6 +346,14 @@ export type ExecutionPolicy =
    * all three, so an action cannot smuggle a flag through the catalog.
    */
   | { kind: "dev_operation"; operation: DevOperation }
+  /**
+   * PHASES 57/58. Write, read or simulate an automation PROPOSAL.
+   *
+   * `propose` and `withdraw` write into a proposals directory nothing
+   * schedules from. Turning a proposal into a running job happens in a
+   * separate program Orion may not run, which is the whole design.
+   */
+  | { kind: "automation"; operation: "propose" | "list" | "simulate" | "withdraw" }
   | FileMutationPolicy
   | CreateOnlyTextPolicy
   | DesktopTextMutationPolicy
@@ -2582,6 +2597,60 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
   tests_run: devAction("tests_run", "high", true, "tests_reported"),
   build_run: devAction("build_run", "high", true, "build_reported"),
   package_install: devAction("package_install", "high", true, "install_reported"),
+
+  /*
+   PHASES 57/58 — proposing an automation, and nothing more than proposing it.
+
+   `risk: medium` on `automation_propose` rather than low, because a proposal
+   is a thing Nick will be asked to read and approve, and an assistant that
+   files six of them a day has found a way to get one approved by attrition.
+   The rest are reads.
+  */
+  automation_propose: {
+    risk: "medium",
+    requiredArguments: ["name", "intent", "trigger", "action", "expiresOn"],
+    approvalRequired: false,
+    verification: "automation_proposed",
+    reversible: true,
+    capabilityTier: "automation",
+    execution: { kind: "automation", operation: "propose" },
+    validateArguments: (arguments_) => validateProposal(arguments_),
+  },
+  automation_list: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "automation_listed",
+    reversible: true,
+    capabilityTier: "automation",
+    execution: { kind: "automation", operation: "list" },
+  },
+  automation_simulate: {
+    risk: "low",
+    requiredArguments: ["name"],
+    approvalRequired: false,
+    verification: "automation_simulated",
+    reversible: true,
+    capabilityTier: "automation",
+    execution: { kind: "automation", operation: "simulate" },
+    validateArguments: (arguments_) =>
+      typeof arguments_.name === "string" && NAME_RE.test(arguments_.name)
+        ? []
+        : ["name must be an existing proposal's name"],
+  },
+  automation_withdraw: {
+    risk: "low",
+    requiredArguments: ["name"],
+    approvalRequired: false,
+    verification: "automation_withdrawn",
+    reversible: true,
+    capabilityTier: "automation",
+    execution: { kind: "automation", operation: "withdraw" },
+    validateArguments: (arguments_) =>
+      typeof arguments_.name === "string" && NAME_RE.test(arguments_.name)
+        ? []
+        : ["name must be an existing proposal's name"],
+  },
 
   messages_send: {
     risk: "high",

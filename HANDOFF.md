@@ -1321,3 +1321,60 @@ check runs, so comparing against it would pass no matter what changed.
 `orion_v2_strictness_check.sh`, then deploy — `cp dist/*.js
 ~/.openclaw/extensions/orion-control/dist/` and `./scripts/orion-remote-install`.
 The INSTALLED copies are what run; `--status` tells you when they have drifted.
+
+---
+
+## 2026-09-03 — voice into the gate, then phases 51–60
+
+**Voice.** The gap left open yesterday is closed, and not the way I first
+intended. `SpeakerVerifier.swift` forbids the obvious design in its own header
+— *"IT IS NOT AUTHENTICATION… nothing security-relevant should ever be
+conditioned on it"* — and it fails OPEN, so an approval built on it would
+succeed whenever the daemon was down. The mechanism that works was already
+here: `authorizeTaskGraph` mints `trusted_user` inputs from OpenClaw host
+provenance, which is the same proof `argumentNotFromUser` already uses. **If
+Nick's own turn says approve, a person said yes** — and it is not a voice
+feature: speech, a typed line and a Discord DM arrive identically, and none is
+trusted for being speech. A mention is not a decision; ambiguity grants nothing.
+
+**Phase 51 — structured development operations. Built and live.** Seven typed
+actions against a closed repository table. The manifest's six restrictions are
+enforced by construction: repo named by key (no path to traverse), cwd is the
+repo root, argv is a constant (`git pull` is `--ff-only`; `package_install` is
+`npm ci`), environment built from an allowlist of five variables, SIGKILL
+timeouts, output cut in the middle. Enabled in `openclaw.json`.
+
+**Phases 57/58 — automation. Built and live.** `automation_propose` /
+`_list` / `_simulate` / `_withdraw`, and **no install operation, deliberately**
+— installing is `scripts/orion-automation`, off the exec allowlist. "The model
+may not silently install permanent automation" was already true by absence and
+is now structural, with two live checks holding it.
+
+**52, 54 recorded as passed-by-absence**, which is a real verdict here rather
+than a dodge: zero raw-shell execution kinds, and zero screen-capture calls
+anywhere in the repo. Both were verified by enumeration, not by reading a list.
+
+**What is genuinely open, in the order I would take it:**
+
+1. **Phase 60's preparation half** — `orion-focus` enforces a session; nothing
+   opens the apps or loads project context at the start of one. Phase 51 just
+   made the "project context" half honest (`git_status`/`git_log` against a
+   named repo is what a work session opens with), so this is now unblocked to
+   build rather than blocked on anything.
+2. **The bare `git` allowlist entry** is now redundant and is the last raw-shell
+   route into a repository. Removing it is one line in `exec-approvals.json` —
+   left for Nick, because taking capability away unasked is as much a surprise
+   as adding it.
+3. **Phase 59's scoring.** Three of the six factors (novelty, confidence,
+   interruptibility) are already enforced structurally in `orion-standing`.
+   Urgency, actionability and importance have no input to compute from, so a
+   six-factor score today would be arithmetic over three constants.
+4. **Phase 58's history.** Simulation replays the calendar, not the past. It
+   needs `orion-cron-deliver`'s delivery decisions retained and queryable.
+
+**Two checks were wrong and are now derived rather than pinned.** The strictness
+baseline check failed on Phase 51's seven new actions — adding an action is not
+a regression, and it now distinguishes changed/removed from added. The lock
+check pinned `"top":78,"total":78`, three lines below its own comment saying to
+pin contents and not counts; it now asserts the *reduction* against the live
+catalogue. Both were mutation-tested after the change.

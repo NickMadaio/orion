@@ -4477,6 +4477,335 @@
         "This phase is where the manifest itself would narrow the full remote authority Nick chose on 2026-09-02 -- preauthorised narrow capabilities are the alternative to all-or-nothing. Worth reading together with scopeNotInManifest's remote_conversation_with_the_brain entry."
       ],
       "nextPhaseAllowed": false
+    },
+    "51": {
+      "name": "Structured Terminal Operations",
+      "status": "in_progress",
+      "entryRequiresPhase": "50",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "openclaw-plugins/orion-control/src/devops.ts plus seven ACTION_CATALOG entries, covered by src/gate.test.ts and exercised against the real repository. Enabled live in openclaw.json.",
+      "requirements": [
+        {
+          "id": "does_not_begin_with_raw_shell",
+          "status": "passed",
+          "evidence": "There are zero raw-shell execution kinds in ACTION_CATALOG -- verified by enumerating them, not by reading the list. The phase's opening instruction was already being violated by the exec layer rather than by the catalog: `git` is a bare name on the allowlist, which orion-authority has always reported honestly as an escape hatch, because one entry covers `git status` and `git push --force` alike."
+        },
+        {
+          "id": "creates_structured_development_capabilities",
+          "status": "passed",
+          "evidence": "Seven: git_status, git_log, git_diff, git_pull, tests_run, build_run, package_install. The manifest's `package.install` is `npm ci` and nothing else -- installing exactly the committed lockfile, never a package named at call time. Its `script.run_allowlisted` is deliberately NOT built as a generic runner: a closed table of repositories crossed with a closed table of operations is the same idea without an argument anybody can widen."
+        },
+        {
+          "id": "restricts_repository_working_directory_arguments_environment_time_and_output",
+          "status": "passed",
+          "evidence": "All six, by construction rather than by checking. REPOSITORY: named by key against a closed Map, so there is no path to traverse. WORKING DIRECTORY: the repo root, not an argument. ARGUMENTS: fixed argv; the only two inputs in the phase are a bounded integer and a boolean, appended to a constant prefix. ENVIRONMENT: built from an allowlist of five variables, so a token added to Nick's shell profile tomorrow is absent here today, and PATH is pinned rather than inherited. TIME: per operation, SIGKILL, because a runner that traps SIGTERM ignores a timeout. OUTPUT: capped and cut in the MIDDLE, because a failing suite prints its answer last."
+        },
+        {
+          "id": "the_bare_git_allowlist_entry_is_retired",
+          "status": "blocked",
+          "evidence": "NOT DONE, and deliberately left for Nick. The structured operations now cover everything the bare `git` entry was reached for, so the entry is redundant and is the last raw-shell route into a repository. Removing it edits exec-approvals.json, which is his file, and taking capability away unasked is as much a surprise as adding it.",
+          "reason": "Removing an exec allowlist entry is Nick's call; recommended, not taken."
+        }
+      ],
+      "decisions": [
+        "The tier is `dev_operations`, listed by name at consequential_local rather than folded into EDIT_TIERS -- the same rule self_modification follows, because running a repository's build executes code out of that repository and must not arrive as a side effect of widening filesystem access.",
+        "tests_run, build_run and package_install genuinely do execute repository code, and git_pull can bring in a hook. Recorded rather than argued away. It is not a new class of power -- orion-repair already built and tested before installing -- but it now carries a tier, a risk, a timeout and a ledger entry instead of arriving through an allowlist entry that cannot see its own arguments."
+      ],
+      "nextPhaseAllowed": false
+    },
+    "52": {
+      "name": "Raw Terminal Access",
+      "status": "in_progress",
+      "entryRequiresPhase": "51",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03 by enumerating ACTION_CATALOG execution kinds and the exec policy, not by reading a list.",
+      "requirements": [
+        {
+          "id": "keep_it_disabled_by_default",
+          "status": "passed",
+          "evidence": "Zero raw-shell actions exist, and the exec layer runs `security: allowlist`, `ask: off`, `askFallback: deny` -- an unlisted command is refused outright rather than prompted. Disabled by absence, which is the strongest form of disabled there is, and Phase 51 landing first is what makes keeping it that way practical rather than merely principled."
+        },
+        {
+          "id": "only_after_structured_operations_are_proven_safe",
+          "status": "passed",
+          "evidence": "Phase 51 shipped first and is the whole basis for not needing this. 'Proven safe' is not yet claimable -- the structured operations are hours old -- so this stays open as a sequencing fact rather than a verdict."
+        },
+        {
+          "id": "treat_raw_terminal_as_r5_with_session_visibility_faceid_duration_audit_and_cancellation",
+          "status": "blocked",
+          "evidence": "Not built and not wanted yet. Of the eight requirements listed, three are already available if it is ever built -- a complete audit (the task ledger), restricted working directories (devops.ts's repository table) and emergency cancellation (orion-lock, and `orion-mode contained`). Face ID needs the phone, as in Phase 49.",
+          "reason": "Deliberately unbuilt. The phase's own instruction is to keep it disabled by default."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "53": {
+      "name": "Automation Sessions for Complex Computer Work",
+      "status": "not_started",
+      "entryRequiresPhase": "52",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03. No computer-use surface exists to bound.",
+      "requirements": [
+        {
+          "id": "creates_bounded_computer_use_sessions",
+          "status": "blocked",
+          "evidence": "There is no computer-use capability on this machine: no screen capture, no input synthesis, no application driving beyond `open -a` and `osascript` against named apps. A session type would be a container for nothing.",
+          "reason": "Nothing to bound yet. Depends on a computer-use surface that does not exist."
+        },
+        {
+          "id": "every_session_defines_goal_device_apps_directories_domains_capabilities_and_ceilings",
+          "status": "blocked",
+          "evidence": "Six of the twelve fields now have a working implementation elsewhere and should be reused rather than rebuilt when this is built: risk ceiling, max duration and target device are the strictness delegation (Phase 50); allowed capabilities are the mode plus its floor; allowed directories are the mutable roots; and a session is most honestly a narrower, shorter delegation rather than a parallel concept.",
+          "reason": "Depends on the same missing surface."
+        },
+        {
+          "id": "requires_additional_approval_to_expand_scope",
+          "status": "blocked",
+          "evidence": "The mechanism exists and is tested -- an approval ticket a person grants -- but there is no scope to expand.",
+          "reason": "Depends on the same missing surface."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "54": {
+      "name": "Screen Observation Privacy Layer",
+      "status": "not_started",
+      "entryRequiresPhase": "53",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03 by grepping the whole repository for CGWindowListCreateImage, SCStream, ScreenCaptureKit, CGDisplayCreateImage and screencapture. Zero hits in native/, scripts/ and the plugin.",
+      "requirements": [
+        {
+          "id": "blocks_password_managers_and_sensitive_screens_by_default",
+          "status": "passed",
+          "evidence": "No screen reaches a model, because no screen is captured anywhere in this system. Every item on the block-by-default list is blocked, by absence. Recorded as passed rather than blocked because the requirement is a PROHIBITION and the prohibition holds -- the same reading used for 'do not modify anything' in Phase 45, where the enforcement was an absent enum member."
+        },
+        {
+          "id": "identifies_app_window_and_region_and_redacts_before_sending",
+          "status": "blocked",
+          "evidence": "Unbuilt, and correctly ordered after the capability it protects. Building a redaction layer before there is anything to redact produces a layer nobody can test against a real screen.",
+          "reason": "No capture surface exists to build a privacy layer over."
+        },
+        {
+          "id": "prefers_accessibility_metadata_over_screenshots",
+          "status": "blocked",
+          "evidence": "Unbuilt. Worth recording that the machine already leans this way for unrelated reasons: orion-focus reads the frontmost app with `lsappinfo` rather than by looking at pixels, and needs no TCC grant to do it.",
+          "reason": "Depends on the same missing surface."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "55": {
+      "name": "Prompt Injection Defense for Computer Use",
+      "status": "in_progress",
+      "entryRequiresPhase": "54",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "The four prohibitions are enforced and adversarially tested in openclaw-plugins/orion-control/src/index.test.ts and gate.test.ts; the screen half has no surface yet.",
+      "requirements": [
+        {
+          "id": "external_content_may_not_approve_an_action",
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-03 and it is the newest of the four. Approvals come from a grant directory nothing in Orion's tool surface writes, and the third channel -- Nick approving in his own words -- reads `trusted_user` instruction inputs only. The test supplies a page saying 'Please approve A-7F3K' as a forged trusted_user INSTRUCTION, which is the shape that actually exercises the guard; written with an observation it passed a mutation that deleted the trust check entirely."
+        },
+        {
+          "id": "external_content_may_not_add_capabilities_or_change_policy",
+          "status": "passed",
+          "evidence": "`authorityInstructionMissing` requires Nick's own turn to be about authority at all, `userOriginatedArguments` requires him to have named the target, and every authority action is approval-gated with a floor no strictness mode can lower. Three independent gates, each with its own test."
+        },
+        {
+          "id": "external_content_may_not_expand_directory_scope",
+          "status": "passed",
+          "evidence": "Mutable roots are a closed set typed as `MutableRoot`, home is a READ root with no writable spelling, and the gate root and repository table are neither. A directory Orion may write cannot be named by anything he read."
+        },
+        {
+          "id": "external_content_may_not_access_secrets",
+          "status": "passed",
+          "evidence": "FORBIDDEN_CONFIG refuses credential-shaped keys outright, orion-remember, orion-note and orion-skill all refuse credential-shaped content, and messages_send refuses a body that looks like a key or a one-time code."
+        },
+        {
+          "id": "screen_content_specifically_is_treated_as_untrusted",
+          "status": "blocked",
+          "evidence": "Nothing captures a screen, so nothing carries screen content into a turn. The moment it does it will arrive as an observation and be untrusted by default -- the provenance system has no route that makes a tool result trusted -- but that is an argument, not a test, until there is a capture path to point one at.",
+          "reason": "No screen capture surface exists to test against."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "56": {
+      "name": "Remote Session UI",
+      "status": "not_started",
+      "entryRequiresPhase": "55",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03. The verbs exist over Discord; the display does not exist anywhere.",
+      "requirements": [
+        {
+          "id": "shows_task_device_step_elapsed_risk_and_capabilities_on_mobile",
+          "status": "blocked",
+          "evidence": "There is no mobile app. MobileCore carries the types from Phases 41-45 and no renderer, which is the same wall Phase 49's approval screen hit.",
+          "reason": "No iOS app exists."
+        },
+        {
+          "id": "allows_pause_cancel_inspect_and_approve_next_step",
+          "status": "passed",
+          "evidence": "All four exist and are reachable remotely today, over Discord rather than over a phone app: `pause`, `cancel` and `status` are verbs in orion-remote handled by the transport before a model turn is spent, and approve is the gate ticket -- `approve A-7F3K`, refused from the local process so Orion cannot answer for Nick. Recorded passed because the requirement is the capability; the surface it is displayed on is the requirement above."
+        },
+        {
+          "id": "uses_live_activities_where_appropriate",
+          "status": "blocked",
+          "evidence": "Explicitly deferred by the manifest itself ('later where appropriate') and needs the phone.",
+          "reason": "Deferred by the manifest, and needs an iOS app."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "57": {
+      "name": "Automation Framework",
+      "status": "in_progress",
+      "entryRequiresPhase": "56",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "openclaw-plugins/orion-control/src/automation.ts, four ACTION_CATALOG entries under the `automation` tier, and scripts/orion-automation for the half Orion may not run. Covered by src/gate.test.ts and by scripts/orion_v2_strictness_check.sh.",
+      "requirements": [
+        {
+          "id": "defines_automation_as_structured_rules",
+          "status": "passed",
+          "evidence": "An AutomationProposal carries all seven fields the manifest names -- trigger, conditions, action, permissions, expiration, riskLimits, failureBehavior -- and validateProposal returns EVERY problem at once rather than the first, because a model that fixes one field per round trip starts inventing fields by the seventh. The trigger is a closed set of shapes and never a raw cron string; the expression is derived at install time, since a minute-field typo is a factor of sixty."
+        },
+        {
+          "id": "model_may_propose_automation",
+          "status": "passed",
+          "evidence": "`automation_propose` writes into automations/proposed, which nothing schedules from, and returns the simulation alongside the confirmation so the proposal arrives with its own cost attached. This is the half that did not exist: Orion could describe an automation in English and had nowhere to put it -- the same gap orion-skill was built to close."
+        },
+        {
+          "id": "model_may_not_silently_install_permanent_automation",
+          "status": "passed",
+          "evidence": "Structural rather than incidental. It was ALREADY true by absence -- no action could write a LaunchAgent or crontab and `openclaw` is not allowlisted -- and absence holds only until somebody adds a wrapper for an unrelated reason. Now the automation tier has propose/list/simulate/withdraw and no install operation at all; installing is scripts/orion-automation, which is off the exec allowlist and in FORBIDDEN_SCRIPTS. Two live checks assert both halves: that the four operations are exactly those four, and that no action anywhere in the catalog mentions a scheduler."
+        },
+        {
+          "id": "actions_are_drawn_from_a_closed_table",
+          "status": "passed",
+          "evidence": "Five entries, every one a command that already runs unattended on this machine and already knows how to stay quiet. An automation that could run an arbitrary command would be arbitrary execution on a timer, which is worse than arbitrary execution because nobody is watching."
+        },
+        {
+          "id": "an_automation_ends_on_its_own",
+          "status": "passed",
+          "evidence": "`expiresOn` is required and capped at 180 days. The failure mode of automation is not the job that misfires, it is the job that keeps working after it stopped being wanted -- the same argument that gave the strictness delegation an expiry in Phase 50."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "58": {
+      "name": "Automation Simulation",
+      "status": "in_progress",
+      "entryRequiresPhase": "57",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "The `simulate` function in automation.ts, `automation_simulate` in the catalog, and `orion-automation simulate`.",
+      "requirements": [
+        {
+          "id": "shows_how_often_this_would_trigger_and_what_would_occur",
+          "status": "passed",
+          "evidence": "Replays the trigger against real clock time over a window and reports firings, suppressions and messages separately. Arithmetic rather than a dry run, deliberately: dry-running `orion-daily` would roll up the day's memory, which is the thing simulation exists to avoid doing. A quiet window that crosses midnight is read as a window -- 22 to 7 is nine hours, not an empty range -- and that has its own test, because reading it wrong is how a quiet-hours rule silently does nothing."
+        },
+        {
+          "id": "says_what_it_cannot_know",
+          "status": "passed",
+          "evidence": "Every result carries notes, and the first one says the number is a CEILING rather than a forecast: it counts every moment the trigger fires, and the actions stay silent when they have nothing to say. A simulation that quietly reports zero because it had no data is worse than one that refuses to guess. Not a manifest line; added because reporting a bound as a prediction is the specific way this feature would mislead."
+        },
+        {
+          "id": "uses_historical_data_where_available",
+          "status": "blocked",
+          "evidence": "It replays the CALENDAR, not history. There is no record of past focus sessions or of how often standing orders actually spoke, so 'how often would this have said something' cannot be answered and is reported as unknown instead of estimated. Closing this needs the delivery log orion-cron-deliver already gates on to be retained and queryable.",
+          "reason": "No retained history of past firings or suppressions exists to replay against."
+        },
+        {
+          "id": "requires_confirmation_after_simulation_for_higher_risk_automation",
+          "status": "passed",
+          "evidence": "Every automation requires confirmation, not just higher-risk ones, and the confirmation is a person running a program Orion cannot. `install` re-runs validateProposal before scheduling -- the proposal has been sitting on disk and an expiry that was in the future when it was written may not be now -- and prints the simulation immediately above the decision."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "59": {
+      "name": "Proactive ORION",
+      "status": "not_started",
+      "entryRequiresPhase": "58",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03. scripts/orion-standing is the proactive system and has been running hourly for weeks; it has no scoring in it.",
+      "requirements": [
+        {
+          "id": "implemented_only_after_other_systems_are_stable",
+          "status": "passed",
+          "evidence": "Ordering satisfied by accident of history rather than by plan: standing orders were built after the memory, agenda and delivery paths, and its header records the three failure modes that were paid for first."
+        },
+        {
+          "id": "scores_items_by_urgency_actionability_novelty_confidence_importance_and_interruptibility",
+          "status": "blocked",
+          "evidence": "No scoring exists. What exists is the RULE the scoring would serve, and it is stronger than a score: 'say only what changed', with silence as the default and the normal outcome. Three of the six factors are already enforced structurally -- novelty by the changed-only rule, confidence by refusing to print a number that was not given and is not stamped today, interruptibility by quiet hours and a cooldown. The three genuinely absent are urgency, actionability and importance, and adding a six-factor score without them would be arithmetic over three constants.",
+          "reason": "Three of the six factors have no input to compute from. Deliberately not faked."
+        },
+        {
+          "id": "does_not_interrupt_for_low_value_observations",
+          "status": "passed",
+          "evidence": "The whole design of orion-standing. Silence is the default, every line has to answer what changed, why it matters and what to do about it, and an unavailable source is reported as a blind spot rather than flattened into 'nothing scheduled'."
+        },
+        {
+          "id": "places_low_priority_suggestions_in_today",
+          "status": "blocked",
+          "evidence": "There is a Today surface in the Swift app and standing orders do not write to it; low-priority items are dropped rather than filed. Closing this is a write path from orion-standing into the day model, not a scoring problem.",
+          "reason": "No write path from the proactive system into the Today surface."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "60": {
+      "name": "Focus Sessions",
+      "status": "in_progress",
+      "entryRequiresPhase": "59",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03 against scripts/orion-focus (315 lines) and native/Orion/Sources/Orion/FocusSessionHome.swift (1192 lines), both live.",
+      "requirements": [
+        {
+          "id": "creates_focus_sessions_connecting_task_and_mac_workspace",
+          "status": "passed",
+          "evidence": "`orion-focus start \"<task>\" <minutes> <app>...` binds a task to a set of allowed apps and enforces it every minute through a cron job that has been running for weeks. Two design choices in it are worth keeping on the record: it REFOCUSES rather than quitting the distracting app, which needs no Automation permission and risks no unsaved work; and the unlock is an argument with a sceptical local model rather than a button, because a timer you can cancel is a timer you will cancel."
+        },
+        {
+          "id": "connects_a_calendar_block_and_notification_preferences",
+          "status": "blocked",
+          "evidence": "Neither is wired. A session is started by name and minutes, not from a calendar event, and nothing touches Do Not Disturb. The calendar half is reachable -- orion-agenda already reads events -- and the notification half needs a Focus-mode API the app does not currently use.",
+          "reason": "Sessions are not started from calendar blocks and do not set notification state."
+        },
+        {
+          "id": "orion_prepares_required_applications_files_and_project_context",
+          "status": "blocked",
+          "evidence": "NOT BUILT, and it is the substantive gap in this phase. `orion-focus` enforces a session; nothing opens the apps, surfaces the files or loads the project context at the start of one. Phase 51's structured operations are what would make the 'project context' half honest -- git_status and git_log against a named repository are exactly the context a work session opens with -- so this is now unblocked to build rather than blocked on a missing capability.",
+          "reason": "Unbuilt. Now unblocked by Phase 51 rather than waiting on anything."
+        },
+        {
+          "id": "does_not_begin_work_on_the_mac_without_proper_permissions",
+          "status": "passed",
+          "evidence": "orion-focus needs no permission Nick has not already given, and its header says so and says why: `lsappinfo` reads the frontmost app with no TCC prompt, `open -a` raises a window, `say` speaks. The alternative design -- quitting apps -- would have needed Automation permission per target app, and was rejected partly for that reason."
+        }
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {

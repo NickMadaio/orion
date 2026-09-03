@@ -1,6 +1,6 @@
 import { type DevOperation } from "./devops.js";
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -194,6 +194,17 @@ export type ExecutionPolicy = {
  | {
     kind: "dev_operation";
     operation: DevOperation;
+}
+/**
+ * PHASES 57/58. Write, read or simulate an automation PROPOSAL.
+ *
+ * `propose` and `withdraw` write into a proposals directory nothing
+ * schedules from. Turning a proposal into a running job happens in a
+ * separate program Orion may not run, which is the whole design.
+ */
+ | {
+    kind: "automation";
+    operation: "propose" | "list" | "simulate" | "withdraw";
 } | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;

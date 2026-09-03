@@ -68,8 +68,9 @@ export async function loadPlugin() {
       // host and cannot start a plugin.
       const approvals = await import(join(dist, "approvals.js"));
       const strictness = await import(join(dist, "strictness.js"));
+      const automation = await import(join(dist, "automation.js"));
       const index = await readFile(join(dist, "index.js"), "utf8");
-      return { catalog, permissions, approvals, strictness, index, dist };
+      return { catalog, permissions, approvals, strictness, automation, index, dist };
     } catch (error) {
       failures.push(`${dist}: ${error.message}`);
     }

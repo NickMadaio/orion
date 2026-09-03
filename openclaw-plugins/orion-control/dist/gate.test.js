@@ -6,6 +6,7 @@ import { applyUserTurnDecisions, approvalPaths, consumeGrant, decisionsInUserTur
 import { DEFAULT_MODE, MAX_DELEGATION_MS, STRICTNESS_MODES, applyMode, floorForAction, isRelaxation, levelForAction, resolveStrictness, writeStrictness, GUARDED_STATE, } from "./strictness.js";
 import { ACTION_CATALOG } from "./catalog.js";
 import { boundOutput, devEnvironment, resolveDevCommand } from "./devops.js";
+import { cronExpression, simulate, validateProposal } from "./automation.js";
 const tmp = () => mkdtemp(path.join(os.tmpdir(), "orion-gate-"));
 describe("the approval gate has a person in it", () => {
     it("mints an id a person could read out, and refuses anything else", async () => {
@@ -495,5 +496,104 @@ describe("phase 51: structured development operations", () => {
         for (const name of doers) {
             expect(ACTION_CATALOG[name].risk, name).toBe("high");
         }
+    });
+});
+describe("phases 57/58: automation is proposed, never installed", () => {
+    const good = () => ({
+        name: "morning-brief",
+        intent: "tell me what is on today before I get up",
+        trigger: { kind: "daily", atHour: 7, atMinute: 30 },
+        conditions: { quietHours: [22, 7] },
+        action: "standing_morning",
+        permissions: { expectsMode: "guarded" },
+        expiresOn: new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10),
+        riskLimits: { maxRunsPerDay: 1, maxMessagesPerDay: 1 },
+        failureBehavior: "report_and_continue",
+        proposedAt: new Date().toISOString(),
+    });
+    it("has no install action, and that is the enforcement", () => {
+        /*
+         Phase 57: "Model may not silently install permanent automation."
+    
+         Enforced by the SHAPE of the catalog rather than by a rule. There is no
+         operation here that schedules anything, and adding one would be visible
+         in this assertion rather than in a review nobody runs.
+        */
+        const operations = Object.values(ACTION_CATALOG)
+            .filter((d) => d.execution.kind === "automation")
+            .map((d) => d.execution.operation)
+            .sort();
+        expect(operations).toEqual(["list", "propose", "simulate", "withdraw"]);
+        expect(operations).not.toContain("install");
+        // And nothing anywhere in the catalog can reach a scheduler by any route.
+        const scheduler = Object.entries(ACTION_CATALOG).filter(([, d]) => /launchagent|crontab|plist|cron/i.test(JSON.stringify(d.execution)));
+        expect(scheduler).toEqual([]);
+    });
+    it("refuses a raw cron string, because a minute field is a factor of sixty", () => {
+        const raw = { ...good(), trigger: { kind: "cron", expression: "* * * * *" } };
+        expect(validateProposal(raw).join(" ")).toMatch(/raw cron string is not accepted/);
+        // The expression is DERIVED from the shape and never accepted as input.
+        expect(cronExpression({ kind: "daily", atHour: 7, atMinute: 30 })).toBe("30 7 * * *");
+        expect(cronExpression({ kind: "hourly", atMinute: 0 })).toBe("0 * * * *");
+    });
+    it("requires every field the manifest names, and says all of them at once", () => {
+        const issues = validateProposal({ name: "x" });
+        // All of them, not the first. A model that fixes one field per round trip
+        // takes seven turns, and by the seventh it is inventing fields to make the
+        // errors stop.
+        expect(issues.length).toBeGreaterThan(4);
+        for (const field of ["intent", "trigger", "action", "expiresOn", "maxRunsPerDay", "failureBehavior"]) {
+            expect(issues.join(" "), field).toContain(field);
+        }
+        expect(validateProposal(good())).toEqual([]);
+    });
+    it("will not accept an automation with no end", () => {
+        const forever = { ...good() };
+        delete forever.expiresOn;
+        expect(validateProposal(forever).join(" ")).toMatch(/expiresOn is required/);
+        // Nor one that outlives the window in which somebody would still want it.
+        const distant = {
+            ...good(),
+            expiresOn: new Date(Date.now() + 900 * 86_400_000).toISOString().slice(0, 10),
+        };
+        expect(validateProposal(distant).join(" ")).toMatch(/within \d+ days/);
+    });
+    it("only lets an automation run something from the closed table", () => {
+        expect(validateProposal({ ...good(), action: "rm -rf /" }).join(" ")).toMatch(/action must be one of/);
+        expect(validateProposal({ ...good(), action: "orion-messages-send" }).join(" ")).toMatch(/action must be one of/);
+    });
+    it("simulates against the clock, and says what it cannot know", () => {
+        // Phase 58. Hourly, quiet 22:00-07:00 -> nine suppressed hours a day.
+        const hourly = {
+            ...good(),
+            trigger: { kind: "hourly", atMinute: 0 },
+            riskLimits: { maxRunsPerDay: 24, maxMessagesPerDay: 24 },
+        };
+        const forecast = simulate(hourly, { windowDays: 10 });
+        expect(forecast.fireCount).toBe(240);
+        expect(forecast.suppressedCount).toBe(90);
+        expect(forecast.messageCount).toBe(150);
+        // A ceiling, and it says so rather than being read as a forecast.
+        expect(forecast.notes.join(" ")).toMatch(/CEILING/);
+    });
+    it("lets the daily ceiling actually bite, and says when it did", () => {
+        const noisy = {
+            ...good(),
+            trigger: { kind: "hourly", atMinute: 0 },
+            conditions: {},
+            riskLimits: { maxRunsPerDay: 24, maxMessagesPerDay: 2 },
+        };
+        const forecast = simulate(noisy, { windowDays: 5 });
+        expect(forecast.fireCount).toBe(120);
+        expect(forecast.messageCount).toBe(10);
+        expect(forecast.cappedByRiskLimit).toBe(true);
+        expect(forecast.notes.join(" ")).toMatch(/ceiling of 2 is doing real work/);
+    });
+    it("reads a quiet window that crosses midnight as a window", () => {
+        // 22 to 7 wraps. Reading it as an empty range is how a quiet-hours rule
+        // silently does nothing, which is the failure mode that matters.
+        const wrapped = simulate({ ...good(), trigger: { kind: "hourly", atMinute: 0 }, conditions: { quietHours: [22, 7] },
+            riskLimits: { maxRunsPerDay: 24, maxMessagesPerDay: 24 } }, { windowDays: 1 });
+        expect(wrapped.suppressedCount).toBe(9);
     });
 });

@@ -1,0 +1,206 @@
+#!/usr/bin/env node
+/*
+ Turning a proposal into something that actually runs. Nick's half.
+
+ ## Why this is a separate program, again
+
+ Phase 57 is two sentences:
+
+     Model may propose automation.
+     Model may not silently install permanent automation.
+
+ The second was already true by ABSENCE — nothing in ACTION_CATALOG could
+ write a LaunchAgent or a crontab, and `openclaw` is not on the exec allowlist.
+ Absence is strong enforcement and it is also brittle: it holds until somebody
+ adds a wrapper for an unrelated reason and does not notice what it reaches.
+
+ So it is structural now. The plugin has `automation_propose`, `automation_list`,
+ `automation_simulate` and `automation_withdraw`, and there is no install
+ action — installing lives here, and this file is:
+
+   · absent from `~/.openclaw/exec-approvals.json`, so with `ask: off` and
+     `askFallback: deny` Orion's call to it is refused rather than prompted;
+   · in FORBIDDEN_SCRIPTS, so the repair engine will not edit it;
+   · the only writer of `automations/installed/`, which is the directory the
+     scheduler is driven from.
+
+ Same argument as `orion-approve` and `orion-mode`, and the same check suite
+ holds it.
+
+ ## What install actually does
+
+ Derives the cron expression from the proposal's TRIGGER SHAPE. The expression
+ is never accepted as input, from anybody — a minute-field typo is a factor of
+ sixty, and there is no reason a person should be typing one when the shape is
+ already written down.
+
+   orion-automation                  what is proposed and what is running
+   orion-automation show <name>      the whole proposal, every field
+   orion-automation simulate <name>  how often it would fire, before deciding
+   orion-automation install <name>   make it real
+   orion-automation remove <name>    stop it and put it back in proposed
+*/
+
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+import { loadPlugin } from "./lib/orion-plugin.mjs";
+
+const run = promisify(execFile);
+const HOME = homedir();
+const ROOT = join(HOME, ".openclaw/orion-controlled/automations");
+const PROPOSED = join(ROOT, "proposed");
+const INSTALLED = join(ROOT, "installed");
+const OPENCLAW = join(HOME, ".openclaw/bin/openclaw");
+const DELIVER = join(HOME, "Desktop/ORION/scripts/orion-cron-deliver");
+
+const plugin = await loadPlugin().catch((error) => {
+  console.error(`orion-automation: ${error.message}`);
+  process.exit(1);
+});
+const { AUTOMATION_ACTIONS, cronExpression, describeTrigger, simulate, validateProposal } =
+  plugin.automation;
+
+const fail = (message, code = 2) => {
+  console.error(`orion-automation: ${message}`);
+  process.exit(code);
+};
+
+const readDir = (dir) => {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => {
+      try {
+        return JSON.parse(readFileSync(join(dir, f), "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+};
+
+const [command = "list", name] = process.argv.slice(2);
+
+if (command === "list") {
+  const waiting = readDir(PROPOSED);
+  const live = readDir(INSTALLED);
+  console.log("");
+  console.log(`  ${waiting.length} proposed, waiting on you:`);
+  for (const p of waiting) {
+    console.log(`    ${p.name.padEnd(24)} ${describeTrigger(p.trigger)}  ->  ${p.action}`);
+    console.log(`      ${p.intent}`);
+  }
+  console.log("");
+  console.log(`  ${live.length} running:`);
+  for (const p of live) {
+    console.log(`    ${p.name.padEnd(24)} ${describeTrigger(p.trigger)}  until ${p.expiresOn}`);
+  }
+  console.log("");
+  if (waiting.length) {
+    console.log(`  look first:  orion-automation simulate ${waiting[0].name}`);
+    console.log(`  then:        orion-automation install ${waiting[0].name}`);
+    console.log("");
+  }
+  process.exit(0);
+}
+
+if (!name) fail(`${command} needs a name. Run orion-automation to see them.`);
+const file = join(PROPOSED, `${name}.json`);
+const liveFile = join(INSTALLED, `${name}.json`);
+
+if (command === "show") {
+  const source = existsSync(file) ? file : liveFile;
+  if (!existsSync(source)) fail(`no automation called '${name}'`, 1);
+  process.stdout.write(readFileSync(source, "utf8"));
+  process.exit(0);
+}
+
+if (command === "simulate") {
+  if (!existsSync(file)) fail(`no proposal called '${name}'`, 1);
+  const proposal = JSON.parse(readFileSync(file, "utf8"));
+  const forecast = simulate(proposal);
+  console.log("");
+  console.log(`  ${proposal.name} — ${describeTrigger(proposal.trigger)}`);
+  console.log(`  ${proposal.intent}`);
+  console.log("");
+  console.log(`  Over the last ${forecast.windowDays} days it would have fired ${forecast.fireCount} time(s).`);
+  console.log(`  ${forecast.suppressedCount} suppressed by its own conditions.`);
+  console.log(`  At most ${forecast.messageCount} message(s) would have reached you.`);
+  console.log("");
+  for (const note of forecast.notes) console.log(`  - ${note}`);
+  console.log("");
+  process.exit(0);
+}
+
+if (command === "install") {
+  if (!existsSync(file)) fail(`no proposal called '${name}'`, 1);
+  const proposal = JSON.parse(readFileSync(file, "utf8"));
+  // Re-validated at install rather than trusted from the propose step. The
+  // proposal has been sitting on disk, and an expiry that was in the future
+  // when it was written may not be now.
+  const issues = validateProposal(proposal);
+  if (issues.length > 0) fail(`that proposal is no longer valid:\n  - ${issues.join("\n  - ")}`);
+
+  const action = AUTOMATION_ACTIONS[proposal.action];
+  if (!action) fail(`'${proposal.action}' is not an action I know how to run`);
+
+  const forecast = simulate(proposal);
+  console.log("");
+  console.log(`  ${proposal.name}: ${describeTrigger(proposal.trigger)} -> ${action.describe}`);
+  console.log(`  At most ${forecast.messageCount} message(s) over 30 days. Expires ${proposal.expiresOn}.`);
+  console.log("");
+
+  // The cron expression is DERIVED, never typed and never accepted as input.
+  const expression = cronExpression(proposal.trigger);
+  const script = join(HOME, "Desktop/ORION/scripts", action.argv[0]);
+  const result = await run(OPENCLAW, [
+    "cron", "add",
+    "--name", `orion-auto-${proposal.name}`,
+    "--schedule", expression,
+    "--timezone", "America/New_York",
+    "--command", `${DELIVER} ${script} ${action.argv.slice(1).join(" ")}`,
+  ]).catch((error) => ({ stderr: String(error?.stderr || error?.message) , failed: true }));
+
+  if (result.failed) {
+    console.error(`  could not schedule it: ${String(result.stderr).slice(0, 300)}`);
+    console.error("  nothing was installed.");
+    process.exit(1);
+  }
+
+  mkdirSync(INSTALLED, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    liveFile,
+    JSON.stringify({ ...proposal, installedAt: new Date().toISOString(), cron: expression }, null, 2) + "\n",
+    { mode: 0o600 },
+  );
+  unlinkSync(file);
+  console.log(`  installed. schedule: ${expression} America/New_York`);
+  console.log(`  stop it with: orion-automation remove ${proposal.name}`);
+  console.log("");
+  process.exit(0);
+}
+
+if (command === "remove") {
+  if (!existsSync(liveFile)) fail(`'${name}' is not installed`, 1);
+  const proposal = JSON.parse(readFileSync(liveFile, "utf8"));
+  const list = await run(OPENCLAW, ["cron", "list"]).catch(() => ({ stdout: "" }));
+  const row = String(list.stdout).split("\n").find((l) => l.includes(`orion-auto-${name}`));
+  const id = row?.trim().split(/\s+/)[0];
+  if (id) await run(OPENCLAW, ["cron", "remove", id]).catch(() => undefined);
+  // Back to proposed rather than deleted. Removing a capability should cost
+  // less than rebuilding it, and this way "turn it off for now" does not throw
+  // away the thing Nick approved.
+  mkdirSync(PROPOSED, { recursive: true, mode: 0o700 });
+  delete proposal.installedAt;
+  delete proposal.cron;
+  writeFileSync(file, JSON.stringify(proposal, null, 2) + "\n", { mode: 0o600 });
+  unlinkSync(liveFile);
+  console.log(`stopped '${name}'${id ? "" : " (no scheduler entry was found)"}; the proposal is kept.`);
+  process.exit(0);
+}
+
+fail("usage: orion-automation [list | show <name> | simulate <name> | install <name> | remove <name>]");

@@ -95,6 +95,10 @@ const PROFILE_TIERS: Record<PermissionProfile, ReadonlySet<CapabilityTier>> = {
     // that repository, which is not a filesystem operation and must not arrive
     // as a side effect of widening filesystem access.
     "dev_operations",
+    // Proposing an automation is not a filesystem operation and must not
+    // arrive as a side effect of widening one, same as its neighbours here.
+    // The half that installs is not in this catalog at all.
+    "automation",
   ]),
   // The first profile that grants something no lower profile can reach.
   //
@@ -117,6 +121,7 @@ const PROFILE_TIERS: Record<PermissionProfile, ReadonlySet<CapabilityTier>> = {
     "self_config",
     "calendar",
     "dev_operations",
+    "automation",
     "messages_send",
   ]),
 };

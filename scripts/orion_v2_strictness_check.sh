@@ -40,7 +40,7 @@ check() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (want '$3', got '$2')";
 echo ""
 echo "== 1. the two human-only scripts are unreachable from exec =="
 
-for script in orion-approve orion-mode; do
+for script in orion-approve orion-mode orion-automation; do
     # `python3 -c` rather than grep: a substring match would pass on a comment
     # mentioning the name, and this needs to be an answer about the allowlist.
     found="$(python3 - "$script" <<'PY'
@@ -61,7 +61,7 @@ done
 
 # And the derived map agrees, which is the check that would catch an entry
 # added later by any route at all.
-for script in orion-approve orion-mode; do
+for script in orion-approve orion-mode orion-automation; do
     level="$("$REPO/scripts/orion-authority" check "$script" 2>/dev/null | head -1 | awk '{print $2}')"
     check "orion-authority reports $script as NEVER" "$level" "NEVER"
 done
@@ -69,7 +69,7 @@ done
 echo ""
 echo "== 2. the self-repair engine refuses to edit them =="
 
-for script in orion-approve orion-mode orion-repair orion-forge; do
+for script in orion-approve orion-mode orion-automation orion-repair orion-forge; do
     klass="$(node -e '
 const { classifyScript } = await import(process.argv[1] + "/selfrepair.js");
 process.stdout.write(classifyScript(process.argv[2]).klass);
@@ -166,6 +166,30 @@ const wrong = cases.filter(([text, want]) => say(text) !== want).map(([text]) =>
 process.stdout.write(wrong.join(" | ") || "none");
 ' --input-type=module "$DIST" 2>&1)"
 check "an approval is heard only when Nick decided one" "$grammar" "none"
+
+echo ""
+echo "== 5c. nothing in the catalog can schedule anything =="
+
+# Phase 57: "the model may not silently install permanent automation." Enforced
+# by the SHAPE of the catalog -- there is a propose operation and no install
+# one -- rather than by a rule somebody has to keep remembering.
+ops="$(node -e '
+const { ACTION_CATALOG } = await import(process.argv[1] + "/catalog.js");
+const auto = Object.values(ACTION_CATALOG)
+  .filter((d) => d.execution.kind === "automation")
+  .map((d) => d.execution.operation).sort();
+process.stdout.write(auto.join(",") || "none");
+' --input-type=module "$DIST" 2>/dev/null)"
+check "automation offers propose and simulate, and no install" "$ops" "list,propose,simulate,withdraw"
+
+scheduler="$(node -e '
+const { ACTION_CATALOG } = await import(process.argv[1] + "/catalog.js");
+const bad = Object.entries(ACTION_CATALOG)
+  .filter(([, d]) => /launchagent|crontab|plist|\bcron\b/i.test(JSON.stringify(d.execution)))
+  .map(([n]) => n);
+process.stdout.write(bad.join(",") || "none");
+' --input-type=module "$DIST" 2>/dev/null)"
+check "no action anywhere reaches a scheduler" "$scheduler" "none"
 
 echo ""
 echo "== 6. guarded is still exactly what shipped =="

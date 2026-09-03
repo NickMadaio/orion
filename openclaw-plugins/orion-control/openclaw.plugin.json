@@ -193,6 +193,14 @@
       "enableAutomationActions": {
         "type": "boolean",
         "description": "Let Orion PROPOSE and simulate automations (Phases 57/58). There is deliberately no install operation: turning a proposal into a running job is scripts/orion-automation, which is off the exec allowlist. Default off."
+      },
+      "enableWaitingOnActions": {
+        "type": "boolean",
+        "description": "Track what Nick is waiting on from other people (Phase 62), surface it when it goes overdue, and draft a follow-up he can send himself. Writes one JSON file Orion owns and cannot deliver anything. Default off."
+      },
+      "enablePrepActions": {
+        "type": "boolean",
+        "description": "Assemble a prep card before an event (Phase 61) from mail, the brain, tasks and the waiting list. Reads only; writes nothing anywhere, so nothing it reads becomes permanent memory. Requires the mail and messages readers to be enabled separately. Default off."
       }
     }
   },

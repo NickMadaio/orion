@@ -1,6 +1,11 @@
 import { classifyConfigPath, classifyPluginFile, classifyScript, validateConfigValue, } from "./selfrepair.js";
 import { DEV_REPOSITORIES } from "./devops.js";
 import { NAME_RE, validateProposal } from "./automation.js";
+import { validateItem as validateWaitingItem } from "./waiting.js";
+/** One id, matched against the same shape the store enforces. */
+const waitingIdIssues = (value) => typeof value === "string" && /^[a-z0-9][a-z0-9-]{1,39}$/.test(value)
+    ? []
+    : ["id must be an existing item's id — lower-case letters, digits and hyphens"];
 export const MUTABLE_ROOTS = [
     "test_workspace",
     "scratch_workspace",
@@ -1898,6 +1903,119 @@ export const ACTION_CATALOG = {
         validateArguments: (arguments_) => typeof arguments_.name === "string" && NAME_RE.test(arguments_.name)
             ? []
             : ["name must be an existing proposal's name"],
+    },
+    /*
+     PHASE 62 — waiting-on tracking.
+  
+     Every one of these writes only Orion's own store, so they sit at `low` risk
+     and none is approval-gated. The one that looks like it should be is `draft`,
+     and it is not: a draft is text on a record. What would make it consequential
+     is DELIVERY, and delivery is `messages_send`, which sits at the third-party
+     floor no strictness mode can lower.
+    */
+    waiting_add: {
+        risk: "low",
+        requiredArguments: ["id", "what", "who", "expect", "dueBy"],
+        approvalRequired: false,
+        verification: "waiting_stored",
+        reversible: true,
+        capabilityTier: "waiting_on",
+        execution: { kind: "waiting", operation: "add" },
+        validateArguments: (arguments_) => validateWaitingItem(arguments_),
+    },
+    waiting_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "waiting_reported",
+        reversible: true,
+        capabilityTier: "waiting_on",
+        execution: { kind: "waiting", operation: "list" },
+    },
+    waiting_resolve: {
+        risk: "low",
+        requiredArguments: ["id"],
+        approvalRequired: false,
+        verification: "waiting_stored",
+        reversible: true,
+        capabilityTier: "waiting_on",
+        execution: { kind: "waiting", operation: "resolve" },
+        validateArguments: (arguments_) => waitingIdIssues(arguments_.id),
+    },
+    waiting_dismiss: {
+        risk: "low",
+        requiredArguments: ["id"],
+        approvalRequired: false,
+        verification: "waiting_stored",
+        reversible: true,
+        capabilityTier: "waiting_on",
+        execution: { kind: "waiting", operation: "dismiss" },
+        validateArguments: (arguments_) => waitingIdIssues(arguments_.id),
+    },
+    waiting_snooze: {
+        risk: "low",
+        requiredArguments: ["id", "days"],
+        approvalRequired: false,
+        verification: "waiting_stored",
+        reversible: true,
+        capabilityTier: "waiting_on",
+        execution: { kind: "waiting", operation: "snooze" },
+        validateArguments: (arguments_) => [
+            ...waitingIdIssues(arguments_.id),
+            ...(Number.isInteger(arguments_.days) &&
+                arguments_.days >= 1 &&
+                arguments_.days <= 90
+                ? []
+                : ["days must be a whole number from 1 to 90"]),
+        ],
+    },
+    waiting_draft: {
+        risk: "low",
+        requiredArguments: ["id"],
+        approvalRequired: false,
+        verification: "waiting_reported",
+        reversible: true,
+        capabilityTier: "waiting_on",
+        execution: { kind: "waiting", operation: "draft" },
+        validateArguments: (arguments_) => waitingIdIssues(arguments_.id),
+    },
+    /*
+     PHASE 61 — a prep card.
+  
+     `risk: low` and `reversible: true` are both literally true: it writes
+     nothing, so there is nothing to reverse. The one thing worth noting in the
+     metadata is that it fans out to `orion-gmail-search`, which is read-only by
+     hard-wired flags rather than by convention -- `--readonly` and
+     `--gmail-no-send` are in the argv, not in a setting.
+    */
+    prep_card: {
+        risk: "low",
+        requiredArguments: ["title"],
+        approvalRequired: false,
+        verification: "prep_card_rendered",
+        reversible: true,
+        capabilityTier: "prep",
+        execution: { kind: "prep_card" },
+        validateArguments: (arguments_) => {
+            const issues = [];
+            const title = arguments_.title;
+            if (typeof title !== "string" || title.trim().length < 2) {
+                issues.push("title must name the event to prepare for");
+            }
+            else if (title.length > 200) {
+                issues.push("title must be under 200 characters");
+            }
+            const attendees = arguments_.attendees;
+            if (attendees !== undefined) {
+                if (!Array.isArray(attendees) || attendees.length > 12) {
+                    issues.push("attendees must be a list of at most 12 names or addresses");
+                }
+                else if (attendees.some((a) => typeof a !== "string" || a.length > 120)) {
+                    issues.push("each attendee must be a short string");
+                }
+            }
+            return issues;
+        },
     },
     messages_send: {
         risk: "high",

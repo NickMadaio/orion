@@ -23,14 +23,26 @@
  the rates left at zero rather than with numbers made up here: a wrong price
  stated confidently would be the same failure one layer down.
 
- ## What the budgets are for
+ ## Tool calls and duration come from a different file
 
- The manifest asks for four: per-task, automation, daily and remote-session.
- Three of them are computable from what the gateway records. The fourth is
- not, and says so: the usage log has no task id on it, so tokens cannot be
- attributed to one `orion_task_run`. Closing that needs the gateway to carry
- the task id onto the call, which is not something this script can do from the
- outside.
+ The usage records carry TOKENS. They do not carry tool calls or how long
+ anything took -- and I said so once as if that ended the matter, which was
+ wrong: both are sitting in the task ledger. Every `orion_task_run` writes a
+ record with its steps and with `createdAt`/`completedAt`, so tool calls are a
+ count of steps and duration is a subtraction. `--tasks` reads that.
+
+ ## Per-task tokens, and the honest way to attribute them
+
+ The usage log has no task id on it, so tokens genuinely cannot be attributed
+ to a run the way steps can. What CAN be done is attribution by time window:
+ a task ran from A to B, and these model calls happened between A and B.
+
+ That is an estimate and is labelled one everywhere it appears, because it is
+ wrong in a specific way worth naming: a model call that happened while a task
+ was running was not necessarily FOR that task, and two overlapping runs both
+ claim the same calls. It is still the right thing to show -- a run that
+ overlapped two million tokens is worth looking at whoever spent them -- but it
+ is a pointer, not an invoice.
 
  ## Runaway loops
 
@@ -41,6 +53,7 @@
 
    orion-budget                today against the ceilings
    orion-budget --days 7       the week
+   orion-budget --tasks        per-run tool calls, duration, and overlapped tokens
    orion-budget --check        silent unless something is over; exits 1 if so
    orion-budget --json
 */
@@ -50,6 +63,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const SESSIONS = join(homedir(), ".openclaw/agents/main/sessions");
+const LEDGER = join(homedir(), ".openclaw/orion-controlled/task-ledger.jsonl");
 const ARCHIVE = join(homedir(), ".openclaw/agents/main/sessions-archive");
 const BUDGETS = join(homedir(), ".openclaw/orion-controlled/budgets.json");
 
@@ -65,6 +79,11 @@ const BUDGETS = join(homedir(), ".openclaw/orion-controlled/budgets.json");
 */
 const DEFAULTS = {
   daily: { totalTokens: 5_000_000, modelCalls: 400 },
+  // A single task graph is capped at 32 steps by the validator, so a run with
+  // more tool calls than this has retried its way there. `seconds` is the
+  // wall-clock ceiling past which a run is worth looking at rather than one it
+  // is stopped at -- nothing here kills anything.
+  perTask: { toolCalls: 40, seconds: 600 },
   automation: { modelCallsPerDay: 60 },
   remoteSession: { modelCallsPerDay: 120 },
   rates: {
@@ -75,6 +94,7 @@ const DEFAULTS = {
 
 const argv = process.argv.slice(2);
 const wantsJson = argv.includes("--json");
+const wantsTasks = argv.includes("--tasks");
 const checkOnly = argv.includes("--check");
 const daysAt = argv.indexOf("--days");
 const days = daysAt >= 0 ? Math.min(Math.max(Number(argv[daysAt + 1]) || 1, 1), 90) : 1;
@@ -91,6 +111,7 @@ function budgets() {
     const stored = JSON.parse(readFileSync(BUDGETS, "utf8"));
     return {
       daily: { ...DEFAULTS.daily, ...(stored.daily ?? {}) },
+      perTask: { ...DEFAULTS.perTask, ...(stored.perTask ?? {}) },
       automation: { ...DEFAULTS.automation, ...(stored.automation ?? {}) },
       remoteSession: { ...DEFAULTS.remoteSession, ...(stored.remoteSession ?? {}) },
       rates: { ...DEFAULTS.rates, ...(stored.rates ?? {}) },
@@ -154,6 +175,41 @@ function collect(sinceMs) {
   return { perDay, models, unparseable };
 }
 
+/*
+ Every model call as (timestamp, tokens), for the per-task overlap estimate.
+ Collected separately from `collect` because that one aggregates by day and
+ throws the timestamps away, and re-deriving them there would make the daily
+ path pay for a feature it does not use.
+*/
+function callTimeline(sinceMs) {
+  const out = [];
+  for (const directory of [SESSIONS, ARCHIVE]) {
+    if (!existsSync(directory)) continue;
+    for (const name of readdirSync(directory).filter((f) => f.endsWith(".jsonl"))) {
+      let text;
+      try {
+        text = readFileSync(join(directory, name), "utf8");
+      } catch {
+        continue;
+      }
+      for (const line of text.split("\n")) {
+        if (!line.includes('"usage"')) continue;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const usage = entry?.message?.usage;
+        const at = Date.parse(entry?.timestamp ?? "");
+        if (!usage || !Number.isFinite(at) || at < sinceMs) continue;
+        out.push({ at, tokens: typeof usage.totalTokens === "number" ? usage.totalTokens : 0 });
+      }
+    }
+  }
+  return out;
+}
+
 const config = budgets();
 const since = Date.now() - days * 86_400_000;
 const { perDay, models, unparseable } = collect(since);
@@ -180,6 +236,107 @@ const breaches = rows.flatMap(([date, day]) => {
   return over;
 });
 
+/*
+ PHASE 67's other two fields, read from the ledger rather than from the usage
+ log. Tool calls are a count of steps; duration is a subtraction. Both were
+ always available and I recorded them as absent once, which was reading one
+ file and concluding about two.
+*/
+function tasks(sinceMs) {
+  if (!existsSync(LEDGER)) return [];
+  let text;
+  try {
+    text = readFileSync(LEDGER, "utf8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      // A half-written final line is the normal shape of a crash on an
+      // append-only file, not a reason to report no tasks at all.
+      continue;
+    }
+    const started = Date.parse(record.createdAt ?? "");
+    if (!Number.isFinite(started) || started < sinceMs) continue;
+    const ended = Date.parse(record.completedAt ?? record.createdAt ?? "");
+    out.push({
+      taskId: record.taskId,
+      goal: record.goal ?? "",
+      status: record.status ?? "unknown",
+      toolCalls: Array.isArray(record.steps) ? record.steps.length : 0,
+      // Attempts, not steps: a step that retried twice is three tool calls.
+      attempts: Array.isArray(record.steps)
+        ? record.steps.reduce((sum, step) => sum + (step.attempts ?? 1), 0)
+        : 0,
+      startedAt: started,
+      seconds: Number.isFinite(ended) ? Math.max(0, Math.round((ended - started) / 1000)) : null,
+    });
+  }
+  return out;
+}
+
+/*
+ Tokens overlapping a run's window. An ESTIMATE, and wrong in a specific way:
+ a call that happened while a task ran was not necessarily FOR that task, and
+ two overlapping runs both claim the same calls. Shown because a run that
+ overlapped two million tokens is worth looking at whoever spent them.
+*/
+function overlapTokens(task, calls) {
+  if (task.seconds === null) return null;
+  const from = task.startedAt;
+  const to = from + task.seconds * 1000;
+  let tokens = 0;
+  let count = 0;
+  for (const call of calls) {
+    if (call.at >= from && call.at <= to) {
+      tokens += call.tokens;
+      count += 1;
+    }
+  }
+  return { tokens, count };
+}
+
+if (wantsTasks) {
+  const rows = tasks(since);
+  const calls = callTimeline(since);
+  console.log("");
+  if (rows.length === 0) {
+    console.log(`  no task runs in the last ${days} day(s).`);
+    console.log("");
+    process.exit(0);
+  }
+  console.log(`  ${rows.length} run(s) in the last ${days} day(s)`);
+  console.log("");
+  for (const task of rows.slice(-40)) {
+    const overlap = overlapTokens(task, calls);
+    const flags = [
+      task.attempts > config.perTask.toolCalls ? `OVER ${config.perTask.toolCalls} calls` : "",
+      task.seconds !== null && task.seconds > config.perTask.seconds
+        ? `OVER ${config.perTask.seconds}s`
+        : "",
+    ].filter(Boolean).join(", ");
+    console.log(
+      `  ${task.taskId.padEnd(24)} ${String(task.attempts).padStart(3)} calls  ` +
+        `${String(task.seconds ?? "?").padStart(5)}s  ${task.status.padEnd(14)}` +
+        (overlap ? ` ~${overlap.tokens.toLocaleString()} tok overlapped` : "") +
+        (flags ? `  [${flags}]` : ""),
+    );
+    console.log(`    ${task.goal.slice(0, 90)}`);
+  }
+  console.log("");
+  console.log(`  per-task ceilings: ${config.perTask.toolCalls} tool calls, ${config.perTask.seconds}s`);
+  console.log("  Overlapped tokens are an ESTIMATE by time window — the usage log carries no");
+  console.log("  task id, so a call that happened during a run was not necessarily for it,");
+  console.log("  and two overlapping runs both claim the same calls. A pointer, not an invoice.");
+  console.log("");
+  process.exit(0);
+}
+
 if (wantsJson) {
   console.log(JSON.stringify({
     windowDays: days,
@@ -194,6 +351,18 @@ if (wantsJson) {
     unreadableLines: unparseable,
   }, null, 2));
   process.exit(breaches.length ? 1 : 0);
+}
+
+// Per-task ceilings join the daily ones, so `--check` in cron catches a single
+// runaway run as well as a runaway day. A loop that burns its budget inside one
+// task never shows up in a daily total until the day is over.
+for (const task of tasks(since)) {
+  if (task.attempts > config.perTask.toolCalls) {
+    breaches.push(`${task.taskId}: ${task.attempts} tool calls is over the ${config.perTask.toolCalls} ceiling`);
+  }
+  if (task.seconds !== null && task.seconds > config.perTask.seconds) {
+    breaches.push(`${task.taskId}: ${task.seconds}s is over the ${config.perTask.seconds}s ceiling`);
+  }
 }
 
 if (checkOnly) {

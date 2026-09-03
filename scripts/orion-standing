@@ -483,6 +483,73 @@ function projectFindings(projects, day) {
 
 /* ----------------------------------------------------------------- findings */
 
+/*
+ PHASE 62 — the things Nick is waiting on from other people.
+
+ The natural home for surfacing these, and the reason the phase did not need a
+ second scheduler: this already runs hourly, already knows quiet hours, and
+ already says only what changed. An overdue waiting item IS a change.
+
+ Read-only here. The store is written by the plugin's `waiting_*` actions, and
+ counting a surfacing against the nagging cap is the plugin's job too -- a
+ reader that mutated the file it reads would make `--now` and the fixture
+ seams below unusable for exactly the tests they exist for.
+*/
+const WAITING_FILE = join(HOME, ".openclaw/orion-controlled/waiting.json");
+
+async function readWaiting() {
+  let store;
+  try {
+    store = JSON.parse(await readFile(WAITING_FILE, "utf8"));
+  } catch (error) {
+    // Absent is not a failure: most days there is nothing to wait on. A
+    // CORRUPT file is, and it is reported as a blind spot rather than as an
+    // empty list -- the rule this whole file is built around.
+    return error.code === "ENOENT"
+      ? { status: "skipped", reason: "nothing tracked" }
+      : { status: "degraded", reason: `${WAITING_FILE.replace(HOME, "~")} is unreadable — ${error.message}` };
+  }
+  if (!Array.isArray(store.items)) {
+    return { status: "degraded", reason: `${WAITING_FILE.replace(HOME, "~")} has no items array` };
+  }
+  return { status: "ok", items: store.items };
+}
+
+function waitingFindings(waiting, day) {
+  if (waiting.status === "degraded") {
+    return [note(`Waiting list: ${waiting.reason}. I cannot see what is outstanding.`)];
+  }
+  if (waiting.status !== "ok") return [];
+
+  const late = waiting.items.filter(
+    (item) =>
+      item.status === "open" &&
+      item.dueBy < day &&
+      !(item.snoozedUntil && new Date(item.snoozedUntil) > now) &&
+      (item.surfaced ?? 0) < 5,
+  );
+  if (late.length === 0) return [];
+
+  const lines = late.slice(0, MAX_LISTED).map((item) => {
+    const days = Math.max(
+      0,
+      Math.round((new Date(`${day}T00:00:00`) - new Date(`${item.dueBy}T00:00:00`)) / 86400000),
+    );
+    return `  ${item.who}: ${item.what} — ${days} day(s) past, expecting ${item.expect}`;
+  });
+  const more = late.length > MAX_LISTED ? [`  (+${late.length - MAX_LISTED} more)`] : [];
+  return [
+    note(
+      [
+        `Still waiting on ${late.length} thing(s):`,
+        ...lines,
+        ...more,
+        "Chase, drop, or push the date — say the word and I will draft a follow-up.",
+      ].join("\n"),
+    ),
+  ];
+}
+
 const note = (text) => ({ severity: "note", text });
 const urgent = (text) => ({ severity: "urgent", text });
 
@@ -523,7 +590,7 @@ function healthFinding(health) {
   return [note(`Body: ${poor.join(", ")} — you are starting the day short. Ease off the load.`)];
 }
 
-function morningFindings({ calendar, tasks, health, location, projects, day }) {
+function morningFindings({ calendar, tasks, health, location, projects, waiting, day }) {
   const today = calendar.events.filter((event) => localDay(event.at) === day);
   const ahead = today.filter((event) => event.at > now);
   const listed = today
@@ -543,10 +610,12 @@ function morningFindings({ calendar, tasks, health, location, projects, day }) {
     ...healthFinding(health),
     ...locationFinding(location),
     ...projectFindings(projects, day),
+    ...waitingFindings(waiting, day),
     ...blindSpots([
       { label: "Calendar", source: calendar, action: "Check it yourself before assuming a free day." },
       { label: "Reminders", source: tasks, action: "Grant Orion Reminders access in System Settings › Privacy & Security." },
       { label: "Health log", source: health, action: "I will not guess at recovery." },
+      { label: "Waiting list", source: waiting, action: "I cannot tell you what is outstanding." },
     ]),
   ];
 }
@@ -688,6 +757,10 @@ async function main() {
   // Only the once-a-day checks read it; the hourly `check` must never nag.
   const location = resolved === "check" ? { status: "skipped" } : await readLocation();
   const projects = resolved === "morning" ? await readProjects() : { status: "skipped" };
+  // Morning only, for the reason the location line above gives: `check` runs
+  // hourly, and an hourly "you are still waiting on the professor" is exactly
+  // the nagging that gets a proactive assistant switched off.
+  const waiting = resolved === "morning" ? await readWaiting() : { status: "skipped" };
   const [tasks, health, loops] =
     resolved === "morning"
       ? await Promise.all([readTasks(), readHealth(), Promise.resolve({ status: "skipped", items: [] })])
@@ -704,6 +777,7 @@ async function main() {
       ["open loops", loops],
       ["location", location],
       ["projects", projects],
+      ["waiting", waiting],
     ]) {
       const detail = source.reason ? ` — ${source.reason}` : "";
       const count = source.events?.length ?? source.tasks?.length ?? source.items?.length;
@@ -713,7 +787,7 @@ async function main() {
 
   const findings =
     resolved === "morning"
-      ? morningFindings({ calendar, tasks, health, location, projects, day })
+      ? morningFindings({ calendar, tasks, health, location, projects, waiting, day })
       : resolved === "evening"
         ? eveningFindings({ calendar, loops, location, day })
         : imminentFindings({ calendar });

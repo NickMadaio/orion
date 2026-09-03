@@ -101,12 +101,12 @@ jobs:
         continue-on-error: true
         run: npm audit --audit-level=high
 
-      - name: attack surface coverage
-        # Phase 69's "continuously test", made mechanical. The map in
-        # planning/v2/ATTACK_SURFACE.json claims which test covers which attack
-        # class; this fails when a claimed test has been renamed or deleted, so
-        # losing security coverage is a red build rather than a quiet
-        # regression nobody notices for six weeks.
+      - name: coverage maps
+        # Phases 68 and 69's "continuously test", made mechanical. Two maps,
+        # one checker: ATTACK_SURFACE.json and RELIABILITY_SURFACE.json each
+        # claim which test covers which class, and this fails when a claimed
+        # test has been renamed or deleted. Losing coverage becomes a red build
+        # rather than a quiet regression nobody notices for six weeks.
         run: python3 scripts/orion_v2_attack_check.py
 
       - name: phase gate consistency

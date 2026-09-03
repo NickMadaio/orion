@@ -1424,16 +1424,44 @@ scanner would have been the duplication this repo keeps paying for.
 by path + rule + **fingerprint**, so a real key replacing a fake one in the same
 file still fires. It now runs over full history too.
 
-**Cheapest next builds, in order:**
+**Everything above that I listed as a "next build" was then built.** 60, 61,
+62, 63, 64, 67, 68, 69 and 70 are closed. What follows is what is left and why.
 
-1. **Phase 62 (waiting-on)** — genuinely useful, small. `orion-standing` already
-   solves the surfacing half. Only the store is missing. Note `draft follow-up`
-   needs a deliberate gate decision: a draft Orion cannot send is the right shape.
-2. **Phase 68's audit map** — the Phase 69 pattern applied to the 23 reliability
-   scenarios. Eight have real coverage today; a map would make that a number
-   that cannot rot. About a day.
-3. **Phase 61 (prep cards)** — all six sources already exist and are gated. What
-   is missing is assembly and a trigger, and a Phase 57 automation is now the
-   trigger.
-4. **Phase 70's last requirement** — nothing gates a deploy on CI passing.
-   Installs are `cp` by hand.
+**Phase 62** — six `waiting_*` actions over one JSON file. Every item must name
+`expect`, the observable event that ends it: "waiting on the professor" is a
+feeling, "waiting for a reply to my email of the 20th" either happened or did
+not, and only the second makes *overdue* mean something other than *old*.
+`draft` writes text onto the record and **cannot deliver it** — that was the
+gate decision this phase needed, and a test asserts nothing in the tier reaches
+a person.
+
+**Phase 61** — `prep_card` fans out to five sources and writes nothing. Search
+terms are extracted *mechanically* from the event: a title is
+attacker-controllable if anyone can put something on your calendar.
+
+**Phase 68's hang test found a real bug in code shipped hours earlier.**
+`runDevOperation` killed the child and waited on `close`, but `npm test` is a
+shell that spawns vitest — SIGKILL on npm left vitest holding the stdout pipe,
+and `close` waits for stdio EOF, not exit. **A timed-out test run would have
+hung the tool call forever**, which is the failure the timeout exists to
+prevent, reached through the timeout itself. Fixed with a detached child, a
+process-*group* kill, and settling on `exit` as well as `close`.
+
+**Phase 70's deploy** replaces the `cp dist/*.js …` I had typed by hand several
+times that day. Its load check was wrong first time — importing `index.js`
+standalone fails on `openclaw`, which resolves from the gateway's module graph,
+so a healthy deploy got rolled back. A verification that fails on a healthy
+system is worse than none: it trains you to pass the flag that skips it.
+
+**What is genuinely left, and why it is not "I chose not to":**
+
+- **65 (App Intents) and 66 (Live Activities).** Xcode 26.6 *is* installed and
+  the mobile package builds for the simulator every check run — so the blocker
+  is not tooling. It is that adding a target changes the app bundle, and every
+  TCC grant and Keychain item on this machine is bound to the bundle's
+  **designated requirement** (which is exactly what `orion-identity-check`
+  exists to protect). Getting it wrong costs the microphone grant, the
+  accessibility grant and the Gmail refresh tokens, and leaves a second "Orion"
+  in Privacy & Security. **That is a change to make with Nick at the keyboard.**
+- The seven reliability scenarios and eight attack classes still uncovered each
+  name, in their map entry, the specific thing that would make them live.

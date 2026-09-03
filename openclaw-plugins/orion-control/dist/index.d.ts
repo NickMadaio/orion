@@ -47,6 +47,8 @@ export declare const ConfigSchema: Type.TObject<{
     approvalRoot: Type.TOptional<Type.TString>;
     enableDevOperationsActions: Type.TOptional<Type.TBoolean>;
     enableAutomationActions: Type.TOptional<Type.TBoolean>;
+    enableWaitingOnActions: Type.TOptional<Type.TBoolean>;
+    enablePrepActions: Type.TOptional<Type.TBoolean>;
     enableStrictArguments: Type.TOptional<Type.TBoolean>;
     enableV2SystemStatusAdapter: Type.TOptional<Type.TBoolean>;
 }>;

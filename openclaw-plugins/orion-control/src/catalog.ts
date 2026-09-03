@@ -7,6 +7,13 @@ import {
 } from "./selfrepair.js";
 import { DEV_REPOSITORIES, type DevOperation } from "./devops.js";
 import { NAME_RE, validateProposal } from "./automation.js";
+import { validateItem as validateWaitingItem } from "./waiting.js";
+
+/** One id, matched against the same shape the store enforces. */
+const waitingIdIssues = (value: unknown): string[] =>
+  typeof value === "string" && /^[a-z0-9][a-z0-9-]{1,39}$/.test(value)
+    ? []
+    : ["id must be an existing item's id — lower-case letters, digits and hyphens"];
 
 export type Risk = "low" | "medium" | "high" | "critical";
 export type CapabilityTier =
@@ -117,7 +124,18 @@ export type CapabilityTier =
   // `scripts/orion-automation install`, which is off the exec allowlist, so
   // "the model may not silently install permanent automation" is enforced by
   // the shape of the catalog rather than by a rule somebody has to remember.
-  | "automation";
+  | "automation"
+  // PHASE 62. The things NICK is waiting on from the world -- the inverse of
+  // orion-remote's `pending`, which is what Orion is waiting on from Nick.
+  // Writes one JSON file Orion owns; the worst case is a wrong entry in his own
+  // list, which he can be told to correct.
+  | "waiting_on"
+  // PHASE 61. Assemble what is relevant before an event, from sources that are
+  // already gated and already read-only, and WRITE NOTHING. Its own tier
+  // because it fans out across mail, the brain and the calendar at once, and
+  // "read one of those" and "read all of them in one call" deserve separate
+  // answers.
+  | "prep";
 
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
@@ -354,6 +372,19 @@ export type ExecutionPolicy =
    * separate program Orion may not run, which is the whole design.
    */
   | { kind: "automation"; operation: "propose" | "list" | "simulate" | "withdraw" }
+  /**
+   * PHASE 62. Track, surface and resolve something Nick is waiting on.
+   *
+   * `draft` writes text onto the item and cannot deliver it. Turning a draft
+   * into a message goes through the ordinary outbound gate with an approval
+   * ticket, exactly as if Orion had composed it fresh -- see waiting.ts.
+   */
+  | { kind: "waiting"; operation: "add" | "list" | "resolve" | "dismiss" | "snooze" | "draft" }
+  /**
+   * PHASE 61. One prep card for one event. Reads mail, the brain, tasks and
+   * the waiting list; writes nothing anywhere.
+   */
+  | { kind: "prep_card" }
   | FileMutationPolicy
   | CreateOnlyTextPolicy
   | DesktopTextMutationPolicy
@@ -2650,6 +2681,119 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       typeof arguments_.name === "string" && NAME_RE.test(arguments_.name)
         ? []
         : ["name must be an existing proposal's name"],
+  },
+
+  /*
+   PHASE 62 — waiting-on tracking.
+
+   Every one of these writes only Orion's own store, so they sit at `low` risk
+   and none is approval-gated. The one that looks like it should be is `draft`,
+   and it is not: a draft is text on a record. What would make it consequential
+   is DELIVERY, and delivery is `messages_send`, which sits at the third-party
+   floor no strictness mode can lower.
+  */
+  waiting_add: {
+    risk: "low",
+    requiredArguments: ["id", "what", "who", "expect", "dueBy"],
+    approvalRequired: false,
+    verification: "waiting_stored",
+    reversible: true,
+    capabilityTier: "waiting_on",
+    execution: { kind: "waiting", operation: "add" },
+    validateArguments: (arguments_) => validateWaitingItem(arguments_),
+  },
+  waiting_list: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "waiting_reported",
+    reversible: true,
+    capabilityTier: "waiting_on",
+    execution: { kind: "waiting", operation: "list" },
+  },
+  waiting_resolve: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "waiting_stored",
+    reversible: true,
+    capabilityTier: "waiting_on",
+    execution: { kind: "waiting", operation: "resolve" },
+    validateArguments: (arguments_) => waitingIdIssues(arguments_.id),
+  },
+  waiting_dismiss: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "waiting_stored",
+    reversible: true,
+    capabilityTier: "waiting_on",
+    execution: { kind: "waiting", operation: "dismiss" },
+    validateArguments: (arguments_) => waitingIdIssues(arguments_.id),
+  },
+  waiting_snooze: {
+    risk: "low",
+    requiredArguments: ["id", "days"],
+    approvalRequired: false,
+    verification: "waiting_stored",
+    reversible: true,
+    capabilityTier: "waiting_on",
+    execution: { kind: "waiting", operation: "snooze" },
+    validateArguments: (arguments_) => [
+      ...waitingIdIssues(arguments_.id),
+      ...(Number.isInteger(arguments_.days) &&
+      (arguments_.days as number) >= 1 &&
+      (arguments_.days as number) <= 90
+        ? []
+        : ["days must be a whole number from 1 to 90"]),
+    ],
+  },
+  waiting_draft: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "waiting_reported",
+    reversible: true,
+    capabilityTier: "waiting_on",
+    execution: { kind: "waiting", operation: "draft" },
+    validateArguments: (arguments_) => waitingIdIssues(arguments_.id),
+  },
+
+  /*
+   PHASE 61 — a prep card.
+
+   `risk: low` and `reversible: true` are both literally true: it writes
+   nothing, so there is nothing to reverse. The one thing worth noting in the
+   metadata is that it fans out to `orion-gmail-search`, which is read-only by
+   hard-wired flags rather than by convention -- `--readonly` and
+   `--gmail-no-send` are in the argv, not in a setting.
+  */
+  prep_card: {
+    risk: "low",
+    requiredArguments: ["title"],
+    approvalRequired: false,
+    verification: "prep_card_rendered",
+    reversible: true,
+    capabilityTier: "prep",
+    execution: { kind: "prep_card" },
+    validateArguments: (arguments_) => {
+      const issues: string[] = [];
+      const title = arguments_.title;
+      if (typeof title !== "string" || title.trim().length < 2) {
+        issues.push("title must name the event to prepare for");
+      } else if (title.length > 200) {
+        issues.push("title must be under 200 characters");
+      }
+      const attendees = arguments_.attendees;
+      if (attendees !== undefined) {
+        if (!Array.isArray(attendees) || attendees.length > 12) {
+          issues.push("attendees must be a list of at most 12 names or addresses");
+        } else if (attendees.some((a) => typeof a !== "string" || a.length > 120)) {
+          issues.push("each attendee must be a short string");
+        }
+      }
+      return issues;
+    },
   },
 
   messages_send: {

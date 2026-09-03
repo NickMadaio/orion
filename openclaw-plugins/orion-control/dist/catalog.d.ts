@@ -1,6 +1,6 @@
 import { type DevOperation } from "./devops.js";
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -205,6 +205,24 @@ export type ExecutionPolicy = {
  | {
     kind: "automation";
     operation: "propose" | "list" | "simulate" | "withdraw";
+}
+/**
+ * PHASE 62. Track, surface and resolve something Nick is waiting on.
+ *
+ * `draft` writes text onto the item and cannot deliver it. Turning a draft
+ * into a message goes through the ordinary outbound gate with an approval
+ * ticket, exactly as if Orion had composed it fresh -- see waiting.ts.
+ */
+ | {
+    kind: "waiting";
+    operation: "add" | "list" | "resolve" | "dismiss" | "snooze" | "draft";
+}
+/**
+ * PHASE 61. One prep card for one event. Reads mail, the brain, tasks and
+ * the waiting list; writes nothing anywhere.
+ */
+ | {
+    kind: "prep_card";
 } | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;

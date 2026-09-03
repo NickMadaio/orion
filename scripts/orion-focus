@@ -25,6 +25,7 @@
 
    orion-focus start "finish the essay" 90 Zed Safari
    orion-focus start "fix the gate" 90 Zed --repo orion
+   orion-focus next [Zed Safari]     start a session for the next calendar block
    orion-focus prepare               open the apps and read the context back
    orion-focus check                 one enforcement tick (cron calls this)
    orion-focus status
@@ -91,6 +92,31 @@ async function frontmostApp() {
 }
 
 const speak = (line) => run("/usr/bin/say", ["-r", "190", line]).catch(() => {});
+
+/*
+ PHASE 60 — notification preferences, and what is actually possible.
+
+ macOS Focus modes cannot be set from a command line. There is no public API,
+ no `defaults` key that survives a reboot, and the private route is a plist
+ under DoNotDisturb that Apple has moved twice. Writing it would be a change
+ that works until an OS update and then fails silently, which is the worst
+ shape a "do not disturb" feature can have -- Nick would believe he was
+ undisturbed.
+
+ The supported route is a Shortcut, which Nick creates once and which this
+ calls by name. If it does not exist, this says so and the session starts
+ anyway: a focus session without Do Not Disturb is worth having, and refusing
+ to start one because a shortcut is missing would be the tail wagging the dog.
+*/
+async function setFocusMode(on) {
+  const name = on ? "Orion Focus On" : "Orion Focus Off";
+  const result = await run("/usr/bin/shortcuts", ["run", name], { timeout: 10000 })
+    .then(() => ({ ok: true }))
+    .catch((error) => ({ ok: false, reason: String(error?.stderr || error?.message).slice(0, 120) }));
+  return result.ok
+    ? `  notifications: ${on ? "silenced" : "restored"} via the "${name}" shortcut`
+    : `  notifications: unchanged — no "${name}" shortcut. Create one in Shortcuts (set a Focus, name it exactly that) and I will use it.`;
+}
 const raise = (app) => run("/usr/bin/open", ["-a", app]).catch(() => {});
 
 function activeSession(state) {
@@ -211,7 +237,71 @@ switch (command) {
     // said rather than a promise about the next few seconds.
     console.log("preparing:");
     for (const line of await prepare(session)) console.log(line);
+    console.log(await setFocusMode(true));
     await speak(`Locked in. ${task.trim()}. ${minutes} minutes.`);
+    break;
+  }
+
+  case "next": {
+    /*
+     PHASE 60 — a session bound to a calendar block.
+
+     The manifest asks for the session to CONNECT a task and a calendar block,
+     and the honest reading is that the block supplies both the task and the
+     length. Reading them from the event rather than asking for them is the
+     whole point: a session whose end time is a guess drifts away from the
+     meeting it was supposed to protect.
+
+     `orion-agenda today --json` is the source. If it cannot be read that is a
+     blind spot and this refuses rather than inventing a 60-minute block, which
+     is the same rule everything else here follows.
+    */
+    const apps = rest;
+    const raw = await run(join(HERE, "orion-agenda"), ["upcoming", "--json"], { timeout: 20000 })
+      .then((r) => r.stdout)
+      .catch((error) => { fail(`I cannot read the calendar, so I will not guess at a block: ${String(error?.message).slice(0, 100)}`); });
+
+    let events;
+    try {
+      const parsed = JSON.parse(raw);
+      events = Array.isArray(parsed) ? parsed : (parsed.events ?? []);
+    } catch {
+      fail("the calendar came back in a shape I do not understand; not guessing at a block");
+    }
+
+    const upcoming = events
+      .map((event) => ({
+        title: event.title ?? event.summary ?? "an appointment",
+        start: new Date(event.start ?? event.at ?? event.startDate ?? NaN),
+        end: new Date(event.end ?? event.endDate ?? NaN),
+      }))
+      .filter((event) => !Number.isNaN(event.start.getTime()) && event.start > new Date())
+      .sort((a, b) => a.start - b.start);
+
+    if (upcoming.length === 0) fail("nothing left on the calendar today to lock onto", 1);
+    const block = upcoming[0];
+    const minutes = Number.isNaN(block.end.getTime())
+      ? 60
+      : Math.max(5, Math.min(480, Math.round((block.end - block.start) / 60000)));
+
+    const session = {
+      task: block.title,
+      startedAt: Date.now(),
+      // The BLOCK's end, not now-plus-minutes. If the block has already
+      // started, a session that ran the full length would run past it.
+      until: Number.isNaN(block.end.getTime()) ? Date.now() + minutes * 60000 : block.end.getTime(),
+      allowedApps: [...new Set([...apps, ...ALWAYS_ALLOWED])],
+      anchor: apps[0] ?? null,
+      fromCalendar: block.start.toISOString(),
+      strikes: 0,
+      grants: [],
+    };
+    await writeState({ ...(await readState()), session });
+    console.log(`locked on: ${session.task} until ${block.end.toLocaleTimeString?.() ?? "the end of the block"}`);
+    console.log("preparing:");
+    for (const line of await prepare(session)) console.log(line);
+    console.log(await setFocusMode(true));
+    await speak(`Locked in on ${block.title}.`);
     break;
   }
 
@@ -406,6 +496,10 @@ JSON`,
       break;
     }
     await writeState({ ...state, session: null });
+    // Restore notifications on the way out. Paired with the call in `start`
+    // and `next` -- a focus mode that switches on and never off is a worse
+    // bug than one that never switches on at all, because it is silent.
+    console.log(await setFocusMode(false));
     console.log("session ended");
     break;
   }

@@ -127,7 +127,32 @@ switch (command) {
   case "today":
   case "upcoming": {
     const result = await ask("list_upcoming_calendar_events");
-    describeEvents(unpack(result, "events_json"), { onlyToday: command === "today" });
+    const events = unpack(result, "events_json");
+    /*
+     `--json` emits what was already unpacked, unchanged.
+
+     Added for `orion-focus next`, which binds a session to a calendar BLOCK
+     and therefore needs the block's end time. The human format carries only a
+     start -- `Mon, Sep 7 12:00 AM — Labor Day` -- so a caller parsing it has
+     to guess at a length, and a session whose end time is a guess drifts away
+     from the meeting it was supposed to protect.
+
+     Still read-only, which is the contract this whole file is bound by: it is
+     the same query, printed differently.
+    */
+    if (rest.includes("--json")) {
+      const today = new Date().toLocaleDateString("en-CA");
+      const chosen =
+        command === "today"
+          ? events.filter((event) => {
+              const at = new Date(event.startDate ?? event.start ?? NaN);
+              return !Number.isNaN(at.getTime()) && at.toLocaleDateString("en-CA") === today;
+            })
+          : events;
+      console.log(JSON.stringify(chosen, null, 2));
+      break;
+    }
+    describeEvents(events, { onlyToday: command === "today" });
     break;
   }
 

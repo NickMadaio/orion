@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 182,
-    "AUTO": 121,
+    "total": 190,
+    "AUTO": 128,
     "NOTIFY": 19,
     "APPROVAL": 15,
-    "NEVER": 27
+    "NEVER": 28
   },
   "availability": [
     {
@@ -150,6 +150,14 @@
       "unresolved": false
     },
     {
+      "tier": "prep",
+      "flag": "enablePrepActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
       "tier": "reminders",
       "flag": "enableReminderActions",
       "configOn": true,
@@ -224,6 +232,14 @@
     {
       "tier": "test_workspace",
       "flag": "enableTestWorkspaceActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "waiting_on",
+      "flag": "enableWaitingOnActions",
       "configOn": true,
       "profileOn": true,
       "available": true,
@@ -629,6 +645,17 @@
     },
     {
       "kind": "action",
+      "name": "prep_card",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "prep",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
       "name": "reminder_list",
       "level": "AUTO",
       "rule": "R3 default",
@@ -910,6 +937,72 @@
       "because": "reversible, low risk, confined to reads or to state Orion owns",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "waiting_add",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "waiting_on",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "waiting_dismiss",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "waiting_on",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "waiting_draft",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "waiting_on",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "waiting_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "waiting_on",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "waiting_resolve",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "waiting_on",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "waiting_snooze",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "waiting_on",
       "risk": "low",
       "reversible": true
     },
@@ -1819,6 +1912,14 @@
     {
       "kind": "command",
       "name": "orion-cron-deliver",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-deploy",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

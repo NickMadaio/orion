@@ -1,0 +1,242 @@
+#!/bin/bash
+#
+# PHASE 70 — "use protected production deployment processes. Make rollback easy."
+#
+# WHAT THIS REPLACES
+#
+# `cp dist/*.js ~/.openclaw/extensions/orion-control/dist/`, typed by hand, by
+# me, several times today. That is the whole deployment process this system had,
+# and it has exactly the properties you would expect: nothing checks that the
+# tests passed, nothing keeps the previous version, and nothing notices when the
+# copy is broken until Orion has no tools.
+#
+# The self-repair path has been better than the human path for months.
+# `orion-repair` keeps the previous dist, restarts the gateway, waits for it to
+# answer, and puts the old one back if it does not. This gives the human path
+# the same discipline, plus the one thing the repair path cannot have: it runs
+# the full suite first, including the machine-bound checks a CI runner cannot.
+#
+# THE ORDER IS THE PROTECTION
+#
+#   1. refuse a dirty tree, unless --allow-dirty is said out loud
+#   2. build
+#   3. every suite, source and machine — a failure ends it here
+#   4. snapshot what is installed NOW, not what was installed last time
+#   5. install
+#   6. prove the plugin still loads and still exposes its tools
+#   7. roll back automatically if it does not
+#
+# Step 3 is the one that matters and it is why this is not a wrapper around cp.
+# Step 6 is the one that catches the deploy that "worked" — a dist that copies
+# fine and throws on import leaves an assistant with no tools, including the
+# tools he would need to tell you.
+#
+#   orion-deploy                 the whole thing
+#   orion-deploy --dry-run       everything except the install
+#   orion-deploy --rollback      put the previous version back
+#   orion-deploy --status        what is installed, and what is waiting
+
+set -uo pipefail
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGIN="$REPO/openclaw-plugins/orion-control"
+INSTALLED="$HOME/.openclaw/extensions/orion-control"
+BACKUPS="$HOME/.openclaw/backups/orion-control"
+
+say()  { printf '  %s\n' "$1"; }
+die()  { printf '\n  REFUSED: %s\n\n' "$1"; exit 1; }
+
+fingerprint() {
+    [ -d "$1" ] || { echo "absent"; return; }
+    find "$1" -name '*.js' -type f -exec shasum -a 256 {} + 2>/dev/null \
+        | sort | shasum -a 256 | cut -c1-12
+}
+
+case "${1:-deploy}" in
+  --status)
+    echo ""
+    say "built      $(fingerprint "$PLUGIN/dist")   $PLUGIN/dist"
+    say "installed  $(fingerprint "$INSTALLED/dist")   $INSTALLED/dist"
+    if [ "$(fingerprint "$PLUGIN/dist")" != "$(fingerprint "$INSTALLED/dist")" ]; then
+        say ""
+        say "DRIFTED — what is running is not what is built. Run orion-deploy."
+    fi
+    say ""
+    say "backups:"
+    ls -1t "$BACKUPS" 2>/dev/null | head -5 | sed 's/^/    /' || say "    none"
+    echo ""
+    exit 0
+    ;;
+  --rollback)
+    previous="$(ls -1t "$BACKUPS" 2>/dev/null | head -1)"
+    [ -n "$previous" ] || die "there is no backup to roll back to."
+    echo ""
+    say "rolling back to $previous"
+    rm -rf "$INSTALLED/dist"
+    cp -R "$BACKUPS/$previous/dist" "$INSTALLED/dist"
+    [ -f "$BACKUPS/$previous/openclaw.plugin.json" ] \
+        && cp "$BACKUPS/$previous/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
+    say "installed  $(fingerprint "$INSTALLED/dist")"
+    say "The gateway picks this up on its next turn. Check with: orion-probe-plugin"
+    echo ""
+    exit 0
+    ;;
+  --dry-run) DRY=1 ;;
+  --allow-dirty) DIRTY=1 ;;
+  deploy) ;;
+  *) die "unknown option: $1" ;;
+esac
+DRY="${DRY:-0}"
+DIRTY="${DIRTY:-0}"
+
+echo ""
+echo "== 1. the working tree =="
+if [ -n "$(cd "$REPO" && git status --porcelain 2>/dev/null)" ]; then
+    if [ "$DIRTY" = "1" ]; then
+        say "dirty, and --allow-dirty was passed. Deploying something that is not committed."
+    else
+        # Not pedantry. A deploy from a dirty tree cannot be rolled forward to
+        # by anybody else and cannot be described by a commit hash, so when it
+        # breaks in a week there is nothing to look at.
+        die "the working tree is dirty. Commit first, or pass --allow-dirty and know what you are doing."
+    fi
+else
+    say "clean at $(cd "$REPO" && git rev-parse --short HEAD)"
+fi
+
+echo ""
+echo "== 2. build =="
+(cd "$PLUGIN" && npm run build >/tmp/orion-deploy-build.log 2>&1) \
+    || { tail -20 /tmp/orion-deploy-build.log; die "the build failed."; }
+say "built      $(fingerprint "$PLUGIN/dist")"
+
+echo ""
+echo "== 3. every suite, source and machine =="
+# THE GATE. A CI runner cannot run the bottom five -- they assert against the
+# real exec allowlist, the installed plugin and the live permission state --
+# which is exactly why a deploy has to, and why "CI was green" is not a
+# sufficient answer on this machine.
+for suite in \
+    "scripts/orion_v2_ci_check.sh --quick" \
+    "scripts/orion_v2_attack_check.py" \
+    "scripts/orion_v2_strictness_check.sh" \
+    "scripts/orion_v2_authority_contract_check.sh" \
+    "scripts/orion_v2_lock_check.sh" \
+    "scripts/orion_v2_remote_check.sh" \
+    "scripts/orion_v2_phase_gate.py"
+do
+    name="${suite%% *}"
+    case "$name" in
+      *.py) runner=(python3 "$REPO/$name") ;;
+      *)    runner=("$REPO/$name") ;;
+    esac
+    extra="${suite#"$name"}"
+    # shellcheck disable=SC2086
+    if "${runner[@]}" $extra >"/tmp/orion-deploy-$(basename "$name").log" 2>&1; then
+        printf '  ok    %s\n' "$(basename "$name")"
+    else
+        printf '  FAIL  %s\n' "$(basename "$name")"
+        tail -15 "/tmp/orion-deploy-$(basename "$name").log" | sed 's/^/        /'
+        die "a suite failed. Nothing was installed."
+    fi
+done
+
+if [ "$DRY" = "1" ]; then
+    echo ""
+    say "--dry-run: everything passed and nothing was installed."
+    echo ""
+    exit 0
+fi
+
+echo ""
+echo "== 4. snapshot what is running right now =="
+# The CURRENT installed copy, not the last thing built. Those differ whenever
+# somebody has copied by hand, which is the situation this script exists to end
+# and therefore exactly the situation it must survive on its first run.
+stamp="$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUPS/$stamp"
+if [ -d "$INSTALLED/dist" ]; then
+    cp -R "$INSTALLED/dist" "$BACKUPS/$stamp/dist"
+    [ -f "$INSTALLED/openclaw.plugin.json" ] \
+        && cp "$INSTALLED/openclaw.plugin.json" "$BACKUPS/$stamp/openclaw.plugin.json"
+    say "kept       $BACKUPS/$stamp  [$(fingerprint "$BACKUPS/$stamp/dist")]"
+else
+    say "nothing installed yet — no backup to keep"
+fi
+# Five is enough to walk back through a bad afternoon and few enough that this
+# directory never becomes something to clean up.
+ls -1t "$BACKUPS" 2>/dev/null | tail -n +6 | while read -r old; do rm -rf "${BACKUPS:?}/$old"; done
+
+echo ""
+echo "== 5. install =="
+mkdir -p "$INSTALLED/dist"
+cp "$PLUGIN"/dist/*.js "$PLUGIN"/dist/*.d.ts "$INSTALLED/dist/" 2>/dev/null
+cp "$PLUGIN/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
+say "installed  $(fingerprint "$INSTALLED/dist")"
+
+echo ""
+echo "== 6. does it still load =="
+# The check that catches the deploy which "worked": a dist that copies fine and
+# throws on import leaves Orion with no tools at all, including the ones he
+# would need to tell you about it.
+#
+# TWO CHECKS, because the first version of this used one and it was the wrong
+# one. Importing `index.js` directly fails with ERR_MODULE_NOT_FOUND on
+# `openclaw` -- the plugin SDK resolves from the gateway's module graph, not
+# from the extension directory -- so a perfectly good deploy looked broken and
+# was rolled back. A verification that fails on a healthy system is worse than
+# none: it trains you to pass the flag that skips it.
+#
+#   LEAF IMPORT   catalog.js and permissions.js import nothing from openclaw,
+#                 so they load standalone and catch the great majority of real
+#                 breakage: a syntax error, a bad relative import, a truncated
+#                 copy.
+#   REAL LOAD     orion-probe-plugin asks the GATEWAY what tools it has. That
+#                 is the only thing that answers the actual question, because
+#                 the gateway is the thing that has to load it.
+if node --input-type=module -e "
+const dist = process.env.HOME + '/.openclaw/extensions/orion-control/dist';
+const { ACTION_CATALOG } = await import(dist + '/catalog.js');
+const { PERMISSION_PROFILES } = await import(dist + '/permissions.js');
+const names = Object.keys(ACTION_CATALOG);
+if (names.length < 50) throw new Error('catalog looks truncated: ' + names.length + ' actions');
+if (PERMISSION_PROFILES.length !== 5) throw new Error('permission profiles look wrong');
+console.log(names.length);
+" >/tmp/orion-deploy-load.log 2>&1; then
+    say "leaves     $(cat /tmp/orion-deploy-load.log) actions, 5 profiles"
+else
+    echo ""
+    sed 's/^/        /' /tmp/orion-deploy-load.log | head -12
+    rollback_now="yes"
+fi
+
+if [ "${rollback_now:-no}" = "no" ]; then
+    if "$REPO/scripts/orion-probe-plugin" >/tmp/orion-deploy-probe.log 2>&1 \
+       && grep -q "orion_task_run" /tmp/orion-deploy-probe.log; then
+        say "gateway    loads it and exposes orion_task_run"
+    else
+        echo ""
+        tail -12 /tmp/orion-deploy-probe.log | sed 's/^/        /'
+        rollback_now="yes"
+    fi
+fi
+
+if [ "${rollback_now:-no}" = "yes" ]; then
+    echo ""
+    say "ROLLING BACK — the installed copy does not load."
+    rm -rf "$INSTALLED/dist"
+    cp -R "$BACKUPS/$stamp/dist" "$INSTALLED/dist"
+    [ -f "$BACKUPS/$stamp/openclaw.plugin.json" ] \
+        && cp "$BACKUPS/$stamp/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
+    say "restored   $(fingerprint "$INSTALLED/dist")"
+    die "the new version was rejected and the old one is back."
+fi
+
+echo ""
+echo "== 7. the derived views =="
+"$REPO/scripts/orion-selfdoc" >/dev/null 2>&1 && say "TOOLS.md regenerated"
+python3 "$REPO/scripts/orion_v2_authority_snapshot.py" >/dev/null 2>&1 && say "authority snapshot refreshed"
+
+echo ""
+say "done. Roll back with: orion-deploy --rollback"
+echo ""

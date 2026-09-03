@@ -128,14 +128,15 @@ else
     grep -E 'severity|vulnerabilit' /tmp/orion-ci-audit.log | head -6 | sed 's/^/          /'
 fi
 
-step "7. attack surface coverage"
-# Phase 69's "continuously test" made mechanical. The map claims which test
-# covers which attack class; this fails when a claimed test has been renamed or
-# deleted, so losing coverage is a red build rather than a quiet regression.
+step "7. coverage maps (attack surface, reliability)"
+# Phases 68 and 69's "continuously test", made mechanical. Two maps, one
+# checker: each claims which test covers which class, and this fails when a
+# claimed test has been renamed or deleted, so losing coverage is a red build
+# rather than a quiet regression.
 if python3 "$REPO/scripts/orion_v2_attack_check.py" >/tmp/orion-ci-attack.log 2>&1; then
-    ok "$(tail -1 /tmp/orion-ci-attack.log)"
+    grep -E "^  (attack surface|reliability):" /tmp/orion-ci-attack.log | sed 's/^  /  ok    /'
 else
-    bad "the attack-surface map no longer matches the tests:"
+    bad "a coverage map no longer matches the tests:"
     grep '  FAIL' /tmp/orion-ci-attack.log | head -8 | sed 's/^/        /'
 fi
 

@@ -54,6 +54,13 @@ const EDIT_TIERS: readonly CapabilityTier[] = [
   // Supplements and workouts. Writes one JSON file Orion owns; the worst case
   // is a wrong number in his own log, which he can be told to correct.
   "health_tracking",
+  // Waiting-on items. Writes one JSON file Orion owns, same shape and same
+  // blast radius as the health log: the worst case is a wrong entry in his own
+  // list, which he can be told to correct.
+  "waiting_on",
+  // Prep cards fan out across mail and the brain, all of it read-only and none
+  // of it written back. Sits with the reads for that reason.
+  "prep",
   // Reading his iMessage history. A read of his own machine, so it sits with
   // the other reads rather than behind the filesystem escalation -- but under
   // its own tier and its own config flag, because "read my home directory" and

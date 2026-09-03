@@ -13,6 +13,23 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import {
+  renderCard,
+  termsFromEvent,
+  type PrepSection,
+} from "./prep.js";
+import {
+  EMPTY_STORE,
+  WAITING_STORE,
+  civilToday,
+  daysLate,
+  draftFollowUp,
+  overdue,
+  pending,
+  validateItem as validateWaitingItem,
+  type WaitingItem,
+  type WaitingStore,
+} from "./waiting.js";
+import {
   AUTOMATION_ROOT,
   describeTrigger,
   simulate,
@@ -1830,6 +1847,12 @@ export async function executeAction(
   if (definition.execution.kind === "automation") {
     return runAutomation(definition.execution.operation, step, idempotencyKey);
   }
+  if (definition.execution.kind === "waiting") {
+    return runWaiting(definition.execution.operation, step, idempotencyKey);
+  }
+  if (definition.execution.kind === "prep_card") {
+    return runPrepCard(step, idempotencyKey);
+  }
   if (definition.execution.kind === "app_control") {
     const application = step.arguments[definition.execution.applicationArgument];
     if (typeof application !== "string") {
@@ -2441,6 +2464,26 @@ export async function verifyAction(
       evidence: present ? `self_source:${definition.execution.operation}` : undefined,
     };
   }
+  if (definition.execution.kind === "prep_card") {
+    // The card either rendered or it did not. There is nothing else to verify:
+    // this action writes nothing, so there is no effect in the world to go and
+    // look at, and a verifier that re-ran the searches would be spending the
+    // reads twice to learn the same thing.
+    const present =
+      typeof execution.output === "string" && execution.output.length > 0;
+    return { observed: present, evidence: present ? "prep_card" : undefined };
+  }
+  if (definition.execution.kind === "waiting") {
+    // Read back from the store after the write, by the same function that
+    // wrote it. Weak on purpose and honest about it: what is being verified is
+    // that the record exists, not that the professor replied.
+    const present =
+      typeof execution.output === "string" && execution.output.length > 0;
+    return {
+      observed: present,
+      evidence: present ? `waiting:${definition.execution.operation}` : undefined,
+    };
+  }
   if (definition.execution.kind === "automation") {
     // A proposal is a file: either it was written or the write threw. Nothing
     // further is observed, deliberately -- the thing worth verifying about an
@@ -2962,13 +3005,31 @@ async function runDevOperation(
   const [command, ...arguments_] = resolved.argv;
   const result = await new Promise<{ code: number; output: string; timedOut: boolean }>(
     (resolve) => {
+      /*
+       `detached: true` puts the child in its own PROCESS GROUP, and the
+       timeout kills the group rather than the child.
+
+       Found by the Phase 68 hang test, in code shipped hours earlier. The
+       original killed `child` and resolved on `close`, and both halves were
+       wrong for the same reason: `npm test` is a shell that spawns vitest.
+       SIGKILL on npm leaves vitest running, vitest keeps the inherited stdout
+       pipe open, and `close` -- which waits for stdio EOF, not for exit --
+       never fires. A timed-out test run would have hung the tool call
+       indefinitely, which is precisely the failure the timeout exists to
+       prevent, arrived at through the timeout itself.
+
+       So: kill the group, and settle on `exit` as well as `close`, so a pipe
+       some orphan is still holding cannot wedge the promise.
+      */
       const child = spawn(command!, arguments_, {
         cwd: resolved.cwd,
         env: devEnvironment(),
         stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
       });
       let output = "";
       let timedOut = false;
+      let settled = false;
       const collect = (chunk: unknown) => {
         // Bounded as it arrives, not at the end. A runaway loop printing to
         // stdout would otherwise be held entirely in memory before being
@@ -2977,17 +3038,30 @@ async function runDevOperation(
       };
       child.stdout?.on("data", collect);
       child.stderr?.on("data", collect);
+      const settle = (code: number) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ code, output: output.trim(), timedOut });
+      };
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGKILL");
+        try {
+          // Negative pid = the whole group. `child.kill` would reach only the
+          // shell, which is the bug this replaced.
+          if (child.pid) process.kill(-child.pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+        // Belt and braces: if even the group kill leaves something holding a
+        // pipe, settle anyway a moment later rather than never.
+        setTimeout(() => settle(124), 2_000);
       }, resolved.spec.timeoutMs);
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        resolve({ code: code ?? 1, output: output.trim(), timedOut });
-      });
+      child.on("close", (code) => settle(code ?? 1));
+      child.on("exit", (code) => settle(code ?? 1));
       child.on("error", (error) => {
-        clearTimeout(timer);
-        resolve({ code: 1, output: String(error), timedOut: false });
+        output += String(error);
+        settle(1);
       });
     },
   );
@@ -3119,6 +3193,245 @@ async function runAutomation(
       `and spoken at most ${forecast.messageCount} time(s).`,
       ...forecast.notes.map((note) => `- ${note}`),
     ].join("\n"),
+  };
+}
+
+/**
+ * PHASE 62 — what Nick is waiting on.
+ *
+ * Every write goes through read-modify-write on one small file, and the whole
+ * file is rewritten atomically. There is no partial state to recover from,
+ * which is the right trade for a store that will never hold more than a few
+ * dozen rows.
+ */
+async function runWaiting(
+  operation: "add" | "list" | "resolve" | "dismiss" | "snooze" | "draft",
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const load = async (): Promise<WaitingStore> => {
+    const text = await readFile(WAITING_STORE, "utf8").catch(() => null);
+    if (text === null) return { ...EMPTY_STORE };
+    try {
+      const parsed = JSON.parse(text) as WaitingStore;
+      return Array.isArray(parsed.items) ? parsed : { ...EMPTY_STORE };
+    } catch {
+      // A corrupt store must not silently become an empty one -- that would
+      // lose everything Nick is waiting on and report success while doing it.
+      throw new ActionExecutionError(
+        `The waiting list at ${WAITING_STORE} is unreadable. Nothing was changed; a human should look at it.`,
+      );
+    }
+  };
+  const save = async (store: WaitingStore) => {
+    await mkdir(path.dirname(WAITING_STORE), { recursive: true, mode: 0o700 });
+    await writeFile(WAITING_STORE, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  };
+  const store = await load();
+  const now = new Date();
+
+  if (operation === "list") {
+    const late = overdue(store, now);
+    const soon = pending(store, now);
+    const line = (item: WaitingItem, suffix = "") =>
+      `  ${item.id} — ${item.what} (${item.who}), expecting ${item.expect}, due ${item.dueBy}${suffix}`;
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output: [
+        `${late.length} overdue:`,
+        ...late.map((item) => line(item, `, ${daysLate(item, now)} day(s) late`)),
+        `${soon.length} outstanding and not yet due:`,
+        ...soon.map((item) => line(item)),
+        late.length + soon.length === 0 ? "Nothing outstanding." : "",
+      ].filter(Boolean).join("\n"),
+    };
+  }
+
+  if (operation === "add") {
+    const issues = validateWaitingItem(step.arguments);
+    if (issues.length > 0) throw new ActionExecutionError(issues.join("; "));
+    const id = String(step.arguments.id);
+    if (store.items.some((item) => item.id === id)) {
+      throw new ActionExecutionError(
+        `'${id}' is already on the list. Use a different id, or resolve the existing one.`,
+      );
+    }
+    const item: WaitingItem = {
+      id,
+      what: String(step.arguments.what),
+      who: String(step.arguments.who),
+      expect: String(step.arguments.expect),
+      since: civilToday(now),
+      dueBy: String(step.arguments.dueBy),
+      status: "open",
+      surfaced: 0,
+    };
+    await save({ ...store, items: [...store.items, item] });
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output: `Waiting on ${item.who} for ${item.what}. Due ${item.dueBy}; I will raise it once it is late.`,
+    };
+  }
+
+  const id = String(step.arguments.id ?? "");
+  const existing = store.items.find((item) => item.id === id);
+  if (!existing) {
+    throw new ActionExecutionError(`Nothing on the waiting list called '${id.slice(0, 40)}'.`);
+  }
+
+  if (operation === "draft") {
+    // Written onto the record and NOT sent. See waiting.ts for why that is the
+    // gate decision rather than an omission.
+    const text = draftFollowUp(existing, now);
+    const next = { ...existing, draft: { text, writtenAt: now.toISOString() } };
+    await save({ ...store, items: store.items.map((i) => (i.id === id ? next : i)) });
+    return {
+      mode: "observed",
+      idempotencyKey,
+      output:
+        `Drafted a follow-up for '${id}'. NOTHING WAS SENT and I cannot send it — ` +
+        `read it to Nick and let him decide.\n\n${text}`,
+    };
+  }
+
+  const patch: Partial<WaitingItem> =
+    operation === "resolve"
+      ? { status: "resolved", resolvedAt: now.toISOString() }
+      : operation === "dismiss"
+        ? { status: "dismissed" }
+        : {
+            snoozedUntil: new Date(
+              now.getTime() + Number(step.arguments.days) * 86_400_000,
+            ).toISOString(),
+          };
+  await save({
+    ...store,
+    items: store.items.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+  });
+  return {
+    mode: "observed",
+    idempotencyKey,
+    output:
+      operation === "snooze"
+        ? `'${id}' will stay quiet for ${Number(step.arguments.days)} day(s).`
+        : `'${id}' is ${operation === "resolve" ? "resolved" : "dismissed"} — ${existing.what}.`,
+  };
+}
+
+/**
+ * PHASE 61 — a prep card, assembled and not remembered.
+ *
+ * Five sources, each already gated and already read-only, fanned out in
+ * parallel and rendered into one turn. Nothing here writes: no note, no
+ * memory, no file. That is the manifest's own constraint -- "use temporary
+ * context; do not convert every relevant document into permanent ORION
+ * memory" -- and it is enforced by there being no write call in this function
+ * rather than by a rule about how it should be used.
+ *
+ * Every source is allowed to FAIL VISIBLY. "No relevant email" and "I could
+ * not search your email" look identical to a reader and mean opposite things,
+ * so a source that could not be read is reported as a blind spot in the card.
+ */
+async function runPrepCard(
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const title = String(step.arguments.title ?? "");
+  const attendees = Array.isArray(step.arguments.attendees)
+    ? (step.arguments.attendees as string[]).map(String)
+    : [];
+  const when = typeof step.arguments.when === "string" ? step.arguments.when : "soon";
+  const terms = termsFromEvent(title, attendees);
+
+  const section = async (
+    label: string,
+    script: string,
+    argv: string[],
+    timeoutMs = 25_000,
+  ): Promise<PrepSection> => {
+    const result = await runOrionScript(script, argv, timeoutMs).catch(() => ({
+      code: 1,
+      output: "the wrapper could not be run",
+    }));
+    if (result.code !== 0) {
+      return { label, status: "unavailable", lines: [], reason: result.output.slice(0, 140) };
+    }
+    const lines = result.output.split("\n").map((line) => line.trim()).filter(Boolean);
+    return lines.length === 0
+      ? { label, status: "empty", lines: [] }
+      : { label, status: "ok", lines };
+  };
+
+  // Searched on terms extracted MECHANICALLY from the event, never chosen by
+  // the model -- see prep.ts. An event title is attacker-controllable if
+  // anyone can put something on the calendar.
+  const query = terms.join(" ");
+  const [threads, notes, tasks, waitingItems] = await Promise.all([
+    query
+      ? section("Mail", "orion-gmail-search", [query])
+      : Promise.resolve<PrepSection>({ label: "Mail", status: "empty", lines: [] }),
+    query
+      ? section("Notes", "orion-recall", [query])
+      : Promise.resolve<PrepSection>({ label: "Notes", status: "empty", lines: [] }),
+    section("Tasks", "orion-agenda", ["tasks"]),
+    (async (): Promise<PrepSection> => {
+      // OPEN QUESTIONS, which is the sixth ingredient and the one with no
+      // wrapper: things Nick is waiting on that mention anybody in the room.
+      const text = await readFile(WAITING_STORE, "utf8").catch(() => null);
+      if (text === null) return { label: "Open questions", status: "empty", lines: [] };
+      try {
+        const store = JSON.parse(text) as WaitingStore;
+        const haystack = [title, ...attendees].join(" ").toLowerCase();
+        const relevant = store.items.filter(
+          (item) =>
+            item.status === "open" &&
+            (haystack.includes(item.who.toLowerCase().split("@")[0] ?? "\u0000") ||
+              terms.some((term) => `${item.what} ${item.expect}`.toLowerCase().includes(term))),
+        );
+        return relevant.length === 0
+          ? { label: "Open questions", status: "empty", lines: [] }
+          : {
+              label: "Open questions",
+              status: "ok",
+              lines: relevant.map(
+                (item) => `still waiting on ${item.who} for ${item.what} (due ${item.dueBy})`,
+              ),
+            };
+      } catch {
+        return { label: "Open questions", status: "unavailable", lines: [], reason: "the waiting list is unreadable" };
+      }
+    })(),
+  ]);
+
+  const people: PrepSection =
+    attendees.length === 0
+      ? { label: "People", status: "empty", lines: [] }
+      : { label: "People", status: "ok", lines: attendees.map((a) => a) };
+
+  // DOCUMENTS is absent, and says so rather than being quietly dropped. There
+  // is no document store to search, and the nearest thing -- an unbounded scan
+  // for filenames matching an event title -- is both useless and a way to read
+  // whatever Orion happens to be pointed at.
+  const documents: PrepSection = {
+    label: "Documents",
+    status: "unavailable",
+    lines: [],
+    reason: "there is no document store on this machine to search",
+  };
+
+  return {
+    mode: "observed",
+    idempotencyKey,
+    output: renderCard({ title, when, attendees }, [
+      threads,
+      notes,
+      tasks,
+      people,
+      documents,
+      waitingItems,
+    ]),
   };
 }
 

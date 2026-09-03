@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "purpose": "PHASE 68. Every failure scenario the manifest names, mapped to what covers it or to the reason nothing does. Checked by scripts/orion_v2_attack_check.py alongside the attack map — same checker, so a renamed test breaks both the same way.",
+  "note": "A `test` entry is matched against the literal it(\"...\") title. A `mechanism` entry names something that is not a test — a launchd key, an idempotency scheme — and is accepted only alongside a reason, because 'there is a mechanism' is a weaker claim than 'there is a test' and should read as one.",
+  "classes": [
+    {
+      "class": "dst",
+      "covered": true,
+      "tests": [
+        {
+          "file": "../../native/OrionMobile/Sources/MobileCore/Notifications.swift",
+          "title": null
+        }
+      ],
+      "mechanism": "MobileCore's brief scheduling computes a CIVIL time, and the Swift suite pins the 23:30 case.",
+      "reason": "Paid for once: a 22:00 assertion survived an 86,400s mutant because 22:00 is unaffected. The real divergence is at 23:30, which skips 29 March entirely — the TEST was wrong, not the code.",
+      "residual": "Only the mobile brief path is covered. orion-standing uses toLocaleDateString('en-CA') everywhere but has no DST-specific test."
+    },
+    {
+      "class": "clock_skew",
+      "covered": true,
+      "mechanism": "Every day boundary is toLocaleDateString('en-CA'); strictness delegations are capped at 24h so a backwards clock jump extends a grant by at most a day.",
+      "reason": "toISOString is UTC and rolls over mid-evening in New York, which filed a day's memory under tomorrow once.",
+      "residual": "Nothing tests a deliberately skewed clock end to end.",
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "bounds how long a delegation may run"
+        },
+        {
+          "file": "src/gate.test.ts",
+          "title": "uses a local civil date, because toISOString rolls over mid-evening here"
+        }
+      ]
+    },
+    {
+      "class": "timezone_travel",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "ends a delegation at its expiry without anything having to fire"
+        }
+      ],
+      "mechanism": "Expiry is compared as an instant, not as a wall-clock time, so crossing a zone cannot extend or shorten one."
+    },
+    {
+      "class": "retry_after_completed_side_effect",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/index.test.ts",
+          "title": "derives hashes for a plain append and never double-appends on retry"
+        },
+        {
+          "file": "src/index.test.ts",
+          "title": "retries only a classified transient failure within the graph budget"
+        }
+      ],
+      "mechanism": "Idempotency keys on every executor path."
+    },
+    {
+      "class": "lost_acknowledgement",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "spends a grant exactly once"
+        }
+      ],
+      "mechanism": "MobileCore's JobGate separates DUPLICATE (same request, new id — accepted, because every remote capability is a pure read) from REPLAY (same id — refused, because a resent id is indistinguishable from a captured one)."
+    },
+    {
+      "class": "queue_duplicate_delivery",
+      "covered": true,
+      "mechanism": "orion-remote's inbox cursor advances one message at a time, so a crash mid-drain re-reads at most one — and the replay guard refuses that one.",
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "ignores a grant whose nonce was not the one minted"
+        }
+      ]
+    },
+    {
+      "class": "model_timeout",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "kills a wrapper that hangs, rather than waiting for it"
+        }
+      ],
+      "mechanism": "Per-operation timeouts that kill the PROCESS GROUP and settle on exit as well as close.",
+      "reason": "This test found a real bug in code shipped the same day: killing the child left its grandchild holding the stdout pipe, and `close` never fired."
+    },
+    {
+      "class": "api_rate_limits",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "turns a wrapper that exits non-zero into a refusal, not a crash"
+        }
+      ],
+      "mechanism": "A non-zero exit carries the wrapper's stderr through to the model as a sentence."
+    },
+    {
+      "class": "google_429",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "turns a wrapper that exits non-zero into a refusal, not a crash"
+        }
+      ],
+      "mechanism": "Same path as api_rate_limits: orion-gmail-* exit non-zero and their message is surfaced."
+    },
+    {
+      "class": "google_500",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "turns a wrapper that exits non-zero into a refusal, not a crash"
+        }
+      ],
+      "mechanism": "Same path. A 500 and a 429 are the same shape to this system: a failed wrapper whose reason reaches the model."
+    },
+    {
+      "class": "database_outage",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/index.test.ts",
+          "title": "reads task status past a corrupt ledger line"
+        },
+        {
+          "file": "src/gate.test.ts",
+          "title": "survives a half-written final line on an append-only ledger"
+        },
+        {
+          "file": "src/gate.test.ts",
+          "title": "refuses to read a corrupt store as an empty one"
+        }
+      ],
+      "mechanism": "There is no database. The stores are JSONL and JSON files, and a corrupt one is refused rather than read as empty."
+    },
+    {
+      "class": "mac_sleep",
+      "covered": true,
+      "mechanism": "launchd KeepAlive on com.nickmadaio.orion.remote; the bridge reconnects on wake.",
+      "reason": "Verified by kill -9 and watching it return in ~12 seconds.",
+      "residual": "Verified by hand, not by a test. Nothing re-verifies it after a plist change."
+    },
+    {
+      "class": "mac_reboot",
+      "covered": true,
+      "mechanism": "RunAtLoad plus KeepAlive, installed under ~/.openclaw because launchd cannot read ~/Desktop.",
+      "reason": "The TTS daemon stayed dead for nineteen days after being killed because nothing could restart it. That is what this key is for.",
+      "residual": "Same as mac_sleep: verified by hand."
+    },
+    {
+      "class": "worker_crash",
+      "covered": true,
+      "mechanism": "ThrottleInterval 30 on the launch agent, so a bad token makes the bridge exit deliberately rather than crash-loop.",
+      "residual": "No test asserts the throttle; it is a plist value.",
+      "reason": "Without a throttle a bad token becomes a tight crash loop that fills the log and hides the cause. Thirty seconds keeps it readable and still recovers on its own once the config is fixed."
+    },
+    {
+      "class": "mac_disconnect",
+      "covered": true,
+      "tests": [
+        {
+          "file": "src/gate.test.ts",
+          "title": "ignores a delegation addressed to a different Mac"
+        }
+      ],
+      "mechanism": "MacPresence treats unknown as distinct from offline, and a future heartbeat as unknown rather than as fresh."
+    },
+    {
+      "class": "stale_health_data",
+      "covered": true,
+      "mechanism": "orion-standing prints a recovery or sleep figure only if it is in the file AND stamped with today's local date; a stale reading is dropped rather than re-attributed.",
+      "residual": "Enforced in orion-standing, which has no test harness of its own.",
+      "reason": "A two-day-old recovery score is not today's recovery score, and attaching it to today is how a made-up number gets spoken as a measurement."
+    },
+    {
+      "class": "revoked_tokens",
+      "covered": false,
+      "reason": "Gmail tokens live in the Keychain and a revoked one surfaces as a non-zero exit from orion-gmail-*, which IS handled — but nothing injects a revoked token to prove the message that comes back is useful rather than a stack trace.",
+      "residual": "Needs a fake credential path in the gmail wrappers. Cheap, and the wrapper exit-code test is the template."
+    },
+    {
+      "class": "provider_outage",
+      "covered": false,
+      "reason": "A model provider being down is not something this system can arrange in a test. What is covered is the shape it arrives in — a wrapper or a tool call that fails — and that has a test.",
+      "residual": "An outage mid-run leaves a task record in a non-terminal state, and nothing sweeps those."
+    },
+    {
+      "class": "expired_subscriptions",
+      "covered": false,
+      "reason": "There is no subscription this system manages or checks. Model billing is outside it entirely.",
+      "residual": "Becomes live if usage is ever metered against a plan this code has to read."
+    },
+    {
+      "class": "duplicate_webhooks",
+      "covered": false,
+      "reason": "Nothing listens for a webhook. The Discord webhook is outbound only and the gateway exposes no inbound HTTP endpoint.",
+      "residual": "Live the day an inbound endpoint exists; the replay design from the approval gate is the template."
+    },
+    {
+      "class": "missing_webhooks",
+      "covered": false,
+      "reason": "Same: no inbound endpoint to miss anything from.",
+      "residual": "Live with an inbound endpoint. The honest failure would be silent, which is the worst kind, so it needs a heartbeat rather than an error path."
+    },
+    {
+      "class": "phone_disconnect",
+      "covered": false,
+      "reason": "There is no phone. MobileCore models presence and reconnection from Phases 44/45 and has tests, but nothing runs on a device.",
+      "residual": "Live when an iOS app exists."
+    },
+    {
+      "class": "ios_process_termination",
+      "covered": false,
+      "reason": "No iOS app to terminate.",
+      "residual": "Live when an iOS app exists. The remote job gate's replay rules are what would make a resumed app safe."
+    }
+  ]
+}

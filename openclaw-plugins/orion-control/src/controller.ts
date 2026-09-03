@@ -38,6 +38,15 @@ export interface RunOptions {
   /** Paths Orion already wrote under an authenticated turn (see provenance). */
   isSelfAuthored?: (candidate: string) => boolean;
   /**
+   * Which canonical hashes a person has approved.
+   *
+   * Threaded through to the AUTHORITATIVE validation below rather than only to
+   * the entry point's evidence copy. That distinction has bitten this file
+   * before -- see the note on `strictArguments`: a gate wired only into the
+   * copy looks live in the record and changes nothing about what runs.
+   */
+  approvalGrants?: (canonicalHash: string) => boolean;
+  /**
    * Called with the resolved target of every step that executed AND verified.
    *
    * Placed after verification on purpose: an attempted write that failed or
@@ -82,6 +91,7 @@ export async function runTaskGraph(
     // execution. Wiring the flag only into the entry point's evidence copy
     // would produce a setting that looks live and changes nothing.
     ...(options.strictArguments ? { strictArguments: true } : {}),
+    ...(options.approvalGrants ? { approvalGrants: options.approvalGrants } : {}),
   });
   const createdAt = now().toISOString();
   // A nonce keeps task ids unique: two identical graphs submitted inside the

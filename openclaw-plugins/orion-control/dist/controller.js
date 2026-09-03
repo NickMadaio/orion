@@ -30,6 +30,7 @@ export async function runTaskGraph(graph, options) {
         // execution. Wiring the flag only into the entry point's evidence copy
         // would produce a setting that looks live and changes nothing.
         ...(options.strictArguments ? { strictArguments: true } : {}),
+        ...(options.approvalGrants ? { approvalGrants: options.approvalGrants } : {}),
     });
     const createdAt = now().toISOString();
     // A nonce keeps task ids unique: two identical graphs submitted inside the

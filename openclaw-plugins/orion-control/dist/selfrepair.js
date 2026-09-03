@@ -70,7 +70,12 @@ export const FORBIDDEN_CONFIG = [
     {
         // Where the audit and the permission state live. Redirecting the record of
         // a change is a way of making the change unrecorded.
-        pattern: /^plugins\.entries\.orion-control\.config\.(?:permissionStatePath|permissionAuditPath|ledgerPath|workshopPath|desktopRoot|homeRoot|testWorkspaceRoot|scratchWorkspaceRoot|healthLogPath|remindersPath)$/,
+        // `approvalRoot` and `strictnessStatePath` were added 2026-09-02 and belong
+        // here more than anything else on the line: redirecting the grant directory
+        // at a path Orion CAN write turns the approval gate into a formality
+        // without touching a capability flag, which is exactly the shape of
+        // widening this pattern exists to refuse.
+        pattern: /^plugins\.entries\.orion-control\.config\.(?:permissionStatePath|permissionAuditPath|approvalRoot|strictnessStatePath|ledgerPath|workshopPath|desktopRoot|homeRoot|testWorkspaceRoot|scratchWorkspaceRoot|healthLogPath|remindersPath)$/,
         reason: "that moves where Orion's audit trail or his filesystem roots live, which is a way of widening reach without touching a capability flag. Change it yourself with `openclaw config set`",
     },
     {
@@ -255,14 +260,22 @@ export const OPERATIONAL_PLUGIN_FILES = [
  * should require Nick to have asked for it.
  */
 export const AUTHORITY_PLUGIN_FILES = [
+    // The two halves of the gate added 2026-09-02. `approvals.ts` decides
+    // whether a person said yes; `strictness.ts` decides how often one has to be
+    // asked. `gate.test.ts` is here for the same reason `index.test.ts` is: the
+    // adversarial cases ARE the proof, and a change that deletes its own proof
+    // should require Nick to have asked for it.
+    "approvals.ts",
     "catalog.ts",
     "controller.ts",
     "executors.ts",
+    "gate.test.ts",
     "index.test.ts",
     "index.ts",
     "permissions.ts",
     "provenance.ts",
     "selfrepair.ts",
+    "strictness.ts",
     "transcript.ts",
     "types.ts",
     "validator.ts",
@@ -279,12 +292,14 @@ export const AUTHORITY_PLUGIN_FILES = [
  * Every file that participates in deciding whether a step runs.
  */
 export const ENFORCEMENT_PLUGIN_FILES = [
+    "approvals.ts",
     "catalog.ts",
     "controller.ts",
     "index.ts",
     "permissions.ts",
     "provenance.ts",
     "selfrepair.ts",
+    "strictness.ts",
     "transcript.ts",
     "validator.ts",
 ];
@@ -313,6 +328,20 @@ export const OPERATIONAL_SCRIPTS = [
 export const FORBIDDEN_SCRIPTS = {
     "orion-repair": "that is the repair engine itself — it cannot vouch for a change to its own gates. Edit ~/Desktop/ORION/scripts/orion-repair by hand",
     "orion-forge": "that is the Swift self-modification engine and its three gates. Edit ~/Desktop/ORION/scripts/orion-forge by hand",
+    /*
+     The two scripts that represent Nick rather than Orion.
+  
+     `orion-approve` is the act of a person saying yes; `orion-mode` is the act
+     of a person deciding how often that has to happen. A repair engine that
+     could edit either would be able to arrange its own approvals, and the same
+     argument that keeps `orion-repair` off this list keeps these off it: the
+     thing that vouches for a change cannot vouch for a change to itself.
+  
+     Neither is on the exec allowlist either. That is the enforcement; this
+     entry is what makes the refusal say why.
+    */
+    "orion-approve": "that is how Nick says yes. Orion editing it would be Orion arranging his own approvals. Edit ~/Desktop/ORION/scripts/orion-approve by hand",
+    "orion-mode": "that is how Nick sets how much Orion has to ask. Edit ~/Desktop/ORION/scripts/orion-mode by hand",
 };
 const PLUGIN_FILE_NAME = /^[A-Za-z0-9_.-]+\.ts$/;
 const SCRIPT_NAME = /^orion-[a-z0-9][a-z0-9-]*$/;

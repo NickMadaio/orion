@@ -32,6 +32,18 @@ export const PATHS = {
   approvals: join(HOME, ".openclaw/exec-approvals.json"),
   state: join(HOME, ".openclaw/orion-controlled/permission-state.json"),
   scripts: join(HOME, "Desktop/ORION/scripts"),
+  /*
+   The gate: the strictness delegation, and the approval tickets and grants.
+
+   Deliberately NOT under `orion-controlled`. That directory is Orion's own
+   state -- his ledger, his reminders, his remote inbox -- and `orion-authority`
+   classifies writes there as `orion_state`, which is AUTO. Keeping the grants
+   that authorize him inside the directory he owns would make the boundary
+   decorative. Kept in step with `defaultGateRoot()` in the plugin's index.ts.
+  */
+  gate: join(HOME, ".openclaw/orion-gate"),
+  strictness: join(HOME, ".openclaw/orion-gate/strictness.json"),
+  gateApprovals: join(HOME, ".openclaw/orion-gate/approvals"),
 };
 
 /* ------------------------------------------------------------ plugin loading */
@@ -51,8 +63,13 @@ export async function loadPlugin() {
     try {
       const catalog = await import(join(dist, "catalog.js"));
       const permissions = await import(join(dist, "permissions.js"));
+      // Both leaf modules, same as `permissions.js`: they import types and
+      // node builtins only, so loading them here registers nothing with the
+      // host and cannot start a plugin.
+      const approvals = await import(join(dist, "approvals.js"));
+      const strictness = await import(join(dist, "strictness.js"));
       const index = await readFile(join(dist, "index.js"), "utf8");
-      return { catalog, permissions, index, dist };
+      return { catalog, permissions, approvals, strictness, index, dist };
     } catch (error) {
       failures.push(`${dist}: ${error.message}`);
     }

@@ -4383,12 +4383,12 @@
     },
     "49": {
       "name": "Remote Approval System",
-      "status": "not_started",
+      "status": "in_progress",
       "entryRequiresPhase": "48",
       "entrySatisfied": false,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "Surveyed 2026-09-02. The canonical-hash half exists in the plugin; the human, the phone and the cryptography do not.",
+      "evidence": "openclaw-plugins/orion-control/src/{approvals,strictness}.ts and the gate in validator.ts, covered by src/gate.test.ts and src/index.test.ts (170 tests) and by scripts/orion_v2_strictness_check.sh (27 checks) against the live machine.",
       "requirements": [
         {
           "id": "creates_a_canonical_job_representation_and_hashes_it",
@@ -4398,8 +4398,8 @@
         {
           "id": "shows_a_human_readable_approval_on_iphone",
           "status": "blocked",
-          "reason": "Depends on a phone surface that does not exist.",
-          "evidence": "There is no iPhone app. MobileCore has the types and no renderer."
+          "reason": "There is no iPhone app. The approval surface is the terminal and Discord.",
+          "evidence": "Still no iPhone app. What exists now is the human-readable half without the phone: a ticket carries a rendered one-line summary ('messages_send — recipient: Mum, body: …') rather than a JSON dump, and `orion-approve` with no arguments lists what is waiting with what it would do. Terminal and Discord, not iOS."
         },
         {
           "id": "requires_face_id_where_appropriate",
@@ -4410,32 +4410,29 @@
         {
           "id": "signs_approval_with_a_device_authorization_key",
           "status": "blocked",
-          "reason": "Depends on the phone surface.",
-          "evidence": "grep for SecureEnclave returns nothing. MobileCore's DeviceKeyReference is a display type that deliberately holds a reference and a public half, with no signing."
+          "reason": "No SecureEnclave key exists. Filesystem placement plus a nonce is the substitute, and it is weaker.",
+          "evidence": "Not done, and the substitute is named rather than implied: a grant is authenticated by WHERE it is (a directory nothing in Orion's tool surface can write) and by a nonce only the minting process knew, not by a signature. On a single-user Mac with no privilege boundary that is the honest ceiling without a Secure Enclave key, which needs the phone."
         },
         {
           "id": "includes_target_device_capability_arguments_hash_expiration_and_nonce",
-          "status": "blocked",
-          "reason": "Half-built in two places that do not know about each other.",
-          "evidence": "The arguments hash exists. Target device, expiration and nonce exist in the Swift RemoteJob domain (Phase 45) and are enforced there; neither is carried in the plugin's approval representation."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-02 for the Mac half. An `ApprovalTicket` carries the capability (action), the arguments hash (canonicalActionHash over action, arguments and working context), an expiry (15 minutes), a 128-bit nonce from the CSPRNG that the grant must echo, and `deviceId` from hostname() -- `readTickets` drops a ticket minted on another Mac, because the approval directory is syncable. The Swift RemoteJob half from Phase 45 is unchanged."
         },
         {
           "id": "mac_verifies_signatures_independently",
           "status": "blocked",
-          "reason": "Depends on signing.",
-          "evidence": "Nothing is signed, so nothing verifies."
+          "reason": "Depends on signing, which depends on the phone.",
+          "evidence": "Nothing is signed, so nothing verifies a signature. The Mac does now verify independently in the weaker sense that matters today: it re-derives the canonical hash from the submitted bytes and matches it against a grant it reads off disk, rather than trusting a value in the request."
         },
         {
           "id": "keeps_a_human_in_the_loop_for_every_approval",
-          "status": "blocked",
-          "reason": "Not fixed, and the most consequential item in this phase. An approval system the approver can satisfy on its own is not an approval system.",
-          "evidence": "AMENDED INTO THE MANIFEST 2026-09-02, because the review found the gate is satisfiable by the AGENT. During the failed conversation the approval_required issue vanished after Orion passed approvalHash himself, unprompted -- no human yes ever reached the plugin, and the approve-id exchange Nick was walked through was theatre."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-02. The gate no longer reads the hash off the step. `validator.ts` consults `options.approvalGrants`, which the plugin entry fills from a grant directory, and the step's own `approvalHash` is ignored for authorization. A grant is written only by `orion-approve` or by `orion-remote` acting on a non-local sender; both refuse the `local` identity an exec call presents. The boundary is four claims -- absent from the exec allowlist, in FORBIDDEN_SCRIPTS, outside every mutable root, and the config paths in FORBIDDEN_CONFIG -- and orion_v2_strictness_check.sh re-checks all four against the live machine. Mutation-tested: restoring the old acceptance fails four named assertions, and removing the local refusal fails one."
         },
         {
           "id": "authorization_checks_are_satisfiable_by_the_name_a_person_would_type",
-          "status": "blocked",
-          "reason": "Not fixed. The smallest correct repair is to accept the extension-stripped stem when it is long enough to be unambiguous.",
-          "evidence": "AMENDED IN 2026-09-02. normalizeForOrigin strips dots from BOTH the needle and the haystack, so the required token for 'executors.ts' is 'executorsts' -- which no human writes. Nick was asked three times to name the file, answered 'executors', and was refused each time by a check that could not have accepted it. Five identical rejections are in the session transcript."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-02. Two halves. (a) Approval ids are `A-7F3K`: four characters from an alphabet with no 0/O/1/I/L, and `normalizeTicketId` accepts the id lower-case, upper-case, or without the `A-` prefix. (b) `argumentNotFromUser` now also matches a filename on its stem, so Nick saying \"fix executors\" satisfies the origin check for `executors.ts`; before, `normalizeForOrigin` stripped the dot from both sides and demanded the token `executorsts`. The widening only ever lets more through, and the test pairs two authority-classed files so the negative case is not vacuous."
         },
         {
           "id": "never_presents_an_approval_identifier_the_system_did_not_mint",
@@ -4451,30 +4448,28 @@
     },
     "50": {
       "name": "Delegated Policies",
-      "status": "not_started",
+      "status": "in_progress",
       "entryRequiresPhase": "49",
       "entrySatisfied": false,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "Surveyed 2026-09-02. A Delegation type exists from Phase 42; nothing stores or enforces one.",
+      "evidence": "openclaw-plugins/orion-control/src/{approvals,strictness}.ts and the gate in validator.ts, covered by src/gate.test.ts and src/index.test.ts (170 tests) and by scripts/orion_v2_strictness_check.sh (27 checks) against the live machine.",
       "requirements": [
         {
           "id": "allows_preauthorizing_narrowly_defined_capabilities",
-          "status": "blocked",
-          "reason": "Not started. The vocabulary exists and the enforcement does not.",
-          "evidence": "MobileCore's Delegation (SecurityCenter.swift, Phase 42) models one -- id, what, grantedAt, expiresAt, revoked, and isActive at an injected instant, all mutation-proven. It is a DISPLAY type: nothing creates a delegation, nothing stores one, and no executor consults one before acting."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-02. A delegation is a STRICTNESS MODE plus its exceptions, stored at ~/.openclaw/orion-gate/strictness.json and set by `orion-mode`. Four modes -- contained, guarded (default), open, sovereign -- and they are a real ladder rather than four names: 62/114/123/124 capabilities run unannounced and 82/15/15/6 still stop and ask. `guarded` is the identity, asserted against planning/v2/GUARDED_BASELINE.json, a fixture pinned from commit 2cf0445 so that no closed phase's evidence is invalidated."
         },
         {
           "id": "every_delegation_defines_capabilities_resources_exceptions_limits_expiration_ceiling_and_devices",
           "status": "blocked",
-          "reason": "Not started.",
-          "evidence": "The existing type carries expiration and revocation only. The other five fields -- allowed capabilities, resources, exceptions, risk ceiling, target devices -- have no representation anywhere."
+          "reason": "`resources` (per-path scoping) is unimplemented. The other six fields are stored and enforced.",
+          "evidence": "Six of the seven fields are stored AND read. risk ceiling = the mode; expiration and time limits = `expiresAt`, evaluated at read time so a delegation ends without anything having to fire, bounded to 24h because expiry is compared against a system clock that can move; exceptions = `except`, keyed by action name or capability tier, combined with `worst` so it can only ADD friction; target devices = `deviceId`, and a delegation addressed to another hostname resolves to guarded; allowed capabilities = the mode and the floor together. The seventh, RESOURCES, is not there: there is no way to say 'sovereign, but only under ~/Projects'. Scoping a delegation to a path needs the mode to reach the execution roots, which it deliberately does not today."
         },
         {
           "id": "requires_explicit_user_approval_to_create_or_expand_a_delegation",
-          "status": "blocked",
-          "reason": "Depends on Phase 49.",
-          "evidence": "Depends on Phase 49's approval path, which is itself blocked on there being a human in it. Registered so this is not closed on the strength of a gate the agent can satisfy alone."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-02, by the same argument that makes `orion-approve` work and no other: `orion-mode` is absent from the exec allowlist (so the call is denied, not prompted), is in FORBIDDEN_SCRIPTS (so the repair engine will not edit it), writes a path no mutable root covers, and its config key is in FORBIDDEN_CONFIG (so it cannot be redirected). Running it IS the authorization. Expanding additionally needs `--yes`, and an open-ended relaxation needs `--until-changed` said out loud -- friction placed on the choice that deserves it. Tightening never needs either, because that is the one direction Orion may take alone."
         }
       ],
       "limitations": [

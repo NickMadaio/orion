@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+# 2: added `strictness`. The snapshot was silently mode-dependent the moment a
+# second authority axis existed, and a snapshot that does not say which mode it
+# was taken under is a snapshot nobody can check anything against later.
+SCHEMA_VERSION = 2
 LEVELS = ("AUTO", "NOTIFY", "APPROVAL", "NEVER")
 AVAILABILITY_FIELDS = (
     "tier",
@@ -135,6 +138,11 @@ def normalize_authority(raw: Any) -> dict[str, Any]:
         "schemaVersion": SCHEMA_VERSION,
         "profile": require_text(raw.get("profile"), "profile"),
         "profileSource": require_text(raw.get("profileSource"), "profileSource"),
+        "strictness": {
+            "mode": require_text(raw.get("mode"), "mode"),
+            "source": require_text(raw.get("modeSource"), "modeSource"),
+            "expiresAt": raw.get("modeExpiresAt"),
+        },
         "installedPluginParity": raw.get("drift") is False,
         "execPolicy": normalized_exec,
         "counts": {"total": len(normalized_capabilities), **counts},

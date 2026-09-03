@@ -322,9 +322,30 @@ export function argumentNotFromUser(definition, arguments_, userText) {
         // An empty needle would match everything; treat it as absent rather than
         // as satisfied, because a recipient made only of punctuation is not a
         // recipient Nick named.
-        if (needle.length === 0 || !haystack.includes(needle)) {
+        if (needle.length === 0)
             return { key, value };
-        }
+        if (haystack.includes(needle))
+            continue;
+        /*
+         A filename Nick named without its extension.
+    
+         `normalizeForOrigin` strips punctuation from BOTH sides, so "executors.ts"
+         becomes "executorsts" and "fix executors.ts" becomes "fixexecutorsts" --
+         which matches. What did NOT match is the way a person actually talks: Nick
+         says "fix executors", the model correctly resolves that to `executors.ts`,
+         and the check then demanded a token nobody would ever type.
+    
+         Phase 49: "make every authorization check satisfiable by the name a person
+         would actually type". So a value whose only mismatch is a file extension
+         is matched on its stem as well. This only ever lets MORE through, and only
+         for a stem Nick did say out loud -- an argument he never mentioned still
+         fails on both spellings. Recipients are unaffected: a phone number and an
+         Apple ID have no extension to strip.
+        */
+        const stem = normalizeForOrigin(value.replace(/\.[A-Za-z0-9]{1,6}$/, ""));
+        if (stem.length > 0 && stem !== needle && haystack.includes(stem))
+            continue;
+        return { key, value };
     }
     return undefined;
 }
@@ -552,10 +573,16 @@ export function validateTaskGraph(graph, options = {}) {
         }
         if (definition.approvalRequired) {
             const canonicalHash = canonicalActionHash(step, graph.workingContext);
-            if (step.approval?.status !== "approved" || step.approval.canonicalHash !== canonicalHash) {
+            // The hash still binds the approval to these exact arguments -- change a
+            // recipient and the hash changes and the grant no longer applies. What
+            // changed is WHO may produce the matching proof. It used to be whoever
+            // called this function, which in practice was the model reading the hash
+            // out of its own previous refusal. Now it is the grant directory, and
+            // nothing Orion can invoke writes there.
+            if (!(options.approvalGrants?.(canonicalHash) ?? false)) {
                 issues.push({
                     code: "approval_required",
-                    message: `Action '${step.action}' requires approval bound to its canonical arguments and context.`,
+                    message: `Action '${step.action}' requires approval from Nick, bound to its canonical arguments and context. Supplying the hash is not approval; a person has to grant it.`,
                     stepId: step.id,
                     canonicalHash,
                 });

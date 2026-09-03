@@ -91,6 +91,20 @@ const BRAIN_TIMEOUT_S = 90;
 
 const MISSION_RE = /^[a-z0-9][a-z0-9-]{0,39}$/; // the shape orion-notify enforces
 const APPROVAL_RE = /^ap-[0-9a-f]{8}$/; // exactly what `ap-${randomBytes(4)}` mints
+/*
+ The second kind of approval id, added 2026-09-02.
+
+ `ap-1a2b3c4d` is a MISSION approval, minted by `orion-notify` when a long
+ mission blocks. `A-7F3K` is a GATE approval, minted by the plugin when an
+ action's approval gate stops, and it is the one that carries real authority --
+ it is what lets a message be sent or an authority flag be set.
+
+ Two shapes rather than one because they are answered by different code and
+ mean different things, and collapsing them would make "approve" ambiguous at
+ exactly the moment it matters. Four characters, no 0/O/1/I/L, because Nick
+ reads these back out loud.
+*/
+const GATE_RE = /^[Aa]-[23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz]{4}$/;
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 const TERMINAL = new Set(["succeeded", "needs_human", "needs_permission", "budget_exhausted", "unsafe", "aborted"]);
 // 200 bytes and 8 tokens were a COMMAND's dimensions. A sentence addressed to
@@ -333,7 +347,10 @@ function parse(raw) {
 // handler ever receives a value it has not already proved Orion owns.
 const SHAPES = {
   mission: (v, state) => (MISSION_RE.test(v) && knownMission(state, v) ? null : `no mission called ${v}`),
-  approval: (v, state) => (APPROVAL_RE.test(v) && state.pending[v] ? null : `no pending approval ${v}`),
+  approval: (v, state) =>
+    (APPROVAL_RE.test(v) && state.pending[v]) || GATE_RE.test(v)
+      ? null
+      : `no pending approval ${v}`,
   level: (v) => (PRIORITIES.has(v) ? null : `priority must be one of ${[...PRIORITIES].join(", ")}`),
   root: (v) => (SAFE_ROOTS.has(v) ? null : `root must be one of ${[...SAFE_ROOTS.keys()].join(", ")}`),
 };
@@ -352,7 +369,7 @@ const checkArgs = (verb, args, state) =>
 */
 const HINTS = {
   mission: "a mission id",
-  approval: "an approval id, like ap-1a2b3c4d",
+  approval: "an approval id — A-7F3K for an action, ap-1a2b3c4d for a mission",
   level: `one of ${[...PRIORITIES].join(", ")}`,
   root: `one of ${[...SAFE_ROOTS.keys()].join(", ")}`,
 };
@@ -423,13 +440,18 @@ const CHANNEL_BRIEF = [
   "- These words are handled by the transport before you ever see them, so never",
   "  claim to have run them and never describe them as things you do:",
   "  status, pause, resume, cancel, approve, deny, priority, device, apps, files.",
-  "- Approvals: you CANNOT create an approval id. Only orion-notify mints them,",
-  "  when a mission blocks, and the format is exactly ap- followed by 8 hex",
-  "  characters. If you do not have a real one in front of you, say you have no",
-  "  pending approval. Never invent an id, never guess one, and never claim one",
-  "  was truncated -- on 2026-09-02 you produced two fabricated ids in a row and",
-  "  sent Nick round a loop approving something that did not exist.",
-  "  A real one is answered by sending: approve <id>   (no slash, no other syntax).",
+  "- Approvals: you CANNOT create an approval id, and you cannot approve one.",
+  "  There are two kinds and both are minted for you, never by you:",
+  "    A-7F3K        an ACTION is waiting. The plugin minted it and handed it to",
+  "                  you in the run result under `waitingOn`. Read the id out.",
+  "    ap-1a2b3c4d   a MISSION blocked. orion-notify minted it.",
+  "  If you do not have a real one in front of you, say you have no pending",
+  "  approval. Never invent an id, never guess one, and never claim one was",
+  "  truncated -- on 2026-09-02 you produced two fabricated ids in a row and sent",
+  "  Nick round a loop approving something that did not exist.",
+  "  Nick answers one by sending: approve <id>   (no slash, no other syntax).",
+  "  An approve from the local process is refused, so you cannot do it for him,",
+  "  and saying the action is done when it is not is the worst answer available.",
   "- If you do not know something about your own configuration, say so. Do not",
   "  describe your own state from memory; it changes without you.",
   "- Discord truncates near 2000 characters. Keep replies shorter than that.",
@@ -675,12 +697,62 @@ async function doCancel([id], state) {
 
 // approve and deny are one motion against one id, which is the point: no code
 // path here can resolve anything other than the single item it was handed.
-async function resolveApproval([id], state, decision) {
+async function resolveApproval([id], state, decision, sender) {
+  /*
+   THE HOLE THIS CLOSES, found 2026-09-02.
+
+   `orion-remote` is on Orion's exec allowlist. `orion-remote handle -- approve
+   ap-1a2b3c4d` takes no `--from`, so `sender` defaulted to "local", and
+   "local" is in the default allow set. Orion could answer his own approval
+   requests over the channel that exists for Nick to answer them, and the audit
+   log recorded it as an ordinary approval.
+
+   The bridge always passes `--from <discord author id>`. So refusing "local"
+   costs a real channel nothing and closes the only route an exec call has.
+  */
+  const who = String(sender ?? "").toLowerCase();
+  if (!who || who === "local" || who === "orion") {
+    return {
+      ok: false,
+      reply: "an approval has to come from a person. This one came from the local process.",
+    };
+  }
+
+  if (GATE_RE.test(id)) return resolveGateApproval(id, decision, who);
+
   const item = state.pending[id];
+  if (!item) return { ok: false, reply: `no pending approval ${id}` };
   if (item.status !== "pending") return { ok: false, reply: `${id} was already ${item.status}` };
   const decided = { ...item, status: decision, decidedAt: new Date().toISOString() };
   await writeState({ ...state, pending: { ...state.pending, [id]: decided } });
   return { ok: true, reply: `${decision} ${id} — ${item.request} (${item.missionId})` };
+}
+
+/*
+ A gate approval: the one that lets an ACTION run.
+
+ Delegated to the plugin's own `approvals.js` rather than reimplemented here.
+ That module owns the ticket/grant/nonce rules and is loaded from the INSTALLED
+ dist, which is the code the daemon runs -- a second implementation of "what
+ counts as a yes" is the shape of bug this whole change exists to remove.
+*/
+async function resolveGateApproval(id, decision, who) {
+  let gate;
+  try {
+    const lib = await import(join(homedir(), ".openclaw/extensions/orion-control/dist/approvals.js"));
+    gate = { lib, paths: lib.approvalPaths(join(homedir(), ".openclaw/orion-gate/approvals")) };
+  } catch (error) {
+    return { ok: false, reply: `I cannot reach the approval store: ${String(error?.message).slice(0, 80)}` };
+  }
+  if (decision === "denied") {
+    return (await gate.lib.deny(gate.paths, id))
+      ? { ok: true, reply: `refused ${id}. Orion will not do it.` }
+      : { ok: false, reply: `nothing called ${id} is waiting (it may have expired)` };
+  }
+  const result = await gate.lib.grant(gate.paths, id, `discord:${who}`);
+  return result.ok
+    ? { ok: true, reply: `approved ${result.ticket.id} — ${result.ticket.summary}. Tell him to go ahead.` }
+    : { ok: false, reply: result.reason };
 }
 
 async function doPriority([id, level], state) {
@@ -693,8 +765,8 @@ const HANDLERS = {
   pause: doPause,
   resume: doResume,
   cancel: doCancel,
-  approve: (args, state) => resolveApproval(args, state, "approved"),
-  deny: (args, state) => resolveApproval(args, state, "denied"),
+  approve: (args, state, sender) => resolveApproval(args, state, "approved", sender),
+  deny: (args, state, sender) => resolveApproval(args, state, "denied", sender),
   priority: doPriority,
   device: doDevice,
   apps: doApps,
@@ -874,7 +946,7 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
     const result = await withStateLock(async () => {
       const state = await readState();
       const invalid = checkArgs(parsed.verb, parsed.args, state);
-      return invalid ? { ok: false, reply: invalid } : HANDLERS[parsed.verb](parsed.args, state);
+      return invalid ? { ok: false, reply: invalid } : HANDLERS[parsed.verb](parsed.args, state, sender);
     });
     const decision = result.ok ? "accepted" : "refused";
     const seam = MISSION_BIN.endsWith("/orion-mission") ? {} : { runner: MISSION_BIN };

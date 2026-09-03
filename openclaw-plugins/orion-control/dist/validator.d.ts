@@ -19,6 +19,20 @@ export interface ValidationOptions {
      * change to a working system.
      */
     strictArguments?: boolean;
+    /**
+     * Which canonical hashes a PERSON has approved.
+     *
+     * Supplied by the plugin entry from the grant directory, which nothing in
+     * Orion's tool surface can write. Defaults to "nothing is approved", which
+     * is the only safe default: a validator called without this option must
+     * refuse every approval-gated action rather than fall back to trusting the
+     * hash on the step.
+     *
+     * The step's own `approvalHash` is deliberately NOT consulted. It is a value
+     * the model produces, it was the entire hole this option exists to close,
+     * and leaving it in as a second accepted proof would reopen it.
+     */
+    approvalGrants?: (canonicalHash: string) => boolean;
 }
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */
 export declare const MAX_STEPS = 32;

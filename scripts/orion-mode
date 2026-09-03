@@ -1,0 +1,303 @@
+#!/usr/bin/env node
+/*
+ How much Orion has to ask. The second authority axis, and the one Nick sets.
+
+ ## The problem this exists for
+
+ Orion's Mac sits at the `external_connected` permission profile with 158
+ capabilities live. Nothing is missing. What was wrong is that reaching them
+ cost a conversation, identically, whether he was deleting a calendar event or
+ telling the time in an empty room. One axis cannot say both "he may do this"
+ and "he may do this without checking", so there are two now:
+
+   permission profile   WHAT EXISTS      five rungs, unchanged, `orion-permissions`
+   strictness mode      WHAT IT COSTS    four rungs, this program
+
+ ## The four
+
+   contained   Reads run. Everything else asks first. For a machine being
+               handed around, for the hour after a self-repair, and for when
+               something looks wrong and locking him out entirely is too blunt.
+   guarded     The catalog's own levels, unmodified. What shipped, and the
+               default. A missing, corrupt or unreadable delegation file lands
+               here, never anywhere softer.
+   open        One rung of friction removed everywhere. Self-repair and
+               calendar writes stop asking. The floor still holds.
+   sovereign   Everything runs unannounced except what the floor holds back.
+
+ ## The floor, which no mode may lower
+
+ Three things stay gated in every mode including `sovereign`, and each is
+ derived from the action's own metadata rather than from a list:
+
+   · changing what Orion is allowed to do -- because a mode that could relax
+     this would let him relax it, and the ladder would be a note he writes to
+     himself;
+   · reaching a person who is not Nick -- no unsend, and they agreed to
+     nothing;
+   · anything he cannot undo -- he may do it, he may not do it quietly.
+
+ `orion-authority show` prints the live answer for every capability under
+ whatever mode is in force. It is derived on every run; nothing here is prose.
+
+ ## Why running this IS the authorization
+
+ Same argument as `orion-approve`, and it is the only honest one available on a
+ single-user Mac with no privilege boundary:
+
+   · this script is ABSENT from `~/.openclaw/exec-approvals.json`, and with
+     `ask: off` / `askFallback: deny` a call to it is refused, not prompted;
+   · it is in `FORBIDDEN_SCRIPTS`, so the self-repair engine will not edit it;
+   · it writes `~/.openclaw/orion-gate/strictness.json`, which no action's
+     mutable root covers;
+   · `plugins.entries.orion-control.config.strictnessStatePath` is in
+     `FORBIDDEN_CONFIG`, so the file cannot be redirected at somewhere Orion
+     can write.
+
+ So no second confirmation is demanded for a relaxation: there is nobody else
+ who could have typed it. What IS demanded is `--yes`, so that a relaxation
+ cannot happen by accident or from a script that meant something else.
+
+   orion-mode                          what is in force, and why
+   orion-mode sovereign --yes          until changed
+   orion-mode open --yes --for 8h      a delegation with an end
+   orion-mode contained                tightening never needs --yes
+   orion-mode --explain sovereign      what would change, changing nothing
+   orion-mode sovereign --yes --never calendar_event_remove --never messages_read
+                                       ...but keep asking about those two
+   orion-mode guarded --clear-never    drop every standing exception
+
+ An exception may only ADD friction. It is combined with the mode's answer
+ using the worst of the two, so there is no spelling of `--never` that opens
+ anything up -- which is what stops a delegation growing a private list of
+ favourites that bypass the floor.
+*/
+
+import { loadPlugin, PATHS } from "./lib/orion-plugin.mjs";
+
+const plugin = await loadPlugin().catch((error) => {
+  console.error(`orion-mode: ${error.message}`);
+  process.exit(1);
+});
+const {
+  STRICTNESS_MODES,
+  MODE_SUMMARY,
+  MAX_DELEGATION_MS,
+  GUARDED_STATE,
+  isRelaxation,
+  resolveStrictness,
+  writeStrictness,
+  floorForAction,
+  levelForAction,
+} = plugin.strictness;
+
+const fail = (message, code = 2) => {
+  console.error(`orion-mode: ${message}`);
+  process.exit(code);
+};
+
+/* ---------------------------------------------------------------- arguments */
+
+const KNOWN = new Set([
+  "--yes", "--explain", "--json", "--for", "--reason", "--until-changed", "--never", "--clear-never",
+]);
+const argv = process.argv.slice(2);
+const flags = { yes: false, explain: false, json: false, untilChanged: false, clearNever: false };
+/*
+ Standing exceptions: things that keep asking however permissive the mode gets.
+
+ Phase 50's own example is "Allow calendar create/update. Never delete." An
+ exception may only ADD friction -- it is combined with the mode's answer using
+ `worst`, so there is no spelling of this flag that opens something up. Naming
+ either one action or a whole capability tier works, because both are things a
+ person says.
+*/
+const never = [];
+let requested = null;
+let duration = null;
+let reason = "";
+for (let index = 0; index < argv.length; index += 1) {
+  const argument = argv[index];
+  if (argument.startsWith("--")) {
+    if (!KNOWN.has(argument)) fail(`unknown option ${argument.slice(0, 24)}`);
+    if (argument === "--yes") flags.yes = true;
+    else if (argument === "--explain") flags.explain = true;
+    else if (argument === "--json") flags.json = true;
+    else if (argument === "--until-changed") flags.untilChanged = true;
+    else if (argument === "--clear-never") flags.clearNever = true;
+    else {
+      const value = argv[index + 1];
+      if (value === undefined) fail(`${argument} needs a value`);
+      if (argument === "--for") duration = value;
+      else if (argument === "--never") never.push(value);
+      else reason = value;
+      index += 1;
+    }
+    continue;
+  }
+  if (requested) fail("name one mode, not two");
+  requested = argument.toLowerCase();
+}
+if (requested && !STRICTNESS_MODES.includes(requested)) {
+  fail(`"${requested.slice(0, 20)}" is not a mode. They are: ${STRICTNESS_MODES.join(", ")}`);
+}
+
+/*
+ Durations, in the units a person says out loud.
+
+ Deliberately narrow: minutes, hours, days. A parser that accepted "3" would
+ have to guess a unit, and guessing wrong on a delegation is the one place a
+ unit mistake is expensive.
+*/
+function parseDuration(text) {
+  const match = /^(\d{1,4})\s*(m|min|mins|minutes|h|hr|hrs|hours|d|day|days)$/i.exec(text.trim());
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase()[0];
+  const ms = amount * (unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000);
+  return ms > 0 && ms <= MAX_DELEGATION_MS ? ms : null;
+}
+
+/* -------------------------------------------------------------------- state */
+
+const current = resolveStrictness(PATHS.strictness);
+
+const describe = (mode) => `${mode} — ${MODE_SUMMARY[mode]}`;
+
+/**
+ * What actually changes, counted rather than asserted.
+ *
+ * Printed before a relaxation because "sovereign" is a word and "41 actions
+ * stop asking, 12 still will" is a fact, and only one of those is something a
+ * person can weigh.
+ */
+function difference(from, to) {
+  const catalog = plugin.catalog.ACTION_CATALOG;
+  const rows = Object.entries(catalog).map(([name, definition]) => ({
+    name,
+    before: levelForAction(name, definition, "APPROVAL", from).level,
+    after: levelForAction(name, definition, "APPROVAL", to).level,
+    floor: floorForAction(name, definition),
+  }));
+  return {
+    freed: rows.filter((row) => row.before !== "AUTO" && row.after === "AUTO"),
+    tightened: rows.filter((row) => row.before === "AUTO" && row.after !== "AUTO"),
+    held: rows.filter((row) => row.floor.reason !== null),
+  };
+}
+
+function show() {
+  if (flags.json) {
+    console.log(JSON.stringify({ ...current, paths: { strictness: PATHS.strictness } }, null, 2));
+    return;
+  }
+  console.log("");
+  console.log(`  mode      ${describe(current.mode)}`);
+  if (current.expired) {
+    console.log(`  note      the ${current.state.mode} delegation expired; this fell back to guarded`);
+  }
+  if (current.degraded) console.log(`  DEGRADED  ${current.degraded}`);
+  if (current.state.expiresAt && !current.expired) {
+    const left = Math.round((Date.parse(current.state.expiresAt) - Date.now()) / 60000);
+    console.log(`  expires   ${current.state.expiresAt}  (${left} min)`);
+  } else if (current.mode !== "guarded") {
+    console.log(`  expires   never — until somebody changes it`);
+  }
+  console.log(`  set by    ${current.state.setBy}${current.state.reason ? `  (${current.state.reason})` : ""}`);
+  const exceptions = Object.entries(current.state.except ?? {});
+  if (exceptions.length > 0) {
+    console.log(`  never     ${exceptions.map(([k, v]) => `${k} (${v})`).join(", ")}`);
+  }
+  const held = difference(current.mode, current.mode).held;
+  console.log(`  floor     ${held.length} capabilities no mode can free:`);
+  for (const row of held) console.log(`              ${row.name.padEnd(30)} ${row.floor.reason}`);
+  console.log("");
+  console.log(`  full map: orion-authority show`);
+  console.log("");
+}
+
+if (!requested) {
+  show();
+  process.exit(0);
+}
+
+if (flags.explain) {
+  const change = difference(current.mode, requested);
+  console.log("");
+  console.log(`  ${current.mode}  ->  ${requested}`);
+  console.log(`  ${MODE_SUMMARY[requested]}`);
+  console.log("");
+  console.log(`  ${change.freed.length} would stop asking:`);
+  for (const row of change.freed.slice(0, 12)) console.log(`     ${row.name}`);
+  if (change.freed.length > 12) console.log(`     …and ${change.freed.length - 12} more`);
+  console.log("");
+  console.log(`  ${change.tightened.length} would start asking:`);
+  for (const row of change.tightened.slice(0, 12)) console.log(`     ${row.name}`);
+  console.log("");
+  console.log(`  ${change.held.length} are held by the floor either way:`);
+  for (const row of change.held) console.log(`     ${row.name.padEnd(30)} ${row.floor.because}`);
+  console.log("");
+  console.log("  Nothing was changed. Drop --explain and add --yes to do it.");
+  process.exit(0);
+}
+
+if (requested === current.mode && !current.expired) {
+  console.log(`Already ${describe(requested)}`);
+  process.exit(0);
+}
+
+const relaxing = isRelaxation(current.mode, requested);
+if (relaxing && !flags.yes) {
+  const change = difference(current.mode, requested);
+  console.error("");
+  console.error(`  ${current.mode} -> ${requested} removes friction from ${change.freed.length} capabilities.`);
+  console.error(`  ${MODE_SUMMARY[requested]}`);
+  console.error("");
+  console.error(`  See exactly what changes:  orion-mode --explain ${requested}`);
+  console.error(`  Do it:                     orion-mode ${requested} --yes`);
+  console.error("");
+  process.exit(2);
+}
+
+let expiresAt = null;
+if (duration) {
+  const ms = parseDuration(duration);
+  if (ms === null) {
+    fail(`"${duration.slice(0, 20)}" is not a duration I will accept. Use e.g. 90m, 8h, 1d — at most 24h.`);
+  }
+  expiresAt = new Date(Date.now() + ms).toISOString();
+} else if (relaxing && !flags.untilChanged) {
+  /*
+   A relaxation with no end has to be asked for in those words.
+
+   "I am going out" is a delegation with an end and nobody should have to
+   remember to revoke it. Making the open-ended case the one that needs an
+   extra flag puts the friction on the choice that deserves it, which is the
+   whole design of this file applied to itself.
+  */
+  fail(
+    `${requested} with no expiry is a standing grant. Say how long — --for 8h — or --until-changed if you mean it.`,
+  );
+}
+
+await writeStrictness(PATHS.strictness, {
+  ...GUARDED_STATE,
+  mode: requested,
+  version: (current.state.version ?? 0) + 1,
+  setAt: new Date().toISOString(),
+  setBy: `${process.env.USER || "someone"}@terminal`,
+  reason: reason || (relaxing ? "relaxed by hand" : "tightened by hand"),
+  expiresAt,
+  except: flags.clearNever
+    ? {}
+    : {
+        ...(current.state.except ?? {}),
+        ...Object.fromEntries(never.map((target) => [target, "APPROVAL"])),
+      },
+});
+
+console.log("");
+console.log(`  now ${describe(requested)}`);
+if (expiresAt) console.log(`  until ${expiresAt}`);
+console.log(`  live on Orion's next turn. Check it with: orion-authority explain`);
+console.log("");

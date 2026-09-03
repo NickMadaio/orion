@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { getToolPluginMetadata } from "openclaw/plugin-sdk/tool-plugin";
 import entry from "./index.js";
 import { runTaskGraph } from "./controller.js";
+import { approvalPaths, grant } from "./approvals.js";
 import { ACTION_CATALOG, ORION_APP_DOMAIN, TUNABLE_SETTINGS, } from "./catalog.js";
 import { OPERATIONAL_CONFIG, classifyConfigPath, classifyPluginFile, classifyScript, validateConfigValue, } from "./selfrepair.js";
 import { ActionExecutionError, executeAction, verifyAction, } from "./executors.js";
@@ -214,12 +215,49 @@ describe("orion-control plugin", () => {
         };
         const result = await runTaskGraph(task, {
             ledgerPath: path.join(directory, "ledger.jsonl"),
+            // Stands in for a person having approved this exact hash. The step's own
+            // `approval` field is set above and is deliberately no longer what opens
+            // the gate -- see the "a hash Orion can compute is not a person" case.
+            approvalGrants: (candidate) => candidate === canonicalActionHash(mailStep, task.workingContext ?? ""),
         });
         expect(result.status).toBe("succeeded");
         expect(result.steps.map((item) => item.status)).toEqual([
             "verified",
             "verified",
         ]);
+    });
+    it("refuses the same graph when nobody approved it", async () => {
+        /*
+         The mutation that must fail, kept as a test rather than as a comment.
+    
+         Delete `approvalGrants` from the call above and this is what the run
+         becomes. Before 2026-09-02 it did NOT become this: the step's own
+         `approval.canonicalHash` was accepted, and the model could compute that
+         value from the refusal it had just been handed. The gate was a loop with
+         no person in it.
+        */
+        const directory = await mkdtemp(path.join(os.tmpdir(), "orion-control-"));
+        const task = graph([
+            step({
+                id: "mail",
+                action: "email_send",
+                arguments: { to: "advisor@example.com", subject: "Hello", body: "Hi" },
+                risk: "high",
+                reversible: false,
+                expectedEffect: "Message in sent mail",
+                verify: "message_in_sent_mail",
+            }),
+        ]);
+        const mailStep = task.steps[0];
+        mailStep.approval = {
+            status: "approved",
+            canonicalHash: canonicalActionHash(mailStep, task.workingContext ?? ""),
+        };
+        const result = await runTaskGraph(task, {
+            ledgerPath: path.join(directory, "ledger.jsonl"),
+        });
+        expect(result.status).toBe("needs_approval");
+        expect(result.steps).toEqual([]);
     });
     it("actually schedules, lists and cancels a timer", async () => {
         const directory = await mkdtemp(path.join(os.tmpdir(), "orion-timers-"));
@@ -390,15 +428,21 @@ describe("orion-control plugin", () => {
         const task = graph([deletion], { workingContext: "/tmp" });
         const pending = validateTaskGraph(task, { enabledTiers });
         expect(pending.status).toBe("needs_approval");
+        // Writing the approval onto the step is what the model can do by itself,
+        // and it is now worth exactly nothing.
         deletion.approval = {
             status: "approved",
             canonicalHash: canonicalActionHash(deletion, task.workingContext),
         };
-        expect(validateTaskGraph(task, { enabledTiers }).status).toBe("ready");
+        expect(validateTaskGraph(task, { enabledTiers }).status).toBe("needs_approval");
+        // A grant is what a person leaves behind, and it opens the gate.
+        const approved = new Set([canonicalActionHash(deletion, task.workingContext)]);
+        const withGrant = { enabledTiers, approvalGrants: (h) => approved.has(h) };
+        expect(validateTaskGraph(task, withGrant).status).toBe("ready");
         // The whole point: an approval is bound to the exact arguments it was
         // given. Change the target after the fact and the approval stops counting.
         deletion.arguments.relativePath = "different.txt";
-        expect(validateTaskGraph(task, { enabledTiers }).status).toBe("needs_approval");
+        expect(validateTaskGraph(task, withGrant).status).toBe("needs_approval");
     });
     it("rejects an action sourced only from quoted untrusted content", () => {
         const task = graph([
@@ -1885,18 +1929,44 @@ async function messagesFixture(profile = "external_connected", overrides = {}) {
     const directory = await mkdtemp(path.join(os.tmpdir(), "orion-messages-"));
     const statePath = path.join(directory, "permission-state.json");
     await writeFile(statePath, JSON.stringify({ profile, version: 1, updatedAt: new Date().toISOString() }));
+    // Every fixture gets its own gate root, so a grant written by one test can
+    // never satisfy another. `nickApproves` below is the ONLY way a test opens
+    // an approval gate -- there is deliberately no shortcut, because a shortcut
+    // in the test harness is a shortcut Orion would eventually find.
+    const gateRoot = path.join(directory, "gate", "approvals");
     return {
         directory,
+        gateRoot,
         config: {
             ledgerPath: path.join(directory, "ledger.jsonl"),
             permissionStatePath: statePath,
             permissionAuditPath: path.join(directory, "permission-audit.jsonl"),
+            approvalRoot: gateRoot,
+            strictnessStatePath: path.join(directory, "gate", "strictness.json"),
             enableMessagesReadActions: true,
             enableMessagesSendActions: true,
             ...overrides,
         },
     };
 }
+/**
+ * Nick, saying yes. Stands in for `orion-approve` or a Discord message from
+ * his account: it writes a grant, the one act nothing in Orion's tool surface
+ * can perform.
+ */
+async function nickApproves(gateRoot, ticketId) {
+    const result = await grant(approvalPaths(gateRoot), ticketId, "nick@test");
+    if (!result.ok)
+        throw new Error(`test could not approve ${ticketId}: ${result.reason}`);
+    return result.ticket;
+}
+/** The id the plugin minted, from the run that stopped. */
+const ticketFrom = (run) => {
+    const waiting = run.waitingOn;
+    if (!waiting?.[0])
+        throw new Error("that run minted no approval ticket");
+    return waiting[0].id;
+};
 /** The send step, with an approval hash bound to its exact arguments. */
 function sendStep(recipient, body, workingContext = "") {
     const canonical = canonicalActionHash({
@@ -2238,9 +2308,12 @@ describe("a blocked send must be unmistakably blocked", () => {
                 ],
             },
         }, "call-a8");
-        const hash = blocked.validation.issues.find((entry) => entry.code === "approval_required").canonicalHash;
+        await nickApproves(fixture.gateRoot, ticketFrom(blocked));
         const disabled = await messagesFixture("external_connected", {
             enableMessagesSendActions: false,
+            // Same gate root: Nick approved once, and the approval has to be visible
+            // to the run that follows it.
+            approvalRoot: fixture.gateRoot,
         });
         const replay = hostHarness(disabled.config);
         replay.deliverUserTurn("text +1 555 123 4567 that I'm on my way", "run-a9");
@@ -2253,8 +2326,10 @@ describe("a blocked send must be unmistakably blocked", () => {
                         id: "send_message",
                         action: "messages_send",
                         arguments: compactSend.arguments,
-                        // Exactly what Orion sent, verbatim.
-                        approvalHash: hash,
+                        // Exactly what Orion sent, verbatim. It is ignored now, and the
+                        // test still passes -- which is the proof that the grant, not the
+                        // spelling, is what carries the approval.
+                        approvalHash: "dac4df2f".padEnd(64, "0"),
                     },
                 ],
             },
@@ -2307,8 +2382,10 @@ describe("a blocked send must be unmistakably blocked", () => {
         const blocked = await harness.call("orion_task_run", compactSend, "call-a3");
         const hash = approvalHashOf(blocked);
         expect(hash).toMatch(/^[0-9a-f]{64}$/);
+        await nickApproves(first.gateRoot, ticketFrom(blocked));
         const disabled = await messagesFixture("external_connected", {
             enableMessagesSendActions: false,
+            approvalRoot: first.gateRoot,
         });
         const replay = hostHarness(disabled.config);
         replay.deliverUserTurn("text +1 555 123 4567 that I'm on my way", "run-a4");
@@ -2330,8 +2407,10 @@ describe("a blocked send must be unmistakably blocked", () => {
         harness.bindToolCall("call-a5", "run-a5");
         const flat = await harness.call("orion_task_run", { action: "messages_send", recipient: "+15551234567", body: "on my way" }, "call-a5");
         const hash = approvalHashOf(flat);
+        await nickApproves(fixture.gateRoot, ticketFrom(flat));
         const disabled = await messagesFixture("external_connected", {
             enableMessagesSendActions: false,
+            approvalRoot: fixture.gateRoot,
         });
         const replay = hostHarness(disabled.config);
         replay.deliverUserTurn("text +1 555 123 4567 that I'm on my way", "run-a6");
@@ -2496,9 +2575,10 @@ describe("self-repair: widening authority requires that Nick asked", () => {
             ...overrides,
         });
     }
-    function validateWith(steps, inputs) {
+    function validateWith(steps, inputs, approvedHashes = []) {
         return validateTaskGraph(graph(steps, { inputs }), {
             enabledTiers: repairTiers,
+            approvalGrants: (candidate) => approvedHashes.includes(candidate),
         });
     }
     const said = (content) => ({ ...userInput, content });
@@ -2575,7 +2655,10 @@ describe("self-repair: widening authority requires that Nick asked", () => {
             key: AUTHORITY_KEY,
             value: true,
         });
-        const approved = validateWith([
+        // Writing the approval onto the step is what Orion can do alone. Since
+        // 2026-09-02 it changes nothing: an authority widening is the one action
+        // whose floor no strictness mode can lower, so a person has to grant it.
+        const selfSigned = validateWith([
             {
                 ...target,
                 approval: {
@@ -2584,8 +2667,45 @@ describe("self-repair: widening authority requires that Nick asked", () => {
                 },
             },
         ], [asked]);
+        expect(selfSigned.status).toBe("needs_approval");
+        const approved = validateWith([target], [asked], [canonicalActionHash(target, undefined)]);
         expect(approved.status).toBe("ready");
         expect(approved.issues).toHaveLength(0);
+    });
+    it("accepts a filename Nick named without its extension", () => {
+        /*
+         Phase 49: "make every authorization check satisfiable by the name a person
+         would actually type."
+    
+         Nick says "fix executors". The model correctly resolves that to
+         `executors.ts`. `normalizeForOrigin` strips punctuation from both sides,
+         so the argument became the token `executorsts` and the turn contained
+         `executors` -- and the check demanded a string no human has ever typed.
+        */
+        // `self_plugin_authority_modify` is the action that carries
+        // `userOriginatedArguments: ["pluginFile"]`, so it is the one where this
+        // rule is live. Both files below are authority-classed, so the ONLY thing
+        // separating them is whether Nick said the word -- which is what makes the
+        // negative case below mean something.
+        const asked = said("go fix executors, you have permission to edit the plugin");
+        const named = validateWith([
+            repairStep("self_plugin_authority_modify", {
+                pluginFile: "executors.ts",
+                find: "a",
+                replace: "b",
+            }),
+        ], [asked]);
+        expect(named.issues.map((issue) => issue.code)).not.toContain("argument_not_from_user");
+        // The widening does not become "anything goes": a file he never mentioned
+        // still fails on both spellings.
+        const unmentioned = validateWith([
+            repairStep("self_plugin_authority_modify", {
+                pluginFile: "validator.ts",
+                find: "a",
+                replace: "b",
+            }),
+        ], [asked]);
+        expect(unmentioned.issues.map((issue) => issue.code)).toContain("argument_not_from_user");
     });
     it("will not let an approval be reused for a different change", () => {
         const asked = said(`enable ${AUTHORITY_KEY} please, you have permission`);

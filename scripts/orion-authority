@@ -44,8 +44,18 @@
 
  What-if flags, all read-only, for asking "what changes if…":
    --profile <name>      derive against a different permission profile
+   --mode <name>         derive against a different strictness mode
    --config <path>       derive against a different openclaw.json
    --approvals <path>    derive against a different exec-approvals.json
+
+ THE SECOND AXIS, added 2026-09-02.
+
+ The permission profile answers what EXISTS. The strictness mode answers what
+ it COSTS, and `orion-mode` sets it. Every level below is derived under the
+ mode in force and then raised, per capability, to a FLOOR no mode may lower:
+ changing what Orion may do, reaching a person who is not Nick, and anything he
+ cannot undo. `guarded` is the mode this file was written against and is the
+ identity -- with it, this output is what it always was.
 */
 
 import { basename } from "node:path";
@@ -209,6 +219,78 @@ const CLASS_LEVEL = {
 };
 
 /*
+ The floor for a wrapper script, which is a shorter table than the one for
+ actions because a script carries no metadata to derive from.
+
+ Two entries, and the second is the interesting one. `unclassified` is where a
+ command lands when it is on the allowlist and nobody has written down what it
+ does; `classifyShell` sends it to APPROVAL deliberately, so that adding an
+ allowlist entry cannot quietly grant silent execution. A strictness mode that
+ could relax THAT would undo the failing-closed, which is the one property a
+ fail-closed default has. So it is a floor, in every mode.
+
+ An `irreversible_external` command floors at NOTIFY rather than APPROVAL, to
+ match the action-side rule: Orion may do the thing he cannot undo, he may not
+ do it quietly. `git push` to Nick's own repository under `sovereign` is the
+ case this is sized for; the outbound-message and delete signals land in the
+ same class and get the same answer, which is why the mode is a delegation with
+ an end rather than a permanent state.
+*/
+const SHELL_FLOOR = {
+  irreversible_external: "NOTIFY",
+  unclassified: "APPROVAL",
+};
+
+/*
+ Whether this row only reads. Used by `contained`, which is the one mode that
+ adds friction: reads stay free, and everything else asks. A mode nobody can
+ bear to switch on protects nothing.
+*/
+const shellReads = (row) =>
+  row.rule === "R3 default" && (!row.signals || row.signals.length === 0) && !row.escapeHatch;
+
+function shellWithMode(row, mode) {
+  if (row.level === "NEVER") return row;
+  const klass = row.rule === "fail closed"
+    ? "unclassified"
+    : (row.signals ?? []).reduce(
+        (worstKlass, signal) =>
+          LEVELS.indexOf(CLASS_LEVEL[signal.klass]) > LEVELS.indexOf(CLASS_LEVEL[worstKlass] ?? "AUTO")
+            ? signal.klass
+            : worstKlass,
+        null,
+      );
+  const floor = (klass && SHELL_FLOOR[klass]) ?? "AUTO";
+  const relaxed =
+    mode === "guarded"
+      ? row.level
+      : mode === "contained"
+        ? (shellReads(row) ? "AUTO" : "APPROVAL")
+        : mode === "sovereign"
+          ? "AUTO"
+          // `open` clears announcements and keeps gates -- see MODE_RULES in
+          // the plugin's strictness.ts for why the two upper rungs were given
+          // different jobs rather than different amounts of the same one.
+          : row.level === "APPROVAL"
+            ? "APPROVAL"
+            : "AUTO";
+  const level = worst(relaxed, floor);
+  if (level === row.level) return row;
+  return {
+    ...row,
+    level,
+    baseLevel: row.level,
+    rule: level === floor && floor !== relaxed ? `floor (${klass})` : `${mode} mode`,
+    because:
+      level === floor && floor !== relaxed
+        ? `${mode} would have made this ${relaxed}, but ${klass === "unclassified"
+            ? "nothing here says what it does, and failing closed is not something a delegation may undo"
+            : "it cannot be undone outside Orion's own state"}`
+        : `${row.because}; the ${mode} delegation moved it from ${row.level}`,
+  };
+}
+
+/*
  A line that DEFINES a regular expression is not a line that DOES anything. The
  signals above are matched against raw source text, so the block declaring them
  matched itself, and this file scanned as though it performed every effect it
@@ -346,15 +428,59 @@ async function buildMap(options) {
   }
   const availability = tierAvailability(plugin, config, profile);
 
-  const actions = Object.entries(plugin.catalog.ACTION_CATALOG).map(([name, definition]) => ({
-    kind: "action",
-    name,
-    tier: definition.capabilityTier,
-    risk: definition.risk,
-    reversible: definition.reversible,
-    enforcedBy: "plugin gate (mechanical)",
-    ...classifyAction(name, definition, availability),
-  }));
+  /*
+   The strictness delegation, read live and applied to every row below.
+
+   Read rather than assumed, and defaulting to `guarded` through every failure
+   path in `resolveStrictness` -- a missing file, a corrupt one, or one naming
+   a mode that does not exist all land on the default, never on something
+   softer.
+  */
+  const strictness = plugin.strictness.resolveStrictness(options.state
+    ? options.state.replace(/permission-state\.json$/, "strictness.json")
+    : P.strictness);
+  const mode = options.mode ?? strictness.mode;
+  if (!plugin.strictness.STRICTNESS_MODES.includes(mode)) {
+    die(`unknown strictness mode '${mode}'`);
+  }
+
+  /*
+   Applying the mode is a SEPARATE step from deriving the base level, on
+   purpose. `check` prints both -- what the catalog and profile say, and what
+   the delegation made of it -- because "why can you do that without asking"
+   has two different answers and conflating them would hide which one is in
+   play.
+  */
+  const withMode = (row, definition) => {
+    const leveled = plugin.strictness.levelForAction(
+      row.name, definition, row.level, mode, strictness.state.except ?? {},
+    );
+    if (leveled.level === row.level) return row;
+    return {
+      ...row,
+      level: leveled.level,
+      baseLevel: row.level,
+      rule: leveled.heldByFloor ? `floor (${leveled.floor.reason})` : `${mode} mode`,
+      because: leveled.heldByFloor
+        ? `${mode} would have made this ${leveled.relaxed}, but ${leveled.floor.because}`
+        : `${row.because}; the ${mode} delegation moved it from ${row.level}`,
+    };
+  };
+
+  const actions = Object.entries(plugin.catalog.ACTION_CATALOG).map(([name, definition]) =>
+    withMode(
+      {
+        kind: "action",
+        name,
+        tier: definition.capabilityTier,
+        risk: definition.risk,
+        reversible: definition.reversible,
+        enforcedBy: "plugin gate (mechanical)",
+        ...classifyAction(name, definition, availability),
+      },
+      definition,
+    ),
+  );
 
   /*
    One row per real command, not per spelling. `exec-approvals.json` holds both
@@ -367,17 +493,28 @@ async function buildMap(options) {
    file and reads the source once.
   */
   const agent = approvals.agents?.main ?? {};
-  const commands = (await collectCommands(approvals, P.scripts)).map((command) => ({
-    kind: "command",
-    name: command.name,
-    pattern: command.pattern,
-    spellings: command.spellings,
-    enforcedBy: "exec allowlist (allow/deny only)",
-    ...classifyShell(command),
-  }));
+  const commands = (await collectCommands(approvals, P.scripts)).map((command) =>
+    shellWithMode({
+      kind: "command",
+      name: command.name,
+      pattern: command.pattern,
+      spellings: command.spellings,
+      enforcedBy: "exec allowlist (allow/deny only)",
+      ...classifyShell(command),
+    }, mode),
+  );
 
   return {
     profile,
+    mode,
+    modeSource: options.mode
+      ? "--mode override"
+      : strictness.expired
+        ? `strictness.json (the ${strictness.state.mode} delegation expired)`
+        : strictness.degraded
+          ? `default (${strictness.degraded})`
+          : "strictness.json",
+    modeExpiresAt: strictness.expired ? null : (strictness.state.expiresAt ?? null),
     profileSource: options.profile ? "--profile override" : "permission-state.json",
     dist: plugin.dist,
     drift: await deployDrift(),
@@ -393,6 +530,7 @@ async function buildMap(options) {
 
 const banner = (map) => [
   `profile: ${map.profile}  (${map.profileSource})`,
+  `mode:    ${map.mode}  (${map.modeSource})${map.modeExpiresAt ? ` until ${map.modeExpiresAt}` : ""}`,
   `catalog: ${map.dist.replace(HOME, "~")}`,
   `exec:    security=${map.exec.security} ask=${map.exec.ask} askFallback=${map.exec.askFallback}`,
   map.drift

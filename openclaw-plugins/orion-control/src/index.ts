@@ -5,6 +5,19 @@ import {
   defaultEpisodicMemoryPath,
   episodeFromUserText,
 } from "./episodic.js";
+import {
+  approvalPaths,
+  consumeGrant,
+  grantedHashes,
+  mintTicket,
+  readTickets,
+} from "./approvals.js";
+import {
+  MODE_SUMMARY,
+  floorForAction,
+  levelForAction,
+  resolveStrictness,
+} from "./strictness.js";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import os from "node:os";
 import path from "node:path";
@@ -40,7 +53,8 @@ import {
   type ToolParameter,
   type ToolStep,
 } from "./workshop.js";
-import { validateTaskGraph } from "./validator.js";
+import {
+  canonicalActionHash, validateTaskGraph } from "./validator.js";
 import {
   isSystemStatusContractCandidate,
   runSystemStatusContractBridge,
@@ -328,6 +342,18 @@ export const ConfigSchema = Type.Object({
       description: "Private append-only JSONL audit file for permission changes.",
     }),
   ),
+  strictnessStatePath: Type.Optional(
+    Type.String({
+      description:
+        "Private JSON file holding the active strictness delegation. Read-only to Orion; changing it downward requires a human approval.",
+    }),
+  ),
+  approvalRoot: Type.Optional(
+    Type.String({
+      description:
+        "Directory holding approval tickets and the grants a person writes. Nothing in Orion's tool surface may write under it.",
+    }),
+  ),
   enableStrictArguments: Type.Optional(
     Type.Boolean({
       description:
@@ -358,6 +384,28 @@ function defaultPermissionStatePath(configured?: string): string {
   return configured
     ? path.resolve(configured)
     : path.resolve(".orion-control", "permission-state.json");
+}
+
+/*
+ The gate root, and why it is not under `orion-controlled`.
+
+ `~/.openclaw/orion-controlled` is ORION's state directory: his ledger, his
+ reminders, his workspaces, his remote inbox. Several wrappers write into it
+ and `orion-authority` classifies writes there as `orion_state`, which is AUTO.
+ Putting the grants that authorize him inside the directory he owns would make
+ the boundary decorative. So the gate gets its own root, which no execution
+ kind can reach and no allowlisted wrapper writes.
+*/
+function defaultGateRoot(): string {
+  return path.join(os.homedir(), ".openclaw", "orion-gate");
+}
+
+function defaultStrictnessStatePath(configured?: string): string {
+  return configured ? path.resolve(configured) : path.join(defaultGateRoot(), "strictness.json");
+}
+
+function defaultApprovalRoot(configured?: string): string {
+  return configured ? path.resolve(configured) : path.join(defaultGateRoot(), "approvals");
 }
 
 function defaultPermissionAuditPath(configured?: string): string {
@@ -675,6 +723,17 @@ async function runAuthorizedGraph(
     });
   }
   const strictArguments = config.enableStrictArguments === true;
+  /*
+   The human half of the approval gate, resolved before anything is validated.
+
+   `grantedHashes` reads the grant directory. Nothing in Orion's tool surface
+   writes there -- see approvals.ts for the four claims that make that true and
+   the tests that hold each one. The predicate is what the validator consults
+   instead of the hash the model supplied, which it used to accept and which it
+   could always produce for itself.
+  */
+  const gate = approvalPaths(defaultApprovalRoot(config.approvalRoot));
+  const granted = grantedHashes(gate);
   const runOptions: RunOptions = {
     ledgerPath: defaultLedgerPath(config.ledgerPath),
     ...(strictArguments ? { strictArguments: true } : {}),
@@ -694,7 +753,36 @@ async function runAuthorizedGraph(
     // writer of that registry, and it runs after verification.
     isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
     onArtifact: (target) => provenance.recordAuthoredArtifact(target),
+    approvalGrants: (canonicalHash: string) => granted.has(canonicalHash),
   };
+  /*
+   Which approvals this graph needs, and spending the ones it has.
+
+   Asked by validating with NOTHING granted, which is the cheapest honest way
+   to enumerate them: the validator already reports one `approval_required`
+   issue per gated step, carrying the canonical hash. Deriving the list any
+   other way would mean a second implementation of the same rule, and the two
+   would eventually disagree.
+
+   Grants are spent BEFORE execution rather than after. An action that fails
+   after an approved start has still consumed the approval, which is the safe
+   direction: the alternative leaves a live grant lying next to a retry loop.
+  */
+  const needed = [
+    ...new Set(
+      validateTaskGraph(authorized.graph, {
+        enabledTiers,
+        isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
+        ...(strictArguments ? { strictArguments: true } : {}),
+        approvalGrants: () => false,
+      })
+        .issues.filter((issue) => issue.code === "approval_required" && issue.canonicalHash)
+        .map((issue) => issue.canonicalHash as string),
+    ),
+  ];
+  for (const canonicalHash of needed.filter((hash) => granted.has(hash))) {
+    await consumeGrant(gate, canonicalHash);
+  }
   const runLegacy = () => runTaskGraph(authorized.graph, runOptions);
   const record =
     config.enableV2SystemStatusAdapter === true &&
@@ -706,11 +794,44 @@ async function runAuthorizedGraph(
             enabledTiers,
             isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
             strictArguments,
+            approvalGrants: (canonicalHash: string) => granted.has(canonicalHash),
           }),
           runLegacy,
           ...(hostWarn ? { onWarning: hostWarn } : {}),
         })
       : await runLegacy();
+  /*
+   Mint one ticket per unresolved approval, and hand back the ID.
+
+   Phase 49: "never present an approval identifier the system did not mint."
+   This is the only place an id comes from. The model is told the id and told
+   to read it out; it cannot produce one, and `orion-approve` will not accept
+   a string that no ticket file matches.
+  */
+  const waitingOn = await Promise.all(
+    needed
+      .filter((hash) => !granted.has(hash))
+      .map(async (canonicalHash) => {
+        const step = authorized.graph.steps.find(
+          (candidate) =>
+            canonicalActionHash(candidate, authorized.graph.workingContext) === canonicalHash,
+        );
+        const ticket = await mintTicket(gate, {
+          canonicalHash,
+          action: step?.action ?? "unknown",
+          summary: describeForApproval(step?.action ?? "unknown", step?.arguments ?? {}),
+          context: authorized.graph.goal,
+        });
+        return { id: ticket.id, action: ticket.action, summary: ticket.summary, expiresAt: ticket.expiresAt };
+      }),
+  ).catch((error) => {
+    // A mint that fails must not look like "no approval was needed". The run
+    // has already refused; this only decides whether Orion can name the id.
+    hostWarn?.(
+      `approval ticket could not be minted: ${error instanceof Error ? error.message : "unknown"}`,
+    );
+    return [] as Array<{ id: string; action: string; summary: string; expiresAt: string }>;
+  });
   const notes = [
     ...(authorized.discardedTrustAssertion
       ? [
@@ -718,6 +839,13 @@ async function runAuthorizedGraph(
         ]
       : []),
     ...(permission.degraded ? [permission.degraded] : []),
+    ...(waitingOn.length > 0
+      ? [
+          `Waiting on Nick. Tell him the id out loud and ask him to approve it: ${waitingOn
+            .map((item) => `${item.id} (${item.summary})`)
+            .join(", ")}. He approves by saying "approve ${waitingOn[0]?.id}" in Discord, or by running orion-approve ${waitingOn[0]?.id} in a terminal. You cannot approve it yourself and must not claim it is done.`,
+        ]
+      : []),
   ];
   // The outcome envelope goes FIRST, ahead of `taskId` and `goal`. See
   // outcome.ts for why key order is the load-bearing part: the failure this
@@ -725,8 +853,25 @@ async function runAuthorizedGraph(
   return {
     ...describeOutcome(record, authorized.graph),
     ...record,
+    ...(waitingOn.length > 0 ? { waitingOn } : {}),
     ...(notes.length > 0 ? { notes } : {}),
   } as unknown as Record<string, unknown>;
+}
+
+/**
+ * One sentence naming what is being approved, for a person who is not looking
+ * at a screen. Arguments are rendered rather than dumped: a ticket that says
+ * `{"recipient":"+1555…","body":"…"}` is a ticket nobody reads before saying
+ * yes, and an unread approval is the failure this whole mechanism exists to
+ * prevent.
+ */
+function describeForApproval(action: string, args: Record<string, unknown>): string {
+  const say = (value: unknown): string =>
+    typeof value === "string" ? value.replace(/\s+/g, " ").slice(0, 80) : String(value);
+  const named = ["recipient", "title", "path", "key", "script", "pluginFile", "eventId", "body"]
+    .filter((field) => args[field] !== undefined)
+    .map((field) => `${field}: ${say(args[field])}`);
+  return named.length > 0 ? `${action} — ${named.join(", ")}` : action;
 }
 
 const entry = defineToolPlugin({
@@ -767,11 +912,15 @@ const entry = defineToolPlugin({
           "  executed: false -> NOTHING HAPPENED. Never say or imply it did.",
           "There is no third case. `steps: []` means nothing ran.",
           "",
-          "If status is `needs_approval` nothing was done and nothing will be",
-          "until you ASK the user and they say yes. Then call this tool AGAIN",
-          "with the same action and arguments plus approvalHash: \"<canonicalHash",
-          "from the result>\". That second call is what performs the action.",
-          "One call is never enough for an action that needs approval.",
+          "If status is `needs_approval` nothing was done, and REPEATING THE CALL",
+          "WILL NOT HELP -- there is no argument you can add that approves it.",
+          "The result carries `waitingOn: [{ id, summary }]`. That id is real and",
+          "you did not make it up; the plugin minted it. Say it out loud, say what",
+          "it would do, and stop. Nick answers by sending `approve <id>` in Discord",
+          "or running `orion-approve <id>` at the Mac. When he has, call this tool",
+          "again with the SAME action and arguments and it will run.",
+          "Never claim it is done. Never invent an id. You cannot approve it and",
+          "the refusals you get if you try are deliberate, not faults to report.",
           "",
           "Action names (required arguments are in generated TOOLS.md):",
           CATALOG_NAMES,
@@ -984,7 +1133,7 @@ const entry = defineToolPlugin({
       name: "orion_permission_status",
       label: "Inspect Orion Permission Level",
       description:
-        "Read Orion's active permission profile, version, effective configured capability tiers, profile descriptions, and the separate gates that remain closed.",
+        "Read Orion's live authority on BOTH axes: the permission profile (what exists) with its version and effective capability tiers, and the strictness mode (how much he has to ask) with its expiry, its exceptions, and the capabilities no mode can free. Also lists any approvals currently waiting on Nick. Call it before answering any question about what you are allowed to do; never answer that from memory.",
       parameters: Type.Object({}),
       optional: true,
       async execute(_input, config) {
@@ -996,9 +1145,51 @@ const entry = defineToolPlugin({
           configured,
           profileAllowedTiers(permission.state.profile),
         );
+        /*
+         The strictness half of the answer.
+
+         Nick's standing complaint is that Orion answers "what can you do"
+         from memory. Both axes are read from disk here, on every call, so the
+         honest answer is always one tool call away -- and SOUL.md points at
+         this tool rather than restating any of it.
+        */
+        const strictness = resolveStrictness(
+          defaultStrictnessStatePath(config.strictnessStatePath),
+        );
+        const gate = approvalPaths(defaultApprovalRoot(config.approvalRoot));
+        const waiting = readTickets(gate).map((ticket) => ({
+          id: ticket.id,
+          summary: ticket.summary,
+          expiresAt: ticket.expiresAt,
+        }));
+        const heldByFloor = Object.entries(ACTION_CATALOG)
+          .map(([name, definition]) => ({
+            action: name,
+            ...levelForAction(name, definition, "AUTO", strictness.mode, strictness.state.except),
+            floorReason: floorForAction(name, definition).reason,
+          }))
+          .filter((row) => row.floor.reason !== null)
+          .map((row) => ({ action: row.action, level: row.level, because: row.floor.because }));
         return {
           current: permission.state,
           ...(permission.degraded ? { degraded: permission.degraded } : {}),
+          strictness: {
+            mode: strictness.mode,
+            means: MODE_SUMMARY[strictness.mode],
+            ...(strictness.expired
+              ? { note: `the ${strictness.state.mode} delegation expired and this fell back to guarded` }
+              : {}),
+            ...(strictness.degraded ? { degraded: strictness.degraded } : {}),
+            expiresAt: strictness.state.expiresAt,
+            setBy: strictness.state.setBy,
+            except: strictness.state.except,
+            neverFree: heldByFloor,
+          },
+          approvals: {
+            waiting,
+            howNickApproves:
+              'he says "approve <id>" in Discord, or runs orion-approve <id> in a terminal. You cannot do it for him.',
+          },
           configuredTiers: [...configured].sort(),
           effectiveTiers: [...effective].sort(),
           // Provenance health makes a fail-closed trust boundary diagnosable:

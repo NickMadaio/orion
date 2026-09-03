@@ -1,0 +1,116 @@
+#!/usr/bin/env node
+/*
+ Nick, saying yes. The one act Orion cannot perform.
+
+ ## Why this is a separate program
+
+ Orion's approval gate used to be a loop with nobody in it. An action marked
+ `approvalRequired` stopped and returned a canonical hash; the model copied
+ that hash into a second call; the gate opened. The transcript looked exactly
+ like a real approval -- a refusal, then a grant, then the action -- and no
+ person was consulted at any point.
+
+ The fix is not a better hash. It is that the thing which proves a person said
+ yes has to be something the model cannot do, and on a single-user Mac with no
+ privilege boundary there is exactly one honest version of that: a program
+ Orion is not allowed to run.
+
+ So this script is:
+
+   · ABSENT from `~/.openclaw/exec-approvals.json`. With `security: allowlist`,
+     `ask: off` and `askFallback: deny`, a call to it is refused outright --
+     it does not even prompt.
+   · listed in `FORBIDDEN_SCRIPTS` in the plugin's `selfrepair.ts`, so the
+     self-repair engine will not edit it. The thing that vouches for a change
+     cannot vouch for a change to itself.
+   · writing into `~/.openclaw/orion-gate/`, which is not a mutable root for
+     any action in `ACTION_CATALOG` and is not `~/.openclaw/orion-controlled`
+     -- Orion's own state directory, where his writes are classified AUTO.
+
+ Four claims. `scripts/orion_v2_strictness_check.sh` re-checks every one of
+ them, because a boundary made of four claims is only as good as the one
+ nobody re-checks.
+
+ ## Usage
+
+   orion-approve                 what is waiting, with what it would do
+   orion-approve A-7F3K          say yes to exactly that one
+   orion-approve deny A-7F3K     say no, and clear it away
+   orion-approve --json          the same list, for a script
+
+ The id is case-insensitive and the `A-` is optional, because Phase 49 asks for
+ an authorization check "satisfiable by the name a person would actually type".
+*/
+
+import { loadPlugin, PATHS } from "./lib/orion-plugin.mjs";
+
+const plugin = await loadPlugin().catch((error) => {
+  console.error(`orion-approve: ${error.message}`);
+  process.exit(1);
+});
+const { approvalPaths, grant, deny, readTickets, normalizeTicketId } = plugin.approvals;
+const gate = approvalPaths(PATHS.gateApprovals);
+
+const argv = process.argv.slice(2);
+const wantsJson = argv.includes("--json");
+const rest = argv.filter((argument) => argument !== "--json");
+
+// Who is answering, recorded on the grant. Never "local" and never "orion" --
+// `grant()` refuses both, because "local" is precisely what an exec call from
+// Orion himself would present.
+const who = `${process.env.USER || "someone"}@terminal`;
+
+const minutesLeft = (ticket) =>
+  Math.max(0, Math.round((Date.parse(ticket.expiresAt) - Date.now()) / 60000));
+
+function list() {
+  const waiting = readTickets(gate);
+  if (wantsJson) {
+    console.log(JSON.stringify(waiting, null, 2));
+    return waiting.length ? 0 : 1;
+  }
+  if (waiting.length === 0) {
+    console.log("Nothing is waiting on you.");
+    return 1;
+  }
+  console.log(`${waiting.length} waiting on you:\n`);
+  for (const ticket of waiting) {
+    console.log(`  ${ticket.id}   ${ticket.summary}`);
+    console.log(`         asked for: ${ticket.context}`);
+    console.log(`         expires in ${minutesLeft(ticket)} min\n`);
+  }
+  console.log(`  approve:  orion-approve ${waiting[0].id}`);
+  console.log(`  refuse:   orion-approve deny ${waiting[0].id}`);
+  return 0;
+}
+
+if (rest.length === 0) process.exit(list());
+
+if (rest[0] === "deny" || rest[0] === "no") {
+  const id = normalizeTicketId(rest[1] ?? "");
+  if (!id) {
+    console.error(`orion-approve: "${String(rest[1] ?? "").slice(0, 20)}" is not an approval id`);
+    process.exit(2);
+  }
+  if (!(await deny(gate, id))) {
+    console.error(`orion-approve: nothing called ${id} is waiting`);
+    process.exit(1);
+  }
+  console.log(`refused ${id}. Orion will not do it.`);
+  process.exit(0);
+}
+
+if (rest.length > 1) {
+  // One id, one act. A loop here would be a way to approve a queue without
+  // reading it, which is the failure the whole mechanism exists to prevent.
+  console.error("orion-approve: one approval at a time. Read it, then say yes to it.");
+  process.exit(2);
+}
+
+const result = await grant(gate, rest[0], who);
+if (!result.ok) {
+  console.error(`orion-approve: ${result.reason}`);
+  process.exit(1);
+}
+console.log(`approved ${result.ticket.id} — ${result.ticket.summary}`);
+console.log("Orion may now do that once. Tell him to go ahead.");

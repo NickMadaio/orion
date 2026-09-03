@@ -604,7 +604,24 @@ function explain(map) {
   );
   console.log(
     `\nThere are ${by("APPROVAL").length} I will not do until you say yes: ${names("APPROVAL", 8)}. ` +
-      `Those either send something off this machine or delete something you own.`,
+      `Those either send something off this machine or delete something you own. ` +
+      `When one stops, I give you an id like A-7F3K and you send "approve A-7F3K" — ` +
+      `I cannot approve it myself, on purpose.`,
+  );
+  /*
+   The mode, said out loud.
+
+   Left out at first, which was the same mistake this whole file exists to
+   stop: a spoken answer about his own authority that is missing half of what
+   decides it. Nick sets the mode and Nick is the one asking, so the sentence
+   has to name it and has to name the way back.
+  */
+  const held = map.capabilities.filter((row) => String(row.rule ?? "").startsWith("floor"));
+  console.log(
+    `\nThat is under the ${map.mode} setting${map.modeExpiresAt ? `, which runs out at ${map.modeExpiresAt}` : ""}. ` +
+      (map.mode === "sovereign"
+        ? `It is the most permissive one, so almost nothing stops me — except ${held.length} things no setting can free: changing what I am allowed to do, reaching somebody who is not you, and anything I cannot undo.`
+        : `You can change how often I have to ask with orion-mode. Run "orion-mode --explain sovereign" to see exactly what that would free and what would still stop me.`),
   );
   const unavailable = by("NEVER");
   const unavailableActions = unavailable.filter((row) => row.kind === "action");

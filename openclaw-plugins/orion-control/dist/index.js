@@ -190,6 +190,9 @@ export const ConfigSchema = Type.Object({
     approvalRoot: Type.Optional(Type.String({
         description: "Directory holding approval tickets and the grants a person writes. Nothing in Orion's tool surface may write under it.",
     })),
+    enableDevOperationsActions: Type.Optional(Type.Boolean({
+        description: "Enable structured git/test/build/lockfile-install operations against a closed table of repositories (Phase 51), replacing the bare `git` exec allowlist entry that cannot see its own arguments. These run code out of the repository; see src/devops.ts. Default off.",
+    })),
     enableStrictArguments: Type.Optional(Type.Boolean({
         description: "Reject arguments an action does not accept. Applies only to actions whose accepted set is fully declared (no hand-written validateArguments); the rest are unchanged until their optional arguments are declared. Default off.",
     })),
@@ -276,6 +279,8 @@ function configuredTiers(config) {
     // outbound action in the catalog.
     if (config.enableMessagesSendActions === true)
         tiers.add("messages_send");
+    if (config.enableDevOperationsActions === true)
+        tiers.add("dev_operations");
     if (config.enableAppControlActions === true)
         tiers.add("app_control");
     if (config.enableBrowserControlActions === true)

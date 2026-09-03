@@ -14,9 +14,9 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 168,
-    "AUTO": 114,
-    "NOTIFY": 15,
+    "total": 175,
+    "AUTO": 117,
+    "NOTIFY": 19,
     "APPROVAL": 15,
     "NEVER": 24
   },
@@ -80,6 +80,14 @@
     {
       "tier": "desktop_test_workspace",
       "flag": "enableDesktopTestWorkspaceActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "dev_operations",
+      "flag": "enableDevOperationsActions",
       "configOn": true,
       "profileOn": true,
       "available": true,
@@ -399,6 +407,39 @@
       "because": "simulated only — it changes nothing at all",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "simulation",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "git_diff",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "git_log",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "git_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
       "risk": "low",
       "reversible": true
     },
@@ -1321,6 +1362,17 @@
     },
     {
       "kind": "action",
+      "name": "build_run",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
       "name": "desktop_file_write_explicit",
       "level": "NOTIFY",
       "rule": "R2 irreversible",
@@ -1398,6 +1450,28 @@
     },
     {
       "kind": "action",
+      "name": "git_pull",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "package_install",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
       "name": "reminder_cancel",
       "level": "NOTIFY",
       "rule": "R2 irreversible",
@@ -1448,6 +1522,17 @@
       "because": "risk is 'high' — reversible, but too large to happen silently",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "self_scripts",
+      "risk": "high",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "tests_run",
+      "level": "NOTIFY",
+      "rule": "R2 blast radius",
+      "because": "risk is 'high' — reversible, but too large to happen silently",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
       "risk": "high",
       "reversible": true
     },

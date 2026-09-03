@@ -355,6 +355,12 @@ export const ConfigSchema = Type.Object({
         "Directory holding approval tickets and the grants a person writes. Nothing in Orion's tool surface may write under it.",
     }),
   ),
+  enableDevOperationsActions: Type.Optional(
+    Type.Boolean({
+      description:
+        "Enable structured git/test/build/lockfile-install operations against a closed table of repositories (Phase 51), replacing the bare `git` exec allowlist entry that cannot see its own arguments. These run code out of the repository; see src/devops.ts. Default off.",
+    }),
+  ),
   enableStrictArguments: Type.Optional(
     Type.Boolean({
       description:
@@ -447,6 +453,7 @@ function configuredTiers(config: {
   enableSelfConfigActions?: boolean;
   enableMessagesReadActions?: boolean;
   enableMessagesSendActions?: boolean;
+  enableDevOperationsActions?: boolean;
   desktopRoot?: string;
 }): Set<CapabilityTier> {
   const tiers = new Set<CapabilityTier>(["simulation"]);
@@ -474,6 +481,7 @@ function configuredTiers(config: {
   // itself insufficient, which is the intended shape for the one irreversible
   // outbound action in the catalog.
   if (config.enableMessagesSendActions === true) tiers.add("messages_send");
+  if (config.enableDevOperationsActions === true) tiers.add("dev_operations");
   if (config.enableAppControlActions === true) tiers.add("app_control");
   if (config.enableBrowserControlActions === true) tiers.add("browser_control");
   if (config.enableMediaControlActions === true) tiers.add("media_control");

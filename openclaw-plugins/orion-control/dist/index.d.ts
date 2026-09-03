@@ -45,6 +45,7 @@ export declare const ConfigSchema: Type.TObject<{
     permissionAuditPath: Type.TOptional<Type.TString>;
     strictnessStatePath: Type.TOptional<Type.TString>;
     approvalRoot: Type.TOptional<Type.TString>;
+    enableDevOperationsActions: Type.TOptional<Type.TBoolean>;
     enableStrictArguments: Type.TOptional<Type.TBoolean>;
     enableV2SystemStatusAdapter: Type.TOptional<Type.TBoolean>;
 }>;

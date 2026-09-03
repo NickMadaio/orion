@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { describeDuration, readClock, readReminders, readSystemStatus, readWeather, remindersPath, resolveAlarmTime, writeReminders, } from "./ambient.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { MAX_OUTPUT_BYTES, boundOutput, devEnvironment, resolveDevCommand, } from "./devops.js";
 import { chmod, lstat, mkdir, open, readdir, realpath, rename, rm, unlink, writeFile, } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1299,6 +1300,9 @@ export async function executeAction(definition, step, context) {
     if (definition.execution.kind === "self_repair") {
         return runSelfRepair(definition.execution, step, context, idempotencyKey);
     }
+    if (definition.execution.kind === "dev_operation") {
+        return runDevOperation(definition.execution, step, idempotencyKey);
+    }
     if (definition.execution.kind === "app_control") {
         const application = step.arguments[definition.execution.applicationArgument];
         if (typeof application !== "string") {
@@ -1800,6 +1804,23 @@ export async function verifyAction(definition, step, execution, context) {
             evidence: present ? `self_source:${definition.execution.operation}` : undefined,
         };
     }
+    if (definition.execution.kind === "dev_operation") {
+        /*
+         The command exited zero, and that IS the verification.
+    
+         Re-running `git status` to check that `git pull` happened would be a
+         second, weaker copy of a check the tool already did against the real
+         repository -- and for `tests_run` it would be actively wrong, because a
+         suite that passed and a suite that was never run both leave the working
+         tree looking identical. What is verified here is what can be: the process
+         ran to completion with a zero exit, and it said something.
+        */
+        const present = typeof execution.output === "string" && execution.output.length > 0;
+        return {
+            observed: present,
+            evidence: present ? `dev_operation:${definition.execution.operation}` : undefined,
+        };
+    }
     if (definition.execution.kind === "self_repair") {
         // Same answer as `self_modify` below, and for a stronger reason. Reaching
         // here means `orion-repair` exited zero, and for a modify that means it
@@ -2184,6 +2205,80 @@ async function runSelfRepair(policy, step, context, idempotencyKey) {
             await rm(file, { force: true }).catch(() => { });
         }
     }
+}
+/**
+ * PHASE 51 — run one structured development operation.
+ *
+ * Everything that could be a decision was made in `devops.ts` before this
+ * function is reached: which repository, which working directory, which argv,
+ * which environment, how long, how much output. This spawns it and reports.
+ *
+ * Two details that are not incidental:
+ *
+ *   · `shell: false` is the default and is left alone. Nothing in the argv has
+ *     been through a shell at any point, so a branch name containing a
+ *     semicolon is a branch name.
+ *   · The timeout kills with SIGKILL. A test runner that traps SIGTERM to print
+ *     a summary is a test runner that ignores a timeout, and the whole reason
+ *     there is a timeout is the run that does not end.
+ */
+async function runDevOperation(policy, step, idempotencyKey) {
+    const resolved = resolveDevCommand(String(step.arguments.repository ?? ""), policy.operation, {
+        ...(Number.isInteger(step.arguments.limit)
+            ? { limit: step.arguments.limit }
+            : {}),
+        ...(typeof step.arguments.staged === "boolean"
+            ? { staged: step.arguments.staged }
+            : {}),
+    });
+    if ("error" in resolved)
+        throw new ActionExecutionError(resolved.error);
+    const [command, ...arguments_] = resolved.argv;
+    const result = await new Promise((resolve) => {
+        const child = spawn(command, arguments_, {
+            cwd: resolved.cwd,
+            env: devEnvironment(),
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        let output = "";
+        let timedOut = false;
+        const collect = (chunk) => {
+            // Bounded as it arrives, not at the end. A runaway loop printing to
+            // stdout would otherwise be held entirely in memory before being
+            // truncated, which is the wrong order to do those two things in.
+            if (output.length < MAX_OUTPUT_BYTES * 4)
+                output += String(chunk);
+        };
+        child.stdout?.on("data", collect);
+        child.stderr?.on("data", collect);
+        const timer = setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGKILL");
+        }, resolved.spec.timeoutMs);
+        child.on("close", (code) => {
+            clearTimeout(timer);
+            resolve({ code: code ?? 1, output: output.trim(), timedOut });
+        });
+        child.on("error", (error) => {
+            clearTimeout(timer);
+            resolve({ code: 1, output: String(error), timedOut: false });
+        });
+    });
+    if (result.timedOut) {
+        throw new ActionExecutionError(`${policy.operation} in ${step.arguments.repository} ran past ${Math.round(resolved.spec.timeoutMs / 1000)}s and was stopped. ` +
+            `Nothing was rolled back; check the repository yourself.\n\n${boundOutput(result.output)}`);
+    }
+    if (result.code !== 0) {
+        // A non-zero exit is REPORTED, not thrown away. A failing test suite is
+        // the most useful thing this action ever produces, and an error that says
+        // only "exit 1" is the version of it nobody can act on.
+        throw new ActionExecutionError(`${policy.operation} failed (exit ${result.code}):\n\n${boundOutput(result.output)}`);
+    }
+    return {
+        mode: "observed",
+        idempotencyKey,
+        output: boundOutput(result.output) || `${policy.operation} finished with nothing to say.`,
+    };
 }
 /** Read-only companion to `runSelfModify` — see the `self_source` policy. */
 async function runSelfSource(operation, step, idempotencyKey) {

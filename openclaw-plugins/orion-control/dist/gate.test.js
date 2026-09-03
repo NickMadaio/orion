@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { applyUserTurnDecisions, approvalPaths, consumeGrant, decisionsInUserTurn, grant, grantedHashes, mintTicket, normalizeTicketId, readTickets, TICKET_RE, TICKET_TTL_MS, } from "./approvals.js";
 import { DEFAULT_MODE, MAX_DELEGATION_MS, STRICTNESS_MODES, applyMode, floorForAction, isRelaxation, levelForAction, resolveStrictness, writeStrictness, GUARDED_STATE, } from "./strictness.js";
 import { ACTION_CATALOG } from "./catalog.js";
+import { boundOutput, devEnvironment, resolveDevCommand } from "./devops.js";
 const tmp = () => mkdtemp(path.join(os.tmpdir(), "orion-gate-"));
 describe("the approval gate has a person in it", () => {
     it("mints an id a person could read out, and refuses anything else", async () => {
@@ -394,5 +395,105 @@ describe("strictness: how much friction, as its own axis", () => {
         const raised = applyMode("AUTO", floorForAction("messages_send", ACTION_CATALOG.messages_send), "sovereign");
         expect(raised.level).toBe("APPROVAL");
         expect(raised.heldByFloor).toBe(true);
+    });
+});
+describe("phase 51: structured development operations", () => {
+    it("names repositories by key, and a path is not a key", () => {
+        /*
+         The whole restriction, as one assertion. There is no path argument in this
+         phase, so there is nothing to traverse: a key either resolves against the
+         closed table or it does not.
+        */
+        for (const attempt of [
+            "/Users/nickmadaio/Desktop/ORION",
+            "../../etc",
+            "orion/../..",
+            "",
+            "some-other-repo",
+        ]) {
+            const result = resolveDevCommand(attempt, "git_status");
+            expect("error" in result, attempt).toBe(true);
+        }
+        const ok = resolveDevCommand("orion", "git_status");
+        expect("error" in ok).toBe(false);
+    });
+    it("builds a fixed argv that no argument can extend", () => {
+        const status = resolveDevCommand("orion", "git_status");
+        if ("error" in status)
+            throw new Error(status.error);
+        expect(status.argv).toEqual(["git", "status", "--short", "--branch"]);
+        // A pull can only ever fast-forward. There is no argument that turns this
+        // off, which is the point of the argv being a constant.
+        const pull = resolveDevCommand("orion", "git_pull");
+        if ("error" in pull)
+            throw new Error(pull.error);
+        expect(pull.argv).toContain("--ff-only");
+        expect(pull.argv).not.toContain("--rebase");
+        // `npm ci`, never `npm install <something from the internet>`.
+        const install = resolveDevCommand("orion-plugin", "package_install");
+        if ("error" in install)
+            throw new Error(install.error);
+        expect(install.argv).toEqual(["npm", "ci"]);
+    });
+    it("bounds the only two arguments in the phase", () => {
+        for (const limit of [0, -1, 101, 1.5, Number.NaN]) {
+            expect("error" in resolveDevCommand("orion", "git_log", { limit }), String(limit)).toBe(true);
+        }
+        const ok = resolveDevCommand("orion", "git_log", { limit: 5 });
+        if ("error" in ok)
+            throw new Error(ok.error);
+        expect(ok.argv[ok.argv.length - 1]).toBe("-5");
+    });
+    it("refuses an operation a repository has no command for", () => {
+        // `orion` has no test command. Saying so is better than guessing at one,
+        // and much better than running the plugin's suite because it was nearby.
+        const result = resolveDevCommand("orion", "tests_run");
+        expect("error" in result).toBe(true);
+    });
+    it("builds the environment from an allowlist, so a new secret is absent by default", () => {
+        /*
+         A denylist of secret-looking names is wrong in the direction that matters:
+         it is correct only until somebody exports a new one. This starts from
+         nothing, so the test can be stated as an absence rather than as a list of
+         things that were remembered.
+        */
+        const before = { ...process.env };
+        process.env.ANTHROPIC_API_KEY = "sk-test-should-not-survive";
+        process.env.SOME_BRAND_NEW_TOKEN = "nobody-wrote-a-rule-for-this-one";
+        try {
+            const env = devEnvironment();
+            expect(Object.values(env).join(" ")).not.toContain("sk-test-should-not-survive");
+            expect(Object.values(env).join(" ")).not.toContain("nobody-wrote-a-rule-for-this-one");
+            expect(Object.keys(env).sort()).toEqual(["CI", "HOME", "LANG", "PATH", "TMPDIR"]);
+            // PATH is pinned rather than inherited: an inherited PATH is a list of
+            // directories any of which might hold a `git` that is not git.
+            expect(env.PATH).not.toBe(before.PATH);
+        }
+        finally {
+            process.env = before;
+        }
+    });
+    it("keeps both ends of a long output, because a failure prints last", () => {
+        const noise = "x".repeat(30_000);
+        const bounded = boundOutput(`START${noise}FAILED: 3 tests`, 2_000);
+        expect(bounded.length).toBeLessThan(2_500);
+        expect(bounded).toContain("START");
+        expect(bounded).toContain("FAILED: 3 tests");
+        expect(bounded).toContain("cut from the middle");
+    });
+    it("puts every dev action behind the tier and the profile, and none behind approval", () => {
+        const dev = Object.entries(ACTION_CATALOG).filter(([, definition]) => definition.capabilityTier === "dev_operations");
+        expect(dev.length).toBe(7);
+        for (const [name, definition] of dev) {
+            // Not approval-gated on purpose: an assistant who cannot run the tests
+            // without being asked twice is one nobody lets near a repository. `risk:
+            // high` puts the four that DO something at NOTIFY under guarded.
+            expect(definition.approvalRequired, name).toBe(false);
+            expect(definition.requiredArguments, name).toContain("repository");
+        }
+        const doers = ["git_pull", "tests_run", "build_run", "package_install"];
+        for (const name of doers) {
+            expect(ACTION_CATALOG[name].risk, name).toBe("high");
+        }
     });
 });

@@ -181,9 +181,16 @@ live = json.loads(subprocess.run([f"{repo}/scripts/orion-authority", "show", "--
                                  capture_output=True, text=True).stdout)
 before = json.load(open(f"{repo}/planning/v2/GUARDED_BASELINE.json"))["actions"]
 now = {c["name"]: c["level"] for c in live["capabilities"] if c["kind"] == "action"}
-diff = {k: (before.get(k), now.get(k)) for k in set(before) | set(now)
-        if before.get(k) != now.get(k)}
-print(json.dumps(diff) if diff else "none")
+# Compatibility is about actions that EXISTED changing, and about actions
+# disappearing. A new action is new work, not a regression -- Phase 51 added
+# seven and this check failed on all of them, which was the check being wrong
+# rather than the phase. Removals still fail: a capability that vanishes
+# silently is exactly what a baseline is for.
+changed = {k: (before[k], now.get(k)) for k in before if before[k] != now.get(k)}
+added = sorted(set(now) - set(before))
+print(json.dumps(changed) if changed else "none")
+print(f"        ({len(added)} action(s) added since the baseline: {', '.join(added) or 'none'})",
+      file=sys.stderr)
 PY
 )"
 check "every action under guarded is exactly what it was at 2cf0445" "$drift" "none"

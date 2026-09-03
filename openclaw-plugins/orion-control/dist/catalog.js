@@ -1,4 +1,5 @@
 import { classifyConfigPath, classifyPluginFile, classifyScript, validateConfigValue, } from "./selfrepair.js";
+import { DEV_REPOSITORIES } from "./devops.js";
 export const MUTABLE_ROOTS = [
     "test_workspace",
     "scratch_workspace",
@@ -621,6 +622,38 @@ function configSetIssues(arguments_, expected) {
     return decision.setting
         ? validateConfigValue(decision.setting, arguments_.value)
         : ["that setting has no validation rule, so it is refused"];
+}
+/**
+ * One structured development operation.
+ *
+ * A builder rather than seven hand-written blocks, because the whole point of
+ * the phase is that these differ ONLY in which operation they name: same tier,
+ * same required argument, same closed repository table, same absence of a path.
+ * Written out longhand, the seventh would eventually differ from the first in
+ * some way nobody meant.
+ */
+function devAction(operation, risk, reversible, verification, extraValidators = {}) {
+    return {
+        risk,
+        requiredArguments: ["repository"],
+        approvalRequired: false,
+        verification,
+        reversible,
+        capabilityTier: "dev_operations",
+        execution: { kind: "dev_operation", operation },
+        validateArguments(arguments_) {
+            const repository = arguments_.repository;
+            // Matched against the closed table, not against a shape. A key that does
+            // not resolve is refused HERE with the list of keys that do, so the model
+            // is told what exists rather than left to guess a path.
+            if (typeof repository !== "string" || !DEV_REPOSITORIES.has(repository)) {
+                return [
+                    `repository must be one of: ${[...DEV_REPOSITORIES.keys()].join(", ")}`,
+                ];
+            }
+            return Object.entries(extraValidators).flatMap(([key, check]) => check(arguments_[key]));
+        },
+    };
 }
 export const ACTION_CATALOG = {
     /**
@@ -1777,6 +1810,43 @@ export const ACTION_CATALOG = {
      `reversible: false` is the literal truth here rather than a formality, and
      `risk: "high"` follows from it.
     */
+    /*
+     PHASE 51 — the structured operations, and why their metadata reads the way
+     it does.
+  
+     The three reads are `risk: low` and genuinely reversible: they open no
+     network connection, write nothing, and run a fixed argv. They are what Orion
+     should be reaching for when he wants to know the state of a repository, and
+     the point of building them is that reaching for `git` on the allowlist
+     instead was the only option he had.
+  
+     The four that DO something are `risk: high` without exception, including the
+     ones that look tame. `npm ci` and `npm test` execute code out of the
+     repository, and `git pull` can bring in a hook. Marking them medium because
+     they usually work would be marking them by their good days.
+  
+     None of them is `approvalRequired`. That is a decision: an assistant who
+     cannot run the tests without being asked twice is an assistant nobody lets
+     near a repository. `risk: high` puts them at NOTIFY under `guarded`, which is
+     the honest answer -- he runs it and tells you -- and `open` and `sovereign`
+     let them go quiet, which is exactly the delegation those modes are for.
+    */
+    git_status: devAction("git_status", "low", true, "git_status_reported"),
+    git_log: devAction("git_log", "low", true, "git_log_reported", {
+        limit: (value) => value === undefined ||
+            (Number.isInteger(value) && value >= 1 && value <= 100)
+            ? []
+            : ["limit must be a whole number from 1 to 100"],
+    }),
+    git_diff: devAction("git_diff", "low", true, "git_diff_reported", {
+        staged: (value) => value === undefined || typeof value === "boolean"
+            ? []
+            : ["staged must be true or false"],
+    }),
+    git_pull: devAction("git_pull", "high", true, "git_pull_reported"),
+    tests_run: devAction("tests_run", "high", true, "tests_reported"),
+    build_run: devAction("build_run", "high", true, "build_reported"),
+    package_install: devAction("package_install", "high", true, "install_reported"),
     messages_send: {
         risk: "high",
         requiredArguments: ["recipient", "body"],

@@ -89,6 +89,12 @@ const PROFILE_TIERS: Record<PermissionProfile, ReadonlySet<CapabilityTier>> = {
     "self_scripts",
     "self_config",
     "calendar",
+    // PHASE 51. Structured git/test/build operations. Here and not lower, and
+    // listed by name rather than folded into EDIT_TIERS, for the reason
+    // `self_modification` is: running a repository's build executes code out of
+    // that repository, which is not a filesystem operation and must not arrive
+    // as a side effect of widening filesystem access.
+    "dev_operations",
   ]),
   // The first profile that grants something no lower profile can reach.
   //
@@ -110,6 +116,7 @@ const PROFILE_TIERS: Record<PermissionProfile, ReadonlySet<CapabilityTier>> = {
     "self_scripts",
     "self_config",
     "calendar",
+    "dev_operations",
     "messages_send",
   ]),
 };

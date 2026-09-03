@@ -185,6 +185,10 @@
       "approvalRoot": {
         "type": "string",
         "description": "Directory holding approval tickets and the grants a person writes. Nothing in Orion's tool surface may write under it."
+      },
+      "enableDevOperationsActions": {
+        "type": "boolean",
+        "description": "Enable structured git/test/build/lockfile-install operations against a closed table of repositories (Phase 51), replacing the bare `git` exec allowlist entry that cannot see its own arguments. These run code out of the repository; see src/devops.ts. Default off."
       }
     }
   },

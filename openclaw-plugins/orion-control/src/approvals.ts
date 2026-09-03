@@ -321,3 +321,138 @@ export async function deny(
   ).catch(() => undefined);
   return true;
 }
+
+// MARK: - Saying yes out loud
+
+/*
+ THE VOICE PATH, and why it is not a voice feature.
+
+ `orion-approve` and the Discord verb both work because they are acts Orion
+ cannot perform. Speech looked like it had no equivalent: the microphone feeds
+ a transcript to the model, and the model is precisely what was removed from
+ the loop.
+
+ The first design was speaker verification -- accept "approve A-7F3K" when the
+ voice matches Nick's enrolled profile. `SpeakerVerifier.swift` forbids it in
+ its own header, and it is right to:
+
+     IT IS NOT AUTHENTICATION. It filters the television and the room. A
+     recording of his voice defeats it, and nothing security-relevant should
+     ever be conditioned on it.
+
+ It also fails OPEN by design, so building an approval on it would mean an
+ approval that succeeds when the daemon is down.
+
+ The mechanism that does work was already here, already tested, and already
+ trusted for a decision of the same weight. `authorizeTaskGraph` mints
+ `trusted_user` inputs from OpenClaw host provenance; a model-supplied input
+ becomes `untrusted_external` and a forged `trusted_user` tag is discarded
+ (`ignores a model-forged trusted_user tag and fails closed`). That is the same
+ proof `argumentNotFromUser` leans on to decide whether Nick named the person a
+ message is going to.
+
+ So: if NICK'S OWN TURN says approve, that is a person saying yes. It works for
+ speech, for a typed message and for the Discord DM identically, because none
+ of them is special -- what matters is that the words came from the harness and
+ not from the model.
+
+ WHAT THIS DOES NOT DEFEND. Anyone standing in the room can say it. That is
+ the same exposure as anyone standing at the keyboard, and it is the honest
+ ceiling for a hands-free assistant. It is why `sovereign` exists: the answer
+ to approvals being inconvenient is to need fewer of them, not to make the ones
+ that remain easier to forge.
+*/
+
+/** Affirmatives, negations, and the words that turn a question into a request. */
+const AFFIRM = /\b(?:approve[ds]?|approving|confirm(?:ed)?|authorise[d]?|authorize[d]?|yes|go\s+ahead|do\s+it|send\s+it)\b/i;
+const NEGATE = /\b(?:don'?t|do\s+not|never|cancel(?:led)?|denie[ds]?|deny|refuse[d]?|reject(?:ed)?|hold\s+off|not)\b/i;
+const REFUSE = /\b(?:denie[ds]?|deny|refuse[d]?|reject(?:ed)?|no\s+to)\b/i;
+
+/**
+ * The id as a person says it.
+ *
+ * Speech-to-text renders `A-7F3K` as "A-7F3K", "a 7 f 3 k", "A7F3K" or
+ * "A. 7 F 3 K" depending on the engine and the day. Each character is allowed
+ * up to two separators after it, and the `A-` prefix is optional because Nick
+ * drops it about half the time.
+ */
+function spokenIdPattern(id: string): RegExp {
+  const body = id.replace(/^A-/, "");
+  const loose = body.split("").join("[\\s.,-]{0,2}");
+  return new RegExp(`(?:\\bA[\\s.,-]{0,2})?${loose}\\b`, "i");
+}
+
+export type SpokenDecision = { id: string; decision: "approved" | "denied" };
+
+/**
+ * What Nick's own words decided, if anything.
+ *
+ * Deliberately silent rather than clever when a turn is ambiguous. "Should I
+ * approve A-7F3K?" and "don't approve A-7F3K yet" both return nothing, and the
+ * model then has to ask -- which costs one turn and is the right answer, where
+ * guessing costs a message that cannot be unsent.
+ *
+ * @param userText concatenated `trusted_user` instruction inputs. Passing
+ *   anything else here -- page text, a file, a message Orion read -- would
+ *   hand the approval to whoever wrote it.
+ */
+export function decisionsInUserTurn(
+  userText: string,
+  tickets: readonly ApprovalTicket[],
+): SpokenDecision[] {
+  const text = String(userText ?? "");
+  if (text.trim().length === 0) return [];
+  const decisions: SpokenDecision[] = [];
+  for (const ticket of tickets) {
+    const found = spokenIdPattern(ticket.id).exec(text);
+    if (!found) continue;
+    /*
+     Only the clause the id is in, and the id is taken OUT before splitting.
+
+     "Cancel the alarm, and approve A-7F3K" is two instructions and only the
+     second is an approval, so the sentence is cut at clause boundaries and
+     just the containing clause is read. The subtlety, which cost one failing
+     test: a transcriber writes the id as "A. 7 F 3 K", so splitting on `.`
+     first tore the id in half and left a clause with no verb in it. Replacing
+     the match with a punctuation-free marker before splitting means the id
+     cannot be a boundary.
+    */
+    const MARK = "\u0000ID\u0000";
+    const clause =
+      text
+        .replace(found[0], MARK)
+        .split(/[.!?;\n]|,\s*(?=and\b|then\b|also\b|but\b)/)
+        .find((part) => part.includes(MARK)) ?? "";
+    if (REFUSE.test(clause)) {
+      decisions.push({ id: ticket.id, decision: "denied" });
+      continue;
+    }
+    // An affirmative must be present AND unnegated. Absence of both is a
+    // mention, not a decision: "what does A-7F3K do" changes nothing.
+    if (AFFIRM.test(clause) && !NEGATE.test(clause)) {
+      decisions.push({ id: ticket.id, decision: "approved" });
+    }
+  }
+  return decisions;
+}
+
+/**
+ * Apply what the turn said. Returns what it acted on, for the run record.
+ *
+ * `grantedBy` says `user-turn` rather than naming a channel, because this code
+ * genuinely does not know which one it was -- and the claim it can make
+ * honestly is the one that matters: these words came from the harness, not
+ * from the model.
+ */
+export async function applyUserTurnDecisions(
+  paths: ApprovalPaths,
+  userText: string,
+  now: Date = new Date(),
+): Promise<SpokenDecision[]> {
+  const decisions = decisionsInUserTurn(userText, readTickets(paths, now));
+  for (const decision of decisions) {
+    if (decision.decision === "approved") await grant(paths, decision.id, "user-turn", now);
+    else await deny(paths, decision.id, now);
+  }
+  return decisions;
+}

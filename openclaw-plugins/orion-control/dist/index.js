@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import { appendEpisode, defaultEpisodicMemoryPath, episodeFromUserText, } from "./episodic.js";
-import { approvalPaths, consumeGrant, grantedHashes, mintTicket, readTickets, } from "./approvals.js";
+import { applyUserTurnDecisions, approvalPaths, consumeGrant, grantedHashes, mintTicket, readTickets, } from "./approvals.js";
 import { MODE_SUMMARY, floorForAction, levelForAction, resolveStrictness, } from "./strictness.js";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import os from "node:os";
@@ -512,6 +512,26 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
      could always produce for itself.
     */
     const gate = approvalPaths(defaultApprovalRoot(config.approvalRoot));
+    /*
+     Nick saying yes in his own turn, before the gate is consulted.
+  
+     Read from `trusted_user` instruction inputs ONLY. Those are minted by
+     `authorizeTaskGraph` from OpenClaw host provenance; a model-supplied input
+     is rebuilt as `untrusted_external`, so nothing Orion writes and nothing he
+     READ can reach this. It is the same proof `argumentNotFromUser` already uses
+     to decide whether Nick named the person a message is going to.
+  
+     This is the voice path. It is not voice-specific, and that is the point:
+     speech, a typed line and a Discord DM all arrive as the same authenticated
+     turn, and none of them is trusted for being speech.
+    */
+    const spokenTurn = authorized.graph.inputs
+        .filter((input) => input.kind === "instruction" &&
+        input.trust === "trusted_user" &&
+        typeof input.content === "string")
+        .map((input) => input.content)
+        .join("\n");
+    const spoken = await applyUserTurnDecisions(gate, spokenTurn).catch(() => []);
     const granted = grantedHashes(gate);
     const runOptions = {
         ledgerPath: defaultLedgerPath(config.ledgerPath),
@@ -608,6 +628,13 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
             ]
             : []),
         ...(permission.degraded ? [permission.degraded] : []),
+        ...(spoken.length > 0
+            ? [
+                `Nick's own turn decided ${spoken
+                    .map((item) => `${item.id}: ${item.decision}`)
+                    .join(", ")}. That was his words, not yours — do not claim you approved anything.`,
+            ]
+            : []),
         ...(waitingOn.length > 0
             ? [
                 `Waiting on Nick. Tell him the id out loud and ask him to approve it: ${waitingOn

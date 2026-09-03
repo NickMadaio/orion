@@ -140,6 +140,34 @@ case "$out" in
 esac
 
 echo ""
+echo "== 5b. Nick's own turn is a valid approval; a page saying the same is not =="
+
+# The voice path. Not voice-specific -- speech, a typed line and a Discord DM
+# all arrive as the same authenticated turn, and none is trusted for being
+# speech. What is trusted is that the harness minted the input, not the model.
+grammar="$(node -e '
+const { decisionsInUserTurn } = await import(process.argv[1] + "/approvals.js");
+const t = {
+  id: "A-7F3K", canonicalHash: "a".repeat(64), nonce: "n", action: "messages_send",
+  summary: "s", context: "c", mintedAt: new Date().toISOString(),
+  expiresAt: new Date(Date.now() + 60000).toISOString(),
+};
+const say = (text) => (decisionsInUserTurn(text, [t])[0] ?? {}).decision ?? "nothing";
+const cases = [
+  ["approve A-7F3K", "approved"],
+  ["yes, approve a 7 f 3 k", "approved"],
+  ["what does A-7F3K do?", "nothing"],
+  // Spelled without an apostrophe because this whole block lives inside a
+  // single-quoted shell string. The contraction is covered in gate.test.ts.
+  ["do not approve A-7F3K", "nothing"],
+  ["deny A-7F3K", "denied"],
+];
+const wrong = cases.filter(([text, want]) => say(text) !== want).map(([text]) => text);
+process.stdout.write(wrong.join(" | ") || "none");
+' --input-type=module "$DIST" 2>&1)"
+check "an approval is heard only when Nick decided one" "$grammar" "none"
+
+echo ""
 echo "== 6. guarded is still exactly what shipped =="
 
 # Compared against GUARDED_BASELINE.json, which is a FIXTURE, not the derived

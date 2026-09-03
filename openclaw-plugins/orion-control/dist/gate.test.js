@@ -2,7 +2,7 @@ import { mkdtemp, readdir, writeFile, mkdir } from "node:fs/promises";
 import os, { hostname } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { approvalPaths, consumeGrant, grant, grantedHashes, mintTicket, normalizeTicketId, readTickets, TICKET_RE, TICKET_TTL_MS, } from "./approvals.js";
+import { applyUserTurnDecisions, approvalPaths, consumeGrant, decisionsInUserTurn, grant, grantedHashes, mintTicket, normalizeTicketId, readTickets, TICKET_RE, TICKET_TTL_MS, } from "./approvals.js";
 import { DEFAULT_MODE, MAX_DELEGATION_MS, STRICTNESS_MODES, applyMode, floorForAction, isRelaxation, levelForAction, resolveStrictness, writeStrictness, GUARDED_STATE, } from "./strictness.js";
 import { ACTION_CATALOG } from "./catalog.js";
 const tmp = () => mkdtemp(path.join(os.tmpdir(), "orion-gate-"));
@@ -146,6 +146,84 @@ describe("the approval gate has a person in it", () => {
         // Two ids for one question is how a person stops reading the ids.
         expect(second.id).toBe(first.id);
         expect(readTickets(paths)).toHaveLength(1);
+    });
+});
+describe("saying yes out loud", () => {
+    const ticketAt = (id) => ({ id });
+    const fake = (id) => ({
+        id,
+        canonicalHash: "a".repeat(64),
+        nonce: "n",
+        action: "messages_send",
+        summary: "s",
+        context: "c",
+        mintedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        deviceId: hostname(),
+    });
+    const decide = (text) => decisionsInUserTurn(text, [fake("A-7F3K")]);
+    it("hears an approval however the transcriber spelled it", () => {
+        // Deepgram, the local model and a keyboard all render this differently,
+        // and Nick drops the `A-` about half the time.
+        for (const spelling of [
+            "approve A-7F3K",
+            "approve a7f3k",
+            "yes, approve a 7 f 3 k",
+            "Approve A. 7 F 3 K",
+            "go ahead with A-7F3K",
+            "confirm a-7f3k please",
+        ]) {
+            expect(decide(spelling), spelling).toEqual([{ id: "A-7F3K", decision: "approved" }]);
+        }
+    });
+    it("does not hear an approval in a question or a refusal", () => {
+        /*
+         The failure that would matter most: a message sent because Nick said the
+         id out loud while working out whether he wanted to. Ambiguity returns
+         nothing at all rather than a guess -- the model then has to ask, which
+         costs a turn, where guessing costs something that cannot be unsent.
+        */
+        for (const text of [
+            "what does A-7F3K do?",
+            "A-7F3K",
+            "don't approve A-7F3K",
+            "do not approve A-7F3K yet",
+            "hold off on A-7F3K",
+            "I'm not going to approve A-7F3K",
+            "read me A-7F3K again",
+        ]) {
+            expect(decide(text), text).toEqual([]);
+        }
+    });
+    it("hears a refusal as a refusal", () => {
+        for (const text of ["deny A-7F3K", "reject a7f3k", "no to A-7F3K"]) {
+            expect(decide(text), text).toEqual([{ id: "A-7F3K", decision: "denied" }]);
+        }
+    });
+    it("reads only the clause the id is in", () => {
+        // Two instructions in one breath. A negation belonging to the first half
+        // must not read as a refusal of the second, and an `approve` from the
+        // first half must not carry an id Nick only mentioned in passing.
+        expect(decide("don't cancel the alarm, and approve A-7F3K")).toEqual([
+            { id: "A-7F3K", decision: "approved" },
+        ]);
+        expect(decide("approve the plan. what is A-7F3K")).toEqual([]);
+    });
+    it("says nothing about a ticket that does not exist", () => {
+        expect(decisionsInUserTurn("approve A-7F3K", [])).toEqual([]);
+    });
+    it("writes a real grant from a real turn", async () => {
+        const paths = approvalPaths(await tmp());
+        const ticket = await mintTicket(paths, {
+            canonicalHash: "7".repeat(64),
+            action: "messages_send",
+            summary: "s",
+            context: "c",
+        });
+        expect(grantedHashes(paths).size).toBe(0);
+        const acted = await applyUserTurnDecisions(paths, `yes, approve ${ticket.id}`);
+        expect(acted).toEqual([{ id: ticket.id, decision: "approved" }]);
+        expect(grantedHashes(paths).has("7".repeat(64))).toBe(true);
     });
 });
 describe("strictness: how much friction, as its own axis", () => {

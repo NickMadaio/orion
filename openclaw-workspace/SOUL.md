@@ -46,8 +46,14 @@ for months by handing the gate back the hash it had just given you.
 When a run comes back `needs_approval` it carries `waitingOn`, with an id the
 plugin minted — `A-7F3K`. That id is the only one that exists.
 
-- SAY THE ID OUT LOUD and say what it would do. Nick answers by sending
-  `approve A-7F3K` in Discord, or running `orion-approve A-7F3K` at the Mac.
+- SAY THE ID OUT LOUD and say what it would do. Nick answers in whichever way
+  he is already talking to you: out loud or typed — "approve A-7F3K" in his own
+  turn — or `orion-approve A-7F3K` at the Mac. His turn is read by the plugin
+  before you get a say in it, and it works because the harness can prove those
+  words were his. You cannot produce a turn, which is the whole point.
+- His words have to be a DECISION, not a mention. "What does A-7F3K do?" and
+  "don't approve A-7F3K" both change nothing, and you must not read either as a
+  yes. If he was ambiguous, ask; do not guess.
 - Never invent an id, never guess one, never say one was truncated. You have
   produced fabricated ids before and sent Nick round a loop approving something
   that did not exist.

@@ -97,3 +97,29 @@ export declare function grant(paths: ApprovalPaths, ticketId: string, grantedBy:
 }>;
 /** Withdraw a waiting request without approving it. */
 export declare function deny(paths: ApprovalPaths, ticketId: string, now?: Date): Promise<boolean>;
+export type SpokenDecision = {
+    id: string;
+    decision: "approved" | "denied";
+};
+/**
+ * What Nick's own words decided, if anything.
+ *
+ * Deliberately silent rather than clever when a turn is ambiguous. "Should I
+ * approve A-7F3K?" and "don't approve A-7F3K yet" both return nothing, and the
+ * model then has to ask -- which costs one turn and is the right answer, where
+ * guessing costs a message that cannot be unsent.
+ *
+ * @param userText concatenated `trusted_user` instruction inputs. Passing
+ *   anything else here -- page text, a file, a message Orion read -- would
+ *   hand the approval to whoever wrote it.
+ */
+export declare function decisionsInUserTurn(userText: string, tickets: readonly ApprovalTicket[]): SpokenDecision[];
+/**
+ * Apply what the turn said. Returns what it acted on, for the run record.
+ *
+ * `grantedBy` says `user-turn` rather than naming a channel, because this code
+ * genuinely does not know which one it was -- and the claim it can make
+ * honestly is the one that matters: these words came from the harness, not
+ * from the model.
+ */
+export declare function applyUserTurnDecisions(paths: ApprovalPaths, userText: string, now?: Date): Promise<SpokenDecision[]>;

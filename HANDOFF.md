@@ -1378,3 +1378,62 @@ a regression, and it now distinguishes changed/removed from added. The lock
 check pinned `"top":78,"total":78`, three lines below its own comment saying to
 pin contents and not counts; it now asserts the *reduction* against the live
 catalogue. Both were mutation-tested after the change.
+
+---
+
+## 2026-09-03 (later) — phases 60–70
+
+**60 — the preparation half, closed.** `orion-focus` enforced a session and
+never opened one. `orion-focus start` now prepares before it speaks: raises the
+named apps (`open -a`, idempotent, no new permission), reads `git status` and
+`git log` against a repo named by **key** through Phase 51's closed table, and
+reports today's agenda — with a calendar that cannot be read named as a blind
+spot rather than as an empty day. This is why it was blocked on 51.
+
+**63/64 — why, and how sure.** `src/explain.ts` + `scripts/orion-why`. The rule
+that shaped it: *"do not expose private hidden chain-of-thought"* taken in its
+strongest form — **the model does not answer this question at all.** `orion-why`
+assembles recorded facts from the ledger and the catalog and has no reasoning to
+leak because it does none. Confidence is **derived**, never a field a model can
+fill, and a run's confidence is the *weakest* of its steps so one verified read
+cannot vouch for an unchecked write.
+
+**67 — cost.** `orion-budget` reads the usage records OpenClaw already writes.
+It found a 6.4M-token day on 2026-08-09 nobody knew about. Dollar figures are
+deliberately blank: the gateway records `cost: 0` (subscription billing), so the
+rate table ships at **zero** rather than with prices invented here, and every
+derived figure is labelled an estimate. Per-task budgeting is impossible from
+outside — the usage log carries no task id.
+
+**69 — attack surface.** `planning/v2/ATTACK_SURFACE.json` maps all 19 classes:
+11 to tests **by literal title**, 8 argued not-applicable with a *reason* and a
+*residual*. `orion_v2_attack_check.py` fails when a claimed test is renamed —
+mutation-tested. The manifest's class list lives in the **checker**, so the map
+cannot satisfy the check by shortening itself.
+
+**70 — CI.** `.github/workflows/ci.yml` + `scripts/orion_v2_ci_check.sh` run the
+same set. Security invariants run **first** so a failure never appears below a
+column of green ticks. The five machine-bound suites are written into the job
+summary — *"a green CI is not a green machine."*
+
+**One thing I got wrong and want on the record.** My first CI secret scan grew
+its own regexes and failed on fourteen fake credentials inside tests that assert
+credentials get refused. Widening an exclusion would have been fragile; a second
+scanner would have been the duplication this repo keeps paying for.
+`scripts/orion_v2_secret_scan.py` already existed and is better — it allowlists
+by path + rule + **fingerprint**, so a real key replacing a fake one in the same
+file still fires. It now runs over full history too.
+
+**Cheapest next builds, in order:**
+
+1. **Phase 62 (waiting-on)** — genuinely useful, small. `orion-standing` already
+   solves the surfacing half. Only the store is missing. Note `draft follow-up`
+   needs a deliberate gate decision: a draft Orion cannot send is the right shape.
+2. **Phase 68's audit map** — the Phase 69 pattern applied to the 23 reliability
+   scenarios. Eight have real coverage today; a map would make that a number
+   that cannot rot. About a day.
+3. **Phase 61 (prep cards)** — all six sources already exist and are gated. What
+   is missing is assembly and a trigger, and a Phase 57 automation is now the
+   trigger.
+4. **Phase 70's last requirement** — nothing gates a deploy on CI passing.
+   Installs are `cp` by hand.

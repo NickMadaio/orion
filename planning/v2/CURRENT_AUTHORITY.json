@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 180,
+    "total": 182,
     "AUTO": 121,
     "NOTIFY": 19,
     "APPROVAL": 15,
-    "NEVER": 25
+    "NEVER": 27
   },
   "availability": [
     {
@@ -1609,7 +1609,7 @@
       "name": "calendar_event_remove",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "calendar",
       "risk": "high",
@@ -1620,7 +1620,7 @@
       "name": "email_send",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "simulation",
       "risk": "high",
@@ -1631,7 +1631,7 @@
       "name": "file_delete",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "file_mutate",
       "risk": "high",
@@ -1642,7 +1642,7 @@
       "name": "messages_send",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "messages_send",
       "risk": "high",
@@ -1653,7 +1653,7 @@
       "name": "self_config_authority_set",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "self_config",
       "risk": "critical",
@@ -1664,7 +1664,7 @@
       "name": "self_plugin_authority_modify",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "self_plugin",
       "risk": "critical",
@@ -1675,7 +1675,7 @@
       "name": "self_script_authority_modify",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
-      "because": "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "self_scripts",
       "risk": "critical",
@@ -1803,6 +1803,14 @@
     {
       "kind": "command",
       "name": "orion-bench",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-budget",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -1971,6 +1979,14 @@
     {
       "kind": "command",
       "name": "orion-tools",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-why",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

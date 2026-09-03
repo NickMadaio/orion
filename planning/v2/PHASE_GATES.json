@@ -4780,7 +4780,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "Surveyed 2026-09-03 against scripts/orion-focus (315 lines) and native/Orion/Sources/Orion/FocusSessionHome.swift (1192 lines), both live.",
+      "evidence": "Surveyed 2026-09-03 against scripts/orion-focus (315 lines) and native/Orion/Sources/Orion/FocusSessionHome.swift (1192 lines), both live. Preparation added 2026-09-03; verified live against the real repository and calendar.",
       "requirements": [
         {
           "id": "creates_focus_sessions_connecting_task_and_mac_workspace",
@@ -4795,14 +4795,301 @@
         },
         {
           "id": "orion_prepares_required_applications_files_and_project_context",
-          "status": "blocked",
-          "evidence": "NOT BUILT, and it is the substantive gap in this phase. `orion-focus` enforces a session; nothing opens the apps, surfaces the files or loads the project context at the start of one. Phase 51's structured operations are what would make the 'project context' half honest -- git_status and git_log against a named repository are exactly the context a work session opens with -- so this is now unblocked to build rather than blocked on a missing capability.",
-          "reason": "Unbuilt. Now unblocked by Phase 51 rather than waiting on anything."
+          "status": "passed",
+          "evidence": "CLOSED 2026-09-03. `orion-focus start` now prepares before it speaks, and `orion-focus prepare` re-runs it on demand. Three things and only three, because 'prepare' is exactly where a focus tool turns into a workflow engine nobody asked for: APPLICATIONS via `open -a` (idempotent -- an app already running is raised, not relaunched -- and needing no permission the enforcement half did not already have); PROJECT via `git status` and `git log` against a repository named by KEY through Phase 51's closed table, which is why this was blocked until Phase 51 landed; CONTEXT via today's agenda, so a session that runs into a meeting says so before it starts. It reads and it opens -- no file is written, no setting changed, and the two git operations are the ones in the Phase 51 table that open no network connection. A calendar that cannot be read is reported as a blind spot rather than as an empty day, which is orion-standing's rule applied here."
         },
         {
           "id": "does_not_begin_work_on_the_mac_without_proper_permissions",
           "status": "passed",
           "evidence": "orion-focus needs no permission Nick has not already given, and its header says so and says why: `lsappinfo` reads the frontmost app with no TCC prompt, `open -a` raises a window, `say` speaks. The alternative design -- quitting apps -- would have needed Automation permission per target app, and was rejected partly for that reason."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "61": {
+      "name": "Prep Cards",
+      "status": "not_started",
+      "entryRequiresPhase": "60",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03. Every ingredient exists and nothing assembles them.",
+      "requirements": [
+        {
+          "id": "assembles_threads_notes_tasks_documents_people_and_open_questions",
+          "status": "blocked",
+          "evidence": "Unbuilt. All six sources are already reachable and gated: orion-gmail-search for threads (--readonly and --gmail-no-send hard-wired), orion-recall for notes, orion-agenda for tasks and events, orion-messages for people. What is missing is the assembly and the trigger -- 'before an important event' needs something watching the calendar, which is exactly what a Phase 57 automation is for now that one can be proposed and approved.",
+          "reason": "Unbuilt. The sources exist; nothing assembles or triggers them."
+        },
+        {
+          "id": "uses_temporary_context_and_does_not_make_everything_permanent_memory",
+          "status": "passed",
+          "evidence": "Satisfied in advance by how the brain is written to. orion-note REQUIRES an --epistemic value and refuses without one, so nothing becomes a permanent note by accident, and the reads above return text to a turn without writing anything at all. The manifest's warning is about a system that quietly promotes everything it reads into memory; this one cannot, because the only write path is a deliberate wrapper call."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "62": {
+      "name": "Waiting-On Tracking",
+      "status": "not_started",
+      "entryRequiresPhase": "61",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03. Nothing tracks an outstanding request.",
+      "requirements": [
+        {
+          "id": "tracks_user_initiated_requests_awaiting_responses",
+          "status": "blocked",
+          "evidence": "Unbuilt, and it is the cheapest genuinely-useful thing left in this range. The nearest existing thing is orion-remote's `pending` map, which tracks approvals Orion is waiting on from Nick -- the exact inverse of what this asks for, which is things NICK is waiting on from the world.",
+          "reason": "Unbuilt. No store and no surfacing exist."
+        },
+        {
+          "id": "surfaces_overdue_items",
+          "status": "blocked",
+          "evidence": "Depends on the store above. The surfacing half is solved: orion-standing already runs hourly, already knows quiet hours, and already refuses to speak unless something changed -- a waiting item going overdue is precisely the kind of change it exists to report.",
+          "reason": "Depends on the store."
+        },
+        {
+          "id": "allows_dismiss_remind_later_and_draft_follow_up",
+          "status": "blocked",
+          "evidence": "Two of the three are trivial once the store exists. `draft follow-up` is not: drafting an email is one step from sending one, and messages_send sits at the APPROVAL floor for reasons that apply here too. A draft that Orion cannot send is the correct shape.",
+          "reason": "Depends on the store; the draft half needs a deliberate gate decision."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "63": {
+      "name": "Explainability",
+      "status": "in_progress",
+      "entryRequiresPhase": "62",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "openclaw-plugins/orion-control/src/explain.ts and scripts/orion-why, covered by src/gate.test.ts and verified against the real task ledger.",
+      "requirements": [
+        {
+          "id": "every_consequential_recommendation_supports_why",
+          "status": "passed",
+          "evidence": "`orion-why` answers it: the last run, a named run, or `orion-why can <capability>` which delegates to orion-authority rather than growing a second explanation of authority -- this repo has already been burned once by exactly that between orion-authority and orion-selfdoc."
+        },
+        {
+          "id": "exposes_inputs_evidence_policy_provenance_and_constraints",
+          "status": "passed",
+          "evidence": "All five, each from a durable record. INPUTS and EVIDENCE from the task ledger, quoted verbatim -- a paraphrased piece of evidence is a claim about evidence. POLICY read out of ACTION_CATALOG, so it cannot disagree with the gate that actually ran. PROVENANCE from the trust anchor, and a run with none says so rather than staying quiet. CONSTRAINTS are the validator's own issue messages, in order."
+        },
+        {
+          "id": "does_not_expose_private_hidden_chain_of_thought",
+          "status": "passed",
+          "evidence": "Taken in its strongest form: the model does not answer this question at all. `orion-why` is a program that assembles recorded facts and has no reasoning to leak because it does none. The weaker reading -- a filter over what the model says -- would have reproduced the defect SOUL.md already fights, where Orion answers about himself from memory and is confidently wrong; an explanation NARRATED by the model is a plausible story about what happened, indistinguishable from a report of it."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "64": {
+      "name": "Confidence Handling",
+      "status": "in_progress",
+      "entryRequiresPhase": "63",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "openclaw-plugins/orion-control/src/explain.ts and scripts/orion-why, covered by src/gate.test.ts and verified against the real task ledger.",
+      "requirements": [
+        {
+          "id": "distinguishes_known_observed_inferred_uncertain_and_unable_to_verify",
+          "status": "passed",
+          "evidence": "All five, and every one DERIVED from what the record contains rather than read from a field -- a model that could write `confidence: \"known\"` would. `verified` with evidence is observed; `succeeded` is inferred, however cleanly it exited, because 'the tool did not throw' and 'the thing is true' are different claims this program has confused before. The fifth level is the one that matters most: 'I looked and cannot tell' and 'I could not look' are different sentences, and collapsing them is how orion-standing once reported a clear day when Reminders had never been granted."
+        },
+        {
+          "id": "does_not_present_uncertain_inference_as_fact",
+          "status": "passed",
+          "evidence": "A run's confidence is the WEAKEST of its steps, not an average, so one verified read cannot vouch for a write nobody checked. `isActionable` is true only for known and observed. The existing enforcement stays: orion-standing refuses to print a number it was not given, and --polish rejects a rewrite that introduces a digit."
+        },
+        {
+          "id": "applies_to_health_email_inferred_tasks_intent_automation_and_memory",
+          "status": "blocked",
+          "evidence": "The vocabulary exists and two of the seven surfaces use it: memory extraction through orion-note's --epistemic (mapped rather than replaced, so no existing note is orphaned), and health through orion-standing's refusal to attribute a stale recovery figure to today. The other five have no confidence value attached to what they return.",
+          "reason": "Five of the seven named surfaces do not yet carry a confidence value."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "65": {
+      "name": "App Intents and System Integration",
+      "status": "not_started",
+      "entryRequiresPhase": "64",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03 by grepping native/ for AppIntent, WidgetKit, ActivityKit and INIntent. Zero hits.",
+      "requirements": [
+        {
+          "id": "do_not_build_before_underlying_actions_are_stable",
+          "status": "passed",
+          "evidence": "Honoured, and the manifest's own instruction. The six intents it names map onto actions that have only just stabilised -- 'Run approved automation' needed Phase 57, which landed yesterday, and 'Lock ORION' needed the strictness ladder. Building the intents first would have exposed a surface over a moving target."
+        },
+        {
+          "id": "adds_ask_add_start_focus_whats_my_day_run_automation_and_lock",
+          "status": "blocked",
+          "evidence": "None built. All six now have a working command underneath them, which is the precondition the requirement above is about: orion-remote for ask, orion-note for add, orion-focus start, orion-standing morning, orion-automation, and orion-lock / orion-mode contained.",
+          "reason": "Unbuilt. Needs an App Intents target in the Xcode project."
+        },
+        {
+          "id": "exposes_through_siri_shortcuts_widgets_and_control_center",
+          "status": "blocked",
+          "evidence": "None built. This is a Swift/Xcode surface rather than a logic one, and the identity constraint orion-identity-check exists for makes it more delicate than it looks: adding a target changes the bundle's designated requirement if done carelessly, and every TCC grant and Keychain item is bound to it.",
+          "reason": "Needs Xcode project changes, under the designated-requirement constraint."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "66": {
+      "name": "Live Activities",
+      "status": "not_started",
+      "entryRequiresPhase": "65",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03. No ActivityKit anywhere; no iOS app to host one.",
+      "requirements": [
+        {
+          "id": "uses_live_activities_for_focus_sessions_and_remote_jobs",
+          "status": "blocked",
+          "evidence": "No iOS app. The STATE a Live Activity would display already exists and is durable -- focus.json carries the task, the deadline and the strike count, and the task ledger carries every run -- so this is a rendering problem rather than a modelling one.",
+          "reason": "No iOS app exists."
+        },
+        {
+          "id": "does_not_expose_sensitive_details_on_the_lock_screen_by_default",
+          "status": "passed",
+          "evidence": "Nothing reaches a Lock Screen, so nothing sensitive does. Recorded passed rather than blocked because the requirement is a PROHIBITION and the prohibition holds -- the same reading used for Phase 54's block list and for Phase 45's absent enum member. It is worth writing down now because the obvious first Live Activity is a focus session whose title is the task, and a task title is exactly the kind of thing that should not be on a lock screen by default."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "67": {
+      "name": "Cost Controls",
+      "status": "in_progress",
+      "entryRequiresPhase": "66",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "scripts/orion-budget, reading the usage records OpenClaw already writes into ~/.openclaw/agents/main/sessions/*.jsonl. Verified against real history.",
+      "requirements": [
+        {
+          "id": "tracks_tokens_model_calls_tool_calls_duration_and_estimated_cost",
+          "status": "blocked",
+          "evidence": "Tokens and model calls are read from the gateway's own usage records -- input, output, cacheRead, cacheWrite, totalTokens, per call, per model -- and the tool is already useful: run against the real history it found a 6.4M-token day on 2026-08-09 that nobody knew about. TOOL CALLS and DURATION are not in those records. ESTIMATED COST is deliberately blank: the gateway records cost 0 on every call because these are billed through a subscription, so the rate table ships at ZERO rather than with prices invented here, and every dollar figure is labelled an estimate wherever it appears. A number that looks measured but was guessed is worse than no number -- the rule orion-standing already follows for recovery figures.",
+          "reason": "Tool calls and duration are absent from the usage records; cost is unpriced by design until Nick fills in the rate table."
+        },
+        {
+          "id": "establishes_per_task_automation_daily_and_remote_session_budgets",
+          "status": "blocked",
+          "evidence": "Three of the four are computable and enforced: daily token and call ceilings, an automation call ceiling, and a remote-session ceiling, all in budgets.json and merged OVER the defaults so a missing key falls back to a ceiling rather than to none. PER-TASK is not: the usage log carries no task id, so tokens cannot be attributed to one orion_task_run. Closing it needs the gateway to carry the task id onto the call, which nothing outside it can do.",
+          "reason": "Per-task budgeting needs a task id on the usage record, which the gateway does not write."
+        },
+        {
+          "id": "stops_runaway_agent_loops",
+          "status": "passed",
+          "evidence": "Already handled, and in a better place than a budget: the plugin refuses a third identical tool call inside one run and resets at run end, which is tested. The budget is the backstop for the case that gets past it -- many DIFFERENT calls, which look like progress until you count them."
+        },
+        {
+          "id": "alerts_on_abnormal_spending",
+          "status": "passed",
+          "evidence": "`orion-budget --check` prints nothing and exits 0 when everything is under the ceilings, and prints one line per breach and exits 1 when not. Silence as the normal outcome is what lets it go into cron without becoming the car alarm orion-cron-deliver exists to prevent."
+        },
+        {
+          "id": "uses_smaller_cheaper_models_for_appropriate_work",
+          "status": "passed",
+          "evidence": "Already true and now measurable rather than assumed. Across the sessions on disk: 725 calls to Haiku 4.5, 109 to a local llama3.2:3b, 23 to a local qwen3.6:27b. The local models do the work that does not need a frontier model -- orion-focus's unlock argument and orion-standing's --polish -- and orion-budget reports the split so a drift toward the expensive path is visible."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "68": {
+      "name": "Reliability Testing",
+      "status": "not_started",
+      "entryRequiresPhase": "67",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-03 against the 23 named scenarios. Roughly a third already have real coverage, earned by being fixed rather than by being tested for.",
+      "requirements": [
+        {
+          "id": "covers_the_twenty_three_named_failure_scenarios",
+          "status": "blocked",
+          "evidence": "Eight have genuine coverage and it is worth naming which, because each was paid for: DST (a 22:00 assertion survived an 86,400s mutant and the real divergence turned out to be at 23:30, which skips 29 March entirely -- the TEST was wrong); clock skew and timezone (every day boundary is toLocaleDateString('en-CA') after toISOString filed a day's memory under tomorrow); Mac reboot and sleep (launchd KeepAlive, verified by kill -9 and watching it come back in ~12s); lost acknowledgement and queue duplicate delivery (the remote job gate's replay rules, and the inbox cursor that advances one message at a time); retry after a completed side effect (103 idempotency-key sites in the executors, with a test that a plain append never double-appends); stale health data (orion-standing drops a recovery figure not stamped today). The other fifteen -- Google 429/500, revoked tokens, provider outage, model timeout, worker crash, database outage, phone disconnect, iOS termination -- have no fault-injection harness, and several cannot be tested without the failure.",
+          "reason": "No fault-injection harness exists. Eight of 23 scenarios have real coverage; fifteen do not."
+        },
+        {
+          "id": "the_coverage_is_auditable_rather_than_asserted",
+          "status": "blocked",
+          "evidence": "NOT DONE, and the template for it now exists. Phase 69's planning/v2/ATTACK_SURFACE.json plus orion_v2_attack_check.py is exactly this shape: a map from each named scenario to the test that covers it, checked mechanically so a renamed test is a red build. Applying it here is a day's work and would turn 'roughly a third' into a number that cannot rot.",
+          "reason": "Deliberately deferred. The Phase 69 pattern is the template; it has not been applied to these 23."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "69": {
+      "name": "Security Attack Testing",
+      "status": "in_progress",
+      "entryRequiresPhase": "68",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "planning/v2/ATTACK_SURFACE.json and scripts/orion_v2_attack_check.py, wired into scripts/orion_v2_ci_check.sh and .github/workflows/ci.yml.",
+      "requirements": [
+        {
+          "id": "continuously_tests_the_named_attack_classes",
+          "status": "passed",
+          "evidence": "All nineteen classes the manifest names are mapped: eleven to specific tests by their literal titles, eight argued not-applicable with a REASON and a RESIDUAL. The check fails when a class is missing, when a claimed test has been renamed or deleted, or when an uncovered class gives a reason without saying what would make it live. 'Not applicable' is an acceptable answer; 'not applicable' with nothing said about what would change that is not. Mutation-tested: renaming one security test fails the check by name."
+        },
+        {
+          "id": "the_map_cannot_go_stale",
+          "status": "passed",
+          "evidence": "The manifest's list is held in the CHECKER, not in the map, so the map cannot satisfy the check by shortening itself. Titles are matched literally rather than fuzzily, because a near-match is how a renamed test keeps passing. And the checker deliberately does not RUN the tests -- orion_v2_ci_check.sh does that -- so there are two things to compare rather than one to mistrust."
+        },
+        {
+          "id": "every_class_is_either_covered_or_has_a_stated_residual_risk",
+          "status": "passed",
+          "evidence": "The eight uncovered classes are uncovered for structural reasons -- one user, no inbound HTTP endpoint, no fetch primitive, no attachment handling, no SQL this system writes -- and each names what would make it live. The largest residual is written down rather than argued away: `npm ci` still runs install scripts, and tests_run/build_run execute repository code, so dependency_compromise is 'covered' only in the narrow sense that the argv cannot be widened."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "70": {
+      "name": "CI/CD Security",
+      "status": "in_progress",
+      "entryRequiresPhase": "69",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-03",
+      "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": ".github/workflows/ci.yml and scripts/orion_v2_ci_check.sh, which run the same set so a green CI and a green local run mean the same thing.",
+      "requirements": [
+        {
+          "id": "requires_ci_checks_for_the_nine_named_categories",
+          "status": "passed",
+          "evidence": "Eight of nine run, and the ninth does not apply. Unit and integration tests (vitest), security invariants (the adversarial suites, run FIRST so a failure ends the job before anything reports green), schema validation (manifest.test.ts, which holds openclaw.plugin.json against the runtime ConfigSchema -- they have drifted before), static analysis (tsc --noEmit), dependency scanning (npm audit, reported not fatal), secret scanning, and format/lint folded into the type checker since the repo configures no separate linter. MIGRATION VALIDATION has nothing to validate: there is no database and no schema migration anywhere in this system."
+        },
+        {
+          "id": "secret_scanning_does_not_reimplement_what_exists",
+          "status": "passed",
+          "evidence": "The first version of this grew its own regex list and its own exclusions, and then failed on fourteen deliberately-fake credentials inside tests that assert credentials are REFUSED. Both fixes on the table were wrong -- widening an exclusion is fragile, and a second scanner is a second thing to keep in step. scripts/orion_v2_secret_scan.py was already here and is better: it allowlists by path + rule + FINGERPRINT, so a real key replacing a fake one in the same file still fires, and it prints only a fingerprint, so a finding cannot leak the thing it found into a CI log. It now runs over the worktree AND over full history, because a leak committed and reverted is still a leak that has to be rotated."
+        },
+        {
+          "id": "failed_security_invariants_are_not_casually_overridden",
+          "status": "passed",
+          "evidence": "By ordering rather than by policy. The adversarial suite is the first step in both the workflow and the local script, and a failure exits immediately -- there is no run in which a security failure appears below a column of green ticks. `continue-on-error` is used exactly once, on the dependency audit, and the reason is written at the call site: a transitive advisory in a dev dependency should be visible without blocking an unrelated fix."
+        },
+        {
+          "id": "makes_the_uncovered_surface_visible_rather_than_implied",
+          "status": "passed",
+          "evidence": "The five machine-bound suites cannot run on a runner -- they assert against the real exec allowlist, the installed plugin and the live permission state, which is what makes them worth having. So the workflow writes them into the job summary with what each holds and the line 'a green CI is not a green machine'. A CI pass that reads as total coverage is exactly how the suites that hold the real boundary stop being run."
+        },
+        {
+          "id": "uses_protected_deployment_and_easy_rollback",
+          "status": "blocked",
+          "evidence": "Not addressed, and the phase's own words are 'protected production deployment processes'. There is no deployment: the plugin is copied into ~/.openclaw/extensions by hand and the bridge by orion-remote-install. Rollback exists and is genuinely good where it was built -- orion-repair keeps the previous dist, restarts the gateway, waits for it to answer and restores the old one if it does not -- but nothing gates a deploy on CI having passed.",
+          "reason": "No deployment pipeline exists; installs are manual and are not gated on CI."
         }
       ],
       "nextPhaseAllowed": false

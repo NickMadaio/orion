@@ -119,7 +119,7 @@ function classifyAction(name, definition, availability) {
       level: "APPROVAL",
       rule: "R1 gate demands approval",
       because:
-        "the catalog sets approvalRequired, so the validator refuses it without an approval hash bound to these exact arguments",
+        "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
     };
   }
   if (definition.reversible === false) {

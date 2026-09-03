@@ -1,0 +1,135 @@
+# PHASE 70 — the checks that gate a change, run on every push.
+#
+# WHAT THIS CAN AND CANNOT DO, stated here rather than discovered later.
+#
+# Orion's five machine-bound suites assert against Nick's actual Mac: the exec
+# allowlist at ~/.openclaw/exec-approvals.json, the installed plugin, the real
+# permission state, the live Discord bridge. That is what makes them worth
+# having. It also means a GitHub runner cannot run them — it has none of those
+# things, and mocking them would prove something about the mock.
+#
+# So this runs everything that is true of the SOURCE, and
+# `scripts/orion_v2_ci_check.sh` is the same set, so a green CI and a green
+# local run mean the same thing. The machine-bound suites are named in the job
+# summary rather than omitted: a CI pass that reads as total coverage is
+# exactly how the suites that hold the real boundary stop being run.
+#
+# "Do not allow failed security invariants to be overridden casually" is
+# honoured by ordering: the adversarial suite is the first step, and a failure
+# there ends the job before anything else can report green.
+
+name: orion
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# One run per branch. A superseded run tells you about code nobody has any more.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: source checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `orion_v2_secret_scan.py --history` needs more than one commit to
+          # be worth running. Fetching everything is also what makes a leak
+          # introduced and then reverted still findable.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: openclaw-plugins/orion-control/package-lock.json
+
+      - name: install exactly the lockfile
+        working-directory: openclaw-plugins/orion-control
+        # `ci`, never `install` — the same rule Phase 51 applies to Orion.
+        run: npm ci
+
+      - name: security invariants
+        # FIRST, and on its own step so a failure is unmissable in the run list.
+        # These are the adversarial cases: the approval gate, the trust
+        # boundary, the strictness floor, the injection tests.
+        working-directory: openclaw-plugins/orion-control
+        run: npx vitest run src/gate.test.ts src/index.test.ts
+
+      - name: unit and integration tests
+        working-directory: openclaw-plugins/orion-control
+        run: npm test
+
+      - name: static analysis
+        working-directory: openclaw-plugins/orion-control
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: schema validation
+        working-directory: openclaw-plugins/orion-control
+        run: npx vitest run src/manifest.test.ts
+
+      - name: secret scanning
+        # Allowlisted by path + rule + FINGERPRINT, so a real key replacing a
+        # fake one in the same file still fires. The scanner prints only a
+        # fingerprint, never the suspected value, so a finding cannot leak the
+        # thing it found into this log.
+        run: |
+          python3 scripts/orion_v2_secret_scan.py \
+            --allowlist planning/v2/secret-scan-allowlist.json
+
+      - name: secret scanning (full history)
+        # Separate step because it is the slow one, and because a leak that was
+        # committed and then reverted is still a leak that has to be rotated.
+        run: |
+          python3 scripts/orion_v2_secret_scan.py --history \
+            --allowlist planning/v2/secret-scan-allowlist.json
+
+      - name: dependency scanning
+        working-directory: openclaw-plugins/orion-control
+        # Reported, not fatal. A transitive advisory in a dev dependency should
+        # be visible without blocking an unrelated fix — the judgement call is
+        # Nick's, and burying it in a red X does not help him make it.
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+      - name: attack surface coverage
+        # Phase 69's "continuously test", made mechanical. The map in
+        # planning/v2/ATTACK_SURFACE.json claims which test covers which attack
+        # class; this fails when a claimed test has been renamed or deleted, so
+        # losing security coverage is a red build rather than a quiet
+        # regression nobody notices for six weeks.
+        run: python3 scripts/orion_v2_attack_check.py
+
+      - name: phase gate consistency
+        # The manifest bookkeeping has to hold: every requirement carries a
+        # status and evidence, nextPhaseAllowed agrees with the requirements,
+        # and entrySatisfied agrees with the previous phase's real state.
+        run: python3 scripts/orion_v2_phase_gate.py
+
+      - name: what this run did not check
+        if: always()
+        run: |
+          {
+            echo "### Not checked here"
+            echo ""
+            echo "These assert against the live Mac and cannot run on a runner:"
+            echo ""
+            echo '| suite | holds |'
+            echo '| --- | --- |'
+            echo '| `orion_v2_strictness_check.sh` | the approval gate and the strictness floor |'
+            echo '| `orion_v2_authority_contract_check.sh` | the derived authority map matches the live config |'
+            echo '| `orion_v2_lock_check.sh` | what the panic button is actually worth |'
+            echo '| `orion_v2_remote_check.sh` | the Discord transport |'
+            echo '| `orion_v2_mobile_check.sh` | the Swift MobileCore suite |'
+            echo ""
+            echo "**A green CI is not a green machine.** Run them on the Mac before pushing."
+          } >> "$GITHUB_STEP_SUMMARY"

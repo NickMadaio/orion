@@ -24,6 +24,8 @@
  the frontmost app with no TCC prompt; `open -a` raises a window; `say` speaks.
 
    orion-focus start "finish the essay" 90 Zed Safari
+   orion-focus start "fix the gate" 90 Zed --repo orion
+   orion-focus prepare               open the apps and read the context back
    orion-focus check                 one enforcement tick (cron calls this)
    orion-focus status
    orion-focus plead "the build is running, six minutes"
@@ -34,10 +36,16 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
+
+// This script's own directory, so `prepare` can reach orion-agenda without
+// depending on the caller's cwd -- cron calls this, and cron has no cwd worth
+// depending on.
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const STATE = join(homedir(), ".openclaw/orion-controlled/focus.json");
 const MODEL = "gpt-oss:20b";
@@ -94,14 +102,93 @@ function activeSession(state) {
 
 const minutesLeft = (session) => Math.max(0, Math.round((session.until - Date.now()) / 60000));
 
+/*
+ PHASE 60 — the half that was missing.
+
+ This file enforced a session and never opened one. The manifest asks for both,
+ and the two halves fail differently: enforcement that starts before the tools
+ are up spends its first minutes dragging Nick back to an app that is not
+ running yet.
+
+ Three things, and only three, because "prepare" is exactly where a focus tool
+ turns into a workflow engine nobody asked for:
+
+   APPLICATIONS   `open -a`, which raises a window and needs no permission the
+                  enforcement half does not already have. Never a launch of
+                  something not named in the session.
+   PROJECT        `git status` and `git log` against a repository named by KEY,
+                  through the same closed table Phase 51 built. There is no
+                  path argument here either, for the same reason.
+   CONTEXT        what is on the calendar during the block, so a session that
+                  runs into a meeting says so before it starts rather than
+                  being interrupted by one.
+
+ It reads and it opens. It does not write a file, change a setting, or touch
+ the repository -- `git status` and `git log` are the two operations in the
+ Phase 51 table that open no network connection and write nothing.
+*/
+async function prepare(session) {
+  const lines = [];
+
+  for (const app of session.allowedApps.filter((a) => !ALWAYS_ALLOWED.includes(a))) {
+    // `open -a` is idempotent: an app already running is raised, not relaunched.
+    const ok = await run("/usr/bin/open", ["-a", app]).then(() => true).catch(() => false);
+    lines.push(ok ? `  opened ${app}` : `  could not open ${app} — is it installed?`);
+  }
+
+  if (session.repo) {
+    for (const [label, argv] of [
+      ["state", ["git", "status", "--short", "--branch"]],
+      ["recent", ["git", "log", "--oneline", "--no-decorate", "-5"]],
+    ]) {
+      const out = await run(argv[0], argv.slice(1), { cwd: session.repoPath })
+        .then((r) => r.stdout.trim())
+        .catch((error) => `unavailable: ${String(error?.message).slice(0, 60)}`);
+      lines.push(`  ${label}:`);
+      for (const line of out.split("\n").slice(0, 8)) lines.push(`    ${line}`);
+    }
+  }
+
+  // A blind spot is REPORTED, never absorbed -- the same rule orion-standing
+  // learned the hard way. "Nothing on the calendar" and "nobody could look"
+  // are different sentences and must not collapse into the first one.
+  const agenda = await run(join(HERE, "orion-agenda"), ["today"], { timeout: 20000 })
+    .then((r) => r.stdout.trim())
+    .catch(() => null);
+  lines.push(agenda ? "  today:" : "  today: could not read the calendar — that is a blind spot, not an empty day");
+  if (agenda) for (const line of agenda.split("\n").slice(0, 6)) lines.push(`    ${line}`);
+
+  return lines;
+}
+
 switch (command) {
   case "start": {
-    const [task, minutesText, ...apps] = rest;
+    // `--repo <key>` is pulled out before the positional apps, so it can be
+    // written anywhere and cannot be mistaken for an application name.
+    const repoAt = rest.indexOf("--repo");
+    const repoKey = repoAt >= 0 ? rest[repoAt + 1] : null;
+    const positional = repoAt >= 0 ? [...rest.slice(0, repoAt), ...rest.slice(repoAt + 2)] : rest;
+    const [task, minutesText, ...apps] = positional;
     if (!task?.trim()) fail('start needs a task, e.g. start "finish the essay" 90 Zed');
 
     const minutes = Number(minutesText ?? 60);
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > 480) {
       fail("length must be a whole number of minutes between 5 and 480");
+    }
+
+    // The repository is resolved against Phase 51's closed table rather than
+    // taken as a path. One table, two callers -- a second copy of "which
+    // repositories exist" is the shape of bug this program keeps paying for.
+    let repoPath = null;
+    if (repoKey) {
+      const { DEV_REPOSITORIES } = await import(
+        join(homedir(), ".openclaw/extensions/orion-control/dist/devops.js")
+      ).catch(() => ({ DEV_REPOSITORIES: new Map() }));
+      const repo = DEV_REPOSITORIES.get(repoKey);
+      if (!repo) {
+        fail(`'${String(repoKey).slice(0, 30)}' is not a repository I know. They are: ${[...DEV_REPOSITORIES.keys()].join(", ") || "none"}`);
+      }
+      repoPath = repo.root;
     }
 
     const session = {
@@ -112,14 +199,27 @@ switch (command) {
       // The app to drag him back to. First named wins; without one, refocusing
       // is meaningless and enforcement degrades to nagging.
       anchor: apps[0] ?? null,
+      ...(repoKey ? { repo: repoKey, repoPath } : {}),
       strikes: 0,
       grants: [],
     };
 
     await writeState({ ...(await readState()), session });
-    await speak(`Locked in. ${task.trim()}. ${minutes} minutes.`);
     console.log(`locked on: ${session.task} for ${minutes} min`);
     console.log(`allowed: ${session.allowedApps.join(", ")}`);
+    // Prepare BEFORE speaking, so the spoken "locked in" is true when it is
+    // said rather than a promise about the next few seconds.
+    console.log("preparing:");
+    for (const line of await prepare(session)) console.log(line);
+    await speak(`Locked in. ${task.trim()}. ${minutes} minutes.`);
+    break;
+  }
+
+  case "prepare": {
+    const session = activeSession(await readState());
+    if (!session) fail("no active session to prepare for. Start one first.", 1);
+    console.log(`preparing for: ${session.task}`);
+    for (const line of await prepare(session)) console.log(line);
     break;
   }
 

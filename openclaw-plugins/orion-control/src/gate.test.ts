@@ -31,6 +31,12 @@ import {
 import { ACTION_CATALOG } from "./catalog.js";
 import { boundOutput, devEnvironment, resolveDevCommand } from "./devops.js";
 import { cronExpression, simulate, validateProposal } from "./automation.js";
+import {
+  EPISTEMIC_TO_CONFIDENCE,
+  confidenceOfStep,
+  explainRun,
+  isActionable,
+} from "./explain.js";
 
 const tmp = () => mkdtemp(path.join(os.tmpdir(), "orion-gate-"));
 
@@ -722,5 +728,113 @@ describe("phases 57/58: automation is proposed, never installed", () => {
       { windowDays: 1 },
     );
     expect(wrapped.suppressedCount).toBe(9);
+  });
+});
+
+describe("phases 63/64: why, and how sure", () => {
+  const run = (steps: unknown[], extra: Record<string, unknown> = {}) =>
+    ({
+      taskId: "orion-test",
+      goal: "do the thing",
+      status: "succeeded",
+      createdAt: "2026-09-03T10:00:00Z",
+      validation: { issues: [] },
+      steps,
+      ...extra,
+    }) as never;
+
+  it("derives confidence rather than accepting a claim of it", () => {
+    /*
+     Phase 64's five levels, each earned by something in the record. A model
+     that could write `confidence: "known"` would, so no field here is read
+     from the step's own arguments.
+    */
+    expect(confidenceOfStep({ status: "verified", verification: { observed: true } })).toBe("observed");
+    expect(confidenceOfStep({ status: "succeeded" })).toBe("inferred");
+    expect(confidenceOfStep({ status: "failed" })).toBe("known");
+    expect(confidenceOfStep({ status: "retrying" })).toBe("uncertain");
+    // The distinction that is not theoretical: "I looked and cannot tell" and
+    // "I could not look" are different sentences, and collapsing them is how
+    // orion-standing once reported a clear day when Reminders had never been
+    // granted.
+    expect(confidenceOfStep({ status: "verified", verification: { observed: false } }))
+      .toBe("unable_to_verify");
+  });
+
+  it("does not let a verified read carry an unverified write", () => {
+    // The weakest step bounds the run. An average would let one checked read
+    // vouch for a write nobody looked at.
+    const mixed = explainRun(
+      run([
+        { stepId: "a", status: "verified", verification: { observed: true, evidence: "file_exists" },
+          request: { action: "desktop_list" } },
+        { stepId: "b", status: "succeeded", request: { action: "file_move" } },
+      ]),
+    );
+    expect(mixed.steps.map((s) => s.confidence)).toEqual(["observed", "inferred"]);
+    expect(mixed.confidence).toBe("inferred");
+  });
+
+  it("quotes evidence and never invents it", () => {
+    const explained = explainRun(
+      run([
+        { stepId: "a", status: "verified",
+          verification: { observed: true, evidence: "/Users/x/thing.txt" },
+          request: { action: "desktop_list" } },
+        { stepId: "b", status: "succeeded", request: { action: "desktop_list" } },
+      ]),
+    );
+    // Verbatim, because a paraphrased piece of evidence is a claim about
+    // evidence rather than evidence.
+    expect(explained.steps[0]!.evidence).toBe("/Users/x/thing.txt");
+    // And absent rather than filled in when there was none.
+    expect(explained.steps[1]!.evidence).toBeNull();
+  });
+
+  it("says an unauthorized run was unauthorized instead of staying quiet", () => {
+    const explained = explainRun(run([]));
+    expect(explained.provenance.authorized).toBe(false);
+    expect(explained.provenance.detail).toMatch(/no trust anchor/);
+    // Nothing ran and nothing was checked, so the honest answer is the bottom
+    // of the ladder rather than a cheerful "succeeded".
+    expect(explained.confidence).toBe("unable_to_verify");
+  });
+
+  it("reports the policy from the catalog, not from the step", () => {
+    const explained = explainRun(
+      run([{ stepId: "s", status: "succeeded", request: { action: "messages_send" } }]),
+    );
+    // Read out of ACTION_CATALOG so it cannot disagree with the gate that
+    // actually ran.
+    expect(explained.steps[0]!.policy).toContain("messages_send");
+    expect(explained.steps[0]!.policy).toContain("NOT reversible");
+    expect(explained.steps[0]!.policy).toContain("approval required");
+  });
+
+  it("keeps the note vocabulary and maps it rather than replacing it", () => {
+    // The brain has had --epistemic since 2026-09-02. Rewriting those values
+    // would orphan every note already written.
+    expect(EPISTEMIC_TO_CONFIDENCE["user-stated"]).toBe("known");
+    expect(EPISTEMIC_TO_CONFIDENCE.inference).toBe("inferred");
+    expect(isActionable("inferred")).toBe(false);
+    expect(isActionable("observed")).toBe(true);
+  });
+
+  it("passes every constraint through verbatim, in order", () => {
+    const explained = explainRun(
+      run([], {
+        status: "rejected",
+        validation: {
+          issues: [
+            { code: "capability_disabled", message: "tier is off" },
+            { code: "approval_required", message: "needs Nick" },
+          ],
+        },
+      }),
+    );
+    expect(explained.constraints).toEqual([
+      "capability_disabled: tier is off",
+      "approval_required: needs Nick",
+    ]);
   });
 });

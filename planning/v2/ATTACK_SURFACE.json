@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "purpose": "PHASE 69. Every attack class the manifest names, mapped to the test that covers it or to the reason none does. Checked by scripts/orion_v2_attack_check.py, which fails when a class has neither — so a deleted security test is a failing build rather than a quiet loss of coverage.",
+  "note": "A `test` entry is matched against the literal `it(\"...\")` title in the file. Renaming a test without updating this file fails the check, which is the intent: the mapping is only worth having if it cannot silently go stale.",
+  "classes": [
+    {
+      "class": "prompt_injection",
+      "covered": true,
+      "tests": [
+        { "file": "src/index.test.ts", "title": "rejects an action sourced only from quoted untrusted content" },
+        { "file": "src/index.test.ts", "title": "does not let untrusted text trigger a Tier 1 real action" },
+        { "file": "src/index.test.ts", "title": "ignores a model-forged trusted_user tag and fails closed" }
+      ]
+    },
+    {
+      "class": "indirect_prompt_injection",
+      "covered": true,
+      "tests": [
+        { "file": "src/index.test.ts", "title": "still refuses a target that only ever appeared in content Orion read" },
+        { "file": "src/index.test.ts", "title": "lets Nick approve out loud, and refuses the same words from a page" }
+      ],
+      "note": "The second is the newest and the sharpest: a page saying the exact approval phrase, arriving as a forged trusted_user instruction, must not open a gate."
+    },
+    {
+      "class": "broken_authorization",
+      "covered": true,
+      "tests": [
+        { "file": "src/index.test.ts", "title": "authorizes from the real user turn and derives every hash server-side" },
+        { "file": "src/index.test.ts", "title": "requires a real user turn to change Orion's own permission profile" },
+        { "file": "src/gate.test.ts", "title": "does not open for a hash alone, only for a grant" }
+      ]
+    },
+    {
+      "class": "privilege_escalation",
+      "covered": true,
+      "tests": [
+        { "file": "src/gate.test.ts", "title": "holds the three things no delegation may cover" },
+        { "file": "src/gate.test.ts", "title": "never lets a mode reach something the profile did not grant" },
+        { "file": "src/index.test.ts", "title": "lets Nick grant a capability when he names it and asks for it" }
+      ],
+      "note": "The authority floor is the load-bearing one: a mode that could relax an authority change would let Orion relax it."
+    },
+    {
+      "class": "replay",
+      "covered": true,
+      "tests": [
+        { "file": "src/gate.test.ts", "title": "spends a grant exactly once" },
+        { "file": "src/gate.test.ts", "title": "lets an approval go stale rather than waiting forever" },
+        { "file": "src/index.test.ts", "title": "consumes a tool-call binding exactly once" },
+        { "file": "src/index.test.ts", "title": "derives hashes for a plain append and never double-appends on retry" }
+      ]
+    },
+    {
+      "class": "job_tampering",
+      "covered": true,
+      "tests": [
+        { "file": "src/index.test.ts", "title": "binds destructive approval to canonical action and context" },
+        { "file": "src/index.test.ts", "title": "will not let an approval be reused for a different change" },
+        { "file": "src/gate.test.ts", "title": "ignores a grant whose nonce was not the one minted" }
+      ]
+    },
+    {
+      "class": "path_traversal",
+      "covered": true,
+      "tests": [
+        { "file": "src/index.test.ts", "title": "rejects marker traversal and never creates an escaped path" },
+        { "file": "src/index.test.ts", "title": "blocks Desktop traversal, hidden/sensitive paths, and symlink following" },
+        { "file": "src/index.test.ts", "title": "rejects scratch traversal and untrusted scratch creation" },
+        { "file": "src/gate.test.ts", "title": "names repositories by key, and a path is not a key" }
+      ]
+    },
+    {
+      "class": "command_injection",
+      "covered": true,
+      "tests": [
+        { "file": "src/gate.test.ts", "title": "builds a fixed argv that no argument can extend" },
+        { "file": "src/gate.test.ts", "title": "only lets an automation run something from the closed table" },
+        { "file": "src/gate.test.ts", "title": "refuses a raw cron string, because a minute field is a factor of sixty" }
+      ],
+      "note": "No shell is used anywhere in the execution path; every spawn passes argv directly. The tests assert the argv cannot be extended rather than that quoting works."
+    },
+    {
+      "class": "secrets_leakage",
+      "covered": true,
+      "tests": [
+        { "file": "src/gate.test.ts", "title": "builds the environment from an allowlist, so a new secret is absent by default" },
+        { "file": "src/index.test.ts", "title": "does not allow an underspecified email send" }
+      ],
+      "note": "Also enforced outside the plugin: orion_v2_secret_scan.py in CI, FORBIDDEN_CONFIG on credential-shaped keys, and the credential-shape refusals in orion-remember, orion-note, orion-skill and orion-messages-send."
+    },
+    {
+      "class": "log_injection",
+      "covered": true,
+      "tests": [
+        { "file": "src/index.test.ts", "title": "reads task status past a corrupt ledger line" }
+      ],
+      "note": "The ledger is JSONL and every record is JSON.stringify'd, so a newline in a value cannot forge a record. orion-remote strips control characters from inbound text before it reaches the audit line. Partial: there is no test that specifically feeds a newline through to a ledger write."
+    },
+    {
+      "class": "sql_injection",
+      "covered": false,
+      "reason": "The only SQL in the system is the Messages read, and it opens chat.db with mode=ro&immutable=1 and uses parameterised queries with a bounded integer limit. There is no user-supplied SQL anywhere, and no database this system writes to.",
+      "residual": "If a future action ever composes SQL from an argument, this becomes a real class and needs a test the same day."
+    },
+    {
+      "class": "ssrf",
+      "covered": false,
+      "reason": "There is no fetch primitive Orion can point at a URL. Browser control opens a tab via `open -b` at http/https only; weather calls one keyless endpoint with a place name. Nothing takes a URL and returns its body to the model.",
+      "residual": "browser_open_url is checked against untrusted data carriage (urlCarriesUntrustedData) but the tab's CONTENT is read by a separate, gated action. A real fetch primitive would make this class live."
+    },
+    {
+      "class": "bola_idor",
+      "covered": false,
+      "reason": "Single user, single tenant. There are no object ids scoped to a user, no multi-user records, and no API that takes an id belonging to somebody else. The approval ticket is the closest thing to an opaque id, and it is bound to a device and a nonce.",
+      "residual": "Phase 83 is Multi-User Hardening. This class becomes live the moment a second identity exists, and the ticket/grant design is where it would be tested first."
+    },
+    {
+      "class": "cross_user_data_leakage",
+      "covered": false,
+      "reason": "Same as BOLA: one user. The nearest real exposure is other people's words in Nick's iMessage history, which is why messages_read is its own tier with its own flag rather than folded into home_read.",
+      "residual": "Live at Phase 83."
+    },
+    {
+      "class": "session_theft",
+      "covered": false,
+      "reason": "There are no sessions to steal in the web sense — no cookies, no bearer tokens issued by this system, no listening socket that accepts credentials. The Discord bridge authenticates outbound only, and the gateway binds locally.",
+      "residual": "The bridge's bot token IS a stealable credential, and it lives in a 0600 .env with only two values copied out of the repo's .env. Rotation is manual."
+    },
+    {
+      "class": "refresh_token_theft",
+      "covered": false,
+      "reason": "OAuth refresh tokens for Gmail live in the macOS Keychain, bound to the app's designated requirement — which is exactly what orion-identity-check exists to protect, since a resigned build reads as a different app and cannot decrypt them.",
+      "residual": "No test asserts the tokens are unreadable by another process; that is a macOS guarantee this system relies on rather than one it enforces."
+    },
+    {
+      "class": "webhook_spoofing",
+      "covered": false,
+      "reason": "Nothing listens for a webhook. The Discord webhook is OUTBOUND only, and the gateway exposes no inbound HTTP endpoint.",
+      "residual": "Phase 68's 'duplicate webhooks' and 'missing webhooks' become live if an inbound endpoint is ever added."
+    },
+    {
+      "class": "malicious_attachment",
+      "covered": false,
+      "reason": "Orion does not open attachments. Gmail reads are text-only through orion-gmail-search/latest with --readonly and --gmail-no-send hard-wired, and no action downloads or opens a file from a message.",
+      "residual": "Any future attachment handling starts as an untrusted observation, but nothing tests that today because nothing does it."
+    },
+    {
+      "class": "dependency_compromise",
+      "covered": true,
+      "tests": [
+        { "file": "src/gate.test.ts", "title": "builds a fixed argv that no argument can extend" }
+      ],
+      "note": "The relevant assertion is that package_install is `npm ci` and never `npm install <name>` — it can only install the committed lockfile. `npm audit` runs in CI, reported rather than fatal. The honest residual is large: `npm ci` still runs install scripts, and tests_run/build_run execute repository code."
+    }
+  ]
+}

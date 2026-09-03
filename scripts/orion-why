@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+/*
+ "Why?" — answered from the record, never from the model.
+
+ ## The design decision that is the whole file
+
+ Phase 63 says: expose inputs, evidence, policy, provenance and constraints,
+ and do NOT expose private hidden chain-of-thought.
+
+ The weak reading is a filter over what the model says. The strong reading, and
+ the one taken here, is that the model does not answer this question at all.
+ Every line below is assembled from things written down when they happened --
+ the task ledger, the catalog's own metadata, the trust anchor -- by a program
+ that has no reasoning to leak because it does none.
+
+ That also closes a hole from the other direction. Orion has answered questions
+ about himself from memory and been confidently wrong more than once; SOUL.md
+ now tells him to call a tool rather than remember. An explanation NARRATED by
+ the model would be the same defect in a new hat: a plausible story about what
+ happened, indistinguishable from a report of it.
+
+ So when this says "evidence: file_exists", that string was written by the
+ verifier at the time. It is quoted, never paraphrased -- a paraphrased piece
+ of evidence is a claim about evidence.
+
+   orion-why                  the last run
+   orion-why last 5           the last five
+   orion-why <taskId>         one specific run
+   orion-why can <capability> why he may or may not do a thing (orion-authority)
+   orion-why --json           the structure, for a caller that wants fields
+*/
+
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+
+import { loadPlugin } from "./lib/orion-plugin.mjs";
+
+const LEDGER = join(homedir(), ".openclaw/orion-controlled/task-ledger.jsonl");
+
+const argv = process.argv.slice(2);
+const wantsJson = argv.includes("--json");
+const rest = argv.filter((a) => a !== "--json");
+
+/*
+ "Why can you..." is a different question with a different source of truth, and
+ orion-authority already answers it by DERIVING from the live config, profile,
+ mode and allowlist. Delegating rather than reimplementing is the point: a
+ second explanation of authority would be a second thing to keep in step, and
+ this repo has already been burned once by exactly that between orion-authority
+ and orion-selfdoc.
+*/
+if (rest[0] === "can" || rest[0] === "cannot") {
+  const target = rest[1];
+  if (!target) {
+    console.error("orion-why: which capability? e.g. orion-why can messages_send");
+    process.exit(2);
+  }
+  const result = spawnSync(join(homedir(), "Desktop/ORION/scripts/orion-authority"), ["check", target], {
+    stdio: "inherit",
+  });
+  process.exit(result.status ?? 1);
+}
+
+const plugin = await loadPlugin().catch((error) => {
+  console.error(`orion-why: ${error.message}`);
+  process.exit(1);
+});
+const { explainRun, speakExplanation, CONFIDENCE_PHRASE } = plugin.explain;
+
+if (!existsSync(LEDGER)) {
+  console.error("orion-why: nothing has run yet — there is no ledger to read.");
+  process.exit(1);
+}
+
+const records = readFileSync(LEDGER, "utf8")
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      // A corrupt line is SKIPPED and counted, never allowed to end the read.
+      // The ledger is append-only and a half-written final line is the normal
+      // shape of a crash, not a reason to refuse to explain anything.
+      return null;
+    }
+  })
+  .filter(Boolean);
+
+if (records.length === 0) {
+  console.error("orion-why: the ledger has no readable records.");
+  process.exit(1);
+}
+
+let chosen;
+if (rest.length === 0 || rest[0] === "last") {
+  const count = Math.min(Math.max(Number(rest[1] ?? 1) || 1, 1), 20);
+  chosen = records.slice(-count);
+} else {
+  chosen = records.filter((r) => r.taskId === rest[0]);
+  if (chosen.length === 0) {
+    console.error(`orion-why: no run called '${String(rest[0]).slice(0, 40)}'. Try: orion-why last 5`);
+    process.exit(1);
+  }
+}
+
+const explained = chosen.map((record) => explainRun(record));
+
+if (wantsJson) {
+  console.log(JSON.stringify(explained, null, 2));
+  process.exit(0);
+}
+
+for (const explanation of explained) {
+  console.log("");
+  console.log(`  ${explanation.taskId}   ${explanation.when}`);
+  console.log("  " + "-".repeat(66));
+  for (const line of speakExplanation(explanation).split("\n")) console.log(`  ${line}`);
+}
+console.log("");
+console.log(`  confidence vocabulary: ${Object.entries(CONFIDENCE_PHRASE).map(([k, v]) => `${k} = "${v}"`).join(", ")}`);
+console.log("");

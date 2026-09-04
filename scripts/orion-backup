@@ -1,0 +1,311 @@
+#!/bin/bash
+#
+# PHASE 73 — encrypted backups, and the secrets that are deliberately not in them.
+#
+# THE RULE THAT SHAPES THIS
+#
+#   "Do not back up secrets in plaintext."
+#
+# The obvious reading is "encrypt the secrets". The better one is that a backup
+# is a SECOND COPY, and a second copy of a credential is a second thing that can
+# leak, in a place nobody is watching, for as long as the backup exists. Every
+# secret here is already recoverable by rotating it at the issuer — a Discord
+# bot token, a Google refresh token, an Anthropic key — and rotation is a
+# five-minute job that leaves nothing behind.
+#
+# So no secret is backed up at all. What IS backed up is an inventory of them:
+# which secrets exist, where they live, and where each is rotated. That turns
+# "restore the credentials" into a checklist, which is both safer and, on the
+# day you actually need it, faster than finding the passphrase for an archive.
+#
+# THE PASSPHRASE IS NICK'S AND THIS SCRIPT NEVER SEES IT ON A COMMAND LINE
+#
+# It comes from the login Keychain, and this refuses rather than prompting,
+# generating one, or falling back to no encryption. Creating a passphrase would
+# mean this program choosing and holding a credential, which is the one thing
+# the rest of the system is built not to do.
+#
+#   security add-generic-password -a "$USER" -s orion-backup -w
+#
+# HOW THE PASSPHRASE REACHES openssl, AND THE BUG THAT TAUGHT ME
+#
+# It goes over FILE DESCRIPTOR 3, via process substitution, because stdin is
+# already carrying the tar stream.
+#
+# The first version wrote `tar -czf - ... | passphrase | openssl enc -pass stdin`
+# and that is silently, catastrophically wrong: `passphrase` sits IN the pipe,
+# so tar's output is discarded and openssl encrypts nothing but the passphrase
+# itself. It produces a plausible-looking 12K archive containing no data at all,
+# and nothing about it looks wrong until the day you restore.
+#
+# scripts/orion_v2_backup_check.sh caught it, which is the entire reason that
+# file exists: this program refuses to create a Keychain passphrase, so the
+# end-to-end run is Nick's, and without the fixture check the first real use
+# would have been the first test.
+#
+# `-pass fd:3` is also the only option here that keeps the secret off both a
+# command line and the disk: `-pass pass:` is visible to `ps`, and
+# `-pass file:` means writing it down.
+#
+# WHY openssl AND NOT SOMETHING NICER
+#
+# `openssl enc -aes-256-cbc -pbkdf2 -iter 600000` ships with macOS and will
+# still open in five years on a machine that has nothing else installed. That
+# matters more here than elegance: a backup you cannot decrypt on a fresh
+# machine is not a backup. `-pbkdf2` with a high iteration count is not optional
+# — openssl's default key derivation is a single MD5 pass and would make the
+# passphrase the weakest part of the whole thing.
+#
+#   orion-backup                 make one
+#   orion-backup --verify        decrypt the newest and check it end to end
+#   orion-backup --list
+#   orion-backup --restore <archive> <dir>
+#   orion-backup --secrets       what is NOT in the backup, and where to rotate it
+
+set -uo pipefail
+
+HOME_DIR="$HOME"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+DEST="${ORION_BACKUP_DIR:-$HOME/Documents/OrionBackups}"
+SERVICE="orion-backup"
+SCHEMA=1
+
+say() { printf '  %s\n' "$1"; }
+die() { printf '\n  REFUSED: %s\n\n' "$1"; exit 1; }
+
+passphrase() {
+    security find-generic-password -s "$SERVICE" -w 2>/dev/null
+}
+
+require_passphrase() {
+    if [ -z "$(passphrase)" ]; then
+        printf '\n  There is no backup passphrase in your Keychain, and I will not make one.\n'
+        printf '  Creating and holding a credential is the one thing this system does not do.\n\n'
+        printf '  Create it yourself, once:\n\n'
+        printf '      security add-generic-password -a "$USER" -s %s -w\n\n' "$SERVICE"
+        printf '  It will prompt for the passphrase. Keep it somewhere that is not this Mac —\n'
+        printf '  a backup whose passphrase only exists on the machine it backs up is not a backup.\n\n'
+        exit 1
+    fi
+}
+
+# What goes in. Deliberately not "everything": a backup that includes 157MB of
+# session transcripts is one nobody runs twice, and conversations are already
+# the thing `orion-privacy purge` exists to remove.
+sources() {
+    printf '%s\n' \
+        "$HOME_DIR/.openclaw/workspace/memory" \
+        "$HOME_DIR/Documents/orionBrain" \
+        "$HOME_DIR/.openclaw/orion-controlled" \
+        "$HOME_DIR/.openclaw/openclaw.json" \
+        "$HOME_DIR/.openclaw/exec-approvals.json" \
+        "$REPO/planning/v2"
+}
+
+# Everything excluded from the archive, by pattern. The first four are secrets;
+# the rest are bulk that is either regenerable or already covered elsewhere.
+EXCLUDES=(
+    --exclude=".env"
+    --exclude="*.key"
+    --exclude="*token*"
+    --exclude="*credential*"
+    --exclude="node_modules"
+    --exclude="*.log"
+    --exclude="sessions-archive"
+    --exclude="repair-backups"
+    --exclude="test-workspace"
+    --exclude="scratch-workspace"
+)
+
+secrets_manifest() {
+    cat <<'NOTE'
+SECRETS ARE NOT IN THIS BACKUP. That is deliberate — see the header of
+scripts/orion-backup. Every one of them is recoverable by rotating it at the
+issuer, and rotation leaves nothing behind that can leak later.
+
+On a restore, you will need to redo these. This is the whole list.
+
+  1. Discord bot token
+     lives:  ~/Desktop/ORION/.env  (ORION_DISCORD_BOT_TOKEN)
+             and ~/.openclaw/orion-remote/.env, written by orion-remote-install
+     rotate: https://discord.com/developers/applications -> Bot -> Reset Token
+     then:   ./scripts/orion-remote-install
+
+  2. Google OAuth refresh tokens (Gmail, Calendar)
+     lives:  the login Keychain, bound to the Orion app's designated requirement
+     rotate: revoke at https://myaccount.google.com/permissions, then sign in
+             again in the app
+     note:   these do NOT survive a change to the app's signing identity, which
+             is what scripts/orion-identity-check exists to catch
+
+  3. Anthropic API key
+     lives:  ~/Desktop/ORION/.env
+     rotate: https://console.anthropic.com/settings/keys
+
+  4. Discord webhook URL
+     lives:  ~/Desktop/ORION/.env
+     rotate: delete and recreate the webhook in the channel's settings
+
+  5. This backup's own passphrase
+     lives:  the login Keychain, service "orion-backup"
+     note:   if it only exists on the Mac being restored, this backup is not a
+             backup. Keep a copy somewhere else.
+NOTE
+}
+
+case "${1:-backup}" in
+
+  --secrets)
+    echo ""
+    secrets_manifest
+    echo ""
+    exit 0
+    ;;
+
+  --list)
+    echo ""
+    if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
+        ls -lht "$DEST" | sed 's/^/  /'
+    else
+        say "no backups yet in ${DEST/#$HOME/\~}"
+    fi
+    echo ""
+    exit 0
+    ;;
+
+  --restore)
+    archive="${2:-}"
+    target="${3:-}"
+    [ -n "$archive" ] && [ -n "$target" ] || die "usage: orion-backup --restore <archive> <dir>"
+    [ -f "$archive" ] || die "no such archive: $archive"
+    require_passphrase
+    mkdir -p "$target"
+    # Restored to a DIRECTORY, never over the live system. A restore that
+    # overwrote ~/.openclaw in place would be irreversible at exactly the moment
+    # somebody is least sure what they are doing.
+    if openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass fd:3 -in "$archive" 3< <(passphrase) \
+        | tar -xzf - -C "$target" 2>/dev/null; then
+        echo ""
+        say "restored into $target"
+        say "Nothing live was touched. Copy what you need out of there yourself."
+        say "Then work through: orion-backup --secrets"
+        echo ""
+        exit 0
+    fi
+    die "could not decrypt or unpack it. Wrong passphrase, or a damaged archive."
+    ;;
+
+  --verify)
+    require_passphrase
+    newest="$(ls -t "$DEST"/orion-*.tar.gz.enc 2>/dev/null | head -1)"
+    [ -n "$newest" ] || die "there is no backup to verify."
+    probe="$(mktemp -d)"
+    trap 'rm -rf "$probe"' EXIT
+    echo ""
+    say "verifying $(basename "$newest")"
+    # A RESTORE, not a checksum. "The file is intact" and "the backup works"
+    # are different claims, and only the second is worth anything at 2am.
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass fd:3 -in "$newest" 3< <(passphrase) \
+        | tar -xzf - -C "$probe" 2>/dev/null; then
+        die "it does not decrypt and unpack. This backup is not a backup."
+    fi
+    files="$(find "$probe" -type f | wc -l | tr -d ' ')"
+    say "decrypts and unpacks: $files file(s)"
+
+    fails=0
+    # Three things that must be TRUE of the contents, not just present.
+    if [ -f "$probe/MANIFEST.json" ] \
+       && python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('schema')==$SCHEMA else 1)" "$probe/MANIFEST.json"; then
+        say "manifest schema $SCHEMA — a restore on a future version knows what it is holding"
+    else
+        say "FAIL  manifest missing or of an unknown schema"; fails=$((fails+1))
+    fi
+
+    if find "$probe" -type f \( -name ".env" -o -name "*.key" \) | grep -q .; then
+        say "FAIL  a secret is in the archive — the exclusion did not hold"; fails=$((fails+1))
+    else
+        say "no .env and no key files — the exclusions held"
+    fi
+
+    if [ -f "$probe/MANIFEST.json" ] && grep -q "orionBrain" "$probe/MANIFEST.json" && [ "$files" -gt 20 ]; then
+        say "contents look like a real backup, not an empty one"
+    else
+        say "FAIL  the archive is suspiciously thin"; fails=$((fails+1))
+    fi
+
+    echo ""
+    if [ "$fails" -eq 0 ]; then
+        say "VERIFIED. This one restores."
+    else
+        say "$fails problem(s). Do not rely on this backup."
+    fi
+    echo ""
+    exit "$fails"
+    ;;
+
+  backup) ;;
+  *) die "unknown option: $1" ;;
+esac
+
+# ---------------------------------------------------------------- make one
+
+require_passphrase
+mkdir -p "$DEST"
+stamp="$(date +%Y%m%d-%H%M%S)"
+staging="$(mktemp -d)"
+trap 'rm -rf "$staging"' EXIT
+
+echo ""
+echo "== gathering =="
+included=0
+while IFS= read -r source; do
+    [ -e "$source" ] || { say "skipped (absent)  ${source/#$HOME/\~}"; continue; }
+    parent="$staging/$(basename "$(dirname "$source")")"
+    mkdir -p "$parent"
+    cp -R "$source" "$parent/" 2>/dev/null
+    say "included          ${source/#$HOME/\~}"
+    included=$((included + 1))
+done < <(sources)
+[ "$included" -gt 0 ] || die "nothing to back up."
+
+# Secrets are removed from the STAGING copy as well as excluded at archive
+# time. Belt and braces on purpose: this is the one mistake in this file that
+# would be silent and permanent.
+find "$staging" -type f \( -name ".env" -o -name "*.key" -o -name "*.pem" \) -delete 2>/dev/null
+secrets_manifest > "$staging/SECRETS.md"
+
+python3 - "$staging" "$stamp" "$SCHEMA" <<'PY'
+import json, os, sys
+staging, stamp, schema = sys.argv[1], sys.argv[2], int(sys.argv[3])
+files = sum(len(f) for _, _, f in os.walk(staging))
+json.dump({
+    "schema": schema,
+    "createdAt": stamp,
+    "files": files,
+    "contains": ["memory", "orionBrain", "orion-controlled state", "openclaw.json",
+                 "exec-approvals.json", "planning/v2"],
+    "excludes": [".env", "*.key", "session archives", "repair backups", "workspaces", "logs"],
+    "secretsPolicy": "No secret is in this archive. See SECRETS.md for the rotation checklist.",
+}, open(os.path.join(staging, "MANIFEST.json"), "w"), indent=2)
+PY
+
+echo ""
+echo "== encrypting =="
+archive="$DEST/orion-$stamp.tar.gz.enc"
+if tar -czf - "${EXCLUDES[@]}" -C "$staging" . \
+   | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass fd:3 -out "$archive" 3< <(passphrase) 2>/dev/null; then
+    chmod 600 "$archive"
+    say "wrote  ${archive/#$HOME/\~}  ($(du -h "$archive" | cut -f1 | tr -d ' '))"
+else
+    rm -f "$archive"
+    die "encryption failed; nothing was written."
+fi
+
+# Five is enough to walk back through a bad week and few enough that this
+# directory never becomes something to clean up.
+ls -1t "$DEST"/orion-*.tar.gz.enc 2>/dev/null | tail -n +6 | while read -r old; do rm -f "$old"; done
+
+echo ""
+say "Now verify it, because an unverified backup is a hope:"
+say "    orion-backup --verify"
+echo ""

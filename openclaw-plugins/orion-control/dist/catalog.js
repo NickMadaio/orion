@@ -2,6 +2,11 @@ import { classifyConfigPath, classifyPluginFile, classifyScript, validateConfigV
 import { DEV_REPOSITORIES } from "./devops.js";
 import { NAME_RE, validateProposal } from "./automation.js";
 import { validateItem as validateWaitingItem } from "./waiting.js";
+import { validateTrip } from "./travel.js";
+/** One trip id, matched against the same shape the store enforces. */
+const tripIdIssues = (value) => typeof value === "string" && /^[a-z0-9][a-z0-9-]{1,39}$/.test(value)
+    ? []
+    : ["id must be an existing trip's id — lower-case letters, digits and hyphens"];
 /** One id, matched against the same shape the store enforces. */
 const waitingIdIssues = (value) => typeof value === "string" && /^[a-z0-9][a-z0-9-]{1,39}$/.test(value)
     ? []
@@ -2016,6 +2021,62 @@ export const ACTION_CATALOG = {
             }
             return issues;
         },
+    },
+    /*
+     PHASE 78 — travel.
+  
+     All five are `risk: low` and reversible, and that is literally true: the
+     most any of them does is write a note about a booking somebody else made.
+     The action that WOULD be consequential — booking something — does not exist,
+     and Phase 76's deferral check watches for one arriving.
+    */
+    trip_detect: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "travel_reported",
+        reversible: true,
+        capabilityTier: "travel",
+        execution: { kind: "travel", operation: "detect" },
+    },
+    trip_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "travel_reported",
+        reversible: true,
+        capabilityTier: "travel",
+        execution: { kind: "travel", operation: "list" },
+    },
+    trip_add: {
+        risk: "low",
+        requiredArguments: ["id", "name", "startsOn", "endsOn"],
+        approvalRequired: false,
+        verification: "travel_stored",
+        reversible: true,
+        capabilityTier: "travel",
+        execution: { kind: "travel", operation: "add" },
+        validateArguments: (arguments_) => validateTrip(arguments_),
+    },
+    trip_remove: {
+        risk: "low",
+        requiredArguments: ["id"],
+        approvalRequired: false,
+        verification: "travel_stored",
+        reversible: true,
+        capabilityTier: "travel",
+        execution: { kind: "travel", operation: "remove" },
+        validateArguments: (arguments_) => tripIdIssues(arguments_.id),
+    },
+    trip_brief: {
+        risk: "low",
+        requiredArguments: ["id"],
+        approvalRequired: false,
+        verification: "travel_reported",
+        reversible: true,
+        capabilityTier: "travel",
+        execution: { kind: "travel", operation: "brief" },
+        validateArguments: (arguments_) => tripIdIssues(arguments_.id),
     },
     messages_send: {
         risk: "high",

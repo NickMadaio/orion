@@ -201,6 +201,10 @@
       "enablePrepActions": {
         "type": "boolean",
         "description": "Assemble a prep card before an event (Phase 61) from mail, the brain, tasks and the waiting list. Reads only; writes nothing anywhere, so nothing it reads becomes permanent memory. Requires the mail and messages readers to be enabled separately. Default off."
+      },
+      "enableTravelActions": {
+        "type": "boolean",
+        "description": "Detect flight and hotel confirmations in mail, keep trip objects, and render a travel brief (Phase 78). Detection PROPOSES and never creates; nothing in this tier can book, modify or cancel anything, and the timezone shift is reported rather than applied. Default off."
       }
     }
   },

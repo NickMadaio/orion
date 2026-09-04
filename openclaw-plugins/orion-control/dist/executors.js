@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { describeDuration, readClock, readReminders, readSystemStatus, readWeather, remindersPath, resolveAlarmTime, writeReminders, } from "./ambient.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { EMPTY_TRIPS, TRIP_STORE, detectLegs, renderBrief, validateTrip, } from "./travel.js";
 import { renderCard, termsFromEvent, } from "./prep.js";
 import { EMPTY_STORE, WAITING_STORE, civilToday, daysLate, draftFollowUp, overdue, pending, validateItem as validateWaitingItem, } from "./waiting.js";
 import { AUTOMATION_ROOT, describeTrigger, simulate, validateProposal, } from "./automation.js";
@@ -1315,6 +1316,9 @@ export async function executeAction(definition, step, context) {
     if (definition.execution.kind === "prep_card") {
         return runPrepCard(step, idempotencyKey);
     }
+    if (definition.execution.kind === "travel") {
+        return runTravel(definition.execution.operation, step, idempotencyKey);
+    }
     if (definition.execution.kind === "app_control") {
         const application = step.arguments[definition.execution.applicationArgument];
         if (typeof application !== "string") {
@@ -1815,6 +1819,13 @@ export async function verifyAction(definition, step, execution, context) {
             observed: present,
             evidence: present ? `self_source:${definition.execution.operation}` : undefined,
         };
+    }
+    if (definition.execution.kind === "travel") {
+        // Weak, and honest about it: what is verified is that a record exists or a
+        // brief rendered, not that the flight is real. Nothing here can check an
+        // airline, which is exactly why every leg is reported as `inferred`.
+        const present = typeof execution.output === "string" && execution.output.length > 0;
+        return { observed: present, evidence: present ? `travel:${definition.execution.operation}` : undefined };
     }
     if (definition.execution.kind === "prep_card") {
         // The card either rendered or it did not. There is nothing else to verify:
@@ -2653,6 +2664,131 @@ async function runPrepCard(step, idempotencyKey) {
             documents,
             waitingItems,
         ]),
+    };
+}
+/**
+ * PHASE 78 — trips, and the line this tier does not cross.
+ *
+ * `detect` reads mail and returns CANDIDATES. It writes nothing, because a
+ * confirmation email is untrusted text and anyone can send Nick one that looks
+ * exactly like a real booking. Turning a candidate into a trip is `add`, which
+ * takes its arguments from Nick's own turn like any other action.
+ *
+ * There is no operation here that books, modifies or cancels anything, and
+ * that is the manifest's one hard line for this phase satisfied by absence
+ * rather than by a gate somebody has to remember.
+ */
+async function runTravel(operation, step, idempotencyKey) {
+    const load = async () => {
+        const text = await readFile(TRIP_STORE, "utf8").catch(() => null);
+        if (text === null)
+            return { ...EMPTY_TRIPS };
+        try {
+            const parsed = JSON.parse(text);
+            return Array.isArray(parsed.trips) ? parsed : { ...EMPTY_TRIPS };
+        }
+        catch {
+            // A corrupt store must never read as an empty one. That would lose every
+            // trip AND report success, which is the failure this whole system is
+            // built against.
+            throw new ActionExecutionError(`The trip store at ${TRIP_STORE} is unreadable. Nothing was changed; a human should look at it.`);
+        }
+    };
+    const save = async (store) => {
+        await mkdir(path.dirname(TRIP_STORE), { recursive: true, mode: 0o700 });
+        await writeFile(TRIP_STORE, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+    };
+    if (operation === "detect") {
+        /*
+         Searched on booking words rather than on anything the model chose. Same
+         rule as the prep card: the query is fixed here, so a message Orion read
+         cannot steer what he goes looking for next.
+        */
+        const result = await runOrionScript("orion-gmail-search", ["confirmation OR itinerary OR boarding OR reservation"], 30_000).catch(() => ({ code: 1, output: "the mail search could not be run" }));
+        if (result.code !== 0) {
+            throw new ActionExecutionError(`I could not search your mail, so I have no idea whether you have a trip coming up. ` +
+                `That is a blind spot, not an empty answer: ${result.output.slice(0, 140)}`);
+        }
+        const legs = detectLegs(result.output);
+        if (legs.length === 0) {
+            return {
+                mode: "observed",
+                idempotencyKey,
+                output: "Nothing in your mail looks like a flight or hotel confirmation.",
+            };
+        }
+        return {
+            mode: "observed",
+            idempotencyKey,
+            output: [
+                `${legs.length} possible booking(s). NOTHING WAS SAVED — these are candidates:`,
+                ...legs.map((leg) => `  ${leg.kind} ${leg.reference}` +
+                    `${leg.from && leg.to ? ` ${leg.from} → ${leg.to}` : ""}` +
+                    `${leg.on ? ` on ${leg.on}` : ""}\n    ${leg.confidence}: matched "${leg.evidence}"`),
+                "",
+                "Every one is INFERRED — a pattern matched an email and nothing checked it",
+                "against an airline. Ask Nick which are real before making a trip of them.",
+            ].join("\n"),
+        };
+    }
+    const store = await load();
+    if (operation === "list") {
+        if (store.trips.length === 0) {
+            return { mode: "observed", idempotencyKey, output: "No trips on file." };
+        }
+        return {
+            mode: "observed",
+            idempotencyKey,
+            output: store.trips
+                .map((trip) => `  ${trip.id} — ${trip.name}, ${trip.startsOn} to ${trip.endsOn}, ${trip.legs.length} booking(s)`)
+                .join("\n"),
+        };
+    }
+    if (operation === "add") {
+        const issues = validateTrip(step.arguments);
+        if (issues.length > 0)
+            throw new ActionExecutionError(issues.join("; "));
+        const id = String(step.arguments.id);
+        if (store.trips.some((trip) => trip.id === id)) {
+            throw new ActionExecutionError(`'${id}' is already a trip. Use a different id, or remove that one.`);
+        }
+        const legs = Array.isArray(step.arguments.legs)
+            ? step.arguments.legs.slice(0, 20)
+            : [];
+        const trip = {
+            id,
+            name: String(step.arguments.name),
+            startsOn: String(step.arguments.startsOn),
+            endsOn: String(step.arguments.endsOn),
+            ...(typeof step.arguments.destinationZone === "string"
+                ? { destinationZone: step.arguments.destinationZone }
+                : {}),
+            legs,
+            createdAt: new Date().toISOString(),
+        };
+        await save({ ...store, trips: [...store.trips, trip] });
+        return {
+            mode: "observed",
+            idempotencyKey,
+            output: `Trip '${trip.id}' saved: ${trip.name}, ${trip.startsOn} to ${trip.endsOn}.`,
+        };
+    }
+    const id = String(step.arguments.id ?? "");
+    const trip = store.trips.find((candidate) => candidate.id === id);
+    if (!trip)
+        throw new ActionExecutionError(`No trip called '${id.slice(0, 40)}'.`);
+    if (operation === "remove") {
+        await save({ ...store, trips: store.trips.filter((candidate) => candidate.id !== id) });
+        return { mode: "observed", idempotencyKey, output: `Removed the trip '${id}'.` };
+    }
+    // The home zone is read from the runtime rather than configured, so it is
+    // whatever the machine actually believes right now — which is the thing the
+    // shift has to be measured against.
+    const homeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return {
+        mode: "observed",
+        idempotencyKey,
+        output: renderBrief(trip, { homeZone }),
     };
 }
 /** Read-only companion to `runSelfModify` — see the `self_source` policy. */

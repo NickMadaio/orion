@@ -8,6 +8,13 @@ import {
 import { DEV_REPOSITORIES, type DevOperation } from "./devops.js";
 import { NAME_RE, validateProposal } from "./automation.js";
 import { validateItem as validateWaitingItem } from "./waiting.js";
+import { validateTrip } from "./travel.js";
+
+/** One trip id, matched against the same shape the store enforces. */
+const tripIdIssues = (value: unknown): string[] =>
+  typeof value === "string" && /^[a-z0-9][a-z0-9-]{1,39}$/.test(value)
+    ? []
+    : ["id must be an existing trip's id — lower-case letters, digits and hyphens"];
 
 /** One id, matched against the same shape the store enforces. */
 const waitingIdIssues = (value: unknown): string[] =>
@@ -135,7 +142,12 @@ export type CapabilityTier =
   // because it fans out across mail, the brain and the calendar at once, and
   // "read one of those" and "read all of them in one call" deserve separate
   // answers.
-  | "prep";
+  | "prep"
+  // PHASE 78. Trips, assembled from confirmations Orion READ. Its own tier
+  // because every input is untrusted email and every output is a claim about a
+  // booking somebody else made — and because nothing in it can book anything,
+  // which is the manifest's one hard line for this phase.
+  | "travel";
 
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
@@ -385,6 +397,14 @@ export type ExecutionPolicy =
    * the waiting list; writes nothing anywhere.
    */
   | { kind: "prep_card" }
+  /**
+   * PHASE 78. Detect candidate bookings, keep trips, render a brief.
+   *
+   * `detect` PROPOSES and never creates: a confirmation email is untrusted
+   * text and anyone can send one. There is deliberately no operation that
+   * books, modifies or cancels anything.
+   */
+  | { kind: "travel"; operation: "detect" | "list" | "add" | "remove" | "brief" }
   | FileMutationPolicy
   | CreateOnlyTextPolicy
   | DesktopTextMutationPolicy
@@ -2794,6 +2814,63 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       }
       return issues;
     },
+  },
+
+  /*
+   PHASE 78 — travel.
+
+   All five are `risk: low` and reversible, and that is literally true: the
+   most any of them does is write a note about a booking somebody else made.
+   The action that WOULD be consequential — booking something — does not exist,
+   and Phase 76's deferral check watches for one arriving.
+  */
+  trip_detect: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "travel_reported",
+    reversible: true,
+    capabilityTier: "travel",
+    execution: { kind: "travel", operation: "detect" },
+  },
+  trip_list: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "travel_reported",
+    reversible: true,
+    capabilityTier: "travel",
+    execution: { kind: "travel", operation: "list" },
+  },
+  trip_add: {
+    risk: "low",
+    requiredArguments: ["id", "name", "startsOn", "endsOn"],
+    approvalRequired: false,
+    verification: "travel_stored",
+    reversible: true,
+    capabilityTier: "travel",
+    execution: { kind: "travel", operation: "add" },
+    validateArguments: (arguments_) => validateTrip(arguments_),
+  },
+  trip_remove: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "travel_stored",
+    reversible: true,
+    capabilityTier: "travel",
+    execution: { kind: "travel", operation: "remove" },
+    validateArguments: (arguments_) => tripIdIssues(arguments_.id),
+  },
+  trip_brief: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "travel_reported",
+    reversible: true,
+    capabilityTier: "travel",
+    execution: { kind: "travel", operation: "brief" },
+    validateArguments: (arguments_) => tripIdIssues(arguments_.id),
   },
 
   messages_send: {

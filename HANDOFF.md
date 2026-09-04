@@ -1465,3 +1465,69 @@ system is worse than none: it trains you to pass the flag that skips it.
   in Privacy & Security. **That is a change to make with Nick at the keyboard.**
 - The seven reliability scenarios and eight attack classes still uncovered each
   name, in their map entry, the specific thing that would make them live.
+
+---
+
+## 2026-09-04 — phases 71–80
+
+**71 — the data inventory, enforced instead of remembered.** Fifteen entries,
+ten fields each, and `orion_v2_inventory_check.py` holds it to the *live*
+system: every capability tier in the installed catalog must appear in exactly
+one entry, every field must be non-empty, every configured store path must be
+named. It proved itself the same day — enabling the Phase 78 travel tier failed
+the check until the entry was written. That is what "update the inventory with
+every feature" was supposed to mean.
+
+**72 — `orion-privacy`.** All ten controls in one place. The four that aren't
+this machine's to do are *listed* with the URL rather than omitted, because a
+control people can't see is worse than one they can't use here. Deletion is
+real deletion. Nothing destructive runs without `--yes` — verified live.
+
+**73 — `orion-backup`, and no secret is in it at all.** A backup is a second
+copy, and a second copy of a credential is a second thing that can leak. Every
+secret is recoverable by rotating it at the issuer, so the archive carries a
+rotation checklist instead. **The fixture check found a real bug:** the first
+version piped `tar | passphrase | openssl -pass stdin`, putting the passphrase
+*in the pipe* — tar's output was discarded and openssl encrypted nothing but
+the passphrase. It produced a plausible 12K archive containing no data. The
+passphrase now goes over fd 3.
+
+**74 — `orion-incident`.** Freeze is one command, loudest first, so a half-run
+is still the half that mattered. **`thaw` didn't thaw** — it ran `orion-mode
+guarded` without `--yes`, got refused, and printed that it had lifted
+containment while Orion stayed contained. Two fixes: pass the flag, and *check
+afterwards* rather than assume. Also fixed `orion-mode`: returning to the
+default is not a standing grant needing an expiry.
+
+**75 — the workflow check fails on this repository, and that is correct.**
+Between 2026-09-02 and 2026-09-04 one model designed, implemented, tested,
+reviewed and approved the approval gate, the strictness ladder, the structured
+terminal operations, the automation framework and the backup encryption. All
+security-sensitive, none independently reviewed. It is wired into CI as
+`continue-on-error` and reported as **DEBT**, not hidden — a check that fails
+every run is one people scroll past.
+
+**76 — the deferral list as a smoke alarm.** Structural scan of action names,
+tiers, execution kinds, script names and allowlist entries. The first version
+regexed source prose and immediately produced two false positives (`send` inside
+`email_send`, `diagnos` inside `diagnostic`) — a line that *mentions* an effect
+is not one that performs it.
+
+**78 — travel.** Detection proposes and never creates; every leg is `inferred`
+and says so; the timezone shift is *reported*, never applied, and is computed at
+the trip's start because New York↔London differs by an hour depending on the
+date. Nothing in the tier can book anything.
+
+**80 — the call policy**, which is this phase's actual deliverable. Seven rules
+with reasoning. Recording is a flat no: the applicable law depends on where each
+party is physically standing, and a system that can't determine that can't
+lawfully record.
+
+**Open, with reasons:**
+
+1. **Phase 75's independent review** — owed, on everything built since
+   2026-09-02. This is the one to clear first.
+2. **73** — credential rotation and device loss are documented, not exercised;
+   the end-to-end backup needs a Keychain passphrase only Nick can create.
+3. **77, 79** — blocked behind the same walls as 65/66 (app bundle) and
+   53/54/55 (no computer-use surface). Their prohibitions hold structurally.

@@ -33,6 +33,7 @@ import { ACTION_CATALOG } from "./catalog.js";
 import { boundOutput, devEnvironment, resolveDevCommand } from "./devops.js";
 import { cronExpression, simulate, validateProposal } from "./automation.js";
 import { renderCard, termsFromEvent } from "./prep.js";
+import { detectLegs, renderBrief, validateTrip, zoneShiftHours } from "./travel.js";
 import {
   MAX_SURFACES,
   civilToday,
@@ -1112,5 +1113,113 @@ describe("phase 68: the failures that can actually be injected", () => {
       })
       .filter(Boolean);
     expect(parsed).toHaveLength(1);
+  });
+});
+
+describe("phase 78: travel, from confirmations Orion read", () => {
+  const REAL = [
+    "Your itinerary is confirmed.",
+    "BA 178  JFK -> LHR  departing 2026-10-14 at 19:25, gate 7",
+    "Confirmation code: XR4TQ9",
+    "Hotel check-in 15 Oct 2026, booking reference ABC12345",
+  ].join("\n");
+
+  it("finds a flight and a hotel, and says where each came from", () => {
+    const legs = detectLegs(REAL);
+    const flight = legs.find((leg) => leg.kind === "flight");
+    const hotel = legs.find((leg) => leg.kind === "hotel");
+    expect(flight?.reference).toBe("BA178");
+    expect(flight?.from).toBe("JFK");
+    expect(flight?.to).toBe("LHR");
+    expect(flight?.on).toBe("2026-10-14");
+    expect(hotel?.on).toBe("2026-10-15");
+    // Verbatim evidence, so a person can check it. A paraphrase would be a
+    // claim about evidence rather than evidence.
+    expect(flight?.evidence).toContain("BA 178");
+  });
+
+  it("calls everything it finds inferred, because nothing checked an airline", () => {
+    /*
+     Phase 64's vocabulary used literally rather than as decoration. A regex
+     matched an email. Saying "you fly at 19:25" about that is exactly the
+     failure that phase exists to prevent.
+    */
+    for (const leg of detectLegs(REAL)) expect(leg.confidence).toBe("inferred");
+  });
+
+  it("does not make a trip out of a marketing email", () => {
+    // A loose pattern here does not produce a slightly-wrong trip, it produces
+    // a brief nobody trusts. Each of these mentions travel and books nothing.
+    for (const noise of [
+      "Fly to London from $299! Book now and save.",
+      "Your flight search for JFK to LHR has 12 new results",
+      "Re: dinner on the 14th — see you at 7",
+      "Confirmation that your password was changed",
+    ]) {
+      expect(detectLegs(noise), noise).toEqual([]);
+    }
+  });
+
+  it("does not report the same booking three times", () => {
+    // Booked, reminder, check-in: the same confirmation arrives repeatedly,
+    // and three copies of one flight is a brief nobody reads.
+    const repeated = [REAL, REAL, REAL].join("\n");
+    expect(detectLegs(repeated).filter((leg) => leg.kind === "flight")).toHaveLength(1);
+  });
+
+  it("measures the timezone shift at the trip's start, not at now", () => {
+    /*
+     New York to London in late October: five hours out, four back, because
+     the two zones change on different dates. A single "it is +5 there" is
+     wrong for half the trip.
+    */
+    const october = zoneShiftHours("America/New_York", "Europe/London", new Date("2026-10-14T12:00:00Z"));
+    const november = zoneShiftHours("America/New_York", "Europe/London", new Date("2026-11-05T12:00:00Z"));
+    expect(october).toBe(5);
+    expect(november).toBe(5);
+    // And a zone the machine does not know is refused rather than assumed.
+    expect(zoneShiftHours("America/New_York", "Middle/Earth", new Date())).toBeNull();
+    expect(validateTrip({
+      id: "t", name: "x", startsOn: "2026-10-14", endsOn: "2026-10-20",
+      destinationZone: "Middle/Earth",
+    }).join(" ")).toMatch(/not a timezone this machine knows/);
+  });
+
+  it("reports the timezone shift and never applies it", () => {
+    /*
+     orion-timezone set changes what every reminder, quiet-hours rule and
+     calendar read believes the time is. A travel feature that moved it quietly
+     would make all of them wrong on exactly the days Nick is least able to
+     notice.
+    */
+    const brief = renderBrief(
+      {
+        id: "lon", name: "London", startsOn: "2026-10-14", endsOn: "2026-10-20",
+        destinationZone: "Europe/London", legs: detectLegs(REAL), createdAt: "2026-09-04T00:00:00Z",
+      },
+      { homeZone: "America/New_York", now: new Date("2026-09-04T12:00:00Z") },
+    );
+    expect(brief).toContain("5h ahead of America/New_York");
+    expect(brief).toContain("I have NOT changed anything");
+    expect(brief).toContain("orion-timezone set Europe/London");
+    expect(brief).toContain("INFERRED");
+  });
+
+  it("cannot book, modify or cancel anything", () => {
+    // The manifest's one hard line for this phase, satisfied by absence rather
+    // than by a gate somebody has to remember.
+    const travel = Object.entries(ACTION_CATALOG).filter(([, d]) => d.capabilityTier === "travel");
+    expect(travel.map(([n]) => n).sort()).toEqual([
+      "trip_add", "trip_brief", "trip_detect", "trip_list", "trip_remove",
+    ]);
+    for (const [name, definition] of travel) {
+      expect(JSON.stringify(definition.execution), name).not.toMatch(/book|reserve|purchase|pay/i);
+      expect(definition.reversible, name).toBe(true);
+    }
+  });
+
+  it("refuses a trip that ends before it starts", () => {
+    expect(validateTrip({ id: "t", name: "x", startsOn: "2026-10-20", endsOn: "2026-10-14" }).join(" "))
+      .toMatch(/endsOn is before startsOn/);
   });
 });

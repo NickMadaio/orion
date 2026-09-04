@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 190,
-    "AUTO": 128,
+    "total": 198,
+    "AUTO": 133,
     "NOTIFY": 19,
     "APPROVAL": 15,
-    "NEVER": 28
+    "NEVER": 31
   },
   "availability": [
     {
@@ -232,6 +232,14 @@
     {
       "tier": "test_workspace",
       "flag": "enableTestWorkspaceActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "travel",
+      "flag": "enableTravelActions",
       "configOn": true,
       "profileOn": true,
       "available": true,
@@ -882,6 +890,61 @@
       "because": "reversible, low risk, confined to reads or to state Orion owns",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "reminders",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "trip_add",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "travel",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "trip_brief",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "travel",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "trip_detect",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "travel",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "trip_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "travel",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "trip_remove",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "travel",
       "risk": "low",
       "reversible": true
     },
@@ -1895,6 +1958,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-backup",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-bench",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -1951,6 +2022,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-incident",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-interface",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -1992,6 +2071,14 @@
     {
       "kind": "command",
       "name": "orion-mode",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-privacy",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

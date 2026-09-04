@@ -1,0 +1,373 @@
+#!/usr/bin/env node
+/*
+ PHASE 72 — the ten privacy controls, in one place, with no obscurity.
+
+ The manifest's last line is the design brief: "do not make privacy settings
+ obscure." Every one of these was already POSSIBLE before this file existed --
+ rm a file, edit a config flag, revoke a grant in a browser -- and that is
+ exactly what obscure means. A control you have to know the filesystem to
+ exercise is a control most people never exercise.
+
+ So this does two things and refuses to do a third:
+
+   IT SHOWS      `orion-privacy` with no arguments lists all ten, what each one
+                 does, and whether it is available. A control that is not
+                 available says WHY rather than being hidden, because a missing
+                 control people cannot see is worse than one they can.
+   IT ACTS       for the ones that are a local operation.
+   IT REFUSES    to touch anything held by somebody else. Revoking a Google
+                 scope happens at myaccount.google.com and this prints the URL.
+                 A script that clicked through an OAuth revocation on Nick's
+                 behalf would be a script holding his Google session, which is
+                 precisely what the rest of this system is built not to do.
+
+ ## Deletion here is real
+
+ `forget` and `purge` remove files. They are the one destructive path in this
+ program that is SUPPOSED to be destructive -- a delete control that puts
+ things in a recycle bin is not a delete control -- so every one of them names
+ exactly what it will remove, counts it, and requires --yes. Nothing here runs
+ on a bare invocation.
+
+   orion-privacy                     the ten controls and their state
+   orion-privacy inspect             what data exists right now, with sizes
+   orion-privacy forget <term> --yes remove memories matching a term
+   orion-privacy purge <what> --yes  conversations | health | state | logs
+   orion-privacy export <dir>        everything about Nick, as files he keeps
+   orion-privacy remote off          disable remote access now
+*/
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const HOME = homedir();
+const CONTROLLED = join(HOME, ".openclaw/orion-controlled");
+const SESSIONS = join(HOME, ".openclaw/agents/main");
+const MEMORY = join(HOME, ".openclaw/workspace/memory");
+const BRAIN = join(HOME, "Documents/orionBrain");
+const CONFIG = join(HOME, ".openclaw/openclaw.json");
+const INVENTORY = join(HOME, "Desktop/ORION/planning/v2/DATA_INVENTORY.json");
+
+const argv = process.argv.slice(2);
+const yes = argv.includes("--yes");
+const rest = argv.filter((a) => a !== "--yes");
+const [command, ...args] = rest;
+
+const fail = (message, code = 2) => {
+  console.error(`orion-privacy: ${message}`);
+  process.exit(code);
+};
+
+/** Bytes under a path, whether it is a file or a tree. Missing reads as zero. */
+function weigh(target) {
+  if (!existsSync(target)) return { bytes: 0, files: 0 };
+  const stat = statSync(target);
+  if (stat.isFile()) return { bytes: stat.size, files: 1 };
+  let bytes = 0;
+  let files = 0;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else {
+        try {
+          bytes += statSync(full).size;
+          files += 1;
+        } catch { /* a file that vanished mid-walk is not an error */ }
+      }
+    }
+  };
+  walk(target);
+  return { bytes, files };
+}
+
+const human = (bytes) =>
+  bytes > 1e9 ? `${(bytes / 1e9).toFixed(1)} GB`
+  : bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB`
+  : bytes > 1e3 ? `${(bytes / 1e3).toFixed(0)} KB`
+  : `${bytes} B`;
+
+const readConfig = () => {
+  try {
+    return JSON.parse(readFileSync(CONFIG, "utf8"));
+  } catch {
+    return null;
+  }
+};
+
+const flag = (key) => {
+  const config = readConfig();
+  const value = config?.plugins?.entries?.["orion-control"]?.config?.[key];
+  return value === true ? "on" : value === false ? "off" : "unset (off)";
+};
+
+const remoteRunning = () =>
+  spawnSync("pgrep", ["-f", "orion-remote/scripts/orion-remote-bridge run"], { stdio: "ignore" })
+    .status === 0;
+
+/*
+ The ten, in the manifest's order. `act` is null where the control is not this
+ machine's to exercise -- and those print WHERE it is done instead of being
+ left off the list, because a control people cannot see is worse than one they
+ cannot use here.
+*/
+const CONTROLS = [
+  {
+    name: "disconnect connectors",
+    state: () => `Gmail/Calendar tokens live in the Keychain; mail actions are ${flag("enableMessagesReadActions") === "on" ? "reachable" : "off"}`,
+    how: "Delete the Keychain item, or revoke at https://myaccount.google.com/permissions",
+    act: null,
+  },
+  {
+    name: "revoke scopes",
+    state: () => "granted at consent time; not narrowable from here",
+    how: "https://myaccount.google.com/permissions — Google holds them, so Google revokes them",
+    act: null,
+  },
+  {
+    name: "delete memories",
+    state: () => {
+      const a = weigh(MEMORY);
+      const b = weigh(BRAIN);
+      return `${a.files} memory file(s) (${human(a.bytes)}), ${b.files} brain note(s) (${human(b.bytes)})`;
+    },
+    how: "orion-privacy forget <term> --yes   |   orion-privacy purge memory --yes",
+    act: "forget",
+  },
+  {
+    name: "delete conversations",
+    state: () => {
+      const w = weigh(SESSIONS);
+      return `${w.files} session file(s), ${human(w.bytes)}, going back to July`;
+    },
+    how: "orion-privacy purge conversations --yes",
+    act: "purge conversations",
+  },
+  {
+    name: "revoke devices",
+    state: () => (existsSync(join(CONTROLLED, "remote-link.json")) ? "one remote link on file" : "no remote devices paired"),
+    how: "orion-privacy purge state --yes clears the link; the bridge is removed by orion-remote-install --remove",
+    act: "purge state",
+  },
+  {
+    name: "disable health sync",
+    state: () => `health_tracking is ${flag("enableHealthTrackingActions")}; log is ${human(weigh(join(CONTROLLED, "health-log.json")).bytes)}`,
+    how: "orion-privacy purge health --yes removes the log. The tier is a config flag Nick sets.",
+    act: "purge health",
+  },
+  {
+    name: "disable remote access",
+    state: () => (remoteRunning() ? "RUNNING — the Discord bridge is connected" : "not running"),
+    how: "orion-privacy remote off   (stops and unloads the bridge)",
+    act: "remote off",
+  },
+  {
+    name: "inspect data use",
+    state: () => "the data inventory names every kind, its retention and its exposure",
+    how: "orion-privacy inspect   |   orion-authority explain   |   orion-why last",
+    act: "inspect",
+  },
+  {
+    name: "export data",
+    state: () => "available — everything Nick's, copied as ordinary files",
+    how: "orion-privacy export <dir>",
+    act: "export",
+  },
+  {
+    name: "delete account",
+    state: () => "there is no account. This system has no server and no user record anywhere",
+    how: "nothing to delete. Removing ~/.openclaw and ~/Documents/orionBrain removes Orion entirely",
+    act: null,
+  },
+];
+
+/* ------------------------------------------------------------------ default */
+
+if (!command) {
+  console.log("");
+  console.log("  What you can do about your data. Everything here is local.");
+  console.log("");
+  for (const control of CONTROLS) {
+    const available = control.act ? "" : "  (not this machine's to do)";
+    console.log(`  ${control.name.toUpperCase()}${available}`);
+    console.log(`    now:  ${control.state()}`);
+    console.log(`    how:  ${control.how}`);
+    console.log("");
+  }
+  console.log("  Nothing above ran. Every destructive control needs --yes.");
+  console.log("");
+  process.exit(0);
+}
+
+/* ------------------------------------------------------------------ inspect */
+
+if (command === "inspect") {
+  const targets = [
+    ["conversations", SESSIONS],
+    ["memory", MEMORY],
+    ["brain notes", BRAIN],
+    ["Orion's own state", CONTROLLED],
+    ["logs", join(HOME, "Library/Logs/orion")],
+  ];
+  console.log("");
+  let total = 0;
+  for (const [label, path] of targets) {
+    const w = weigh(path);
+    total += w.bytes;
+    console.log(`  ${label.padEnd(20)} ${String(w.files).padStart(6)} file(s)  ${human(w.bytes).padStart(9)}   ${path.replace(HOME, "~")}`);
+  }
+  console.log(`  ${"".padEnd(20)} ${"".padStart(6)}           ${human(total).padStart(9)}   total on disk`);
+  console.log("");
+  if (existsSync(INVENTORY)) {
+    const inventory = JSON.parse(readFileSync(INVENTORY, "utf8"));
+    console.log("  By kind, with retention and who else sees it:");
+    console.log("");
+    for (const entry of inventory.entries) {
+      console.log(`    ${entry.data}`);
+      console.log(`      kept:    ${entry.retention}`);
+      console.log(`      others:  ${entry.thirdPartyExposure}`);
+      console.log(`      model:   ${entry.modelExposure}`);
+      console.log("");
+    }
+  }
+  process.exit(0);
+}
+
+/* ------------------------------------------------------------------- forget */
+
+if (command === "forget") {
+  const term = args.join(" ").trim();
+  if (!term || term.length < 3) fail("forget needs a term of at least three characters");
+  const hits = [];
+  for (const root of [MEMORY, BRAIN]) {
+    if (!existsSync(root)) continue;
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(md|json|txt)$/.test(entry.name)) {
+          let text = "";
+          try {
+            text = readFileSync(full, "utf8");
+          } catch { continue; }
+          if (text.toLowerCase().includes(term.toLowerCase())) hits.push(full);
+        }
+      }
+    };
+    walk(root);
+  }
+  if (hits.length === 0) {
+    console.log(`nothing in memory mentions "${term}".`);
+    process.exit(1);
+  }
+  console.log("");
+  console.log(`  ${hits.length} file(s) mention "${term}":`);
+  for (const hit of hits) console.log(`    ${hit.replace(HOME, "~")}`);
+  console.log("");
+  if (!yes) {
+    console.log(`  Nothing was deleted. To do it: orion-privacy forget ${term} --yes`);
+    console.log("");
+    process.exit(0);
+  }
+  // Real deletion. A "delete" that moves things aside is not a delete control,
+  // and this is the one place in this program where that is the correct answer.
+  for (const hit of hits) rmSync(hit, { force: true });
+  console.log(`  deleted ${hits.length} file(s). Recall cannot return them.`);
+  console.log("");
+  process.exit(0);
+}
+
+/* -------------------------------------------------------------------- purge */
+
+const PURGEABLE = {
+  conversations: { paths: [join(SESSIONS, "sessions"), join(SESSIONS, "sessions-archive")], note: "Orion loses every past session. Memory and the brain are untouched." },
+  memory: { paths: [MEMORY, BRAIN], note: "Orion forgets everything he was told and everything he worked out." },
+  health: { paths: [join(CONTROLLED, "health-log.json")], note: "supplements, workouts and any recovery figures Orion logged." },
+  state: { paths: [join(CONTROLLED, "focus.json"), join(CONTROLLED, "waiting.json"), join(CONTROLLED, "remote-link.json"), join(CONTROLLED, "location.json"), join(CONTROLLED, "inbox.jsonl"), join(CONTROLLED, "outbox.jsonl")], note: "focus sessions, the waiting list, the remote link, coarse location, the remote queues." },
+  logs: { paths: [join(HOME, "Library/Logs/orion")], note: "the bridge log. The AUDIT ledgers are deliberately NOT in this list — an audit trail you can purge in one command is one an attacker purges in one command. Remove those by hand, knowing what you are doing." },
+};
+
+if (command === "purge") {
+  const what = args[0];
+  const target = PURGEABLE[what];
+  if (!target) fail(`purge what? one of: ${Object.keys(PURGEABLE).join(", ")}`);
+  const present = target.paths.filter((p) => existsSync(p));
+  const total = present.reduce((sum, p) => sum + weigh(p).bytes, 0);
+  console.log("");
+  console.log(`  purge ${what}: ${present.length} path(s), ${human(total)}`);
+  for (const path of present) console.log(`    ${path.replace(HOME, "~")}`);
+  console.log(`  ${target.note}`);
+  console.log("");
+  if (!yes) {
+    console.log(`  Nothing was deleted. To do it: orion-privacy purge ${what} --yes`);
+    console.log("");
+    process.exit(0);
+  }
+  for (const path of present) rmSync(path, { recursive: true, force: true });
+  console.log(`  deleted. ${human(total)} gone.`);
+  console.log("");
+  process.exit(0);
+}
+
+/* ------------------------------------------------------------------- remote */
+
+if (command === "remote" && args[0] === "off") {
+  const installer = join(HOME, "Desktop/ORION/scripts/orion-remote-install");
+  if (!existsSync(installer)) fail("the remote installer is not where I expected it");
+  try {
+    execFileSync(installer, ["--remove"], { stdio: "inherit" });
+  } catch {
+    fail("could not remove the bridge; run scripts/orion-remote-install --remove yourself", 1);
+  }
+  console.log("Remote access is off. Orion no longer answers from Discord.");
+  process.exit(0);
+}
+
+/* ------------------------------------------------------------------- export */
+
+if (command === "export") {
+  const dir = args[0];
+  if (!dir) fail("export needs a directory: orion-privacy export ~/orion-export");
+  const out = dir.replace(/^~/, HOME);
+  mkdirSync(out, { recursive: true });
+  const copy = (label, source) => {
+    if (!existsSync(source)) return `${label}: nothing to export`;
+    const destination = join(out, label.replace(/\s+/g, "-"));
+    // `cp -R` rather than a hand-rolled walk: this is an export, and getting
+    // symlinks and permissions subtly wrong is exactly how an export becomes
+    // an incomplete one nobody notices until they need it.
+    spawnSync("/bin/cp", ["-R", source, destination], { stdio: "ignore" });
+    const w = weigh(destination);
+    return `${label}: ${w.files} file(s), ${human(w.bytes)}`;
+  };
+  console.log("");
+  for (const line of [
+    copy("conversations", SESSIONS),
+    copy("memory", MEMORY),
+    copy("brain", BRAIN),
+    copy("orion-state", CONTROLLED),
+  ]) console.log(`  ${line}`);
+  // Never exported: credentials. An export is a copy that leaves the machine,
+  // and a copy of a secret is a second thing that can leak.
+  writeFileSync(
+    join(out, "README.txt"),
+    [
+      "Everything Orion holds about Nick, as ordinary files.",
+      "",
+      "NOT included, deliberately: credentials. ~/Desktop/ORION/.env and the",
+      "Keychain items are not copied here, because an export is a copy that",
+      "leaves the machine and a copy of a secret is a second thing that can leak.",
+      "",
+      `Exported ${new Date().toISOString()}`,
+    ].join("\n"),
+  );
+  console.log("");
+  console.log(`  written to ${out}`);
+  console.log("  Credentials were NOT exported. See README.txt.");
+  console.log("");
+  process.exit(0);
+}
+
+fail("usage: orion-privacy [inspect | forget <term> | purge <what> | export <dir> | remote off]");

@@ -5082,6 +5082,301 @@
         }
       ],
       "nextPhaseAllowed": true
+    },
+    "71": {
+      "name": "Data Inventory",
+      "status": "in_progress",
+      "entryRequiresPhase": "70",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "planning/v2/DATA_INVENTORY.json and scripts/orion_v2_inventory_check.py, checked against the INSTALLED catalog and the live openclaw.json.",
+      "requirements": [
+        {
+          "id": "maintains_a_living_data_inventory_with_all_ten_fields",
+          "status": "passed",
+          "evidence": "Fifteen entries, each carrying all ten fields the manifest names, and the checker refuses an empty one — a field left blank is the field that mattered. It also refuses a claim it cannot support: `encryptionNote` says plainly that nothing local is encrypted beyond FileVault, which is whole-disk and therefore protects a stolen laptop and nothing else."
+        },
+        {
+          "id": "covers_email_calendar_health_conversations_memory_files_devices_analytics_and_logs",
+          "status": "passed",
+          "evidence": "All nine, plus four the manifest does not name and this system has: OAuth refresh tokens, iMessage history, authority state, and credentials in .env. The analytics entry exists precisely because there ARE none — writing 'none' down keeps that a decision rather than an assumption nobody rechecks."
+        },
+        {
+          "id": "the_inventory_is_updated_with_every_feature",
+          "status": "passed",
+          "evidence": "ENFORCED, not remembered. The checker requires every capability tier in the live catalog to appear in exactly one entry, every entry to carry all ten fields, and every configured store path in openclaw.json to be named under some entry's `storage`. It proved itself the same day: enabling the Phase 78 travel tier failed the check until the entry was written. Mutation-tested by removing a tier from the map."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "72": {
+      "name": "Privacy Controls",
+      "status": "in_progress",
+      "entryRequiresPhase": "71",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "scripts/orion-privacy. Verified live: it lists all ten, and nothing destructive runs without --yes.",
+      "requirements": [
+        {
+          "id": "offers_all_ten_controls",
+          "status": "passed",
+          "evidence": "All ten are listed with their current state and how to exercise them. The four that are not this machine's to do — disconnecting Google, revoking scopes, and so on — are LISTED rather than omitted, with the URL where they happen, because a control people cannot see is worse than one they cannot use here. A script that clicked through an OAuth revocation would be a script holding Nick's Google session, which is the thing this system is built not to be."
+        },
+        {
+          "id": "deletion_is_real",
+          "status": "passed",
+          "evidence": "`forget` and `purge` remove files outright. A delete control that moves things aside is not a delete control, and this is the one place in the program where destructive is the correct answer. Every path names exactly what it will remove, weighs it, and requires --yes; a bare invocation deletes nothing, which was checked live. The AUDIT ledgers are deliberately NOT purgeable in one command: an audit trail you can clear in one command is one an attacker clears in one command."
+        },
+        {
+          "id": "privacy_settings_are_not_obscure",
+          "status": "passed",
+          "evidence": "The manifest's actual brief. Every one of these was already possible before this file — rm a path, edit a flag, revoke in a browser — and that is what obscure means. `orion-privacy inspect` reports 179.9 MB across five stores with each one's retention and third-party exposure read out of the Phase 71 inventory, so the two cannot disagree."
+        },
+        {
+          "id": "export_omits_credentials",
+          "status": "passed",
+          "evidence": "`export` copies conversations, memory, the brain and Orion's own state, and writes a README saying what it left out and why: an export is a copy that leaves the machine, and a copy of a secret is a second thing that can leak."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "73": {
+      "name": "Backups and Recovery",
+      "status": "in_progress",
+      "entryRequiresPhase": "72",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "scripts/orion-backup and scripts/orion_v2_backup_check.sh (12 checks against a fixture).",
+      "requirements": [
+        {
+          "id": "creates_encrypted_backups_of_essential_state",
+          "status": "passed",
+          "evidence": "AES-256-CBC with PBKDF2 at 600,000 iterations. `-pbkdf2` is not optional and the check asserts it: openssl's default key derivation is a single MD5 pass, which would make the passphrase the weakest part of the whole thing. The passphrase comes from the login Keychain and the script REFUSES rather than prompting, generating one, or falling back to no encryption — creating a passphrase would mean this program choosing and holding a credential."
+        },
+        {
+          "id": "does_not_back_up_secrets_in_plaintext",
+          "status": "passed",
+          "evidence": "Stronger than the requirement: no secret is backed up AT ALL. A backup is a second copy, and a second copy of a credential is a second thing that can leak, somewhere nobody is watching, for as long as the backup exists. Every one is recoverable by rotating it at the issuer, so the archive carries a SECRETS.md rotation checklist instead. Excluded twice — removed from the staging copy AND excluded at archive time — because this is the one mistake here that would be silent and permanent. The check asserts no .env, no key file, and that the token string appears nowhere in a restored tree."
+        },
+        {
+          "id": "tests_restoration",
+          "status": "passed",
+          "evidence": "`--verify` does a real RESTORE, not a checksum: 'the file is intact' and 'the backup works' are different claims and only the second is worth anything at 2am. The fixture check additionally proves a wrong passphrase restores nothing and a truncated archive is refused rather than partially restored — half a restore looks like a success until you look. THE CHECK FOUND A REAL BUG: the first version piped `tar | passphrase | openssl -pass stdin`, putting the passphrase IN the pipe, so tar's output was discarded and openssl encrypted nothing but the passphrase. It produced a plausible 12K archive containing no data. The passphrase now goes over fd 3."
+        },
+        {
+          "id": "maintains_schema_compatible_restoration",
+          "status": "passed",
+          "evidence": "Every archive carries a MANIFEST.json with a schema version, what it contains and what it excludes, and `--verify` fails on an unknown schema so a future restore knows what it is holding. `--restore` writes into a DIRECTORY and never over the live system: a restore that overwrote ~/.openclaw in place would be irreversible at exactly the moment somebody is least sure what they are doing."
+        },
+        {
+          "id": "tests_the_four_named_recovery_scenarios",
+          "status": "blocked",
+          "evidence": "Two of four are covered. DATABASE LOSS and SERVER REDEPLOYMENT are covered by the restore path and by there being no database or server. CREDENTIAL ROTATION is a documented checklist rather than a tested procedure, and DEVICE LOSS cannot be tested without losing the device. The end-to-end run also still needs Nick's Keychain item, which this program will not create — one command, and it is his.",
+          "reason": "Credential rotation and device loss are documented, not exercised; and the end-to-end run needs a Keychain passphrase only Nick can create."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "74": {
+      "name": "Incident Response",
+      "status": "in_progress",
+      "entryRequiresPhase": "73",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "scripts/orion-incident. The containment and thaw path was exercised live; the bridge removal deliberately was not, since Nick is away and it is his remote access.",
+      "requirements": [
+        {
+          "id": "provides_procedures_for_the_seven_incident_kinds",
+          "status": "passed",
+          "evidence": "All seven, in `orion-incident runbook`, and two of them say the honest thing: there is no backend and no database, which removes those classes rather than answering them. Each of the rest is numbered steps with the exact URL, because at 3am a URL beats a paragraph."
+        },
+        {
+          "id": "provides_the_seven_revocation_mechanisms",
+          "status": "passed",
+          "evidence": "`orion-incident freeze` does the four that are local, LOUDEST FIRST — remote access, then automation, then strictness, then the floor — so that if it dies halfway the half that ran is the half that mattered. The three that live with an issuer are printed as a checklist rather than automated: a script that revoked an OAuth grant would be a script holding Nick's Google session."
+        },
+        {
+          "id": "freeze_is_one_command_because_an_incident_is_when_you_remember_least",
+          "status": "passed",
+          "evidence": "Every mechanism already existed separately — orion-lock, orion-mode, orion-remote-install --remove, orion-automation remove. What did not exist was doing all of them at once, and that is the only version that matters. orion-lock is deliberately NOT run automatically: `contained` already stops every write, and dropping the profile to the floor is the one step that should need a person to mean it."
+        },
+        {
+          "id": "thaw_actually_thaws",
+          "status": "passed",
+          "evidence": "CLOSED after finding it did not. The first version ran `orion-mode guarded` without --yes, orion-mode refused it as an unexpiring relaxation, and thaw printed 'Lifting containment only' while Orion stayed contained — a script reporting success while doing nothing, which is the exact failure this whole system is built against. Two fixes: thaw passes --yes and then CHECKS the mode afterwards rather than assuming, and orion-mode no longer treats a return to the DEFAULT as a standing grant needing an expiry. Thaw is also deliberately not the inverse of freeze — it lifts containment and leaves remote access and automations off, to be turned back on one at a time."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "75": {
+      "name": "Development Workflow",
+      "status": "in_progress",
+      "entryRequiresPhase": "74",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "scripts/orion_v2_workflow_check.py, which grades the five mechanical steps of the eighteen and prints the rest.",
+      "requirements": [
+        {
+          "id": "checks_the_mechanically_checkable_steps",
+          "status": "passed",
+          "evidence": "Five of eighteen are mechanical and they are the five a tired person skips: tests moved with the source (8/10), documentation moved (14), the data inventory moved with the capability surface (15), the phase gate passes (18), and a change to the ENFORCEMENT path has a recorded review (12). The other thirteen are printed as a checklist, because a step nobody can see is a step nobody does. The enforcement file list is duplicated from selfrepair.ts and the checker verifies it has not drifted, rather than trusting the copy."
+        },
+        {
+          "id": "does_not_let_one_model_design_implement_review_and_approve_its_own_security_work",
+          "status": "blocked",
+          "evidence": "THE CHECK FAILS ON THIS SESSION, and that is the correct outcome rather than something to fix. Between 2026-09-02 and 2026-09-04 one model — this one — designed, implemented, tested, reviewed and approved the approval gate itself, the strictness ladder, the structured terminal operations, the automation framework and the backup encryption. Every one is security-sensitive and none has had an independent review. PHASE_GATES.json `reviews` carries four entries, the most recent from 2026-08-25, each describing a reviewer with no context of how the work was done. That is the bar and this work has not met it. Recording a review here would be the same self-approval one level up, so the requirement stays open until an independent reviewer has actually looked. The checker also cannot verify WHO wrote a review, and says so rather than implying it can.",
+          "reason": "This session designed, implemented, reviewed and approved its own security-sensitive work. An independent review is owed and has not happened."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "76": {
+      "name": "Features Explicitly Deferred",
+      "status": "in_progress",
+      "entryRequiresPhase": "75",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "planning/v2 deferral list encoded in scripts/orion_v2_deferred_check.py, scanned across the installed action catalog, the wrapper script names and the exec allowlist.",
+      "requirements": [
+        {
+          "id": "records_the_fifteen_deferred_features",
+          "status": "passed",
+          "evidence": "All fifteen, each with a mechanical definition of what its arrival would look like and a note on what already exists and is fine."
+        },
+        {
+          "id": "none_of_them_has_crept_in",
+          "status": "passed",
+          "evidence": "A smoke alarm, not a lock: it does not prevent anybody building these, it makes building one impossible to do quietly. Features do not arrive because somebody defied a list — they arrive one reasonable step at a time until nobody can name the commit. Mutation-tested with a fake `place_order` action, which it named."
+        },
+        {
+          "id": "the_signals_do_not_fire_on_what_already_shipped",
+          "status": "passed",
+          "evidence": "The first version regexed compiled source and produced two false positives immediately: `send` matched inside `email_send`, and `diagnos` matched `diagnostic` in a comment. Both are the same mistake — a line that MENTIONS an effect is not a line that performs one — and orion-authority already documents it about regex declarations. Now the scan is structural: action names, tiers, execution kinds, script filenames, allowlist entries. `email_send` is excluded from the pattern and checked SEPARATELY, because it has been a `simulate` stub for months; if it ever stops being one, that fires. A signal that fires on the thing already shipped is one that gets muted."
+        }
+      ],
+      "nextPhaseAllowed": true
+    },
+    "77": {
+      "name": "Future Apple Watch Expansion",
+      "status": "not_started",
+      "entryRequiresPhase": "76",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-04. Blocked on the same wall as Phases 65 and 66, and parked with Nick's agreement until he is at the keyboard.",
+      "requirements": [
+        {
+          "id": "creates_a_lightweight_watch_companion",
+          "status": "blocked",
+          "evidence": "The manifest's own precondition is 'after mobile health and ORION Mobile are stable', and there is no ORION Mobile — no app target, no SwiftUI layer, no Keychain adapter. Adding one changes the app bundle's designated requirement, which every TCC grant and Keychain item on this machine is bound to. Parked deliberately, not skipped.",
+          "reason": "No iOS app exists, and creating the target risks the designated requirement. Parked until Nick is present."
+        },
+        {
+          "id": "does_not_make_watch_the_source_of_truth",
+          "status": "passed",
+          "evidence": "A PROHIBITION, and it holds — by absence today, and by architecture afterwards. Every store this system has lives on the Mac and the phone half (MobileCore, Phases 41-45) was deliberately built with no platform framework and no persistence of its own. A Watch reading those is a view; a Watch writing them would need a store that does not exist and would have to be built on purpose."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "78": {
+      "name": "Future Travel Assistant",
+      "status": "in_progress",
+      "entryRequiresPhase": "77",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "openclaw-plugins/orion-control/src/travel.ts, five actions under the `travel` tier, covered by src/gate.test.ts and enabled live.",
+      "requirements": [
+        {
+          "id": "builds_on_calendar_gmail_travel_detection_and_timezone",
+          "status": "passed",
+          "evidence": "All four foundations already existed; what was missing was the object in the middle. `trip_detect` reads mail through the hard-wired read-only wrapper, `trip_brief` reports the timezone shift, and trips are Orion's own state."
+        },
+        {
+          "id": "recognizes_confirmations_and_creates_trip_objects",
+          "status": "passed",
+          "evidence": "Detection PROPOSES and never creates. A confirmation email is untrusted text and anyone can send one that looks real, so `detect` returns candidates with the verbatim line each came from, and a trip is only made by an explicit act with arguments from Nick's own turn. The patterns require a STRUCTURED token — an airline code plus digits near a departure word, a check-in line — because a loose pattern does not make a slightly-wrong trip, it makes a trip out of a marketing email. Four such emails are in the test and none matches. Repeats are deduplicated: the same confirmation arrives as booked, reminder and check-in, and three copies of one flight is a brief nobody reads."
+        },
+        {
+          "id": "adjusts_schedule_timezone",
+          "status": "blocked",
+          "evidence": "REPORTED, deliberately not applied, and this is a decision rather than a gap. `orion-timezone set` changes what every reminder, quiet-hours rule and calendar read believes the time is; a travel feature that moved it quietly would make all of them wrong on exactly the days Nick is least able to notice. The brief computes the shift at the trip's START rather than at now — New York to London differs by an hour depending on the date, so a single 'it is +5 there' is wrong for half the trip — and prints the exact command for him to run.",
+          "reason": "Applying the timezone is deliberately left to Nick; the brief reports the shift and gives the command."
+        },
+        {
+          "id": "requires_approval_before_creating_or_modifying_bookings",
+          "status": "passed",
+          "evidence": "Satisfied by absence, which is the strongest form: there is no operation in this tier that books, modifies or cancels anything, a test asserts the five action names and that none mentions booking or payment, and Phase 76's deferral check watches for one arriving. A trip object is a note about a booking somebody else made."
+        },
+        {
+          "id": "says_how_sure_it_is",
+          "status": "passed",
+          "evidence": "Phase 64's vocabulary used literally rather than as decoration. Every detected leg is `inferred` — a regex matched an email and nothing checked it against an airline — and the brief says so in as many words. Saying 'you fly at 19:25' about an inferred booking is exactly the failure Phase 64 exists to prevent."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "79": {
+      "name": "Future Reservation Capability",
+      "status": "not_started",
+      "entryRequiresPhase": "78",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-04. The manifest's own precondition is unmet.",
+      "requirements": [
+        {
+          "id": "waits_until_connectors_and_computer_use_are_safe",
+          "status": "passed",
+          "evidence": "The precondition is honoured because there is no computer-use surface at all: no screen capture, no input synthesis, no fetch primitive Orion can point at a URL. Phases 53, 54 and 55 record the same wall from their own angles."
+        },
+        {
+          "id": "discovers_inspects_presents_books_and_records_a_reservation",
+          "status": "blocked",
+          "evidence": "None of it built, and correctly ordered after the capability it would need. Building a booking flow before there is a safe way to drive a browser produces a flow nobody can test against a real site.",
+          "reason": "Depends on a browser/computer-use surface that does not exist."
+        },
+        {
+          "id": "never_allows_an_ambiguous_high_cost_booking_without_clear_intent",
+          "status": "passed",
+          "evidence": "A PROHIBITION, and it holds structurally today: nothing in this system spends money, no action names a price, and no payment rail is reachable. Phase 76's deferral check watches four separate patterns for it — autonomous purchasing, banking automation, autonomous payments, and the checkout shapes — and fails if any appears in the catalog, the scripts or the allowlist."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "80": {
+      "name": "Future Call Capability",
+      "status": "in_progress",
+      "entryRequiresPhase": "79",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "planning/v2/CALL_POLICY.md (227 lines), plus the telephony patterns in scripts/orion_v2_deferred_check.py.",
+      "requirements": [
+        {
+          "id": "defines_the_seven_items_before_implementation",
+          "status": "passed",
+          "evidence": "This phase is unusual: its deliverable IS the definition, and the manifest says so. All seven are answered with a rule and the reasoning behind it. DISCLOSURE is fixed text in source, not a config value or a prompt, because a model that composes its own disclosure will eventually compose a shorter one — and if it fails to play, the call ends rather than proceeding undisclosed. CONSENT reuses the Phase 49 approval gate and states that `sovereign` must not relax it. RECORDING is a flat no, because recording law depends on where each party is physically standing and a system that cannot determine the applicable law cannot lawfully record. IMPERSONATION is three separate prohibitions because they fail separately. ESCALATION ends the call on any confusion and keeps a do-not-call record. IDENTITY VERIFICATION refuses in BOTH directions — it will not prove it is Nick, which is the interaction a SIM-swap runs on, and it will not accept a claim from the other end, because a call is untrusted external content. SENSITIVE INFORMATION is an allowlist rather than a denylist, because a call is a conversation and a denylist is the wrong shape for one."
+        },
+        {
+          "id": "does_not_bolt_calls_onto_gmail_permissions",
+          "status": "passed",
+          "evidence": "The document's structural conclusion, with the reasoning: a call is synchronous, has no draft state, makes the other party a participant rather than a recipient, and is the one channel where impersonation is the default failure. So a `calling` tier would be its own, at external_connected or above, listed explicitly rather than folded into anything — the same rule messages_send and self_modification already follow. Six preconditions are listed in order, and the sixth is an independent review, since this document was written by the same model that would build the feature."
+        },
+        {
+          "id": "nothing_telephony_has_been_built",
+          "status": "passed",
+          "evidence": "Enforced rather than asserted: the Phase 76 deferral check fails if anything matching twilio, voip, answer_call, phone_call or sip_ appears in the action catalog, the wrapper scripts or the exec allowlist."
+        }
+      ],
+      "nextPhaseAllowed": true
     }
   },
   "programCheckpoints": {

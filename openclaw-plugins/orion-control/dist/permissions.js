@@ -49,6 +49,9 @@ const EDIT_TIERS = [
     // Prep cards fan out across mail and the brain, all of it read-only and none
     // of it written back. Sits with the reads for that reason.
     "prep",
+    // Trips are notes about bookings other people made, assembled from reads.
+    // Sits with the reads for the same reason prep does.
+    "travel",
     // Reading his iMessage history. A read of his own machine, so it sits with
     // the other reads rather than behind the filesystem escalation -- but under
     // its own tier and its own config flag, because "read my home directory" and

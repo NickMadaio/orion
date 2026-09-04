@@ -1,0 +1,248 @@
+#!/bin/bash
+#
+# PHASE 74 — the things you do when something has gone wrong, in one place.
+#
+# WHY THIS IS ONE COMMAND AND NOT A DOCUMENT
+#
+# Every mechanism the manifest asks for already existed: orion-lock drops the
+# profile to the floor, orion-mode contained makes everything ask,
+# orion-remote-install --remove kills the bridge, orion-automation removes a
+# scheduled job. What did not exist is the ability to do all of them AT ONCE,
+# and that is the only version that matters.
+#
+# An incident is the moment you are least able to remember four command names
+# and the order they go in. A runbook that assumes otherwise is a runbook that
+# gets read afterwards.
+#
+# THE ORDER IS DELIBERATE: loudest first
+#
+# Remote access goes first because it is the only route in from outside this
+# machine. Then automation, because a scheduled job fires whether or not anyone
+# is watching. Then the strictness mode, then the permission floor. If this
+# script dies halfway through, the half that ran is the half that mattered.
+#
+# WHAT IT WILL NOT DO
+#
+# Revoke Google tokens, rotate the Discord token, or reset the Anthropic key.
+# All three live with the issuer, and a script that clicked through an OAuth
+# revocation would be a script holding Nick's Google session — the thing this
+# whole system is built not to be. They are printed as a checklist instead,
+# with the exact URL, because at 3am a URL beats a paragraph.
+#
+#   orion-incident freeze          stop everything reachable, now
+#   orion-incident status          what is currently frozen
+#   orion-incident thaw            undo what freeze did (not the rotations)
+#   orion-incident runbook [kind]  the seven procedures
+
+set -uo pipefail
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+STATE="$HOME/.openclaw/orion-controlled/incident.json"
+
+say()  { printf '  %s\n' "$1"; }
+step() { printf '\n== %s ==\n' "$1"; }
+
+runbook_all() {
+cat <<'BOOK'
+  BACKEND COMPROMISE
+    There is no backend. This system has no server, no database and no hosted
+    component — which removes the entire class. What could be compromised is
+    this Mac, which is "device theft" below.
+
+  DATABASE LEAK
+    Same: no database. The equivalent is a leak of ~/.openclaw/orion-controlled,
+    which holds the task ledger, the waiting list, health data and Orion's own
+    state. It contains no credentials by design. Treat it as a leak of
+    everything in planning/v2/DATA_INVENTORY.json marked medium or above:
+    conversations, health, calendar titles, message excerpts.
+
+  OAUTH CREDENTIAL LEAK
+    1. https://myaccount.google.com/permissions — revoke Orion's access. This
+       kills every refresh token immediately.
+    2. Delete the Keychain item so the app cannot retry with a dead token.
+    3. Check https://myaccount.google.com/security-checkup for sessions you do
+       not recognise.
+    4. Re-authorise in the app only after the leak path is closed.
+
+  DEVICE THEFT
+    1. iCloud: Find My -> Mark as Lost, then Erase if it is not coming back.
+    2. Revoke Google (above). FileVault protects the disk at rest, and nothing
+       else does — a thief with an unlocked session has everything.
+    3. Reset the Discord bot token: it lives in ~/Desktop/ORION/.env and in
+       ~/.openclaw/orion-remote/.env, both readable by anyone with the session.
+    4. Rotate the Anthropic key.
+    5. Rotate the backup passphrase in the Keychain, and treat any backup that
+       left the machine as needing a new one.
+
+  MALICIOUS DEPENDENCY
+    1. orion-incident freeze — a compromised package runs when something builds
+       or tests, and dev_operations is exactly that path.
+    2. cd openclaw-plugins/orion-control && npm ci   (the lockfile, nothing else)
+    3. git log --oneline -- package-lock.json — when did it change, and did a
+       person change it?
+    4. npm audit, and scripts/orion_v2_ci_check.sh.
+    Note honestly: `npm ci` still runs install scripts, and tests_run/build_run
+    execute repository code. That residual is written down in
+    planning/v2/ATTACK_SURFACE.json under dependency_compromise.
+
+  PRODUCTION SECRET LEAK
+    1. Rotate at the issuer FIRST. Editing the file changes nothing about a key
+       somebody already has.
+    2. python3 scripts/orion_v2_secret_scan.py --history — a secret committed
+       and then reverted is still in the history and still has to be rotated.
+    3. If it was ever pushed, assume it is public.
+
+  UNAUTHORIZED AUTOMATION
+    1. orion-incident freeze — this removes every scheduled job.
+    2. orion-automation           what was installed, and what is merely proposed
+    3. openclaw cron list         anything scheduled outside orion-automation
+    4. orion-why last 20          what has been running, with its evidence
+    5. Read ~/.openclaw/orion-controlled/task-ledger.jsonl for what actually ran.
+       An automation can only run something from a closed table, and it cannot
+       install itself — see planning/v2/PHASE_GATES.json phase 57 — so the
+       question is which of those five commands ran and how often.
+BOOK
+}
+
+case "${1:-status}" in
+
+  runbook)
+    echo ""
+    if [ -n "${2:-}" ]; then
+        runbook_all | awk -v k="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')" '
+            toupper($0) ~ "^  " k { p=1 } p && /^  [A-Z]/ && toupper($0) !~ "^  " k && NR>1 && seen { p=0 }
+            p { print; seen=1 }'
+    else
+        runbook_all
+    fi
+    echo ""
+    exit 0
+    ;;
+
+  status)
+    echo ""
+    if [ -f "$STATE" ]; then
+        python3 -c "
+import json,sys
+d=json.load(open('$STATE'))
+print('  FROZEN at', d.get('frozenAt','?'))
+for line in d.get('actions',[]): print('   ', line)
+" 2>/dev/null || say "an incident state file exists but is unreadable"
+    else
+        say "no incident freeze in effect"
+    fi
+    echo ""
+    say "remote bridge:  $(pgrep -f 'orion-remote/scripts/orion-remote-bridge run' >/dev/null && echo RUNNING || echo stopped)"
+    say "strictness:     $("$REPO/scripts/orion-mode" --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["mode"])' 2>/dev/null || echo unknown)"
+    say "profile:        $(python3 -c "
+import json
+print(json.load(open('$HOME/.openclaw/orion-controlled/permission-state.json'))['profile'])" 2>/dev/null || echo unknown)"
+    say "scheduled jobs: $("$HOME/.openclaw/bin/openclaw" cron list 2>/dev/null | grep -c 'orion-' || echo '?')"
+    echo ""
+    exit 0
+    ;;
+
+  thaw)
+    # Deliberately NOT the inverse of freeze. Thaw undoes the containment and
+    # leaves the rest alone: re-installing the remote bridge and re-scheduling
+    # automations are decisions to make one at a time, with a reason for each,
+    # not a single command run while still shaken.
+    echo ""
+    say "Lifting containment only."
+    # `--yes` because contained -> guarded is a RELAXATION, and orion-mode
+    # refuses one without it. The first version omitted the flag, so thaw
+    # printed "Lifting containment only", orion-mode refused, and Orion stayed
+    # contained — a script reporting success while doing nothing, which is the
+    # exact failure mode this whole system is built against. Running
+    # orion-incident IS the human act; it is off the exec allowlist for the
+    # same reason orion-mode is.
+    "$REPO/scripts/orion-mode" guarded --yes 2>&1 | sed 's/^/  /' || true
+
+    # And CHECK, rather than assume. The bug above was invisible precisely
+    # because nothing looked afterwards.
+    now="$("$REPO/scripts/orion-mode" --json 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["mode"])' 2>/dev/null || echo unknown)"
+    if [ "$now" = "guarded" ]; then
+        say "confirmed: strictness is back to guarded"
+        rm -f "$STATE"
+    else
+        say "DID NOT THAW — strictness is still '$now'. The incident record is kept."
+        say "Set it yourself: ./scripts/orion-mode guarded --yes"
+        echo ""
+        exit 1
+    fi
+    echo ""
+    say "Still off, on purpose — turn each back on deliberately:"
+    say "  remote access:  ./scripts/orion-remote-install"
+    say "  automations:    orion-automation install <name>"
+    say "  profile:        orion-permissions (Nick raises it himself)"
+    echo ""
+    exit 0
+    ;;
+
+  freeze) ;;
+  *) echo "usage: orion-incident [freeze | status | thaw | runbook [kind]]"; exit 64 ;;
+esac
+
+# ------------------------------------------------------------------- freeze
+
+echo ""
+echo "FREEZING. Loudest first, so a half-run still helps."
+actions=()
+
+step "1. remote access — the only route in from outside this machine"
+if pgrep -f 'orion-remote/scripts/orion-remote-bridge run' >/dev/null; then
+    if "$REPO/scripts/orion-remote-install" --remove >/dev/null 2>&1; then
+        say "bridge removed — Orion no longer answers from Discord"
+        actions+=("remote access disabled")
+    else
+        say "COULD NOT remove the bridge. Do it by hand: ./scripts/orion-remote-install --remove"
+    fi
+else
+    say "already stopped"
+fi
+
+step "2. automation — a scheduled job fires whether or not anyone is watching"
+removed=0
+while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    "$REPO/scripts/orion-automation" remove "$name" >/dev/null 2>&1 && removed=$((removed + 1))
+done < <(ls -1 "$HOME/.openclaw/orion-controlled/automations/installed" 2>/dev/null | sed 's/\.json$//')
+say "$removed Orion automation(s) stopped"
+[ "$removed" -gt 0 ] && actions+=("$removed automation(s) removed")
+# The three cron jobs that predate orion-automation are NAMED rather than
+# killed: they are the focus guard, standing orders and the memory rollup, and
+# stopping those is a judgement call about whether the incident involves them.
+say "not touched: focus guard, standing orders, memory rollup (openclaw cron list)"
+
+step "3. strictness — everything asks before it acts"
+"$REPO/scripts/orion-mode" contained 2>&1 | sed 's/^/  /' || say "could not set the mode"
+actions+=("strictness set to contained")
+
+step "4. the permission floor"
+say "orion-lock drops the profile to restricted_read_only and stops the channel."
+say "NOT run automatically: it is the one step that needs a person to mean it,"
+say "and contained already stops every write. Run it if you want the floor:"
+say "    ./scripts/orion-lock"
+
+step "5. what only Nick can do"
+say "Rotate at the issuer. A script that did these would be a script holding"
+say "his sessions, which is the thing this system is built not to be."
+say "  Google tokens   https://myaccount.google.com/permissions"
+say "  Discord bot     https://discord.com/developers/applications -> Bot -> Reset Token"
+say "  Anthropic key   https://console.anthropic.com/settings/keys"
+say "  Backup pass     security delete-generic-password -s orion-backup, then add a new one"
+
+python3 - "$STATE" "${actions[@]}" <<'PY'
+import json, os, sys
+path, actions = sys.argv[1], sys.argv[2:]
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as handle:
+    json.dump({"frozenAt": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+               "actions": actions}, handle, indent=2)
+PY
+
+echo ""
+say "Frozen. What happened: orion-incident status"
+say "What to do next:    orion-incident runbook"
+say "When it is over:    orion-incident thaw"
+echo ""

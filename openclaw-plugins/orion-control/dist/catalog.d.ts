@@ -1,6 +1,6 @@
 import { type DevOperation } from "./devops.js";
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep" | "travel";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -223,6 +223,17 @@ export type ExecutionPolicy = {
  */
  | {
     kind: "prep_card";
+}
+/**
+ * PHASE 78. Detect candidate bookings, keep trips, render a brief.
+ *
+ * `detect` PROPOSES and never creates: a confirmation email is untrusted
+ * text and anyone can send one. There is deliberately no operation that
+ * books, modifies or cancels anything.
+ */
+ | {
+    kind: "travel";
+    operation: "detect" | "list" | "add" | "remove" | "brief";
 } | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;

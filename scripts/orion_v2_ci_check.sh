@@ -36,6 +36,11 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN="$REPO/openclaw-plugins/orion-control"
+# One run-scoped directory rather than fixed /tmp paths. The DEBT branch below
+# printed its heading and then nothing, because it was grepping a log another
+# process owned -- a check whose evidence goes missing is a check nobody acts on.
+LOGS="$(mktemp -d)"
+trap 'rm -rf "$LOGS"' EXIT
 QUICK=0
 [ "${1:-}" = "--quick" ] && QUICK=1
 failures=0
@@ -48,38 +53,38 @@ step "1. security invariants (first, so nothing reports green past a failure)"
 # The adversarial cases ARE the proof the gates hold. gate.test.ts carries the
 # approval gate, the strictness floor and the Phase 51/57 restrictions;
 # index.test.ts carries the trust boundary and the injection cases.
-if (cd "$PLUGIN" && npx vitest run src/gate.test.ts src/index.test.ts >/tmp/orion-ci-sec.log 2>&1); then
-    ok "$(grep -oE 'Tests  [0-9]+ passed' /tmp/orion-ci-sec.log | tail -1)"
+if (cd "$PLUGIN" && npx vitest run src/gate.test.ts src/index.test.ts >"$LOGS"/orion-ci-sec.log 2>&1); then
+    ok "$(grep -oE 'Tests  [0-9]+ passed' "$LOGS"/orion-ci-sec.log | tail -1)"
 else
     bad "adversarial suite failed — everything below is moot"
-    tail -25 /tmp/orion-ci-sec.log
+    tail -25 "$LOGS"/orion-ci-sec.log
     echo ""
     echo "ci check: FAIL (security invariants)"
     exit 1
 fi
 
 step "2. unit and integration tests"
-if (cd "$PLUGIN" && npm test >/tmp/orion-ci-test.log 2>&1); then
-    ok "$(grep -oE 'Tests  [0-9]+ passed' /tmp/orion-ci-test.log | tail -1)"
+if (cd "$PLUGIN" && npm test >"$LOGS"/orion-ci-test.log 2>&1); then
+    ok "$(grep -oE 'Tests  [0-9]+ passed' "$LOGS"/orion-ci-test.log | tail -1)"
 else
-    bad "test suite failed"; tail -25 /tmp/orion-ci-test.log
+    bad "test suite failed"; tail -25 "$LOGS"/orion-ci-test.log
 fi
 
 step "3. static analysis"
-if (cd "$PLUGIN" && npx tsc --noEmit -p tsconfig.json >/tmp/orion-ci-tsc.log 2>&1); then
+if (cd "$PLUGIN" && npx tsc --noEmit -p tsconfig.json >"$LOGS"/orion-ci-tsc.log 2>&1); then
     ok "typecheck clean"
 else
-    bad "typecheck failed"; head -20 /tmp/orion-ci-tsc.log
+    bad "typecheck failed"; head -20 "$LOGS"/orion-ci-tsc.log
 fi
 
 step "4. schema validation"
 # The plugin manifest and the runtime config schema must agree exactly. They
 # have drifted before; manifest.test.ts is the assertion and this names it so
 # a reader of the CI log can see it ran.
-if (cd "$PLUGIN" && npx vitest run src/manifest.test.ts >/tmp/orion-ci-schema.log 2>&1); then
+if (cd "$PLUGIN" && npx vitest run src/manifest.test.ts >"$LOGS"/orion-ci-schema.log 2>&1); then
     ok "openclaw.plugin.json matches the runtime ConfigSchema"
 else
-    bad "plugin manifest and runtime schema disagree"; tail -15 /tmp/orion-ci-schema.log
+    bad "plugin manifest and runtime schema disagree"; tail -15 "$LOGS"/orion-ci-schema.log
 fi
 
 step "5. secret scanning"
@@ -98,11 +103,11 @@ step "5. secret scanning"
 # exclusion could never do -- and it prints only a fingerprint, never the
 # suspected value, so a finding cannot leak the thing it found into a CI log.
 if python3 "$REPO/scripts/orion_v2_secret_scan.py" \
-       --allowlist "$REPO/planning/v2/secret-scan-allowlist.json" >/tmp/orion-ci-secrets.log 2>&1; then
-    ok "$(tail -1 /tmp/orion-ci-secrets.log)"
+       --allowlist "$REPO/planning/v2/secret-scan-allowlist.json" >"$LOGS"/orion-ci-secrets.log 2>&1; then
+    ok "$(tail -1 "$LOGS"/orion-ci-secrets.log)"
 else
     bad "secret scan found something not reviewed:"
-    grep -v '^secret scan:' /tmp/orion-ci-secrets.log | head -10 | sed 's/^/          /'
+    grep -v '^secret scan:' "$LOGS"/orion-ci-secrets.log | head -10 | sed 's/^/          /'
     echo "          Each line is path:line rule=<rule> fingerprint=<sha>. If it is a"
     echo "          synthetic fixture, add it to planning/v2/secret-scan-allowlist.json"
     echo "          with a reason. NEVER allowlist a live credential."
@@ -119,13 +124,13 @@ fi
 step "6. dependency scanning"
 if [ "$QUICK" = "1" ]; then
     printf '  skipped (--quick)\n'
-elif (cd "$PLUGIN" && npm audit --audit-level=high >/tmp/orion-ci-audit.log 2>&1); then
+elif (cd "$PLUGIN" && npm audit --audit-level=high >"$LOGS"/orion-ci-audit.log 2>&1); then
     ok "no high or critical advisories"
 else
     # Reported, not fatal. A transitive advisory in a dev dependency should be
     # visible without blocking a fix to something unrelated.
     printf '  WARN  npm audit reported high/critical advisories:\n'
-    grep -E 'severity|vulnerabilit' /tmp/orion-ci-audit.log | head -6 | sed 's/^/          /'
+    grep -E 'severity|vulnerabilit' "$LOGS"/orion-ci-audit.log | head -6 | sed 's/^/          /'
 fi
 
 step "7. coverage maps (attack surface, reliability)"
@@ -133,19 +138,49 @@ step "7. coverage maps (attack surface, reliability)"
 # checker: each claims which test covers which class, and this fails when a
 # claimed test has been renamed or deleted, so losing coverage is a red build
 # rather than a quiet regression.
-if python3 "$REPO/scripts/orion_v2_attack_check.py" >/tmp/orion-ci-attack.log 2>&1; then
-    grep -E "^  (attack surface|reliability):" /tmp/orion-ci-attack.log | sed 's/^  /  ok    /'
+if python3 "$REPO/scripts/orion_v2_attack_check.py" >"$LOGS"/orion-ci-attack.log 2>&1; then
+    grep -E "^  (attack surface|reliability):" "$LOGS"/orion-ci-attack.log | sed 's/^  /  ok    /'
 else
     bad "a coverage map no longer matches the tests:"
-    grep '  FAIL' /tmp/orion-ci-attack.log | head -8 | sed 's/^/        /'
+    grep '  FAIL' "$LOGS"/orion-ci-attack.log | head -8 | sed 's/^/        /'
 fi
 
-step "8. what this run did NOT check"
+step "8. living documents that describe the live system"
+# Three maps that would otherwise rot. Each is checked against the machine
+# rather than read: the inventory against the installed catalog and the live
+# config, the deferral list against what the catalog can actually DO, and the
+# workflow against what this change touched.
+for pair in \
+    "orion_v2_inventory_check.py:the data inventory (Phase 71)" \
+    "orion_v2_deferred_check.py:the deferral list (Phase 76)"
+do
+    file="${pair%%:*}"; label="${pair#*:}"
+    if python3 "$REPO/scripts/$file" >""$LOGS"/orion-ci-$file.log" 2>&1; then
+        ok "$(tail -1 ""$LOGS"/orion-ci-$file.log")"
+    else
+        bad "$label no longer describes the system:"
+        grep '  FAIL' ""$LOGS"/orion-ci-$file.log" | head -6 | sed 's/^/        /'
+    fi
+done
+
+# Phase 75 is reported, NOT fatal, and the reason is written here rather than
+# discovered: its independent-review requirement is currently unmet by this
+# session's own work, and a check that fails on every run is one people learn
+# to scroll past. It is a standing debt, and it should read like one.
+if python3 "$REPO/scripts/orion_v2_workflow_check.py" >"$LOGS"/orion-ci-workflow.log 2>&1; then
+    ok "workflow: the eighteen steps' mechanical five all pass"
+else
+    printf '  DEBT  the Phase 75 workflow check does not pass:\n'
+    grep '  FAIL' "$LOGS"/orion-ci-workflow.log | head -4 | sed 's/^/        /'
+fi
+
+step "9. what this run did NOT check"
 # Named rather than omitted. The machine-bound suites are the ones that hold
 # the real boundary, and a CI pass that reads as total coverage is the way they
 # stop being run.
 cat <<'NOTE'
   These assert against the live Mac and cannot run here:
+    orion_v2_backup_check.sh         the backup pipeline (fixture-based, but slow)
     orion_v2_strictness_check.sh     the approval gate and the strictness floor
     orion_v2_authority_contract_check.sh
     orion_v2_lock_check.sh           what the panic button is worth

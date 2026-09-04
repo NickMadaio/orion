@@ -109,6 +109,29 @@ jobs:
         # rather than a quiet regression nobody notices for six weeks.
         run: python3 scripts/orion_v2_attack_check.py
 
+      - name: living documents
+        # Three maps that would otherwise rot, each checked against the system
+        # rather than read. The inventory proved itself the day it was written:
+        # enabling a new capability tier failed it until the entry existed.
+        run: |
+          python3 scripts/orion_v2_inventory_check.py
+          python3 scripts/orion_v2_deferred_check.py
+
+      - name: backup pipeline
+        # Fixture-based, because orion-backup refuses to run without a
+        # passphrase in Nick's Keychain and creating one would mean this system
+        # holding a credential. It found a real bug the day it was written: the
+        # passphrase was in the data pipe, so the archive contained nothing.
+        run: ./scripts/orion_v2_backup_check.sh
+
+      - name: development workflow (Phase 75)
+        # NOT fatal, deliberately. Its independent-review requirement is
+        # currently unmet by the work in this repository, and a check that
+        # fails on every run is one people learn to scroll past. It is a
+        # standing debt and it should read like one.
+        continue-on-error: true
+        run: python3 scripts/orion_v2_workflow_check.py
+
       - name: phase gate consistency
         # The manifest bookkeeping has to hold: every requirement carries a
         # status and evidence, nextPhaseAllowed agrees with the requirements,

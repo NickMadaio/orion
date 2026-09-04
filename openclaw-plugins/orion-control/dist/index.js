@@ -203,6 +203,9 @@ export const ConfigSchema = Type.Object({
     enablePrepActions: Type.Optional(Type.Boolean({
         description: "Assemble a prep card before an event (Phase 61) from mail, the brain, tasks and the waiting list. Reads only; writes nothing anywhere, so nothing it reads becomes permanent memory. Requires the mail and messages readers to be enabled separately. Default off.",
     })),
+    enableTravelActions: Type.Optional(Type.Boolean({
+        description: "Detect flight and hotel confirmations in mail, keep trip objects, and render a travel brief (Phase 78). Detection PROPOSES and never creates; nothing in this tier can book, modify or cancel anything, and the timezone shift is reported rather than applied. Default off.",
+    })),
     enableStrictArguments: Type.Optional(Type.Boolean({
         description: "Reject arguments an action does not accept. Applies only to actions whose accepted set is fully declared (no hand-written validateArguments); the rest are unchanged until their optional arguments are declared. Default off.",
     })),
@@ -297,6 +300,8 @@ function configuredTiers(config) {
         tiers.add("waiting_on");
     if (config.enablePrepActions === true)
         tiers.add("prep");
+    if (config.enableTravelActions === true)
+        tiers.add("travel");
     if (config.enableAppControlActions === true)
         tiers.add("app_control");
     if (config.enableBrowserControlActions === true)

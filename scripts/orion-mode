@@ -80,6 +80,7 @@ const plugin = await loadPlugin().catch((error) => {
   process.exit(1);
 });
 const {
+  DEFAULT_MODE,
   STRICTNESS_MODES,
   MODE_SUMMARY,
   MAX_DELEGATION_MS,
@@ -266,14 +267,21 @@ if (duration) {
     fail(`"${duration.slice(0, 20)}" is not a duration I will accept. Use e.g. 90m, 8h, 1d — at most 24h.`);
   }
   expiresAt = new Date(Date.now() + ms).toISOString();
-} else if (relaxing && !flags.untilChanged) {
+} else if (relaxing && requested !== DEFAULT_MODE && !flags.untilChanged) {
   /*
-   A relaxation with no end has to be asked for in those words.
+   A relaxation PAST the default with no end has to be asked for in those words.
 
    "I am going out" is a delegation with an end and nobody should have to
    remember to revoke it. Making the open-ended case the one that needs an
    extra flag puts the friction on the choice that deserves it, which is the
    whole design of this file applied to itself.
+
+   `requested !== DEFAULT_MODE` was missing at first and it mattered: coming
+   back from `contained` to `guarded` counts as a relaxation by the ordering,
+   so returning to the DEFAULT demanded an expiry — and `orion-incident thaw`
+   silently failed on it, printing that it had lifted containment while Orion
+   stayed contained. Going back to the shipped default is not a standing grant;
+   it is the absence of one.
   */
   fail(
     `${requested} with no expiry is a standing grant. Say how long — --for 8h — or --until-changed if you mean it.`,

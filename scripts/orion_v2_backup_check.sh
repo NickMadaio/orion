@@ -125,6 +125,57 @@ else
 fi
 
 echo ""
+echo ""
+echo "== 5b. a credential INSIDE a staged file is redacted =="
+
+# THE CHECK THAT WAS MISSING, and its absence was found by review rather than
+# by this file. Everything above plants a `.env` in a sandbox and greps for
+# that sandbox's own token — it never touched orion-backup's real `sources()`
+# list, so it could not see that `exec-approvals.json` is on it and contains a
+# live 32-character `socket.token`. Both exclusion layers matched FILENAMES.
+#
+# So this exercises the real thing in two ways: the source list is read out of
+# the script, and the redaction pass is run against a file shaped like the one
+# that was leaking.
+BACKUP_SCRIPT="$(cd "$(dirname "$0")" && pwd)/orion-backup"
+
+if grep -q 'exec-approvals.json' "$BACKUP_SCRIPT"; then
+    ok "orion-backup still stages exec-approvals.json (the allowlist is worth restoring)"
+else
+    bad "exec-approvals.json is no longer staged — the exec allowlist would not survive a restore"
+fi
+
+mkdir -p "$SANDBOX/stage"
+cat > "$SANDBOX/stage/exec-approvals.json" <<'FIXTURE'
+{
+  "socket": { "token": "aaaaaaaabbbbbbbbccccccccdddddddd" },
+  "agents": { "main": { "allowlist": [{ "pattern": "ls", "id": "keep-me" }] } }
+}
+FIXTURE
+
+# The redaction pass, lifted out of orion-backup by reading it rather than
+# reimplemented: a second copy would be a second thing to keep in step, and
+# this check exists precisely because a claim and its code disagreed.
+awk "/<<'REDACT'/{grab=1;next} /^REDACT\$/{grab=0} grab" "$BACKUP_SCRIPT" > "$SANDBOX/redact.py"
+if [ -s "$SANDBOX/redact.py" ]; then
+    python3 "$SANDBOX/redact.py" "$SANDBOX/stage" >/dev/null 2>&1
+    if grep -q "aaaaaaaabbbbbbbbccccccccdddddddd" "$SANDBOX/stage/exec-approvals.json"; then
+        bad "a credential-shaped VALUE survived redaction — this is the 2026-09-04 finding, back"
+    else
+        ok "a credential-shaped value inside a staged JSON is replaced"
+    fi
+    # And the structure a restore needs must survive it.
+    if grep -q '"pattern": "ls"' "$SANDBOX/stage/exec-approvals.json"; then
+        ok "and the allowlist itself is intact — redaction, not deletion"
+    else
+        bad "redaction destroyed the allowlist it was supposed to preserve"
+    fi
+else
+    bad "orion-backup has no content-redaction pass at all"
+fi
+
+
+echo ""
 echo "== 6. the key derivation is not openssl's default =="
 # Without -pbkdf2, openssl derives the key with a single MD5 pass and the
 # passphrase becomes the weakest part of the whole thing. Asserted against the

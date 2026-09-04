@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 198,
+    "total": 199,
     "AUTO": 133,
     "NOTIFY": 19,
     "APPROVAL": 15,
-    "NEVER": 31
+    "NEVER": 32
   },
   "availability": [
     {
@@ -2103,6 +2103,14 @@
     {
       "kind": "command",
       "name": "orion-python",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-readiness",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

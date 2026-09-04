@@ -1,3 +1,4 @@
+import { type GateLevel, type StrictnessMode } from "./strictness.js";
 import { type ActionDefinition, type CapabilityTier } from "./catalog.js";
 import type { TaskGraph, TaskStep, ValidationResult } from "./types.js";
 export declare function hash(value: unknown): string;
@@ -33,6 +34,23 @@ export interface ValidationOptions {
      * and leaving it in as a second accepted proof would reopen it.
      */
     approvalGrants?: (canonicalHash: string) => boolean;
+    /**
+     * The strictness delegation in force, and what it makes each action cost.
+     *
+     * Absent means `guarded`, which is the identity, so a caller that does not
+     * supply one gets exactly the behaviour that shipped.
+     *
+     * This option exists because it did not, and that was the finding of an
+     * oblivious review on 2026-09-04: `strictness.ts` was imported only by a
+     * status readout and by documentation, so `orion-mode contained` claimed
+     * "everything else asks first" and changed nothing that runs. A mode can
+     * only RAISE an action to APPROVAL here — see `modeRequiresApproval` for why
+     * lowering is not a thing a validator can honestly do.
+     */
+    strictness?: {
+        mode: StrictnessMode;
+        except?: Readonly<Record<string, GateLevel>>;
+    };
 }
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */
 export declare const MAX_STEPS = 32;

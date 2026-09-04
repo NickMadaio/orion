@@ -537,6 +537,19 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
      instead of the hash the model supplied, which it used to accept and which it
      could always produce for itself.
     */
+    /*
+     The strictness delegation, read once and threaded into the gate.
+  
+     Until 2026-09-04 this was resolved only for the status readout, so
+     `orion-mode contained` reported a change and enforced nothing. It is read
+     here, next to the grants, because both answer the same question: does this
+     step need a person.
+    */
+    const delegation = resolveStrictness(defaultStrictnessStatePath(config.strictnessStatePath));
+    const strictness = {
+        mode: delegation.mode,
+        except: delegation.state.except ?? {},
+    };
     const gate = approvalPaths(defaultApprovalRoot(config.approvalRoot));
     /*
      Nick saying yes in his own turn, before the gate is consulted.
@@ -579,6 +592,7 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
         isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
         onArtifact: (target) => provenance.recordAuthoredArtifact(target),
         approvalGrants: (canonicalHash) => granted.has(canonicalHash),
+        strictness,
     };
     /*
      Which approvals this graph needs, and spending the ones it has.
@@ -599,6 +613,7 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
             isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
             ...(strictArguments ? { strictArguments: true } : {}),
             approvalGrants: () => false,
+            strictness,
         })
             .issues.filter((issue) => issue.code === "approval_required" && issue.canonicalHash)
             .map((issue) => issue.canonicalHash)),
@@ -617,6 +632,7 @@ async function runAuthorizedGraph(normalizedGraph, config, context) {
                 isSelfAuthored: (candidate) => provenance.isSelfAuthored(candidate),
                 strictArguments,
                 approvalGrants: (canonicalHash) => granted.has(canonicalHash),
+                strictness,
             }),
             runLegacy,
             ...(hostWarn ? { onWarning: hostWarn } : {}),

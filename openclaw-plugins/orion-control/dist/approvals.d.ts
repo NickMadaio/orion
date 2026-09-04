@@ -97,6 +97,27 @@ export declare function grant(paths: ApprovalPaths, ticketId: string, grantedBy:
 }>;
 /** Withdraw a waiting request without approving it. */
 export declare function deny(paths: ApprovalPaths, ticketId: string, now?: Date): Promise<boolean>;
+/**
+ * Cut machine-authored context out of a turn before reading it for a decision.
+ *
+ * `trusted_user` is minted by `hydrateFromTranscript` from any `role: "user"`
+ * line in the session log, and the Swift app and the remote bridge both inject
+ * their own context that way. Across the real session history nearly five
+ * hundred such turns begin with a machine prefix — the app's factual-state
+ * block, Talk Mode instructions, mission briefings, and the transport's own
+ * briefing, which literally opens by saying it is not from Nick.
+ *
+ * That does not make the trust boundary wrong: those turns genuinely come from
+ * the harness rather than from the model, which is what `trusted_user` means.
+ * It does mean the class is wider than "Nick's own words", and an approval is
+ * one of the few places where the difference matters. So the blocks announce
+ * themselves and are removed here.
+ *
+ * The transport's briefing ends with an explicit marker — everything before
+ * "Nick's message follows" is the transport talking — so that one is exact
+ * rather than heuristic.
+ */
+export declare function stripMachineContext(text: string): string;
 export type SpokenDecision = {
     id: string;
     decision: "approved" | "denied";

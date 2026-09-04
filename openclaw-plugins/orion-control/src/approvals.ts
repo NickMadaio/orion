@@ -382,6 +382,76 @@ function spokenIdPattern(id: string): RegExp {
   return new RegExp(`(?:\\bA[\\s.,-]{0,2})?${loose}\\b`, "i");
 }
 
+
+/**
+ * Cut machine-authored context out of a turn before reading it for a decision.
+ *
+ * `trusted_user` is minted by `hydrateFromTranscript` from any `role: "user"`
+ * line in the session log, and the Swift app and the remote bridge both inject
+ * their own context that way. Across the real session history nearly five
+ * hundred such turns begin with a machine prefix — the app's factual-state
+ * block, Talk Mode instructions, mission briefings, and the transport's own
+ * briefing, which literally opens by saying it is not from Nick.
+ *
+ * That does not make the trust boundary wrong: those turns genuinely come from
+ * the harness rather than from the model, which is what `trusted_user` means.
+ * It does mean the class is wider than "Nick's own words", and an approval is
+ * one of the few places where the difference matters. So the blocks announce
+ * themselves and are removed here.
+ *
+ * The transport's briefing ends with an explicit marker — everything before
+ * "Nick's message follows" is the transport talking — so that one is exact
+ * rather than heuristic.
+ */
+export function stripMachineContext(text: string): string {
+  const marker = text.lastIndexOf("--- Nick's message follows ---");
+  const afterBriefing = marker >= 0 ? text.slice(marker + 30) : text;
+  /*
+   BLOCKS, not lines. A machine context block is a header followed by INDENTED
+   content, and filtering line-by-line dropped only the header — the first
+   version of this passed the briefing test and failed on the app's state
+   block, whose second line is `  pending: ...` with no prefix of its own.
+   So a header opens a block and an indented line continues it; the first line
+   at column zero ends it, which is exactly how both emitters format them.
+  */
+  const HEADER =
+    /^\s*(?:\[(?:orion-|Orion app context|ORION)|Talk Mode active|You are ORION running an autonomous mission|This is a non-mutating internal validation)/i;
+  const kept: string[] = [];
+  let inBlock = false;
+  for (const line of afterBriefing.split("\n")) {
+    if (HEADER.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock) {
+      // Indented, or blank, keeps the block open. Anything at column zero is
+      // a person talking again.
+      if (line.trim() === "" || /^\s/.test(line)) continue;
+      inBlock = false;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+/** The clause one occurrence of an id sits in, with the id taken out first. */
+function clauseAround(text: string, found: RegExpMatchArray): string {
+  const MARK = "\u0000ID\u0000";
+  const index = found.index ?? text.indexOf(found[0]);
+  const marked = text.slice(0, index) + MARK + text.slice(index + found[0].length);
+  return (
+    marked
+      .split(/[.!?;\n]|,\s*(?=and\b|then\b|also\b|but\b)/)
+      .find((part) => part.includes(MARK)) ?? ""
+  );
+}
+
+/** Does THIS occurrence sit in a clause that decides something? */
+function isDecisive(text: string, match: RegExpMatchArray): boolean {
+  const clause = clauseAround(text, match);
+  return REFUSE.test(clause) || (AFFIRM.test(clause) && !NEGATE.test(clause));
+}
+
 export type SpokenDecision = { id: string; decision: "approved" | "denied" };
 
 /**
@@ -400,12 +470,30 @@ export function decisionsInUserTurn(
   userText: string,
   tickets: readonly ApprovalTicket[],
 ): SpokenDecision[] {
-  const text = String(userText ?? "");
+  const text = stripMachineContext(String(userText ?? ""));
   if (text.trim().length === 0) return [];
   const decisions: SpokenDecision[] = [];
   for (const ticket of tickets) {
-    const found = spokenIdPattern(ticket.id).exec(text);
-    if (!found) continue;
+    /*
+     EVERY occurrence, not the first.
+
+     An oblivious review on 2026-09-04 found that `orion-remote`'s own briefing
+     — which opens "Context from the transport, not from Nick" — contains the
+     line `He can also just say it in an ordinary message -- "yes, approve
+     A-7F3K" --` as an INSTRUCTION about how approvals work. It arrives inside
+     the same turn as Nick's message. That turn returned no decision, but only
+     because `exec` matched the FIRST occurrence of the id, which happened to
+     sit in a non-affirmative clause. Reorder the briefing and it self-approves.
+     The guard was match ordering, not a boundary.
+
+     Two fixes, and each is sufficient alone: the briefing is stripped above,
+     and every occurrence is examined here rather than whichever came first.
+    */
+    const pattern = new RegExp(spokenIdPattern(ticket.id).source, "gi");
+    const occurrences = [...text.matchAll(pattern)];
+    if (occurrences.length === 0) continue;
+    const found = occurrences.find((match) =>
+      isDecisive(text, match)) ?? occurrences[0]!;
     /*
      Only the clause the id is in, and the id is taken OUT before splitting.
 
@@ -417,12 +505,7 @@ export function decisionsInUserTurn(
      the match with a punctuation-free marker before splitting means the id
      cannot be a boundary.
     */
-    const MARK = "\u0000ID\u0000";
-    const clause =
-      text
-        .replace(found[0], MARK)
-        .split(/[.!?;\n]|,\s*(?=and\b|then\b|also\b|but\b)/)
-        .find((part) => part.includes(MARK)) ?? "";
+    const clause = clauseAround(text, found);
     if (REFUSE.test(clause)) {
       decisions.push({ id: ticket.id, decision: "denied" });
       continue;

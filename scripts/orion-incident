@@ -219,9 +219,28 @@ step "3. strictness — everything asks before it acts"
 actions+=("strictness set to contained")
 
 step "4. the permission floor"
-say "orion-lock drops the profile to restricted_read_only and stops the channel."
-say "NOT run automatically: it is the one step that needs a person to mean it,"
-say "and contained already stops every write. Run it if you want the floor:"
+# WHAT CONTAINED COVERS, STATED ACCURATELY.
+#
+# This block used to read "contained already stops every write", and that was
+# false twice over. An oblivious review on 2026-09-04 found that the strictness
+# mode never reached the validator at all -- it was computed for a status
+# readout -- so `contained` changed nothing that runs. That is fixed: the mode
+# is now threaded into validateTaskGraph and a non-read action under
+# `contained` needs a person.
+#
+# But it is still only HALF the surface, and saying otherwise was the actual
+# problem. `contained` gates the plugin's TYPED ACTIONS. It does not touch the
+# exec allowlist, so the wrapper scripts -- orion-note, orion-skill, orion-remember
+# and the rest -- still run. `orion-lock` is what drops the permission profile
+# to restricted_read_only, and it remains the only thing that reaches the floor.
+say "contained now gates every typed action that is not a read — that is real,"
+say "and until 2026-09-04 it was not. It does NOT touch the exec allowlist, so"
+say "the orion-* wrapper scripts still run."
+say ""
+say "orion-lock drops the permission profile to restricted_read_only and stops"
+say "the channel. Still NOT run automatically: it is the one step that should"
+say "need a person to mean it, and thaw does not undo it. Run it if the"
+say "incident warrants the floor:"
 say "    ./scripts/orion-lock"
 
 step "5. what only Nick can do"

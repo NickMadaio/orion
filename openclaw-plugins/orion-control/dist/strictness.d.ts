@@ -28,6 +28,8 @@ export interface Floor {
  * capability prose that was true when it was written.
  */
 export declare function floorForAction(name: string, definition: ActionDefinition): Floor;
+export declare function baseLevelFor(name: string, definition: ActionDefinition): GateLevel;
+export declare function modeRequiresApproval(name: string, definition: ActionDefinition, mode: StrictnessMode, except?: Readonly<Record<string, GateLevel>>): boolean;
 export interface LeveledCapability {
     /** What the catalog and the profile say, before any mode is applied. */
     base: GateLevel;

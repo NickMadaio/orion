@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { modeRequiresApproval, } from "./strictness.js";
 import path from "node:path";
 import { ACTION_CATALOG, AUTHORITY_INSTRUCTION, } from "./catalog.js";
 function stable(value) {
@@ -571,7 +572,18 @@ export function validateTaskGraph(graph, options = {}) {
                 });
             }
         }
-        if (definition.approvalRequired) {
+        /*
+         Two ways an action can need a person: the catalog demands it, or the
+         strictness delegation in force does. Both end at the same grant.
+    
+         `modeRequiresApproval` returns true for everything the catalog already
+         gates, so the two overlap rather than conflict, and under `guarded` the
+         second adds nothing at all -- which is the compatibility property the
+         baseline check has asserted since the mode was introduced.
+        */
+        const modeDemands = options.strictness !== undefined &&
+            modeRequiresApproval(step.action, definition, options.strictness.mode, options.strictness.except ?? {});
+        if (definition.approvalRequired || modeDemands) {
             const canonicalHash = canonicalActionHash(step, graph.workingContext);
             // The hash still binds the approval to these exact arguments -- change a
             // recipient and the hash changes and the grant no longer applies. What
@@ -582,7 +594,9 @@ export function validateTaskGraph(graph, options = {}) {
             if (!(options.approvalGrants?.(canonicalHash) ?? false)) {
                 issues.push({
                     code: "approval_required",
-                    message: `Action '${step.action}' requires approval from Nick, bound to its canonical arguments and context. Supplying the hash is not approval; a person has to grant it.`,
+                    message: definition.approvalRequired
+                        ? `Action '${step.action}' requires approval from Nick, bound to its canonical arguments and context. Supplying the hash is not approval; a person has to grant it.`
+                        : `Action '${step.action}' requires approval because Orion is in '${options.strictness?.mode}' mode, which asks before anything that is not a read. Nick can lift it with orion-mode, or approve this one.`,
                     stepId: step.id,
                     canonicalHash,
                 });

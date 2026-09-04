@@ -1583,3 +1583,59 @@ as a deviation rather than claimed as compliance. The order assumes a backend,
 database, credential vault and mobile shell early; none exists, and the
 local-first path did capability system → policy engine → audit before any remote
 work.
+
+---
+
+## 2026-09-04 (end) — the oblivious review, and what it found
+
+An independent agent reviewed phases 49–80 with the manifest, the repo, the
+commands, and no narrative. **It found two things with real safety cost, and
+both were things this session wrote and believed.**
+
+**1. The strictness ladder was never wired to enforcement.** `strictness.ts` was
+imported by exactly two non-test files — `index.ts` for a status readout and
+`orion-authority` for documentation. **`validator.ts` had never seen a mode.**
+So `orion-mode contained` reported "everything else asks first" and gated
+nothing, and `orion-incident freeze` then declined to drop the permission
+profile *on the stated grounds that "contained already stops every write."*
+That premise was false.
+
+Fixed: `baseLevelFor` moved into the plugin (removing orion-authority's
+duplicate ladder rather than adding one), `ValidationOptions` gained a
+strictness field, and the mode is threaded into the *authoritative* validation.
+`contained` now refuses a non-read action without a grant — verified against the
+installed plugin. The summaries were also corrected: **a mode raises to APPROVAL
+and never lowers from it**, because a validator can refuse and cannot make a
+model narrate. What `open` and `sovereign` free is *announcement*, not gates.
+
+**2. A live credential was inside the backup.** `exec-approvals.json` is staged
+and holds `socket.token`. Both exclusion layers matched **filenames only**, and
+the archive's own MANIFEST asserted *"No secret is in this archive."* The check
+couldn't have caught it — it planted a `.env` in its own sandbox and never
+touched the real `sources()` list.
+
+Fixed: a content pass redacts credential-shaped *values* from staged JSON while
+keeping the structure a restore needs; the MANIFEST no longer asserts its own
+correctness; the check now extracts the real redaction code from the script and
+runs it against a file shaped like the one that leaked.
+
+**Also found and fixed:** `trusted_user` is wider than "Nick's own words" — the
+transport's own briefing contains the literal words *"yes, approve A-7F3K"* and
+was held back only by which occurrence `exec` matched first. Machine-authored
+blocks are now stripped and every occurrence is examined. And `automation.ts`
+used `in`, which walks the prototype chain, so `constructor` and `__proto__`
+passed a check whose whole job is to say the table is closed.
+
+**Corrected rather than defended:** Phase 49's evidence claimed four failing
+assertions where there are three; Phase 67's model counts were pinned and are
+stale; `orion-authority` claimed the unclassified rung stops silent execution
+when with `ask: off` there is no ask state to reach.
+
+Every finding is recorded under its phase in `postReviewCorrections` rather than
+by editing the original evidence — *the fact that a claim was wrong is itself
+evidence about the evidence*. Each repair has a named failing test,
+mutation-verified.
+
+**Phase 75 is closed and all 24 architectural rules now hold** (22 held, 2
+judgement, 0 violated) — because the review happened, not because anything was
+written down.

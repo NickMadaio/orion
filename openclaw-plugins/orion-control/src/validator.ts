@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  modeRequiresApproval,
+  type GateLevel,
+  type StrictnessMode,
+} from "./strictness.js";
 import path from "node:path";
 import {
   ACTION_CATALOG,
@@ -144,6 +149,23 @@ export interface ValidationOptions {
    * and leaving it in as a second accepted proof would reopen it.
    */
   approvalGrants?: (canonicalHash: string) => boolean;
+  /**
+   * The strictness delegation in force, and what it makes each action cost.
+   *
+   * Absent means `guarded`, which is the identity, so a caller that does not
+   * supply one gets exactly the behaviour that shipped.
+   *
+   * This option exists because it did not, and that was the finding of an
+   * oblivious review on 2026-09-04: `strictness.ts` was imported only by a
+   * status readout and by documentation, so `orion-mode contained` claimed
+   * "everything else asks first" and changed nothing that runs. A mode can
+   * only RAISE an action to APPROVAL here — see `modeRequiresApproval` for why
+   * lowering is not a thing a validator can honestly do.
+   */
+  strictness?: {
+    mode: StrictnessMode;
+    except?: Readonly<Record<string, GateLevel>>;
+  };
 }
 
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */
@@ -677,7 +699,24 @@ export function validateTaskGraph(
       }
     }
 
-    if (definition.approvalRequired) {
+    /*
+     Two ways an action can need a person: the catalog demands it, or the
+     strictness delegation in force does. Both end at the same grant.
+
+     `modeRequiresApproval` returns true for everything the catalog already
+     gates, so the two overlap rather than conflict, and under `guarded` the
+     second adds nothing at all -- which is the compatibility property the
+     baseline check has asserted since the mode was introduced.
+    */
+    const modeDemands =
+      options.strictness !== undefined &&
+      modeRequiresApproval(
+        step.action,
+        definition,
+        options.strictness.mode,
+        options.strictness.except ?? {},
+      );
+    if (definition.approvalRequired || modeDemands) {
       const canonicalHash = canonicalActionHash(step, graph.workingContext);
       // The hash still binds the approval to these exact arguments -- change a
       // recipient and the hash changes and the grant no longer applies. What
@@ -688,7 +727,9 @@ export function validateTaskGraph(
       if (!(options.approvalGrants?.(canonicalHash) ?? false)) {
         issues.push({
           code: "approval_required",
-          message: `Action '${step.action}' requires approval from Nick, bound to its canonical arguments and context. Supplying the hash is not approval; a person has to grant it.`,
+          message: definition.approvalRequired
+            ? `Action '${step.action}' requires approval from Nick, bound to its canonical arguments and context. Supplying the hash is not approval; a person has to grant it.`
+            : `Action '${step.action}' requires approval because Orion is in '${options.strictness?.mode}' mode, which asks before anything that is not a read. Nick can lift it with orion-mode, or approve this one.`,
           stepId: step.id,
           canonicalHash,
         });

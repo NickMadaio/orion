@@ -224,10 +224,17 @@ const CLASS_LEVEL = {
 
  Two entries, and the second is the interesting one. `unclassified` is where a
  command lands when it is on the allowlist and nobody has written down what it
- does; `classifyShell` sends it to APPROVAL deliberately, so that adding an
- allowlist entry cannot quietly grant silent execution. A strictness mode that
- could relax THAT would undo the failing-closed, which is the one property a
- fail-closed default has. So it is a floor, in every mode.
+ does, and `classifyShell` sends it to APPROVAL deliberately.
+
+ WHAT THAT ACHIEVES, corrected after an oblivious review on 2026-09-04 called
+ the original wording overstated. It said adding an allowlist entry "cannot
+ quietly grant silent execution", and that is not something this file can
+ deliver: the exec layer runs `ask: off` with `askFallback: deny`, so there is
+ no ask state to reach — an allowlisted command runs and an unlisted one is
+ denied. APPROVAL here is a REPORT that a command on Nick's allowlist has never
+ been classified, not a gate that stops it. Worth having as that report, and
+ currently vacuous besides: there are zero unclassified entries today. The
+ enforcement is the allowlist itself, which is Nick's file.
 
  An `irreversible_external` command floors at NOTIFY rather than APPROVAL, to
  match the action-side rule: Orion may do the thing he cannot undo, he may not

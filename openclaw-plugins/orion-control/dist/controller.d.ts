@@ -1,6 +1,7 @@
 import { type CapabilityTier } from "./catalog.js";
 import { executeAction, verifyAction } from "./executors.js";
 import type { TaskGraph, TaskRunRecord, TrustProvenance } from "./types.js";
+import type { GateLevel, StrictnessMode } from "./strictness.js";
 export interface RunOptions {
     ledgerPath: string;
     testWorkspaceRoot?: string;
@@ -32,6 +33,17 @@ export interface RunOptions {
      * copy looks live in the record and changes nothing about what runs.
      */
     approvalGrants?: (canonicalHash: string) => boolean;
+    /**
+     * The strictness delegation in force. Threaded here for the same reason
+     * `approvalGrants` and `strictArguments` are: this is the validation that
+     * gates execution, and a mode wired only into the entry point's evidence
+     * copy would be a mode that looks live and changes nothing — which is
+     * precisely what it was until 2026-09-04.
+     */
+    strictness?: {
+        mode: StrictnessMode;
+        except?: Readonly<Record<string, GateLevel>>;
+    };
     /**
      * Called with the resolved target of every step that executed AND verified.
      *

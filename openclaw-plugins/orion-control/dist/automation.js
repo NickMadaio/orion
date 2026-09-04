@@ -147,7 +147,16 @@ export function validateProposal(value) {
     else {
         issues.push("trigger.kind must be daily, hourly or weekly — a raw cron string is not accepted");
     }
-    if (typeof p.action !== "string" || !(p.action in AUTOMATION_ACTIONS)) {
+    /*
+     `Object.hasOwn`, not `in`. `in` walks the prototype chain, so `constructor`,
+     `toString`, `valueOf` and `__proto__` all passed a check whose entire job is
+     to say the table is closed — found by review on 2026-09-04. It was not
+     exploitable into execution (orion-automation then does `action.argv[0]` on
+     an Object.prototype member and throws), but a validator that accepts a
+     proposal it advertises as impossible turns a validation message into a crash
+     at install time.
+    */
+    if (typeof p.action !== "string" || !Object.hasOwn(AUTOMATION_ACTIONS, p.action)) {
         issues.push(`action must be one of: ${Object.keys(AUTOMATION_ACTIONS).join(", ")}`);
     }
     const quiet = p.conditions?.quietHours;

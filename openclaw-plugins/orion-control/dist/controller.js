@@ -31,6 +31,7 @@ export async function runTaskGraph(graph, options) {
         // would produce a setting that looks live and changes nothing.
         ...(options.strictArguments ? { strictArguments: true } : {}),
         ...(options.approvalGrants ? { approvalGrants: options.approvalGrants } : {}),
+        ...(options.strictness ? { strictness: options.strictness } : {}),
     });
     const createdAt = now().toISOString();
     // A nonce keeps task ids unique: two identical graphs submitted inside the

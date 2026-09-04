@@ -64,8 +64,8 @@ export const DEFAULT_MODE = "guarded";
 export const MODE_SUMMARY = {
     contained: "Reads run. Everything else asks first. The mode Orion may enter by himself and may not leave.",
     guarded: "The catalog's own levels, unmodified. Self-repair happens and is reported; authority changes and outbound messages are approved first.",
-    open: "The announcements stop; the gates stay. He repairs himself and writes files without narrating it, and the same things stop him that stopped him before.",
-    sovereign: "Everything runs unannounced except what the floor holds back: authority changes, reaching another person, and anything he cannot undo.",
+    open: "The announcements stop; the gates stay. He repairs himself and writes files without narrating it, and every action the catalog gates is still gated — modes raise friction and never lower it.",
+    sovereign: "Everything runs unannounced except what the floor holds back: authority changes, reaching another person, and anything he cannot undo. It frees ANNOUNCEMENT, not gates — an action the catalog demands approval for is still approved, in every mode.",
 };
 const LADDER = ["AUTO", "NOTIFY", "APPROVAL"];
 const worst = (a, b) => {
@@ -138,6 +138,59 @@ export function floorForAction(name, definition) {
         };
     }
     return NO_FLOOR;
+}
+// MARK: - What the catalog itself demands, before any mode
+/*
+ The base level, derived from an action's own metadata.
+
+ THIS LIVED IN `scripts/orion-authority` AND NOWHERE ELSE, which is how the
+ strictness ladder came to be a description rather than a gate. An oblivious
+ review on 2026-09-04 found that `strictness.ts` was imported by exactly two
+ non-test files -- `index.ts`, for a status readout, and orion-authority, for
+ documentation -- and that `validator.ts` had never seen a mode at all. Every
+ number in the mode summaries was computed for DISPLAY.
+
+ Moving the derivation here is what makes enforcement possible, and it removes
+ a duplication rather than creating one: orion-authority reads the installed
+ plugin, so it now imports this instead of keeping its own copy.
+
+ The rungs are the ones orion-authority already used, in the same order:
+ an approval the catalog demands, then irreversibility, then blast radius.
+*/
+export function baseLevelFor(name, definition) {
+    if (definition.approvalRequired)
+        return "APPROVAL";
+    if (definition.reversible === false)
+        return "NOTIFY";
+    if (definition.risk === "high" || definition.risk === "critical")
+        return "NOTIFY";
+    return "AUTO";
+}
+/*
+ WHICH RUNG IS ENFORCEABLE, and why the answer is only one of them.
+
+ AUTO and NOTIFY differ in whether Orion SAYS something afterwards. Nothing in
+ a validator can make a model narrate, so that distinction is guidance and has
+ always been guidance. APPROVAL is different: it is a refusal, and a refusal is
+ something code can perform.
+
+ So a mode enforces by RAISING to APPROVAL and never by lowering from it. That
+ asymmetry is deliberate and it is the safe direction:
+
+   · `contained` really contains. Before this, it claimed "everything else asks
+     first" and changed nothing at all -- and `orion-incident freeze` declined
+     to drop the permission profile on the stated grounds that "contained
+     already stops every write", which was false. That was the finding with
+     real safety cost.
+   · `open` and `sovereign` cannot unlock an action the catalog marks
+     `approvalRequired`. They never could, and the summaries overstated it: what
+     those modes free is ANNOUNCEMENT, not gates. Every approval-gated action
+     is also held by the floor, so there is nothing for them to open even if
+     they were allowed to.
+*/
+export function modeRequiresApproval(name, definition, mode, except = {}) {
+    const leveled = levelForAction(name, definition, baseLevelFor(name, definition), mode, except);
+    return leveled.level === "APPROVAL";
 }
 // MARK: - Applying a mode
 /**

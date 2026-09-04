@@ -174,7 +174,21 @@ else
     grep '  FAIL' "$LOGS"/orion-ci-workflow.log | head -4 | sed 's/^/        /'
 fi
 
-step "9. what this run did NOT check"
+step "9. the permanent architectural rules"
+# The manifest's twenty-four "Never" sentences, as assertions rather than as
+# prose. The heading above them says they must not be violated without an
+# explicit architecture review, so a violation here is not a lint warning —
+# but it is reported rather than fatal, because rule 24 (one agent as sole
+# designer, implementer and reviewer) is currently outstanding by construction
+# and a permanently red build is one people stop reading.
+if python3 "$REPO/scripts/orion_v2_rules_check.py" >"$LOGS/orion-ci-rules.log" 2>&1; then
+    ok "$(tail -1 "$LOGS/orion-ci-rules.log")"
+else
+    printf '  DEBT  %s\n' "$(grep 'architectural rules:' "$LOGS/orion-ci-rules.log" | tail -1)"
+    grep -A 1 'VIOLATED' "$LOGS/orion-ci-rules.log" | grep -v '^--' | head -8 | sed 's/^/        /'
+fi
+
+step "10. what this run did NOT check"
 # Named rather than omitted. The machine-bound suites are the ones that hold
 # the real boundary, and a CI pass that reads as total coverage is the way they
 # stop being run.

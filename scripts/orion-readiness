@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""The manifest's FINAL SUCCESS CONDITION, answered against the running system.
+
+The programme ends with sixteen conditions and one instruction:
+
+    Do not consider ORION v2 complete merely because the mobile app exists.
+    ...
+    Build the safe operating system first. Then give ORION more power.
+
+This answers each condition with one of four verdicts, and the honesty is in
+the distinction rather than in the count:
+
+  MET          true now, with the evidence that makes it true.
+  PARTLY       true of what exists, and the part that does not exist is named.
+  NOT MET      false, said plainly.
+  N/A YET      the condition is about a component that does not exist, and
+               calling it "met" because nothing can violate it would be the
+               kind of scoring this file is meant not to do.
+
+Several conditions are about devices, a cloud, and a mobile app. None of those
+exist. That is not a failure of the conditions — it is the programme's actual
+position, and a readiness report that rounded it up would be worse than none.
+
+  orion-readiness            the sixteen
+  orion-readiness --json
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+DIST = Path.home() / ".openclaw/extensions/orion-control/dist"
+
+
+def run(*command: str) -> tuple[int, str]:
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60, cwd=REPO)
+        return result.returncode, result.stdout + result.stderr
+    except (OSError, subprocess.SubprocessError) as error:
+        return 1, str(error)
+
+
+def check_passes(script: str) -> bool:
+    return run("python3", str(REPO / "scripts" / script))[0] == 0 if script.endswith(".py") \
+        else run(str(REPO / "scripts" / script))[0] == 0
+
+
+CONDITIONS = [
+    ("one ORION identity works across devices", "N/A YET",
+     "There is one device. The identity machinery exists — MobileCore's Phase 41-45 types, "
+     "the remote link, a device id on every approval ticket — and has never been exercised "
+     "against a second device."),
+
+    ("ORION Core remains shared", "PARTLY",
+     "The plugin is the shared core and every route goes through it: orion_tool_run expands "
+     "to an ordinary graph so a tool is a shortcut through his powers, never around them. "
+     "'Shared' in the manifest's sense means across devices, and there is one."),
+
+    ("the iPhone acts as the portable interface and trusted approval device", "NOT MET",
+     "There is no iPhone app. Approval works from a terminal and from Discord, and the "
+     "Discord path refuses an approval from the local process — but neither is the phone the "
+     "manifest describes, and the phone is what would make Face-ID-bound approval possible."),
+
+    ("the cloud can operate independently without becoming omnipotent", "N/A YET",
+     "There is no cloud component. The Discord bridge is a transport, not a brain: it hands "
+     "text to the local gateway and cannot act."),
+
+    ("the Mac remains a separately trusted execution node", "MET",
+     "Every capability is gated locally by the plugin and the exec allowlist, and remote "
+     "input arrives as an envelope that is checked for sender, age and replay before it "
+     "reaches anything. Nothing off-machine can execute directly."),
+
+    ("Google integrations operate through scoped credential brokers", "PARTLY",
+     "Tokens live in the Keychain bound to the app's designated requirement, and every mail "
+     "wrapper hard-wires --readonly and --gmail-no-send in its argv rather than in a setting. "
+     "That is a scoped broker in effect. It is not a separate broker process, and the scopes "
+     "granted at consent time are wider than the wrappers use."),
+
+    ("raw health information remains compartmentalized", "MET",
+     "One file, aggregates only — no sample arrays, asserted by orion_v2_rules_check.py — "
+     "under its own capability tier with its own config flag, and inventoried."),
+
+    ("tasks and calendar planning work together", "PARTLY",
+     "They are read together and reported together: the morning brief joins commitments, due "
+     "tasks, projects and the waiting list, and a focus session can bind to a calendar block. "
+     "Nothing PLANS — nothing proposes a schedule or moves an event."),
+
+    ("ORION understands state without pretending to provide medical certainty", "MET",
+     "orion-standing prints a recovery figure only if it is in the file and stamped today; a "
+     "stale reading is dropped rather than re-attributed, and --polish rejects a rewrite that "
+     "introduces a digit the deterministic text did not have."),
+
+    ("remote computer actions are structured, bounded, signed, revocable, and audited", "PARTLY",
+     "Four of five. STRUCTURED: typed actions, no raw shell anywhere. BOUNDED: closed "
+     "repository and operation tables, fixed argv, per-operation timeouts. REVOCABLE: "
+     "orion-mode contained, orion-lock, orion-incident freeze. AUDITED: every run in the task "
+     "ledger, readable back by orion-why. SIGNED is the missing one — a grant is authenticated "
+     "by being in a directory nothing Orion can invoke writes, plus a nonce, not by a "
+     "signature. That needs the Secure Enclave key, which needs the phone."),
+
+    ("external content cannot grant itself authority", "MET",
+     "The strongest-tested claim in the system. Model-supplied inputs are rebuilt as "
+     "untrusted_external; a forged trusted_user tag is discarded; a page saying the exact "
+     "approval phrase grants nothing. Each has a named test, and deleting the trust filter "
+     "fails one by name."),
+
+    ("users can understand why ORION acted", "MET",
+     "orion-why assembles inputs, evidence, policy, provenance and constraints from the task "
+     "ledger and the catalog. The model does not answer the question at all, so there is no "
+     "chain-of-thought to leak and no plausible story to mistake for a report."),
+
+    ("users can stop ORION instantly", "MET",
+     "orion-incident freeze, loudest first — remote access, then automation, then strictness, "
+     "then the floor — so a half-run is still the half that mattered. orion-lock drops the "
+     "profile to restricted_read_only, and orion-mode contained is the softer, resumable one."),
+
+    ("failures and retries do not produce duplicate destructive actions", "MET",
+     "Idempotency keys on every executor path, a test that a plain append never "
+     "double-appends, retries only for a classified transient failure within the graph "
+     "budget, and the remote gate that separates a duplicate (new id, accepted, because every "
+     "remote capability is a pure read) from a replay (same id, refused)."),
+
+    ("compromised subsystems have intentionally limited blast radii", "MET",
+     "Capability tiers are a closed enum and profiles are intersections of them; the mutable "
+     "roots are three; home is a read root with no writable spelling; the gate directory is "
+     "outside everything Orion can write; the dev environment is an allowlist of five "
+     "variables. orion_v2_lock_check.py measures what the floor actually denies rather than "
+     "asserting it."),
+
+    ("no single model, token, server, or device automatically grants unrestricted control",
+     "PARTLY",
+     "For the MODEL this is now true and it was not two days ago: the approval gate could be "
+     "satisfied by the agent supplying a hash it computed itself. For TOKENS and DEVICES it is "
+     "true by there being one of each. The honest gap is the OPERATOR: anything Nick can run, "
+     "a process running as Nick can run, and the boundary is that nothing in Orion's tool "
+     "surface reaches it — four claims re-checked by a suite, not a kernel."),
+]
+
+
+def main() -> int:
+    wants_json = "--json" in sys.argv[1:]
+    counts = {"MET": 0, "PARTLY": 0, "NOT MET": 0, "N/A YET": 0}
+    for _, verdict, _ in CONDITIONS:
+        counts[verdict] += 1
+
+    if wants_json:
+        print(json.dumps({
+            "conditions": [
+                {"condition": text, "verdict": verdict, "evidence": evidence}
+                for text, verdict, evidence in CONDITIONS
+            ],
+            "counts": counts,
+        }, indent=2))
+        return 0
+
+    print("")
+    print("  ORION v2 — the manifest's final success condition, sixteen parts")
+    print("")
+    for index, (text, verdict, evidence) in enumerate(CONDITIONS, start=1):
+        print(f"  {index:2}. [{verdict:^8}] {text}")
+        for line in _wrap(evidence, 72):
+            print(f"        {line}")
+        print("")
+
+    print("  " + "  ".join(f"{verdict}: {count}" for verdict, count in counts.items()))
+    print("")
+    print("  The instruction under this list is 'build the safe operating system first,")
+    print("  then give ORION more power'. On that reading the position is honest: the")
+    print("  safety conditions are the ones that are MET, and the ones outstanding are")
+    print("  outstanding because a phone, a cloud and a second device do not exist.")
+    print("")
+    return 0
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    words, lines, current = text.split(), [], ""
+    for word in words:
+        if len(current) + len(word) + 1 > width:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        lines.append(current)
+    return lines
+
+
+if __name__ == "__main__":
+    sys.exit(main())

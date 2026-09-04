@@ -170,9 +170,29 @@ ls -1t "$BACKUPS" 2>/dev/null | tail -n +6 | while read -r old; do rm -rf "${BAC
 echo ""
 echo "== 5. install =="
 mkdir -p "$INSTALLED/dist"
-cp "$PLUGIN"/dist/*.js "$PLUGIN"/dist/*.d.ts "$INSTALLED/dist/" 2>/dev/null
+# TEST FILES ARE NOT SHIPPED, and the reason is a real finding rather than
+# tidiness: `orion_v2_rules_check.py` flagged the installed extension for
+# "never ship production credentials inside binaries", because the compiled
+# index.test.js and gate.test.js carry deliberately-synthetic credential
+# fixtures that exist to prove such credentials get REFUSED. (They are not
+# quoted here: the first draft of this comment reproduced one verbatim and
+# tripped the secret scanner on itself, which is the third time in this
+# programme that describing a shape has been mistaken for having one.)
+#
+# Nothing was actually leaked. But the right answer was not to allowlist the
+# finding, it was to stop shipping the files: the gateway never loads them,
+# they are a third of the installed bytes, and a scanner that has to be told
+# to ignore the shipped artefact is a scanner nobody will trust the next time.
+for file in "$PLUGIN"/dist/*.js "$PLUGIN"/dist/*.d.ts; do
+    case "$(basename "$file")" in
+        *.test.js|*.test.d.ts) continue ;;
+    esac
+    cp "$file" "$INSTALLED/dist/"
+done
+# And remove any that a previous hand-copy left behind.
+rm -f "$INSTALLED"/dist/*.test.js "$INSTALLED"/dist/*.test.d.ts
 cp "$PLUGIN/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
-say "installed  $(fingerprint "$INSTALLED/dist")"
+say "installed  $(fingerprint "$INSTALLED/dist")  (tests excluded)"
 
 echo ""
 echo "== 6. does it still load =="

@@ -132,6 +132,15 @@ jobs:
         continue-on-error: true
         run: python3 scripts/orion_v2_workflow_check.py
 
+      - name: permanent architectural rules
+        # The manifest's twenty-four "Never" sentences, as assertions against
+        # the running system. Reported rather than fatal: rule 24 — one agent
+        # as sole designer, implementer and security reviewer — is outstanding
+        # by construction, and a permanently red build is one people stop
+        # reading. It found two real problems on its first run.
+        continue-on-error: true
+        run: python3 scripts/orion_v2_rules_check.py
+
       - name: phase gate consistency
         # The manifest bookkeeping has to hold: every requirement carries a
         # status and evidence, nextPhaseAllowed agrees with the requirements,

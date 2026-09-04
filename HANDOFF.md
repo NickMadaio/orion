@@ -1531,3 +1531,55 @@ lawfully record.
    the end-to-end backup needs a Keychain passphrase only Nick can create.
 3. **77, 79** — blocked behind the same walls as 65/66 (app bundle) and
    53/54/55 (no computer-use surface). Their prohibitions hold structurally.
+
+---
+
+## 2026-09-04 (later) — phases 81–84, and the manifest's closing sections
+
+**The manifest ends at Phase 84.** There is no 85–90. After 84 come three
+unnumbered sections that had never been checked by anything: PERMANENT
+ARCHITECTURAL RULES, REQUIRED BUILD ORDER, FINAL SUCCESS CONDITION.
+
+**The twenty-four architectural rules are now assertions**
+(`scripts/orion_v2_rules_check.py`). Not a document — a rule like *"never expose
+a public control port"* is a fact about a socket, and it is either true right
+now or it is not. **21 held, 2 recorded as judgement with a position rather than
+a score, 1 violated.** It found two real problems on its first run:
+
+- The installed extension was **shipping compiled test files** carrying
+  synthetic credential fixtures. Fixed by not shipping tests — which also
+  removed a third of the installed bytes. Not by allowlisting the finding: a
+  scanner you have to tell to ignore the shipped artefact is one nobody trusts
+  next time.
+- The public-port assertion was too broad and flagged **macOS's own** AirPlay
+  and Continuity listeners. Narrowed to ORION's processes, with the OS's
+  reported as context rather than silently excluded — you may want to turn
+  AirPlay Receiver off, but it isn't a violation of an ORION rule.
+
+The one violation is **rule 24** — one agent as sole designer, implementer and
+security reviewer. That is the same debt Phase 75 records, and the manifest
+treats it as more serious than a workflow step: the heading says these rules are
+not to be violated without an explicit architecture review.
+
+**81 — location was already right.** No CoreLocation anywhere; location is a
+city name and an IANA zone a person sets. The minimal permission turned out to
+be *none*. Open: the location audit trail is unbounded.
+
+**82/83/84 are correctly not started.** 82's trigger (anyone beyond trusted dev
+users) hasn't occurred; 83 has one tenant; 84 needs the app. One part of 83 was
+verifiable now and is: **nothing authorizes on an identifier being unguessable**
+— an approval ticket id is four characters *on purpose*, and grants nothing
+without a 128-bit nonce, a matching hash, a matching device and a non-local
+grantor.
+
+**`scripts/orion-readiness`** answers the sixteen final success conditions:
+**8 met, 5 partly, 1 not met, 2 not applicable yet.** The one NOT MET is the
+iPhone as trusted approval device. A report that rounded "no cloud exists" up to
+"the cloud is not omnipotent" would be exactly the scoring that condition warns
+against.
+
+**REQUIRED BUILD ORDER: followed in substance, not in sequence**, and recorded
+as a deviation rather than claimed as compliance. The order assumes a backend,
+database, credential vault and mobile shell early; none exists, and the
+local-first path did capability system → policy engine → audit before any remote
+work.

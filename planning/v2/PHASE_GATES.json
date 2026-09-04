@@ -5377,6 +5377,136 @@
         }
       ],
       "nextPhaseAllowed": true
+    },
+    "81": {
+      "name": "Future Location Context",
+      "status": "in_progress",
+      "entryRequiresPhase": "80",
+      "entrySatisfied": true,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 80's neighbours are open on an iOS app and on an independent review, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-04 against the live location state and the whole repository. The design already satisfied most of this before the phase was read.",
+      "requirements": [
+        {
+          "id": "requests_minimal_permission",
+          "status": "passed",
+          "evidence": "No permission is requested, because none is needed: there is no CoreLocation, no CLLocationManager and no GPS anywhere in native/ or scripts/. Location is a place NAME and an IANA zone that Nick sets through orion-timezone. The minimal permission for this feature turned out to be none at all."
+        },
+        {
+          "id": "prefers_coarse_or_contextual_location",
+          "status": "passed",
+          "evidence": "It is not merely coarse, it is not coordinates. The live state is {home: America/New_York, place: 'Montvale, New Jersey'} plus an expectedMove. A city name cannot be sharpened into a street the way a rounded latitude can, which is the failure mode 'coarse' usually still has."
+        },
+        {
+          "id": "never_uses_background_location",
+          "status": "passed",
+          "evidence": "There is no location API to use in the background. The value changes only when a person runs orion-timezone, and every change is written to location-audit.jsonl with the previous value, the device zone and the cron jobs affected."
+        },
+        {
+          "id": "explains_why_it_is_needed",
+          "status": "passed",
+          "evidence": "The one consumer is timekeeping: quiet hours, the morning brief's day boundary, the cron timezone, and Phase 78's travel brief. planning/v2/DATA_INVENTORY.json states purpose, retention and exposure for it under 'device and system information'."
+        },
+        {
+          "id": "maintains_retention_limits",
+          "status": "blocked",
+          "evidence": "location.json is overwritten so it holds one value, which is right. location-audit.jsonl is append-only and unbounded — deliberate for an audit trail, and genuinely a retention gap for a location trail specifically. It is two entries today. orion-privacy purge state removes location.json but not the audit, on purpose: an audit you can clear in one command is one an attacker clears in one command.",
+          "reason": "The location audit trail is unbounded. Deliberate as an audit; a real retention gap for location specifically."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "82": {
+      "name": "Public Release Preparation",
+      "status": "not_started",
+      "entryRequiresPhase": "81",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 80's neighbours are open on an iOS app and on an independent review, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-04. scripts/orion-readiness answers the manifest's final success condition; the reviews this phase requires are not this system's to perform.",
+      "requirements": [
+        {
+          "id": "documents_retention_deletion_and_incident_response",
+          "status": "passed",
+          "evidence": "Three of the thirteen items are documentation and all three exist and are checked: RETENTION per data kind in planning/v2/DATA_INVENTORY.json, enforced by orion_v2_inventory_check.py against the live catalog; DELETION as working controls in orion-privacy rather than as prose; INCIDENT RESPONSE as seven runbooks plus a one-command freeze in orion-incident."
+        },
+        {
+          "id": "tests_account_recovery_device_loss_and_secret_rotation",
+          "status": "blocked",
+          "evidence": "ACCOUNT RECOVERY is not applicable and says so — there is no account, no server and no user record. DEVICE LOSS and SECRET ROTATION are documented as procedures in orion-incident's runbook and orion-backup --secrets, and neither has been exercised: one cannot be tested without losing the device, and the other needs credentials rotated at four issuers, which is Nick's to do and not something to rehearse casually.",
+          "reason": "Two of three are documented procedures that have never been exercised; the third does not apply."
+        },
+        {
+          "id": "performs_the_external_reviews",
+          "status": "blocked",
+          "evidence": "None performed, and none of them is something this system can perform on itself — that is the point of the list. Penetration testing, architecture review, privacy review, health regulatory review, Google OAuth verification, App Store privacy review and supply-chain review all require people who did not build it. The nearest internal analogue is Phase 75's independent review, which is itself outstanding.",
+          "reason": "Seven external reviews, none performed. By construction they need outside parties."
+        },
+        {
+          "id": "no_one_beyond_trusted_development_users_has_it",
+          "status": "passed",
+          "evidence": "The precondition this whole phase is gated on. One user, one machine, a private GitHub repository, no distribution, no signing for release, no App Store record. The phase is correctly not started because its trigger has not occurred."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "83": {
+      "name": "Multi-User Hardening",
+      "status": "not_started",
+      "entryRequiresPhase": "82",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 80's neighbours are open on an iOS app and on an independent review, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-04. Single tenant; most of this is unbuildable and one part is verifiable now.",
+      "requirements": [
+        {
+          "id": "does_not_rely_on_uuid_secrecy",
+          "status": "passed",
+          "evidence": "Verifiable today and verified. Nothing in this system authorizes on an identifier being unguessable. An approval ticket id is FOUR characters and deliberately so — it is meant to be read aloud — and it grants nothing on its own: a grant additionally requires a 128-bit nonce that appears only in the ticket file, a matching canonical hash, a matching device id, an unexpired window, and a grantedBy that is not the local process. Guessing the id gets an attacker nothing, which is the property this rule is asking for."
+        },
+        {
+          "id": "enforces_tenant_isolation_and_object_level_authorization",
+          "status": "blocked",
+          "evidence": "There is one tenant and no object-level ownership model to enforce. Building isolation before a second identity exists produces isolation that has never separated anything.",
+          "reason": "Single tenant. No second identity exists to isolate from."
+        },
+        {
+          "id": "adds_rate_limits_quotas_and_abuse_controls",
+          "status": "blocked",
+          "evidence": "Partly present for a different reason and worth recording: orion-remote has a per-window RATE_CAP, the plugin refuses a third identical tool call in one run, and Phase 67's budgets cap tokens, model calls, tool calls and duration per day and per task. Those are runaway controls, not abuse controls — they bound one trusted user's accidents, not an adversary's deliberate load.",
+          "reason": "Runaway controls exist; abuse controls presuppose an untrusted user, and there is not one."
+        },
+        {
+          "id": "isolates_jobs_connectors_memories_and_encryption_context",
+          "status": "blocked",
+          "evidence": "Nothing is isolated because nothing is shared with anyone. The one piece that would survive into a multi-user world is the capability tier system: tiers are a closed enum and profiles are intersections, so per-user profiles are the natural shape when there is a second user.",
+          "reason": "Single user. Isolation has nothing to isolate."
+        }
+      ],
+      "nextPhaseAllowed": false
+    },
+    "84": {
+      "name": "Final ORION Mobile Product Shape",
+      "status": "not_started",
+      "entryRequiresPhase": "83",
+      "entrySatisfied": false,
+      "openedOn": "2026-09-04",
+      "openedAgainst": "Entered with entrySatisfied false. Phase 80's neighbours are open on an iOS app and on an independent review, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
+      "evidence": "Surveyed 2026-09-04. Five surfaces named; none exists as a mobile surface, and most of the DATA behind them does.",
+      "requirements": [
+        {
+          "id": "delivers_today_plan_orion_health_and_control_surfaces",
+          "status": "blocked",
+          "evidence": "No mobile app, the same wall as Phases 65, 66 and 77, parked with Nick until he is at the keyboard because adding a target changes the bundle's designated requirement. What is worth recording is how much of the CONTENT already exists and is reachable: TODAY is orion-standing plus the waiting list; PLAN is orion-agenda plus focus sessions; ORION is text and voice through the gateway and Discord; HEALTH is the health log and the Whoop client; CONTROL is orion-authority, orion-mode, orion-privacy, orion-why and orion-budget. The gap is a renderer, not a model.",
+          "reason": "No iOS app. The data behind all five surfaces exists; the surfaces do not."
+        },
+        {
+          "id": "is_not_considered_complete_merely_because_the_app_exists",
+          "status": "passed",
+          "evidence": "The manifest's own warning, and scripts/orion-readiness is the answer to it: the sixteen final conditions, each with MET, PARTLY, NOT MET or N/A YET and the evidence for the verdict. Today: 8 met, 5 partly, 1 not met, 2 not applicable yet. The one NOT MET is the iPhone as trusted approval device, which is this phase. A report that rounded 'no cloud exists' up to 'the cloud is not omnipotent' would be exactly the scoring this condition warns against."
+        }
+      ],
+      "nextPhaseAllowed": false
     }
   },
   "programCheckpoints": {
@@ -5391,6 +5521,11 @@
         "doesNotAdvanceNumberedPhase": true,
         "numberedProgramPosition": "Phases 0-32 complete; Phase 33 not started",
         "mechanicalEnforcement": "none; scripts/orion_v2_phase_gate.py reads phases records, not this object or ROADMAP_AMENDMENTS.json"
+      },
+      {
+        "on": "2026-09-04",
+        "checkpoint": "The manifest's three closing sections",
+        "detail": "The plan ends at Phase 84 and is followed by PERMANENT ARCHITECTURAL RULES, REQUIRED BUILD ORDER and FINAL SUCCESS CONDITION. None is a numbered phase and none had ever been checked. RULES: all twenty-four are now assertions in scripts/orion_v2_rules_check.py — 21 held, 2 recorded as judgement with a position rather than a score, 1 VIOLATED. It found two real problems on its first run: the installed extension shipped compiled test files carrying synthetic credential fixtures (fixed by not shipping tests, which also removed a third of the installed bytes), and the public-port assertion was too broad and flagged macOS's own AirPlay and Continuity listeners (narrowed to ORION's processes, with the OS's reported as context rather than silently excluded). BUILD ORDER: followed in substance rather than in sequence. The order assumes a backend, a database, a credential vault, account auth and a mobile shell early; none exists, and the local-first path took the same steps in a different order — capability system, policy engine and audit before any of the remote work. Recorded as a deviation rather than claimed as compliance. FINAL SUCCESS CONDITION: scripts/orion-readiness answers all sixteen. 8 met, 5 partly, 1 not met, 2 not applicable yet."
       }
     ]
   },

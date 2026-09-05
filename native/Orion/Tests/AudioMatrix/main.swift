@@ -50,6 +50,12 @@ struct Options {
     var candidates: [String] = ["A", "B", "C"]
     var playSeconds: Double = 3.0
     var captureWakeWord = true
+    /// "default" reproduces today's behaviour: capture opens on whatever the
+    /// system default input already is (the Bluetooth headset's mic, on
+    /// Nick's Mac). "builtin" is the fix under test: force the system default
+    /// input to the built-in microphone before capture opens, so the
+    /// Bluetooth link is never asked for its mic side at all.
+    var inputRoute = "default"
 }
 
 func parseOptions() -> Options {
@@ -68,6 +74,10 @@ func parseOptions() -> Options {
             options.playSeconds = seconds
         case "--no-capture":
             options.captureWakeWord = false
+        case "--input-route":
+            guard let value = arguments.first else { break }
+            arguments.removeFirst()
+            options.inputRoute = value.lowercased()
         default:
             break
         }
@@ -419,6 +429,12 @@ func settle(_ seconds: Double) {
     RunLoop.current.run(until: Date().addingTimeInterval(seconds))
 }
 
+// Tracks a "builtin-hold" override across every candidate in this run, so it
+// is applied once and restored once -- exactly the lease's real lifetime,
+// not per-utterance.
+var globalAppliedBuiltIn: AudioDeviceID?
+var globalPriorDefaultInput: AudioDeviceID?
+
 @discardableResult
 func run(candidate name: String, options: Options) -> Bool {
     print("\n=== CANDIDATE \(name) " + String(repeating: "=", count: 46))
@@ -441,6 +457,46 @@ func run(candidate name: String, options: Options) -> Bool {
     else { print("  stereo        : playing \(neighbour.format) on its own engine") }
     settle(0.4)
     log.record("1 stereo playing", engine: "neighbour \(neighbour.liveFormat())")
+
+    // Apply the input-route candidate BEFORE capture opens -- mirroring
+    // `AudioInputRouteLease.begin()` in the app, the route decision has to be
+    // made before the microphone session exists, not after. This is the
+    // measurement that tells "builtin" and "default" apart: with "default",
+    // whatever opens the mic below opens it on the Bluetooth headset, same as
+    // today's app. With "builtin", the system default input is forced to the
+    // built-in mic first, so the headset's mic side is never touched at all.
+    // "builtin" restores immediately after THIS candidate, which is what
+    // exposed the second finding (see PHASE_AUDIO_COEXISTENCE.md): restoring
+    // the default while the harness's own engine objects are merely stopped,
+    // not deallocated, re-degrades the output right after. "builtin-hold"
+    // applies the same override but leaves it in place across every
+    // candidate in this run, matching the production policy in
+    // `AudioInputRouteLease` -- restore only happens once, in `main`, after
+    // every candidate has finished, simulating Orion actually quitting.
+    var priorDefaultInputForRestore: AudioDeviceID?
+    if options.inputRoute == "builtin" || options.inputRoute == "builtin-hold" {
+        if globalAppliedBuiltIn == nil, let builtIn = HALDevice.builtInInputDeviceID() {
+            let prior = HALDevice.defaultInputID()
+            let applied = HALDevice.setDefaultInput(builtIn)
+            print("  input route   : forcing default input to built-in mic "
+                + "(\(builtIn)) -> \(applied ? "applied" : "FAILED")")
+            // MEASURED, not assumed: without a short settle here, the very
+            // next engine to start against the new default intermittently
+            // fails with CoreAudio error '!dev' (kAudioHardwareBadDeviceError)
+            // -- the property write returns before the new default has fully
+            // propagated. See PHASE_AUDIO_COEXISTENCE.md for the measurement
+            // that found this and AudioInputRouteLease.begin(), which carries
+            // the same settle for the same reason.
+            settle(0.2)
+            if applied {
+                globalAppliedBuiltIn = builtIn
+                globalPriorDefaultInput = prior
+            }
+        }
+        if options.inputRoute == "builtin" {
+            priorDefaultInputForRestore = globalPriorDefaultInput
+        }
+    }
 
     let capture = CaptureProbe()
     var captureLive = false
@@ -486,6 +542,21 @@ func run(candidate name: String, options: Options) -> Bool {
     let peak = capture.peakLevel
     capture.stop()
     neighbour.stop()
+
+    // "builtin" restores right here, per candidate -- deliberately, to
+    // demonstrate the second finding. "builtin-hold" restores only once, at
+    // the very end of `main`, matching the production policy.
+    if let prior = priorDefaultInputForRestore {
+        if HALDevice.defaultInputID() == HALDevice.builtInInputDeviceID() {
+            _ = HALDevice.setDefaultInput(prior)
+            print("  input route   : restored default input to \(prior)")
+        } else {
+            print("  input route   : default input changed during the run -- not restoring")
+        }
+        globalAppliedBuiltIn = nil
+        globalPriorDefaultInput = nil
+    }
+
     settle(0.4)
     log.record("7 all stopped")
 
@@ -558,6 +629,23 @@ if let device = HALDevice.defaultOutput() {
 var failures: [String] = []
 for name in options.candidates {
     if !run(candidate: name, options: options) { failures.append(name) }
+}
+
+// "builtin-hold" never restored between candidates -- that is the point.
+// Simulate Orion actually quitting: restore once, now, and report what
+// happens, mirroring `AudioInputRouteLease.releaseAtQuit()`.
+if options.inputRoute == "builtin-hold", let prior = globalPriorDefaultInput {
+    print("\n" + String(repeating: "-", count: 64))
+    print("simulating quit: releasing the held input-route override")
+    if HALDevice.defaultInputID() == HALDevice.builtInInputDeviceID() {
+        _ = HALDevice.setDefaultInput(prior)
+        print("  restored default input to \(prior)")
+    } else {
+        print("  default input changed during the run -- not restoring")
+    }
+    if let after = HALDevice.defaultOutput() {
+        print("  output immediately after restoring at quit: \(after.summary)")
+    }
 }
 
 print("\n" + String(repeating: "=", count: 64))

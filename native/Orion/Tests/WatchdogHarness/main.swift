@@ -49,9 +49,18 @@ func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
 // Mirrors of the values AppState passes in. Kept as literals rather than
 // imported, so that changing a tunable in the app makes this file's intent
 // visible in the diff instead of silently retargeting the test.
+//
+// thinkingCeiling was 210 here until 2026-09-05, matching the OLD
+// `VoiceTuning.absoluteThinkingCeiling` literal — which was also, not
+// coincidentally, the client's old hard read deadline: a tie, not an
+// ordering, so whichever timer's runloop got there first decided what Nick
+// saw. `VoiceTuning.absoluteThinkingCeiling` now reads `RunTimeouts.
+// watchdogCeiling` (420) instead of a literal of its own, and this mirror is
+// updated by hand to match — which is the point of keeping it a literal
+// rather than an import: the diff shows the change instead of hiding it.
 let speakingStall: TimeInterval = 12
 let speakingCeiling: TimeInterval = 300
-let thinkingCeiling: TimeInterval = 210
+let thinkingCeiling: TimeInterval = 420
 
 // MARK: - Speaking
 
@@ -114,13 +123,14 @@ do {
     */
     let watchdog = StallWatchdog(stallAfter: .infinity, ceiling: thinkingCeiling, now: t0)
     check("a 30s answer is healthy", watchdog.verdict(at: at(30)), .healthy)
-    check("a 180s answer is healthy (gateway's own timeout)", watchdog.verdict(at: at(180)), .healthy)
-    check("195s — the gateway's terminate backstop — is still healthy",
-          watchdog.verdict(at: at(195)), .healthy)
-    check("210s trips the ceiling", watchdog.verdict(at: at(210)), .overCeiling(seconds: 210))
+    check("a 180s answer is healthy (comfortably under the agent's own 300s timeout)",
+          watchdog.verdict(at: at(180)), .healthy)
+    check("320s — the client's terminate backstop — is still healthy",
+          watchdog.verdict(at: at(320)), .healthy)
+    check("420s trips the ceiling", watchdog.verdict(at: at(420)), .overCeiling(seconds: 420))
     // The point of the whole exercise: at the moment Nick gave up and
     // relaunched, the old code had done nothing and this one has recovered
-    // more than three minutes earlier.
+    // about five minutes earlier.
     check("the twelve-minute mark is long since recovered",
           watchdog.verdict(at: at(12 * 60)), .overCeiling(seconds: 720))
 }

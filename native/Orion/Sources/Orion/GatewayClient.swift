@@ -49,7 +49,14 @@ enum GatewayClient {
     // unresolved tool call.  Start the desktop app on a clean durable thread;
     // otherwise every later turn inherits that broken tool history.
     static let sessionKey = "orion-app-v2"
-    static let timeoutSeconds = 180
+
+    /// The `Process` currently blocked inside `ask`, if any, so a deliberate
+    /// user cancel (`cancelInFlight`) has something to signal. `ask` is always
+    /// called from `AppState.agentQueue`, which is serial — there is only ever
+    /// one turn in flight — but the lock costs nothing and means this file
+    /// never has to assume that stays true.
+    private static let runningProcessLock = NSLock()
+    private static var runningProcess: Process?
 
     // MARK: Reachability
 
@@ -108,7 +115,7 @@ enum GatewayClient {
             "--session-key", session,
             "--message", text,
             "--json",
-            "--timeout", String(timeoutSeconds)
+            "--timeout", String(Int(RunTimeouts.agentTimeout))
         ]
         // The CLI is a bash shim with a `/usr/bin/env` shebang. A GUI app
         // inherits a minimal environment, so give it a PATH it can resolve.
@@ -138,6 +145,18 @@ enum GatewayClient {
             throw GatewayError.failed(error.localizedDescription)
         }
 
+        // Tracked so a user-initiated cancel (`cancelInFlight`) has something
+        // to signal. Cleared unconditionally on every exit from this function,
+        // whichever path that is.
+        runningProcessLock.lock()
+        runningProcess = process
+        runningProcessLock.unlock()
+        defer {
+            runningProcessLock.lock()
+            if runningProcess === process { runningProcess = nil }
+            runningProcessLock.unlock()
+        }
+
         // Watchdog: the CLI has its own --timeout, this is the backstop for the
         // case where it wedges without honouring it.
         //
@@ -147,11 +166,16 @@ enum GatewayClient {
         // every later turn as well as this one. `.thinking` never ended and
         // Orion was deaf for twelve minutes. `AppState`'s watchdog is the floor
         // under that; this is the fix for the thing that needed a floor.
+        //
+        // The two delays below are `RunTimeouts.terminateAt` and `.killGrace`,
+        // not literals — see that file for why the three-way tie between this
+        // deadline, the config default and the app's own watchdog ceiling was
+        // the exact bug that let one failure show two different messages.
         let finished = AtomicFlag(false)
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Double(timeoutSeconds + 15)) {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + RunTimeouts.terminateAt) {
             guard !finished.value, process.isRunning else { return }
             process.terminate()
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + RunTimeouts.killGrace) {
                 guard !finished.value, process.isRunning else { return }
                 kill(process.processIdentifier, SIGKILL)
             }
@@ -183,8 +207,11 @@ enum GatewayClient {
         }
 
         // Generous: this is the backstop behind the backstop, and a slow but
-        // healthy answer must never trip it.
-        let deadline = DispatchTime.now() + .seconds(timeoutSeconds + 30)
+        // healthy answer must never trip it. `RunTimeouts.clientReadDeadline`,
+        // not a literal — it must stay comfortably past `killAt` (see that
+        // file's `violations()`), which a `timeoutSeconds + 30` literal here
+        // could silently stop being true of the moment either number moved.
+        let deadline = DispatchTime.now() + .seconds(Int(RunTimeouts.clientReadDeadline))
         let readInTime = outDrained.wait(timeout: deadline) == .success
         if !readInTime {
             finished.value = true
@@ -233,6 +260,106 @@ enum GatewayClient {
             throw GatewayError.unparseable
         }
         return GatewayReply(text: reply, elapsedMs: elapsedMs)
+    }
+
+    // MARK: Cancellation
+
+    /// Ends the in-flight `ask`, if there is one, without waiting for it.
+    ///
+    /// Before this existed, nothing could cancel `.thinking` at all: the
+    /// recovery in `AppState.recoverFromStuckThinking` only ORPHANS the call
+    /// (bumps a generation so a late answer is ignored) because it fires from
+    /// the watchdog, which cannot reach the `Process` — it only ever sees the
+    /// symptom, long after `ask` started. This is called from the user's own
+    /// cancel, which runs on the same turn and can reach it directly.
+    ///
+    /// SIGTERM first, same grace as the internal watchdog, then SIGKILL. A
+    /// grandchild holding the pipe open can still make the READ side of `ask`
+    /// take until `clientReadDeadline` to notice the process died — this
+    /// function does not wait for that, and does not need to: the caller has
+    /// already moved its own generation on, so a late return is harmless.
+    ///
+    /// Returns whether a process was actually found and signalled — false
+    /// means there was nothing in flight to cancel.
+    @discardableResult
+    static func cancelInFlight(reason: String) -> Bool {
+        runningProcessLock.lock()
+        let process = runningProcess
+        runningProcessLock.unlock()
+        guard let process, process.isRunning else { return false }
+        process.terminate()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + RunTimeouts.killGrace) {
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        }
+        return true
+    }
+
+    // MARK: Progress polling
+
+    /// One bounded page of the metadata-only audit ledger since `afterMillis`,
+    /// for `RunProgressModel` only. Never the reply path — a slow or failing
+    /// audit poll must never affect whether a turn's actual answer arrives.
+    ///
+    /// Costs 2.4-2.8s measured on this machine (`RunTimeouts.
+    /// measuredAuditInvocationCost`) — call at most once per
+    /// `RunTimeouts.auditPollInterval`, and never from the main thread.
+    ///
+    /// Returns `nil` on any failure (missing binary, non-zero exit, unparsable
+    /// output, or a poll that ran long). A missed poll just means this cycle
+    /// contributes nothing to the feed; it is never treated as a turn failure.
+    static func auditSince(_ afterMillis: Int, session: String) -> [String: Any]? {
+        guard FileManager.default.isExecutableFile(atPath: binaryPath) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binaryPath)
+        process.arguments = [
+            "audit",
+            "--session", session,
+            "--after", String(afterMillis),
+            "--json"
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        let existingPath = environment["PATH"] ?? ""
+        let required = "/usr/bin:/bin:/usr/sbin:/sbin:/Users/nickmadaio/.openclaw/bin"
+        environment["PATH"] = existingPath.isEmpty ? required : existingPath + ":" + required
+        // Deliberately NOT `GOG_KEYRING_PASSWORD`: this reads metadata only and
+        // needs no agent credential. Widening what this process gets is
+        // exactly what the hard rule about that variable exists to prevent.
+        process.environment = environment
+
+        let outPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let outBox = DataBox()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            outBox.data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
+        }
+        // Generous relative to the measured cost, but bounded: a wedged audit
+        // call must not pile up behind itself forever.
+        let deadline = DispatchTime.now() + .milliseconds(Int(RunTimeouts.measuredAuditInvocationCost * 3 * 1000))
+        guard drained.wait(timeout: deadline) == .success else {
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+
+        let text = stripANSI(String(data: outBox.data, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let jsonData = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any]
+        else { return nil }
+        return object
     }
 
     // MARK: Parsing

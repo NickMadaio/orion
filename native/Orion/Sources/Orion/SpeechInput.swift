@@ -65,6 +65,10 @@ final class SpeechInput {
 
     private var deepgram: DeepgramStream?
     private let converter = LinearPCMConverter()
+    /// Keeps the Bluetooth headset out of HFP for as long as this engine's
+    /// microphone session is open. See AudioRoute.swift for the measurement
+    /// behind why this exists and why it works the way it does.
+    private let inputRoute = AudioInputRouteLease()
     /// Audio captured before a route is settled. Replayed into whichever
     /// recogniser wins, so the fallback costs no words.
     private var replay: [AVAudioPCMBuffer] = []
@@ -419,9 +423,16 @@ final class SpeechInput {
     private func startMicrophone() -> Bool {
         if engine.isRunning && tapInstalled { return true }
 
+        // Decide the input route BEFORE reading the node's format: if output
+        // is Bluetooth, this switches the system default input to the
+        // built-in mic first, so the format read below already reflects the
+        // device we actually want, not the headset's HFP-only 16 kHz mono.
+        inputRoute.begin()
+
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
+            inputRoute.cancel()
             onError?("No microphone input is available right now.")
             return false
         }
@@ -455,6 +466,7 @@ final class SpeechInput {
         } catch {
             input.removeTap(onBus: 0)
             tapInstalled = false
+            inputRoute.cancel()
             onError?("Could not start the microphone: \(error.localizedDescription)")
             return false
         }
@@ -716,6 +728,11 @@ final class SpeechInput {
         latestText = ""
         replay.removeAll(keepingCapacity: false)
         onLevel?(0)
+        // The only point in the app's life where restoring the input route is
+        // safe: the engine is stopped above and the app is about to quit, so
+        // there is nothing left running to re-degrade the output the way a
+        // mid-session restore was measured to. See AudioRoute.swift.
+        inputRoute.releaseAtQuit()
     }
 
     private func teardownRecognisers() {
@@ -736,6 +753,11 @@ final class SpeechInput {
         }
         engine.inputNode.removeTap(onBus: 0)
         tapInstalled = false
+        // The engine is genuinely closed now (not merely between utterances
+        // with the wake word still holding it, which returned above) -- give
+        // the Bluetooth headset its input back if Orion was the one that took
+        // it away.
+        inputRoute.end()
     }
 
     private func scheduleFinal(after seconds: TimeInterval) {

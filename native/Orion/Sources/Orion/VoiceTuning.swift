@@ -126,12 +126,19 @@ enum VoiceTuning {
     ///
     /// There is no progress signal to measure here: the agent is a subprocess
     /// that says nothing until it is finished, so this is a ceiling and not a
-    /// stall timeout. It sits deliberately BEHIND the gateway's own limits
-    /// (`timeoutSeconds` 180, plus its 15s terminate backstop) so that a slow
-    /// answer and a clean gateway failure both win the race. Reaching this
-    /// number means both of those failed, which is exactly when a floor is the
-    /// only thing left.
-    static let absoluteThinkingCeiling: Double = 210
+    /// stall timeout. It sits deliberately BEHIND the gateway's own limits so
+    /// that a slow answer and a clean gateway failure both win the race.
+    /// Reaching this number means both of those failed, which is exactly when
+    /// a floor is the only thing left.
+    ///
+    /// Sourced from `RunTimeouts.watchdogCeiling` rather than a literal of its
+    /// own. It used to be a hardcoded 210 — the same 210 as the client's old
+    /// hard read deadline, a tie rather than an ordering, so whichever timer's
+    /// runloop got there first decided what Nick saw. `RunTimeouts` is now the
+    /// one place that ordering is stated and checked; duplicating the number
+    /// here would just reopen the same race the day someone changes one of
+    /// them without the other.
+    static let absoluteThinkingCeiling: Double = RunTimeouts.watchdogCeiling
 
     // MARK: - Reading back
 

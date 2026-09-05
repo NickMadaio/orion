@@ -64,6 +64,16 @@ final class AppState: ObservableObject {
     @Published private(set) var heard = ""
     @Published var composer = ""
 
+    /// What Nick sees while `.thinking` runs — see `RunProgressModel`. Starts
+    /// with the synthetic first line the moment a turn begins and is replaced
+    /// wholesale by the next turn; it is a live status feed, not transcript
+    /// history, so it is never appended to `turns`.
+    @Published private(set) var thinkingFeed: [String] = []
+    /// Seconds since the current `.thinking` phase began. The visible timer
+    /// Nick asked for — so a slow answer reads as "36s and counting", not a
+    /// silence indistinguishable from a stall.
+    @Published private(set) var thinkingElapsedSeconds: Int = 0
+
     /// Bumped every time a window wants the caret back in the composer.
     /// A counter rather than a Bool: clicking the menu bar twice should focus
     /// twice, and a Bool that is already `true` publishes no change.
@@ -184,7 +194,8 @@ final class AppState: ObservableObject {
     private lazy var audioCoordinator = AudioCoordinator(
         clips: clipPlayer,
         setClipVolume: { [weak self] value in self?.clipPlayer.volume = value },
-        currentClipVolume: { [weak self] in self?.clipPlayer.volume ?? 0 }
+        currentClipVolume: { [weak self] in self?.clipPlayer.volume ?? 0 },
+        music: musicControl
     )
 
     private lazy var sessionEffects = SessionEffects(
@@ -263,10 +274,29 @@ final class AppState: ObservableObject {
     private let wakeWord = WakeWordListener()
     private let statusQueue = DispatchQueue(label: "com.nickmadaio.orion.status")
     private let agentQueue = DispatchQueue(label: "com.nickmadaio.orion.agent")
+    /// Separate from `agentQueue` on purpose: that queue is where the blocking
+    /// `GatewayClient.ask` call sits for the whole turn, so anything that must
+    /// run WHILE it is blocked — polling `openclaw audit` for the progress
+    /// feed — needs its own queue or it would simply never run until the turn
+    /// it is supposed to be describing has already ended.
+    private let auditQueue = DispatchQueue(label: "com.nickmadaio.orion.audit-poll", qos: .utility)
 
     private var statusTimer: Timer?
     private var permissionTimer: Timer?
     private var askGeneration = 0
+
+    /// The feed for the turn currently in flight, or nil when nothing is
+    /// running. See `RunProgressModel`.
+    private var runProgress: RunProgressModel?
+    /// Drives `thinkingFeed` / `thinkingElapsedSeconds` at 1Hz and checks
+    /// `isWedged`. Independent of the audit poll's own cadence, so the visible
+    /// elapsed timer never stalls waiting on a slow `openclaw audit` call.
+    private var progressTickTimer: Timer?
+    /// Bumped on every stop/restart of polling so a poll callback that is
+    /// still in flight when the turn ends (or a new one starts) finds itself
+    /// orphaned and does nothing, rather than writing into the wrong turn's
+    /// feed.
+    private var auditPollGeneration = 0
 
     /// A turn started by the wake word rather than by a held key: nothing will
     /// tell us when the user stopped talking, so silence has to.
@@ -316,6 +346,10 @@ final class AppState: ObservableObject {
     /// Whether the phase we are leaving was `.listening`, so ducking is
     /// restored exactly once.
     private var phaseWasListening = false
+    /// Whether the phase we are leaving counted as being mid-exchange —
+    /// listening, thinking, or speaking — so the media duck spans all three
+    /// and releases exactly once, back at idle.
+    private var phaseWasActive = false
 
     private static let qualityKey = "OrionHologramQuality"
 
@@ -570,8 +604,11 @@ final class AppState: ObservableObject {
 
     func shutDown() {
         // Non-negotiable: quitting while ducked would leave his music quiet with
-        // no obvious cause and nothing left running to explain it.
-        AudioDucking.restore()
+        // no obvious cause and nothing left running to explain it. Unconditional
+        // restore, paired with `audioCoordinator.reset()` below for the Music/
+        // clip half — together, per that file's own doc comment, "restore audio
+        // now".
+        AudioDucking.restoreSystemVolumeNow()
         reminders.stop()
         statusTimer?.invalidate()
         permissionTimer?.invalidate()
@@ -981,11 +1018,22 @@ final class AppState: ObservableObject {
         // `beginListening` so that every exit path -- silence, escape, error,
         // the key coming up -- restores the volume without having to remember to.
         if next == .listening {
-            AudioDucking.duck()
+            AudioDucking.beginListeningFallback()
         } else if phaseWasListening {
-            AudioDucking.restore()
+            AudioDucking.endListeningFallback()
         }
         phaseWasListening = next == .listening
+        // The media duck spans the WHOLE exchange — listening, thinking AND
+        // speaking — releasing only when the conversation returns to idle or
+        // errors out. This is the fix for the music coming back up while Orion
+        // is still mid-reply, which is the worst possible moment for it.
+        let phaseIsActive = next == .listening || next == .thinking || next == .speaking
+        if phaseIsActive, !phaseWasActive {
+            audioCoordinator.beginConversation()
+        } else if !phaseIsActive, phaseWasActive {
+            audioCoordinator.endConversation()
+        }
+        phaseWasActive = phaseIsActive
         // Deaf unless idle. This is what stops Orion waking itself: while it is
         // speaking, its own voice is in the room and on the tap, and "Orion" is
         // a word it says. Suspension tears the recognition window down rather
@@ -1139,6 +1187,7 @@ final class AppState: ObservableObject {
     /// difference between "still working" and "that one is gone, ask again".
     private func recoverFromStuckThinking(reason: String) {
         disarmWatchdog()
+        stopProgressPolling()
         OrionLog.write("[think] watchdog recovered a stuck thinking phase — \(reason)")
         askGeneration += 1
         setPhase(.idle)
@@ -1359,6 +1408,41 @@ final class AppState: ObservableObject {
         if phase == .speaking {
             setPhase(.idle)
             statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Stopped"
+        } else if phase == .thinking {
+            cancelThinking(reason: "user cancelled")
+        }
+    }
+
+    /// Stop waiting on the current turn, deliberately, right now.
+    ///
+    /// Before this existed there was no way to do this at all: the ONLY thing
+    /// that could end `.thinking` early was `recoverFromStuckThinking`, which
+    /// only fires after `RunTimeouts.watchdogCeiling` because a watchdog
+    /// cannot tell "wedged" from "slow but working" — it has to wait long
+    /// enough to stop caring about the difference. A user pressing cancel is
+    /// not guessing; they mean it now.
+    ///
+    /// Two things happen on two different clocks, deliberately:
+    ///   - the UI: generation bumped, watchdog and progress polling torn down,
+    ///     phase back to idle. Synchronous, so this is the part that lands
+    ///     within about a second — what "cancelled" has to mean to Nick.
+    ///   - the subprocess: `GatewayClient.cancelInFlight` SIGTERMs then
+    ///     SIGKILLs it on a background queue. That can take longer if a
+    ///     grandchild is holding its pipe open (the 2026-08-12 shape), which is
+    ///     fine — nothing in the app is waiting on it any more, because the
+    ///     generation bump already orphaned `send(_:)`'s completion handler.
+    private func cancelThinking(reason: String) {
+        guard phase == .thinking else { return }
+        disarmWatchdog()
+        runProgress?.recordUserCancelled(at: Date())
+        stopProgressPolling()
+        askGeneration += 1
+        OrionLog.write("[think] cancelled by user — \(reason)")
+        setPhase(.idle)
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        append(.system, "Cancelled — stopped waiting for that one. (Anything it already started may still finish in the background.)")
+        agentQueue.async {
+            _ = GatewayClient.cancelInFlight(reason: reason)
         }
     }
 
@@ -1379,6 +1463,16 @@ final class AppState: ObservableObject {
         let generation = askGeneration
         let request = agentRequest(userText: text)
 
+        let turnStartedAt = Date()
+        runProgress = RunProgressModel(now: turnStartedAt)
+        thinkingFeed = [RunProgressModel.syntheticFirstLine]
+        thinkingElapsedSeconds = 0
+        startProgressPolling(
+            generation: generation,
+            session: GatewayClient.sessionKey,
+            sinceMillis: Int(turnStartedAt.timeIntervalSince1970 * 1000)
+        )
+
         agentQueue.async { [weak self] in
             let result: Result<GatewayReply, Error>
             do {
@@ -1388,15 +1482,101 @@ final class AppState: ObservableObject {
             }
             DispatchQueue.main.async {
                 guard let self, self.askGeneration == generation else { return }
+                self.runProgress?.markCallReturned(at: Date())
+                self.stopProgressPolling()
                 switch result {
                 case .success(let reply):
                     self.deliver(reply)
                 case .failure(let error):
                     let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                    self.fail(message)
+                    self.failThinking(message)
                 }
             }
         }
+    }
+
+    // MARK: The progress feed
+
+    /// Starts the 1Hz UI tick and the first audit poll for this turn. Every
+    /// closure below is generation-gated: a callback that lands after the turn
+    /// ended (success, failure, cancel, or the outer watchdog) finds its
+    /// generation stale and does nothing, so it can never write into a later
+    /// turn's feed.
+    private func startProgressPolling(generation: Int, session: String, sinceMillis: Int) {
+        progressTickTimer?.invalidate()
+        auditPollGeneration += 1
+        let pollId = auditPollGeneration
+
+        progressTickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.tickProgress(generation: generation)
+        }
+        pollAuditOnce(generation: generation, pollId: pollId, session: session, sinceMillis: sinceMillis)
+    }
+
+    /// The 1Hz half of the feed: the elapsed timer, the honest silence line,
+    /// and the wedge check — none of which need to wait on a slow audit call,
+    /// which is exactly why they are driven separately from it.
+    private func tickProgress(generation: Int) {
+        guard askGeneration == generation, let progress = runProgress else { return }
+        let now = Date()
+        thinkingFeed = progress.visibleLines(at: now)
+        thinkingElapsedSeconds = Int(progress.elapsed(at: now))
+        if let latest = thinkingFeed.last { statusLine = latest }
+        if progress.isWedged(at: now) {
+            // The 2026-08-12 signature, via the honest channel: audit already
+            // says the run is over, and `GatewayClient.ask` still has not
+            // returned. No reason to wait out `RunTimeouts.watchdogCeiling`,
+            // which exists for the case where audit cannot say anything at
+            // all — this case, audit already said something.
+            recoverFromStuckThinking(
+                reason: "audit reported the run finished \(Int(RunTimeouts.wedgeGraceAfterRunEnd))s ago; the subprocess is wedged on its pipe"
+            )
+        }
+    }
+
+    /// One `openclaw audit` round trip, off the main thread, feeding whatever
+    /// it finds back into `runProgress` and scheduling the next one
+    /// `RunTimeouts.auditPollInterval` after THIS one returns — never on a
+    /// fixed cadence regardless of how long the call itself took, which is
+    /// what would let slow polls queue up behind each other.
+    private func pollAuditOnce(generation: Int, pollId: Int, session: String, sinceMillis: Int) {
+        auditQueue.async { [weak self] in
+            let page = GatewayClient.auditSince(sinceMillis, session: session)
+            let records = page.map { RunProgressModel.parseAuditPage($0) } ?? []
+            DispatchQueue.main.async {
+                guard let self, self.askGeneration == generation, self.auditPollGeneration == pollId else { return }
+                self.runProgress?.ingest(records, at: Date())
+                DispatchQueue.main.asyncAfter(deadline: .now() + RunTimeouts.auditPollInterval) { [weak self] in
+                    guard let self, self.askGeneration == generation, self.auditPollGeneration == pollId else { return }
+                    self.pollAuditOnce(generation: generation, pollId: pollId, session: session, sinceMillis: sinceMillis)
+                }
+            }
+        }
+    }
+
+    private func stopProgressPolling() {
+        progressTickTimer?.invalidate()
+        progressTickTimer = nil
+        auditPollGeneration += 1 // orphans any poll callback already in flight
+    }
+
+    /// A failed turn names the stage and how long it ran, with whatever the
+    /// feed had already seen — not just "the agent did not answer". Nick's own
+    /// words: "i cant tell if hes actually working... or if hes timing out".
+    /// The raw gateway message alone answers that no better than silence did;
+    /// the elapsed time and the last thing actually observed are the part he
+    /// is owed.
+    private func failThinking(_ rawMessage: String) {
+        let now = Date()
+        let elapsed = runProgress.map { Int($0.elapsed(at: now)) }
+        let lastSeen = runProgress?.visibleLines(at: now).last
+        var parts: [String] = []
+        if let elapsed { parts.append("Thinking stalled after \(elapsed)s.") }
+        parts.append(rawMessage)
+        if let lastSeen, lastSeen != RunProgressModel.syntheticFirstLine {
+            parts.append("Last seen: \(lastSeen)")
+        }
+        fail(parts.joined(separator: " "))
     }
 
     /// Every desktop turn carries a compact, app-supplied snapshot of the

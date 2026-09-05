@@ -15,6 +15,16 @@
 #   ./Tests/run-audio-matrix.sh --candidate A        just the current graph
 #   ./Tests/run-audio-matrix.sh --seconds 8          longer playback window
 #   ./Tests/run-audio-matrix.sh --no-capture         skip the microphone
+#   ./Tests/run-audio-matrix.sh --input-route builtin
+#                                                     force capture onto the
+#                                                     built-in mic instead of
+#                                                     the system default,
+#                                                     mirroring the fix in
+#                                                     AudioInputRouteLease.
+#                                                     Compare its OUTPUT
+#                                                     column against a
+#                                                     --input-route default
+#                                                     run on the same Mac.
 #
 # IT MAKES NOISE, deliberately: a 440/880 Hz stereo pair and a voice-shaped tone.
 # Run it with the speakers audible — the device numbers are the evidence, but

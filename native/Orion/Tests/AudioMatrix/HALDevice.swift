@@ -103,6 +103,94 @@ enum HALDevice {
         return input == output
     }
 
+    // MARK: Route control — added for the built-in-mic candidate.
+    //
+    // The claim under test here is the SECOND half of the hypothesis: not
+    // just "does opening the mic degrade the output" (proven by candidates
+    // A/B/C below with no route override) but "does keeping capture OFF the
+    // Bluetooth link entirely — on the built-in mic instead — actually avoid
+    // that degradation". Two mechanisms were tried and measured; only one
+    // holds. See AudioRoute.swift in Sources/Orion for the full account
+    // (that file cannot be imported here — this harness compiles standalone
+    // with swiftc against the real app sources it duplicates, per the
+    // Package.swift note on why Tests/ holds its own harnesses).
+    //
+    //   1. `AudioUnitSetProperty(..., kAudioOutputUnitProperty_CurrentDevice, ...)`
+    //      directly on the input node's AudioUnit. Read back immediately
+    //      after setting it, it reports the requested device — but
+    //      `AVAudioEngine` re-asserts the system default onto its own input
+    //      unit within about a second of `start()`, silently reverting it.
+    //   2. Changing the MACHINE-WIDE default input device
+    //      (`kAudioHardwarePropertyDefaultInputDevice`) before the engine
+    //      starts. This holds: once the built-in mic genuinely IS the
+    //      default, there is nothing for AVAudioEngine to "correct" back to.
+    //
+    // This harness therefore tests mechanism 2, at the system level, exactly
+    // as `AudioInputRouteLease` does in the app.
+
+    static func transportType(of id: AudioDeviceID) -> UInt32 {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        _ = AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value)
+        return value
+    }
+
+    static func isBluetooth(_ id: AudioDeviceID) -> Bool {
+        let transport = transportType(of: id)
+        return transport == kAudioDeviceTransportTypeBluetooth
+            || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    private static func allDeviceIDs() -> [AudioDeviceID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size
+        ) == noErr else { return [] }
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        var ids = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids
+        ) == noErr else { return [] }
+        return ids
+    }
+
+    /// The first built-in device with an input — the MacBook's own mic.
+    static func builtInInputDeviceID() -> AudioDeviceID? {
+        allDeviceIDs().first {
+            transportType(of: $0) == kAudioDeviceTransportTypeBuiltIn
+                && channels(of: $0, scope: kAudioObjectPropertyScopeInput) > 0
+        }
+    }
+
+    /// Changes the MACHINE-WIDE default input device. Read-only elsewhere in
+    /// this file; this is the one property this harness actually sets, and
+    /// only under `--input-route builtin`, always restored at the end of the
+    /// run this file's `main.swift` performs the override in.
+    @discardableResult
+    static func setDefaultInput(_ id: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var mutableID = id
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &mutableID
+        )
+        return status == noErr
+    }
+
     static func read(_ id: AudioDeviceID) -> DeviceReading {
         DeviceReading(
             deviceID: id,

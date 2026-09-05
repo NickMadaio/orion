@@ -518,6 +518,23 @@ async function askBrain(text) {
     if (/already running|busy/i.test(detail)) {
       return { ok: false, reply: "You have a turn running at the Mac — give it a moment and send that again.", runId: null };
     }
+    /*
+     A hard exec failure -- the CLI call itself crashed, or ran past the
+     120-second safety net past its own --timeout -- rejects with Node's own
+     "Command failed: <node path> <openclaw path> agent --session-key
+     orion-app-v2 --timeout 90 --json --message-file <path>". Before this, that
+     string went straight into the Discord reply: this Mac's absolute paths,
+     the live session key and the message-file location, in a DM, on every
+     crash. Found auditing the Discord path 2026-09-05.
+
+     `error.killed` is set whenever execFile's own timeout fired, which is the
+     other shape this same leak takes without the words "Command failed" in
+     it. Both are exec failing outright, not the brain answering -- there is no
+     summary to relay, only argv to hide.
+    */
+    if (error?.killed || /^Command failed:/.test(detail)) {
+      return { ok: false, reply: "Orion is taking too long to answer — try again in a moment.", runId: null };
+    }
     return { ok: false, reply: `Orion could not answer: ${detail.split("\n")[0].slice(0, 140)}`, runId: null };
   } finally {
     await rm(file, { force: true });

@@ -1,5 +1,118 @@
 # HANDOFF
 
+## 2026-09-05 03:19 — Discord dispatch audit: connected and working; one leak found and fixed, not yet deployed
+
+Scoped task: verify and repair the Discord remote path only (Nick's #1
+priority — "make sure dispatch and texting orion from discord work"). Did
+not touch `native/Orion/` or `openclaw-plugins/orion-control/src/` — two
+other agents own those this session; their in-progress edits are visible in
+`git status` and untouched here. Full detail, every command and output, in
+`planning/v2/REMOTE_DISPATCH_AUDIT_2026-09-05.md`. Short version:
+
+**State found.** The launchd bridge (pid 46201) was connected, `presence:
+online`, current gateway session stable since 01:08 EDT with zero failed
+attempts — proven live, not assumed, via `remote-link.json` and
+`orion-remote-bridge status`. `~/Library/Logs/orion/remote-bridge.log` has
+**no timestamps at all** — every `say()`/`warn()` line is bare
+`console.log`/`console.error` — so reconnect frequency (36 socket errors, 36
+session invalidations, 18 Discord-initiated reconnects logged) could not be
+correlated to wall-clock time. Read the backoff code
+(`orion-remote-bridge:513-521`): Discord-initiated reconnects (op 7) reset
+the failure counter and retry with 0ms delay by design, which is correct,
+not a bug — but the log's missing timestamps make that hard for anyone to
+confirm after the fact. Not fixed (see below).
+
+The 2026-09-02 addendum's "concurrent uncommitted `orion-remote` edit"
+(higher rate cap, bare-verb-to-brain fallthrough, fabricated-approval-id
+refusal) worried it might have been lost. `git log -p` shows it landed in
+commit `80a6e46`, **one minute after** the addendum was written (another
+instance of the "handoff date lies" pattern) — all three are live in the
+current file, verified against the tree, not assumed from the commit
+message.
+
+**What changed and why.** `askBrain()`'s catch-all branch
+(`scripts/orion-remote`) replied with execFile's own `"Command failed: <node
+path> <openclaw path> agent --session-key orion-app-v2 ..."` on any hard
+CLI failure (crash, or the exec-level timeout past the agent's own
+`--timeout`) — leaking this Mac's absolute paths and the live session key
+into a Discord DM. The far more likely "provider overloaded" case (a
+structural `status:"error"` envelope from `openclaw agent` itself) was
+already clean (`"Orion did not finish: provider overloaded (529)"`) and is
+now pinned by a regression test so it can't regress alongside the fix.
+Fixed: a hard exec failure (`error.killed`, or a message starting `Command
+failed:`) now replies `"Orion is taking too long to answer — try again in a
+moment."` instead.
+
+Also measured, not just read: `RATE_CAP = 40` per sender per 10-minute
+window — sending 41 messages rapid-fire, message 41 was the first refusal.
+That is one message every 15 seconds sustained; a person texting at normal
+pace will not hit it.
+
+**Verification.** TDD with mutation proof (test names in
+`scripts/orion_v2_remote_check.sh`): added the leak-detection assertion
+first, confirmed it failed with the actual leaking message
+(`Orion could not answer: Command failed: /var/.../crash-brain.sh agent
+--session-key orion-app-v2 --timeout 90`), implemented the fix, confirmed
+green, then re-broke it by wrapping the fix in `if (false && ...)` to
+confirm the *same* named assertion fails identically before restoring.
+Also newly proved (all now permanent checks, not just this session's
+scratch commands): a non-allowlisted sender gets silence and never reaches
+`askBrain` (proven by name, `an-attacker-9999`); a replayed envelope id is
+refused on its second delivery with exactly one reply in the outbox, not
+two; `approve` from a `local` sender is still refused at **two** independent
+layers (`orion-remote` itself, and the plugin's `approvals.js:209`
+regardless); a fabricated but correctly-shaped gate approval ID
+(`A-9999`) is refused with zero side effect against the real approval
+store (confirmed no grant file written). `bash
+scripts/orion_v2_remote_check.sh`: 49 ok / 0 FAIL (was 46/0 before this
+session's three new checks).
+
+**`files desktop` through the installed launchd bridge** — the addendum's
+one specifically-unproven item — proved via the same `inject`→`poll`→
+outbox-by-envelopeId sequence `orion-remote-bridge`'s `dispatch()` itself
+uses, run against the **installed** copy with the real allowlisted sender,
+without sending anything to actual Discord: queued, polled, correct
+27-item Desktop listing (names/sizes/dates only) landed in `outbox.jsonl`
+keyed by the exact envelope id. What is *not* proven is the last hop —
+`dispatch()`'s caller POSTing that text to Discord's REST API and it
+rendering on Nick's phone — which needs either a real inbound DM from him
+or trust in `send()`'s six lines, which I read but did not execute.
+
+**Live/installed state.** The running bridge (pid 46201) is still on the
+**pre-fix** code — I fixed the repo (`scripts/orion-remote`) but did
+**not** run `scripts/orion-remote-install`, because that reloads the live
+launchd job (kills and restarts the one currently-stable Discord
+connection), and `CLAUDE.md` reserves restarts/installations as needing
+their own authorization beyond this task's standing checkpoint
+authorization:
+
+```
+$ bash scripts/orion-remote-install --status
+  installed  [00f709fa5d64]   repo  [6194c553b123]
+  DRIFTED — the running copy is not the repo copy. Re-run this script.
+```
+
+**Rollback path.** Everything is uncommitted in the working tree (per this
+task's instructions — the moderator commits). `git diff -- scripts/orion-remote
+scripts/orion_v2_remote_check.sh` shows the full change; reverting either
+file is a plain `git checkout` of those two paths (not run by me — rule
+against `git checkout` in this session). No live state was mutated except
+appending to `~/.openclaw/orion-controlled/{remote-audit.jsonl,outbox.jsonl,
+inbox.jsonl,remote-inbound.json}` by exactly one `files desktop` test
+envelope each (auditable, timestamped, attributed to the real allowlisted
+sender id, used deliberately to prove the installed-bridge round trip —
+see the audit report for the exact lines added).
+
+**Exact next step.** (1) Nick (or whoever he tells to) runs `bash
+scripts/orion-remote-install`, confirms `--status` shows matching
+fingerprints, and sends one real Discord DM to confirm the round trip and
+close the addendum's last open item. (2) Whoever picks up reconnect-log
+work should add timestamps to `orion-remote-bridge`'s `say()`/`warn()` — I
+found no safe way to unit-test that change without either mocking the
+gateway socket or restarting the live bridge, so I left it as a documented
+finding rather than an unverified repair. Needs: `scripts/orion-remote-bridge`,
+`~/Library/Logs/orion/remote-bridge.log`.
+
 ## 2026-09-02 18:50 — The manifest was amended; stopped at Phase 50
 
 ### The manifest changed, and that is not tampering

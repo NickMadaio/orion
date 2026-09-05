@@ -176,13 +176,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// all -- the only way out was the menu-bar menu, which is not where anyone
     /// looks. Driven from one place so no future path can forget it.
     private func refreshEscapeWatch() {
+        // `.thinking` belongs here as much as `.speaking` does. Escape during a
+        // long turn used to reach `handleEscape()` only if the panel happened to
+        // be open, which meant the one moment Nick most wants a way out -- a
+        // turn that has been running for a minute with no way to tell whether it
+        // is working or wedged -- was the one moment the key did nothing.
         pushToTalk.setGlobalEscapeWatch(
-            panelController.isVisible || state.phase == .speaking
+            panelController.isVisible || state.phase == .speaking || state.phase == .thinking
         )
     }
 
     private func handleEscape() {
-        if state.phase == .speaking {
+        // `bargeIn()` sorts the two cases itself: it stops the voice when Orion
+        // is speaking and cancels the turn when he is thinking. Both are "stop",
+        // which is the only thing Escape has ever meant.
+        if state.phase == .speaking || state.phase == .thinking {
             state.bargeIn()
             return
         }

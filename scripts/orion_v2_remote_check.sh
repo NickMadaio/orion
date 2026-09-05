@@ -331,6 +331,60 @@ echo "$(remote handle 'device' --from local)" | grep -q "Orion | DEVICE"
 check $? "and accepts it again once released"
 
 echo ""
+echo "== the conversational rate cap is 40, and a person texting normally cannot reach it =="
+# Empirically measured 2026-09-05, not just read from the constant: 40 calls to
+# a non-brain verb from one sender all succeed, and the 41st is refused. Ten
+# minutes at forty messages is one every fifteen seconds sustained -- far
+# faster than a person actually types -- so this is a runaway-loop brake, not a
+# conversation limit, which was the whole point of raising it from twelve.
+rm -f "$CTRL/inbox.jsonl" "$CTRL/remote-inbound.json"
+rate_hit=""
+for i in $(seq 1 41); do
+    OUT="$(ALLOW="local,ratecapper" remote handle 'device' --from ratecapper)"
+    if echo "$OUT" | grep -q "too many commands"; then rate_hit="$i"; break; fi
+done
+[ "$rate_hit" = "41" ]
+check $? "message 41 is the first one rate-limited, not earlier and not later (got: ${rate_hit:-none in 41})"
+rm -f "$CTRL/inbox.jsonl" "$CTRL/remote-inbound.json"
+
+echo ""
+echo "== a broken brain still answers with a plain sentence, never silence or a raw command line =="
+# What prompted this: askBrain()'s catch-all branch replies with
+# execFile's own failure message verbatim. That message is
+# \"Command failed: <node path> <openclaw path> agent --session-key ... \"
+# -- this Mac's absolute paths and the live session key, in a Discord DM, on
+# every crash or hard timeout of the underlying CLI call. Found while auditing
+# the Discord path 2026-09-05 (Nick's #1 priority: "make sure dispatch and
+# texting orion from discord work").
+CRASH_STUB="$SANDBOX/crash-brain.sh"
+cat > "$CRASH_STUB" <<'SH'
+#!/bin/bash
+exit 124
+SH
+chmod +x "$CRASH_STUB"
+CRASHED="$(HOME="$SANDBOX" ORION_REMOTE_ALLOW=local ORION_BRAIN_BIN="$CRASH_STUB" "$NODE" "$REMOTE" handle 'what is the weather' --from local 2>&1)"
+echo "$CRASHED" | grep -qE "^Orion (could not answer|is taking too long)"
+check $? "a crashed/timed-out brain call still answers in one sentence (said: $CRASHED)"
+if echo "$CRASHED" | grep -qE '\.sh|/private/|node-v[0-9]|Command failed|session-key'; then
+    check 1 "and the sentence never leaks this Mac's file paths, the exec command, or the session key"
+else
+    check 0 "and the sentence never leaks this Mac's file paths, the exec command, or the session key"
+fi
+
+# The structural case -- openclaw itself reports the overload/timeout rather
+# than the CLI call crashing -- was already right. Pinned here so it cannot
+# regress alongside the fix above.
+OVERLOAD_STUB="$SANDBOX/overload-brain.sh"
+cat > "$OVERLOAD_STUB" <<'SH'
+#!/bin/bash
+echo '{"runId":"run-overload","status":"error","summary":"provider overloaded (529)"}'
+SH
+chmod +x "$OVERLOAD_STUB"
+OVERLOADED="$(HOME="$SANDBOX" ORION_REMOTE_ALLOW=local ORION_BRAIN_BIN="$OVERLOAD_STUB" "$NODE" "$REMOTE" handle 'what is the weather' --from local 2>&1)"
+echo "$OVERLOADED" | grep -q "Orion did not finish: provider overloaded"
+check $? "and a structurally-reported provider overload names it in a plain sentence too"
+
+echo ""
 echo "== the live system was not touched =="
 live_after=""
 [ -f "$LIVE_STATE" ] && live_after="$(shasum -a 256 "$LIVE_STATE" | cut -d' ' -f1)"

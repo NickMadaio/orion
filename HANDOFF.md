@@ -1639,3 +1639,51 @@ mutation-verified.
 **Phase 75 is closed and all 24 architectural rules now hold** (22 held, 2
 judgement, 0 violated) — because the review happened, not because anything was
 written down.
+
+---
+
+## 2026-09-04 — audit of planning/v2
+
+**Verified first:** the manifest has 85 `# PHASE` headings (0–84), the last is
+84, and the three closing sections follow it. `PHASE_GATES.json` records all 85
+with none missing and none invented past 84. 60 are closed.
+
+**Nothing in `planning/v2` turned out to be unneeded.** Every JSON in it is read
+by live code or tests — `capability-registry.json` by four scripts and five test
+modules, `secret-scan-allowlist.json` by six, `model-roles.seed.json` by five,
+and so on down. The 32 `PHASE_N_PLAN.md` files are referenced only by other
+planning docs, but they are the design record for the phases they cover and
+deleting them would lose the reasoning, which is the one thing this repo is
+built to keep. No tracked `.bak`, `.tmp`, `.orig` or duplicate files exist.
+
+**What the audit did find was drift, not clutter.**
+
+**Two checks had been failing silently since Phase 51.** Adding five capability
+tiers across phases 51–78 drifted `capability-registry.json` and the Python
+policy engine's tier tables. Both checks *correctly refused to classify a tier
+nobody had recorded* — `orion_v2_build_capability_registry.py` raised rather
+than guessing a domain, and `orion/security/risk.py` raised `UnknownTier`
+rather than defaulting. **But nothing ran them**, so nobody heard. A check that
+exists and is never run is a check that is not there.
+
+Fixed: registry rules and effect mappings for the five new tiers, tier reach and
+profile membership in the Python engine, registry regenerated (101 actions), and
+**the whole read-only Python contract suite wired into `orion_v2_ci_check.sh`
+and the workflow** so this cannot recur unheard. `dev_operations` is graded R5
+alongside the `self_*` family, not R1 with the filesystem tiers — it executes
+code out of a repository, and grading it by the paths involved would be wrong
+about the four operations that are not reads.
+
+**The secret inventory was missing a credential.** The reviewer's Phase 71 note
+was right: `socket.token` in `exec-approvals.json` was in no inventory. A file
+whose whole job is to say where the credentials are was missing one — and that
+is the same token `orion-backup` was staging in the clear. Now listed, with a
+pointer to why the backup redacts it rather than excluding the file.
+
+**`planning/v2/HANDOFF.md` was stale and pointed at as current.** It ends
+2026-09-01 at Phase 33; AGENTS.md told the next agent to read it for v2 work. It
+is not a duplicate of the root handoff — they do not overlap, and it holds the
+only account of phases 1–33 — so it is marked CLOSED at the top with a forward
+pointer, and AGENTS.md now says which one is live. That is the rule AGENTS.md
+already states, applied to itself: a handoff's date is when it was written, not
+when the work stopped.

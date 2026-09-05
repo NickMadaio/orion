@@ -63,6 +63,26 @@ TIER_REACH = {
     "self_plugin": RiskLevel.R5,
     "self_scripts": RiskLevel.R5,
     "self_config": RiskLevel.R5,
+    # Added 2026-09-04 for the five tiers phases 51-78 introduced. The engine
+    # refused to classify them rather than defaulting, which is how the drift
+    # was found — a default here would have silently graded a tier nobody had
+    # thought about.
+    #
+    # Local, reversible: these write one JSON file Orion owns and reach nothing
+    # the user did not already have.
+    "waiting_on": RiskLevel.R1,
+    "automation": RiskLevel.R1,
+    "travel": RiskLevel.R1,
+    # A prep card only reads — mail, the brain, the calendar — and writes
+    # nothing at all. It sits with the other observation tiers.
+    "prep": RiskLevel.R0,
+    # R5, alongside the self_* family rather than with the filesystem tiers.
+    # `tests_run`, `build_run` and `package_install` execute code out of a
+    # repository and `git_pull` can bring in a hook, so the reach is "whatever
+    # that repository does" — which is the same reach self_scripts has. Grading
+    # it by the paths involved would put it at R1 and be wrong about the four
+    # operations that are not reads.
+    "dev_operations": RiskLevel.R5,
 }
 
 #: The catalog's severity word as a floor. Severity and reach are different
@@ -79,7 +99,9 @@ SEVERITY_FLOOR = {
 #: moves or sends things it would quietly lower a destructive capability, and the
 #: parity check would not notice, because being LESS strict than the tier while
 #: still matching the live gate is exactly what it permits.
-NEVER_DEMOTED_TIERS = frozenset({"file_mutate", "messages_send", "self_modification"})
+NEVER_DEMOTED_TIERS = frozenset(
+    {"file_mutate", "messages_send", "self_modification", "dev_operations"}
+)
 
 #: Tiers whose actions touch nothing the user owns. An irreversible action here
 #: is a closed browser tab, not lost data, so the destructive rule below does

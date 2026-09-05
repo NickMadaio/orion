@@ -107,9 +107,15 @@ def build_inventory(repo: Path, home: Path) -> dict[str, Any]:
     env_path = repo / ".env"
     saved_path = repo / ".env.save"
     openclaw_path = home / ".openclaw/openclaw.json"
+    # Added 2026-09-04. An oblivious review found a live 32-character token at
+    # `socket.token` in exec-approvals.json, which this inventory did not know
+    # existed — so a file whose whole job is to say where the credentials are
+    # was missing one, and `orion-backup` was staging it in the clear.
+    approvals_path = home / ".openclaw/exec-approvals.json"
     env = read_dotenv(env_path)
     saved = read_dotenv(saved_path)
     openclaw = read_json(openclaw_path)
+    approvals = read_json(approvals_path)
 
     files = [
         {
@@ -134,6 +140,23 @@ def build_inventory(repo: Path, home: Path) -> dict[str, Any]:
                 {"field": path, "storage": storage_kind(nested_value(openclaw, path))}
                 for path in OPENCLAW_SECRET_PATHS
             ],
+        },
+        {
+            "location": "home:.openclaw/exec-approvals.json",
+            "exists": approvals_path.exists(),
+            "mode": file_mode(approvals_path),
+            "secretFields": [
+                {
+                    "field": "socket.token",
+                    "storage": storage_kind(nested_value(approvals, "socket.token")),
+                }
+            ],
+            "note": (
+                "The gateway control socket token. The exec ALLOWLIST lives in the same "
+                "file and is the most important thing to restore, so orion-backup keeps "
+                "the file and redacts this value rather than excluding the file — see "
+                "orion-backup --secrets item 5."
+            ),
         },
     ]
     env_anthropic = env.get("ANTHROPIC_API_KEY")

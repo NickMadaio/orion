@@ -132,6 +132,19 @@ jobs:
         continue-on-error: true
         run: python3 scripts/orion_v2_workflow_check.py
 
+      - name: v2 contract checks
+        # Two of these had been failing silently since Phase 51 because nothing
+        # ran them: adding capability tiers drifted the registry and the Python
+        # policy engine's tables, and both correctly refused to classify an
+        # unrecorded tier — but a check nobody runs is a check that is not there.
+        run: |
+          python3 scripts/orion_v2_capability_check.py
+          python3 scripts/orion_v2_policy_check.py
+          python3 scripts/orion_v2_schema_check.py
+          python3 scripts/orion_v2_model_contract_check.py
+          python3 scripts/orion_v2_sync_check.py
+          python3 scripts/orion_v2_audit_check.py
+
       - name: permanent architectural rules
         # The manifest's twenty-four "Never" sentences, as assertions against
         # the running system. Reported rather than fatal: rule 24 — one agent

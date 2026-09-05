@@ -174,6 +174,33 @@ else
     grep '  FAIL' "$LOGS"/orion-ci-workflow.log | head -4 | sed 's/^/        /'
 fi
 
+step "8b. the v2 Python contract checks"
+# THESE WERE NOT IN ANY SUITE, and two of them had been failing silently since
+# Phase 51. Found on 2026-09-04 while auditing planning/v2: adding five
+# capability tiers across phases 51-78 drifted `capability-registry.json` and
+# the Python policy engine's tier tables, and both checks correctly refused to
+# classify a tier nobody had recorded — but nothing ran them, so nobody heard.
+#
+# A check that exists and is never run is a check that is not there. They are
+# read-only and fast, so they belong here.
+for pair in \
+    "orion_v2_capability_check.py:the registry matches the live catalog" \
+    "orion_v2_policy_check.py:the Python engine is never more permissive than the live gate" \
+    "orion_v2_schema_check.py:the v2 schemas" \
+    "orion_v2_model_contract_check.py:the model roles contract" \
+    "orion_v2_sync_check.py:conversation sync ordering" \
+    "orion_v2_audit_check.py:audit event shapes and redaction" \
+    "orion_v2_secret_inventory.py:the secret inventory"
+do
+    file="${pair%%:*}"; label="${pair#*:}"
+    if python3 "$REPO/scripts/$file" >"$LOGS/orion-ci-$file.log" 2>&1; then
+        ok "$label"
+    else
+        bad "$label — $file:"
+        tail -6 "$LOGS/orion-ci-$file.log" | sed 's/^/        /'
+    fi
+done
+
 step "9. the permanent architectural rules"
 # The manifest's twenty-four "Never" sentences, as assertions rather than as
 # prose. The heading above them says they must not be violated without an

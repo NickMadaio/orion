@@ -57,6 +57,26 @@ TIER_RULES = {
     "self_scripts":           ("orion.script", "security"),
     "self_config":            ("orion.config", "security"),
     "self_tuning":            ("orion.tuning", "security"),
+    # Added 2026-09-04, for the five tiers phases 51-78 introduced. The builder
+    # REFUSED to run rather than guess a domain for them, which is why they are
+    # here rather than derived — and the refusal is the reason this drift was
+    # found at all.
+    #
+    # `dev_operations` is `security` rather than `files` on purpose: it runs
+    # code out of a repository (npm test, npm ci, a git hook), so it is closer
+    # to the self_* family than to reading a directory, whatever the paths
+    # involved look like.
+    "dev_operations":         ("repository", "security"),
+    # Proposing an automation is a scheduling concern; there is deliberately no
+    # install operation in this tier, so nothing here reaches a scheduler.
+    "automation":             ("automation", "general"),
+    # Things Nick is waiting on from other people. Conversation rather than
+    # general: the entries name people and what was asked of them.
+    "waiting_on":             ("waiting", "conversation"),
+    # A prep card fans out across mail, the brain and the calendar and writes
+    # nothing; its domain is the meeting it is for.
+    "prep":                   ("prep", "calendar"),
+    "travel":                 ("travel", "calendar"),
 }
 
 # Per-action departures from the tier rule, each because the tier is a coarser
@@ -94,6 +114,23 @@ EFFECTS_BY_KIND = {
     # because moving and deleting are not writing, and a policy that treats them
     # the same is a policy that lets a delete through a write rule.
     "file_mutate":     ["moves_files", "deletes_files"],
+    # Added 2026-09-04 with the five new tiers. Each names what the operation
+    # ACTUALLY does rather than what its tier suggests, which is the whole
+    # point of this table being separate from TIER_RULES.
+    #
+    # `dev_operation` is the honest one and the widest: git_status only reads,
+    # but tests_run and build_run execute code out of the repository and
+    # package_install and git_pull reach the network. One kind covers all
+    # seven, so the effect list is the union — a policy that treated the read
+    # operations as the whole tier would be wrong about the four that are not.
+    "dev_operation":   ["reads_files", "writes_files", "launches_process", "network_request"],
+    # Proposals are files Orion owns. There is no install operation in this
+    # tier, so nothing here schedules anything.
+    "automation":      ["writes_files"],
+    "waiting":         ["writes_files", "reads_user_data"],
+    # A prep card reads mail, the brain and the calendar, and writes nothing.
+    "prep_card":       ["reads_files", "reads_user_data"],
+    "travel":          ["writes_files", "reads_user_data"],
 }
 
 

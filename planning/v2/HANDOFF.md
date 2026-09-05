@@ -1,5 +1,17 @@
 # ORION v2 handoff
 
+> **THIS FILE IS CLOSED. It ends on 2026-09-01, at Phase 33.**
+>
+> The running log continues in the repository root's `HANDOFF.md`, which picks
+> up on 2026-09-02 and covers phases 34-84 and the manifest's closing sections.
+> The two do not overlap: this one is the record of phases 1-33, and deleting
+> it would lose the only account of how those were built and reviewed.
+>
+> It is marked rather than merged because a handoff's date is when it was
+> written, not when the work stopped — the rule AGENTS.md states a few lines
+> below where it tells you to read this file. Left unmarked, a reader arriving
+> in October would take a September 1st position for the current one.
+
 Updated: **2026-09-01**. Phases 1-2 spanned 2026-08-20 and 2026-08-23; Phases 3
 and 4 closed 2026-08-23; Phase 5 closed 2026-08-24 in a session that began on the
 23rd; Phases 21-24 closed 2026-08-25, 25-30 on 2026-08-26 and 31-32 on

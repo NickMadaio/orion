@@ -64,6 +64,129 @@
       "note": "catalog.ts also runs a hand-written validateArguments for this action"
     },
     {
+      "action": "automation_list",
+      "capability": "automation.automation.list",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "automation",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "automation_propose",
+      "capability": "automation.automation.propose",
+      "domain": "general",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "automation",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "expiresOn",
+          "intent",
+          "name",
+          "trigger"
+        ],
+        "properties": {
+          "action": {},
+          "expiresOn": {},
+          "intent": {},
+          "name": {},
+          "trigger": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "automation_simulate",
+      "capability": "automation.automation.simulate",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "automation",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "automation_withdraw",
+      "capability": "automation.automation.withdraw",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "automation",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
       "action": "browser_close_tab",
       "capability": "browser.close.tab",
       "domain": "computer",
@@ -1944,6 +2067,37 @@
       "note": "catalog.ts also runs a hand-written validateArguments for this action"
     },
     {
+      "action": "prep_card",
+      "capability": "prep.prep.card",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "prep",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
       "action": "alarm_set",
       "capability": "reminder.alarm.set",
       "domain": "calendar",
@@ -2050,6 +2204,237 @@
         ],
         "properties": {
           "seconds": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "build_run",
+      "capability": "repository.build.run",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "git_diff",
+      "capability": "repository.git.diff",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "git_log",
+      "capability": "repository.git.log",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "git_pull",
+      "capability": "repository.git.pull",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "git_status",
+      "capability": "repository.git.status",
+      "domain": "security",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "package_install",
+      "capability": "repository.package.install",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "tests_run",
+      "capability": "repository.tests.run",
+      "domain": "security",
+      "risk": "high",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files",
+        "launches_process",
+        "network_request"
+      ],
+      "resource_scope": "dev_operations",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository"
+        ],
+        "properties": {
+          "repository": {}
         }
       },
       "returns": {
@@ -2295,6 +2680,348 @@
         "additionalProperties": false,
         "required": [],
         "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "trip_add",
+      "capability": "travel.trip.add",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "travel",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "endsOn",
+          "id",
+          "name",
+          "startsOn"
+        ],
+        "properties": {
+          "endsOn": {},
+          "id": {},
+          "name": {},
+          "startsOn": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "trip_brief",
+      "capability": "travel.trip.brief",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "travel",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "trip_detect",
+      "capability": "travel.trip.detect",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "travel",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "trip_list",
+      "capability": "travel.trip.list",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "travel",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "trip_remove",
+      "capability": "travel.trip.remove",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "travel",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "waiting_add",
+      "capability": "waiting.waiting.add",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "waiting_on",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dueBy",
+          "expect",
+          "id",
+          "what",
+          "who"
+        ],
+        "properties": {
+          "dueBy": {},
+          "expect": {},
+          "id": {},
+          "what": {},
+          "who": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "waiting_dismiss",
+      "capability": "waiting.waiting.dismiss",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "waiting_on",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "waiting_draft",
+      "capability": "waiting.waiting.draft",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "waiting_on",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "waiting_list",
+      "capability": "waiting.waiting.list",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "waiting_on",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "waiting_resolve",
+      "capability": "waiting.waiting.resolve",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "waiting_on",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "waiting_snooze",
+      "capability": "waiting.waiting.snooze",
+      "domain": "conversation",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "waiting_on",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "days",
+          "id"
+        ],
+        "properties": {
+          "days": {},
+          "id": {}
+        }
       },
       "returns": {
         "type": "object"

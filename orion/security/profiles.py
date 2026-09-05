@@ -59,6 +59,12 @@ EDIT_TIERS = frozenset(
         "self_tuning",
         "health_tracking",
         "messages_read",
+        # Added 2026-09-04, mirroring permissions.ts. These three write one
+        # JSON file Orion owns, or only read: the waiting list, trips, and the
+        # prep card that assembles mail and calendar without keeping any of it.
+        "waiting_on",
+        "prep",
+        "travel",
     }
 )
 
@@ -72,6 +78,13 @@ CONSEQUENTIAL_TIERS = EDIT_TIERS | {
     "self_plugin",
     "self_scripts",
     "self_config",
+    # Added 2026-09-04, and listed here by name rather than folded into
+    # EDIT_TIERS for exactly the reason the comment above gives: running a
+    # repository's build executes code out of that repository, and proposing
+    # an automation decides what runs unattended later. Neither is a filesystem
+    # operation and neither may arrive by widening filesystem access.
+    "dev_operations",
+    "automation",
     "calendar",
 }
 

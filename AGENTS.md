@@ -73,7 +73,9 @@ Two assistants work on this repo and neither sees the other's chat. These files
 are the entire channel, so treat them as the job rather than the paperwork.
 
 **Read before you touch anything:** this file, `HANDOFF.md`, `NICK-TODO.md`, and
-`planning/v2/HANDOFF.md` if the work is v2. For work after Phase 32, also read
+— only for the history of phases 1-33 — the CLOSED `planning/v2/HANDOFF.md`,
+which ends on 2026-09-01 and says so at the top. The root `HANDOFF.md` is the
+live one. For work after Phase 32, also read
 `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
 `planning/v2/ROADMAP_AMENDMENTS.json`.
 

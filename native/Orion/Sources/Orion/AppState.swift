@@ -272,6 +272,10 @@ final class AppState: ObservableObject {
     private let speechInput = SpeechInput()
     private let speechOutput = SpeechOutput()
     private let wakeWord = WakeWordListener()
+    /// Spoken barge-in — see `BargeInMonitor.swift` and
+    /// `planning/v2/PHASE_VOICE_TURN_TAKING.md`. Active only during
+    /// `.thinking` and `.speaking`; gated by `setPhase`.
+    private let bargeInMonitor = BargeInMonitor()
     private let statusQueue = DispatchQueue(label: "com.nickmadaio.orion.status")
     private let agentQueue = DispatchQueue(label: "com.nickmadaio.orion.agent")
     /// Separate from `agentQueue` on purpose: that queue is where the blocking
@@ -305,18 +309,66 @@ final class AppState: ObservableObject {
     private var handsFreeStartedAt = Date.distantPast
     private var lastVoiceAt = Date.distantPast
     private var handsFreeGeneration = 0
-    /// The last interim text that actually advanced. Streaming recognisers may
-    /// re-emit the same interim result while the room is quiet; those repeats
-    /// are not new speech and must not keep a hands-free turn alive.
+    /// The last interim text seen. Streaming recognisers may re-emit the same
+    /// interim result while the room is quiet; that exact repeat is not new
+    /// speech and must not keep a hands-free turn alive. Any ACTUAL change —
+    /// including the text getting SHORTER, which a self-correction produces —
+    /// does count; see `AdaptiveEndpointModel`'s file header for the bug this
+    /// fixes (the old check only looked at `count >`, so a shrinking
+    /// self-correction read as silence).
     private var lastSpeechEvidence = ""
+    /// The adaptive endpointing decision for the CURRENT hands-free turn. Nil
+    /// outside one, and while `awaitingFollowUp` is waiting for the user to
+    /// say anything at all. Seeded from `VoiceTuning.endpointingSeconds` —
+    /// see `AdaptiveEndpointModel.swift`'s header for why this, and not a
+    /// second hardcoded number, is what fixes "he raised the setting and
+    /// Orion still cut him off".
+    private var handsFreeEndpoint: AdaptiveEndpointModel?
+    /// The most recent utterance-level confidence Deepgram supplied, if any.
+    /// Read (not written) by `handsFreeEndpoint.noteTranscript`.
+    private var lastTranscriptConfidence: Double?
+
+    /// Text preserved when an utterance was cut off mid-thought — a trailing
+    /// continuation cue ("...and"), the hard `handsFreeLimit` ceiling, or a
+    /// spoken barge-in that itself carried real words — so it is APPENDED to
+    /// what follows instead of being sent as a disconnected fragment or lost
+    /// outright. This is the highest-value repair in the pass: see
+    /// `AdaptiveEndpointModel.appendContinuation`.
+    private var preservedTranscript = ""
+    /// How many times in a row a continuation is allowed before giving up and
+    /// sending whatever was actually preserved — someone who keeps trailing
+    /// off is still owed an answer eventually, not an Orion that listens
+    /// forever.
+    private var continuationChainRemaining = AppState.maxContinuationChain
+    private static let maxContinuationChain = 2
+
+    /// The last Orion reply that a spoken barge-in cut off, kept so "continue
+    /// what you were saying" can re-speak it. Cleared the moment a genuinely
+    /// new reply is delivered.
+    private var interruptedReplyText: String?
+    /// Set by `pauseThinking`: the turn generation that was paused rather
+    /// than cancelled. If that generation's `GatewayClient.ask` still
+    /// returns, its answer is kept — see `send(_:)`'s completion handler —
+    /// instead of thrown away the way `cancelThinking` throws its answer away.
+    private var pausedGeneration: Int?
+    /// The paused turn's answer, once it has arrived, waiting for "continue".
+    private var pausedReplacementText: String?
 
     /// Don't end a hands-free turn during its first moment; the user has barely
     /// drawn breath.
     private static let handsFreeLeadIn: TimeInterval = 1.0
-    /// Silence that ends a hands-free turn.
-    private static let handsFreeHangover: TimeInterval = 1.3
     /// A noisy room must not hold the microphone open forever.
     private static let handsFreeLimit: TimeInterval = 12
+    // There used to be a `handsFreeHangover: TimeInterval = 1.3` here — a
+    // fixed silence timer, hardcoded, with NO connection to
+    // `VoiceTuning.endpointingMs`. It is why raising that tunable from 900ms
+    // to 1400ms (`defaults write com.nickmadaio.orion.app
+    // OrionVoiceEndpointingMs 1400`) never fixed "he cuts me off": this
+    // number, not that one, was ending hands-free turns. Removed rather than
+    // left dead — `checkHandsFree` now reads `handsFreeEndpoint.verdict(at:)`
+    // instead, seeded from `VoiceTuning.endpointingSeconds`. See
+    // `AdaptiveEndpointModel.swift`'s file header and
+    // `planning/v2/PHASE_VOICE_TURN_TAKING.md`.
 
     // MARK: Conversation mode
     //
@@ -842,23 +894,28 @@ final class AppState: ObservableObject {
             // never be the source of truth for whether a hands-free request is
             // still being spoken.  A real interim transcript is that evidence.
             let evidence = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if self.handsFree,
-               !evidence.isEmpty,
-               evidence.count > self.lastSpeechEvidence.count {
-                self.lastVoiceAt = Date()
+            guard self.handsFree, !evidence.isEmpty else { return }
+            let now = Date()
+            // ANY change counts — including the text getting shorter, which a
+            // self-correction produces. See the doc comment on
+            // `lastSpeechEvidence` for the bug this fixes.
+            if evidence != self.lastSpeechEvidence {
+                self.lastVoiceAt = now
                 self.lastSpeechEvidence = evidence
             }
+            if var endpoint = self.handsFreeEndpoint {
+                endpoint.noteTranscript(evidence, confidence: self.lastTranscriptConfidence, at: now)
+                self.handsFreeEndpoint = endpoint
+            }
+        }
+        speechInput.onTranscriptConfidence = { [weak self] value in
+            self?.lastTranscriptConfidence = value
         }
         speechInput.onFinal = { [weak self] text in
             guard let self else { return }
             self.heard = ""
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                self.setPhase(.idle)
-                self.statusLine = "Nothing heard"
-                return
-            }
-            self.send(trimmed)
+            self.handleFinalTranscript(trimmed)
         }
         speechInput.onError = { [weak self] message in
             guard let self else { return }
@@ -922,8 +979,13 @@ final class AppState: ObservableObject {
             // his name, not the name itself.
             self.retainForVerification(buffer)
             self.wakeWord.observe(buffer, level: level)
+            self.bargeInMonitor.observe(buffer, level: level)
         }
         wakeWord.tolerance = wakeSensitivity.tolerance
+        bargeInMonitor.currentlySpoken = { [weak self] in self?.speechOutput.currentText ?? "" }
+        bargeInMonitor.currentRoute = { AppState.currentOutputRouteKind() }
+        bargeInMonitor.currentPhase = { [weak self] in self?.turnPhaseForBargeIn() ?? .idle }
+        bargeInMonitor.onBargeIn = { [weak self] text in self?.handleSpokenBargeIn(text) }
         wakeWord.onUnavailable = { [weak self] message in
             guard let self else { return }
             self.wakeWordEnabled = false
@@ -993,6 +1055,89 @@ final class AppState: ObservableObject {
     var voiceIdStatus: String { speakerVerifier.status }
     func refreshVoiceId() { speakerVerifier.refreshStatus() }
 
+    // MARK: Barge-in
+
+    /// The route `BargeInPolicy` needs — measured, never guessed. Static
+    /// because it depends on nothing but the live CoreAudio state
+    /// `AudioRoute.swift` already exposes (owned by the audio-coexistence
+    /// pass, not edited here).
+    private static func currentOutputRouteKind() -> AudioRouteKind {
+        guard let output = AudioRoute.defaultOutputID(), AudioRoute.isBluetooth(output) else {
+            return .speakers
+        }
+        return .headset
+    }
+
+    /// `OrionPhase` collapsed to what `BargeInPolicy` needs to know. `.error`
+    /// and `.idle` both read as idle to the policy — neither has anything
+    /// playing to interrupt.
+    private func turnPhaseForBargeIn() -> TurnPhase {
+        switch phase {
+        case .speaking: return .speaking(.playing)
+        case .thinking: return .thinking
+        case .listening: return .listening(.capturing)
+        case .idle, .error: return .idle
+        }
+    }
+
+    /// Confident speech heard while Orion is thinking or speaking.
+    /// `BargeInMonitor` has already applied `BargeInPolicy` before calling
+    /// this — nothing here re-checks the route or the energy.
+    private func handleSpokenBargeIn(_ heardText: String) {
+        switch phase {
+        case .speaking:
+            OrionLog.write("[bargein] confident speech during .speaking — stopping to listen")
+            markLastReplyInterrupted()
+            speechOutput.stop(reason: "spoken barge-in")
+            hologram.setLevel(0)
+            conversationOpen = true
+            setPhase(.idle)
+            beginListening(handsFree: true)
+            // Set AFTER beginListening returns: a fresh, non-follow-up press
+            // clears `preservedTranscript` at its own top, and this is the one
+            // path that has to survive that clear — see `beginListening`.
+            preservedTranscript = heardText
+        case .thinking:
+            OrionLog.write("[bargein] confident speech during .thinking — pausing, not cancelling")
+            pauseThinking(reason: "user spoke during thinking", heardSeed: heardText)
+        default:
+            break
+        }
+    }
+
+    /// Records the most recent Orion reply as cut off, for "continue what you
+    /// were saying". A visible marker rather than a silent flag, so the
+    /// transcript itself shows what happened.
+    private func markLastReplyInterrupted() {
+        guard let index = turns.lastIndex(where: { $0.role == .orion }) else { return }
+        interruptedReplyText = turns[index].text
+        if !turns[index].text.hasSuffix(" [interrupted]") {
+            turns[index].text += " [interrupted]"
+        }
+    }
+
+    /// Distinct from `cancelThinking`: the agent subprocess is left running
+    /// rather than SIGTERM/SIGKILLed. Used when confident speech interrupts
+    /// `.thinking` — nothing is being spoken yet, so there is a real answer
+    /// worth keeping if it lands, not one worth throwing away. This is the
+    /// "pause the task" primitive the brief asked to separate out from
+    /// "cancel the task" (`cancelThinking`) and "stop speaking"
+    /// (`speechOutput.stop`).
+    private func pauseThinking(reason: String, heardSeed: String) {
+        guard phase == .thinking else { return }
+        disarmWatchdog()
+        runProgress?.recordUserCancelled(at: Date())
+        stopProgressPolling()
+        pausedGeneration = askGeneration
+        askGeneration += 1
+        OrionLog.write("[think] paused by user (subprocess left running) — \(reason)")
+        append(.system, "Paused — still working on that. Say \"continue\" once you're done to hear it.")
+        conversationOpen = true
+        setPhase(.idle)
+        beginListening(handsFree: true)
+        preservedTranscript = heardSeed
+    }
+
     // MARK: Phase
 
     private func setPhase(_ next: OrionPhase) {
@@ -1039,6 +1184,10 @@ final class AppState: ObservableObject {
         // a word it says. Suspension tears the recognition window down rather
         // than filtering results, so its own reply is never transcribed at all.
         wakeWord.setSuspended(next != .idle)
+        // Spoken barge-in: active only while there is something to interrupt.
+        // `BargeInPolicy` (not this) decides whether a given phrase counts —
+        // see `handleSpokenBargeIn` and `TurnTakingState.swift`.
+        bargeInMonitor.setActive(next == .speaking || next == .thinking)
     }
 
     // MARK: The phase watchdogs
@@ -1280,6 +1429,15 @@ final class AppState: ObservableObject {
         } else {
             conversationOpen = false
         }
+        // A genuinely fresh listen (not a follow-up continuing a preserved
+        // fragment) starts clean. Callers that need to seed a preserved
+        // fragment across THIS call — `handleSpokenBargeIn`, `pauseThinking`
+        // — set `preservedTranscript` AFTER this function returns, which runs
+        // after this clear since `beginListening` is synchronous.
+        if !followUp {
+            preservedTranscript = ""
+            continuationChainRemaining = AppState.maxContinuationChain
+        }
         setPhase(.listening)
         statusLine = followUp
             ? "Go ahead…"
@@ -1301,6 +1459,18 @@ final class AppState: ObservableObject {
         // Seed as "just spoke" so the lead-in is measured from the summon, not
         // from an epoch in 1970.
         lastVoiceAt = handsFreeStartedAt
+        lastSpeechEvidence = ""
+        // A follow-up starts with no endpoint model at all: nothing has been
+        // said in it yet, and `checkHandsFree`'s `awaitingFollowUp` branch
+        // seeds one itself the moment real speech actually arrives. An
+        // ordinary hands-free turn seeds it immediately, from the tunable the
+        // user actually controls — see `AdaptiveEndpointModel.swift`'s header
+        // for why this, and not a second hardcoded number, is the fix.
+        handsFreeEndpoint = followUp ? nil : AdaptiveEndpointModel(
+            now: handsFreeStartedAt,
+            baseSilence: VoiceTuning.endpointingSeconds,
+            extendedSilence: VoiceTuning.extendedEndpointingSeconds
+        )
 
         handsFreeTimer?.invalidate()
         handsFreeTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
@@ -1331,8 +1501,16 @@ final class AppState: ObservableObject {
         handsFreeGeneration += 1
         handsFreeTimer?.invalidate()
         handsFreeTimer = nil
+        handsFreeEndpoint = nil
     }
 
+    /// Was: a fixed 1.3s hangover unrelated to `VoiceTuning.endpointingMs` —
+    /// see `AdaptiveEndpointModel.swift`'s header for why raising that
+    /// setting never touched what actually ended a hands-free turn. Now:
+    /// `handsFreeEndpoint`'s verdict, seeded from that same tunable, combined
+    /// with terminal punctuation, continuation vocabulary and (when Deepgram
+    /// supplies it) last-word confidence. `handsFreeLimit` and
+    /// `handsFreeLeadIn` stay as hard safety backstops underneath it.
     private func checkHandsFree() {
         guard handsFree, phase == .listening else {
             stopHandsFree()
@@ -1347,10 +1525,10 @@ final class AppState: ObservableObject {
             return
         }
         // A follow-up window is open before anything has been said in it, so
-        // the ordinary hangover would close it almost at once. Wait out the
-        // grace instead; if the user does start talking, `lastVoiceAt` moves
-        // and this stops being a follow-up, so the normal end-of-turn silence
-        // detection takes over from there.
+        // the adaptive model would see nothing but silence and finalize
+        // instantly. Wait out the grace instead; if the user does start
+        // talking, `lastVoiceAt` moves and this seeds a real endpoint model
+        // from that moment, so the normal detection takes over from there.
         if awaitingFollowUp {
             // `lastVoiceAt` is seeded to the window's start, so any movement in
             // it means the user has begun speaking.
@@ -1359,6 +1537,11 @@ final class AppState: ObservableObject {
                 // Measure the lead-in from when they actually started, not from
                 // when the window opened, or the first words get clipped.
                 handsFreeStartedAt = lastVoiceAt
+                handsFreeEndpoint = AdaptiveEndpointModel(
+                    now: lastVoiceAt,
+                    baseSilence: VoiceTuning.endpointingSeconds,
+                    extendedSilence: VoiceTuning.extendedEndpointingSeconds
+                )
                 return
             }
             if now.timeIntervalSince(handsFreeStartedAt) >= AppState.followUpGrace {
@@ -1372,21 +1555,124 @@ final class AppState: ObservableObject {
         // Don't cut anyone off in the first breath.
         guard now.timeIntervalSince(handsFreeStartedAt) >= AppState.handsFreeLeadIn else { return }
 
-        if now.timeIntervalSince(lastVoiceAt) >= AppState.handsFreeHangover {
+        guard let endpoint = handsFreeEndpoint else { return }
+        switch endpoint.verdict(at: now) {
+        case .keepListening, .extending:
+            return
+        case .finalize:
             stopHandsFree()
             endListening()
         }
     }
 
-    /// The user did not follow up. Close the ear and go back to the wake word.
+    /// The user did not follow up. Close the ear and go back to the wake word
+    /// — but never silently: a preserved fragment from an earlier cut-off is
+    /// sent rather than dropped, which is the same "never lose the words"
+    /// rule `handleFinalTranscript` follows.
     private func endConversation() {
         conversationOpen = false
         awaitingFollowUp = false
         stopHandsFree()
         speechInput.discardUtterance()
         heard = ""
+        if !preservedTranscript.isEmpty {
+            flushPreservedTranscript()
+            return
+        }
         setPhase(.idle)
         statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+    }
+
+    // MARK: Endpointing — preserving a cut-off transcript
+
+    /// One finished utterance, from whichever ear delivered it — push-to-talk
+    /// release or a hands-free finalize. Decides whether this is really the
+    /// end of what the user meant to say, or a cut-off that should be
+    /// preserved and appended to rather than sent as a fragment or lost. See
+    /// `AdaptiveEndpointModel.appendContinuation` and the file header on
+    /// `AdaptiveEndpointModel.swift`.
+    private func handleFinalTranscript(_ text: String) {
+        guard !text.isEmpty else {
+            if preservedTranscript.isEmpty {
+                setPhase(.idle)
+                statusLine = "Nothing heard"
+            } else {
+                // Silence after a preserved fragment: the chain is over: send
+                // what was actually said rather than losing it.
+                flushPreservedTranscript()
+            }
+            return
+        }
+
+        let combined = AdaptiveEndpointModel.appendContinuation(text, to: preservedTranscript)
+        let looksCutOff = AdaptiveEndpointModel.hasContinuationCue(text)
+            && !AdaptiveEndpointModel.hasTerminalPunctuation(text)
+
+        if looksCutOff, continuationChainRemaining > 0 {
+            continuationChainRemaining -= 1
+            preservedTranscript = combined
+            OrionLog.write("[endpoint] preserved a trailing continuation — reopening the ear "
+                + "instead of sending a fragment")
+            statusLine = "Go ahead…"
+            setPhase(.idle)
+            DispatchQueue.main.asyncAfter(deadline: .now() + AppState.followUpSettle) { [weak self] in
+                guard let self, self.phase == .idle else { return }
+                self.beginListening(handsFree: true, followUp: true)
+            }
+            return
+        }
+
+        preservedTranscript = ""
+        continuationChainRemaining = AppState.maxContinuationChain
+        send(combined)
+    }
+
+    /// Whatever was preserved is sent now rather than lost — used when the
+    /// follow-up window that would have continued it timed out instead.
+    private func flushPreservedTranscript() {
+        let text = preservedTranscript
+        preservedTranscript = ""
+        continuationChainRemaining = AppState.maxContinuationChain
+        guard !text.isEmpty else {
+            setPhase(.idle)
+            statusLine = "Nothing heard"
+            return
+        }
+        send(text)
+    }
+
+    /// "Continue" / "keep going" / "what were you saying" — resume an
+    /// interrupted or paused reply instead of treating the phrase as a new
+    /// question. Checked in THIS order: a still-running paused turn first (it
+    /// is the freshest), then its answer if it already arrived, then a
+    /// speaking-interruption's saved text.
+    private func handleResumeRequest() {
+        if let paused = pausedReplacementText {
+            pausedReplacementText = nil
+            pausedGeneration = nil
+            append(.orion, paused)
+            setPhase(.speaking)
+            statusLine = "Speaking…"
+            speechOutput.speak(paused)
+            return
+        }
+        if pausedGeneration != nil {
+            append(.system, "Still working on that — one more moment.")
+            setPhase(.idle)
+            statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+            return
+        }
+        if let interrupted = interruptedReplyText {
+            interruptedReplyText = nil
+            append(.orion, interrupted)
+            setPhase(.speaking)
+            statusLine = "Speaking…"
+            speechOutput.speak(interrupted)
+            return
+        }
+        setPhase(.idle)
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        append(.system, "There's nothing to continue.")
     }
 
     /// Right Option released.
@@ -1455,6 +1741,16 @@ final class AppState: ObservableObject {
     }
 
     private func send(_ text: String) {
+        // "Continue" / "keep going" / "what were you saying" resumes an
+        // interrupted or paused reply instead of asking the gateway a new
+        // question. Checked here so every entry point — hands-free, a typed
+        // message, and a push-to-talk release — gets the same behaviour from
+        // one place.
+        if AdaptiveEndpointModel.isResumeRequest(text) {
+            append(.you, text)
+            handleResumeRequest()
+            return
+        }
         append(.you, text)
         setPhase(.thinking)
         statusLine = "Thinking…"
@@ -1481,7 +1777,19 @@ final class AppState: ObservableObject {
                 result = .failure(error)
             }
             DispatchQueue.main.async {
-                guard let self, self.askGeneration == generation else { return }
+                guard let self else { return }
+                guard self.askGeneration == generation else {
+                    // Not the live turn any more. If it was PAUSED rather than
+                    // cancelled, the answer is still worth keeping instead of
+                    // silently discarding it -- that is the entire difference
+                    // between `pauseThinking` and `cancelThinking`.
+                    if self.pausedGeneration == generation, case .success(let reply) = result {
+                        self.pausedGeneration = nil
+                        self.pausedReplacementText = reply.text
+                        self.append(.system, "(The paused answer is ready — say \"continue\" to hear it.)")
+                    }
+                    return
+                }
                 self.runProgress?.markCallReturned(at: Date())
                 self.stopProgressPolling()
                 switch result {
@@ -1623,6 +1931,10 @@ final class AppState: ObservableObject {
     }
 
     private func deliver(_ reply: GatewayReply) {
+        // A genuinely new reply retires whatever an earlier interruption was
+        // keeping around -- "continue what you were saying" should never
+        // resurrect a stale answer once a new one has actually arrived.
+        interruptedReplyText = nil
         append(.orion, reply.text)
         setPhase(.speaking)
         statusLine = "Speaking…"

@@ -169,6 +169,14 @@ final class DeepgramStream {
     var onSegment: ((String) -> Void)?
     /// Deepgram's VAD says the speaker stopped. This is the latency win.
     var onEndOfSpeech: (() -> Void)?
+    /// Utterance-level confidence for the CURRENT result, when Deepgram
+    /// supplies one. Fired before `onPartial` for the same result — see
+    /// `handleResults` — so a caller that stores it and reads it back inside
+    /// `onPartial` sees the value for the same message. Not per-word; the
+    /// closest thing the API gives without switching on `smart_format`'s
+    /// word-level payload, and it is enough to serve as the "how sure was
+    /// this ending" signal `AdaptiveEndpointModel` wants.
+    var onConfidence: ((Double) -> Void)?
     /// The socket opened and is accepting audio.
     var onOpen: (() -> Void)?
     /// Anything that means "this session cannot serve" — the caller falls back.
@@ -300,6 +308,7 @@ final class DeepgramStream {
         onEndOfSpeech = nil
         onOpen = nil
         onFailure = nil
+        onConfidence = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         isOpen = false
@@ -422,6 +431,12 @@ final class DeepgramStream {
 
         let isFinal = object["is_final"] as? Bool ?? false
         let speechFinal = object["speech_final"] as? Bool ?? false
+        // Fired BEFORE onPartial, deliberately: a caller that caches this
+        // value and reads it back from inside onPartial sees the number for
+        // THIS result, not the previous one.
+        if let confidence = best["confidence"] as? Double {
+            onConfidence?(confidence)
+        }
 
         if isFinal {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -62,7 +62,10 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
     /// down and rebuild it between every sentence.
     private var deviceReleaseTimer: Timer?
     private static let deviceReleaseDelay: TimeInterval = 1.5
-    private var currentText = ""
+    /// What Orion is CURRENTLY saying, or "" once he stops. Read-only outside
+    /// this file; `BargeInPolicy`'s speaker-route path uses it to reject a
+    /// heard phrase that is just an echo of Orion's own sentence.
+    private(set) var currentText = ""
     private var pendingBuffers = 0
     private var streamComplete = false
     private var playedAnything = false
@@ -121,6 +124,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         pendingBuffers = 0
         streamComplete = false
         playedAnything = false
+        currentText = ""
         onLevel?(0)
         scheduleDeviceRelease()
     }
@@ -218,6 +222,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         guard isSpeaking, streamComplete, pendingBuffers == 0 else { return }
         OrionLog.write("[speech] finished cleanly")
         isSpeaking = false
+        currentText = ""
         if engineConfigured {
             player.stop()
         }

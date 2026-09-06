@@ -50,9 +50,15 @@ final class SpeechInput {
     /// was merely configured.
     var onActiveProvider: ((STTProvider, String?) -> Void)?
     /// Passive observer of the one input tap: every buffer, with its level, on
-    /// the main thread, in every mode. The wake word is the only consumer, and
-    /// this is the only way audio reaches it — it cannot open a microphone.
+    /// the main thread, in every mode. The wake word and the barge-in monitor
+    /// are the only consumers, and this is the only way audio reaches either
+    /// of them — neither can open a microphone.
     var onMonitor: ((AVAudioPCMBuffer, Double) -> Void)?
+    /// Utterance-level confidence for the ear's CURRENT result, when it
+    /// supplies one. Only Deepgram does; Apple's recogniser never calls this.
+    /// See `AdaptiveEndpointModel` for why a low-confidence ending is treated
+    /// as evidence the speaker may not be finished.
+    var onTranscriptConfidence: ((Double) -> Void)?
 
     private(set) var isRunning = false
     /// What is REALLY listening, after any fallback.
@@ -623,6 +629,10 @@ final class SpeechInput {
             OrionLog.write("[deepgram] FAILED — falling back to Apple")
             guard let self, self.deepgram === stream else { return }
             self.fallBackToApple(reason: message)
+        }
+        stream.onConfidence = { [weak self] value in
+            guard let self, self.deepgram === stream else { return }
+            self.onTranscriptConfidence?(value)
         }
         stream.connect()
     }

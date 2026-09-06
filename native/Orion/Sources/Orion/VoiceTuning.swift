@@ -140,6 +140,22 @@ enum VoiceTuning {
     /// them without the other.
     static let absoluteThinkingCeiling: Double = RunTimeouts.watchdogCeiling
 
+    // MARK: - Adaptive endpointing (hands-free)
+
+    /// `endpointingMs` in seconds — `AdaptiveEndpointModel` works in
+    /// `TimeInterval`, and this is the one place the conversion happens
+    /// rather than at each call site.
+    static var endpointingSeconds: TimeInterval { Double(endpointingMs) / 1000.0 }
+
+    /// The window once a continuation cue ("hold on", a trailing "and") or a
+    /// low-confidence ending is seen. Comfortably longer than the base, and
+    /// never shorter than the existing backstop `resolvedUtteranceEndMs`
+    /// already guarantees — raising `endpointingMs` should never leave the
+    /// extended case resolving faster than the ordinary one.
+    static var extendedEndpointingSeconds: TimeInterval {
+        max(endpointingSeconds * 1.8, Double(resolvedUtteranceEndMs) / 1000.0)
+    }
+
     // MARK: - Reading back
 
     /// One line for `orion-doctor` and the preferences pane.

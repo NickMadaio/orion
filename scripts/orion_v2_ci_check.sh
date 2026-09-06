@@ -163,6 +163,25 @@ do
     fi
 done
 
+# The workspace Orion actually reads.
+#
+# `openclaw-workspace/` is tracked; `~/.openclaw/workspace/` is loaded. Nothing
+# kept them in step, so on 2026-09-06 two same-day edits to AGENTS.md -- a date
+# rule and an Atlas routing bullet -- were both inert while looking authoritative.
+# Skipped rather than failed where the live workspace does not exist, because in
+# CI it never will and a check that cannot apply must not cry wolf.
+if [ -d "$HOME/.openclaw/workspace" ]; then
+    if bash "$REPO/scripts/orion_v2_workspace_sync.sh" >""$LOGS"/orion-ci-workspace.log" 2>&1; then
+        ok "the workspace: the tracked copy is what Orion reads"
+    else
+        bad "Orion's operating rules have drifted from the tracked copy:"
+        grep 'DRIFTED\|MISSING' ""$LOGS"/orion-ci-workspace.log" | head -6 | sed 's/^/        /'
+        printf '        run: scripts/orion_v2_workspace_sync.sh --apply\n'
+    fi
+else
+    ok "the workspace: skipped, no live workspace on this host"
+fi
+
 # Phase 75 is reported, NOT fatal, and the reason is written here rather than
 # discovered: its independent-review requirement is currently unmet by this
 # session's own work, and a check that fails on every run is one people learn

@@ -6,10 +6,17 @@ two, fix orion's faults."*
 
 ## The headline
 
+All eleven runs, scored under one rubric by `orion-eval replay`:
+
 | | runs | mean | answers |
 |---|---|---|---|
-| **Before** (2026-09-05) | 4 | **55.4 / 100** | Sep 5, Sep 12, Sep 5, "Sep 5 — that's today" |
-| **After** (2026-09-06) | 5 | **83.7 / 100** | Sep 11 × 5 |
+| **Before any repair** | 4 | **57.5 / 100** | Sep 5, Sep 12, Sep 5, "Sep 5 — that's today" |
+| **After the date repair** | 5 | **91.7 / 100** | Sep 11 × 5 |
+| **After the reminders repair** | 2 | **100 / 100** | Sep 11 × 2, calendar **and** tasks |
+
+Each repair is visible as a step, and the five middle runs lose their 8.33 in
+exactly one place — `checked_reminders_too` — which is what the third repair
+then closed.
 
 The eval ran on Saturday 2026-09-05. "This Friday" was **Friday 2026-09-11**.
 
@@ -104,13 +111,32 @@ Replay re-derives tool calls and fingerprint verdicts from the stored transcript
 rather than trusting the frozen fields, so a harness repair re-scores history
 instead of freezing a bad derivation.
 
-## Still broken
+## The fourth repair, and two more rubric bugs it exposed
 
-**Orion never checks reminders.** `checked_reminders_too` fails in all nine runs.
-Asked "I have something this Friday" he looks at the calendar and stops — but
-"something" is at least as likely to be a reminder or a task. `orion-agenda tasks`
-exists and he does not reach for it. This is the next repair, and it is a routing
-problem, not a capability gap.
+**Orion never checked reminders.** `checked_reminders_too` failed in all nine
+runs: asked "I have something this Friday" he looked at the calendar and stopped,
+though "something" is at least as likely to be a task. `orion-agenda tasks`
+existed and he did not reach for it — a routing problem, not a capability gap.
+One sentence in his operating rules fixed it, and both runs since call `day
+Friday` **and** `tasks`.
+
+That repair immediately exposed two more places the rubric under-credited correct
+work. One run answered "Friday the 11th" — correct and unambiguous — and failed
+`resolves_friday_as_sept_11` because the pattern demanded the word *September*.
+The same run said "you don't have anything on the calendar… are you saying you
+have something coming up" and failed the report-and-ask check because the pattern
+demanded the literal word *nothing*.
+
+Both were widened, and both widenings were verified against all eleven stored
+answers before being written: the four pre-repair runs must still fail the date
+check, and they do. That verification order matters — an earlier correction in
+this same session was written first and checked afterwards, and it turned out to
+match nothing at all.
+
+## Still open
+
+Nothing in this fixture. The remaining two fixtures — `find-local-file` and
+`permission-truthfulness` — are built and validated but have no live runs yet.
 
 ## Running it again
 

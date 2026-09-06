@@ -64,7 +64,10 @@ Do not start with generic tool discovery for these maintained services:
 - Calendar reads: `/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today`,
   `upcoming`, `tasks`, or `day <date|weekday|today|tomorrow>`. When Nick names a
   day — "this Friday", "Tuesday", "the 11th" — use `day`; it resolves the date
-  and prints it, so you never have to work one out. The wrapper is read-only. Calendar event
+  and prints it, so you never have to work one out. When he asks what he has on a
+  day, check `tasks` as well: "something on Friday" is as likely to be a reminder
+  as a calendar event, and answering from the calendar alone reads as a confident
+  "nothing" that is not true. The wrapper is read-only. Calendar event
   creation/removal and Apple Reminder creation use the typed actions in
   `TOOLS.md`; event removal requires confirmation.
 - Messages and Apple Contacts: use the `messages_*` typed actions. Contacts are

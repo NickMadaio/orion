@@ -57,6 +57,17 @@
       },
       "note": "OpenClaw agents.defaults.memorySearch. Backs selective recall over sessions and memory."
     },
+    "coder": {
+      "primary": "ollama/gpt-oss:20b",
+      "fallbacks": [],
+      "timeout_seconds": 180,
+      "max_retries": 1,
+      "rates": {
+        "input_per_mtok": 0.0,
+        "output_per_mtok": 0.0
+      },
+      "note": "Governed self-development's coding lane, off by default (see PHASE_GOVERNED_SELF_DEVELOPMENT.md). Measured 2026-09-06, /api/generate completions per LocalModel.swift's method, an 8-case parseDuration task: gpt-oss:20b 29.1s 8/8 correct. qwen3:30b/qwen3.6:27b never answered inside 120-150s, spending budget on `thinking` before `response`. llama3.2:3b 19.1s but 0/8: wrong, not slow. gpt-oss:20b is the only one that worked."
+    },
     "stt": {
       "primary": "deepgram/nova-3",
       "fallbacks": [],

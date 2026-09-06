@@ -50,6 +50,7 @@ def contract(**overrides):
             "embedding": role("ollama/nomic-embed-text"),
             "stt": role("deepgram/nova-3"),
             "tts": role("local/mlx-audio", ["elevenlabs/eleven_turbo_v2_5"]),
+            "coder": role("ollama/gpt-oss:20b"),
         },
         "providers": {
             "anthropic": {"credential": {"source": "keychain", "ref": "ORION OpenClaw Anthropic"}},

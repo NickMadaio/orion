@@ -36,6 +36,13 @@ ROLES = (
     "embedding",
     "stt",
     "tts",
+    # Added for governed self-development (planning/v2/PHASE_GOVERNED_SELF_DEVELOPMENT.md),
+    # off by default. Non-urgent coding work has a different correctness bar than
+    # `local`'s text transforms -- a wrong sentence is embarrassing, a wrong diff
+    # is a bug -- so it gets its own role rather than borrowing `local`'s, even
+    # though today they resolve to the same model. See the seed's note for the
+    # measurement that picked it.
+    "coder",
 )
 
 _PROVIDER = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")

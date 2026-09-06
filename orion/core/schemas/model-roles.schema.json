@@ -24,7 +24,8 @@
         "local",
         "embedding",
         "stt",
-        "tts"
+        "tts",
+        "coder"
       ],
       "properties": {
         "reasoning": {
@@ -46,6 +47,9 @@
           "$ref": "#/$defs/role"
         },
         "tts": {
+          "$ref": "#/$defs/role"
+        },
+        "coder": {
           "$ref": "#/$defs/role"
         }
       }
@@ -71,7 +75,8 @@
           "local",
           "embedding",
           "stt",
-          "tts"
+          "tts",
+          "coder"
         ]
       },
       "propertyNames": {

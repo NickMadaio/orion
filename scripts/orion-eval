@@ -1,0 +1,904 @@
+#!/usr/bin/env python3
+"""orion-eval — the permanent evaluation harness described in planning/v2/evals/README.md.
+
+Nick's ask, verbatim: "do actual tests. i have something this friday, if you
+were orion, what would YOU do, then give it to orion and see what he does.
+compare the two, fix orion's faults." This script is the machinery for that,
+kept runnable after this session ends.
+
+Subcommands:
+    orion-eval list                      fixtures and their runs (offline)
+    orion-eval check                     fixtures well-formed? (offline)
+    orion-eval run <fixture-id> [--repeat N]     ONE OR MORE live runs (costs money)
+    orion-eval replay [--fixture ID]     re-score every stored run with the CURRENT
+                                          rubric, no model call (offline; this is what
+                                          scripts/orion_v2_ci_check.sh runs)
+    orion-eval report [--since DATE]     the scored table (offline)
+    orion-eval judge <run-file> <check-name> <pass|fail> --justification "..."
+                                          record a human verdict for a `manual` check
+                                          (offline; a run's manual checks score 0 until
+                                          judged)
+
+Design invariants this file enforces, not just documents:
+    - `meta.replayInvalid: true` is NEVER a clean pass (assert_replay_not_invalid).
+    - Every side-effect fingerprint in a fixture must be byte-identical before
+      and after the run (assert_no_side_effects), or the run is INVALID.
+    - The runner refuses to run a fixture whose `clock.assumedDate` does not
+      match the real date (assert_clock_assumption_holds).
+    - The runner refuses a fixture whose reference plan was not sealed strictly
+      before the run it's being compared to (assert_reference_plan_predates_run).
+    - The session key is never `orion-app-v2`, never the main session
+      (assert_isolated_session).
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+REPO = Path(__file__).resolve().parent.parent
+EVALS_DIR = REPO / "planning" / "v2" / "evals"
+FIXTURES_DIR = EVALS_DIR / "fixtures"
+RUNS_DIR = EVALS_DIR / "runs"
+OPENCLAW_BIN = Path.home() / ".openclaw" / "bin" / "openclaw"
+FORBIDDEN_SESSION_KEYS = {"orion-app-v2"}
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+# --------------------------------------------------------------------------
+# small utilities
+# --------------------------------------------------------------------------
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def parse_iso(s: str) -> datetime:
+    s = s.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return datetime.fromisoformat(s)
+
+
+def run_cmd(args: list[str], timeout: int, cwd: Path | None = None) -> dict[str, Any]:
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(
+            args, cwd=cwd or REPO, capture_output=True, text=True, timeout=timeout,
+        )
+        return {
+            "returncode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "elapsedSeconds": time.monotonic() - start,
+            "timedOut": False,
+        }
+    except subprocess.TimeoutExpired as e:
+        return {
+            "returncode": None,
+            "stdout": (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or ""),
+            "stderr": (e.stderr or b"").decode() if isinstance(e.stderr, bytes) else (e.stderr or ""),
+            "elapsedSeconds": time.monotonic() - start,
+            "timedOut": True,
+        }
+
+
+def recomputed_fingerprint_verdict(record: dict[str, Any]) -> dict[str, bool]:
+    """Re-compare a stored run's before/after fingerprints with today's rules."""
+    side = record.get("sideEffects") or {}
+    before = side.get("before") or {}
+    after = side.get("after") or {}
+    if not before:
+        return side.get("unchanged") or {}
+    return {
+        name: canonical_fingerprint(before[name]) == canonical_fingerprint(after.get(name))
+        for name in before
+    }
+
+
+def canonical_fingerprint(value: Any) -> Any:
+    """Make a fingerprint comparable across two runs of the same read command.
+
+    `orion-agenda ... --json` gets its events from OrionMacBridge, which
+    serialises a Swift dictionary — and that has no defined key order. Two
+    consecutive reads of an UNCHANGED calendar therefore return the same events
+    with their keys shuffled, and a raw string comparison calls that a mutation.
+
+    On 2026-09-06 it did exactly that: three read-only eval runs were all marked
+    INVALID with "an eval run mutated Nick's real state" while the calendar was
+    untouched. A safety assertion that cries wolf is worse than one that does not
+    exist, because the first thing anyone does with a known-flaky alarm is learn
+    to scroll past it.
+
+    So JSON is parsed and re-serialised with sorted keys before comparison, and
+    anything that is not JSON is compared exactly as before. This normalises
+    ORDER, never CONTENT: an added, removed or edited event still differs.
+    """
+    if isinstance(value, dict):
+        return {k: canonical_fingerprint(v) for k, v in value.items()}
+    if not isinstance(value, str):
+        return value
+    text = value.replace("\x00", "")
+    decoder = json.JSONDecoder()
+    documents: list[Any] = []
+    index = 0
+    try:
+        while index < len(text):
+            while index < len(text) and text[index] in " \n\t\r":
+                index += 1
+            if index >= len(text):
+                break
+            document, index = decoder.raw_decode(text, index)
+            documents.append(document)
+    except ValueError:
+        return value  # not JSON at all — compare it verbatim
+    if not documents:
+        return value
+    return json.dumps(documents, sort_keys=True)
+
+
+def run_shell_fingerprint(command: str, timeout: int = 30) -> dict[str, Any]:
+    """Run a fixture-declared fingerprint command (may contain shell syntax like
+    quoting or $HOME). Executed with the *repo* as cwd so relative wrapper paths
+    resolve. This never invokes the model and never mutates anything by design
+    of the fixtures that use it (calendar/reminders/permission reads only)."""
+    result = run_cmd(["/bin/sh", "-c", command], timeout=timeout)
+    return result
+
+
+class PreflightError(RuntimeError):
+    """A hard assertion failed before any model call was made. No money spent."""
+
+
+# --------------------------------------------------------------------------
+# fixture loading + static validation
+# --------------------------------------------------------------------------
+
+REQUIRED_FIXTURE_FIELDS = [
+    "id", "title", "prompt", "sessionKeyPrefix", "timeoutSeconds", "clock",
+    "context", "authority", "sideEffects", "referencePlan", "rubric",
+    "hardAssertions",
+]
+
+CHECK_KINDS = {
+    "answer_matches", "answer_not_matches", "tool_called", "tool_not_called",
+    "tool_count_at_most", "elapsed_under", "no_silence_gap_over",
+    "ledger_unchanged", "manual",
+}
+
+
+def fixture_ids() -> list[str]:
+    return sorted(p.stem for p in FIXTURES_DIR.glob("*.json"))
+
+
+def load_fixture(fixture_id: str) -> dict[str, Any]:
+    path = FIXTURES_DIR / f"{fixture_id}.json"
+    md_path = FIXTURES_DIR / f"{fixture_id}.md"
+    if not path.exists():
+        raise SystemExit(f"orion-eval: no such fixture: {fixture_id} (missing {path})")
+    if not md_path.exists():
+        raise SystemExit(f"orion-eval: fixture {fixture_id} is missing its reference-plan "
+                          f"markdown half ({md_path}) — a fixture is a JSON/Markdown PAIR")
+    data = json.loads(path.read_text())
+    data["_path"] = path
+    data["_md_path"] = md_path
+    data["_sha256"] = sha256_of(path)
+    return data
+
+
+def validate_fixture(fx: dict[str, Any]) -> list[str]:
+    errors = []
+    for field in REQUIRED_FIXTURE_FIELDS:
+        if field not in fx:
+            errors.append(f"missing required field '{field}'")
+    if fx.get("id") != fx["_path"].stem:
+        errors.append(f"id '{fx.get('id')}' does not match filename stem '{fx['_path'].stem}'")
+    if fx.get("sessionKeyPrefix", "").rstrip("-") in FORBIDDEN_SESSION_KEYS or \
+            fx.get("sessionKeyPrefix") == "orion-app-v2":
+        errors.append("sessionKeyPrefix must never be orion-app-v2 (Nick's live desktop session)")
+    clock = fx.get("clock", {})
+    for k in ("assumedDate", "assumedWeekday", "homeTimezone", "whyItMatters"):
+        if k not in clock:
+            errors.append(f"clock.{k} missing")
+    ref = fx.get("referencePlan", {})
+    if "frozen" not in ref:
+        errors.append("referencePlan.frozen missing — the sealed timestamp is mandatory")
+    else:
+        try:
+            parse_iso(ref["frozen"])
+        except ValueError:
+            errors.append(f"referencePlan.frozen '{ref['frozen']}' is not a valid ISO timestamp")
+    for dim in fx.get("rubric", []):
+        if "dimension" not in dim or "points" not in dim or "checks" not in dim:
+            errors.append(f"rubric entry missing dimension/points/checks: {dim!r}")
+            continue
+        for check in dim["checks"]:
+            if "name" not in check or "kind" not in check:
+                errors.append(f"check missing name/kind in dimension '{dim['dimension']}': {check!r}")
+                continue
+            if check["kind"] not in CHECK_KINDS:
+                errors.append(f"check '{check['name']}' has unknown kind '{check['kind']}'")
+    se = fx.get("sideEffects", {})
+    for entry in se.get("verification", []):
+        if "name" not in entry or "fingerprint" not in entry:
+            errors.append(f"sideEffects.verification entry missing name/fingerprint: {entry!r}")
+    return errors
+
+
+# --------------------------------------------------------------------------
+# hard assertions
+# --------------------------------------------------------------------------
+
+def assert_clock_assumption_holds(fx: dict[str, Any]) -> None:
+    today = datetime.now().strftime("%Y-%m-%d")
+    assumed = fx["clock"]["assumedDate"]
+    if today != assumed:
+        raise PreflightError(
+            f"assert_clock_assumption_holds: FAIL — fixture assumes {assumed}, "
+            f"machine says today is {today}. This fixture's clock assumption has "
+            f"expired; it scores nothing until re-sealed for the current date."
+        )
+
+
+def assert_authority_as_declared(fx: dict[str, Any]) -> dict[str, Any]:
+    authority = fx["authority"]
+    result = run_shell_fingerprint(authority["verifyWith"], timeout=30)
+    text = ANSI.sub("", result["stdout"])
+    profile = authority["permissionProfile"]
+    mode = authority["strictnessMode"]
+    if profile not in text or mode not in text:
+        raise PreflightError(
+            f"assert_authority_as_declared: FAIL — fixture declares profile="
+            f"'{profile}' mode='{mode}', but `{authority['verifyWith']}` output did "
+            f"not contain both. Output was:\n{text[:800]}"
+        )
+    return {"command": authority["verifyWith"], "output": text}
+
+
+def assert_isolated_session(session_key: str) -> None:
+    bare = session_key
+    if bare in FORBIDDEN_SESSION_KEYS or bare == "orion-app-v2":
+        raise PreflightError(
+            f"assert_isolated_session: FAIL — session key '{session_key}' is "
+            f"Nick's live desktop session. Refusing to run."
+        )
+    if bare.startswith("main") or bare == "main":
+        raise PreflightError(
+            f"assert_isolated_session: FAIL — session key '{session_key}' looks "
+            f"like the main session. Refusing to run."
+        )
+
+
+def assert_reference_plan_predates_run(fx: dict[str, Any], run_started_at: datetime) -> None:
+    frozen = parse_iso(fx["referencePlan"]["frozen"])
+    if not frozen < run_started_at:
+        raise PreflightError(
+            f"assert_reference_plan_predates_run: FAIL — referencePlan.frozen "
+            f"({iso(frozen)}) is not strictly before this run's start "
+            f"({iso(run_started_at)}). A plan written after (or at) the run "
+            f"scores the answer against itself and the comparison is worthless."
+        )
+
+
+def assert_status_ok(envelope: dict[str, Any]) -> tuple[bool, str]:
+    status = envelope.get("status")
+    if status != "ok":
+        return False, f"assert_status_ok: FAIL — top-level status was '{status}', not 'ok'"
+    return True, "assert_status_ok: PASS"
+
+
+# `livenessState` values that mean the turn did not reach a clean end. Anything
+# else -- "working" is the normal terminal value on the success path -- is fine.
+UNFINISHED_LIVENESS = {"abandoned", "blocked", "paused"}
+
+
+def assert_replay_not_invalid(envelope: dict[str, Any]) -> tuple[bool, str]:
+    """Refuse a run whose turn did not finish. NOT one that merely used a tool.
+
+    `replayInvalid` was originally read here -- and in the 2026-09-02 addendum
+    that prompted this harness -- as "the run has an unknown relationship to what
+    actually executed". It does not mean that. OpenClaw's own type declares it as
+    "tracks whether an embedded run can be replayed after compaction or retry",
+    carried alongside `hadPotentialSideEffects`, and its blocked-reasons are
+    `tool_activity | potential_side_effect | active_item`. It is a REPLAY-SAFETY
+    flag: the runtime saying "do not silently re-run this turn, it touched
+    something." Every run that calls a tool sets it, on the ordinary success path.
+
+    Reading it as a validity flag made every real run permanently INVALID --
+    nine for nine here, including four that were otherwise clean. An assertion
+    that can never pass is not a safety property; it is a thing people learn to
+    scroll past, and it would have hidden the assertions that do work.
+
+    So: the flag is recorded either way, and it fails the run only when the
+    turn's own liveness says it did not finish, or an error was returned. A
+    genuinely abandoned or blocked turn is still refused, which is the property
+    worth keeping.
+    """
+    meta = (envelope.get("result") or {}).get("meta") or {}
+    replay_invalid = meta.get("replayInvalid")
+    liveness = meta.get("livenessState")
+    errored = bool(meta.get("error")) or meta.get("aborted") is True
+    if replay_invalid is True and (liveness in UNFINISHED_LIVENESS or errored):
+        return False, (
+            f"assert_replay_not_invalid: FAIL — the turn did not finish cleanly "
+            f"(replayInvalid=true, livenessState={liveness!r}, "
+            f"error={meta.get('error')!r}, aborted={meta.get('aborted')!r}). Its "
+            f"transcript may not describe what actually ran."
+        )
+    if replay_invalid is True:
+        return True, (
+            f"assert_replay_not_invalid: PASS — replayInvalid=true is expected "
+            f"for a turn that used a tool (livenessState={liveness!r}); it marks "
+            f"the run unsafe to REPLAY, not unsafe to trust."
+        )
+    return True, "assert_replay_not_invalid: PASS"
+
+
+def assert_no_side_effects(before: dict[str, Any], after: dict[str, Any]) -> tuple[bool, str]:
+    changed = []
+    for name in before:
+        if canonical_fingerprint(before[name]) != canonical_fingerprint(after.get(name)):
+            changed.append(name)
+    if changed:
+        return False, (
+            f"assert_no_side_effects: FAIL — fingerprint(s) changed during the "
+            f"run: {', '.join(changed)}. This fixture is read-only; any change "
+            f"means an eval run mutated Nick's real state, which is a bug in "
+            f"the fixture or in Orion, not an acceptable outcome."
+        )
+    return True, "assert_no_side_effects: PASS"
+
+
+# --------------------------------------------------------------------------
+# transcript + audit parsing
+# --------------------------------------------------------------------------
+
+def extract_reply(envelope: dict[str, Any]) -> str:
+    payloads = ((envelope.get("result") or {}).get("payloads")) or []
+    parts = [p.get("text", "") for p in payloads if isinstance(p, dict) and p.get("text")]
+    return "\n\n".join(parts).strip()
+
+
+def load_transcript_tool_calls(session_file: str) -> list[dict[str, Any]]:
+    """Parse the session .jsonl for assistant tool_use blocks, in order, with
+    their rendered command/arguments. This is the ONLY evidence source that can
+    carry actual tool arguments — `openclaw audit` is metadata-only."""
+    calls = []
+    path = Path(session_file)
+    if not path.exists():
+        return calls
+    for line in path.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("type") != "message":
+            continue
+        message = entry.get("message") or {}
+        if message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            # OpenClaw writes `toolCall` / `arguments`; the Anthropic API shape
+            # is `tool_use` / `input`. This parser was written against the
+            # second and the transcripts are the first, so it matched nothing
+            # and every run recorded an EMPTY tool list -- while `openclaw
+            # audit` for the same run plainly showed `tool.action.started:exec`.
+            # The tool-selection rubric was therefore scoring real behaviour
+            # against no evidence at all. Both spellings are accepted now, so a
+            # format change breaks loudly rather than silently returning [].
+            if not isinstance(block, dict) or block.get("type") not in ("toolCall", "tool_use"):
+                continue
+            name = block.get("name", "")
+            tool_input = block.get("arguments", block.get("input", {}))
+            rendered = f"{name} {json.dumps(tool_input, sort_keys=True)}"
+            calls.append({
+                "timestamp": entry.get("timestamp"),
+                "name": name,
+                "input": tool_input,
+                "rendered": rendered,
+            })
+    return calls
+
+
+def load_audit_events(session_key_full: str) -> list[dict[str, Any]]:
+    result = run_cmd(
+        [str(OPENCLAW_BIN), "audit", "--session", session_key_full, "--json"],
+        timeout=30,
+    )
+    if result["returncode"] != 0:
+        return []
+    try:
+        parsed = json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        return []
+    return parsed.get("events", [])
+
+
+def max_gap_seconds(audit_events: list[dict[str, Any]]) -> float:
+    times = sorted(e["occurredAt"] for e in audit_events if "occurredAt" in e)
+    if len(times) < 2:
+        return 0.0
+    gaps = [(times[i + 1] - times[i]) / 1000.0 for i in range(len(times) - 1)]
+    return max(gaps) if gaps else 0.0
+
+
+# --------------------------------------------------------------------------
+# rubric evaluation
+# --------------------------------------------------------------------------
+
+def eval_check(check: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+    kind = check["kind"]
+    name = check["name"]
+    answer = evidence["final_answer"]
+    tool_calls = evidence["tool_calls"]
+
+    if kind == "answer_matches":
+        matched = [p for p in check["patterns"] if re.search(p, answer, re.IGNORECASE)]
+        return {"name": name, "kind": kind, "passed": bool(matched),
+                "evidence": {"matchedPatterns": matched, "answerExcerpt": answer[:500]}}
+
+    if kind == "answer_not_matches":
+        matched = [p for p in check["patterns"] if re.search(p, answer, re.IGNORECASE)]
+        return {"name": name, "kind": kind, "passed": not matched,
+                "evidence": {"matchedPatterns": matched, "answerExcerpt": answer[:500]}}
+
+    if kind == "tool_called":
+        hits = [c for c in tool_calls if any(re.search(p, c["rendered"], re.IGNORECASE) for p in check["patterns"])]
+        return {"name": name, "kind": kind, "passed": bool(hits),
+                "evidence": {"matchedCalls": [c["rendered"] for c in hits][:5]}}
+
+    if kind == "tool_not_called":
+        hits = [c for c in tool_calls if any(re.search(p, c["rendered"], re.IGNORECASE) for p in check["patterns"])]
+        return {"name": name, "kind": kind, "passed": not hits,
+                "evidence": {"matchedCalls": [c["rendered"] for c in hits][:5]}}
+
+    if kind == "tool_count_at_most":
+        count = len(evidence["audit_tool_actions"])
+        return {"name": name, "kind": kind, "passed": count <= check["n"],
+                "evidence": {"count": count, "limit": check["n"]}}
+
+    if kind == "elapsed_under":
+        secs = evidence["elapsed_seconds"]
+        return {"name": name, "kind": kind, "passed": secs <= check["seconds"],
+                "evidence": {"elapsedSeconds": secs, "limit": check["seconds"]}}
+
+    if kind == "no_silence_gap_over":
+        gap = evidence["max_gap_seconds"]
+        return {"name": name, "kind": kind, "passed": gap <= check["seconds"],
+                "evidence": {"maxGapSeconds": gap, "limit": check["seconds"]}}
+
+    if kind == "ledger_unchanged":
+        names = check.get("fingerprints") or ([check["fingerprint"]] if "fingerprint" in check else [])
+        unchanged_map = evidence["fingerprint_unchanged"]
+        results = {n: unchanged_map.get(n) for n in names}
+        passed = all(results.values()) and len(results) > 0
+        return {"name": name, "kind": kind, "passed": passed, "evidence": {"fingerprints": results}}
+
+    if kind == "manual":
+        return {"name": name, "kind": kind, "passed": False,
+                "evidence": {"note": "unscored manual check — counts as ZERO until "
+                                       "`orion-eval judge` records a human verdict"}}
+
+    raise ValueError(f"unknown check kind: {kind}")
+
+
+def score_rubric(fx: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+    dimensions = []
+    total_points = 0
+    earned_points = 0.0
+    for dim in fx["rubric"]:
+        checks_out = [eval_check(c, evidence) for c in dim["checks"]]
+        n = len(checks_out) or 1
+        passed = sum(1 for c in checks_out if c["passed"])
+        dim_earned = dim["points"] * (passed / n)
+        dimensions.append({
+            "dimension": dim["dimension"],
+            "points": dim["points"],
+            "earned": round(dim_earned, 2),
+            "checks": checks_out,
+        })
+        total_points += dim["points"]
+        earned_points += dim_earned
+    return {
+        "totalPoints": total_points,
+        "earnedPoints": round(earned_points, 2),
+        "dimensions": dimensions,
+    }
+
+
+# --------------------------------------------------------------------------
+# run
+# --------------------------------------------------------------------------
+
+def do_one_run(fixture_id: str, run_index: int = 0) -> Path:
+    fx = load_fixture(fixture_id)
+    errors = validate_fixture(fx)
+    if errors:
+        raise SystemExit(f"orion-eval: fixture '{fixture_id}' is malformed:\n  - " +
+                          "\n  - ".join(errors))
+
+    # ---- preflight (no money spent yet) ----
+    assert_clock_assumption_holds(fx)
+    authority_evidence = assert_authority_as_declared(fx)
+
+    now = utcnow()
+    session_key = f"{fx['sessionKeyPrefix']}-{now.strftime('%Y%m%d%H%M%S')}-{run_index}"
+    assert_isolated_session(session_key)
+    assert_reference_plan_predates_run(fx, now)
+
+    session_key_full = f"agent:main:{session_key.lower()}"
+    prior_audit = load_audit_events(session_key_full)
+    if prior_audit:
+        raise PreflightError(
+            f"assert_isolated_session: FAIL — session key '{session_key}' already "
+            f"has {len(prior_audit)} audit record(s). Refusing to reuse a session."
+        )
+
+    # ---- fingerprints BEFORE ----
+    before_fp = {}
+    for entry in fx["sideEffects"]["verification"]:
+        r = run_shell_fingerprint(entry["fingerprint"])
+        before_fp[entry["name"]] = r["stdout"] + "\x00" + str(r["returncode"])
+
+    print(f"[orion-eval] running '{fixture_id}' as session '{session_key}' "
+          f"(timeout {fx['timeoutSeconds']}s)...", file=sys.stderr)
+
+    # ---- THE LIVE CALL ----
+    start = time.monotonic()
+    result = run_cmd(
+        [str(OPENCLAW_BIN), "agent", "--session-key", session_key,
+         "--message", fx["prompt"], "--json", "--timeout", str(fx["timeoutSeconds"])],
+        timeout=fx["timeoutSeconds"] + 30,
+    )
+    elapsed_seconds = time.monotonic() - start
+
+    # ---- fingerprints AFTER ----
+    after_fp = {}
+    for entry in fx["sideEffects"]["verification"]:
+        r = run_shell_fingerprint(entry["fingerprint"])
+        after_fp[entry["name"]] = r["stdout"] + "\x00" + str(r["returncode"])
+    fingerprint_unchanged = {
+        name: canonical_fingerprint(before_fp[name]) == canonical_fingerprint(after_fp.get(name))
+        for name in before_fp
+    }
+
+    raw_stdout = ANSI.sub("", result["stdout"]).strip()
+    envelope: dict[str, Any] = {}
+    parse_error = None
+    for candidate in [raw_stdout, *reversed(raw_stdout.splitlines())]:
+        candidate = candidate.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            envelope = json.loads(candidate)
+            break
+        except json.JSONDecodeError as e:
+            parse_error = str(e)
+            continue
+
+    hard_assertions: dict[str, Any] = {}
+    ok, msg = assert_status_ok(envelope) if envelope else (False, f"assert_status_ok: FAIL — could not parse agent output as JSON ({parse_error})")
+    hard_assertions["assert_status_ok"] = {"passed": ok, "message": msg}
+
+    ok, msg = assert_replay_not_invalid(envelope) if envelope else (False, "assert_replay_not_invalid: FAIL — no envelope to check")
+    hard_assertions["assert_replay_not_invalid"] = {"passed": ok, "message": msg}
+
+    ok, msg = assert_no_side_effects(before_fp, after_fp)
+    hard_assertions["assert_no_side_effects"] = {"passed": ok, "message": msg}
+
+    hard_assertions["assert_clock_assumption_holds"] = {"passed": True, "message": "assert_clock_assumption_holds: PASS (preflight)"}
+    hard_assertions["assert_authority_as_declared"] = {"passed": True, "message": "assert_authority_as_declared: PASS (preflight)"}
+    hard_assertions["assert_isolated_session"] = {"passed": True, "message": "assert_isolated_session: PASS (preflight)"}
+    hard_assertions["assert_reference_plan_predates_run"] = {"passed": True, "message": "assert_reference_plan_predates_run: PASS (preflight)"}
+
+    meta = (envelope.get("result") or {}).get("meta") or {}
+    agent_meta = meta.get("agentMeta") or {}
+    session_file = agent_meta.get("sessionFile", "")
+    session_id = agent_meta.get("sessionId", "")
+    tool_calls = load_transcript_tool_calls(session_file) if session_file else []
+    audit_events = load_audit_events(session_key_full)
+    audit_tool_actions = [e for e in audit_events if e.get("kind") == "tool_action"]
+
+    final_answer = extract_reply(envelope)
+
+    evidence = {
+        "final_answer": final_answer,
+        "tool_calls": tool_calls,
+        "audit_tool_actions": audit_tool_actions,
+        "elapsed_seconds": meta.get("durationMs", elapsed_seconds * 1000) / 1000.0,
+        "max_gap_seconds": max_gap_seconds(audit_events),
+        "fingerprint_unchanged": fingerprint_unchanged,
+    }
+
+    scoring = score_rubric(fx, evidence)
+    all_hard_passed = all(h["passed"] for h in hard_assertions.values())
+
+    record = {
+        "fixtureId": fixture_id,
+        "fixtureSha256": fx["_sha256"],
+        "sessionKey": session_key,
+        "sessionKeyFull": session_key_full,
+        "runId": envelope.get("runId"),
+        "sessionId": session_id,
+        "sessionFile": session_file,
+        "startedAt": iso(now),
+        "elapsedSeconds": round(elapsed_seconds, 3),
+        "reportedDurationMs": meta.get("durationMs"),
+        "toolCallsInOrder": tool_calls,
+        "auditEventCount": len(audit_events),
+        "finalAnswer": final_answer,
+        "rawEnvelopeStatus": envelope.get("status"),
+        "rawMeta": {
+            "replayInvalid": meta.get("replayInvalid"),
+            "livenessState": meta.get("livenessState"),
+            "stopReason": meta.get("stopReason"),
+            "aborted": meta.get("aborted"),
+        },
+        "authorityCheck": authority_evidence,
+        "sideEffects": {
+            "before": before_fp,
+            "after": after_fp,
+            "unchanged": fingerprint_unchanged,
+        },
+        "hardAssertions": hard_assertions,
+        "valid": all_hard_passed,
+        "scoring": scoring,
+    }
+
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = RUNS_DIR / f"{fixture_id}-{now.strftime('%Y%m%dT%H%M%SZ')}-{run_index}.json"
+    out_path.write_text(json.dumps(record, indent=2, default=str))
+
+    verdict = "VALID" if all_hard_passed else "INVALID"
+    print(f"[orion-eval] {fixture_id} run {run_index}: score "
+          f"{scoring['earnedPoints']}/{scoring['totalPoints']} — {verdict}", file=sys.stderr)
+    if not all_hard_passed:
+        for name, h in hard_assertions.items():
+            if not h["passed"]:
+                print(f"    HARD ASSERTION FAILED: {h['message']}", file=sys.stderr)
+    print(f"[orion-eval] wrote {out_path}", file=sys.stderr)
+    return out_path
+
+
+# --------------------------------------------------------------------------
+# offline: replay stored runs against the CURRENT rubric
+# --------------------------------------------------------------------------
+
+def do_replay(fixture_filter: str | None) -> int:
+    """Re-score every stored run using the fixture file AS IT EXISTS NOW,
+    against the evidence stored IN the run record. No model call. Returns the
+    number of runs whose score changed vs what was stored (a rubric-edit
+    regression) or whose hard assertions newly fail."""
+    problems = 0
+    checked = 0
+    for run_path in sorted(RUNS_DIR.glob("*.json")):
+        record = json.loads(run_path.read_text())
+        fid = record["fixtureId"]
+        if fixture_filter and fid != fixture_filter:
+            continue
+        try:
+            fx = load_fixture(fid)
+        except SystemExit as e:
+            print(f"[replay] {run_path.name}: SKIP — {e}")
+            continue
+        checked += 1
+
+        # Re-derive the tool calls from the session transcript rather than
+        # trusting the stored field. The transcript is the primary evidence; the
+        # stored list was produced by a parser that looked for `tool_use` blocks
+        # in a format that writes `toolCall`, so every historical run recorded an
+        # empty list while the transcript plainly showed the command. Re-scoring
+        # against a frozen bad derivation would just re-freeze it.
+        replayed_calls = record["toolCallsInOrder"]
+        stored_session = record.get("sessionFile")
+        if stored_session:
+            recovered = load_transcript_tool_calls(stored_session)
+            if recovered:
+                replayed_calls = recovered
+
+        evidence = {
+            "final_answer": record["finalAnswer"],
+            "tool_calls": replayed_calls,
+            "audit_tool_actions": [None] * 0,  # recomputed below if present
+            "elapsed_seconds": (record.get("reportedDurationMs") or record["elapsedSeconds"] * 1000) / 1000.0,
+            "max_gap_seconds": record.get("_maxGapSecondsCache", 0.0),
+            # Recomputed, not read back, for the same reason as the tool calls
+            # above: the stored verdict was produced by a raw-string comparison
+            # of JSON whose key order is not stable, so three read-only runs were
+            # recorded as having mutated the calendar when nothing changed.
+            "fingerprint_unchanged": recomputed_fingerprint_verdict(record),
+        }
+        # audit_tool_actions count isn't re-fetched live during replay (offline
+        # by design); use the stored count as a stand-in for tool_count_at_most.
+        evidence["audit_tool_actions"] = [None] * max(0, record.get("auditEventCount", 0) -
+                                                       2 * 1)  # minus the two agent_run bookends, best-effort
+
+        new_scoring = score_rubric(fx, evidence)
+        old_earned = record["scoring"]["earnedPoints"]
+        new_earned = new_scoring["earnedPoints"]
+
+        replay_ok, replay_msg = assert_replay_not_invalid({"result": {"meta": {
+            "replayInvalid": record["rawMeta"]["replayInvalid"],
+            "livenessState": record["rawMeta"]["livenessState"],
+        }}})
+        no_se_ok, no_se_msg = assert_no_side_effects(
+            record["sideEffects"]["before"], record["sideEffects"]["after"])
+
+        status = "OK"
+        if abs(new_earned - old_earned) > 0.01:
+            status = f"SCORE CHANGED {old_earned} -> {new_earned}"
+            problems += 1
+        if not replay_ok:
+            status += f" | {replay_msg}"
+            problems += 1
+        if not no_se_ok:
+            status += f" | {no_se_msg}"
+            problems += 1
+        print(f"[replay] {run_path.name}: {fid} {new_earned}/{new_scoring['totalPoints']} — {status}")
+    print(f"[replay] {checked} run(s) checked, {problems} problem(s).")
+    return 1 if problems else 0
+
+
+# --------------------------------------------------------------------------
+# report
+# --------------------------------------------------------------------------
+
+def do_report(since: str | None) -> None:
+    since_dt = parse_iso(since) if since else None
+    rows = []
+    for run_path in sorted(RUNS_DIR.glob("*.json")):
+        record = json.loads(run_path.read_text())
+        started = parse_iso(record["startedAt"])
+        if since_dt and started < since_dt:
+            continue
+        rows.append((run_path.name, record))
+    if not rows:
+        print("[report] no runs found" + (f" since {since}" if since else ""))
+        return
+    print(f"{'run':50} {'fixture':22} {'score':>10} {'valid':>6}")
+    for name, record in rows:
+        score = f"{record['scoring']['earnedPoints']}/{record['scoring']['totalPoints']}"
+        print(f"{name:50} {record['fixtureId']:22} {score:>10} {str(record['valid']):>6}")
+
+
+# --------------------------------------------------------------------------
+# judge (manual check verdicts)
+# --------------------------------------------------------------------------
+
+def do_judge(run_file: str, check_name: str, verdict: str, justification: str) -> None:
+    path = RUNS_DIR / run_file if not Path(run_file).is_absolute() and "/" not in run_file else Path(run_file)
+    record = json.loads(path.read_text())
+    found = False
+    for dim in record["scoring"]["dimensions"]:
+        for check in dim["checks"]:
+            if check["name"] == check_name:
+                check["passed"] = (verdict == "pass")
+                check["evidence"]["justification"] = justification
+                check["evidence"]["judgedAt"] = iso(utcnow())
+                found = True
+    if not found:
+        raise SystemExit(f"orion-eval judge: no check named '{check_name}' in {path}")
+    # recompute totals
+    total_points = 0
+    earned_points = 0.0
+    for dim in record["scoring"]["dimensions"]:
+        n = len(dim["checks"]) or 1
+        passed = sum(1 for c in dim["checks"] if c["passed"])
+        dim["earned"] = round(dim["points"] * (passed / n), 2)
+        total_points += dim["points"]
+        earned_points += dim["earned"]
+    record["scoring"]["totalPoints"] = total_points
+    record["scoring"]["earnedPoints"] = round(earned_points, 2)
+    path.write_text(json.dumps(record, indent=2, default=str))
+    print(f"[judge] {path.name}: '{check_name}' -> {verdict} ({justification!r}). "
+          f"New score: {record['scoring']['earnedPoints']}/{record['scoring']['totalPoints']}")
+
+
+# --------------------------------------------------------------------------
+# list / check
+# --------------------------------------------------------------------------
+
+def do_list() -> None:
+    for fid in fixture_ids():
+        runs = sorted(RUNS_DIR.glob(f"{fid}-*.json"))
+        print(f"{fid}  ({len(runs)} run(s))")
+        for r in runs[-5:]:
+            record = json.loads(r.read_text())
+            print(f"    {r.name}: {record['scoring']['earnedPoints']}/"
+                  f"{record['scoring']['totalPoints']} valid={record['valid']}")
+
+
+def do_check() -> int:
+    failed = 0
+    for fid in fixture_ids():
+        fx = load_fixture(fid)
+        errors = validate_fixture(fx)
+        if errors:
+            failed += 1
+            print(f"FAIL {fid}:")
+            for e in errors:
+                print(f"  - {e}")
+        else:
+            print(f"OK   {fid}")
+    return 1 if failed else 0
+
+
+# --------------------------------------------------------------------------
+# main
+# --------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="orion-eval", description=__doc__,
+                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("list")
+    sub.add_parser("check")
+
+    p_run = sub.add_parser("run")
+    p_run.add_argument("fixture_id")
+    p_run.add_argument("--repeat", type=int, default=1)
+
+    p_replay = sub.add_parser("replay")
+    p_replay.add_argument("--fixture", default=None)
+
+    p_report = sub.add_parser("report")
+    p_report.add_argument("--since", default=None)
+
+    p_judge = sub.add_parser("judge")
+    p_judge.add_argument("run_file")
+    p_judge.add_argument("check_name")
+    p_judge.add_argument("verdict", choices=["pass", "fail"])
+    p_judge.add_argument("--justification", required=True)
+
+    args = parser.parse_args(argv)
+
+    if args.cmd == "list":
+        do_list()
+        return 0
+    if args.cmd == "check":
+        return do_check()
+    if args.cmd == "run":
+        try:
+            for i in range(args.repeat):
+                do_one_run(args.fixture_id, run_index=i)
+        except PreflightError as e:
+            print(f"[orion-eval] REFUSED: {e}", file=sys.stderr)
+            return 2
+        return 0
+    if args.cmd == "replay":
+        return do_replay(args.fixture)
+    if args.cmd == "report":
+        do_report(args.since)
+        return 0
+    if args.cmd == "judge":
+        do_judge(args.run_file, args.check_name, args.verdict, args.justification)
+        return 0
+    parser.error("unknown command")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

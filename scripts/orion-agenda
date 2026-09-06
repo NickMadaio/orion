@@ -16,6 +16,23 @@
    orion-agenda today                 events for today
    orion-agenda upcoming              everything the bridge can see ahead
    orion-agenda tasks                 incomplete reminders
+   orion-agenda day <when>            events on ONE named day
+                                      <when> is a date (2026-09-11), a weekday
+                                      (friday), `today`, or `tomorrow`
+
+ Every subcommand prints a dated header before anything else, and that is not
+ decoration. On 2026-09-05 the same question -- "I have something this Friday"
+ -- was put to Orion four times with identical state and produced three
+ different answers: "this Friday (Sep 5)", "this Friday is September 12th", and
+ "September 5th, that's today". Sep 5 was a SATURDAY and so is Sep 12. He was
+ not misreading the calendar; he was doing weekday arithmetic in his head with
+ nothing to check it against, and `today | upcoming | tasks` gave him no way to
+ ask about a named day even if he had got the date right -- one run tried to
+ invent `orion-agenda friday` and got an exec failure.
+
+ So the resolution is done HERE, in a program that can count, and printed as
+ evidence. A date the model read out of tool output is a fact; a date it
+ inferred is a guess that looks exactly like a fact.
 
  Mutations intentionally live in the non-allowlisted orion-agenda-change
  wrapper and are reachable only through typed orion-control actions.
@@ -116,16 +133,97 @@ function describeEvents(events, { onlyToday }) {
   }
 }
 
+const WEEKDAYS = [
+  "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+];
+
+const longDate = (at) =>
+  at.toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
+
+/*
+ Resolve a spoken day to one calendar date, in local time.
+
+ A bare weekday means its NEXT occurrence, counting today as day zero: asked on
+ a Saturday, "friday" is six days away; asked on a Friday, it is today. That is
+ what "this Friday" means to a person, and the only reading that never resolves
+ to the past.
+*/
+function resolveDay(when) {
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const word = String(when ?? "").trim().toLowerCase();
+
+  if (word === "" || word === "today") return midnight;
+  if (word === "tomorrow") {
+    return new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() + 1);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(word)) {
+    const [y, m, d] = word.split("-").map(Number);
+    const parsed = new Date(y, m - 1, d);
+    if (Number.isNaN(parsed.getTime())) fail(`not a real date: ${when}`);
+    return parsed;
+  }
+  const index = WEEKDAYS.indexOf(word);
+  if (index >= 0) {
+    const ahead = (index - midnight.getDay() + 7) % 7;
+    return new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() + ahead);
+  }
+  fail(`can't read "${when}" as a day — use a date (2026-09-11), a weekday, today, or tomorrow`);
+}
+
+/*
+ Printed first by every subcommand, so the model never has to work out what day
+ it is. See the note at the top of this file for what happens when it does.
+*/
+function printGrounding(target) {
+  const now = new Date();
+  console.log(`today is ${longDate(now)}`);
+  if (!target) return;
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((target - midnight) / 86400000);
+  const distance =
+    days === 0 ? "today" : days === 1 ? "tomorrow" : `${days} days from today`;
+  console.log(`asked about ${longDate(target)} — ${distance}`);
+}
+
 // This program is on OpenClaw's exec allowlist, so its contract must be
 // uniformly read-only. An allowlist cannot attach different approval policy to
 // different subcommands of the same executable.
-if (!["today", "upcoming", "tasks"].includes(command)) {
+if (!["today", "upcoming", "tasks", "day"].includes(command)) {
   fail("this wrapper is read-only; Calendar changes must use Orion's typed Calendar actions");
 }
 
 switch (command) {
+  case "day": {
+    const target = resolveDay(rest.find((a) => !a.startsWith("--")));
+    // Suppressed under --json for the same reason `upcoming` suppresses it:
+    // that output is parsed by other programs, and a fingerprint that carries
+    // today's date is a fingerprint that changes at midnight.
+    if (!rest.includes("--json")) printGrounding(target);
+    const events = unpack(await ask("list_upcoming_calendar_events"), "events_json");
+    const wanted = events.filter((e) => localDay(new Date(e.start)) === localDay(target));
+    if (rest.includes("--json")) {
+      console.log(JSON.stringify(wanted, null, 2));
+      break;
+    }
+    if (wanted.length === 0) {
+      // Said as a fact about that day rather than as a shrug, because
+      // "nothing found" and "I did not look" have to sound different.
+      console.log("nothing on the calendar that day");
+      break;
+    }
+    for (const event of wanted.sort((a, b) => new Date(a.start) - new Date(b.start))) {
+      console.log(`  ${timeLabel(event.start)} — ${event.title}`);
+      if (event.identifier) console.log(`      id: ${event.identifier}`);
+    }
+    break;
+  }
+
   case "today":
   case "upcoming": {
+    if (!rest.includes("--json")) printGrounding(null);
     const result = await ask("list_upcoming_calendar_events");
     const events = unpack(result, "events_json");
     /*
@@ -157,6 +255,7 @@ switch (command) {
   }
 
   case "tasks": {
+    printGrounding(null);
     const tasks = unpack(await ask("list_incomplete_reminders"), "reminders_json");
     if (tasks.length === 0) {
       console.log("nothing outstanding");
@@ -170,5 +269,5 @@ switch (command) {
   }
 
   default:
-    fail("usage: orion-agenda today | upcoming | tasks");
+    fail("usage: orion-agenda today | upcoming | tasks | day <date|weekday|today|tomorrow>");
 }

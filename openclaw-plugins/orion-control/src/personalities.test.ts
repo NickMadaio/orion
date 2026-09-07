@@ -90,6 +90,13 @@ const definition: PersonalityProfile = {
 };
 `;
 
+// Each test in this block boots the real TypeScript compiler: 1-3s on a warm
+// filesystem, 8-16s on a cold one. Vitest's 5s default therefore made them pass
+// on this machine and fail on any cold checkout -- found when a git worktree ran
+// them for the first time and all four "failed" without one assertion being
+// wrong. A test whose verdict depends on the page cache proves nothing.
+const COMPILER_TIMEOUT_MS = 60_000;
+
 describe("compile-time proof: authority cannot be expressed on a personality", () => {
   it("the ordinary definition, with no authority field, type-checks with zero diagnostics", () => {
     const diagnostics = typeCheckFixture(VALID_LITERAL);
@@ -124,7 +131,7 @@ describe("compile-time proof: authority cannot be expressed on a personality", (
     const diagnostics = typeCheckFixture(withAuthority);
     expect(diagnostics.some((d) => d.code === 2353)).toBe(true);
   });
-});
+}, COMPILER_TIMEOUT_MS);
 
 describe("PERSONALITIES roster", () => {
   it("has exactly Main, Vent, Coach, Research, Creative", () => {

@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""orion-code — Orion writes his own code, offline, on the local model.
+
+Nick is on a flight. The point of this file is that nothing here needs the
+network: the model is Ollama on loopback, the tests are local, and git is local.
+Turn off the wifi and it still works.
+
+WHY WHOLE FILES AND NOT DIFFS
+
+The obvious design is to ask the model for a unified diff and `git apply` it.
+It was tried first and it fails constantly at this size: a 27B model produces
+diffs with wrong line numbers, wrong context, and hunks that overlap. Every one
+of those is a silent no-op or a mangled file. Asking for the COMPLETE file back
+costs more tokens and has one failure mode instead of five — either the file
+parses or it does not, and the check catches it either way.
+
+WHAT BOUNDS IT
+
+  * a git worktree, so the working tree Nick left behind is never touched;
+  * `scripts/lib/orion-selfdev-policy.mjs`, which loads the INSTALLED plugin's
+    forbidden-surface table -- the model cannot edit its own gate, and cannot
+    widen what it may edit without a human deploying first;
+  * a check command that must pass before anything is committed;
+  * a hard iteration and wall-clock budget;
+  * it NEVER pushes and NEVER installs. It commits to a branch in a worktree and
+    stops. Landing the work is a human's decision on the ground.
+
+USAGE
+
+  orion-code run "<task>" --file <path> [--check "<cmd>"] [--iterations N]
+  orion-code queue                     work through the queue file, in order
+  orion-code status                    what the worktree holds
+  orion-code add "<task>" --file <path>  append one task to the queue
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+CONTROLLED = Path.home() / ".openclaw/orion-controlled"
+WORKTREE = CONTROLLED / "selfdev-worktree"
+QUEUE = CONTROLLED / "selfdev-queue.json"
+LOG = CONTROLLED / "selfdev-log.jsonl"
+POLICY = REPO / "scripts/lib/orion-selfdev-policy.mjs"
+OLLAMA = "http://127.0.0.1:11434/api/generate"
+
+# Measured 2026-09-07 on this Mac, /api/generate, an identical TypeScript task:
+#   qwen3.6:27b think=false  48-61s   correct
+#   gpt-oss:20b              58s      correct, 3110 thinking tokens first
+#   qwen3:30b                198s     correct, 14999 thinking tokens first
+# All three are capable. The 27b is chosen because it is the only one that does
+# not pay a thinking tax, and over a long run that is the whole difference: a
+# hundred edits is 80 minutes at 48s and 5.5 hours at 198s. It also carries the
+# same 262144-token context as the 30b, which is what a long project needs.
+MODEL = os.environ.get("ORION_CODER_MODEL", "qwen3.6:27b")
+#: Reasoning on by default. `ORION_CODER_THINK=0` turns it off for a task that
+#: is genuinely mechanical and where the wait is not worth it.
+THINK = os.environ.get("ORION_CODER_THINK", "1") != "0"
+DEFAULT_CHECK = "npx tsc --noEmit"
+
+
+def say(message: str) -> None:
+    print(message, flush=True)
+
+
+def run(command: list[str] | str, cwd: Path, timeout: int = 900) -> tuple[int, str]:
+    shell = isinstance(command, str)
+    try:
+        done = subprocess.run(
+            command, cwd=cwd, shell=shell, capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return 124, f"timed out after {timeout}s"
+    return done.returncode, (done.stdout + done.stderr)
+
+
+def policy_allows(relative_path: str) -> tuple[bool, str]:
+    code, out = run(["node", str(POLICY), "check", relative_path], cwd=REPO, timeout=60)
+    return code == 0, out.strip()
+
+
+def ensure_worktree() -> Path:
+    """One long-lived worktree on its own branch. Nick's tree is never touched."""
+    if (WORKTREE / ".git").exists():
+        return WORKTREE
+    WORKTREE.parent.mkdir(parents=True, exist_ok=True)
+    branch = "orion-selfdev"
+    code, out = run(["git", "worktree", "add", "-B", branch, str(WORKTREE), "HEAD"], cwd=REPO)
+    if code != 0:
+        say(f"could not create the worktree:\n{out}")
+        sys.exit(1)
+    link_dependencies()
+    say(f"worktree at {WORKTREE} on branch {branch}")
+    return WORKTREE
+
+
+def link_dependencies() -> None:
+    """A fresh worktree has no node_modules, so every check exits 127.
+
+    The first real run of this file failed exactly that way: `npm test` returned
+    127 -- command not found -- and the model was handed "command not found" as
+    if it were a compiler error and asked to fix its code. It cannot; there was
+    nothing wrong with the code. A check that cannot run must never be reported
+    to the model as a check that failed.
+
+    Symlinked rather than installed: `npm ci` here would take minutes on every
+    fresh worktree and would need the network, which on a flight there is not.
+    """
+    for package in ("openclaw-plugins/orion-control",):
+        source = REPO / package / "node_modules"
+        target = WORKTREE / package / "node_modules"
+        if source.exists() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(source)
+
+
+def ask_model(prompt: str, timeout: int = 1800) -> tuple[str, float]:
+    body = {
+        "model": MODEL,
+        "prompt": prompt,
+        "stream": False,
+        # Thinking is ON, and the budget is large enough to afford it.
+        #
+        # It was off first, for a bad reason: with num_predict at 900 these
+        # models spend the whole allowance reasoning and return an EMPTY
+        # response, which reads as "the model failed" and is really "the budget
+        # was too small". Raising the ceiling fixes it and thinking becomes what
+        # it should be -- Nick's call, and the right one: this loop runs
+        # unattended on tasks with many interacting parts, where being wrong
+        # quietly costs far more than being slow.
+        "think": THINK,
+        "options": {"temperature": 0.2, "num_predict": 16000},
+    }
+    request = urllib.request.Request(
+        OLLAMA, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
+    )
+    started = time.time()
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.load(response)
+    return payload.get("response", "") or "", time.time() - started
+
+
+CODE_BLOCK = re.compile(r"```(?:[a-zA-Z0-9+.-]*)\n(.*?)```", re.S)
+
+
+def extract_file(reply: str) -> str | None:
+    """The complete file, out of the first fenced block. No block, no edit."""
+    match = CODE_BLOCK.search(reply)
+    if not match:
+        return None
+    body = match.group(1)
+    return body if body.strip() else None
+
+
+def build_prompt(task: str, relative_path: str, current: str, failure: str | None) -> str:
+    parts = [
+        "You are editing one file in a TypeScript/Python repository.",
+        f"TASK: {task}",
+        f"FILE: {relative_path}",
+        "",
+        "Return the COMPLETE new contents of that file in a single fenced code block.",
+        "Do not return a diff. Do not abbreviate with ellipses or comments like",
+        "'rest unchanged' — anything you leave out will be deleted. No prose outside",
+        "the block.",
+        "",
+        "CURRENT CONTENTS:",
+        "```",
+        current,
+        "```",
+    ]
+    if failure:
+        parts += [
+            "",
+            "Your previous attempt did not pass. Fix exactly this and change nothing else:",
+            "```",
+            failure[-3000:],
+            "```",
+        ]
+    return "\n".join(parts)
+
+
+def log(record: dict) -> None:
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    record["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    with LOG.open("a") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def do_task(task: str, relative_path: str, check: str, iterations: int, budget_s: int) -> bool:
+    allowed, message = policy_allows(relative_path)
+    if not allowed:
+        say(f"REFUSED  {message}")
+        log({"task": task, "file": relative_path, "outcome": "refused", "why": message})
+        return False
+
+    tree = ensure_worktree()
+    target = tree / relative_path
+    if not target.exists():
+        say(f"no such file in the worktree: {relative_path}")
+        return False
+
+    original = target.read_text()
+    check_cwd = tree / "openclaw-plugins/orion-control" if relative_path.startswith(
+        "openclaw-plugins/orion-control"
+    ) else tree
+
+    failure: str | None = None
+    started = time.time()
+    for attempt in range(1, iterations + 1):
+        if time.time() - started > budget_s:
+            say(f"budget of {budget_s}s spent; stopping")
+            break
+        say(f"  attempt {attempt}/{iterations} — asking {MODEL}…")
+        try:
+            reply, elapsed = ask_model(build_prompt(task, relative_path, target.read_text(), failure))
+        except Exception as error:  # noqa: BLE001 — offline is a normal state here
+            say(f"  the local model did not answer: {error}")
+            break
+        body = extract_file(reply)
+        if body is None:
+            failure = "You returned no fenced code block. Return the complete file in one block."
+            say(f"  no code block back after {elapsed:.0f}s")
+            continue
+        target.write_text(body)
+        say(f"  wrote {len(body)} chars after {elapsed:.0f}s; running: {check}")
+        code, out = run(check, cwd=check_cwd)
+        if code == 127 or "command not found" in out or "ENOENT" in out:
+            # The environment is broken, not the code. Handing this back as if
+            # it were a compiler error asks the model to fix something it did
+            # not break, and it will happily rewrite the file trying.
+            say(f"  the check could not RUN (exit {code}) — this is the harness, not the code")
+            target.write_text(original)
+            log({"task": task, "file": relative_path, "outcome": "check_unrunnable", "detail": out[:400]})
+            return False
+        if code == 0:
+            run(["git", "add", relative_path], cwd=tree)
+            run(
+                ["git", "commit", "-q", "-m",
+                 f"selfdev: {task}\n\nWritten by {MODEL} offline, {attempt} attempt(s).\n"
+                 f"Check that had to pass: {check}\n"],
+                cwd=tree,
+            )
+            say(f"  PASSED and checkpointed after {attempt} attempt(s)")
+            log({"task": task, "file": relative_path, "outcome": "passed", "attempts": attempt})
+            return True
+        failure = out
+        say(f"  check failed ({code}); feeding the error back")
+
+    target.write_text(original)
+    say("  gave up; the file is back as it was")
+    log({"task": task, "file": relative_path, "outcome": "failed", "attempts": iterations})
+    return False
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="orion-code")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    for name in ("run", "add"):
+        p = sub.add_parser(name)
+        p.add_argument("task")
+        p.add_argument("--file", required=True)
+        p.add_argument("--check", default=DEFAULT_CHECK)
+        p.add_argument("--iterations", type=int, default=4)
+        p.add_argument("--budget", type=int, default=7200)
+
+    sub.add_parser("queue")
+    sub.add_parser("status")
+    args = parser.parse_args()
+
+    if args.command == "add":
+        QUEUE.parent.mkdir(parents=True, exist_ok=True)
+        items = json.loads(QUEUE.read_text()) if QUEUE.exists() else []
+        items.append({"task": args.task, "file": args.file, "check": args.check,
+                      "iterations": args.iterations, "budget": args.budget})
+        QUEUE.write_text(json.dumps(items, indent=2))
+        say(f"queued ({len(items)} waiting)")
+        return 0
+
+    if args.command == "run":
+        return 0 if do_task(args.task, args.file, args.check, args.iterations, args.budget) else 1
+
+    if args.command == "queue":
+        if not QUEUE.exists():
+            say("nothing queued")
+            return 0
+        items = json.loads(QUEUE.read_text())
+        done, failed = 0, 0
+        for index, item in enumerate(items, 1):
+            say(f"[{index}/{len(items)}] {item['task']}")
+            if do_task(item["task"], item["file"], item.get("check", DEFAULT_CHECK),
+                       item.get("iterations", 4), item.get("budget", 1800)):
+                done += 1
+            else:
+                failed += 1
+        say(f"queue finished: {done} passed, {failed} failed")
+        # The queue is kept, not consumed: what failed is the interesting part
+        # and Nick should see it on landing rather than find an empty file.
+        return 0 if failed == 0 else 1
+
+    if args.command == "status":
+        if not (WORKTREE / ".git").exists():
+            say("no worktree yet")
+            return 0
+        code, out = run(["git", "log", "--oneline", "-15"], cwd=WORKTREE)
+        say(f"worktree {WORKTREE}\n{out}")
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

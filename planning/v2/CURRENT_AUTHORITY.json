@@ -15,10 +15,10 @@
   },
   "counts": {
     "total": 211,
-    "AUTO": 136,
+    "AUTO": 138,
     "NOTIFY": 21,
     "APPROVAL": 15,
-    "NEVER": 39
+    "NEVER": 37
   },
   "availability": [
     {
@@ -80,9 +80,9 @@
     {
       "tier": "computer_observe",
       "flag": "enableComputerObserveActions",
-      "configOn": false,
+      "configOn": true,
       "profileOn": true,
-      "available": false,
+      "available": true,
       "unresolved": false
     },
     {
@@ -750,6 +750,28 @@
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "scratch_workspace",
       "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "screen_capture",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_observe",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "screen_observe",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_observe",
+      "risk": "medium",
       "reversible": true
     },
     {
@@ -2013,17 +2035,6 @@
     },
     {
       "kind": "action",
-      "name": "screen_capture",
-      "level": "NEVER",
-      "rule": "R0 unreachable",
-      "because": "config flag enableComputerObserveActions is not true in openclaw.json",
-      "enforcedBy": "plugin gate (mechanical)",
-      "tier": "computer_observe",
-      "risk": "medium",
-      "reversible": true
-    },
-    {
-      "kind": "action",
       "name": "screen_click",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2043,17 +2054,6 @@
       "tier": "computer_control",
       "risk": "critical",
       "reversible": false
-    },
-    {
-      "kind": "action",
-      "name": "screen_observe",
-      "level": "NEVER",
-      "rule": "R0 unreachable",
-      "because": "config flag enableComputerObserveActions is not true in openclaw.json",
-      "enforcedBy": "plugin gate (mechanical)",
-      "tier": "computer_observe",
-      "risk": "medium",
-      "reversible": true
     },
     {
       "kind": "action",

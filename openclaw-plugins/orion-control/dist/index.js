@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import { appendEpisode, defaultEpisodicMemoryPath, episodeFromUserText, } from "./episodic.js";
 import { applyUserTurnDecisions, approvalPaths, consumeGrant, grantedHashes, mintTicket, readTickets, } from "./approvals.js";
@@ -1194,6 +1195,22 @@ export function installProvenanceHooks(api) {
                     block: true,
                     blockReason: "Orion repeat guard: this exact tool call has already been attempted in this run. Read the prior result and either change the arguments/tool or stop; repeating it is blocked to prevent token-burning loops.",
                 };
+            }
+        }
+        // The first refusal carries the route. `exec` denials are generated inside
+        // the vendored openclaw package as "exec denied: allowlist miss", which is
+        // correct and teaches nothing -- 26 retry loops and 11.8M tokens of
+        // evidence say the model answers it by guessing a different command. This
+        // fires first and names the route instead. It only ever blocks calls that
+        // were going to be refused anyway; see `routeForDoomedExec`.
+        if (toolName === "exec" || toolName === "shell" || toolName === "bash") {
+            const params = (field(event, "params") ?? field(hookContext, "params"));
+            const raw = params?.command ?? params?.cmd ?? params?.script;
+            if (typeof raw === "string") {
+                const route = routeForDoomedExec(raw);
+                if (route) {
+                    return { block: true, blockReason: `Orion exec routing: ${route.reason}` };
+                }
             }
         }
         if (toolName.startsWith("orion_")) {

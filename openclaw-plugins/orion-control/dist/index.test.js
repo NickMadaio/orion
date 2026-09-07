@@ -108,9 +108,13 @@ describe("orion-control plugin", () => {
     it("blocks a third identical tool call in one run and resets at run end", () => {
         const harness = hostHarness({});
         const hook = harness.hooks.get("before_tool_call");
+        // Absolute path deliberately: a BARE `orion-agenda` is now caught by the
+        // exec router on the first call (it misses the allowlist, which is spelled
+        // by absolute path), so the bare form can no longer reach the repeat guard
+        // to test it. The guard itself is unchanged; only this fixture is.
         const event = {
             toolName: "exec",
-            params: { command: "orion-agenda today" },
+            params: { command: "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today" },
             runId: "loop-run",
             toolCallId: "call-1",
         };
@@ -121,6 +125,22 @@ describe("orion-control plugin", () => {
         });
         harness.hooks.get("agent_end")?.({ runId: "loop-run", messages: [], success: true }, {});
         expect(hook?.({ ...event, toolCallId: "call-4" }, { runId: "loop-run" })).toBeUndefined();
+    });
+    it("routes a doomed exec on the FIRST call, before the repeat guard ever sees it", () => {
+        const harness = hostHarness({});
+        const hook = harness.hooks.get("before_tool_call");
+        const bare = {
+            toolName: "exec",
+            params: { command: "orion-agenda today" },
+            runId: "route-run",
+            toolCallId: "call-1",
+        };
+        // Not on the third attempt — the first. Waiting for a loop to form before
+        // saying anything useful is the behaviour that cost 11.8M tokens.
+        expect(hook?.(bare, { runId: "route-run" })).toMatchObject({
+            block: true,
+            blockReason: expect.stringContaining("/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda"),
+        });
     });
     it("keeps Calendar mutations typed and confirms only destructive removal", () => {
         expect(ACTION_CATALOG.calendar_event_add).toMatchObject({

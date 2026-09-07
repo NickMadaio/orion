@@ -64,7 +64,26 @@ MODEL = os.environ.get("ORION_CODER_MODEL", "qwen3.6:27b")
 #: Reasoning on by default. `ORION_CODER_THINK=0` turns it off for a task that
 #: is genuinely mechanical and where the wait is not worth it.
 THINK = os.environ.get("ORION_CODER_THINK", "1") != "0"
+#: Sampled once at start-up and passed into every prompt, so the model is never
+#: told to "look it up" on a plane. Re-sampled per task by `flight`.
+CONNECTED: bool | None = None
 DEFAULT_CHECK = "npx tsc --noEmit"
+
+
+def online() -> bool:
+    """One TCP connect to a public resolver. Not a ping, not a DNS lookup.
+
+    A plane's captive portal answers DNS and refuses everything else, so a
+    lookup-based check reports online at 35,000 feet and then every model call
+    fails one at a time. Connecting to 1.1.1.1:443 and getting a socket is the
+    only answer that means what it says.
+    """
+    import socket
+    try:
+        with socket.create_connection(("1.1.1.1", 443), timeout=2.5):
+            return True
+    except OSError:
+        return False
 
 
 def say(message: str) -> None:
@@ -137,7 +156,17 @@ def ask_model(prompt: str, timeout: int = 1800) -> tuple[str, float]:
         # unattended on tasks with many interacting parts, where being wrong
         # quietly costs far more than being slow.
         "think": THINK,
-        "options": {"temperature": 0.2, "num_predict": 16000},
+        "options": {
+            "temperature": 0.2,
+            "num_predict": 16000,
+            # Ollama loads this model at 32768 by default, not the 262144 it
+            # supports, and silently truncates the front of the prompt when a
+            # long file plus a long thinking trace goes past it. On a long
+            # project that means the model stops being able to see the top of
+            # the file it is editing -- which is exactly where the imports and
+            # the header comment explaining the rules live. Stated explicitly.
+            "num_ctx": int(os.environ.get("ORION_CODER_CTX", "65536")),
+        },
     }
     request = urllib.request.Request(
         OLLAMA, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
@@ -160,9 +189,19 @@ def extract_file(reply: str) -> str | None:
     return body if body.strip() else None
 
 
-def build_prompt(task: str, relative_path: str, current: str, failure: str | None) -> str:
+def build_prompt(task: str, relative_path: str, current: str, failure: str | None,
+                 connected: bool | None = None) -> str:
+    where = (
+        "You are running on Nick's Mac. There is NO network: you cannot fetch a page, "
+        "check a package version, or look anything up. Work only from what is in front "
+        "of you, and if a task genuinely needs the internet, say so in a comment and do "
+        "the part that does not."
+        if connected is False
+        else "You are running on Nick's Mac with a working network."
+    )
     parts = [
         "You are editing one file in a TypeScript/Python repository.",
+        where,
         f"TASK: {task}",
         f"FILE: {relative_path}",
         "",
@@ -220,7 +259,9 @@ def do_task(task: str, relative_path: str, check: str, iterations: int, budget_s
             break
         say(f"  attempt {attempt}/{iterations} — asking {MODEL}…")
         try:
-            reply, elapsed = ask_model(build_prompt(task, relative_path, target.read_text(), failure))
+            reply, elapsed = ask_model(
+                build_prompt(task, relative_path, target.read_text(), failure, CONNECTED)
+            )
         except Exception as error:  # noqa: BLE001 — offline is a normal state here
             say(f"  the local model did not answer: {error}")
             break
@@ -260,6 +301,95 @@ def do_task(task: str, relative_path: str, check: str, iterations: int, budget_s
     return False
 
 
+REPORT = CONTROLLED / "selfdev-report.md"
+
+
+def flight(hours: float, iterations: int) -> int:
+    """Work the queue for `hours`, survive everything, and leave a report.
+
+    Nothing in here may raise. A seven-hour unattended run that dies in hour one
+    on a single bad task is worth less than one that logs the failure and keeps
+    going, and Nick cannot intervene at 35,000 feet. So every task is wrapped,
+    and the report is rewritten after EVERY task rather than at the end -- if the
+    machine sleeps or the battery goes, what happened up to that point survives.
+    """
+    global CONNECTED
+    deadline = time.time() + hours * 3600
+    tree = ensure_worktree()
+    before = run(["git", "rev-parse", "HEAD"], cwd=tree)[1].strip()
+    items = json.loads(QUEUE.read_text()) if QUEUE.exists() else []
+    if not items:
+        say("nothing queued — add tasks with: orion-code add \"<task>\" --file <path>")
+        return 1
+
+    say(f"flight: {len(items)} task(s), {hours:.1f}h, model {MODEL}, thinking {'on' if THINK else 'off'}")
+    results: list[dict] = []
+    index = 0
+    while time.time() < deadline and index < len(items):
+        item = items[index]
+        index += 1
+        CONNECTED = online()
+        remaining = deadline - time.time()
+        say(f"[{index}/{len(items)}] ({'online' if CONNECTED else 'OFFLINE'}, "
+            f"{remaining/3600:.1f}h left) {item['task'][:80]}")
+        started = time.time()
+        try:
+            passed = do_task(
+                item["task"], item["file"], item.get("check", DEFAULT_CHECK),
+                item.get("iterations", iterations),
+                int(min(item.get("budget", 5400), max(remaining - 60, 120))),
+            )
+            outcome = "passed" if passed else "failed"
+            detail = ""
+        except Exception as error:  # noqa: BLE001 — nothing may end the flight
+            outcome, detail = "crashed", f"{type(error).__name__}: {error}"
+            say(f"  task crashed, continuing: {detail}")
+        results.append({
+            "task": item["task"], "file": item["file"], "outcome": outcome,
+            "minutes": round((time.time() - started) / 60, 1),
+            "online": CONNECTED, "detail": detail,
+        })
+        write_report(results, before, tree, deadline)
+
+    write_report(results, before, tree, deadline)
+    say(f"flight over. report: {REPORT}")
+    return 0
+
+
+def write_report(results: list[dict], before: str, tree: Path, deadline: float) -> None:
+    passed = [r for r in results if r["outcome"] == "passed"]
+    commits = run(["git", "log", "--oneline", f"{before}..HEAD"], cwd=tree)[1].strip()
+    lines = [
+        "# Orion self-development — flight report",
+        "",
+        f"Model **{MODEL}**, thinking **{'on' if THINK else 'off'}**. "
+        f"{len(passed)} of {len(results)} attempted task(s) passed their check and were "
+        f"committed to the `orion-selfdev` branch in `{tree}`.",
+        "",
+        "**Nothing here is installed and nothing is pushed.** Every change is a commit on a "
+        "branch in a worktree; landing it is a decision for the ground.",
+        "",
+        "| # | task | file | outcome | minutes | network |",
+        "| - | ---- | ---- | ------- | ------: | ------- |",
+    ]
+    for i, r in enumerate(results, 1):
+        mark = {"passed": "passed", "failed": "did not pass", "crashed": "crashed"}[r["outcome"]]
+        lines.append(
+            f"| {i} | {r['task'][:70]} | `{r['file']}` | {mark} | {r['minutes']} | "
+            f"{'online' if r['online'] else 'offline'} |"
+        )
+    failures = [r for r in results if r["outcome"] != "passed"]
+    if failures:
+        lines += ["", "## What did not work, and what it looked like", ""]
+        for r in failures:
+            lines.append(f"- **{r['task'][:90]}** (`{r['file']}`) — {r['outcome']}"
+                         + (f": {r['detail'][:200]}" if r["detail"] else
+                            ": the check never went green inside its attempts"))
+    lines += ["", "## Commits on the branch", "", "```", commits or "(none)", "```", ""]
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
+    REPORT.write_text("\n".join(lines))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="orion-code")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -274,6 +404,9 @@ def main() -> int:
 
     sub.add_parser("queue")
     sub.add_parser("status")
+    f = sub.add_parser("flight")
+    f.add_argument("--hours", type=float, default=7.0)
+    f.add_argument("--iterations", type=int, default=3)
     args = parser.parse_args()
 
     if args.command == "add":
@@ -305,6 +438,9 @@ def main() -> int:
         # The queue is kept, not consumed: what failed is the interesting part
         # and Nick should see it on landing rather than find an empty file.
         return 0 if failed == 0 else 1
+
+    if args.command == "flight":
+        return flight(args.hours, args.iterations)
 
     if args.command == "status":
         if not (WORKTREE / ".git").exists():

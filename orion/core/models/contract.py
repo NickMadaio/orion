@@ -43,6 +43,14 @@ ROLES = (
     # though today they resolve to the same model. See the seed's note for the
     # measurement that picked it.
     "coder",
+    # 2026-09-07. `local_deep` is the offline reasoner -- qwen3:30b, which
+    # thinks at length and is worth its 198s when nothing can reach a cloud.
+    # `unrestricted` is declared and UNASSIGNED, deliberately: Nick asked for a
+    # model that speaks without hedging, and none is installed. Following the
+    # `vision` role's precedent -- a role invented to look complete would be
+    # worse than an honest gap.
+    "local_deep",
+    "unrestricted",
 )
 
 _PROVIDER = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")

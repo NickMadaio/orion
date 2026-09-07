@@ -25,7 +25,9 @@
         "embedding",
         "stt",
         "tts",
-        "coder"
+        "coder",
+        "local_deep",
+        "unrestricted"
       ],
       "properties": {
         "reasoning": {

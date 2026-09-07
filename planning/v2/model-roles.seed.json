@@ -58,15 +58,17 @@
       "note": "OpenClaw agents.defaults.memorySearch. Backs selective recall over sessions and memory."
     },
     "coder": {
-      "primary": "ollama/gpt-oss:20b",
-      "fallbacks": [],
-      "timeout_seconds": 180,
+      "primary": "ollama/qwen3.6:27b",
+      "fallbacks": [
+        "ollama/gpt-oss:20b"
+      ],
+      "timeout_seconds": 1800,
       "max_retries": 1,
       "rates": {
         "input_per_mtok": 0.0,
         "output_per_mtok": 0.0
       },
-      "note": "Governed self-development's coding lane, off by default (see PHASE_GOVERNED_SELF_DEVELOPMENT.md). Measured 2026-09-06, /api/generate completions per LocalModel.swift's method, an 8-case parseDuration task: gpt-oss:20b 29.1s 8/8 correct. qwen3:30b/qwen3.6:27b never answered inside 120-150s, spending budget on `thinking` before `response`. llama3.2:3b 19.1s but 0/8: wrong, not slow. gpt-oss:20b is the only one that worked."
+      "note": "Coding lane for scripts/orion-code. CORRECTS the 2026-09-06 note claiming the Qwens 'never answered' -- they did; num_predict was 900 and they spent it all thinking. A measurement bug, not a model failure. Re-measured 2026-09-07 at 6000+: qwen3.6:27b 48-61s (thinking off), gpt-oss:20b 58s, qwen3:30b 198s, all correct. 27b is primary: same 262144 context as the 30b, richer embedding, no thinking tax. Full account in PHASE_GOVERNED_SELF_DEVELOPMENT.md."
     },
     "stt": {
       "primary": "deepgram/nova-3",
@@ -83,6 +85,26 @@
       "timeout_seconds": 60,
       "max_retries": 1,
       "note": "orion_tts_daemon.py with ORION_TTS_ENGINE=auto. Local first; the cloud voice is the fallback, not the default."
+    },
+    "local_deep": {
+      "primary": "ollama/qwen3:30b",
+      "fallbacks": [
+        "ollama/qwen3.6:27b"
+      ],
+      "timeout_seconds": 1800,
+      "max_retries": 1,
+      "rates": {
+        "input_per_mtok": 0.0,
+        "output_per_mtok": 0.0
+      },
+      "note": "Offline long-form reasoning. Measured 2026-09-07: 198s and 14999 thinking tokens to write a function the 27b wrote in 48s -- too slow to be a default, and exactly what you want when there is no network and the problem is hard. Same 262144 context as the coder role."
+    },
+    "unrestricted": {
+      "primary": null,
+      "fallbacks": [],
+      "timeout_seconds": 600,
+      "max_retries": 1,
+      "note": "Declared and UNASSIGNED. Nick asked for a model that speaks without hedging; none is installed and picking one is his call, not this file's. Assign a local id here and it is reachable -- nothing else changes. The rule it inherits is the one personalities already enforce: unrestricted SPEECH, never unrestricted capability. It gets no tier, no tool and no root that Main does not have."
     }
   },
   "providers": {

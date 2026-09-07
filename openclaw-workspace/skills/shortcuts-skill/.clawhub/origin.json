@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "shortcuts-skill",
+  "ownerHandle": "erik-agens",
+  "installedVersion": "0.1.0",
+  "installedAt": 1785295152325,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "1b650f385699653f9738b068216f728632a17f00fd5e7e51404cdf80f5575ed3",
+    "integrity": "sha256-G2UPOFaZZT+XOLBoIW9yhjKhfwD9Xn5RQEzfgPVXXtM="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "bfb2960328f1e840e0a7a715c436158abe6c6914e83ecae1fbe6ce6f93f3d733"
+  }
+}

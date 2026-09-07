@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "apple-mail-search-safe",
+  "ownerHandle": "gumadeiras",
+  "installedVersion": "5.0.5",
+  "installedAt": 1785295132200,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "00e58ad3651570d5bb0e1e65cd1cc579e6da4ba3a96d6c2dc119edefcdbd5587",
+    "integrity": "sha256-AOWK02UVcNW7Dh5lzRzFeebaS6OpbWwtwRnt7829VYc="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "257251cf27f26763980d34332a74ea5692218a27913d9468035a6518c7573990"
+  }
+}

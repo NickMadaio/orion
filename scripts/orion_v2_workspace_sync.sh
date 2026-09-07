@@ -50,6 +50,34 @@ for f in "${FILES[@]}"; do
   fi
 done
 
+# Skills are instructions Orion FOLLOWS, and they were the worse half of this
+# problem. On 2026-09-07 seven live skills existed in no repo at all, and one of
+# them -- an `accli` calendar skill -- was actively telling him to npm-install and
+# shell out to a binary that is not allowlisted, competing with the repo's own
+# calendar skill and producing denials he then retried. Nothing could see it,
+# because nothing was looking.
+#
+# Reported, never auto-copied in either direction: a skill appearing live is
+# either something Nick installed on purpose or something that arrived by
+# itself, and those need different answers from a person.
+for live_skill in "$LIVE"/skills/*/; do
+  [ -d "$live_skill" ] || continue
+  name="$(basename "$live_skill")"
+  case "$name" in .*) continue ;; esac
+  if [ ! -d "$SRC/skills/$name" ]; then
+    echo "  UNTRACKED live      skills/$name"
+    drift=$((drift + 1))
+  fi
+done
+for repo_skill in "$SRC"/skills/*/; do
+  [ -d "$repo_skill" ] || continue
+  name="$(basename "$repo_skill")"
+  if [ ! -d "$LIVE/skills/$name" ]; then
+    echo "  tracked, NOT live   skills/$name"
+    drift=$((drift + 1))
+  fi
+done
+
 if [ "$drift" -eq 0 ]; then
   echo "workspace sync: OK — the tracked copy is what Orion reads"
   exit 0

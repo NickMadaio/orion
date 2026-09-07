@@ -11,6 +11,7 @@ const SECRET_SHAPED = /\b(?:sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|xox[baprs
 const DURABLE_SIGNAL = new RegExp([
     "remember",
     "don'?t forget",
+    "before i forget",
     "from now on",
     "going forward",
     "keep (?:this|that|it) in mind",
@@ -59,7 +60,7 @@ export function episodeFromUserText(input) {
         .filter(Boolean);
     const selected = [];
     for (const candidate of candidates) {
-        const explicit = /\b(?:remember|don'?t forget|from now on|going forward)\b/i.test(candidate);
+        const explicit = /\b(?:remember|don'?t forget|before i forget|from now on|going forward)\b/i.test(candidate);
         if (candidate.endsWith("?") && !explicit)
             continue;
         if (!DURABLE_SIGNAL.test(candidate) && !DURABLE_PERSONAL_FACT.test(candidate))

@@ -9,27 +9,22 @@
 > Paste the drafted text yourself, run `orion-bench`, and revert if the numbers
 > get worse. The assembled AGENTS.md section lives in `planning/fragment-p5.md`.
 
-Generated 2026-08-10T03:52:09.092Z from 220 sessions — 112 findings.
-AGENTS.md last modified 2026-08-09T22:33:19.641Z. Evidence newer than that is guidance being ignored; evidence older may already be fixed, so re-run before acting.
+Generated 2026-09-07T06:33:47.089Z from 31 sessions (last 1 days) — 6 findings.
+AGENTS.md last modified 2026-09-07T06:05:13.814Z. Evidence newer than that is guidance being ignored; evidence older may already be fixed, so re-run before acting.
 
 | # | proposal | severity | signal |
 | - | -------- | -------- | ------ |
-| P1 | Searching memory by hand instead of using orion-recall | high | 20 denied commands across 11 sessions |
-| P2 | Capabilities reached for that are not allowlisted | medium | 4 denials — pbpaste, vm_stat, orion-calendar, accli |
-| P3 | Tool ids sent to exec as if they were shell commands | medium | 2 denials — read, session_status |
-| P4 | Retry loops burning the context window | high | 18 loops across 8 sessions, which consumed 5,811,632 tokens |
-| P5 | Tool calls that never returned | high | 4 calls left unresolved across 4 sessions |
-| P6 | Memory lookup came back empty and the turn said "I don't know" | high | 11 sessions |
-| P7 | Durable statements that were never written down | high | 3 turns across 3 sessions |
-| P8 | Sessions that aborted, timed out, or ended in error | medium | 40 failed turns across 25 sessions |
+| P1 | Searching memory by hand instead of using orion-recall | high | 2 denied commands across 1 sessions |
+| P2 | Unmapped capability requests need design, not an allowlist guess | medium | 1 denials — curl |
+| P3 | Sessions that aborted, timed out, or ended in error | medium | 3 failed turns across 3 sessions |
 
 ## P1 — Searching memory by hand instead of using orion-recall
 
-**Severity** high · **Signal** 20 denied commands across 11 sessions
+**Severity** high · **Signal** 2 denied commands across 1 sessions
 
 **Already in AGENTS.md?** No matching rule found.
 
-**Diagnosis.** Every one is a hand-rolled `grep`/`find`/`ls` over the memory tree with a pipe or a redirect attached. The binaries are already allowlisted — `ls`, `find`, `grep` — so this is not a missing capability; the shell operator is what gets refused. The deeper mistake is reaching for the shell at all when `orion-recall` is allowlisted and exists for this exact job.
+**Diagnosis.** Every one is a hand-rolled `grep`/`find`/`ls` over the memory tree with a pipe or a redirect attached. The binaries are already allowlisted — `grep`, `find` — so this is not a missing capability; the shell operator is what gets refused. The deeper mistake is reaching for the shell at all when `orion-recall` is allowlisted and exists for this exact job.
 
 **Proposed change.** AGENTS.md: make `orion-recall` the only route into memory, not the preferred one.
 
@@ -38,7 +33,7 @@ Proposed AGENTS.md text:
 ```markdown
 **Memory is searched with `orion-recall`, never with the shell.** You have
 run `grep -r … ~/.openclaw/workspace/memory/ 2>/dev/null | head -20` and been
-refused 20 times. `grep` is allowlisted; the pipe is not. Do not repair the
+refused 2 times. `grep` is allowlisted; the pipe is not. Do not repair the
 command — the command was the wrong idea. `orion-recall "<what you are looking
 for>"` searches the same files, is allowlisted, and returns ranked hits. If it
 finds nothing, that is the answer: say you do not have it.
@@ -49,180 +44,33 @@ finds nothing, that is the answer: say you do not have it.
 **How to roll back.** Delete the added paragraph from AGENTS.md. No other state changes.
 
 **Evidence.**
-  - `ls -la ~/.openclaw/workspace/memory/ 2>/dev/null | tail -20` — session 65c4cbbc
-  - `find ~/.openclaw/workspace/memory -type f -name "*.md" 2>/dev/null` — session 65c4cbbc
-  - `grep -r "fixture" /Users/nickmadaio/.openclaw/workspace/memory --include="*.md" 2>/dev/null | head -20` — session e1406365
-  - `find /Users/nickmadaio/.openclaw/workspace/memory -name "*.md" -type f 2>/dev/null` — session e1406365
-  - `ls -la /Users/nickmadaio/.openclaw/workspace/memory/ 2>/dev/null || echo "Memory directory empty or missing"` — session e1406365
-  - `grep -r "codename" /Users/nickmadaio/.openclaw/workspace/memory/ 2>/dev/null || echo "No matches in memory files"` — session af9ca1a0
-  - …and 14 more
+  - `grep -r 'codename' ~/.openclaw/workspace/memory/ 2>/dev/null | head -20` — session c7314b28
+  - `find ~/.openclaw/workspace/memory/ -type f -name "*.md" 2>/dev/null` — session c7314b28
 
 ---
 
-## P2 — Capabilities reached for that are not allowlisted
+## P2 — Unmapped capability requests need design, not an allowlist guess
 
-**Severity** medium · **Signal** 4 denials — pbpaste, vm_stat, orion-calendar, accli
+**Severity** medium · **Signal** 1 denials — curl
 
 **Already in AGENTS.md?** No matching rule found.
 
-**Diagnosis.** These head binaries are genuinely absent from the `main` allowlist, so the refusal is correct policy but a real capability gap: Orion tried to do the job and could not.
+**Diagnosis.** The detector cannot infer a safe permission from a denied command. The same denial could mean a typo, a catalog action routed incorrectly, or a genuinely missing capability. Treating all three as 'allow this binary forever' was the unsafe recommendation this report used to make.
 
-**Proposed change.** Run these yourself, once you are happy he should run each unattended:
+**Proposed change.** For each item, reconstruct the user's intended outcome. Reuse an existing typed action when one exists; otherwise add the smallest typed, tested executor for that outcome. Only a harmless read-only wrapper with a fixed contract should ever become a raw allowlist candidate.
 
-```sh
-openclaw approvals allowlist add --agent main "**/pbpaste"
-openclaw approvals allowlist add --agent main "**/vm_stat"
-openclaw approvals allowlist add --agent main "**/orion-calendar"
-openclaw approvals allowlist add --agent main "**/accli"
-```
+**How to test.** Re-run the original request through the normal agent route and verify the resulting artifact/state plus the durable ledger entry.
 
-**How to test.** Re-ask the turn that failed; the command should run. Then `orion-bench` to confirm nothing else regressed.
-
-**How to roll back.** `openclaw approvals allowlist remove --agent main "<pattern>"`
+**How to roll back.** Revert the typed capability or router change; the exec allowlist remains unchanged.
 
 **Evidence.**
-  - `pbpaste 2>/dev/null; echo "---"; cat ~/.openclaw/workspace/TOOLS.md 2>/dev/null | grep -i "voice\|tunable" || echo "no match in TOOLS.md"` — session 88b7b338
-  - `vm_stat | grep "Pages free" | awk '{print "Memory: " $3 * 4096 / 1024 / 1024 / 1024 " GB free"}' && vm_stat | grep "Pages active" | awk '{print "Activ` — session 1134bb13
-  - `/Users/nickmadaio/Desktop/ORION/scripts/orion-calendar create --help 2>&1 | head -30` — session 3593cbfe
-  - `accli calendars --json` — session 24fa63f4
+  - `curl -s -I https://www.google.com | head -1` — session 605e3c7e
 
 ---
 
-## P3 — Tool ids sent to exec as if they were shell commands
+## P3 — Sessions that aborted, timed out, or ended in error
 
-**Severity** medium · **Signal** 2 denials — read, session_status
-
-**Already in AGENTS.md?** No matching rule found.
-
-**Diagnosis.** `exec` runs programs. `read` and `session_status` are tool ids, not programs on PATH, so they can never resolve — the allowlist refusal is a symptom of a naming confusion, not a permissions problem.
-
-**Proposed change.** AGENTS.md: extend the existing "never invent a tool name" rule to cover the inverse mistake.
-
-Proposed AGENTS.md text:
-
-```markdown
-**A tool id is not a shell command.** `exec` runs programs that exist on
-PATH. Sending it `read <path>` or `session_status` produces `allowlist miss`,
-because there is no such program — the tool you wanted was in TOOLS.md all
-along. Read a file with the `read` tool; run a program with `exec`.
-```
-
-**How to test.** Ask for something needing a file read; confirm the read tool is used and `orion-trace` shows no allowlist miss.
-
-**How to roll back.** Delete the added paragraph.
-
-**Evidence.**
-  - `read ~/.openclaw/workspace/skills/accli/SKILL.md` — session 24fa63f4
-  - `session_status` — session e02ae376
-
----
-
-## P4 — Retry loops burning the context window
-
-**Severity** high · **Signal** 18 loops across 8 sessions, which consumed 5,811,632 tokens
-
-**Already in AGENTS.md?** Yes — and it happened anyway. Prefer a mechanical fix over more prose.
-
-**Diagnosis.** The same call, byte-identical, three or more times in one session; the worst offender re-sent one command 35 times. AGENTS.md already says "two attempts, then talk to him", so the evidence is that the rule does not enforce itself. The next step is mechanical, not rhetorical.
-
-**Proposed change.** Ask for a repeat-call guard in the runtime: refuse a third identical exec within a session and return `you already ran this twice and it failed twice`. Until that exists, keep the AGENTS.md rule and re-measure with this script weekly.
-
-**How to test.** `orion-learn --days 7` should report zero loops. Cheaper proxy: the heaviest session's token total drops below 100k.
-
-**How to roll back.** Remove the guard; behaviour returns to unlimited retries.
-
-**Evidence.**
-  - `3x {"id":"orion_task_run","args":{"action":"clock_now"}}` — session 8d28826d
-  - `3x {"id":"orion_task_run","args":{"action":"desktop_text_append_confirmed","relativePath":"improvements.txt","content":"- V` — session 2dd788a2
-  - `3x {"id":"orion_task_run","args":{"graph":{"goal":"Create a folder called 'awesome' on the Desktop and add a text file 'ori` — session aa5c5a07
-  - `3x remindctl today --json` — session 71c7f51a
-  - `24x open -a "Claude"` — session 71c7f51a
-  - `29x openClaude` — session 71c7f51a
-  - …and 12 more
-
----
-
-## P5 — Tool calls that never returned
-
-**Severity** high · **Signal** 4 calls left unresolved across 4 sessions
-
-**Already in AGENTS.md?** Yes — and it happened anyway. Prefer a mechanical fix over more prose.
-
-**Diagnosis.** No result row was ever written for these calls — the turn died still holding them. Not an error; an answer that never arrives, which is why it never shows up in an error count.
-
-**Proposed change.** Check each command below is allowlisted *in the exact form it was sent*, and give exec a hard per-call timeout so an unanswered approval fails fast instead of eating the turn.
-
-**How to test.** Re-issue the same command; it must come back within seconds, refused or not. "Refused in one second" is a pass.
-
-**How to roll back.** Restore the previous timeout value.
-
-**Evidence.**
-  - `exec: echo "Recovery looks good for today. With an HRV increase of 8 from average, your strain band should be 14-18. Your calendar has three events: a` — session 412d6cff
-  - `exec: ls -la ~/.config/gog 2>/dev/null || echo "no gog config directory"` — session 82506669
-  - `exec: gog auth list --check` — session 87e258ec
-  - `exec: gog auth list --check` — session d88109e5
-
----
-
-## P6 — Memory lookup came back empty and the turn said "I don't know"
-
-**Severity** high · **Signal** 11 sessions
-
-**Already in AGENTS.md?** No matching rule found.
-
-**Diagnosis.** A lookup ran, returned nothing usable (or was denied outright), and the reply was a disclaimer. Some are correct — the fact genuinely was never stored, which is what trust-04 asks for. The rest are recall failures wearing the same clothes. That ambiguity is the finding: he could not see, so being right was luck.
-
-**Proposed change.** AGENTS.md: require the reason to be said out loud. "I searched and found nothing" and "I could not search" are different sentences, and Nick can only fix one of them.
-
-Proposed AGENTS.md text:
-
-```markdown
-**Say which kind of "I don't know" it is.** If `orion-recall` ran and came
-back empty, say you looked and found nothing. If the lookup itself failed or was
-refused, say *that* — "I couldn't search my memory, the command was denied" —
-because Nick can fix a broken tool and cannot fix a silence that sounds like a
-clean miss.
-```
-
-**How to test.** Ask for a fact never stored (bench live-04): the answer must say it searched. Then break recall deliberately and ask again: the answer must say it could not search.
-
-**How to roll back.** Delete the added paragraph.
-
-**Evidence.**
-  - `2 empty lookup(s) then "I don't know" — asked: What was the codename we agreed on for the deployment pipeline?` — session 65c4cbbc
-  - `3 empty lookup(s) then "I don't know" — asked: What's the fixture codename for the benchmark work?` — session e1406365
-  - `2 empty lookup(s) then "I don't know" — asked: What was the codename we agreed on for the deployment pipeline?` — session af9ca1a0
-  - `2 empty lookup(s) then "I don't know" — asked: What's the fixture codename for the benchmark work?` — session 86d79fc2
-  - `1 empty lookup(s) then "I don't know" — asked: What's the fixture codename for the benchmark work?` — session 923eb164
-  - `1 empty lookup(s) then "I don't know" — asked: What was the codename we agreed on for the deployment pipeline?` — session ca0d32d1
-  - …and 5 more
-
----
-
-## P7 — Durable statements that were never written down
-
-**Severity** high · **Signal** 3 turns across 3 sessions
-
-**Already in AGENTS.md?** No matching rule found.
-
-**Diagnosis.** Nick stated something with a shelf life and the session ended with no `orion-remember` call. Each one is a fact that did not survive to the next session — and because nothing errored, nothing anywhere else records that it was lost.
-
-**Proposed change.** Review the turns below. If they should have been kept, the gap is judgement rather than plumbing: tighten what AGENTS.md calls worth keeping instead of adding a tool.
-
-**How to test.** `orion-bench --live` case live-01 (stores a fact stated in passing, unprompted).
-
-**How to roll back.** Revert the wording change.
-
-**Evidence.**
-  - `Quick thing before I forget — the benchmark fixture codename is Kestrelkfpnn. Anyway, what's the time?` — session 3465fd9a
-  - `Quick thing before I forget — the benchmark fixture codename is Kestreltnntk. Anyway, what's the time?` — session b9bf804b
-  - `Quick thing before I forget — for the Orion benchmark work, the fixture codename we're using is Harbor Lantern. Anyway, what's the time?` — session 5e27e8da
-
----
-
-## P8 — Sessions that aborted, timed out, or ended in error
-
-**Severity** medium · **Signal** 40 failed turns across 25 sessions
+**Severity** medium · **Signal** 3 failed turns across 3 sessions
 
 **Already in AGENTS.md?** No matching rule found.
 
@@ -235,10 +83,6 @@ clean miss.
 **How to roll back.** n/a — measurement only.
 
 **Evidence.**
-  - `aborted on timeout` — session f2d01757
-  - `aborted on timeout` — session 1148cbcc
-  - `aborted on timeout` — session a75e12fb
-  - `aborted on timeout` — session 466b5ecc
-  - `aborted on timeout` — session 3593cbfe
-  - `aborted on timeout` — session a628de79
-  - …and 34 more
+  - `aborted on timeout` — session 8de7dc3d
+  - `aborted on timeout` — session c7314b28
+  - `aborted on timeout` — session 9847ddb0

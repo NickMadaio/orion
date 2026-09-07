@@ -16,6 +16,7 @@ const DURABLE_SIGNAL = new RegExp(
   [
     "remember",
     "don'?t forget",
+    "before i forget",
     "from now on",
     "going forward",
     "keep (?:this|that|it) in mind",
@@ -72,7 +73,8 @@ export function episodeFromUserText(input: string): string | undefined {
 
   const selected: string[] = [];
   for (const candidate of candidates) {
-    const explicit = /\b(?:remember|don'?t forget|from now on|going forward)\b/i.test(candidate);
+    const explicit =
+      /\b(?:remember|don'?t forget|before i forget|from now on|going forward)\b/i.test(candidate);
     if (candidate.endsWith("?") && !explicit) continue;
     if (!DURABLE_SIGNAL.test(candidate) && !DURABLE_PERSONAL_FACT.test(candidate)) continue;
     if (SECRET_SHAPED.test(candidate)) continue;

@@ -298,6 +298,48 @@ else
   [[ "$running" == yes ]] && ok "process is running" || warn "not currently running"
 fi
 
+# --- connected accounts ---------------------------------------------------
+#
+# A live call, not a config read, for the reason at the top of this file.
+#
+# Gmail died twice without anyone noticing. `invalid_grant` first appears in the
+# session history on 2026-08-13, was re-granted on 08-14, and died again
+# sometime before 09-02 -- where an evaluation recorded Orion "saying it lacked
+# email access" and nobody connected that to a dead token. It was found on 09-07
+# only because someone asked him to read the inbox.
+#
+# Everything local looks healthy while this is broken, which is why only a real
+# request finds it: `gog auth doctor` says status ok, `gog auth list` shows the
+# account with all six scopes, and the accounts manager page renders it under
+# CONNECTED. All of that describes a token that EXISTS. Only Google can say
+# whether it still works.
+print ""
+print "connected accounts"
+if [[ -x /opt/homebrew/bin/gog ]]; then
+  gog_pw=$(grep -m1 '^GOG_KEYRING_PASSWORD=' "$repo/.env" 2>/dev/null | cut -d= -f2-)
+  if [[ -z "$gog_pw" ]]; then
+    warn "no GOG_KEYRING_PASSWORD in .env — cannot test Google access"
+  else
+    gog_out=$(GOG_KEYRING_PASSWORD="$gog_pw" /opt/homebrew/bin/gog gmail messages list "is:unread" --max 1 2>&1)
+    if [[ "$gog_out" == *invalid_grant* ]]; then
+      bad "Gmail: the refresh token is REVOKED or EXPIRED (oauth2 invalid_grant)"
+      print "        Everything local looks fine — the token exists and decrypts."
+      print "        Google is refusing it. Orion cannot read mail until it is re-granted."
+      print "        Fix:  gog auth manage"
+      print "        then, on the account row, click 'Add more permissions' — that is"
+      print "        the re-grant path. The page says CONNECTED either way, because it"
+      print "        is reporting that a token is stored, not that it works."
+    elif [[ "$gog_out" == *"round trip"* || "$gog_out" == *"Get \"https"* ]]; then
+      warn "Gmail: the call failed for a reason that is not a dead token"
+      print "        ${gog_out:0:160}"
+    else
+      ok "Gmail: a real read succeeded"
+    fi
+  fi
+else
+  note "gog is not installed — no Google access to test"
+fi
+
 # --- permissions ----------------------------------------------------------
 print ""
 print "permissions (grant these yourself — System Settings owns them, not this script)"

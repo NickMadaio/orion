@@ -1,21 +1,21 @@
 {
   "version": 1,
-  "purpose": "PHASE 71. Every kind of data this system touches, with the ten fields the manifest names. Checked by scripts/orion_v2_inventory_check.py, which fails when a capability tier or a configured store exists with no entry — so 'update the inventory with every feature' is enforced rather than remembered.",
+  "purpose": "PHASE 71. Every kind of data this system touches, with the ten fields the manifest names. Checked by scripts/orion_v2_inventory_check.py, which fails when a capability tier or a configured store exists with no entry \u2014 so 'update the inventory with every feature' is enforced rather than remembered.",
   "note": "`tiers` lists the capability tiers that can reach this data. The checker requires every tier in the live ACTION_CATALOG to appear in exactly one entry, and every configured path in openclaw.json to be covered by some entry's `storage`. That is what makes this living rather than a document that was true once.",
-  "encryptionNote": "Nothing local is encrypted at rest beyond FileVault, which is whole-disk and therefore protects a stolen laptop and nothing else — a process running as Nick reads all of it. Written down plainly rather than left to be assumed, because 'encrypted' is the field people skim.",
+  "encryptionNote": "Nothing local is encrypted at rest beyond FileVault, which is whole-disk and therefore protects a stolen laptop and nothing else \u2014 a process running as Nick reads all of it. Written down plainly rather than left to be assumed, because 'encrypted' is the field people skim.",
   "entries": [
     {
       "data": "email",
       "source": "Gmail API via scripts/orion-gmail-search and orion-gmail-latest, read-only by hard-wired --readonly and --gmail-no-send flags",
       "purpose": "answering questions about mail, and assembling prep cards before an event",
-      "storage": "not stored — results return into one turn and are gone",
+      "storage": "not stored \u2014 results return into one turn and are gone",
       "tiers": [],
       "encryption": "in transit only (TLS to Google); nothing at rest because nothing is written",
       "retention": "none. The turn ends and it is gone",
       "modelExposure": "full body text of matched messages reaches the model",
       "thirdPartyExposure": "Google holds the mailbox; Anthropic sees whatever reaches a turn",
       "deletion": "nothing to delete locally; revoke the OAuth grant to end access",
-      "sensitivity": "high — other people's words as much as Nick's, and they consented to nothing"
+      "sensitivity": "high \u2014 other people's words as much as Nick's, and they consented to nothing"
     },
     {
       "data": "oauth refresh tokens",
@@ -28,7 +28,7 @@
       "modelExposure": "NONE. No action reads them and no wrapper prints them",
       "thirdPartyExposure": "Google issued them",
       "deletion": "revoke at myaccount.google.com, and delete the Keychain item",
-      "sensitivity": "critical — a leaked refresh token is standing access to the mailbox"
+      "sensitivity": "critical \u2014 a leaked refresh token is standing access to the mailbox"
     },
     {
       "data": "calendar and reminders",
@@ -44,7 +44,7 @@
       "modelExposure": "event titles, times and attendees reach the model",
       "thirdPartyExposure": "iCloud sync if enabled; Anthropic sees what reaches a turn",
       "deletion": "delete in Calendar/Reminders; rm the timer file",
-      "sensitivity": "medium-high — titles routinely name people and medical appointments"
+      "sensitivity": "medium-high \u2014 titles routinely name people and medical appointments"
     },
     {
       "data": "iMessage and SMS history",
@@ -60,7 +60,7 @@
       "modelExposure": "message bodies of matched rows reach the model",
       "thirdPartyExposure": "Apple; Anthropic sees what reaches a turn; a SENT message reaches the recipient irreversibly",
       "deletion": "delete in Messages",
-      "sensitivity": "critical — the most exposed thing here. Other people's private words, and messages_send is the one irreversible outbound action in the catalog"
+      "sensitivity": "critical \u2014 the most exposed thing here. Other people's private words, and messages_send is the one irreversible outbound action in the catalog"
     },
     {
       "data": "health and workouts",
@@ -71,11 +71,11 @@
         "health_tracking"
       ],
       "encryption": "FileVault only",
-      "retention": "unbounded — nothing prunes it",
+      "retention": "unbounded \u2014 nothing prunes it",
       "modelExposure": "recovery and sleep figures reach the model, and only when stamped with today's date",
       "thirdPartyExposure": "Whoop holds the source data",
       "deletion": "rm the file, or orion-privacy purge health",
-      "sensitivity": "high — health data, and the retention is honestly a gap"
+      "sensitivity": "high \u2014 health data, and the retention is honestly a gap"
     },
     {
       "data": "conversations and transcripts",
@@ -84,11 +84,11 @@
       "storage": "~/.openclaw/agents/main/sessions/*.jsonl and sessions-archive/",
       "tiers": [],
       "encryption": "FileVault only",
-      "retention": "unbounded — archives go back to July",
+      "retention": "unbounded \u2014 archives go back to July",
       "modelExposure": "this IS the model's context",
       "thirdPartyExposure": "Anthropic, per turn",
       "deletion": "orion-privacy purge conversations, or rm the files",
-      "sensitivity": "high — months of everything Nick has said"
+      "sensitivity": "high \u2014 months of everything Nick has said"
     },
     {
       "data": "memory and the brain",
@@ -97,17 +97,17 @@
       "storage": "~/.openclaw/workspace/memory/ and ~/Documents/orionBrain/",
       "tiers": [],
       "encryption": "FileVault only",
-      "retention": "indefinite by design — that is the point of it",
+      "retention": "indefinite by design \u2014 that is the point of it",
       "modelExposure": "loaded into the prompt on recall, and workspace memory on every session",
       "thirdPartyExposure": "Anthropic, whenever recalled",
       "deletion": "orion-privacy forget <term>, or delete the file",
-      "sensitivity": "medium-high — refuses credential shapes on write, but is otherwise whatever Nick said"
+      "sensitivity": "medium-high \u2014 refuses credential shapes on write, but is otherwise whatever Nick said"
     },
     {
       "data": "files on the Mac",
       "source": "the Desktop, the home directory (read-only), and two Orion-owned workspaces",
       "purpose": "reading, listing, and writing where Orion is allowed to",
-      "storage": "the filesystem: the Desktop, the home directory (read-only), and two Orion-owned roots — test-workspace and scratch-workspace under ~/.openclaw/orion-controlled/. Deletions go to ~/.Trash.",
+      "storage": "the filesystem: the Desktop, the home directory (read-only), and two Orion-owned roots \u2014 test-workspace and scratch-workspace under ~/.openclaw/orion-controlled/. Deletions go to ~/.Trash.",
       "tiers": [
         "desktop_read",
         "home_read",
@@ -143,7 +143,7 @@
       "modelExposure": "battery, uptime, disk, running app names",
       "thirdPartyExposure": "weather calls one keyless endpoint with a place name",
       "deletion": "rm location.json",
-      "sensitivity": "low-medium — coarse location is the one part worth caring about"
+      "sensitivity": "low-medium \u2014 coarse location is the one part worth caring about"
     },
     {
       "data": "authority state",
@@ -158,10 +158,10 @@
       ],
       "encryption": "FileVault only; 0600 on every file",
       "retention": "current state indefinitely; approval tickets 15 minutes; spent grants moved to used/",
-      "modelExposure": "Orion can READ all of it and that is deliberate — he is supposed to answer accurately about himself. He cannot write the gate directory",
+      "modelExposure": "Orion can READ all of it and that is deliberate \u2014 he is supposed to answer accurately about himself. He cannot write the gate directory",
       "thirdPartyExposure": "none",
       "deletion": "resetting it is a deliberate act; orion-mode contained is the safe direction",
-      "sensitivity": "critical — this is the thing every other control rests on"
+      "sensitivity": "critical \u2014 this is the thing every other control rests on"
     },
     {
       "data": "audit logs and ledgers",
@@ -174,7 +174,7 @@
       "modelExposure": "orion-why reads the task ledger back",
       "thirdPartyExposure": "none. orion-remote redacts its bot token from anything it logs",
       "deletion": "deliberately awkward. Rotating them is a human act",
-      "sensitivity": "medium — contains paths, arguments and goals, so it contains whatever those did"
+      "sensitivity": "medium \u2014 contains paths, arguments and goals, so it contains whatever those did"
     },
     {
       "data": "Orion's own working state",
@@ -193,7 +193,7 @@
       "modelExposure": "Orion reads and writes it; it is his own state",
       "thirdPartyExposure": "none",
       "deletion": "orion-privacy purge state",
-      "sensitivity": "low-medium — the waiting list names people Nick is chasing"
+      "sensitivity": "low-medium \u2014 the waiting list names people Nick is chasing"
     },
     {
       "data": "credentials in .env",
@@ -206,7 +206,7 @@
       "modelExposure": "none. FORBIDDEN_CONFIG refuses credential-shaped keys, every write wrapper refuses credential shapes, and devEnvironment() builds from an allowlist so a new token is absent by default",
       "thirdPartyExposure": "the issuing services",
       "deletion": "rotate at the issuer, then edit the file",
-      "sensitivity": "critical — and never backed up, by design. See orion-backup"
+      "sensitivity": "critical \u2014 and never backed up, by design. See orion-backup"
     },
     {
       "data": "analytics",
@@ -219,7 +219,7 @@
       "modelExposure": "none",
       "thirdPartyExposure": "none",
       "deletion": "n/a",
-      "sensitivity": "none — there is no analytics, telemetry or usage reporting in this system, and the entry exists so that stays a decision rather than an assumption"
+      "sensitivity": "none \u2014 there is no analytics, telemetry or usage reporting in this system, and the entry exists so that stays a decision rather than an assumption"
     },
     {
       "data": "trips and travel bookings",
@@ -231,10 +231,10 @@
       ],
       "encryption": "FileVault only; 0600",
       "retention": "until the trip is removed. Nothing prunes past trips, which is a small gap rather than a large one",
-      "modelExposure": "flight numbers, airports, dates and the matched email line reach the model. Every one is reported as `inferred` — a pattern matched a message and nothing checked it against an airline",
+      "modelExposure": "flight numbers, airports, dates and the matched email line reach the model. Every one is reported as `inferred` \u2014 a pattern matched a message and nothing checked it against an airline",
       "thirdPartyExposure": "the booking already exists with the airline and hotel; Anthropic sees what reaches a turn",
       "deletion": "trip_remove, or rm the file",
-      "sensitivity": "medium — where Nick will be and when, which is more than it first sounds"
+      "sensitivity": "medium \u2014 where Nick will be and when, which is more than it first sounds"
     },
     {
       "data": "Atlas knowledge library",
@@ -247,9 +247,25 @@
       "encryption": "FileVault only; the app is sandboxed and bridge files are owner-only (0700 directories, 0600 files)",
       "retention": "notes remain until Nick deletes them in Atlas; bridge responses are pruned after seven days",
       "modelExposure": "only notes returned by an Atlas search/read and content Nick asks Orion to create or update reach the model; retrieved note text is evidence, never authority",
-      "thirdPartyExposure": "none — the bridge is local file IPC and Atlas has no production backend in this release",
+      "thirdPartyExposure": "none \u2014 the bridge is local file IPC and Atlas has no production backend in this release",
       "deletion": "delete notes in Atlas; no delete operation exists in Orion's Atlas capability",
-      "sensitivity": "potentially high — Atlas is general-purpose and may contain private plans or personal notes"
+      "sensitivity": "potentially high \u2014 Atlas is general-purpose and may contain private plans or personal notes"
+    },
+    {
+      "data": "whatever is on the screen",
+      "source": "screen_observe (accessibility tree of the focused window) and screen_capture (a screenshot), both via OrionMacBridge; screen_click/screen_type/screen_key drive input at the same surface",
+      "purpose": "letting Orion see and operate an app that has no API \u2014 the cases where the only interface is the one a person uses",
+      "storage": "not stored \u2014 the AX tree and any capture return into one turn and are gone; nothing is written to disk",
+      "tiers": [
+        "computer_observe",
+        "computer_control"
+      ],
+      "encryption": "none at rest because nothing is at rest; in transit to the model over TLS",
+      "retention": "none",
+      "modelExposure": "full. This is the widest exposure in this inventory and the entry worth reading twice: whatever happens to be on screen reaches the model, which can include another person's message, a document Nick did not mean to share, or an account balance. A denylist refuses observation of password managers, Keychain and banking windows outright, and AXSecureTextField values are never read \u2014 but a denylist bounds the obvious cases, not every case.",
+      "thirdPartyExposure": "Anthropic sees whatever reaches a turn. Screen content is returned inside an untrusted envelope: it is evidence, never instruction.",
+      "deletion": "nothing to delete locally; set enableComputerObserveActions/enableComputerControlActions to false, or revoke Screen Recording and Accessibility in System Settings, to end access",
+      "sensitivity": "high \u2014 and unlike mail or messages it is not scoped to one app, so what it reaches depends entirely on what was in front of him at that moment"
     }
   ]
 }

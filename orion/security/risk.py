@@ -73,6 +73,9 @@ TIER_REACH = {
     "waiting_on": RiskLevel.R1,
     "automation": RiskLevel.R1,
     "travel": RiskLevel.R1,
+    # Atlas exposes owner-scoped note operations and no arbitrary file path.
+    # Reads demote normally; creates and updates are local data changes.
+    "atlas_notes": RiskLevel.R1,
     # A prep card only reads — mail, the brain, the calendar — and writes
     # nothing at all. It sits with the other observation tiers.
     "prep": RiskLevel.R0,

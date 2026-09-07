@@ -5666,6 +5666,16 @@
         "status": "registered",
         "reversesADocumentedDecision": "orion-remote's header states its original safety property outright: seven verbs, no fuzzy matching, NO FALLTHROUGH TO A MODEL. Attaching the brain gives that up deliberately and on Nick's instruction, after he was shown the trade. What survives is that every guard still runs FIRST -- allowlist, LOCK ORION, device routing, replay, expiry, rate limit -- and that inbound text reaches the model as a FILE, never as argv, so it still never becomes a shell word. Both are pinned by mutation-proven assertions in scripts/orion_v2_remote_check.sh, including that a locked Orion will not think and a stranger's question gets silence.",
         "residualRisk": "Whoever controls that Discord account controls the Mac to the same extent Nick does at the keyboard. LOCK ORION is the backstop, and it genuinely reaches the channel now -- it was repaired the same day from a state where a lost race silently disarmed it."
+      },
+      {
+        "id": "atlas_knowledge_app",
+        "raisedBy": "Nick, 2026-09-06: asked for Atlas to become a real application with agent tools and for Orion Brain to know how to use them",
+        "manifestCoverage": "none — the manifest covers Orion's internal memory and integrations, not a separate user-visible general knowledge application",
+        "alreadyLive": "Atlas is a separate sandboxed SwiftUI application. ORION's candidate plugin adds a dedicated atlas_notes tier and five typed actions over an owner-only local bridge; deployment evidence is recorded in the current handoff.",
+        "layer": "a typed local application integration, not a model role and not general filesystem authority. Atlas owns validation and persistence; Orion never opens the SwiftData store directly.",
+        "wouldBelongNear": "PHASE 65 App Intents and System Integration, while Atlas itself remains a separate product",
+        "status": "registered",
+        "residualRisk": "General-purpose notes may contain private material. Retrieved note text remains untrusted evidence, agent writes are constrained to create and conflict-safe update, and deletion is intentionally absent."
       }
     ]
   },

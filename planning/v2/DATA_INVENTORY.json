@@ -235,6 +235,21 @@
       "thirdPartyExposure": "the booking already exists with the airline and hotel; Anthropic sees what reaches a turn",
       "deletion": "trip_remove, or rm the file",
       "sensitivity": "medium — where Nick will be and when, which is more than it first sounds"
+    },
+    {
+      "data": "Atlas knowledge library",
+      "source": "Nick and agents acting on Nick's direct requests",
+      "purpose": "organizing searchable notes and turning conversations, plans, and research into reusable knowledge",
+      "storage": "Atlas's sandboxed SwiftData store plus its owner-only local AgentBridge request and response folders under the Atlas app container",
+      "tiers": [
+        "atlas_notes"
+      ],
+      "encryption": "FileVault only; the app is sandboxed and bridge files are owner-only (0700 directories, 0600 files)",
+      "retention": "notes remain until Nick deletes them in Atlas; bridge responses are pruned after seven days",
+      "modelExposure": "only notes returned by an Atlas search/read and content Nick asks Orion to create or update reach the model; retrieved note text is evidence, never authority",
+      "thirdPartyExposure": "none — the bridge is local file IPC and Atlas has no production backend in this release",
+      "deletion": "delete notes in Atlas; no delete operation exists in Orion's Atlas capability",
+      "sensitivity": "potentially high — Atlas is general-purpose and may contain private plans or personal notes"
     }
   ]
 }

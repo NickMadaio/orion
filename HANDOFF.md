@@ -1,5 +1,78 @@
 # HANDOFF
 
+## 2026-09-06 14:09 EDT — Atlas is installed and ORION can use it through five typed note actions
+
+**State found.** Atlas already had a native SwiftUI Mac/iOS client, but it was a
+development build rather than an installed product and ORION had no Atlas
+capability. The first production-entitled Mac bundle would not launch without
+an Apple provisioning profile, so the installed application intentionally uses
+the Local sandbox-only entitlement and the existing `Orion Local Signing`
+identity. No ORION signing identity changed. The first end-to-end update also
+exposed a real protocol defect: Foundation's basic ISO-8601 strategy removed
+fractional seconds, so the optimistic-concurrency timestamp came back stale.
+
+**What changed.** Atlas now owns a versioned, owner-only macOS request bridge
+inside its sandbox container. It validates and performs collection listing and
+note search/read/create/update through `AtlasLibraryStore`; there is no delete
+operation, arbitrary path, network listener, token, or direct SwiftData access.
+Updates require the exact timestamp returned by the last read. Atlas's shared
+protocol now preserves fractional seconds. The app is installed at
+`/Applications/Atlas.app` as `com.nickmadaio.atlas.local`, signed with the
+existing local identity, sandboxed, and running.
+
+ORION's TypeScript plugin gained the dedicated `atlas_notes` tier and five
+actions: `atlas_collections_list`, `atlas_notes_search`, `atlas_note_read`,
+`atlas_note_create`, and `atlas_note_update`. Reads are ordinary typed reads;
+writes use the existing medium-risk plan gate and independently re-read the
+note after execution. The live config has `enableAtlasNotesActions: true`.
+`openclaw-workspace/AGENTS.md`, generated `TOOLS.md`, the capability registry,
+data inventory, policy mirrors, phase-gate register, and the live Brain all
+describe the same boundary. The Brain note is
+`Documents/orionBrain/30 Resources/Atlas Knowledge App.md`; the index was
+forced and a search returned it first at score 0.813.
+
+Two deployment faults were found and repaired while proving this live. The
+preflight inventory previously compared candidate documents with the old
+installed catalog, making any new tier undeployable; deploy now supplies the
+candidate catalog only during preflight while ordinary inventory audits still
+read live state. The deployment script also probed a gateway process that had
+not reloaded the copied plugin and used absolute-root-sensitive fingerprints.
+It now restarts onto the candidate before probing, restarts after rollback, and
+compares the same relative production file set.
+
+**Verification.** AtlasCore: 8/8 tests, including stale-update rejection and
+fractional timestamp round-trip. Xcode Local builds succeeded for macOS and a
+generic iOS Simulator. Installed-app create -> read -> update -> read verified
+note `atlas-agent-integration-1ee7bb3c` and its corrected Markdown. ORION plugin:
+236/236 tests and 196/196 security invariants. Protected deploy passed all seven
+suites, kept backup `~/.openclaw/backups/orion-control/20260906-140252`,
+installed 106 actions / 5 profiles, and the post-deploy inventory reports 16
+entries covering 30 live tiers. Registry is 106/106; policy checked 530
+combinations and is never more permissive than the live gate. Built and
+installed production fingerprints both read `ffc1fcc2c862`. Gateway restart is
+healthy at pid 6217. Most importantly, a fresh normal ORION agent turn used
+`atlas_collections_list` and actually returned Career Planning, General Notes,
+and System & Guides; no shell or database fallback was used.
+
+**Live limits.** This is a real, locally installed Mac application and an iOS
+Simulator-compatible target, not a notarized public release or TestFlight
+build. Apple sign-in remains correctly disabled until Nick supplies a Developer
+team/provisioning profile and the verified HTTPS backend. The bridge exists on
+macOS only; iOS keeps the same library UI but does not expose desktop file IPC.
+
+**Rollback.** `scripts/orion-deploy --rollback` restores the protected ORION
+plugin snapshot and now restarts the gateway. Atlas's prior bundle is preserved
+at `atlas-native/.builds/Atlas-pre-timestamp-fix.app`; rebuilding the Local
+configuration from the Xcode project is the source-of-truth recovery path.
+Repository changes remain uncommitted and are isolated in `git diff`; preserve
+any unrelated dirty work when selectively reversing them.
+
+**Exact next step.** Use Atlas normally and have ORION create a genuinely useful
+note when one is requested. Before public distribution or real cross-device
+accounts, Nick must choose the Apple Developer team, backend host/database,
+retention/backups, privacy/support URLs, and release channel; those decisions
+must update Atlas's Project Contract before implementation.
+
 ## 2026-09-05 03:19 — Discord dispatch audit: connected and working; one leak found and fixed, not yet deployed
 
 Scoped task: verify and repair the Discord remote path only (Nick's #1

@@ -77,6 +77,10 @@ TIER_RULES = {
     # nothing; its domain is the meeting it is for.
     "prep":                   ("prep", "calendar"),
     "travel":                 ("travel", "calendar"),
+    # Atlas is a separate local knowledge app. Its bridge exposes note-shaped
+    # operations only, so this belongs to general knowledge rather than files:
+    # no caller-chosen path can reach the executor.
+    "atlas_notes":            ("atlas", "general"),
 }
 
 # Per-action departures from the tier rule, each because the tier is a coarser
@@ -131,6 +135,7 @@ EFFECTS_BY_KIND = {
     # A prep card reads mail, the brain and the calendar, and writes nothing.
     "prep_card":       ["reads_files", "reads_user_data"],
     "travel":          ["writes_files", "reads_user_data"],
+    "atlas":           ["writes_files", "reads_user_data"],
 }
 
 

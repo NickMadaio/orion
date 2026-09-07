@@ -61,6 +61,9 @@ const EDIT_TIERS: readonly CapabilityTier[] = [
   // Prep cards fan out across mail and the brain, all of it read-only and none
   // of it written back. Sits with the reads for that reason.
   "prep",
+  // Search/read plus user-requested note creation and conflict-safe updates in
+  // Atlas. No delete operation and no arbitrary file path is expressible.
+  "atlas_notes",
   // Trips are notes about bookings other people made, assembled from reads.
   // Sits with the reads for the same reason prep does.
   "travel",

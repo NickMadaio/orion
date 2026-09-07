@@ -205,6 +205,10 @@
       "enableTravelActions": {
         "type": "boolean",
         "description": "Detect flight and hotel confirmations in mail, keep trip objects, and render a travel brief (Phase 78). Detection PROPOSES and never creates; nothing in this tier can book, modify or cancel anything, and the timezone shift is reported rather than applied. Default off."
+      },
+      "enableAtlasNotesActions": {
+        "type": "boolean",
+        "description": "Let Orion search, read, create, and conflict-safely update notes in the installed Atlas app through its owner-only local bridge. No delete action and no arbitrary filesystem access. Default off."
       }
     }
   },

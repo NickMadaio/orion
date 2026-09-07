@@ -386,6 +386,12 @@ export const ConfigSchema = Type.Object({
         "Detect flight and hotel confirmations in mail, keep trip objects, and render a travel brief (Phase 78). Detection PROPOSES and never creates; nothing in this tier can book, modify or cancel anything, and the timezone shift is reported rather than applied. Default off.",
     }),
   ),
+  enableAtlasNotesActions: Type.Optional(
+    Type.Boolean({
+      description:
+        "Let Orion search, read, create, and conflict-safely update notes in the installed Atlas app through its owner-only local bridge. No delete action and no arbitrary filesystem access. Default off.",
+    }),
+  ),
   enableStrictArguments: Type.Optional(
     Type.Boolean({
       description:
@@ -483,6 +489,7 @@ function configuredTiers(config: {
   enableWaitingOnActions?: boolean;
   enablePrepActions?: boolean;
   enableTravelActions?: boolean;
+  enableAtlasNotesActions?: boolean;
   desktopRoot?: string;
 }): Set<CapabilityTier> {
   const tiers = new Set<CapabilityTier>(["simulation"]);
@@ -515,6 +522,7 @@ function configuredTiers(config: {
   if (config.enableWaitingOnActions === true) tiers.add("waiting_on");
   if (config.enablePrepActions === true) tiers.add("prep");
   if (config.enableTravelActions === true) tiers.add("travel");
+  if (config.enableAtlasNotesActions === true) tiers.add("atlas_notes");
   if (config.enableAppControlActions === true) tiers.add("app_control");
   if (config.enableBrowserControlActions === true) tiers.add("browser_control");
   if (config.enableMediaControlActions === true) tiers.add("media_control");

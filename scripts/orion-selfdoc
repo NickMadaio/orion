@@ -130,6 +130,7 @@ const TIER_BLURB = {
   file_mutate: "Move, rename, and delete-to-Trash.",
   self_tuning: "Orion's own speech timing and voice preferences.",
   health_tracking: "Supplements and workouts, in a log Orion owns.",
+  atlas_notes: "Search, read, create, and conflict-safely update notes in Atlas.",
   self_modification:
     "Editing Orion's own Swift source and rebuilding himself. Real, and on.",
 };

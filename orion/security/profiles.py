@@ -65,6 +65,7 @@ EDIT_TIERS = frozenset(
         "waiting_on",
         "prep",
         "travel",
+        "atlas_notes",
     }
 )
 

@@ -111,6 +111,7 @@ import {
 } from "./health.js";
 import type { TaskStep, UndoRecord } from "./types.js";
 import { canonicalActionHash, hash } from "./validator.js";
+import { AtlasBridgeError, requestAtlas } from "./atlas.js";
 
 export interface ExecutionContext {
   roots: Record<ControlledRoot, string>;
@@ -1866,6 +1867,37 @@ export async function executeAction(
   if (definition.execution.kind === "travel") {
     return runTravel(definition.execution.operation, step, idempotencyKey);
   }
+  if (definition.execution.kind === "atlas") {
+    try {
+      const output = await requestAtlas(
+        definition.execution.operation,
+        step.arguments,
+        idempotencyKey,
+      );
+      if (definition.execution.operation === "notes.create") {
+        return {
+          mode: "created",
+          idempotencyKey,
+          target: output.noteID,
+          output,
+        };
+      }
+      if (definition.execution.operation === "notes.update") {
+        return {
+          mode: "replaced",
+          idempotencyKey,
+          target: output.note?.id ?? String(step.arguments.noteID ?? ""),
+          output,
+        };
+      }
+      return { mode: "observed", idempotencyKey, output };
+    } catch (error) {
+      if (error instanceof AtlasBridgeError) {
+        throw new ActionExecutionError(error.message, error.retryable);
+      }
+      throw error;
+    }
+  }
   if (definition.execution.kind === "app_control") {
     const application = step.arguments[definition.execution.applicationArgument];
     if (typeof application !== "string") {
@@ -2493,6 +2525,40 @@ export async function verifyAction(
     const present =
       typeof execution.output === "string" && execution.output.length > 0;
     return { observed: present, evidence: present ? "prep_card" : undefined };
+  }
+  if (definition.execution.kind === "atlas") {
+    const operation = definition.execution.operation;
+    if (operation === "collections.list" || operation === "notes.search" || operation === "notes.read") {
+      return {
+        observed: execution.output !== undefined,
+        evidence: `atlas:${operation}:reported`,
+      };
+    }
+    const noteID = execution.target;
+    if (!noteID) return { observed: false };
+    try {
+      const observed = await requestAtlas(
+        "notes.read",
+        { noteID },
+        `${execution.idempotencyKey}verify`,
+      );
+      const note = observed.note;
+      if (!note) return { observed: false };
+      const titleMatches = step.arguments.title === undefined || note.title === step.arguments.title;
+      const summaryMatches = step.arguments.summary === undefined || note.summary === step.arguments.summary;
+      const categoryMatches = step.arguments.category === undefined || note.category === step.arguments.category;
+      const markdownMatches = step.arguments.markdown === undefined || note.bodyMarkdown === step.arguments.markdown;
+      const versionAdvanced =
+        operation !== "notes.update" ||
+        Date.parse(note.updatedAt) > Date.parse(String(step.arguments.expectedUpdatedAt));
+      const matches = titleMatches && summaryMatches && categoryMatches && markdownMatches && versionAdvanced;
+      return {
+        observed: matches,
+        evidence: `atlas:${noteID}:${matches ? "verified" : "mismatch"}`,
+      };
+    } catch {
+      return { observed: false };
+    }
   }
   if (definition.execution.kind === "waiting") {
     // Read back from the store after the write, by the same function that

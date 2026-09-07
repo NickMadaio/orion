@@ -143,6 +143,9 @@ export type CapabilityTier =
   // "read one of those" and "read all of them in one call" deserve separate
   // answers.
   | "prep"
+  // Atlas is a separate, user-visible knowledge app. This tier reaches only
+  // Atlas's validated local bridge: no arbitrary path and no delete operation.
+  | "atlas_notes"
   // PHASE 78. Trips, assembled from confirmations Orion READ. Its own tier
   // because every input is untrusted email and every output is a claim about a
   // booking somebody else made — and because nothing in it can book anything,
@@ -397,6 +400,23 @@ export type ExecutionPolicy =
    * the waiting list; writes nothing anywhere.
    */
   | { kind: "prep_card" }
+  /**
+   * Read and author notes through Atlas's owner-only local bridge.
+   *
+   * The bridge owns validation and the database. Orion never opens the
+   * SwiftData store and this policy carries no path, command, or URL supplied
+   * by the model. Updating requires the exact updatedAt value returned by a
+   * prior read, so a person and an agent cannot silently overwrite each other.
+   */
+  | {
+      kind: "atlas";
+      operation:
+        | "collections.list"
+        | "notes.search"
+        | "notes.read"
+        | "notes.create"
+        | "notes.update";
+    }
   /**
    * PHASE 78. Detect candidate bookings, keep trips, render a brief.
    *
@@ -1363,6 +1383,114 @@ function devAction(
 }
 
 export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
+  // --------------------------------------------------------------- Atlas
+  atlas_collections_list: {
+    risk: "low",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification: "atlas_collections_reported",
+    reversible: true,
+    capabilityTier: "atlas_notes",
+    execution: { kind: "atlas", operation: "collections.list" },
+  },
+  atlas_notes_search: {
+    risk: "low",
+    requiredArguments: ["query"],
+    approvalRequired: false,
+    verification: "atlas_notes_reported",
+    reversible: true,
+    capabilityTier: "atlas_notes",
+    execution: { kind: "atlas", operation: "notes.search" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      const query = arguments_.query;
+      if (typeof query !== "string" || query.trim().length === 0 || query.length > 200) {
+        issues.push("query must be non-empty and 200 characters or fewer");
+      }
+      if (arguments_.collectionID !== undefined && !/^[a-z0-9][a-z0-9-]{1,139}$/.test(String(arguments_.collectionID))) {
+        issues.push("collectionID must be an Atlas collection id");
+      }
+      if (arguments_.limit !== undefined && (!Number.isInteger(arguments_.limit) || Number(arguments_.limit) < 1 || Number(arguments_.limit) > 100)) {
+        issues.push("limit must be an integer from 1 to 100");
+      }
+      return issues;
+    },
+  },
+  atlas_note_read: {
+    risk: "low",
+    requiredArguments: ["noteID"],
+    approvalRequired: false,
+    verification: "atlas_note_reported",
+    reversible: true,
+    capabilityTier: "atlas_notes",
+    execution: { kind: "atlas", operation: "notes.read" },
+    validateArguments: (arguments_) =>
+      typeof arguments_.noteID === "string" && /^[a-z0-9][a-z0-9-]{1,139}$/.test(arguments_.noteID)
+        ? []
+        : ["noteID must be an Atlas note id"],
+  },
+  atlas_note_create: {
+    risk: "medium",
+    requiredArguments: ["collectionID", "title", "markdown"],
+    approvalRequired: false,
+    verification: "atlas_note_created",
+    reversible: false,
+    capabilityTier: "atlas_notes",
+    execution: { kind: "atlas", operation: "notes.create" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      if (typeof arguments_.collectionID !== "string" || !/^[a-z0-9][a-z0-9-]{1,139}$/.test(arguments_.collectionID)) {
+        issues.push("collectionID must be an Atlas collection id from atlas_collections_list");
+      }
+      if (typeof arguments_.title !== "string" || arguments_.title.trim().length === 0 || arguments_.title.length > 120) {
+        issues.push("title must be non-empty and 120 characters or fewer");
+      }
+      if (typeof arguments_.markdown !== "string" || arguments_.markdown.length > 500_000) {
+        issues.push("markdown must be text no larger than 500,000 characters");
+      }
+      if (arguments_.summary !== undefined && (typeof arguments_.summary !== "string" || arguments_.summary.length > 300)) {
+        issues.push("summary must be 300 characters or fewer");
+      }
+      if (arguments_.category !== undefined && (typeof arguments_.category !== "string" || arguments_.category.trim().length === 0 || arguments_.category.length > 40)) {
+        issues.push("category must be non-empty and 40 characters or fewer");
+      }
+      return issues;
+    },
+  },
+  atlas_note_update: {
+    risk: "medium",
+    requiredArguments: ["noteID", "expectedUpdatedAt"],
+    approvalRequired: false,
+    verification: "atlas_note_updated",
+    reversible: false,
+    capabilityTier: "atlas_notes",
+    execution: { kind: "atlas", operation: "notes.update" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      if (typeof arguments_.noteID !== "string" || !/^[a-z0-9][a-z0-9-]{1,139}$/.test(arguments_.noteID)) {
+        issues.push("noteID must be an Atlas note id");
+      }
+      if (typeof arguments_.expectedUpdatedAt !== "string" || Number.isNaN(Date.parse(arguments_.expectedUpdatedAt))) {
+        issues.push("expectedUpdatedAt must be the exact timestamp returned by atlas_note_read");
+      }
+      if (arguments_.title !== undefined && (typeof arguments_.title !== "string" || arguments_.title.trim().length === 0 || arguments_.title.length > 120)) {
+        issues.push("title must be non-empty and 120 characters or fewer");
+      }
+      if (arguments_.summary !== undefined && (typeof arguments_.summary !== "string" || arguments_.summary.length > 300)) {
+        issues.push("summary must be 300 characters or fewer");
+      }
+      if (arguments_.category !== undefined && (typeof arguments_.category !== "string" || arguments_.category.trim().length === 0 || arguments_.category.length > 40)) {
+        issues.push("category must be non-empty and 40 characters or fewer");
+      }
+      if (arguments_.markdown !== undefined && (typeof arguments_.markdown !== "string" || arguments_.markdown.length > 500_000)) {
+        issues.push("markdown must be text no larger than 500,000 characters");
+      }
+      if (!["title", "summary", "category", "markdown"].some((key) => arguments_[key] !== undefined)) {
+        issues.push("provide at least one of title, summary, category, or markdown to update");
+      }
+      return issues;
+    },
+  },
   /**
    * `approvalRequired: false` is a decision, not an oversight.
    *

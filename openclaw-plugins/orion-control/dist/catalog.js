@@ -667,6 +667,113 @@ function devAction(operation, risk, reversible, verification, extraValidators = 
     };
 }
 export const ACTION_CATALOG = {
+    // --------------------------------------------------------------- Atlas
+    atlas_collections_list: {
+        risk: "low",
+        requiredArguments: [],
+        approvalRequired: false,
+        verification: "atlas_collections_reported",
+        reversible: true,
+        capabilityTier: "atlas_notes",
+        execution: { kind: "atlas", operation: "collections.list" },
+    },
+    atlas_notes_search: {
+        risk: "low",
+        requiredArguments: ["query"],
+        approvalRequired: false,
+        verification: "atlas_notes_reported",
+        reversible: true,
+        capabilityTier: "atlas_notes",
+        execution: { kind: "atlas", operation: "notes.search" },
+        validateArguments(arguments_) {
+            const issues = [];
+            const query = arguments_.query;
+            if (typeof query !== "string" || query.trim().length === 0 || query.length > 200) {
+                issues.push("query must be non-empty and 200 characters or fewer");
+            }
+            if (arguments_.collectionID !== undefined && !/^[a-z0-9][a-z0-9-]{1,139}$/.test(String(arguments_.collectionID))) {
+                issues.push("collectionID must be an Atlas collection id");
+            }
+            if (arguments_.limit !== undefined && (!Number.isInteger(arguments_.limit) || Number(arguments_.limit) < 1 || Number(arguments_.limit) > 100)) {
+                issues.push("limit must be an integer from 1 to 100");
+            }
+            return issues;
+        },
+    },
+    atlas_note_read: {
+        risk: "low",
+        requiredArguments: ["noteID"],
+        approvalRequired: false,
+        verification: "atlas_note_reported",
+        reversible: true,
+        capabilityTier: "atlas_notes",
+        execution: { kind: "atlas", operation: "notes.read" },
+        validateArguments: (arguments_) => typeof arguments_.noteID === "string" && /^[a-z0-9][a-z0-9-]{1,139}$/.test(arguments_.noteID)
+            ? []
+            : ["noteID must be an Atlas note id"],
+    },
+    atlas_note_create: {
+        risk: "medium",
+        requiredArguments: ["collectionID", "title", "markdown"],
+        approvalRequired: false,
+        verification: "atlas_note_created",
+        reversible: false,
+        capabilityTier: "atlas_notes",
+        execution: { kind: "atlas", operation: "notes.create" },
+        validateArguments(arguments_) {
+            const issues = [];
+            if (typeof arguments_.collectionID !== "string" || !/^[a-z0-9][a-z0-9-]{1,139}$/.test(arguments_.collectionID)) {
+                issues.push("collectionID must be an Atlas collection id from atlas_collections_list");
+            }
+            if (typeof arguments_.title !== "string" || arguments_.title.trim().length === 0 || arguments_.title.length > 120) {
+                issues.push("title must be non-empty and 120 characters or fewer");
+            }
+            if (typeof arguments_.markdown !== "string" || arguments_.markdown.length > 500_000) {
+                issues.push("markdown must be text no larger than 500,000 characters");
+            }
+            if (arguments_.summary !== undefined && (typeof arguments_.summary !== "string" || arguments_.summary.length > 300)) {
+                issues.push("summary must be 300 characters or fewer");
+            }
+            if (arguments_.category !== undefined && (typeof arguments_.category !== "string" || arguments_.category.trim().length === 0 || arguments_.category.length > 40)) {
+                issues.push("category must be non-empty and 40 characters or fewer");
+            }
+            return issues;
+        },
+    },
+    atlas_note_update: {
+        risk: "medium",
+        requiredArguments: ["noteID", "expectedUpdatedAt"],
+        approvalRequired: false,
+        verification: "atlas_note_updated",
+        reversible: false,
+        capabilityTier: "atlas_notes",
+        execution: { kind: "atlas", operation: "notes.update" },
+        validateArguments(arguments_) {
+            const issues = [];
+            if (typeof arguments_.noteID !== "string" || !/^[a-z0-9][a-z0-9-]{1,139}$/.test(arguments_.noteID)) {
+                issues.push("noteID must be an Atlas note id");
+            }
+            if (typeof arguments_.expectedUpdatedAt !== "string" || Number.isNaN(Date.parse(arguments_.expectedUpdatedAt))) {
+                issues.push("expectedUpdatedAt must be the exact timestamp returned by atlas_note_read");
+            }
+            if (arguments_.title !== undefined && (typeof arguments_.title !== "string" || arguments_.title.trim().length === 0 || arguments_.title.length > 120)) {
+                issues.push("title must be non-empty and 120 characters or fewer");
+            }
+            if (arguments_.summary !== undefined && (typeof arguments_.summary !== "string" || arguments_.summary.length > 300)) {
+                issues.push("summary must be 300 characters or fewer");
+            }
+            if (arguments_.category !== undefined && (typeof arguments_.category !== "string" || arguments_.category.trim().length === 0 || arguments_.category.length > 40)) {
+                issues.push("category must be non-empty and 40 characters or fewer");
+            }
+            if (arguments_.markdown !== undefined && (typeof arguments_.markdown !== "string" || arguments_.markdown.length > 500_000)) {
+                issues.push("markdown must be text no larger than 500,000 characters");
+            }
+            if (!["title", "summary", "category", "markdown"].some((key) => arguments_[key] !== undefined)) {
+                issues.push("provide at least one of title, summary, category, or markdown to update");
+            }
+            return issues;
+        },
+    },
     /**
      * `approvalRequired: false` is a decision, not an oversight.
      *

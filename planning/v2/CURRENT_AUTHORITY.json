@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 199,
-    "AUTO": 133,
-    "NOTIFY": 19,
+    "total": 205,
+    "AUTO": 136,
+    "NOTIFY": 21,
     "APPROVAL": 15,
-    "NEVER": 32
+    "NEVER": 33
   },
   "availability": [
     {
@@ -32,6 +32,14 @@
     {
       "tier": "app_control",
       "flag": "enableAppControlActions",
+      "configOn": true,
+      "profileOn": true,
+      "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "atlas_notes",
+      "flag": "enableAtlasNotesActions",
       "configOn": true,
       "profileOn": true,
       "available": true,
@@ -297,6 +305,39 @@
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "calendar",
       "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "atlas_collections_list",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "atlas_notes",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "atlas_note_read",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "atlas_notes",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "atlas_notes_search",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "atlas_notes",
+      "risk": "low",
       "reversible": true
     },
     {
@@ -1559,6 +1600,28 @@
     },
     {
       "kind": "action",
+      "name": "atlas_note_create",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "atlas_notes",
+      "risk": "medium",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "atlas_note_update",
+      "level": "NOTIFY",
+      "rule": "R2 irreversible",
+      "because": "the catalog marks it reversible: false — Orion cannot undo it, so Nick has to hear about it",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "atlas_notes",
+      "risk": "medium",
+      "reversible": false
+    },
+    {
+      "kind": "action",
       "name": "browser_close_tab",
       "level": "NOTIFY",
       "rule": "R2 irreversible",
@@ -1999,6 +2062,14 @@
     {
       "kind": "command",
       "name": "orion-enroll-voice",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-eval",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

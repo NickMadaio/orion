@@ -62,6 +62,7 @@ import {
   canonicalActionHash,
   validateTaskGraph,
 } from "./validator.js";
+import { atlasBridgeCandidatesForTests } from "./atlas.js";
 
 const userInput = {
   id: "user_request",
@@ -105,6 +106,40 @@ function graph(steps: TaskStep[], overrides: Partial<TaskGraph> = {}): TaskGraph
 }
 
 describe("orion-control plugin", () => {
+  it("keeps Atlas behind a dedicated narrow local capability", () => {
+    const atlasActions = Object.entries(ACTION_CATALOG)
+      .filter(([, definition]) => definition.capabilityTier === "atlas_notes");
+    expect(atlasActions.map(([name]) => name).sort()).toEqual([
+      "atlas_collections_list",
+      "atlas_note_create",
+      "atlas_note_read",
+      "atlas_note_update",
+      "atlas_notes_search",
+    ]);
+    expect(atlasActions.every(([, definition]) => definition.execution.kind === "atlas")).toBe(true);
+    expect(atlasActions.some(([name]) => /delete|remove/.test(name))).toBe(false);
+    expect(profileAllowedTiers("restricted_read_only").has("atlas_notes")).toBe(false);
+    expect(profileAllowedTiers("approved_root_edit").has("atlas_notes")).toBe(true);
+    expect(atlasBridgeCandidatesForTests()).toEqual([
+      path.join(os.homedir(), "Library/Containers/com.nickmadaio.atlas/Data/Library/Application Support/Atlas/AgentBridge"),
+      path.join(os.homedir(), "Library/Containers/com.nickmadaio.atlas.local/Data/Library/Application Support/Atlas/AgentBridge"),
+      path.join(os.homedir(), "Library/Containers/com.nickmadaio.atlas.staging/Data/Library/Application Support/Atlas/AgentBridge"),
+    ]);
+  });
+
+  it("requires a prior Atlas version before an agent update", () => {
+    const update = ACTION_CATALOG.atlas_note_update;
+    expect(update.requiredArguments).toEqual(["noteID", "expectedUpdatedAt"]);
+    expect(update.reversible).toBe(false);
+    expect(update.validateArguments?.({ noteID: "valid-note", title: "Changed" })).toContain(
+      "expectedUpdatedAt must be the exact timestamp returned by atlas_note_read",
+    );
+    expect(update.validateArguments?.({
+      noteID: "valid-note",
+      expectedUpdatedAt: "2026-09-06T05:00:00Z",
+    })).toContain("provide at least one of title, summary, category, or markdown to update");
+  });
+
   it("captures durable episodic signals without a model call", async () => {
     expect(
       episodeFromUserText(

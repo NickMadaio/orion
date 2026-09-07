@@ -206,6 +206,9 @@ export const ConfigSchema = Type.Object({
     enableTravelActions: Type.Optional(Type.Boolean({
         description: "Detect flight and hotel confirmations in mail, keep trip objects, and render a travel brief (Phase 78). Detection PROPOSES and never creates; nothing in this tier can book, modify or cancel anything, and the timezone shift is reported rather than applied. Default off.",
     })),
+    enableAtlasNotesActions: Type.Optional(Type.Boolean({
+        description: "Let Orion search, read, create, and conflict-safely update notes in the installed Atlas app through its owner-only local bridge. No delete action and no arbitrary filesystem access. Default off.",
+    })),
     enableStrictArguments: Type.Optional(Type.Boolean({
         description: "Reject arguments an action does not accept. Applies only to actions whose accepted set is fully declared (no hand-written validateArguments); the rest are unchanged until their optional arguments are declared. Default off.",
     })),
@@ -302,6 +305,8 @@ function configuredTiers(config) {
         tiers.add("prep");
     if (config.enableTravelActions === true)
         tiers.add("travel");
+    if (config.enableAtlasNotesActions === true)
+        tiers.add("atlas_notes");
     if (config.enableAppControlActions === true)
         tiers.add("app_control");
     if (config.enableBrowserControlActions === true)

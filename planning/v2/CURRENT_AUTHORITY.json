@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 205,
+    "total": 211,
     "AUTO": 136,
     "NOTIFY": 21,
     "APPROVAL": 15,
-    "NEVER": 33
+    "NEVER": 39
   },
   "availability": [
     {
@@ -67,6 +67,22 @@
       "configOn": true,
       "profileOn": true,
       "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "computer_control",
+      "flag": "enableComputerControlActions",
+      "configOn": false,
+      "profileOn": true,
+      "available": false,
+      "unresolved": false
+    },
+    {
+      "tier": "computer_observe",
+      "flag": "enableComputerObserveActions",
+      "configOn": false,
+      "profileOn": true,
+      "available": false,
       "unresolved": false
     },
     {
@@ -1996,6 +2012,61 @@
       "enforcedBy": "exec allowlist (allow/deny only)"
     },
     {
+      "kind": "action",
+      "name": "screen_capture",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "config flag enableComputerObserveActions is not true in openclaw.json",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_observe",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "screen_click",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "config flag enableComputerControlActions is not true in openclaw.json",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_control",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "screen_key",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "config flag enableComputerControlActions is not true in openclaw.json",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_control",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "screen_observe",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "config flag enableComputerObserveActions is not true in openclaw.json",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_observe",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "screen_type",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "config flag enableComputerControlActions is not true in openclaw.json",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_control",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
       "kind": "command",
       "name": "orion-agenda-change",
       "level": "NEVER",
@@ -2038,6 +2109,14 @@
     {
       "kind": "command",
       "name": "orion-budget",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-computer",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

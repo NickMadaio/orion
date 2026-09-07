@@ -28,7 +28,7 @@ PLATFORMS = ("macos", "ios", "cloud")
 SIDE_EFFECTS = (
     "reads_device_state", "reads_files", "reads_user_data",
     "writes_files", "deletes_files", "moves_files",
-    "launches_process", "quits_process", "controls_media",
+    "launches_process", "quits_process", "controls_media", "controls_input",
     "changes_system_setting", "sends_message", "network_request",
     "changes_orion_config", "changes_orion_permissions",
 )

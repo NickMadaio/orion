@@ -64,6 +64,162 @@
       "note": "catalog.ts also runs a hand-written validateArguments for this action"
     },
     {
+      "action": "atlas_collections_list",
+      "capability": "atlas.atlas.collections.list",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "atlas_notes",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "atlas_note_create",
+      "capability": "atlas.atlas.note.create",
+      "domain": "general",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "atlas_notes",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "collectionID",
+          "markdown",
+          "title"
+        ],
+        "properties": {
+          "collectionID": {},
+          "markdown": {},
+          "title": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "atlas_note_read",
+      "capability": "atlas.atlas.note.read",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "atlas_notes",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "noteID"
+        ],
+        "properties": {
+          "noteID": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "atlas_note_update",
+      "capability": "atlas.atlas.note.update",
+      "domain": "general",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "atlas_notes",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedUpdatedAt",
+          "noteID"
+        ],
+        "properties": {
+          "expectedUpdatedAt": {},
+          "noteID": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "atlas_notes_search",
+      "capability": "atlas.atlas.notes.search",
+      "domain": "general",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "atlas_notes",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
       "action": "automation_list",
       "capability": "automation.automation.list",
       "domain": "general",
@@ -2435,6 +2591,160 @@
         ],
         "properties": {
           "repository": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "screen_capture",
+      "capability": "screen.screen.capture",
+      "domain": "computer",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_device_state"
+      ],
+      "resource_scope": "computer_observe",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "screen_click",
+      "capability": "screen.screen.click",
+      "domain": "computer",
+      "risk": "critical",
+      "approval_required": true,
+      "reversible": false,
+      "side_effects": [
+        "reads_device_state",
+        "controls_input",
+        "launches_process"
+      ],
+      "resource_scope": "computer_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedBundleId",
+          "x",
+          "y"
+        ],
+        "properties": {
+          "expectedBundleId": {},
+          "x": {},
+          "y": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "screen_key",
+      "capability": "screen.screen.key",
+      "domain": "computer",
+      "risk": "critical",
+      "approval_required": true,
+      "reversible": false,
+      "side_effects": [
+        "reads_device_state",
+        "controls_input",
+        "launches_process"
+      ],
+      "resource_scope": "computer_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedBundleId",
+          "keyName"
+        ],
+        "properties": {
+          "expectedBundleId": {},
+          "keyName": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "screen_observe",
+      "capability": "screen.screen.observe",
+      "domain": "computer",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_device_state"
+      ],
+      "resource_scope": "computer_observe",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger"
+    },
+    {
+      "action": "screen_type",
+      "capability": "screen.screen.type",
+      "domain": "computer",
+      "risk": "critical",
+      "approval_required": true,
+      "reversible": false,
+      "side_effects": [
+        "reads_device_state",
+        "controls_input",
+        "launches_process"
+      ],
+      "resource_scope": "computer_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedBundleId",
+          "typedText"
+        ],
+        "properties": {
+          "expectedBundleId": {},
+          "typedText": {}
         }
       },
       "returns": {

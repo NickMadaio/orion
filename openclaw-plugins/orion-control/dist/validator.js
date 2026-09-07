@@ -248,6 +248,15 @@ const TAINTED_ARGUMENTS = [
     "script",
     "key",
     "value",
+    // PHASE 53/55. `screen_type`'s typed content. The same reasoning `body`
+    // above already states, applied to the other outbound route: a `text`
+    // field carrying page contents outward is exfiltration through
+    // `messages_send`, and typing that same page's contents into whatever web
+    // form is frontmost is exfiltration through the keyboard instead of
+    // through a message. Named `typedText` rather than `text` so this check
+    // cannot collide with `messages_search`'s unrelated `text` (a read-only
+    // query argument, not a target, and not meant to be tainted by it).
+    "typedText",
 ];
 export function argumentsCarryUntrustedData(arguments_, untrustedText, userText, isSelfAuthored = () => false) {
     if (untrustedText.trim().length === 0)

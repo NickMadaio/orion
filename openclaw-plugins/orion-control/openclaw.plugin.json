@@ -113,11 +113,11 @@
       },
       "enableSelfTuningActions": {
         "type": "boolean",
-        "description": "Let Orion read and adjust his own voice timing \u2014 how long he waits before deciding you have stopped talking, and the watchdog that ends a wedged speaking phase. Writes a fixed, range-checked list of keys in his own preference domain and nothing else. Default off."
+        "description": "Let Orion read and adjust his own voice timing — how long he waits before deciding you have stopped talking, and the watchdog that ends a wedged speaking phase. Writes a fixed, range-checked list of keys in his own preference domain and nothing else. Default off."
       },
       "enableSelfModificationActions": {
         "type": "boolean",
-        "description": "Let Orion rewrite his own Swift source, rebuild, and reinstall himself. The most consequential switch here. Every change runs through scripts/orion-forge, which enforces three gates that ask nobody anything: only .swift files inside the app target (never the plugin, the gate, or the script itself), the code must compile, and the rebuilt app must still launch \u2014 verified by watching for a crash report, with the previous bundle restored automatically if it does not. Every applied change is a git commit. Default off."
+        "description": "Let Orion rewrite his own Swift source, rebuild, and reinstall himself. The most consequential switch here. Every change runs through scripts/orion-forge, which enforces three gates that ask nobody anything: only .swift files inside the app target (never the plugin, the gate, or the script itself), the code must compile, and the rebuilt app must still launch — verified by watching for a crash report, with the previous bundle restored automatically if it does not. Every applied change is a git commit. Default off."
       },
       "enableSelfPluginActions": {
         "type": "boolean",
@@ -125,11 +125,11 @@
       },
       "enableSelfScriptsActions": {
         "type": "boolean",
-        "description": "Let Orion repair his own orion-* wrapper scripts. Syntax-checked and smoke-run before install, previous copy restored on any failure. Wrappers that carry authority \u2014 the ones that write memory, send things off the machine, or describe his own powers \u2014 additionally require that you name them and approve the change. Default off."
+        "description": "Let Orion repair his own orion-* wrapper scripts. Syntax-checked and smoke-run before install, previous copy restored on any failure. Wrappers that carry authority — the ones that write memory, send things off the machine, or describe his own powers — additionally require that you name them and approve the change. Default off."
       },
       "enableSelfConfigActions": {
         "type": "boolean",
-        "description": "Let Orion change openclaw.json through a closed table of settings \u2014 voice timing, model selection, timeouts \u2014 each range-checked, written with `openclaw config set`, validated, and revertible from a backup taken first. The switches that decide what Orion is ALLOWED to do are in this tier too, but reachable only when you name the key yourself, ask in terms of permission, and approve the exact change. Credentials, gateway networking and audit paths are refused whatever anyone says. Default off."
+        "description": "Let Orion change openclaw.json through a closed table of settings — voice timing, model selection, timeouts — each range-checked, written with `openclaw config set`, validated, and revertible from a backup taken first. The switches that decide what Orion is ALLOWED to do are in this tier too, but reachable only when you name the key yourself, ask in terms of permission, and approve the exact change. Credentials, gateway networking and audit paths are refused whatever anyone says. Default off."
       },
       "desktopRoot": {
         "type": "string"
@@ -209,6 +209,14 @@
       "enableAtlasNotesActions": {
         "type": "boolean",
         "description": "Let Orion search, read, create, and conflict-safely update notes in the installed Atlas app through its owner-only local bridge. No delete action and no arbitrary filesystem access. Default off."
+      },
+      "enableComputerObserveActions": {
+        "type": "boolean",
+        "description": "PHASE 53/54. Let Orion read the screen: the focused window's accessibility tree (screen_observe, preferred — text, cheap, redactable) and a screenshot fallback (screen_capture, needs Screen Recording). Both refuse entirely, before any content is produced, for an app or window on the sensitive-content denylist (password managers, Keychain Access, and title patterns for banking/credentials/sign-in) — see ScreenPrivacy.swift. Read-only: nothing here changes what is on screen. Also requires the external_connected permission profile. Default off."
+      },
+      "enableComputerControlActions": {
+        "type": "boolean",
+        "description": "PHASE 53/55. Let Orion click, type, and press keys — everything a person at the keyboard could do. R5-class: every action is approvalRequired and floored at APPROVAL in every strictness mode including sovereign, and cannot act on an app other than the one it just observed. screen_type refuses credential/OTP-shaped text the same way messages_send refuses it in a message. Also requires the external_connected permission profile. Default off."
       }
     }
   },

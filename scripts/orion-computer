@@ -1,0 +1,156 @@
+#!/usr/bin/env node
+/*
+ PHASE 53/54/55. Computer use for the orion-control executor: the accessibility
+ tree, a screenshot fallback, and click/type/key input synthesis, all through
+ OrionMacBridge.
+
+ This wrapper is intentionally absent from OpenClaw's raw exec allowlist. The
+ plugin calls it with argv only after its catalog, provenance, taint and
+ approval gates have all run -- for `click`/`type`/`key` that means a human
+ has already approved the exact arguments, bound by canonical hash. Nothing
+ here re-derives authorization; it only does the call and a best-effort
+ independent check afterward, the same division of labour `orion-agenda-change`
+ uses for calendar mutations.
+
+ macOS attributes Accessibility and Screen Recording to the RESPONSIBLE
+ PROCESS, not to this file. Run from a terminal it inherits that terminal's
+ grants; run by the OpenClaw gateway LaunchAgent it needs the gateway's own
+ grants -- see AGENTS.md and scripts/orion-agenda's header for the same trap
+ spelled out at length. `--selftest` in the bridge binary proves the pure
+ redaction logic without needing either grant; this script cannot prove more
+ than that on its own.
+*/
+
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const BRIDGE = join(
+  homedir(),
+  "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge",
+);
+const [command, ...rest] = process.argv.slice(2);
+
+function fail(message, code = 2) {
+  console.error(`orion-computer: ${message}`);
+  process.exit(code);
+}
+
+if (!existsSync(BRIDGE)) {
+  fail("the OrionMacBridge release binary is missing -- build it with `swift build -c release` in native/OrionMacBridge", 1);
+}
+
+async function ask(action, payload = {}) {
+  const request = `${JSON.stringify({ id: String(Date.now()), action, payload })}\n`;
+  const response = await new Promise((resolve, reject) => {
+    const child = spawn(BRIDGE, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+    child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      code === 0
+        ? resolve(stdout)
+        : reject(new Error(stderr.trim() || `bridge exited ${code}`));
+    });
+    child.stdin.end(request);
+  }).catch((error) => fail(`bridge did not respond — ${String(error.message ?? error).slice(0, 240)}`, 1));
+
+  const line = String(response).split("\n").find((value) => value.trim().startsWith("{"));
+  if (!line) fail("bridge returned no JSON response", 1);
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    fail("bridge returned malformed JSON", 1);
+  }
+  if (!parsed.ok) fail(parsed.error || "bridge reported an unspecified failure", 1);
+  return parsed.result ?? {};
+}
+
+function unpackNested(result, field) {
+  try {
+    return JSON.parse(result[field] ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+if (command === "observe") {
+  const result = await ask("screen_observe");
+  console.log(JSON.stringify({
+    appName: result.app_name,
+    bundleId: result.bundle_id,
+    nodeCount: Number(result.node_count ?? 0),
+    truncated: result.truncated === "true",
+    observation: unpackNested(result, "observation_json"),
+  }));
+} else if (command === "capture") {
+  const result = await ask("screen_capture");
+  const capture = unpackNested(result, "capture_json");
+  console.log(JSON.stringify({
+    path: result.path,
+    width: Number(result.width ?? 0),
+    height: Number(result.height ?? 0),
+    appName: result.app_name,
+    bundleId: result.bundle_id,
+    windowTitle: capture.window_title ?? null,
+  }));
+} else if (command === "click") {
+  const [bundleId, xRaw, yRaw] = rest;
+  const x = Number(xRaw);
+  const y = Number(yRaw);
+  if (!bundleId) fail("click needs an expected bundle id");
+  if (!Number.isFinite(x) || !Number.isFinite(y)) fail("click needs numeric x and y");
+  const result = await ask("screen_click", { expected_bundle_id: bundleId, x: String(x), y: String(y) });
+  // Best-effort independent check: the frontmost app is still the one the
+  // click targeted. This does NOT confirm the click landed on the intended
+  // element -- there is no general way to observe "did that button's action
+  // fire" from outside the app -- and this script says so rather than
+  // implying more than it checked, the same honesty `prep_card` and
+  // `display_sleep`'s verifier use elsewhere in this codebase.
+  const after = await ask("screen_observe").catch(() => null);
+  const verified = after?.bundle_id === bundleId;
+  console.log(JSON.stringify({
+    verified,
+    evidenceLimited: true,
+    clickedX: Number(result.clicked_x ?? x),
+    clickedY: Number(result.clicked_y ?? y),
+    appName: result.app_name,
+    bundleId,
+  }));
+} else if (command === "type") {
+  const [bundleId, text] = rest;
+  if (!bundleId) fail("type needs an expected bundle id");
+  if (text === undefined) fail("type needs the text to type");
+  const result = await ask("screen_type", { expected_bundle_id: bundleId, text });
+  const after = await ask("screen_observe").catch(() => null);
+  const verified = after?.bundle_id === bundleId;
+  console.log(JSON.stringify({
+    verified,
+    evidenceLimited: true,
+    typedChars: Number(result.typed_chars ?? text.length),
+    appName: result.app_name,
+    bundleId,
+  }));
+} else if (command === "key") {
+  const [bundleId, key] = rest;
+  if (!bundleId) fail("key needs an expected bundle id");
+  if (!key) fail("key needs a key name");
+  const result = await ask("screen_key", { expected_bundle_id: bundleId, key });
+  const after = await ask("screen_observe").catch(() => null);
+  const verified = after?.bundle_id === bundleId;
+  console.log(JSON.stringify({
+    verified,
+    evidenceLimited: true,
+    key: result.key ?? key,
+    appName: result.app_name,
+    bundleId,
+  }));
+} else {
+  fail('usage: orion-computer observe | capture | click <bundleId> <x> <y> | type <bundleId> "<text>" | key <bundleId> <keyName>');
+}

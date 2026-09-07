@@ -51,6 +51,8 @@ export declare const ConfigSchema: Type.TObject<{
     enablePrepActions: Type.TOptional<Type.TBoolean>;
     enableTravelActions: Type.TOptional<Type.TBoolean>;
     enableAtlasNotesActions: Type.TOptional<Type.TBoolean>;
+    enableComputerObserveActions: Type.TOptional<Type.TBoolean>;
+    enableComputerControlActions: Type.TOptional<Type.TBoolean>;
     enableStrictArguments: Type.TOptional<Type.TBoolean>;
     enableV2SystemStatusAdapter: Type.TOptional<Type.TBoolean>;
 }>;

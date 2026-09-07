@@ -67,6 +67,12 @@ TIER_RULES = {
     # to the self_* family than to reading a directory, whatever the paths
     # involved look like.
     "dev_operations":         ("repository", "security"),
+    # Computer use, 2026-09-07. Both are `computer` domain -- they act on this
+    # Mac's screen and input, not on files. The resource scopes are split
+    # because reading the screen and driving it are different consents: one can
+    # see a password manager, the other can type into one.
+    "computer_observe":       ("screen",   "computer"),
+    "computer_control":       ("screen",   "computer"),
     # Proposing an automation is a scheduling concern; there is deliberately no
     # install operation in this tier, so nothing here reaches a scheduler.
     "automation":             ("automation", "general"),
@@ -100,6 +106,13 @@ EFFECTS_BY_KIND = {
     "simulate":        [],
     "app_control":     ["launches_process", "quits_process"],
     "browser_control": ["launches_process", "network_request"],
+    # Observation reads device state and nothing else -- no file is touched and
+    # nothing leaves the machine by this route. Control is the widest effect in
+    # this table on purpose: a synthesised click or keystroke lands on whatever
+    # is frontmost, so it can reach anything that app can reach, and naming a
+    # narrower set here would be a claim the mechanism cannot keep.
+    "computer_observe": ["reads_device_state"],
+    "computer_control": ["reads_device_state", "controls_input", "launches_process"],
     "media_control":   ["controls_media"],
     "reminder":        ["writes_files"],
     "calendar":        ["reads_user_data"],

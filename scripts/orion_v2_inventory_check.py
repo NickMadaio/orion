@@ -25,6 +25,7 @@ answering about the machine rather than about the repository.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -32,7 +33,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 INVENTORY = REPO / "planning/v2/DATA_INVENTORY.json"
-DIST = Path.home() / ".openclaw/extensions/orion-control/dist"
+# Ordinary audits describe what is installed. The protected deploy supplies its
+# candidate dist explicitly during preflight, otherwise adding a new tier creates
+# an impossible gate: the future inventory is compared with the old live catalog.
+DIST = Path(
+    os.environ.get(
+        "ORION_CATALOG_DIST",
+        str(Path.home() / ".openclaw/extensions/orion-control/dist"),
+    )
+)
 CONFIG = Path.home() / ".openclaw/openclaw.json"
 
 REQUIRED_FIELDS = (

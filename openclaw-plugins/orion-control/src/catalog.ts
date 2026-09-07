@@ -150,7 +150,24 @@ export type CapabilityTier =
   // because every input is untrusted email and every output is a claim about a
   // booking somebody else made — and because nothing in it can book anything,
   // which is the manifest's one hard line for this phase.
-  | "travel";
+  | "travel"
+  // PHASE 53/54. Reading the screen: the accessibility element tree of the
+  // focused window (preferred — text, cheap, redactable) or, when AX cannot
+  // answer, a real screenshot of the frontmost window (needs Screen
+  // Recording). Both refuse ENTIRELY, before any content is produced, for an
+  // app or window ScreenPrivacy denylists — see catalog.ts's computer-use
+  // action definitions and native/OrionMacBridge/Sources/OrionMacBridge/
+  // ScreenPrivacy.swift. Read-only: nothing in this tier can change what is
+  // on screen.
+  | "computer_observe"
+  // PHASE 53/55. R5. Everything a person at the keyboard could do: click,
+  // type, press a key. Every action here is `approvalRequired: true`,
+  // `reversible: false` and `risk: "critical"` -- which is what makes
+  // `floorForAction` hold it at APPROVAL in every strictness mode, including
+  // `sovereign` (see strictness.ts's floor mechanism; not re-derived here).
+  // Listed in `NEVER_DEMOTED_TIERS` in orion/security/risk.py alongside
+  // `dev_operations`, `file_mutate`, `messages_send` and `self_modification`.
+  | "computer_control";
 
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
@@ -425,6 +442,29 @@ export type ExecutionPolicy =
    * books, modifies or cancels anything.
    */
   | { kind: "travel"; operation: "detect" | "list" | "add" | "remove" | "brief" }
+  /**
+   * PHASE 53/54. Read the screen. `screen_observe` walks the focused
+   * window's accessibility tree; `screen_capture` is the pixel fallback.
+   * Both are pure reads that refuse entirely rather than redact-and-return
+   * for a denylisted app or window — see ScreenPrivacy.swift.
+   */
+  | { kind: "computer_observe"; operation: "screen_observe" | "screen_capture" }
+  /**
+   * PHASE 53/55. Act on the screen. Every operation requires
+   * `expectedBundleIdArgument` — the model must name the app it observed,
+   * and the bridge refuses if the live frontmost app no longer matches,
+   * which is the defence against a step planned against one app landing on
+   * whatever became frontmost in between.
+   */
+  | {
+      kind: "computer_control";
+      operation: "screen_click" | "screen_type" | "screen_key";
+      expectedBundleIdArgument: string;
+      xArgument?: string;
+      yArgument?: string;
+      typedTextArgument?: string;
+      keyNameArgument?: string;
+    }
   | FileMutationPolicy
   | CreateOnlyTextPolicy
   | DesktopTextMutationPolicy
@@ -1179,6 +1219,98 @@ function mediaAction(
               `player may be omitted, or must be one of: ${SUPPORTED_PLAYERS.join(", ")}`,
             ];
       return [...issues, ...(definition.extraValidation?.(arguments_) ?? [])];
+    },
+  };
+}
+
+/**
+ * PHASE 53/54/55. Computer use.
+ *
+ * `computerObserveAction` is the read half: no approval, `risk: "medium"`
+ * because it can still surface sensitive on-screen text even after
+ * redaction, R0-shaped reach otherwise. `computerControlAction` is the
+ * mutating half and deliberately does none of the convenience the read
+ * actions get — `approvalRequired: true`, `reversible: false`,
+ * `risk: "critical"` on every entry, unconditionally, because those three
+ * fields together are what makes `floorForAction` in strictness.ts hold it
+ * at APPROVAL in every mode including `sovereign` (see the floor's second
+ * branch: `reversible === false && risk is high|critical`). Nothing about
+ * that depends on this helper being used correctly by a future edit — it is
+ * asserted directly, per action, below, and proven in
+ * computer-use.test.ts by iterating every strictness mode.
+ */
+const BUNDLE_ID_RE = /^[A-Za-z0-9.-]{3,200}$/;
+
+function bundleIdIssues(value: unknown): string[] {
+  return typeof value === "string" && BUNDLE_ID_RE.test(value)
+    ? []
+    : [
+        "expectedBundleId must be the bundle identifier of the app screen_observe or screen_capture just reported",
+      ];
+}
+
+function computerObserveAction(
+  operation: "screen_observe" | "screen_capture",
+  verification: string,
+): ActionDefinition {
+  return {
+    risk: "medium",
+    requiredArguments: [],
+    approvalRequired: false,
+    verification,
+    reversible: true,
+    capabilityTier: "computer_observe",
+    execution: { kind: "computer_observe", operation },
+  };
+}
+
+/**
+ * The closed set of key names `screen_key` accepts. Matched verbatim against
+ * `ScreenControl.keyCodes` in native/OrionMacBridge/Sources/OrionMacBridge/
+ * ScreenControl.swift — a raw virtual keycode is never an expressible
+ * argument, only a name a person would recognise.
+ */
+export const SCREEN_KEY_NAMES: readonly string[] = [
+  "return", "tab", "space", "delete", "escape",
+  "left", "right", "down", "up",
+  "cmd+a", "cmd+c", "cmd+v", "cmd+x", "cmd+z",
+];
+
+/**
+ * Credential/OTP shapes refused in typed text, same list `messages_send`
+ * uses (see `SECRET_SHAPED_MESSAGE` below in this file) — typing a
+ * credential into a web form is exfiltration by a different route than
+ * sending one in a message, and it is refused for the same reason. Declared
+ * once, here, and reused by both: `screen_type`'s validator references it by
+ * name after it is declared later in this module, which is safe because
+ * neither closure runs until a real call is validated, long after module
+ * evaluation has finished.
+ */
+function computerControlAction(
+  policy: Extract<ExecutionPolicy, { kind: "computer_control" }>,
+  definition: {
+    requiredArguments: string[];
+    verification: string;
+    extraValidation?: (arguments_: Record<string, unknown>) => string[];
+  },
+): ActionDefinition {
+  return {
+    risk: "critical",
+    requiredArguments: definition.requiredArguments,
+    approvalRequired: true,
+    verification: definition.verification,
+    // NEVER true. A click, a keystroke, or typed text lands on whatever was
+    // frontmost at that instant; there is no inverse to run. This is also
+    // half of what floors this tier at APPROVAL in every strictness mode —
+    // see the helper's own comment above.
+    reversible: false,
+    capabilityTier: "computer_control",
+    execution: policy,
+    validateArguments(arguments_) {
+      return [
+        ...bundleIdIssues(arguments_.expectedBundleId),
+        ...(definition.extraValidation?.(arguments_) ?? []),
+      ];
     },
   };
 }
@@ -3000,6 +3132,94 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     execution: { kind: "travel", operation: "brief" },
     validateArguments: (arguments_) => tripIdIssues(arguments_.id),
   },
+
+  // -----------------------------------------------------------------------
+  // PHASE 53/54/55. Computer use: the Mac desktop, not just the browser.
+  //
+  // `screen_observe` and `screen_capture` are the safe half — read-only,
+  // built and gated FIRST, per the manifest's own "observation before
+  // control". `screen_click`, `screen_type` and `screen_key` are the
+  // mutating half: R5-class, approval-gated unconditionally, and floored at
+  // APPROVAL in every strictness mode including `sovereign` by
+  // `computerControlAction` above. See planning/v2/PHASE_COMPUTER_USE.md for
+  // what is built, what is gated, and what is deliberately not built.
+  // -----------------------------------------------------------------------
+  screen_observe: computerObserveAction("screen_observe", "screen_observed"),
+  screen_capture: computerObserveAction("screen_capture", "screen_captured"),
+
+  screen_click: computerControlAction(
+    {
+      kind: "computer_control",
+      operation: "screen_click",
+      expectedBundleIdArgument: "expectedBundleId",
+      xArgument: "x",
+      yArgument: "y",
+    },
+    {
+      requiredArguments: ["expectedBundleId", "x", "y"],
+      verification: "screen_controlled",
+      extraValidation(arguments_) {
+        const issues: string[] = [];
+        for (const key of ["x", "y"] as const) {
+          const value = arguments_[key];
+          if (typeof value !== "number" || !Number.isFinite(value)) {
+            issues.push(`${key} must be a number`);
+          } else if (value < -10000 || value > 10000) {
+            issues.push(`${key} must be a plausible screen coordinate`);
+          }
+        }
+        return issues;
+      },
+    },
+  ),
+  screen_type: computerControlAction(
+    {
+      kind: "computer_control",
+      operation: "screen_type",
+      expectedBundleIdArgument: "expectedBundleId",
+      typedTextArgument: "typedText",
+    },
+    {
+      requiredArguments: ["expectedBundleId", "typedText"],
+      verification: "screen_controlled",
+      extraValidation(arguments_) {
+        const text = arguments_.typedText;
+        if (typeof text !== "string" || text.length === 0) {
+          return ["text must be the text to type"];
+        }
+        if (text.length > 4000) return ["text must be 4000 characters or fewer"];
+        if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
+          return ["text must not contain control characters"];
+        }
+        // Same defence `messages_send` uses, applied to the other outbound
+        // route: typing a credential into a web form is exfiltration by a
+        // different mechanism, not a different risk.
+        if (SECRET_SHAPED_MESSAGE.some((pattern) => pattern.test(text))) {
+          return [
+            "text looks like it contains a credential, a card number, or a one-time code, which Orion must not type anywhere",
+          ];
+        }
+        return [];
+      },
+    },
+  ),
+  screen_key: computerControlAction(
+    {
+      kind: "computer_control",
+      operation: "screen_key",
+      expectedBundleIdArgument: "expectedBundleId",
+      keyNameArgument: "keyName",
+    },
+    {
+      requiredArguments: ["expectedBundleId", "keyName"],
+      verification: "screen_controlled",
+      extraValidation(arguments_) {
+        return typeof arguments_.keyName === "string" && SCREEN_KEY_NAMES.includes(arguments_.keyName)
+          ? []
+          : [`keyName must be one of: ${SCREEN_KEY_NAMES.join(", ")}`];
+      },
+    },
+  ),
 
   messages_send: {
     risk: "high",

@@ -32,6 +32,21 @@ enum OrionMacBridge {
     static let nativeTimerShortcut = "Orion Native Timer"
 
     static func main() async {
+        // `--selftest` runs pure assertions and exits, without touching
+        // stdin or any TCC-gated API. See ScreenPrivacy.swift for why this
+        // exists instead of an XCTest target.
+        if CommandLine.arguments.contains("--selftest") {
+            let failures = ScreenPrivacySelfTest.run()
+            if failures.isEmpty {
+                print("SELFTEST PASS")
+                exit(0)
+            }
+            for failure in failures {
+                print("SELFTEST FAIL: \(failure.name) -- \(failure.detail)")
+            }
+            print("SELFTEST FAILED (\(failures.count) of the checks)")
+            exit(1)
+        }
         while let line = readLine() {
             let response: Response
             do {
@@ -59,7 +74,39 @@ enum OrionMacBridge {
                 "accessibility": accessibilityStatus(),
                 "reminders": authorizationStatus(for: .reminder),
                 "calendar": authorizationStatus(for: .event),
+                "screen_recording": ScreenCapture.isGranted() ? "granted" : "not_granted",
             ]
+        // PHASE 53/54. Computer use. `screen_observe` reads the accessibility
+        // tree (text, cheap, redactable); `screen_capture` is the pixel
+        // fallback and needs the stronger Screen Recording grant. Both
+        // refuse ENTIRELY -- no partial, no redacted-but-present tree -- for
+        // anything ScreenPrivacy denies. See ScreenObserve.swift /
+        // ScreenCapture.swift for the actual checks.
+        case "screen_observe":
+            return try encodeObservation(ScreenObserve.observe())
+        case "screen_capture":
+            return try encodeCapture(ScreenCapture.capture())
+        // PHASE 53. Control. Every case requires `expected_bundle_id` -- the
+        // caller must have observed the screen first and named what it saw,
+        // or there is nothing to compare the live frontmost app against.
+        case "screen_click":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            guard let xString = request.payload?["x"], let x = Double(xString),
+                  let yString = request.payload?["y"], let y = Double(yString) else {
+                throw BridgeError.invalidRequest("screen_click requires numeric x and y.")
+            }
+            let result = try ScreenControl.click(expectedBundleID: expected, x: x, y: y)
+            return try encode(result)
+        case "screen_type":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            let text = try requirePayload(request, "text")
+            let result = try ScreenControl.type(expectedBundleID: expected, text: text)
+            return try encode(result)
+        case "screen_key":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            let key = try requirePayload(request, "key")
+            let result = try ScreenControl.key(expectedBundleID: expected, name: key)
+            return try encode(result)
         case "request_notifications":
             let granted = try await requestNotificationPermission()
             return ["granted": String(granted)]
@@ -100,6 +147,43 @@ enum OrionMacBridge {
         default:
             throw BridgeError.invalidRequest("Unknown native action: \(request.action)")
         }
+    }
+
+    static func requirePayload(_ request: Request, _ key: String) throws -> String {
+        guard let value = request.payload?[key], !value.isEmpty else {
+            throw BridgeError.invalidRequest("\(key) is required.")
+        }
+        return value
+    }
+
+    /// One JSON string field, the same shape `events_json` / `reminders_json`
+    /// already use: a nested structure does not fit `[String: String]`, so it
+    /// travels as a JSON-encoded string under one key.
+    static func encode<T: Encodable>(_ value: T, field: String = "result_json") throws -> [String: String] {
+        let data = try JSONEncoder().encode(value)
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw BridgeError.unavailable("Could not encode the result.")
+        }
+        return [field: string]
+    }
+
+    static func encodeObservation(_ observation: ScreenObservation) throws -> [String: String] {
+        var result = try encode(observation, field: "observation_json")
+        result["app_name"] = observation.appName
+        result["bundle_id"] = observation.bundleID
+        result["node_count"] = String(observation.nodeCount)
+        result["truncated"] = String(observation.truncated)
+        return result
+    }
+
+    static func encodeCapture(_ capture: ScreenCaptureResult) throws -> [String: String] {
+        var result = try encode(capture, field: "capture_json")
+        result["path"] = capture.path
+        result["width"] = String(capture.width)
+        result["height"] = String(capture.height)
+        result["app_name"] = capture.appName
+        result["bundle_id"] = capture.bundleID
+        return result
     }
 
     static func authorizationStatus(for entity: EKEntityType) -> String {

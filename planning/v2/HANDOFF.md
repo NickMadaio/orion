@@ -12,7 +12,29 @@
 > below where it tells you to read this file. Left unmarked, a reader arriving
 > in October would take a September 1st position for the current one.
 
-Updated: **2026-09-01**. Phases 1-2 spanned 2026-08-20 and 2026-08-23; Phases 3
+> The numbered phase history below remains closed. The 2026-09-06 operational
+> addendum is mirrored here only because the repository relay protocol requires
+> v2 capability changes in both handoffs; the root `HANDOFF.md` remains the
+> current, complete record.
+
+## 2026-09-06 14:09 EDT operational addendum — typed Atlas knowledge capability
+
+Nick's explicit outside-manifest request is registered as
+`scopeNotInManifest.atlas_knowledge_app`. ORION now has a deployed, dedicated
+`atlas_notes` tier with five typed operations over Atlas's owner-only local
+bridge: collection list, note search/read/create/conflict-safe update, and no
+delete. The live config flag is true; the Brain contract and runtime AGENTS
+route Orion through these actions and forbid direct database access.
+
+The protected deployment passed 236 plugin tests, 196 security invariants, all
+seven pre-install suites, 106/106 registry agreement, 530 policy combinations,
+and a 16-entry/30-tier live data inventory. A fresh normal main-agent turn then
+used `atlas_collections_list` and observed the three real Atlas collections.
+Full state, limits, rollback, and exact next step are in the root handoff's
+2026-09-06 14:09 EDT entry.
+
+Updated: **2026-09-06** for the operational addendum; the phase history remains
+closed on **2026-09-01**. Phases 1-2 spanned 2026-08-20 and 2026-08-23; Phases 3
 and 4 closed 2026-08-23; Phase 5 closed 2026-08-24 in a session that began on the
 23rd; Phases 21-24 closed 2026-08-25, 25-30 on 2026-08-26 and 31-32 on
 2026-08-27. Dates below identify each batch.

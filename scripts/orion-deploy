@@ -48,8 +48,12 @@ die()  { printf '\n  REFUSED: %s\n\n' "$1"; exit 1; }
 
 fingerprint() {
     [ -d "$1" ] || { echo "absent"; return; }
-    find "$1" -name '*.js' -type f -exec shasum -a 256 {} + 2>/dev/null \
-        | sort | shasum -a 256 | cut -c1-12
+    # The installed package deliberately excludes compiled test fixtures, so
+    # the status fingerprint must compare the same production file set. Hash
+    # relative names as well as contents; absolute source/install roots differ.
+    (cd "$1" && find . -name '*.js' ! -name '*.test.js' -type f \
+        -exec shasum -a 256 {} + 2>/dev/null \
+        | sort | shasum -a 256 | cut -c1-12)
 }
 
 case "${1:-deploy}" in
@@ -132,7 +136,10 @@ do
     esac
     extra="${suite#"$name"}"
     # shellcheck disable=SC2086
-    if "${runner[@]}" $extra >"/tmp/orion-deploy-$(basename "$name").log" 2>&1; then
+    # Candidate documents must be checked against the candidate catalog. The
+    # inventory checker defaults to the installed catalog everywhere else, so
+    # normal audits continue to describe the live machine.
+    if env ORION_CATALOG_DIST="$PLUGIN/dist" "${runner[@]}" $extra >"/tmp/orion-deploy-$(basename "$name").log" 2>&1; then
         printf '  ok    %s\n' "$(basename "$name")"
     else
         printf '  FAIL  %s\n' "$(basename "$name")"
@@ -200,7 +207,9 @@ echo "== 6. does it still load =="
 # throws on import leaves Orion with no tools at all, including the ones he
 # would need to tell you about it.
 #
-# TWO CHECKS, because the first version of this used one and it was the wrong
+# Restart first: the gateway keeps the plugin module in memory, so probing a
+# process that predates the copy only proves the old catalog still works.
+# Then use two checks, because the first version of this used one and it was the wrong
 # one. Importing `index.js` directly fails with ERR_MODULE_NOT_FOUND on
 # `openclaw` -- the plugin SDK resolves from the gateway's module graph, not
 # from the extension directory -- so a perfectly good deploy looked broken and
@@ -214,7 +223,16 @@ echo "== 6. does it still load =="
 #   REAL LOAD     orion-probe-plugin asks the GATEWAY what tools it has. That
 #                 is the only thing that answers the actual question, because
 #                 the gateway is the thing that has to load it.
-if node --input-type=module -e "
+rollback_now="no"
+if "$HOME/.openclaw/bin/openclaw" gateway restart >/tmp/orion-deploy-restart.log 2>&1; then
+    say "gateway    service restarted onto the candidate"
+else
+    echo ""
+    tail -12 /tmp/orion-deploy-restart.log | sed 's/^/        /'
+    rollback_now="yes"
+fi
+
+if [ "$rollback_now" = "no" ] && node --input-type=module -e "
 const dist = process.env.HOME + '/.openclaw/extensions/orion-control/dist';
 const { ACTION_CATALOG } = await import(dist + '/catalog.js');
 const { PERMISSION_PROFILES } = await import(dist + '/permissions.js');
@@ -248,6 +266,7 @@ if [ "${rollback_now:-no}" = "yes" ]; then
     cp -R "$BACKUPS/$stamp/dist" "$INSTALLED/dist"
     [ -f "$BACKUPS/$stamp/openclaw.plugin.json" ] \
         && cp "$BACKUPS/$stamp/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
+    "$HOME/.openclaw/bin/openclaw" gateway restart >/tmp/orion-deploy-rollback-restart.log 2>&1 || true
     say "restored   $(fingerprint "$INSTALLED/dist")"
     die "the new version was rejected and the old one is back."
 fi

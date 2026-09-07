@@ -392,6 +392,18 @@ export const ConfigSchema = Type.Object({
         "Let Orion search, read, create, and conflict-safely update notes in the installed Atlas app through its owner-only local bridge. No delete action and no arbitrary filesystem access. Default off.",
     }),
   ),
+  enableComputerObserveActions: Type.Optional(
+    Type.Boolean({
+      description:
+        "PHASE 53/54. Let Orion read the screen: the focused window's accessibility tree (screen_observe, preferred — text, cheap, redactable) and a screenshot fallback (screen_capture, needs Screen Recording). Both refuse entirely, before any content is produced, for an app or window on the sensitive-content denylist (password managers, Keychain Access, and title patterns for banking/credentials/sign-in) — see ScreenPrivacy.swift. Read-only: nothing here changes what is on screen. Also requires the external_connected permission profile. Default off.",
+    }),
+  ),
+  enableComputerControlActions: Type.Optional(
+    Type.Boolean({
+      description:
+        "PHASE 53/55. Let Orion click, type, and press keys — everything a person at the keyboard could do. R5-class: every action is approvalRequired and floored at APPROVAL in every strictness mode including sovereign, and cannot act on an app other than the one it just observed. screen_type refuses credential/OTP-shaped text the same way messages_send refuses it in a message. Also requires the external_connected permission profile. Default off.",
+    }),
+  ),
   enableStrictArguments: Type.Optional(
     Type.Boolean({
       description:
@@ -490,6 +502,8 @@ function configuredTiers(config: {
   enablePrepActions?: boolean;
   enableTravelActions?: boolean;
   enableAtlasNotesActions?: boolean;
+  enableComputerObserveActions?: boolean;
+  enableComputerControlActions?: boolean;
   desktopRoot?: string;
 }): Set<CapabilityTier> {
   const tiers = new Set<CapabilityTier>(["simulation"]);
@@ -523,6 +537,13 @@ function configuredTiers(config: {
   if (config.enablePrepActions === true) tiers.add("prep");
   if (config.enableTravelActions === true) tiers.add("travel");
   if (config.enableAtlasNotesActions === true) tiers.add("atlas_notes");
+  // PHASE 53/54/55. Same shape as `messages_send` above: switched on here
+  // and still cannot fire alone. `computer_observe` and `computer_control`
+  // are only in the `external_connected` profile's tier set, so both a
+  // config flag AND the top profile are required — and for
+  // `computer_control`, a human approval per action on top of that.
+  if (config.enableComputerObserveActions === true) tiers.add("computer_observe");
+  if (config.enableComputerControlActions === true) tiers.add("computer_control");
   if (config.enableAppControlActions === true) tiers.add("app_control");
   if (config.enableBrowserControlActions === true) tiers.add("browser_control");
   if (config.enableMediaControlActions === true) tiers.add("media_control");
@@ -981,7 +1002,12 @@ async function runAuthorizedGraph(
 function describeForApproval(action: string, args: Record<string, unknown>): string {
   const say = (value: unknown): string =>
     typeof value === "string" ? value.replace(/\s+/g, " ").slice(0, 80) : String(value);
-  const named = ["recipient", "title", "path", "key", "script", "pluginFile", "eventId", "body"]
+  const named = [
+    "recipient", "title", "path", "key", "script", "pluginFile", "eventId", "body",
+    // PHASE 53. screen_click/type/key: a person approving must be able to
+    // read what will actually happen, not just which action ran.
+    "expectedBundleId", "x", "y", "typedText", "keyName",
+  ]
     .filter((field) => args[field] !== undefined)
     .map((field) => `${field}: ${say(args[field])}`);
   return named.length > 0 ? `${action} — ${named.join(", ")}` : action;

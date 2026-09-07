@@ -1,6 +1,6 @@
 import { type DevOperation } from "./devops.js";
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep" | "atlas_notes" | "travel";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep" | "atlas_notes" | "travel" | "computer_observe" | "computer_control";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -246,6 +246,32 @@ export type ExecutionPolicy = {
  | {
     kind: "travel";
     operation: "detect" | "list" | "add" | "remove" | "brief";
+}
+/**
+ * PHASE 53/54. Read the screen. `screen_observe` walks the focused
+ * window's accessibility tree; `screen_capture` is the pixel fallback.
+ * Both are pure reads that refuse entirely rather than redact-and-return
+ * for a denylisted app or window — see ScreenPrivacy.swift.
+ */
+ | {
+    kind: "computer_observe";
+    operation: "screen_observe" | "screen_capture";
+}
+/**
+ * PHASE 53/55. Act on the screen. Every operation requires
+ * `expectedBundleIdArgument` — the model must name the app it observed,
+ * and the bridge refuses if the live frontmost app no longer matches,
+ * which is the defence against a step planned against one app landing on
+ * whatever became frontmost in between.
+ */
+ | {
+    kind: "computer_control";
+    operation: "screen_click" | "screen_type" | "screen_key";
+    expectedBundleIdArgument: string;
+    xArgument?: string;
+    yArgument?: string;
+    typedTextArgument?: string;
+    keyNameArgument?: string;
 } | FileMutationPolicy | CreateOnlyTextPolicy | DesktopTextMutationPolicy | DesktopFileMutationPolicy | {
     kind: "create_directory";
     root: MutableRoot;
@@ -412,4 +438,11 @@ export declare const HOME_TEXT_EXTENSIONS: readonly string[];
 export declare const MAX_TAB_SELECTOR_LENGTH = 200;
 /** A tab selector is a 1-based index or a title/URL substring. */
 export declare function tabSelectorIssues(value: unknown): string[];
+/**
+ * The closed set of key names `screen_key` accepts. Matched verbatim against
+ * `ScreenControl.keyCodes` in native/OrionMacBridge/Sources/OrionMacBridge/
+ * ScreenControl.swift — a raw virtual keycode is never an expressible
+ * argument, only a name a person would recognise.
+ */
+export declare const SCREEN_KEY_NAMES: readonly string[];
 export declare const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>>;

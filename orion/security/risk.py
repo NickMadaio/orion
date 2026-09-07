@@ -86,6 +86,19 @@ TIER_REACH = {
     # it by the paths involved would put it at R1 and be wrong about the four
     # operations that are not reads.
     "dev_operations": RiskLevel.R5,
+    # PHASE 53/54. Observation: the accessibility tree of the focused window,
+    # or a screenshot fallback. Read-only and reaches nothing the user did not
+    # already have on screen -- graded with the other reads, not R1, because
+    # unlike a file listing it can surface content the user did not choose to
+    # write down (whatever happens to be visible), which the severity floor
+    # below (`risk: "medium"` on both actions) already accounts for.
+    "computer_observe": RiskLevel.R0,
+    # PHASE 53/55. Control: click, type, key. Everything a person at the
+    # keyboard could do, which is the same reach `self_modification` and
+    # `dev_operations` have -- "whatever the frontmost app does" is an
+    # unbounded blast radius by construction, not a filesystem operation, and
+    # must not arrive as a side effect of widening a filesystem tier.
+    "computer_control": RiskLevel.R5,
 }
 
 #: The catalog's severity word as a floor. Severity and reach are different
@@ -103,7 +116,28 @@ SEVERITY_FLOOR = {
 #: parity check would not notice, because being LESS strict than the tier while
 #: still matching the live gate is exactly what it permits.
 NEVER_DEMOTED_TIERS = frozenset(
-    {"file_mutate", "messages_send", "self_modification", "dev_operations"}
+    {
+        "file_mutate",
+        "messages_send",
+        "self_modification",
+        "dev_operations",
+        # PHASE 53/55. screen_click/screen_type/screen_key: everything a
+        # person at the keyboard could do. `computer_control` is R5 in
+        # TIER_REACH above; this is the second, independent place that has
+        # to say so, because TIER_REACH sets the FLOOR a demotion may not
+        # cross and this set decides whether the "a read is a read" demotion
+        # runs at all. Omitting it here would not lower the level on its
+        # own -- `classify` only demotes `risk == "low" and reversible`,
+        # and every computer_control action declares `risk: "critical"` and
+        # `reversible: False` in the live TypeScript catalog, so the
+        # demotion's own guard already refuses to fire. It is listed
+        # anyway, for the same reason `messages_send` is listed despite the
+        # identical argument applying to it: this set is read by a person
+        # deciding what "never demoted" means, and a tier that reaches this
+        # far belongs on the list on its own terms, not on the strength of
+        # a second field happening to protect it today.
+        "computer_control",
+    }
 )
 
 #: Tiers whose actions touch nothing the user owns. An irreversible action here

@@ -1912,6 +1912,12 @@ export async function executeAction(
   if (definition.execution.kind === "browser_control") {
     return controlBrowser(definition.execution, step, context, idempotencyKey);
   }
+  if (definition.execution.kind === "computer_observe") {
+    return observeScreen(definition.execution.operation, idempotencyKey);
+  }
+  if (definition.execution.kind === "computer_control") {
+    return controlScreen(definition.execution, step, idempotencyKey);
+  }
   if (definition.execution.kind === "media_control") {
     return controlMedia(definition.execution, step, idempotencyKey);
   }
@@ -2785,6 +2791,31 @@ export async function verifyAction(
   }
   if (definition.execution.kind === "browser_control") {
     return verifyBrowser(definition.execution, step, execution, context);
+  }
+  if (definition.execution.kind === "computer_observe") {
+    // A read has no state to re-check, the same reasoning `self_source` and
+    // `prep_card` use: the only meaningful verification is whether a
+    // structured result came back at all.
+    const present = typeof execution.output === "object" && execution.output !== null;
+    return {
+      observed: present,
+      evidence: present ? `computer_observe:${definition.execution.operation}` : undefined,
+    };
+  }
+  if (definition.execution.kind === "computer_control") {
+    // Weak, and honest about it, the same way `display_sleep`'s verifier is:
+    // `orion-computer` re-observes the frontmost app AFTER the action and
+    // confirms it is still the one that was named. That proves the app did
+    // not crash or lose focus; it does NOT prove the click landed on the
+    // intended element, because nothing outside the target app can observe
+    // that its action actually fired.
+    const output = execution.output as { verified?: boolean } | undefined;
+    return {
+      observed: output?.verified === true,
+      evidence: `computer_control:${definition.execution.operation}:${
+        output?.verified === true ? "app_still_frontmost" : "unverified"
+      }`,
+    };
   }
   if (definition.execution.kind === "media_control") {
     return verifyMedia(definition.execution, step, execution);
@@ -3735,6 +3766,90 @@ async function runOrionScript(
       resolve({ code: 1, output: String(error) });
     });
   });
+}
+
+/**
+ * PHASE 53/54. Read the screen through `scripts/orion-computer`, which talks
+ * to OrionMacBridge. Redaction (the denylist, the never-read secure field)
+ * happens INSIDE the bridge, before any content crosses the process
+ * boundary — this function only shapes what comes back, it does not
+ * second-guess it.
+ */
+async function observeScreen(
+  operation: "screen_observe" | "screen_capture",
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const result = await runOrionScript(
+    "orion-computer",
+    [operation === "screen_observe" ? "observe" : "capture"],
+    20_000,
+  );
+  if (result.code !== 0) {
+    throw new ActionExecutionError(result.output || "The screen could not be observed.");
+  }
+  let output: Record<string, unknown>;
+  try {
+    output = JSON.parse(result.output.split("\n").at(-1) ?? "") as Record<string, unknown>;
+  } catch {
+    throw new ActionExecutionError(
+      "The screen was read but returned no parseable result; refusing to claim success.",
+    );
+  }
+  return {
+    mode: "observed",
+    idempotencyKey,
+    target: typeof output.bundleId === "string" ? output.bundleId : undefined,
+    output,
+  };
+}
+
+/**
+ * PHASE 53/55. Act on the screen through `scripts/orion-computer`.
+ *
+ * Everything that decides WHETHER this may happen has already run: the
+ * `computer_control` tier must be enabled AND on the `external_connected`
+ * profile, the taint check on `text` (screen_type only), and — because
+ * every action in this tier is `approvalRequired: true` with a floor no
+ * strictness mode can lower — a human has already approved these exact
+ * arguments. What is left here is the call, and the wrapper script's own
+ * best-effort re-observation afterward.
+ */
+async function controlScreen(
+  policy: Extract<ExecutionPolicy, { kind: "computer_control" }>,
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const expectedBundleId = String(step.arguments[policy.expectedBundleIdArgument] ?? "");
+  const arguments_: string[] =
+    policy.operation === "screen_click"
+      ? [
+          "click",
+          expectedBundleId,
+          String(step.arguments[policy.xArgument ?? "x"] ?? ""),
+          String(step.arguments[policy.yArgument ?? "y"] ?? ""),
+        ]
+      : policy.operation === "screen_type"
+        ? ["type", expectedBundleId, String(step.arguments[policy.typedTextArgument ?? "typedText"] ?? "")]
+        : ["key", expectedBundleId, String(step.arguments[policy.keyNameArgument ?? "keyName"] ?? "")];
+
+  const result = await runOrionScript("orion-computer", arguments_, 20_000);
+  if (result.code !== 0) {
+    throw new ActionExecutionError(result.output || "The screen action could not be performed.");
+  }
+  let output: Record<string, unknown>;
+  try {
+    output = JSON.parse(result.output.split("\n").at(-1) ?? "") as Record<string, unknown>;
+  } catch {
+    throw new ActionExecutionError(
+      "The screen action ran but returned no parseable result; refusing to claim success.",
+    );
+  }
+  return {
+    mode: "controlled",
+    idempotencyKey,
+    target: expectedBundleId,
+    output,
+  };
 }
 
 /**

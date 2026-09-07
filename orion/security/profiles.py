@@ -89,13 +89,29 @@ CONSEQUENTIAL_TIERS = EDIT_TIERS | {
     "calendar",
 }
 
+#: Computer use, 2026-09-07. NOT in CONSEQUENTIAL_TIERS, deliberately: the live
+#: gate (`permissions.ts`) grants these only at `external_connected`, and putting
+#: them one rung lower here would make this engine MORE PERMISSIVE than the gate
+#: it exists to shadow. `orion_v2_policy_check.py` caught exactly that and it is
+#: the one direction of drift that matters -- being stricter than the gate is a
+#: false alarm, being looser is a hole.
+#:
+#: `computer_control` is obvious: a click or a keystroke does anything a person
+#: at the keyboard can, so it is R5 and never demoted. `computer_observe` sits
+#: beside it rather than with the reads because reading the screen reads whatever
+#: is on it -- a bank balance, someone else's message, a password manager
+#: mid-unlock. Neither may arrive as a side effect of widening filesystem access.
+COMPUTER_USE_TIERS = frozenset({"computer_observe", "computer_control"})
+
 PROFILE_TIERS: Mapping[Profile, frozenset[str]] = MappingProxyType(
     {
         Profile.RESTRICTED_READ_ONLY: frozenset({"simulation", "desktop_read", "ambient_info"}),
         Profile.APPROVED_ROOT_EDIT: EDIT_TIERS,
         Profile.BROAD_LOCAL_FILESYSTEM: EDIT_TIERS,
         Profile.CONSEQUENTIAL_LOCAL: frozenset(CONSEQUENTIAL_TIERS),
-        Profile.EXTERNAL_CONNECTED: frozenset(CONSEQUENTIAL_TIERS | {"messages_send"}),
+        Profile.EXTERNAL_CONNECTED: frozenset(
+            CONSEQUENTIAL_TIERS | {"messages_send"} | COMPUTER_USE_TIERS
+        ),
     }
 )
 

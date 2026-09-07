@@ -123,6 +123,18 @@ const PROFILE_TIERS = {
         "dev_operations",
         "automation",
         "messages_send",
+        // PHASE 53/54/55. "Elevated macOS control" is the one thing every
+        // profile above promises under `separatelyGated`, in the same sentence
+        // even at this, the top profile — so it is listed explicitly here for
+        // the same reason `messages_send` is, and gated the same way: its own
+        // config flags (`enableComputerObserveActions`,
+        // `enableComputerControlActions`), both default OFF, ANDed with profile
+        // membership by `configuredTiers`/`intersectTiers` in index.ts. Reaching
+        // `computer_control` additionally requires, per action, a human
+        // approval no strictness mode can waive — see `computerControlAction`
+        // in catalog.ts.
+        "computer_observe",
+        "computer_control",
     ]),
 };
 export const PROFILE_MATRIX = {
@@ -143,8 +155,8 @@ export const PROFILE_MATRIX = {
         separatelyGated: "Permanent deletion, mutations outside configured roots or anywhere in the home directory, bulk operations, OS permissions, external/account actions, credentials, communications, elevated macOS control, and every change to what Orion is permitted to do — which requires that you name it yourself and approve it.",
     },
     external_connected: {
-        enabled: "Everything consequential_local allows, plus separately configured and separately approved external actions — currently sending one iMessage/SMS to one recipient Nick named himself, each send requiring approval bound to that exact recipient and message.",
-        separatelyGated: "Credentials, account connections, every other delivery/communication channel, network use outside a browser tab, permanent deletion, OS permissions, and elevated macOS control.",
+        enabled: "Everything consequential_local allows, plus separately configured and separately approved external actions — currently sending one iMessage/SMS to one recipient Nick named himself, each send requiring approval bound to that exact recipient and message; and, when separately enabled in config, reading the screen (the accessibility tree first, a screenshot only as a fallback, both refusing entirely for a denylisted app or window) and, separately again, clicking, typing or pressing a key, each requiring approval bound to the exact arguments and the live frontmost app.",
+        separatelyGated: "Credentials, account connections, every other delivery/communication channel, network use outside a browser tab, permanent deletion, and OS permissions themselves.",
     },
 };
 function stable(value) {

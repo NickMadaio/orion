@@ -150,6 +150,15 @@ describe("orion-control plugin", () => {
     expect(
       episodeFromUserText("remember my client_secret is definitely-not-for-memory"),
     ).toBeUndefined();
+    // P7 (2026-09-07 learning pass): "before I forget" is the natural inverse
+    // of "don't forget" and was missing from the durable-signal set, so a
+    // stated fact prefaced this way silently never reached the journal — this
+    // exact phrasing is what scripts/orion-bench --live plants as live-01.
+    expect(
+      episodeFromUserText(
+        "Quick thing before I forget — the benchmark fixture codename is Kestrelabcde. Anyway, what's the time?",
+      ),
+    ).toContain("Kestrelabcde");
 
     const directory = await mkdtemp(path.join(os.tmpdir(), "orion-episodes-"));
     const day = new Date(2026, 7, 14, 14, 30);

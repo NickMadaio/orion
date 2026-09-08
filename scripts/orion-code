@@ -152,7 +152,7 @@ def link_dependencies() -> None:
             target.symlink_to(source)
 
 
-def ask_model(prompt: str, timeout: int = 1800) -> tuple[str, float]:
+def ask_model(prompt: str, timeout: int = 1800) -> tuple[str, float, dict]:
     body = {
         "model": MODEL,
         "prompt": prompt,
@@ -185,19 +185,48 @@ def ask_model(prompt: str, timeout: int = 1800) -> tuple[str, float]:
     started = time.time()
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = json.load(response)
-    return payload.get("response", "") or "", time.time() - started
+    # The thinking and the stop reason come back too. Without them a failure in
+    # an unattended run reads only as "no code block", which is the symptom and
+    # never the cause -- the causes are different and need different fixes:
+    # the budget was spent thinking, the model answered in prose, or it stopped
+    # early. `num_predict` covers thinking AND response together.
+    return (
+        payload.get("response", "") or "",
+        time.time() - started,
+        {
+            "thinking": len(payload.get("thinking") or ""),
+            "done_reason": payload.get("done_reason"),
+            "eval_count": payload.get("eval_count"),
+        },
+    )
 
 
 CODE_BLOCK = re.compile(r"```(?:[a-zA-Z0-9+.-]*)\n(.*?)```", re.S)
 
 
+#: Shapes that mean "this is source, not prose about source".
+LOOKS_LIKE_SOURCE = re.compile(
+    r"^\s*(?:import |export |const |function |class |/\*|//|#!|from |def |@)", re.M
+)
+
+
 def extract_file(reply: str) -> str | None:
-    """The complete file, out of the first fenced block. No block, no edit."""
+    """The complete file: from the first fenced block, or from a bare answer.
+
+    Fences are what the prompt asks for and what usually comes back. But a model
+    that has just spent four thousand tokens thinking sometimes answers with the
+    file and no fence at all, and throwing that away costs a whole attempt --
+    minutes, on a run measured in hours. So an unfenced reply is accepted when it
+    plainly IS source: it starts with an import, an export, a comment or a
+    declaration. Prose about the code does not match, which is the point.
+    """
     match = CODE_BLOCK.search(reply)
-    if not match:
-        return None
-    body = match.group(1)
-    return body if body.strip() else None
+    if match and match.group(1).strip():
+        return match.group(1)
+    stripped = reply.strip()
+    if stripped and LOOKS_LIKE_SOURCE.match(stripped) and len(stripped) > 200:
+        return stripped + "\n"
+    return None
 
 
 def build_prompt(task: str, relative_path: str, current: str, failure: str | None,
@@ -325,7 +354,7 @@ def choose_file(task: str) -> str | None:
         "Answer with the number alone. Nothing else."
     )
     try:
-        reply, _ = ask_model(prompt, timeout=600)
+        reply, _, _ = ask_model(prompt, timeout=600)
     except Exception:
         return candidates[0]
     match = re.search(r"\b(\d{1,2})\b", reply)
@@ -376,7 +405,7 @@ def do_task(task: str, relative_path: str | None, check: str, iterations: int, b
             break
         say(f"  attempt {attempt}/{iterations} — asking {MODEL}…")
         try:
-            reply, elapsed = ask_model(
+            reply, elapsed, meta = ask_model(
                 build_prompt(task, relative_path, target.read_text(), failure, CONNECTED)
             )
         except Exception as error:  # noqa: BLE001 — offline is a normal state here
@@ -384,8 +413,15 @@ def do_task(task: str, relative_path: str | None, check: str, iterations: int, b
             break
         body = extract_file(reply)
         if body is None:
-            failure = "You returned no fenced code block. Return the complete file in one block."
-            say(f"  no code block back after {elapsed:.0f}s")
+            failure = (
+                "You returned no usable file. Return the COMPLETE file contents in one "
+                "fenced code block, and put your reasoning before it, not inside it."
+            )
+            say(f"  nothing usable after {elapsed:.0f}s — reply {len(reply)} chars, "
+                f"thinking {meta['thinking']} chars, stopped because "
+                f"{meta['done_reason']!r}")
+            log({"task": task, "file": relative_path, "outcome": "no_usable_reply",
+                 "reply_chars": len(reply), **meta})
             continue
         target.write_text(body)
         say(f"  wrote {len(body)} chars after {elapsed:.0f}s; running: {check}")
@@ -419,6 +455,179 @@ def do_task(task: str, relative_path: str | None, check: str, iterations: int, b
 
 
 REPORT = CONTROLLED / "selfdev-report.md"
+ATTEMPTS = CONTROLLED / "selfdev-attempts.json"
+
+
+# ---------------------------------------------------------------------------
+# "What's next?" -- asked of the repository, not of a list someone typed.
+#
+# A queue runs out. This does not: it surveys the places this project already
+# records unfinished work, and the loop only stops when every one of them comes
+# back empty. On 2026-09-07 that was 44 unmet phase requirements, a 567-line
+# NICK-TODO, and 8 findings from orion-learn -- so "nothing left" is a real
+# verdict rather than a queue that happened to end.
+# ---------------------------------------------------------------------------
+
+def survey_backlog() -> list[dict]:
+    """Everything this repository currently says is unfinished, with provenance."""
+    items: list[dict] = []
+
+    # 1. Phase requirements. The richest source and the most specific: each one
+    #    is a named id somebody wrote down as the condition for a phase closing.
+    try:
+        gates = json.loads((REPO / "planning/v2/PHASE_GATES.json").read_text())
+        for number, phase in gates.get("phases", {}).items():
+            for requirement in phase.get("requirements", []):
+                if requirement.get("status") != "passed":
+                    items.append({
+                        "id": f"phase:{number}:{requirement['id']}",
+                        "source": f"phase {number} ({phase.get('name')})",
+                        "title": requirement["id"].replace("_", " "),
+                        "weight": 3,
+                    })
+    except Exception:
+        pass
+
+    # 2. What Orion's own session history says he keeps getting wrong.
+    code, out = run([str(REPO / "scripts/orion-learn")], cwd=REPO, timeout=300)
+    if code == 0:
+        for line in out.splitlines():
+            match = re.match(r"\s+(P\d+)\s+\[\s*(\w+)\s*\]\s+(.+)", line)
+            if match:
+                items.append({
+                    "id": f"learn:{match.group(1)}",
+                    "source": f"orion-learn {match.group(1)} ({match.group(2)})",
+                    "title": match.group(3).strip(),
+                    "weight": 4 if match.group(2) == "high" else 2,
+                })
+
+    # 3. Markers left in the source by whoever was there last.
+    marker = ["grep", "-rIn", "--exclude-dir=node_modules", "--exclude-dir=.build",
+              "--exclude-dir=dist", "--exclude-dir=builds", "--exclude-dir=.git",
+              "--exclude-dir=archive", "--include=*.ts", "--include=*.py",
+              "--include=*.swift", "-E", r"\b(TODO|FIXME|XXX)\b", "."]
+    code, out = run(marker, cwd=REPO, timeout=120)
+    if code == 0:
+        for line in out.splitlines()[:40]:
+            path, _, rest = line.partition(":")
+            items.append({
+                "id": f"marker:{line[:90]}",
+                "source": f"a marker in {path.lstrip('./')}",
+                "title": rest.split(":", 1)[-1].strip()[:120],
+                "file": path.lstrip("./"),
+                "weight": 1,
+            })
+    return items
+
+
+def attempt_history() -> dict:
+    try:
+        return json.loads(ATTEMPTS.read_text())
+    except Exception:
+        return {}
+
+
+def record_attempt(item_id: str, outcome: str) -> None:
+    history = attempt_history()
+    entry = history.get(item_id, {"tries": 0})
+    entry["tries"] = entry.get("tries", 0) + 1
+    entry["last"] = outcome
+    history[item_id] = entry
+    ATTEMPTS.parent.mkdir(parents=True, exist_ok=True)
+    ATTEMPTS.write_text(json.dumps(history, indent=2))
+
+
+def choose_next(items: list[dict]) -> dict | None:
+    """Pick the next piece of work, and turn it into something concrete.
+
+    Two attempts per item, then it is left alone. An agent that keeps returning
+    to the thing it cannot do is the retry loop that cost this project 11.8M
+    tokens, wearing a longer time horizon.
+    """
+    history = attempt_history()
+    fresh = [i for i in items if history.get(i["id"], {}).get("tries", 0) < 2]
+    if not fresh:
+        return None
+    fresh.sort(key=lambda i: -i["weight"])
+    shortlist = fresh[:12]
+    listing = "\n".join(
+        f"{n + 1}. [{i['source']}] {i['title']}" for n, i in enumerate(shortlist)
+    )
+    prompt = (
+        "You are choosing the next piece of work on a codebase, on your own, with "
+        "nobody to ask.\n\nUnfinished work this repository currently records:\n"
+        f"{listing}\n\n"
+        "Pick the ONE that a single-file code change could genuinely advance. Prefer "
+        "something concrete over something that needs a person, a device, or a "
+        "decision. Answer in exactly two lines:\n"
+        "NUMBER: <the number>\n"
+        "TASK: <one sentence saying what to change, specific enough to act on>"
+    )
+    try:
+        reply, _, _ = ask_model(prompt, timeout=1200)
+    except Exception as error:
+        say(f"  could not choose: {error}")
+        return None
+    number = re.search(r"NUMBER:\s*(\d{1,2})", reply)
+    task = re.search(r"TASK:\s*(.+)", reply)
+    if not number or not task:
+        return None
+    index = int(number.group(1)) - 1
+    if not (0 <= index < len(shortlist)):
+        return None
+    chosen = dict(shortlist[index])
+    chosen["task"] = task.group(1).strip()
+    return chosen
+
+
+def agentic_loop(hours: float, iterations: int) -> int:
+    """Work until the repository stops having anything to say.
+
+    The stopping condition is the point of this: not an empty queue, but a
+    survey that comes back with nothing unattempted. Everything else is a
+    consequence of that -- the attempt ledger exists so "unattempted" is a real
+    filter, and the survey is re-run every cycle because finishing one thing
+    changes what the others are.
+    """
+    global CONNECTED
+    deadline = time.time() + hours * 3600
+    tree = ensure_worktree()
+    before = run(["git", "rev-parse", "HEAD"], cwd=tree)[1].strip()
+    say(f"loop: up to {hours:.1f}h, model {MODEL}, thinking {'on' if THINK else 'off'}")
+    results: list[dict] = []
+
+    while time.time() < deadline:
+        CONNECTED = online()
+        items = survey_backlog()
+        chosen = choose_next(items)
+        if chosen is None:
+            say("nothing left that has not been tried twice — stopping because there is "
+                "genuinely nothing, not because a list ended")
+            break
+        remaining = deadline - time.time()
+        say(f"[{len(results) + 1}] ({'online' if CONNECTED else 'OFFLINE'}, "
+            f"{remaining / 3600:.1f}h left) {chosen['source']}")
+        say(f"    {chosen['task'][:110]}")
+        started = time.time()
+        try:
+            passed = do_task(chosen["task"], chosen.get("file"), DEFAULT_CHECK,
+                             iterations, int(min(5400, max(remaining - 60, 120))))
+            outcome = "passed" if passed else "failed"
+            detail = ""
+        except Exception as error:  # noqa: BLE001 — nothing may end the loop
+            outcome, detail = "crashed", f"{type(error).__name__}: {error}"
+            say(f"  crashed, continuing: {detail}")
+        record_attempt(chosen["id"], outcome)
+        results.append({
+            "task": chosen["task"], "file": chosen.get("file") or "(chosen)",
+            "outcome": outcome, "minutes": round((time.time() - started) / 60, 1),
+            "online": CONNECTED, "detail": detail, "source": chosen["source"],
+        })
+        write_report(results, before, tree, deadline)
+
+    write_report(results, before, tree, deadline)
+    say(f"loop over. report: {REPORT}")
+    return 0
 
 
 def flight(hours: float, iterations: int) -> int:
@@ -524,6 +733,9 @@ def main() -> int:
     f = sub.add_parser("flight")
     f.add_argument("--hours", type=float, default=7.0)
     f.add_argument("--iterations", type=int, default=3)
+    lp = sub.add_parser("loop")
+    lp.add_argument("--hours", type=float, default=7.0)
+    lp.add_argument("--iterations", type=int, default=3)
     args = parser.parse_args()
 
     if args.command == "add":
@@ -562,6 +774,9 @@ def main() -> int:
 
     if args.command == "flight":
         return flight(args.hours, args.iterations)
+
+    if args.command == "loop":
+        return agentic_loop(args.hours, args.iterations)
 
     if args.command == "status":
         if not (WORKTREE / ".git").exists():

@@ -78,7 +78,13 @@ THINK = os.environ.get("ORION_CODER_THINK", "1") != "0"
 #: Sampled once at start-up and passed into every prompt, so the model is never
 #: told to "look it up" on a plane. Re-sampled per task by `flight`.
 CONNECTED: bool | None = None
-DEFAULT_CHECK = "npx tsc --noEmit"
+#: `npm test`, not `npx tsc --noEmit`.
+#:
+#: The first agentic cycle passed a typecheck by adding a well-documented,
+#: correctly-typed function that nothing calls, and committed it as progress. A
+#: typecheck cannot tell a change that works from a change that merely compiles,
+#: so it is the wrong bar for an unattended loop: it rewards dead code.
+DEFAULT_CHECK = "npm test"
 
 
 def online() -> bool:
@@ -364,6 +370,38 @@ def choose_file(task: str) -> str | None:
     return candidates[index] if 0 <= index < len(candidates) else candidates[0]
 
 
+def orphan_exports(tree: Path, relative_path: str, before: str, after: str) -> list[str]:
+    """Exported names the edit ADDED that nothing anywhere else refers to.
+
+    This exists because of what the first autonomous cycle actually did. Asked to
+    stop typed actions reaching the shell, it added
+    `export function isTypedActionOrSubcommand(...)`, wrote a correct doc comment
+    for it, and called it from nowhere. It compiled, so the check passed, so it
+    was committed as progress. It was not progress; it was a function.
+
+    A model optimising for "make the check green" will find the cheapest way, and
+    adding unreferenced code is the cheapest way there is. So the check is no
+    longer only "does it build" but "is the thing you added actually reached".
+    """
+    names = re.compile(r"^export\s+(?:async\s+)?(?:function|const|class)\s+([A-Za-z_]\w*)", re.M)
+    added = set(names.findall(after)) - set(names.findall(before))
+    if not added:
+        return []
+    orphans = []
+    for name in sorted(added):
+        code, out = run(
+            ["grep", "-rIl", "--exclude-dir=node_modules", "--exclude-dir=.build",
+             "--exclude-dir=dist", "--exclude-dir=.git", "--include=*.ts", name, "."],
+            cwd=tree, timeout=90,
+        )
+        referencing = {
+            line.strip().lstrip("./") for line in out.splitlines() if line.strip()
+        } - {relative_path}
+        if not referencing:
+            orphans.append(name)
+    return orphans
+
+
 def log(record: dict) -> None:
     LOG.parent.mkdir(parents=True, exist_ok=True)
     record["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -435,6 +473,16 @@ def do_task(task: str, relative_path: str | None, check: str, iterations: int, b
             log({"task": task, "file": relative_path, "outcome": "check_unrunnable", "detail": out[:400]})
             return False
         if code == 0:
+            orphans = orphan_exports(tree, relative_path, original, body)
+            if orphans:
+                failure = (
+                    f"The check passed, but you added {', '.join(orphans)} and nothing "
+                    "anywhere calls it. Adding unreferenced code is not doing the task. "
+                    "Either wire it into the code path it belongs in, or change the "
+                    "existing function instead of adding a new one beside it."
+                )
+                say(f"  passed the check but added dead code: {', '.join(orphans)}")
+                continue
             run(["git", "add", relative_path], cwd=tree)
             run(
                 ["git", "commit", "-q", "-m",

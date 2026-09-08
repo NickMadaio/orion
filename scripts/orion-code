@@ -61,7 +61,17 @@ OLLAMA = "http://127.0.0.1:11434/api/generate"
 # not pay a thinking tax, and over a long run that is the whole difference: a
 # hundred edits is 80 minutes at 48s and 5.5 hours at 198s. It also carries the
 # same 262144-token context as the 30b, which is what a long project needs.
-MODEL = os.environ.get("ORION_CODER_MODEL", "qwen3.6:27b")
+#: gpt-oss:20b, and the reason is throughput rather than cleverness.
+#:
+#: Measured from Ollama's own server log on this M5 Pro: gpt-oss:20b generates
+#: at ~30 tokens/second, qwen3.6:27b at 5.2. Nearly six times, because MXFP4 is
+#: natively accelerated on Apple silicon and Q4_K_M is not -- a hardware fact,
+#: not a claim about which model is smarter. Over seven hours that is the
+#: difference between roughly twenty tasks and roughly a hundred, and it means
+#: this one can afford to THINK and still finish faster than the 27b not
+#: thinking. Both wrote correct code for the same real task; the 27b's regex was
+#: slightly more careful and it took 392s to the 20b's 106s.
+MODEL = os.environ.get("ORION_CODER_MODEL", "gpt-oss:20b")
 #: Reasoning on by default. `ORION_CODER_THINK=0` turns it off for a task that
 #: is genuinely mechanical and where the wait is not worth it.
 THINK = os.environ.get("ORION_CODER_THINK", "1") != "0"

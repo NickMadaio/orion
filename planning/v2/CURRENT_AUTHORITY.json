@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 211,
-    "AUTO": 138,
+    "total": 214,
+    "AUTO": 140,
     "NOTIFY": 21,
     "APPROVAL": 15,
-    "NEVER": 37
+    "NEVER": 38
   },
   "availability": [
     {
@@ -903,6 +903,28 @@
       "because": "reversible, low risk, confined to reads or to state Orion owns",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "desktop_read",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "selfdev_queue",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, medium risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "selfdev_status",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "dev_operations",
       "risk": "low",
       "reversible": true
     },
@@ -2109,6 +2131,14 @@
     {
       "kind": "command",
       "name": "orion-budget",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-code",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

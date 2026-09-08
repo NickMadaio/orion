@@ -9,7 +9,7 @@
 > Paste the drafted text yourself, run `orion-bench`, and revert if the numbers
 > get worse. The assembled AGENTS.md section lives in `planning/fragment-p5.md`.
 
-Generated 2026-09-08T00:42:05.479Z from 283 sessions — 163 findings.
+Generated 2026-09-08T00:59:08.843Z from 283 sessions — 163 findings.
 AGENTS.md last modified 2026-09-08T00:16:10.888Z. Evidence newer than that is guidance being ignored; evidence older may already be fixed, so re-run before acting.
 
 | # | proposal | severity | signal |

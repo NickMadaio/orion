@@ -504,6 +504,34 @@ def do_task(task: str, relative_path: str | None, check: str, iterations: int, b
 
 REPORT = CONTROLLED / "selfdev-report.md"
 ATTEMPTS = CONTROLLED / "selfdev-attempts.json"
+STATE = CONTROLLED / "selfdev-state.json"
+
+
+def write_state(**fields) -> None:
+    """One file that answers 'is it still going?' without reading a log.
+
+    Nick's question was 'how do I know when it's done?' and the honest answer
+    before this was: you go and read a log, or you count commits and try to
+    remember which were yours. A run that cannot say whether it is finished is
+    a run somebody has to babysit, which defeats the point of it.
+    """
+    state = {}
+    try:
+        state = json.loads(STATE.read_text())
+    except Exception:
+        state = {}
+    state.update(fields)
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state, indent=2))
+
+
+def notify_complete(headline: str) -> None:
+    """Tell Nick it finished. Best effort: a run must not fail because of this."""
+    try:
+        run([str(REPO / "scripts/orion-notify"), "complete", "selfdev", headline],
+            cwd=REPO, timeout=60)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +670,8 @@ def agentic_loop(hours: float, iterations: int) -> int:
     tree = ensure_worktree()
     before = run(["git", "rev-parse", "HEAD"], cwd=tree)[1].strip()
     say(f"loop: up to {hours:.1f}h, model {MODEL}, thinking {'on' if THINK else 'off'}")
+    write_state(mode="loop", pid=os.getpid(), started=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                finished=None, hours=hours, passed=0, failed=0, stopped_because=None)
     results: list[dict] = []
 
     while time.time() < deadline:
@@ -651,6 +681,7 @@ def agentic_loop(hours: float, iterations: int) -> int:
         if chosen is None:
             say("nothing left that has not been tried twice — stopping because there is "
                 "genuinely nothing, not because a list ended")
+            write_state(stopped_because="nothing left to do")
             break
         remaining = deadline - time.time()
         say(f"[{len(results) + 1}] ({'online' if CONNECTED else 'OFFLINE'}, "
@@ -666,6 +697,9 @@ def agentic_loop(hours: float, iterations: int) -> int:
             outcome, detail = "crashed", f"{type(error).__name__}: {error}"
             say(f"  crashed, continuing: {detail}")
         record_attempt(chosen["id"], outcome)
+        write_state(passed=sum(1 for r in results if r["outcome"] == "passed") + (1 if outcome == "passed" else 0),
+                    failed=sum(1 for r in results if r["outcome"] != "passed") + (0 if outcome == "passed" else 1),
+                    last=chosen["task"][:120])
         results.append({
             "task": chosen["task"], "file": chosen.get("file") or "(chosen)",
             "outcome": outcome, "minutes": round((time.time() - started) / 60, 1),
@@ -674,6 +708,15 @@ def agentic_loop(hours: float, iterations: int) -> int:
         write_report(results, before, tree, deadline)
 
     write_report(results, before, tree, deadline)
+    passed = sum(1 for r in results if r["outcome"] == "passed")
+    reason = "nothing left to do" if time.time() < deadline else "the time was up"
+    write_state(finished=time.strftime("%Y-%m-%dT%H:%M:%S"), passed=passed,
+                failed=len(results) - passed,
+                stopped_because=reason)
+    notify_complete(
+        f"Self-development finished — {passed} of {len(results)} tasks landed on the "
+        f"orion-selfdev branch, stopped because {reason}. Nothing installed or pushed."
+    )
     say(f"loop over. report: {REPORT}")
     return 0
 
@@ -827,11 +870,58 @@ def main() -> int:
         return agentic_loop(args.hours, args.iterations)
 
     if args.command == "status":
-        if not (WORKTREE / ".git").exists():
-            say("no worktree yet")
+        # Answers "is it done?" in the first line, because that is the question.
+        # It used to print fifteen commits with no way to tell which were the
+        # loop's and no statement of whether anything was still running.
+        try:
+            state = json.loads(STATE.read_text())
+        except Exception:
+            state = {}
+        if not state:
+            # A run started before this file existed, or the state was cleared.
+            # Fall back to asking the OS, because "has not been run yet" while a
+            # run is plainly in progress is the worst answer available.
+            code, out = run(["pgrep", "-fl", "orion-code (loop|flight)"], cwd=REPO, timeout=30)
+            if code == 0 and out.strip():
+                say("RUNNING — started before this status file existed, so there are no "
+                    "counts for it. It will report properly when it finishes.")
+                if REPORT.exists():
+                    say(f"  report so far: {REPORT}")
+                return 0
+            say("self-development has not been run yet.")
             return 0
-        code, out = run(["git", "log", "--oneline", "-15"], cwd=WORKTREE)
-        say(f"worktree {WORKTREE}\n{out}")
+        alive = False
+        pid = state.get("pid")
+        if pid and not state.get("finished"):
+            try:
+                os.kill(int(pid), 0)
+                alive = True
+            except (OSError, ValueError):
+                alive = False
+
+        if alive:
+            say(f"STILL RUNNING — started {state.get('started')}, "
+                f"{state.get('passed', 0)} landed, {state.get('failed', 0)} did not.")
+            if state.get("last"):
+                say(f"  currently on: {state['last']}")
+        elif state.get("finished"):
+            say(f"FINISHED {state['finished']} — {state.get('passed', 0)} landed, "
+                f"{state.get('failed', 0)} did not. Stopped because "
+                f"{state.get('stopped_because') or 'the time was up'}.")
+        else:
+            # A pid that is gone with no finish time means it was killed, the
+            # machine slept through its deadline, or it crashed. Say that rather
+            # than reporting the last number it happened to write.
+            say(f"STOPPED WITHOUT FINISHING — started {state.get('started')}, "
+                f"{state.get('passed', 0)} landed before it stopped. "
+                "Nothing was lost: every task that passed is already committed.")
+
+        if REPORT.exists():
+            say(f"  report: {REPORT}")
+        if (WORKTREE / ".git").exists():
+            code, out = run(["git", "log", "--oneline", "--grep=^selfdev:", "-10"], cwd=WORKTREE)
+            body = out.strip()
+            say(f"  work on the branch:\n{body}" if body else "  no commits from it yet")
         return 0
     return 0
 

@@ -38,6 +38,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -226,6 +227,104 @@ def build_prompt(task: str, relative_path: str, current: str, failure: str | Non
     return "\n".join(parts)
 
 
+def candidate_files(task: str, limit: int = 40) -> list[str]:
+    """Files this task might mean, ranked, without asking a model anything.
+
+    Cheap first: the words in the task are searched across the repository with
+    ripgrep, and the files with the most distinct hits win. It is crude and it
+    is nearly always right, because a task about exec routing says "exec" and
+    "routing" and there is exactly one file full of both.
+    """
+    words = [w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", task) if w.lower() not in STOPWORDS]
+    if not words:
+        return []
+    scores: dict[str, int] = {}
+    for word in words[:12]:
+        # ripgrep if it is here, plain grep if it is not. `rg` is not installed
+        # on this Mac and a search tool that only works on some machines is a
+        # search tool that fails on the one that matters.
+        if RIPGREP:
+            command = ["rg", "--files-with-matches", "--no-messages", "-i",
+                       "--glob", "!node_modules", "--glob", "!.build", "--glob", "!dist",
+                       "--glob", "*.ts", "--glob", "*.py", "--glob", "*.swift",
+                       "--glob", "*.mjs", word, "."]
+        else:
+            command = ["grep", "-rIl", "-i", "--exclude-dir=node_modules",
+                       "--exclude-dir=.build", "--exclude-dir=dist", "--exclude-dir=.git",
+                       # `builds/` holds dated copies of previous releases. Without
+                       # this the search happily proposes editing a file inside
+                       # builds/backup-20260814-001531/, which is a museum piece.
+                       "--exclude-dir=builds", "--exclude-dir=archive",
+                       "--include=*.ts", "--include=*.py", "--include=*.swift",
+                       "--include=*.mjs", word, "."]
+        code, out = run(command, cwd=REPO, timeout=90)
+        if code not in (0, 1):
+            continue
+        for line in out.splitlines():
+            path = line.strip().lstrip("./")
+            if path and not path.endswith(".test.ts"):
+                scores[path] = scores.get(path, 0) + 1
+    # The FILENAME is the strongest signal there is and content alone ignores it.
+    # A task about "exec routing" belongs in `exec-routing.ts`, and without this
+    # a large file that happens to mention every word -- index.ts, AppState.swift
+    # -- outranks the one actually named after the subject.
+    lowered = [w.lower() for w in words]
+    for path in list(scores):
+        stem = Path(path).stem.lower().replace("-", " ").replace("_", " ")
+        scores[path] += 3 * sum(1 for w in lowered if w in stem)
+    # A path nobody would edit should not win on word count either.
+    for path in list(scores):
+        marked = f"/{path}"
+        # `claude/worktrees/*` are other agents' checkouts of this same repo.
+        # Editing one is editing a copy nobody reads, and the edit looks like it
+        # worked right up until the moment someone looks for it.
+        if any(bad in marked for bad in ("/builds/", "/archive/", "/worktrees/", "/selfdev-worktree/")):
+            del scores[path]
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], len(kv[0])))
+    return [path for path, _ in ranked[:limit]]
+
+
+RIPGREP = shutil.which("rg") is not None
+
+STOPWORDS = {
+    "that", "this", "with", "from", "into", "make", "made", "them", "then", "than",
+    "when", "what", "which", "should", "would", "could", "there", "their", "have",
+    "keep", "kept", "each", "every", "also", "just", "like", "only", "same", "some",
+    "more", "most", "other", "return", "returns", "function", "file", "code", "add",
+    "adds", "added", "using", "used", "does", "done", "were", "been", "being",
+}
+
+
+def choose_file(task: str) -> str | None:
+    """Ask the local model to pick one file from the shortlist.
+
+    The shortlist is built by ripgrep first rather than handing the model a
+    directory listing: a model asked to choose from 900 paths picks a plausible
+    one, and a plausible wrong file is the most expensive answer available --
+    it edits something real that nobody asked about.
+    """
+    candidates = candidate_files(task)
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    listing = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(candidates))
+    prompt = (
+        "Pick the ONE file that this task should edit.\n\n"
+        f"TASK: {task}\n\nCANDIDATES:\n{listing}\n\n"
+        "Answer with the number alone. Nothing else."
+    )
+    try:
+        reply, _ = ask_model(prompt, timeout=600)
+    except Exception:
+        return candidates[0]
+    match = re.search(r"\b(\d{1,2})\b", reply)
+    if not match:
+        return candidates[0]
+    index = int(match.group(1)) - 1
+    return candidates[index] if 0 <= index < len(candidates) else candidates[0]
+
+
 def log(record: dict) -> None:
     LOG.parent.mkdir(parents=True, exist_ok=True)
     record["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -233,7 +332,15 @@ def log(record: dict) -> None:
         handle.write(json.dumps(record) + "\n")
 
 
-def do_task(task: str, relative_path: str, check: str, iterations: int, budget_s: int) -> bool:
+def do_task(task: str, relative_path: str | None, check: str, iterations: int, budget_s: int) -> bool:
+    if not relative_path:
+        say("  no file given — choosing one")
+        relative_path = choose_file(task)
+        if not relative_path:
+            say("  could not work out which file this task means")
+            log({"task": task, "file": None, "outcome": "no_file"})
+            return False
+        say(f"  chose {relative_path}")
     allowed, message = policy_allows(relative_path)
     if not allowed:
         say(f"REFUSED  {message}")
@@ -397,7 +504,7 @@ def main() -> int:
     for name in ("run", "add"):
         p = sub.add_parser(name)
         p.add_argument("task")
-        p.add_argument("--file", required=True)
+        p.add_argument("--file", default=None)
         p.add_argument("--check", default=DEFAULT_CHECK)
         p.add_argument("--iterations", type=int, default=4)
         p.add_argument("--budget", type=int, default=7200)
@@ -412,6 +519,10 @@ def main() -> int:
     if args.command == "add":
         QUEUE.parent.mkdir(parents=True, exist_ok=True)
         items = json.loads(QUEUE.read_text()) if QUEUE.exists() else []
+        # `file` may be null. It is resolved when the task RUNS, not when it is
+        # queued: on a plane the repository will have moved on by the time a
+        # task near the end of the queue comes up, and a path chosen hours
+        # earlier can easily be the wrong one by then.
         items.append({"task": args.task, "file": args.file, "check": args.check,
                       "iterations": args.iterations, "budget": args.budget})
         QUEUE.write_text(json.dumps(items, indent=2))

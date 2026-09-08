@@ -111,6 +111,11 @@ EFFECTS_BY_KIND = {
     # this table on purpose: a synthesised click or keystroke lands on whatever
     # is frontmost, so it can reach anything that app can reach, and naming a
     # narrower set here would be a claim the mechanism cannot keep.
+    # Queuing a self-development task writes one JSON file and reads a report.
+    # It launches nothing: `orion-code flight` is a separate command Nick runs,
+    # deliberately, so that a sentence in conversation cannot start hours of GPU
+    # work behind his next reply.
+    "selfdev": ["reads_files", "writes_files"],
     "computer_observe": ["reads_device_state"],
     "computer_control": ["reads_device_state", "controls_input", "launches_process"],
     "media_control":   ["controls_media"],

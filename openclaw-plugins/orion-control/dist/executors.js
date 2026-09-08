@@ -1358,6 +1358,9 @@ export async function executeAction(definition, step, context) {
     if (definition.execution.kind === "browser_control") {
         return controlBrowser(definition.execution, step, context, idempotencyKey);
     }
+    if (definition.execution.kind === "selfdev") {
+        return runSelfDevelopment(definition.execution.operation, step, idempotencyKey);
+    }
     if (definition.execution.kind === "computer_observe") {
         return observeScreen(definition.execution.operation, idempotencyKey);
     }
@@ -2467,6 +2470,68 @@ async function runDevOperation(policy, step, idempotencyKey) {
  * silently install permanent automation" is therefore a property of the shape
  * of this file rather than a rule somebody has to keep remembering.
  */
+/*
+ Queue a coding task for the local model, or report on it.
+ 
+ This deliberately does NOT start a run. Queuing is instant and safe; a run is
+ hours of GPU and Ollama serialises requests to a model, so a run kicked off
+ mid-conversation would make Orion's own next reply crawl. `orion-code flight`
+ is one command Nick types when he is ready to hand the machine over.
+*/
+const SELFDEV_ROOT = path.join(os.homedir(), ".openclaw/orion-controlled");
+/*
+ Queue a coding task for the local model, or report on one.
+
+ This deliberately does NOT start a run. Queuing is instant; a run is hours of
+ GPU, and Ollama serialises requests to a model -- so a run kicked off
+ mid-conversation would make Orion's own next reply crawl behind it.
+ `orion-code flight` stays one command Nick types when he is handing the
+ machine over, not something that happens while he is still talking.
+*/
+async function runSelfDevelopment(operation, step, idempotencyKey) {
+    const queuePath = path.join(SELFDEV_ROOT, "selfdev-queue.json");
+    const reportPath = path.join(SELFDEV_ROOT, "selfdev-report.md");
+    const readQueue = async () => readFile(queuePath, "utf8")
+        .then((text) => JSON.parse(text))
+        .catch(() => []);
+    if (operation === "status") {
+        const [queued, report] = await Promise.all([
+            readQueue(),
+            readFile(reportPath, "utf8").catch(() => ""),
+        ]);
+        return {
+            mode: "observed",
+            idempotencyKey,
+            output: report
+                ? `${queued.length} task(s) queued.\n\n${report.slice(0, 4000)}`
+                : `${queued.length} task(s) queued. No run has happened yet.`,
+        };
+    }
+    const arguments_ = step.arguments;
+    const task = String(arguments_.task ?? "").trim();
+    const relativePath = arguments_.relativePath;
+    const check = arguments_.check;
+    const items = await readQueue();
+    items.push({
+        task,
+        // null means "work it out when the task RUNS". Hours into a flight the
+        // repository is not what it was when the task was described, and a path
+        // chosen at queue time can easily be the wrong one by then.
+        file: typeof relativePath === "string" ? relativePath : null,
+        check: typeof check === "string" ? check : "npm test",
+        iterations: 3,
+        budget: 5400,
+    });
+    await mkdir(SELFDEV_ROOT, { recursive: true });
+    await writeFile(queuePath, JSON.stringify(items, null, 2));
+    return {
+        mode: "scheduled",
+        idempotencyKey,
+        output: `queued — ${items.length} waiting. Nothing runs until \`orion-code flight\` is ` +
+            `started; work lands as commits on the orion-selfdev branch and is never installed ` +
+            `or pushed.`,
+    };
+}
 async function runAutomation(operation, step, idempotencyKey) {
     const proposed = path.join(AUTOMATION_ROOT, "proposed");
     const installed = path.join(AUTOMATION_ROOT, "installed");

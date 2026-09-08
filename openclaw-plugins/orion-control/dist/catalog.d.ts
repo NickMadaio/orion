@@ -254,6 +254,9 @@ export type ExecutionPolicy = {
  * for a denylisted app or window — see ScreenPrivacy.swift.
  */
  | {
+    kind: "selfdev";
+    operation: "queue" | "status";
+} | {
     kind: "computer_observe";
     operation: "screen_observe" | "screen_capture";
 }

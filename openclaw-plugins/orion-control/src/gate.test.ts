@@ -619,7 +619,22 @@ describe("phase 51: structured development operations", () => {
     const dev = Object.entries(ACTION_CATALOG).filter(
       ([, definition]) => definition.capabilityTier === "dev_operations",
     );
-    expect(dev.length).toBe(7);
+    // The NAMES, not the count. `expect(dev.length).toBe(7)` was here and it
+    // broke the moment a dev action was added -- for the third time in this
+    // project's history, a count went stale and reported a correct change as a
+    // regression. A list says what is actually being asserted, and a new action
+    // has to be added here deliberately rather than by bumping a number.
+    expect(dev.map(([name]) => name).sort()).toEqual([
+      "build_run",
+      "git_diff",
+      "git_log",
+      "git_pull",
+      "git_status",
+      "package_install",
+      "selfdev_queue",
+      "selfdev_status",
+      "tests_run",
+    ]);
     for (const [name, definition] of dev) {
       // Not approval-gated on purpose: an assistant who cannot run the tests
       // without being asked twice is one nobody lets near a repository. `risk:

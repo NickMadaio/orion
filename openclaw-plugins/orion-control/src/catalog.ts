@@ -448,6 +448,7 @@ export type ExecutionPolicy =
    * Both are pure reads that refuse entirely rather than redact-and-return
    * for a denylisted app or window — see ScreenPrivacy.swift.
    */
+  | { kind: "selfdev"; operation: "queue" | "status" }
   | { kind: "computer_observe"; operation: "screen_observe" | "screen_capture" }
   /**
    * PHASE 53/55. Act on the screen. Every operation requires
@@ -2917,6 +2918,60 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
    files six of them a day has found a way to get one approved by attrition.
    The rest are reads.
   */
+  /*
+   * PHASE: governed self-development, reachable from a sentence.
+   *
+   * Nick's objection was the right one: he should not have to type
+   * `orion-code add "..." --file <path>`. He says what he wants improved and
+   * Orion queues it, including working out which file that means -- the runner
+   * infers the file at RUN time rather than at queue time, because on a long
+   * unattended run the repository has moved on by the time a late task starts.
+   *
+   * No approval, and the floor agrees rather than being overruled: queuing
+   * changes nothing, and the run it feeds writes only to a git worktree on its
+   * own branch, never installs, never pushes, and cannot touch the approval
+   * verifier or the policy evaluator. Nothing here is irreversible, reaches a
+   * third party, or changes what Orion may do -- which is the whole of the
+   * floor's test.
+   */
+  selfdev_queue: {
+    risk: "medium",
+    // `repository` is required for the same reason every other dev action
+    // requires it: it is validated against the closed DEV_REPOSITORIES map, so
+    // "which repository is being changed" is a checkable fact rather than an
+    // assumption. There is only one today; that is not a reason to leave the
+    // field out, it is the reason the field is cheap.
+    requiredArguments: ["repository", "task"],
+    approvalRequired: false,
+    verification: "selfdev_task_queued",
+    reversible: true,
+    capabilityTier: "dev_operations",
+    execution: { kind: "selfdev", operation: "queue" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      const task = arguments_.task;
+      if (typeof task !== "string" || task.trim().length < 12) {
+        issues.push("task must be a sentence describing the change, not a keyword");
+      }
+      const file = arguments_.relativePath;
+      if (file !== undefined && typeof file !== "string") {
+        issues.push("relativePath, when given, must be a string");
+      }
+      if (typeof file === "string" && (file.startsWith("/") || file.includes(".."))) {
+        issues.push("relativePath must be relative to the repository and may not contain '..'");
+      }
+      return issues;
+    },
+  },
+  selfdev_status: {
+    risk: "low",
+    requiredArguments: ["repository"],
+    approvalRequired: false,
+    verification: "selfdev_status_read",
+    reversible: true,
+    capabilityTier: "dev_operations",
+    execution: { kind: "selfdev", operation: "status" },
+  },
   automation_propose: {
     risk: "medium",
     requiredArguments: ["name", "intent", "trigger", "action", "expiresOn"],

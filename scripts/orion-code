@@ -927,4 +927,17 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # `orion-code status | head -2` closed the pipe and Python answered with a
+    # BrokenPipeError traceback -- a stack trace on a status command, for doing
+    # the most ordinary thing anyone does with one. Restore the default SIGPIPE
+    # behaviour so a closed pipe ends the process quietly, the way every other
+    # command-line tool behaves.
+    import signal
+    try:
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (AttributeError, ValueError):
+        pass  # not POSIX, or not the main thread
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        os._exit(0)

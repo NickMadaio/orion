@@ -432,6 +432,8 @@ struct DashboardView: View {
                          energyTitle: energyTitle, availableHeight: availableHeight,
                          availableWidth: availableWidth ?? 1_180,
                          calendar: calendarModel(state))
+            case .project:
+                ProjectTab()
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
                           connections: connections, day: dayModel.day,
@@ -539,7 +541,7 @@ private struct NavItem: View {
 // MARK: - Tabs
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case home, tasks, health, finance, brand, settings
+    case home, tasks, project, health, finance, brand, settings
     var id: String { rawValue }
 
     /// Spelled out rather than derived from `rawValue`.
@@ -553,6 +555,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Home"
         case .tasks: "Tasks"
+        case .project: "Project"
         case .health: "Health"
         case .finance: "Finances"
         case .brand: "Brand"
@@ -568,6 +571,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "circle.hexagongrid"
         case .tasks: "checklist"
+        case .project: "point.3.connected.trianglepath.dotted"
         case .health: "heart"
         case .finance: "chart.line.uptrend.xyaxis"
         case .brand: "megaphone"

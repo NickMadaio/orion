@@ -85,3 +85,13 @@ Home now contains an expandable connection object with an explanation and a “C
 The static readiness report is explicitly labeled in text and JSON; its planning evidence now acknowledges the existing day-proposal implementation and missing Mac consumer. Repository entrypoints no longer repeat obsolete phase counts.
 
 This is source implementation and a rendered component preview, not an installed product release or automatic service-recovery implementation. Validation, review findings, local checkpoint and rollback are recorded in the accompanying implementation report and current handoff.
+
+## 8 September implementation update
+
+A first Mac Today/Plan slice now connects the existing calendar and Orion Reminders
+readers to MobileCore timeline proposals, accepted local revisions, completion,
+replanning and undo. The old missing-Mac-consumer statement above is superseded at
+the source level. Step 2 remains partial: pinning and installed normal-route proof
+are outstanding. See `TODAY_PLAN_IMPLEMENTATION_2026-09-08.md` for the 437-test
+checkpoint, independent review, boundaries and exact next gate. No recovery gate
+or numbered phase is closed by this source implementation.

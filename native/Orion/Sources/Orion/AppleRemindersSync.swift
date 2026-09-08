@@ -43,6 +43,7 @@ struct SyncedTask: Identifiable, Equatable {
     var completionDate: Date?
 
     var dueDate: Date?
+    var dueHasTime: Bool = false
     var hasAlarm: Bool
     /// Real, and syncs — `EKReminder.priority`. See TaskPriority.
     var priority: TaskPriority = .none
@@ -185,6 +186,7 @@ final class AppleRemindersSync: ObservableObject {
                         isComplete: true,
                         completionDate: reminder.completionDate,
                         dueDate: reminder.dueDateComponents?.date,
+                        dueHasTime: reminder.dueDateComponents?.hour != nil,
                         hasAlarm: !(reminder.alarms ?? []).isEmpty,
                         priority: TaskPriority.from(reminder.priority),
                         progress: 1
@@ -237,7 +239,11 @@ final class AppleRemindersSync: ObservableObject {
         // Predicated on the one list. This is the scope promise, in code.
         let predicate = store.predicateForReminders(in: [calendar])
         store.fetchReminders(matching: predicate) { [weak self] found in
-            let mapped = (found ?? [])
+            guard let found else {
+                DispatchQueue.main.async { self?.lastError = "Reminders did not return a task snapshot. The previous reading is retained." }
+                return
+            }
+            let mapped = found
                 .map { reminder in
                     let id = reminder.calendarItemIdentifier
                     return SyncedTask(
@@ -246,6 +252,7 @@ final class AppleRemindersSync: ObservableObject {
                         isComplete: reminder.isCompleted,
                         completionDate: reminder.completionDate,
                         dueDate: reminder.dueDateComponents?.date,
+                        dueHasTime: reminder.dueDateComponents?.hour != nil,
                         hasAlarm: !(reminder.alarms ?? []).isEmpty,
                         priority: TaskPriority.from(reminder.priority),
                         progress: reminder.isCompleted ? 1 : TaskProgressStore.shared.progress(for: id)
@@ -260,6 +267,7 @@ final class AppleRemindersSync: ObservableObject {
                 }
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.lastError = nil
                 self.tasks = mapped
                 self.lastSyncedAt = Date()
                 TaskProgressStore.shared.prune(keeping: Set(mapped.map(\.id)))

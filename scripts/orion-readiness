@@ -90,8 +90,9 @@ CONDITIONS = [
     ("tasks and calendar planning work together", "PARTLY",
      "They are read together and reported together: the morning brief joins commitments, due "
      "tasks, projects and the waiting list, and a focus session can bind to a calendar block. "
-     "MobileCore/DailyPlanning.swift builds day proposals, but the Mac app does not call "
-     "DayPlan.propose. A delivered proposal, completion and replan route remains missing."),
+     "The Mac Today source now consumes MobileCore timeline proposals and persists accepted "
+     "local revisions with completion, replan and undo. Pinning and installed normal-route "
+     "verification remain outstanding; this static report does not prove deployment."),
 
     ("ORION understands state without pretending to provide medical certainty", "MET",
      "orion-standing prints a recovery figure only if it is in the file and stamped today; a "
@@ -176,7 +177,7 @@ def main() -> int:
     print("  " + "  ".join(f"{verdict}: {count}" for verdict, count in counts.items()))
     print("")
     print("  These verdicts summarize recorded design evidence. They do not certify")
-    print("  current safety or availability. Connected planning, durable backend")
+    print("  current safety or availability. Installed planning proof, durable backend")
     print("  adapters, mobile delivery and real-route verification remain software")
     print("  work; additional devices alone do not close those gaps.")
     print("")

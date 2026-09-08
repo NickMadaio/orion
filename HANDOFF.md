@@ -1,12 +1,48 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-07.** This is the only handoff. If you find another one
+**Last updated 2026-09-08.** This is the only handoff. If you find another one
 that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-08 01:29 EDT — Today/Plan source implementation
+
+Nick said “start implementation.” Starting HEAD was `d0eeebb`; the only prior
+uncommitted edit was `planning/learning-proposals.md`, left untouched. Installed
+build 217 remains installed. No runtime/permission/install change was made.
+
+Implemented: actual-day calendar/Orion Reminders adapter; MobileCore real-gap
+scheduler with protected off-hours, transitions and free time; Today-first Home;
+preview/accept, local Finish block, 15 more minutes, replan from now and one-level
+undo. Atomic local snapshot includes revision, undo and replay receipts. Stale
+sources cannot become current advice, and a competing writer is reloaded.
+Reminders nil snapshots are now unknown instead of an empty task list. Calendar
+and source reminder records are not changed by plan operations.
+
+Proof: 437 native XCTest cases pass, including 26 planner/store and nine actual
+app model/adapter/view tests; 26 health, nine transport and five menu checks pass.
+MobileCore 693 checks and iOS Simulator build pass. Six deliberate source mutants
+are caught. Actual TodayPlanView rendered from synthetic inputs and inspected.
+Independent review repaired stale advice, elapsed free totals, deadline order and
+omitted new-work summaries; final reviewer reran 35 cases, no actionable findings
+within this scope. Source/history secret scan clean with the existing allowlist.
+
+Full details and alternatives: `planning/v2/TODAY_PLAN_IMPLEMENTATION_2026-09-08.md`.
+Rollback: scoped local source commit/patch and logs in
+`.builds/today-plan-2026-09-08/`; nothing installed to roll back. Exclude the old
+learning-proposals edit from any checkpoint. No push/remote backup claim.
+
+Next: explicit pinned task slots and conflicts, then identity-preserving candidate
+and installed Calendar/Reminders → preview → accept → restart → completion/replan/
+undo proof. Task pinning and installed product proof are unmet, so delivery-plan
+step 2 is partial. Phone/backend work remains required by REC-USABLE-CLIENT. No
+phase counts or recovery gates were advanced. Historical missing-Mac-consumer
+statements are superseded by this source implementation, not installed evidence.
 
 ---
 

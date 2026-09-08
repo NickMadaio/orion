@@ -176,6 +176,7 @@ public struct DayPlan: Sendable, Equatable {
         commitments: [Commitment],
         tasks: [PlannedTask],
         history: [PlannedTask] = [],
+        availableMinutes: Int? = nil,
         sleep: SleepState = .unknown,
         recovery: PhysicalRecovery = .unknown,
         energy: EnergyState = .unknown
@@ -183,12 +184,15 @@ public struct DayPlan: Sendable, Equatable {
         let calibration = EstimateCalibration.from(history)
         let committed = commitments.reduce(0) { $0 + $1.durationMinutes }
         let waking = wakingEnd - wakingStart
-        let flexible = Swift.max(0, waking - committed)
+        // A timeline consumer can supply the union of actual free intervals,
+        // after sleep, transitions and protected free time. Legacy callers
+        // retain the original budget contract.
+        let flexible = Swift.max(0, Swift.min(25 * 60, availableMinutes ?? (waking - committed)))
 
         var scheduled: [PlannedTask] = []
         var deferred: [PlannedTask] = []
         var spent = 0
-        for task in tasks.sorted(by: { ($0.priority, $0.id) < ($1.priority, $1.id) }) {
+        for task in tasks.filter({ !$0.completed }).sorted(by: { ($0.priority, $0.id) < ($1.priority, $1.id) }) {
             let cost = calibration.adjusted(task.estimateMinutes)
             if spent + cost <= flexible {
                 scheduled.append(task)

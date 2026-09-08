@@ -72,7 +72,7 @@ let package = Package(
         // it drifts into two locks that exclude nothing.
         .target(
             name: "SessionService",
-            dependencies: ["SessionDomain"],
+            dependencies: ["SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ]
@@ -103,6 +103,12 @@ let package = Package(
         // the real app sources. Naming the path keeps SwiftPM's attention on
         // this one directory and off theirs.
         .testTarget(
+            name: "TodayPlanAppTests",
+            dependencies: ["Orion", "SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
+            path: "Tests/TodayPlanAppTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
             name: "SessionDomainTests",
             dependencies: ["SessionDomain"],
             path: "Tests/SessionDomainTests",
@@ -112,7 +118,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SessionServiceTests",
-            dependencies: ["SessionService", "SessionDomain"],
+            dependencies: ["SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
             path: "Tests/SessionServiceTests",
             swiftSettings: [
                 .swiftLanguageMode(.v5)

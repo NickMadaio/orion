@@ -31,6 +31,7 @@ struct DashboardView: View {
     /// worse to-do list than the one already on your phone.
     @StateObject private var reminders = AppleRemindersSync()
     @StateObject private var agenda = AppleCalendarSync()
+    @StateObject private var todayPlan = TodayPlanModel()
 
     /// The calendar's own model, built here because it needs the same EventKit
     /// syncs this view already owns. Fetches the visible interval plus padding
@@ -193,6 +194,11 @@ struct DashboardView: View {
             health.recordWearable(week.readingsByDay)
         }
         .onChange(of: agenda.events) { _, _ in loadBrief() }
+        .onChange(of: agenda.lastSyncedAt) { _, _ in refreshPlanSources() }
+        .onChange(of: reminders.lastSyncedAt) { _, _ in refreshPlanSources() }
+        .onChange(of: agenda.access) { _, _ in refreshPlanSources() }
+        .onChange(of: reminders.access) { _, _ in refreshPlanSources() }
+        .onChange(of: reminders.lastError) { _, _ in refreshPlanSources() }
         .onChange(of: reminders.tasks) { _, _ in loadBrief() }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         .preferredColorScheme(.dark)
@@ -209,7 +215,11 @@ struct DashboardView: View {
 
     // MARK: - Lifecycle
 
+    private func refreshPlanSources() { todayPlan.refresh(agenda: agenda, reminders: reminders) }
+
     private func start() {
+        todayPlan.load()
+        refreshPlanSources()
         // Read the day's state BEFORE noting the session, since noting it is
         // what makes this no longer the first session.
         briefPresentation = BriefPresentation.stored(
@@ -418,6 +428,8 @@ struct DashboardView: View {
                 HomeTab(state: state,
                         quickOpen: quickOpen,
                         writer: briefWriter,
+                        todayPlan: todayPlan,
+                        refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() },
                         coreStyle: coreStyle,
                         brief: briefFacts,
                         presentation: $briefPresentation,
@@ -553,7 +565,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     /// sitting next to each other in the same enum.
     var title: String {
         switch self {
-        case .home: "Home"
+        case .home: "Today"
         case .tasks: "Tasks"
         case .project: "Project"
         case .health: "Health"

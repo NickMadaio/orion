@@ -61,7 +61,7 @@ In order of precedence:
 
 1. the live repository and current branch/worktree;
 2. root `HANDOFF.md` for the latest verified runtime state;
-3. `planning/HANDOFF.md` and gate records for session architecture and tests;
+3. `HANDOFF.md` and gate records for session architecture and tests;
 4. older audits only where current code or live checks still corroborate them;
 5. the ORION v2 implementation manifest as the target architecture.
 

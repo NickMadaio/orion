@@ -1,7 +1,7 @@
 # Governed self-development and personalities
 
 Not a numbered phase (see `MANIFEST_PHASES.json`'s 85 -- there is no slot for
-this). This is Nick's item **#5** from `planning/v2/NIGHT_RUN_2026-09-05.md`'s
+this). This is Nick's item **#5** from `HANDOFF.md`'s
 work order, verbatim: *"integrate the smart local models to do self
 propogation changes (the multiple orion personalities we had talked about in
 another chat). Self propogation and coding tasks i dont need in a rush should

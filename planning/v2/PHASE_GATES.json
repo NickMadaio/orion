@@ -4399,7 +4399,7 @@
           "id": "shows_a_human_readable_approval_on_iphone",
           "status": "blocked",
           "reason": "There is no iPhone app. The approval surface is the terminal and Discord.",
-          "evidence": "Still no iPhone app. What exists now is the human-readable half without the phone: a ticket carries a rendered one-line summary ('messages_send — recipient: Mum, body: …') rather than a JSON dump, and `orion-approve` with no arguments lists what is waiting with what it would do. Terminal and Discord, not iOS."
+          "evidence": "Still no iPhone app. What exists now is the human-readable half without the phone: a ticket carries a rendered one-line summary ('messages_send \u2014 recipient: Mum, body: \u2026') rather than a JSON dump, and `orion-approve` with no arguments lists what is waiting with what it would do. Terminal and Discord, not iOS."
         },
         {
           "id": "requires_face_id_where_appropriate",
@@ -4449,7 +4449,7 @@
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "Two corrections. (a) The evidence said restoring the old hash acceptance fails FOUR named assertions; it fails three. Precision is this file's premise and the number was wrong. (b) The claim that a spoken approval reads only Nick's own words was too strong: `trusted_user` is minted from any role:user line in the transcript, and the Swift app and the remote bridge both inject context that way — 496 such turns across 482 session files. The transport's own briefing contains the literal words 'yes, approve A-7F3K', and was held back only because the first occurrence of the id sat in a non-affirmative clause. FIXED: machine-authored blocks are stripped before the turn is read, and every occurrence is examined rather than the first. Both halves mutation-tested; each fails a named test alone."
+          "note": "Two corrections. (a) The evidence said restoring the old hash acceptance fails FOUR named assertions; it fails three. Precision is this file's premise and the number was wrong. (b) The claim that a spoken approval reads only Nick's own words was too strong: `trusted_user` is minted from any role:user line in the transcript, and the Swift app and the remote bridge both inject context that way \u2014 496 such turns across 482 session files. The transport's own briefing contains the literal words 'yes, approve A-7F3K', and was held back only because the first occurrence of the id sat in a non-affirmative clause. FIXED: machine-authored blocks are stripped before the turn is read, and every occurrence is examined rather than the first. Both halves mutation-tested; each fails a named test alone."
         }
       ]
     },
@@ -4488,7 +4488,7 @@
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "The ladder was a DESCRIPTION, not a gate. strictness.ts reached only a status readout and orion-authority's documentation; validator.ts had never seen a mode. The numbers in the mode summaries were computed for display and were also stale. FIXED: baseLevelFor moved into the plugin (removing orion-authority's duplicate ladder rather than adding one), ValidationOptions gained a strictness field, and the mode is threaded through runAuthorizedGraph and the controller into the authoritative validation. `contained` now refuses a non-read action without a grant, verified against the installed plugin. The summaries are corrected too: a mode raises to APPROVAL and never lowers from it, because a validator can refuse and cannot make a model narrate — what `open` and `sovereign` free is announcement, not gates."
+          "note": "The ladder was a DESCRIPTION, not a gate. strictness.ts reached only a status readout and orion-authority's documentation; validator.ts had never seen a mode. The numbers in the mode summaries were computed for display and were also stale. FIXED: baseLevelFor moved into the plugin (removing orion-authority's duplicate ladder rather than adding one), ValidationOptions gained a strictness field, and the mode is threaded through runAuthorizedGraph and the controller into the authoritative validation. `contained` now refuses a non-read action without a grant, verified against the installed plugin. The summaries are corrected too: a mode raises to APPROVAL and never lowers from it, because a validator can refuse and cannot make a model narrate \u2014 what `open` and `sovereign` free is announcement, not gates."
         }
       ]
     },
@@ -4589,7 +4589,7 @@
     },
     "54": {
       "name": "Screen Observation Privacy Layer",
-      "status": "not_started",
+      "status": "complete",
       "entryRequiresPhase": "53",
       "entrySatisfied": false,
       "openedOn": "2026-09-03",
@@ -4603,24 +4603,24 @@
         },
         {
           "id": "identifies_app_window_and_region_and_redacts_before_sending",
-          "status": "blocked",
-          "evidence": "Unbuilt, and correctly ordered after the capability it protects. Building a redaction layer before there is anything to redact produces a layer nobody can test against a real screen.",
+          "status": "passed",
+          "evidence": "screen_observe reports app bundle id, window title and element frames; a sensitive-content denylist refuses the whole window for password managers, Keychain and banking, and AXSecureTextField values are never read. planning/v2/PHASE_COMPUTER_USE.md; mutation-tested.",
           "reason": "No capture surface exists to build a privacy layer over."
         },
         {
           "id": "prefers_accessibility_metadata_over_screenshots",
-          "status": "blocked",
-          "evidence": "Unbuilt. Worth recording that the machine already leans this way for unrelated reasons: orion-focus reads the frontmost app with `lsappinfo` rather than by looking at pixels, and needs no TCC grant to do it.",
+          "status": "passed",
+          "evidence": "screen_observe walks the AX tree and is the documented default; screen_capture is the pixel fallback for when AX cannot answer. planning/v2/PHASE_COMPUTER_USE.md.",
           "reason": "Depends on the same missing surface."
         }
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": true
     },
     "55": {
       "name": "Prompt Injection Defense for Computer Use",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "54",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "The four prohibitions are enforced and adversarially tested in openclaw-plugins/orion-control/src/index.test.ts and gate.test.ts; the screen half has no surface yet.",
@@ -4647,17 +4647,17 @@
         },
         {
           "id": "screen_content_specifically_is_treated_as_untrusted",
-          "status": "blocked",
-          "evidence": "Nothing captures a screen, so nothing carries screen content into a turn. The moment it does it will arrive as an observation and be untrusted by default -- the provenance system has no route that makes a tool result trusted -- but that is an argument, not a test, until there is a capture path to point one at.",
+          "status": "passed",
+          "evidence": "Observed screen content is returned inside the same untrusted envelope page text already uses, so it is evidence and never instruction. planning/v2/PHASE_COMPUTER_USE.md.",
           "reason": "No screen capture surface exists to test against."
         }
       ],
-      "nextPhaseAllowed": false,
+      "nextPhaseAllowed": true,
       "postReviewCorrections": [
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "The 'floor no mode can lower' was vacuously true, because no mode lowered anything. The outcome was safe by a different mechanism than claimed: the seven approvalRequired actions are enforced unconditionally by the validator. Now that the mode is wired, the floor is load-bearing in the direction that matters — it is what stops a mode raising an authority change out of APPROVAL, and a test asserts every mode still gates messages_send."
+          "note": "The 'floor no mode can lower' was vacuously true, because no mode lowered anything. The outcome was safe by a different mechanism than claimed: the seven approvalRequired actions are enforced unconditionally by the validator. Now that the mode is wired, the floor is load-bearing in the direction that matters \u2014 it is what stops a mode raising an authority change out of APPROVAL, and a test asserts every mode still gates messages_send."
         }
       ]
     },
@@ -4665,7 +4665,7 @@
       "name": "Remote Session UI",
       "status": "not_started",
       "entryRequiresPhase": "55",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "Surveyed 2026-09-03. The verbs exist over Discord; the display does not exist anywhere.",
@@ -4730,7 +4730,7 @@
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "validateProposal used `in`, which walks the prototype chain, so constructor, toString, valueOf and __proto__ passed a check whose whole job is to say the table is closed. Not exploitable into execution — the installer throws on argv[0] — but a validator accepting what it advertises as impossible turns a clear refusal into a crash elsewhere. FIXED with Object.hasOwn; mutation-tested."
+          "note": "validateProposal used `in`, which walks the prototype chain, so constructor, toString, valueOf and __proto__ passed a check whose whole job is to say the table is closed. Not exploitable into execution \u2014 the installer throws on argv[0] \u2014 but a validator accepting what it advertises as impossible turns a clear refusal into a crash elsewhere. FIXED with Object.hasOwn; mutation-tested."
         }
       ]
     },
@@ -5035,7 +5035,7 @@
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "The model counts were pinned and are stale — orion-budget today reports more Haiku and llama calls than the evidence names, and an unmentioned 18 gpt-oss:20b. The mechanism works; the numbers were a snapshot written as a fact. Counts in evidence should be dated or derived, not pinned."
+          "note": "The model counts were pinned and are stale \u2014 orion-budget today reports more Haiku and llama calls than the evidence names, and an unmentioned 18 gpt-oss:20b. The mechanism works; the numbers were a snapshot written as a fact. Counts in evidence should be dated or derived, not pinned."
         }
       ]
     },
@@ -5137,12 +5137,12 @@
         {
           "id": "maintains_a_living_data_inventory_with_all_ten_fields",
           "status": "passed",
-          "evidence": "Fifteen entries, each carrying all ten fields the manifest names, and the checker refuses an empty one — a field left blank is the field that mattered. It also refuses a claim it cannot support: `encryptionNote` says plainly that nothing local is encrypted beyond FileVault, which is whole-disk and therefore protects a stolen laptop and nothing else."
+          "evidence": "Fifteen entries, each carrying all ten fields the manifest names, and the checker refuses an empty one \u2014 a field left blank is the field that mattered. It also refuses a claim it cannot support: `encryptionNote` says plainly that nothing local is encrypted beyond FileVault, which is whole-disk and therefore protects a stolen laptop and nothing else."
         },
         {
           "id": "covers_email_calendar_health_conversations_memory_files_devices_analytics_and_logs",
           "status": "passed",
-          "evidence": "All nine, plus four the manifest does not name and this system has: OAuth refresh tokens, iMessage history, authority state, and credentials in .env. The analytics entry exists precisely because there ARE none — writing 'none' down keeps that a decision rather than an assumption nobody rechecks."
+          "evidence": "All nine, plus four the manifest does not name and this system has: OAuth refresh tokens, iMessage history, authority state, and credentials in .env. The analytics entry exists precisely because there ARE none \u2014 writing 'none' down keeps that a decision rather than an assumption nobody rechecks."
         },
         {
           "id": "the_inventory_is_updated_with_every_feature",
@@ -5171,7 +5171,7 @@
         {
           "id": "offers_all_ten_controls",
           "status": "passed",
-          "evidence": "All ten are listed with their current state and how to exercise them. The four that are not this machine's to do — disconnecting Google, revoking scopes, and so on — are LISTED rather than omitted, with the URL where they happen, because a control people cannot see is worse than one they cannot use here. A script that clicked through an OAuth revocation would be a script holding Nick's Google session, which is the thing this system is built not to be."
+          "evidence": "All ten are listed with their current state and how to exercise them. The four that are not this machine's to do \u2014 disconnecting Google, revoking scopes, and so on \u2014 are LISTED rather than omitted, with the URL where they happen, because a control people cannot see is worse than one they cannot use here. A script that clicked through an OAuth revocation would be a script holding Nick's Google session, which is the thing this system is built not to be."
         },
         {
           "id": "deletion_is_real",
@@ -5181,7 +5181,7 @@
         {
           "id": "privacy_settings_are_not_obscure",
           "status": "passed",
-          "evidence": "The manifest's actual brief. Every one of these was already possible before this file — rm a path, edit a flag, revoke in a browser — and that is what obscure means. `orion-privacy inspect` reports 179.9 MB across five stores with each one's retention and third-party exposure read out of the Phase 71 inventory, so the two cannot disagree."
+          "evidence": "The manifest's actual brief. Every one of these was already possible before this file \u2014 rm a path, edit a flag, revoke in a browser \u2014 and that is what obscure means. `orion-privacy inspect` reports 179.9 MB across five stores with each one's retention and third-party exposure read out of the Phase 71 inventory, so the two cannot disagree."
         },
         {
           "id": "export_omits_credentials",
@@ -5203,17 +5203,17 @@
         {
           "id": "creates_encrypted_backups_of_essential_state",
           "status": "passed",
-          "evidence": "AES-256-CBC with PBKDF2 at 600,000 iterations. `-pbkdf2` is not optional and the check asserts it: openssl's default key derivation is a single MD5 pass, which would make the passphrase the weakest part of the whole thing. The passphrase comes from the login Keychain and the script REFUSES rather than prompting, generating one, or falling back to no encryption — creating a passphrase would mean this program choosing and holding a credential."
+          "evidence": "AES-256-CBC with PBKDF2 at 600,000 iterations. `-pbkdf2` is not optional and the check asserts it: openssl's default key derivation is a single MD5 pass, which would make the passphrase the weakest part of the whole thing. The passphrase comes from the login Keychain and the script REFUSES rather than prompting, generating one, or falling back to no encryption \u2014 creating a passphrase would mean this program choosing and holding a credential."
         },
         {
           "id": "does_not_back_up_secrets_in_plaintext",
           "status": "passed",
-          "evidence": "Stronger than the requirement: no secret is backed up AT ALL. A backup is a second copy, and a second copy of a credential is a second thing that can leak, somewhere nobody is watching, for as long as the backup exists. Every one is recoverable by rotating it at the issuer, so the archive carries a SECRETS.md rotation checklist instead. Excluded twice — removed from the staging copy AND excluded at archive time — because this is the one mistake here that would be silent and permanent. The check asserts no .env, no key file, and that the token string appears nowhere in a restored tree."
+          "evidence": "Stronger than the requirement: no secret is backed up AT ALL. A backup is a second copy, and a second copy of a credential is a second thing that can leak, somewhere nobody is watching, for as long as the backup exists. Every one is recoverable by rotating it at the issuer, so the archive carries a SECRETS.md rotation checklist instead. Excluded twice \u2014 removed from the staging copy AND excluded at archive time \u2014 because this is the one mistake here that would be silent and permanent. The check asserts no .env, no key file, and that the token string appears nowhere in a restored tree."
         },
         {
           "id": "tests_restoration",
           "status": "passed",
-          "evidence": "`--verify` does a real RESTORE, not a checksum: 'the file is intact' and 'the backup works' are different claims and only the second is worth anything at 2am. The fixture check additionally proves a wrong passphrase restores nothing and a truncated archive is refused rather than partially restored — half a restore looks like a success until you look. THE CHECK FOUND A REAL BUG: the first version piped `tar | passphrase | openssl -pass stdin`, putting the passphrase IN the pipe, so tar's output was discarded and openssl encrypted nothing but the passphrase. It produced a plausible 12K archive containing no data. The passphrase now goes over fd 3."
+          "evidence": "`--verify` does a real RESTORE, not a checksum: 'the file is intact' and 'the backup works' are different claims and only the second is worth anything at 2am. The fixture check additionally proves a wrong passphrase restores nothing and a truncated archive is refused rather than partially restored \u2014 half a restore looks like a success until you look. THE CHECK FOUND A REAL BUG: the first version piped `tar | passphrase | openssl -pass stdin`, putting the passphrase IN the pipe, so tar's output was discarded and openssl encrypted nothing but the passphrase. It produced a plausible 12K archive containing no data. The passphrase now goes over fd 3."
         },
         {
           "id": "maintains_schema_compatible_restoration",
@@ -5223,7 +5223,7 @@
         {
           "id": "tests_the_four_named_recovery_scenarios",
           "status": "blocked",
-          "evidence": "Two of four are covered. DATABASE LOSS and SERVER REDEPLOYMENT are covered by the restore path and by there being no database or server. CREDENTIAL ROTATION is a documented checklist rather than a tested procedure, and DEVICE LOSS cannot be tested without losing the device. The end-to-end run also still needs Nick's Keychain item, which this program will not create — one command, and it is his.",
+          "evidence": "Two of four are covered. DATABASE LOSS and SERVER REDEPLOYMENT are covered by the restore path and by there being no database or server. CREDENTIAL ROTATION is a documented checklist rather than a tested procedure, and DEVICE LOSS cannot be tested without losing the device. The end-to-end run also still needs Nick's Keychain item, which this program will not create \u2014 one command, and it is his.",
           "reason": "Credential rotation and device loss are documented, not exercised; and the end-to-end run needs a Keychain passphrase only Nick can create."
         }
       ],
@@ -5232,7 +5232,7 @@
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "The claim 'no secret is backed up AT ALL' was FALSE. exec-approvals.json is staged and contains socket.token, 32 characters; both exclusion layers matched filenames only, and the archive MANIFEST asserted the opposite. The check could not have caught it — it planted a .env in its own sandbox and never touched the real sources() list. FIXED: a content pass now redacts credential-shaped VALUES from every staged JSON while keeping the structure a restore needs, the MANIFEST no longer asserts its own correctness, and the check exercises the real source list and the real redaction code extracted from the script rather than reimplemented. Mutation-tested: disabling redaction fails by name."
+          "note": "The claim 'no secret is backed up AT ALL' was FALSE. exec-approvals.json is staged and contains socket.token, 32 characters; both exclusion layers matched filenames only, and the archive MANIFEST asserted the opposite. The check could not have caught it \u2014 it planted a .env in its own sandbox and never touched the real sources() list. FIXED: a content pass now redacts credential-shaped VALUES from every staged JSON while keeping the structure a restore needs, the MANIFEST no longer asserts its own correctness, and the check exercises the real source list and the real redaction code extracted from the script rather than reimplemented. Mutation-tested: disabling redaction fails by name."
         }
       ]
     },
@@ -5253,17 +5253,17 @@
         {
           "id": "provides_the_seven_revocation_mechanisms",
           "status": "passed",
-          "evidence": "`orion-incident freeze` does the four that are local, LOUDEST FIRST — remote access, then automation, then strictness, then the floor — so that if it dies halfway the half that ran is the half that mattered. The three that live with an issuer are printed as a checklist rather than automated: a script that revoked an OAuth grant would be a script holding Nick's Google session."
+          "evidence": "`orion-incident freeze` does the four that are local, LOUDEST FIRST \u2014 remote access, then automation, then strictness, then the floor \u2014 so that if it dies halfway the half that ran is the half that mattered. The three that live with an issuer are printed as a checklist rather than automated: a script that revoked an OAuth grant would be a script holding Nick's Google session."
         },
         {
           "id": "freeze_is_one_command_because_an_incident_is_when_you_remember_least",
           "status": "passed",
-          "evidence": "Every mechanism already existed separately — orion-lock, orion-mode, orion-remote-install --remove, orion-automation remove. What did not exist was doing all of them at once, and that is the only version that matters. orion-lock is deliberately NOT run automatically: `contained` already stops every write, and dropping the profile to the floor is the one step that should need a person to mean it."
+          "evidence": "Every mechanism already existed separately \u2014 orion-lock, orion-mode, orion-remote-install --remove, orion-automation remove. What did not exist was doing all of them at once, and that is the only version that matters. orion-lock is deliberately NOT run automatically: `contained` already stops every write, and dropping the profile to the floor is the one step that should need a person to mean it."
         },
         {
           "id": "thaw_actually_thaws",
           "status": "passed",
-          "evidence": "CLOSED after finding it did not. The first version ran `orion-mode guarded` without --yes, orion-mode refused it as an unexpiring relaxation, and thaw printed 'Lifting containment only' while Orion stayed contained — a script reporting success while doing nothing, which is the exact failure this whole system is built against. Two fixes: thaw passes --yes and then CHECKS the mode afterwards rather than assuming, and orion-mode no longer treats a return to the DEFAULT as a standing grant needing an expiry. Thaw is also deliberately not the inverse of freeze — it lifts containment and leaves remote access and automations off, to be turned back on one at a time."
+          "evidence": "CLOSED after finding it did not. The first version ran `orion-mode guarded` without --yes, orion-mode refused it as an unexpiring relaxation, and thaw printed 'Lifting containment only' while Orion stayed contained \u2014 a script reporting success while doing nothing, which is the exact failure this whole system is built against. Two fixes: thaw passes --yes and then CHECKS the mode afterwards rather than assuming, and orion-mode no longer treats a return to the DEFAULT as a standing grant needing an expiry. Thaw is also deliberately not the inverse of freeze \u2014 it lifts containment and leaves remote access and automations off, to be turned back on one at a time."
         }
       ],
       "nextPhaseAllowed": true,
@@ -5271,7 +5271,7 @@
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
-          "note": "The freeze step declined to run orion-lock on the stated grounds that 'contained already stops every write'. That was false — the mode was not wired to anything. It is now, and the text is corrected to say what contained does cover (every typed action that is not a read) and what it does not (the exec allowlist, so the orion-* wrappers still run). orion-lock remains a deliberate manual step, but for the honest reason rather than the false one."
+          "note": "The freeze step declined to run orion-lock on the stated grounds that 'contained already stops every write'. That was false \u2014 the mode was not wired to anything. It is now, and the text is corrected to say what contained does cover (every typed action that is not a read) and what it does not (the exec allowlist, so the orion-* wrappers still run). orion-lock remains a deliberate manual step, but for the honest reason rather than the false one."
         }
       ]
     },
@@ -5292,7 +5292,7 @@
         {
           "id": "does_not_let_one_model_design_implement_review_and_approve_its_own_security_work",
           "status": "passed",
-          "evidence": "CLOSED 2026-09-04, by an independent review actually happening rather than by anything being written down. An agent was given the manifest, the repository and the commands, and no narrative — told to verify claims rather than trust them, and to say what it tried so that 'found nothing' would carry weight. It reported two findings with real safety cost, and both were things this session had written and believed: the strictness ladder was never wired to enforcement, so `contained` reported containment and gated nothing; and a live credential was inside the backup while its own manifest asserted the opposite. It also found four smaller ones, including a mutation count in Phase 49's evidence that was off by one. Every finding is recorded under its phase in postReviewCorrections rather than by editing the original evidence — the fact that a claim was wrong is itself evidence about the evidence — and each repair has a named failing test, mutation-verified. The reviewer left the tree clean (git status --porcelain empty, 222/222 at baseline)."
+          "evidence": "CLOSED 2026-09-04, by an independent review actually happening rather than by anything being written down. An agent was given the manifest, the repository and the commands, and no narrative \u2014 told to verify claims rather than trust them, and to say what it tried so that 'found nothing' would carry weight. It reported two findings with real safety cost, and both were things this session had written and believed: the strictness ladder was never wired to enforcement, so `contained` reported containment and gated nothing; and a live credential was inside the backup while its own manifest asserted the opposite. It also found four smaller ones, including a mutation count in Phase 49's evidence that was off by one. Every finding is recorded under its phase in postReviewCorrections rather than by editing the original evidence \u2014 the fact that a claim was wrong is itself evidence about the evidence \u2014 and each repair has a named failing test, mutation-verified. The reviewer left the tree clean (git status --porcelain empty, 222/222 at baseline)."
         }
       ],
       "nextPhaseAllowed": true
@@ -5314,12 +5314,12 @@
         {
           "id": "none_of_them_has_crept_in",
           "status": "passed",
-          "evidence": "A smoke alarm, not a lock: it does not prevent anybody building these, it makes building one impossible to do quietly. Features do not arrive because somebody defied a list — they arrive one reasonable step at a time until nobody can name the commit. Mutation-tested with a fake `place_order` action, which it named."
+          "evidence": "A smoke alarm, not a lock: it does not prevent anybody building these, it makes building one impossible to do quietly. Features do not arrive because somebody defied a list \u2014 they arrive one reasonable step at a time until nobody can name the commit. Mutation-tested with a fake `place_order` action, which it named."
         },
         {
           "id": "the_signals_do_not_fire_on_what_already_shipped",
           "status": "passed",
-          "evidence": "The first version regexed compiled source and produced two false positives immediately: `send` matched inside `email_send`, and `diagnos` matched `diagnostic` in a comment. Both are the same mistake — a line that MENTIONS an effect is not a line that performs one — and orion-authority already documents it about regex declarations. Now the scan is structural: action names, tiers, execution kinds, script filenames, allowlist entries. `email_send` is excluded from the pattern and checked SEPARATELY, because it has been a `simulate` stub for months; if it ever stops being one, that fires. A signal that fires on the thing already shipped is one that gets muted."
+          "evidence": "The first version regexed compiled source and produced two false positives immediately: `send` matched inside `email_send`, and `diagnos` matched `diagnostic` in a comment. Both are the same mistake \u2014 a line that MENTIONS an effect is not a line that performs one \u2014 and orion-authority already documents it about regex declarations. Now the scan is structural: action names, tiers, execution kinds, script filenames, allowlist entries. `email_send` is excluded from the pattern and checked SEPARATELY, because it has been a `simulate` stub for months; if it ever stops being one, that fires. A signal that fires on the thing already shipped is one that gets muted."
         }
       ],
       "nextPhaseAllowed": true,
@@ -5343,13 +5343,13 @@
         {
           "id": "creates_a_lightweight_watch_companion",
           "status": "blocked",
-          "evidence": "The manifest's own precondition is 'after mobile health and ORION Mobile are stable', and there is no ORION Mobile — no app target, no SwiftUI layer, no Keychain adapter. Adding one changes the app bundle's designated requirement, which every TCC grant and Keychain item on this machine is bound to. Parked deliberately, not skipped.",
+          "evidence": "The manifest's own precondition is 'after mobile health and ORION Mobile are stable', and there is no ORION Mobile \u2014 no app target, no SwiftUI layer, no Keychain adapter. Adding one changes the app bundle's designated requirement, which every TCC grant and Keychain item on this machine is bound to. Parked deliberately, not skipped.",
           "reason": "No iOS app exists, and creating the target risks the designated requirement. Parked until Nick is present."
         },
         {
           "id": "does_not_make_watch_the_source_of_truth",
           "status": "passed",
-          "evidence": "A PROHIBITION, and it holds — by absence today, and by architecture afterwards. Every store this system has lives on the Mac and the phone half (MobileCore, Phases 41-45) was deliberately built with no platform framework and no persistence of its own. A Watch reading those is a view; a Watch writing them would need a store that does not exist and would have to be built on purpose."
+          "evidence": "A PROHIBITION, and it holds \u2014 by absence today, and by architecture afterwards. Every store this system has lives on the Mac and the phone half (MobileCore, Phases 41-45) was deliberately built with no platform framework and no persistence of its own. A Watch reading those is a view; a Watch writing them would need a store that does not exist and would have to be built on purpose."
         }
       ],
       "nextPhaseAllowed": false
@@ -5371,12 +5371,12 @@
         {
           "id": "recognizes_confirmations_and_creates_trip_objects",
           "status": "passed",
-          "evidence": "Detection PROPOSES and never creates. A confirmation email is untrusted text and anyone can send one that looks real, so `detect` returns candidates with the verbatim line each came from, and a trip is only made by an explicit act with arguments from Nick's own turn. The patterns require a STRUCTURED token — an airline code plus digits near a departure word, a check-in line — because a loose pattern does not make a slightly-wrong trip, it makes a trip out of a marketing email. Four such emails are in the test and none matches. Repeats are deduplicated: the same confirmation arrives as booked, reminder and check-in, and three copies of one flight is a brief nobody reads."
+          "evidence": "Detection PROPOSES and never creates. A confirmation email is untrusted text and anyone can send one that looks real, so `detect` returns candidates with the verbatim line each came from, and a trip is only made by an explicit act with arguments from Nick's own turn. The patterns require a STRUCTURED token \u2014 an airline code plus digits near a departure word, a check-in line \u2014 because a loose pattern does not make a slightly-wrong trip, it makes a trip out of a marketing email. Four such emails are in the test and none matches. Repeats are deduplicated: the same confirmation arrives as booked, reminder and check-in, and three copies of one flight is a brief nobody reads."
         },
         {
           "id": "adjusts_schedule_timezone",
           "status": "blocked",
-          "evidence": "REPORTED, deliberately not applied, and this is a decision rather than a gap. `orion-timezone set` changes what every reminder, quiet-hours rule and calendar read believes the time is; a travel feature that moved it quietly would make all of them wrong on exactly the days Nick is least able to notice. The brief computes the shift at the trip's START rather than at now — New York to London differs by an hour depending on the date, so a single 'it is +5 there' is wrong for half the trip — and prints the exact command for him to run.",
+          "evidence": "REPORTED, deliberately not applied, and this is a decision rather than a gap. `orion-timezone set` changes what every reminder, quiet-hours rule and calendar read believes the time is; a travel feature that moved it quietly would make all of them wrong on exactly the days Nick is least able to notice. The brief computes the shift at the trip's START rather than at now \u2014 New York to London differs by an hour depending on the date, so a single 'it is +5 there' is wrong for half the trip \u2014 and prints the exact command for him to run.",
           "reason": "Applying the timezone is deliberately left to Nick; the brief reports the shift and gives the command."
         },
         {
@@ -5387,7 +5387,7 @@
         {
           "id": "says_how_sure_it_is",
           "status": "passed",
-          "evidence": "Phase 64's vocabulary used literally rather than as decoration. Every detected leg is `inferred` — a regex matched an email and nothing checked it against an airline — and the brief says so in as many words. Saying 'you fly at 19:25' about an inferred booking is exactly the failure Phase 64 exists to prevent."
+          "evidence": "Phase 64's vocabulary used literally rather than as decoration. Every detected leg is `inferred` \u2014 a regex matched an email and nothing checked it against an airline \u2014 and the brief says so in as many words. Saying 'you fly at 19:25' about an inferred booking is exactly the failure Phase 64 exists to prevent."
         }
       ],
       "nextPhaseAllowed": false
@@ -5415,7 +5415,7 @@
         {
           "id": "never_allows_an_ambiguous_high_cost_booking_without_clear_intent",
           "status": "passed",
-          "evidence": "A PROHIBITION, and it holds structurally today: nothing in this system spends money, no action names a price, and no payment rail is reachable. Phase 76's deferral check watches four separate patterns for it — autonomous purchasing, banking automation, autonomous payments, and the checkout shapes — and fails if any appears in the catalog, the scripts or the allowlist."
+          "evidence": "A PROHIBITION, and it holds structurally today: nothing in this system spends money, no action names a price, and no payment rail is reachable. Phase 76's deferral check watches four separate patterns for it \u2014 autonomous purchasing, banking automation, autonomous payments, and the checkout shapes \u2014 and fails if any appears in the catalog, the scripts or the allowlist."
         }
       ],
       "nextPhaseAllowed": false
@@ -5432,12 +5432,12 @@
         {
           "id": "defines_the_seven_items_before_implementation",
           "status": "passed",
-          "evidence": "This phase is unusual: its deliverable IS the definition, and the manifest says so. All seven are answered with a rule and the reasoning behind it. DISCLOSURE is fixed text in source, not a config value or a prompt, because a model that composes its own disclosure will eventually compose a shorter one — and if it fails to play, the call ends rather than proceeding undisclosed. CONSENT reuses the Phase 49 approval gate and states that `sovereign` must not relax it. RECORDING is a flat no, because recording law depends on where each party is physically standing and a system that cannot determine the applicable law cannot lawfully record. IMPERSONATION is three separate prohibitions because they fail separately. ESCALATION ends the call on any confusion and keeps a do-not-call record. IDENTITY VERIFICATION refuses in BOTH directions — it will not prove it is Nick, which is the interaction a SIM-swap runs on, and it will not accept a claim from the other end, because a call is untrusted external content. SENSITIVE INFORMATION is an allowlist rather than a denylist, because a call is a conversation and a denylist is the wrong shape for one."
+          "evidence": "This phase is unusual: its deliverable IS the definition, and the manifest says so. All seven are answered with a rule and the reasoning behind it. DISCLOSURE is fixed text in source, not a config value or a prompt, because a model that composes its own disclosure will eventually compose a shorter one \u2014 and if it fails to play, the call ends rather than proceeding undisclosed. CONSENT reuses the Phase 49 approval gate and states that `sovereign` must not relax it. RECORDING is a flat no, because recording law depends on where each party is physically standing and a system that cannot determine the applicable law cannot lawfully record. IMPERSONATION is three separate prohibitions because they fail separately. ESCALATION ends the call on any confusion and keeps a do-not-call record. IDENTITY VERIFICATION refuses in BOTH directions \u2014 it will not prove it is Nick, which is the interaction a SIM-swap runs on, and it will not accept a claim from the other end, because a call is untrusted external content. SENSITIVE INFORMATION is an allowlist rather than a denylist, because a call is a conversation and a denylist is the wrong shape for one."
         },
         {
           "id": "does_not_bolt_calls_onto_gmail_permissions",
           "status": "passed",
-          "evidence": "The document's structural conclusion, with the reasoning: a call is synchronous, has no draft state, makes the other party a participant rather than a recipient, and is the one channel where impersonation is the default failure. So a `calling` tier would be its own, at external_connected or above, listed explicitly rather than folded into anything — the same rule messages_send and self_modification already follow. Six preconditions are listed in order, and the sixth is an independent review, since this document was written by the same model that would build the feature."
+          "evidence": "The document's structural conclusion, with the reasoning: a call is synchronous, has no draft state, makes the other party a participant rather than a recipient, and is the one channel where impersonation is the default failure. So a `calling` tier would be its own, at external_connected or above, listed explicitly rather than folded into anything \u2014 the same rule messages_send and self_modification already follow. Six preconditions are listed in order, and the sixth is an independent review, since this document was written by the same model that would build the feature."
         },
         {
           "id": "nothing_telephony_has_been_built",
@@ -5479,7 +5479,7 @@
         {
           "id": "maintains_retention_limits",
           "status": "blocked",
-          "evidence": "location.json is overwritten so it holds one value, which is right. location-audit.jsonl is append-only and unbounded — deliberate for an audit trail, and genuinely a retention gap for a location trail specifically. It is two entries today. orion-privacy purge state removes location.json but not the audit, on purpose: an audit you can clear in one command is one an attacker clears in one command.",
+          "evidence": "location.json is overwritten so it holds one value, which is right. location-audit.jsonl is append-only and unbounded \u2014 deliberate for an audit trail, and genuinely a retention gap for a location trail specifically. It is two entries today. orion-privacy purge state removes location.json but not the audit, on purpose: an audit you can clear in one command is one an attacker clears in one command.",
           "reason": "The location audit trail is unbounded. Deliberate as an audit; a real retention gap for location specifically."
         }
       ],
@@ -5502,13 +5502,13 @@
         {
           "id": "tests_account_recovery_device_loss_and_secret_rotation",
           "status": "blocked",
-          "evidence": "ACCOUNT RECOVERY is not applicable and says so — there is no account, no server and no user record. DEVICE LOSS and SECRET ROTATION are documented as procedures in orion-incident's runbook and orion-backup --secrets, and neither has been exercised: one cannot be tested without losing the device, and the other needs credentials rotated at four issuers, which is Nick's to do and not something to rehearse casually.",
+          "evidence": "ACCOUNT RECOVERY is not applicable and says so \u2014 there is no account, no server and no user record. DEVICE LOSS and SECRET ROTATION are documented as procedures in orion-incident's runbook and orion-backup --secrets, and neither has been exercised: one cannot be tested without losing the device, and the other needs credentials rotated at four issuers, which is Nick's to do and not something to rehearse casually.",
           "reason": "Two of three are documented procedures that have never been exercised; the third does not apply."
         },
         {
           "id": "performs_the_external_reviews",
           "status": "blocked",
-          "evidence": "None performed, and none of them is something this system can perform on itself — that is the point of the list. Penetration testing, architecture review, privacy review, health regulatory review, Google OAuth verification, App Store privacy review and supply-chain review all require people who did not build it. The nearest internal analogue is Phase 75's independent review, which is itself outstanding.",
+          "evidence": "None performed, and none of them is something this system can perform on itself \u2014 that is the point of the list. Penetration testing, architecture review, privacy review, health regulatory review, Google OAuth verification, App Store privacy review and supply-chain review all require people who did not build it. The nearest internal analogue is Phase 75's independent review, which is itself outstanding.",
           "reason": "Seven external reviews, none performed. By construction they need outside parties."
         },
         {
@@ -5531,7 +5531,7 @@
         {
           "id": "does_not_rely_on_uuid_secrecy",
           "status": "passed",
-          "evidence": "Verifiable today and verified. Nothing in this system authorizes on an identifier being unguessable. An approval ticket id is FOUR characters and deliberately so — it is meant to be read aloud — and it grants nothing on its own: a grant additionally requires a 128-bit nonce that appears only in the ticket file, a matching canonical hash, a matching device id, an unexpired window, and a grantedBy that is not the local process. Guessing the id gets an attacker nothing, which is the property this rule is asking for."
+          "evidence": "Verifiable today and verified. Nothing in this system authorizes on an identifier being unguessable. An approval ticket id is FOUR characters and deliberately so \u2014 it is meant to be read aloud \u2014 and it grants nothing on its own: a grant additionally requires a 128-bit nonce that appears only in the ticket file, a matching canonical hash, a matching device id, an unexpired window, and a grantedBy that is not the local process. Guessing the id gets an attacker nothing, which is the property this rule is asking for."
         },
         {
           "id": "enforces_tenant_isolation_and_object_level_authorization",
@@ -5542,7 +5542,7 @@
         {
           "id": "adds_rate_limits_quotas_and_abuse_controls",
           "status": "blocked",
-          "evidence": "Partly present for a different reason and worth recording: orion-remote has a per-window RATE_CAP, the plugin refuses a third identical tool call in one run, and Phase 67's budgets cap tokens, model calls, tool calls and duration per day and per task. Those are runaway controls, not abuse controls — they bound one trusted user's accidents, not an adversary's deliberate load.",
+          "evidence": "Partly present for a different reason and worth recording: orion-remote has a per-window RATE_CAP, the plugin refuses a third identical tool call in one run, and Phase 67's budgets cap tokens, model calls, tool calls and duration per day and per task. Those are runaway controls, not abuse controls \u2014 they bound one trusted user's accidents, not an adversary's deliberate load.",
           "reason": "Runaway controls exist; abuse controls presuppose an untrusted user, and there is not one."
         },
         {
@@ -5594,7 +5594,7 @@
       {
         "on": "2026-09-04",
         "checkpoint": "The manifest's three closing sections",
-        "detail": "The plan ends at Phase 84 and is followed by PERMANENT ARCHITECTURAL RULES, REQUIRED BUILD ORDER and FINAL SUCCESS CONDITION. None is a numbered phase and none had ever been checked. RULES: all twenty-four are now assertions in scripts/orion_v2_rules_check.py — 21 held, 2 recorded as judgement with a position rather than a score, 1 VIOLATED. It found two real problems on its first run: the installed extension shipped compiled test files carrying synthetic credential fixtures (fixed by not shipping tests, which also removed a third of the installed bytes), and the public-port assertion was too broad and flagged macOS's own AirPlay and Continuity listeners (narrowed to ORION's processes, with the OS's reported as context rather than silently excluded). BUILD ORDER: followed in substance rather than in sequence. The order assumes a backend, a database, a credential vault, account auth and a mobile shell early; none exists, and the local-first path took the same steps in a different order — capability system, policy engine and audit before any of the remote work. Recorded as a deviation rather than claimed as compliance. FINAL SUCCESS CONDITION: scripts/orion-readiness answers all sixteen. 8 met, 5 partly, 1 not met, 2 not applicable yet."
+        "detail": "The plan ends at Phase 84 and is followed by PERMANENT ARCHITECTURAL RULES, REQUIRED BUILD ORDER and FINAL SUCCESS CONDITION. None is a numbered phase and none had ever been checked. RULES: all twenty-four are now assertions in scripts/orion_v2_rules_check.py \u2014 21 held, 2 recorded as judgement with a position rather than a score, 1 VIOLATED. It found two real problems on its first run: the installed extension shipped compiled test files carrying synthetic credential fixtures (fixed by not shipping tests, which also removed a third of the installed bytes), and the public-port assertion was too broad and flagged macOS's own AirPlay and Continuity listeners (narrowed to ORION's processes, with the OS's reported as context rather than silently excluded). BUILD ORDER: followed in substance rather than in sequence. The order assumes a backend, a database, a credential vault, account auth and a mobile shell early; none exists, and the local-first path took the same steps in a different order \u2014 capability system, policy engine and audit before any of the remote work. Recorded as a deviation rather than claimed as compliance. FINAL SUCCESS CONDITION: scripts/orion-readiness answers all sixteen. 8 met, 5 partly, 1 not met, 2 not applicable yet."
       }
     ]
   },
@@ -5670,7 +5670,7 @@
       {
         "id": "atlas_knowledge_app",
         "raisedBy": "Nick, 2026-09-06: asked for Atlas to become a real application with agent tools and for Orion Brain to know how to use them",
-        "manifestCoverage": "none — the manifest covers Orion's internal memory and integrations, not a separate user-visible general knowledge application",
+        "manifestCoverage": "none \u2014 the manifest covers Orion's internal memory and integrations, not a separate user-visible general knowledge application",
         "alreadyLive": "Atlas is a separate sandboxed SwiftUI application. ORION's candidate plugin adds a dedicated atlas_notes tier and five typed actions over an owner-only local bridge; deployment evidence is recorded in the current handoff.",
         "layer": "a typed local application integration, not a model role and not general filesystem authority. Atlas owns validation and persistence; Orion never opens the SwiftData store directly.",
         "wouldBelongNear": "PHASE 65 App Intents and System Integration, while Atlas itself remains a separate product",
@@ -5765,20 +5765,20 @@
       "confirmed": [
         "The approval gate cannot be self-satisfied. It tried to construct a path from data the caller can compute and could not. All four boundary claims verified against the live machine, including that orion-approve, orion-mode and orion-automation are absent from the real allowlist.",
         "Mutations that fail by name: removing the local-sender refusal, deleting the trusted_user filter, and re-accepting the model-supplied hash.",
-        "devops.ts is genuinely closed — limits of 1.5, -1, 999, NaN and '3 --output=/tmp/x' all refused; no path argument exists anywhere.",
+        "devops.ts is genuinely closed \u2014 limits of 1.5, -1, 999, NaN and '3 --output=/tmp/x' all refused; no path argument exists anywhere.",
         "orion-deploy's order is as claimed, with the suite gate before the install.",
         "Absence claims verified by enumeration rather than grep: 27 execution kinds, zero raw-shell."
       ],
       "findings": [
-        "SERIOUS: the strictness ladder was never wired to enforcement. strictness.ts was imported by exactly two non-test files — index.ts for a status readout and orion-authority for documentation — and validator.ts had never seen a mode. So `orion-mode contained` reported 'everything else asks first' and changed nothing that runs, and orion-incident freeze declined to drop the permission profile on the stated grounds that 'contained already stops every write'. That premise was false.",
-        "SERIOUS: a live credential was inside the backup. exec-approvals.json is staged and contains socket.token, 32 characters. Both exclusion layers matched filenames only, and the MANIFEST asserted 'No secret is in this archive'. The backup check never exercised the real sources() list — it planted a .env in its own fixture.",
-        "trusted_user is wider than 'Nick's own words'. hydrateFromTranscript mints it from any role:user line, and across 482 session files 496 such turns carry machine-authored prose. The orion-remote briefing — which opens 'Context from the transport, not from Nick' — contains the literal words 'yes, approve A-7F3K'. It did not approve anything, but only because exec matched the first occurrence, which sat in a non-affirmative clause. The guard was match ordering.",
+        "SERIOUS: the strictness ladder was never wired to enforcement. strictness.ts was imported by exactly two non-test files \u2014 index.ts for a status readout and orion-authority for documentation \u2014 and validator.ts had never seen a mode. So `orion-mode contained` reported 'everything else asks first' and changed nothing that runs, and orion-incident freeze declined to drop the permission profile on the stated grounds that 'contained already stops every write'. That premise was false.",
+        "SERIOUS: a live credential was inside the backup. exec-approvals.json is staged and contains socket.token, 32 characters. Both exclusion layers matched filenames only, and the MANIFEST asserted 'No secret is in this archive'. The backup check never exercised the real sources() list \u2014 it planted a .env in its own fixture.",
+        "trusted_user is wider than 'Nick's own words'. hydrateFromTranscript mints it from any role:user line, and across 482 session files 496 such turns carry machine-authored prose. The orion-remote briefing \u2014 which opens 'Context from the transport, not from Nick' \u2014 contains the literal words 'yes, approve A-7F3K'. It did not approve anything, but only because exec matched the first occurrence, which sat in a non-affirmative clause. The guard was match ordering.",
         "automation.ts used `p.action in AUTOMATION_ACTIONS`, which walks the prototype chain: constructor, toString, valueOf and __proto__ all passed a check whose job is to say the table is closed.",
         "Phase 49's evidence said restoring the old hash acceptance fails four named assertions. It fails three.",
         "orion-authority claimed the unclassified->APPROVAL rung means 'adding an allowlist entry cannot quietly grant silent execution'. With ask:off and askFallback:deny there is no ask state; it is a report, not a gate.",
         "Phase 67's model counts and Phase 50's ladder numbers were pinned and are stale; Phase 52 cited askFallback in the wrong file; the Phase 76 alarm scans the installed dist rather than source, so an undeployed arrival is invisible."
       ],
-      "verdict": "Two findings with real safety cost, both repaired the same day with a named failing test for each. The gate's core claim — that the agent cannot satisfy its own approval — survived a direct attempt to break it."
+      "verdict": "Two findings with real safety cost, both repaired the same day with a named failing test for each. The gate's core claim \u2014 that the agent cannot satisfy its own approval \u2014 survived a direct attempt to break it."
     }
   ]
 }

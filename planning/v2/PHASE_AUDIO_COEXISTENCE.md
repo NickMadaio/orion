@@ -1,6 +1,6 @@
 # Audio coexistence — measured, not reasoned
 
-Item 6 of `NIGHT_RUN_2026-09-05.md`: *"music sounds terrible the second I talk
+Item 6 of `HANDOFF.md`: *"music sounds terrible the second I talk
 to him; duck and restore instead."* Nick assumed the quality loss was
 unavoidable and asked for masking. It is not unavoidable. This note records
 what was measured, what was built, and what still needs a two-line diff in

@@ -8,17 +8,25 @@ Not to be confused with `openclaw-workspace/AGENTS.md`, which is Orion's OWN
 runtime instructions — how the assistant behaves when it is running. This file
 is about the codebase.
 
-Companion docs: `HANDOFF.md` (running log of completed work), `OVERNIGHT-LOG.md`,
-`planning/` (design docs), `native/Orion/README.md` (the app itself).
+**HANDOFF: `HANDOFF.md` (last updated 2026-09-07)** — where the program is, all
+85 phases with what is unmet on each, what only Nick can do, and the lessons this
+project keeps re-learning. Read it first. It is the ONLY handoff: four parallel
+narratives were consolidated into it on 2026-09-07, because four files each
+claiming to say where the program stood was four chances to read the stale one.
 
-Current ORION v2 state and exact continuation steps live in
-`planning/v2/HANDOFF.md`. Phase 32.5's product charter and additive recovery
-gates live in `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
+The one exception is `planning/v2/HANDOFF.md`, which is CLOSED and says so at the
+top. It survives only because `PHASE_GATES.json` cites it as evidence for phases
+1–33; it is a record, not a place to look for what is current.
+
+Other companions: `planning/` (design docs, including one `PHASE_N_PLAN.md` per
+phase), `native/Orion/README.md` (the app), `NICK-TODO.md` (what Nick is waiting
+on). Phase 32.5's product charter and additive recovery gates are in
+`planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
 `planning/v2/ROADMAP_AMENDMENTS.json`; `planning/v2/SESSION_LOG_2026-08-25.md`
-summarises phases 5-20 on one page. Read them before changing v2 contracts or
-the OpenClaw integration, and preserve the shared dirty worktree.
+summarises phases 5–20 on one page. Read those before changing v2 contracts or
+the OpenClaw integration.
 
-Last updated 2026-09-01.
+Last updated 2026-09-07.
 
 ---
 
@@ -74,8 +82,8 @@ are the entire channel, so treat them as the job rather than the paperwork.
 
 **Read before you touch anything:** this file, `HANDOFF.md`, `NICK-TODO.md`, and
 — only for the history of phases 1-33 — the CLOSED `planning/v2/HANDOFF.md`,
-which ends on 2026-09-01 and says so at the top. The root `HANDOFF.md` is the
-live one. For work after Phase 32, also read
+which ends on 2026-09-01 and says so at the top. `HANDOFF.md` is the live one and
+the only one. For work after Phase 32, also read
 `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
 `planning/v2/ROADMAP_AMENDMENTS.json`.
 

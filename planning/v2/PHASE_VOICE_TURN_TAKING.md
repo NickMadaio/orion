@@ -1,6 +1,6 @@
 # Voice turn-taking — item 4, revamped
 
-Item 4 of `NIGHT_RUN_2026-09-05.md`: *"speaking software — he STILL cuts me
+Item 4 of `HANDOFF.md`: *"speaking software — he STILL cuts me
 off; revamp it."* Blocked on item 3 (A3) because both touch the same files;
 A3's watchdog/progress work (`StallWatchdog`, `RunProgressModel`,
 `RunTimeouts`) is now committed, so this pass is unblocked. Nick's own

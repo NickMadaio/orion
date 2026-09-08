@@ -26,7 +26,7 @@ coordinates an integration change:
 - `native/OrionMacBridge/**`
 - existing files under `openclaw-plugins/orion-control/**`
 - existing `scripts/orion-*` files that do not start with `orion_v2_`
-- root `HANDOFF.md`, `OVERNIGHT-LOG.md`, and `planning/HANDOFF.md`
+- root `HANDOFF.md`, `HANDOFF.md`, and `HANDOFF.md`
 
 This includes `AppState.swift`, `GatewayClient.swift`, SwiftUI views,
 `SessionDomain`, and `SessionService`. SessionService remains the sole

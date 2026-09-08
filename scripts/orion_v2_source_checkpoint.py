@@ -21,7 +21,10 @@ ALLOWED_ROOTS = {
     "scripts",
     "tests",
 }
-ALLOWED_ROOT_FILES = {"HANDOFF.md", "OVERNIGHT-LOG.md"}
+# One handoff, so there is one place to look. OVERNIGHT-LOG.md was removed on
+# 2026-09-07 along with three other parallel narratives -- four files all
+# claiming to say where the program was is four chances to read the stale one.
+ALLOWED_ROOT_FILES = {"HANDOFF.md"}
 EXCLUDED_PREFIXES = (".builds/", "openclaw-workspace/", "planning/_archive/")
 SECRET_NAMES = {".env", ".env.save"}
 BRANCH_PATTERN = re.compile(r"orion-v2/source-checkpoint-[A-Za-z0-9._-]+\Z")

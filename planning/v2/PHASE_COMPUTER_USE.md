@@ -8,7 +8,7 @@ Privacy Layer) and Phase 55 (Prompt Injection Defense for Computer Use, the
 Read `AGENTS.md`'s phase-gate protocol before treating this as a closure of
 those three gates — this document is the evidence a gate review would read,
 not the review itself. `PHASE_GATES.json` entries for 53/54/55 are owned by
-the concurrent session working `planning/v2/CAPABILITY_REPAIR_2026-09-07.md`
+the concurrent session working `HANDOFF.md`
 and `planning/v2/capability-registry.json`; this document does not edit them.
 
 ## What this is, in one paragraph

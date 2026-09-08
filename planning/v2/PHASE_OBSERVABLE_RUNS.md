@@ -1,6 +1,6 @@
 # Observable runs — 2026-09-05
 
-Nick's complaint, verbatim, from `NIGHT_RUN_2026-09-05.md` item 3:
+Nick's complaint, verbatim, from `HANDOFF.md` item 3:
 
 > "sometimes he times out... i cant tell if hes actually working and thinking
 > and its just taking a while or if hes timing out. Claude and Chat both show

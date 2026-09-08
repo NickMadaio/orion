@@ -27,7 +27,6 @@ class SourceCheckpointTests(unittest.TestCase):
             "scripts/orion-repair",
             "tests/test_orion_recall.py",
             "HANDOFF.md",
-            "OVERNIGHT-LOG.md",
         ):
             with self.subTest(path=path):
                 self.assertTrue(checkpoint.checkpoint_path(path))

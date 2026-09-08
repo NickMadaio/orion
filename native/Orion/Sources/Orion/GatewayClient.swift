@@ -73,31 +73,10 @@ enum GatewayClient {
         return 18789
     }
 
-    /// A TCP connect is enough: we only need to know the listener is there.
-    /// Loopback either connects or refuses immediately, so a blocking connect
-    /// cannot hang — but call this off the main thread anyway.
-    static func isUp(timeout: TimeInterval = 0.4) -> Bool {
-        let handle = socket(AF_INET, SOCK_STREAM, 0)
-        guard handle >= 0 else { return false }
-        defer { Darwin.close(handle) }
-
-        var tv = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - Double(Int(timeout))) * 1_000_000))
-        setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(handle, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-
-        var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        let resolved = min(max(port(), 1), 65535)
-        addr.sin_port = UInt16(resolved).bigEndian
-        addr.sin_addr.s_addr = UInt32(0x7F00_0001).bigEndian // 127.0.0.1
-
-        let status = withUnsafePointer(to: &addr) { pointer -> Int32 in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                Darwin.connect(handle, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        return status == 0
+    /// Compatibility helper for callers that need a Boolean. A listening port
+    /// alone is not service readiness.
+    static func isUp(timeout: TimeInterval = 0.8) -> Bool {
+        GatewayHealthProbe.check(port: port(), timeout: timeout).availability == .ready
     }
 
     // MARK: One agent turn

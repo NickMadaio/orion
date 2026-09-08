@@ -5,26 +5,14 @@ working rules for Claude, Codex and other coding assistants.
 
 ## Where the program is
 
-**Phases 0-39, 41, 42 and 44 are complete. Three are open:**
+Use `planning/v2/PHASE_GATES.json` for phase state and `HANDOFF.md` for live
+product evidence. Older phase counts and Discord setup instructions in this
+entrypoint were superseded; do not infer a running channel or an unconfigured
+account from them. Verify the installed route before claiming it works.
 
-- **40** — 9/10. The live cron jobs stay pinned `America/New_York` until Nick
-  actually moves; `orion-timezone set Europe/London` closes it in one command.
-- **43** — 8/9. Only reauthentication remains; the three transport-dependent
-  requirements closed on 2026-09-02.
-- **45** — 11/12. Everything is built and proven; one full Discord round trip is
-  outstanding because no account is allowlisted yet.
-
-**The Discord channel is live and PERSISTENT.** `scripts/orion-remote-install`
-runs the bridge under launchd from a copy at `~/.openclaw/orion-remote` — which
-is how the long-standing "launchd cannot read ~/Desktop" constraint was solved:
-install outside Desktop rather than fight TCC. A DM reaches the Orion BRAIN in
-session `orion-app-v2`, the same one the Mac app uses, so it is one Orion with
-one memory. The ten verbs remain as fast paths. The INSTALLED copy is what runs;
-`--status` says when it has drifted from the repo. `ORION_REMOTE_ALLOW` refuses everyone by default; the candidate id
-sits commented out in `.env`, because granting an account authority over this Mac
-is a person's decision rather than an inference. Phase 46 must not start before
-that round trip happens; it is a registered blocked requirement, so the gate
-validator enforces it.
+The current product delivery plan is
+`planning/v2/PRODUCT_VISION_DELIVERY_2026-09-07.md`. It maps the supplied vision
+to existing phases and recovery gates without replacing the numbered sequence.
 
 The program is 85 numbered phases. The manifest is
 `planning/v2/MANIFEST_PHASES.json`, generated from

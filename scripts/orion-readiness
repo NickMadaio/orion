@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""The manifest's FINAL SUCCESS CONDITION, answered against the running system.
+"""A static design assessment of the manifest's FINAL SUCCESS CONDITION.
+
+This is a reviewed assertion list, not a live readiness probe. It does not
+execute the checks named in its evidence. Use runtime probes for availability.
 
 The programme ends with sixteen conditions and one instruction:
 
@@ -87,7 +90,8 @@ CONDITIONS = [
     ("tasks and calendar planning work together", "PARTLY",
      "They are read together and reported together: the morning brief joins commitments, due "
      "tasks, projects and the waiting list, and a focus session can bind to a calendar block. "
-     "Nothing PLANS — nothing proposes a schedule or moves an event."),
+     "MobileCore/DailyPlanning.swift builds day proposals, but the Mac app does not call "
+     "DayPlan.propose. A delivered proposal, completion and replan route remains missing."),
 
     ("ORION understands state without pretending to provide medical certainty", "MET",
      "orion-standing prints a recovery figure only if it is in the file and stamped today; a "
@@ -149,6 +153,8 @@ def main() -> int:
 
     if wants_json:
         print(json.dumps({
+            "assessmentKind": "static_design_review",
+            "runtimeVerified": False,
             "conditions": [
                 {"condition": text, "verdict": verdict, "evidence": evidence}
                 for text, verdict, evidence in CONDITIONS
@@ -158,7 +164,8 @@ def main() -> int:
         return 0
 
     print("")
-    print("  ORION v2 — the manifest's final success condition, sixteen parts")
+    print("  ORION v2 — static design assessment, sixteen conditions")
+    print("  These are recorded claims, not live checks; availability is not verified here.")
     print("")
     for index, (text, verdict, evidence) in enumerate(CONDITIONS, start=1):
         print(f"  {index:2}. [{verdict:^8}] {text}")
@@ -168,10 +175,10 @@ def main() -> int:
 
     print("  " + "  ".join(f"{verdict}: {count}" for verdict, count in counts.items()))
     print("")
-    print("  The instruction under this list is 'build the safe operating system first,")
-    print("  then give ORION more power'. On that reading the position is honest: the")
-    print("  safety conditions are the ones that are MET, and the ones outstanding are")
-    print("  outstanding because a phone, a cloud and a second device do not exist.")
+    print("  These verdicts summarize recorded design evidence. They do not certify")
+    print("  current safety or availability. Connected planning, durable backend")
+    print("  adapters, mobile delivery and real-route verification remain software")
+    print("  work; additional devices alone do not close those gaps.")
     print("")
     return 0
 

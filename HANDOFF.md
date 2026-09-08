@@ -10,6 +10,42 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-07 22:47 EDT — Product vision and first connection repair
+
+Nick asked to assess the supplied product vision and start implementation. The
+full delivery map is `planning/v2/PRODUCT_VISION_DELIVERY_2026-09-07.md`; the
+first slice and proof record are in
+`planning/v2/RUNTIME_CONNECTION_IMPLEMENTATION_2026-09-07.md`.
+
+Found: installed Mac build 217, gateway and remote bridge running, valid live and
+ready gateway probes. This supersedes the supplied document's earlier down
+snapshot. Gates contain 45 complete, 26 in progress, 14 not started; the old
+AGENTS/CLAUDE phase summaries were stale and now route to the canonical records.
+No phase was advanced. DayPlan.propose exists but has no Mac app consumer.
+
+Changed: typed bounded gateway health/readiness probe, expiring evidence,
+contextual Home connection state, consistent dashboard/menu/preferences labels,
+open-menu expiry/recovery refresh, and honest static-readiness labeling. Readiness
+is not proof of a complete turn or an individual connector. No service restart,
+install, permission/configuration change, credential access or remote push.
+
+Verification: Mac build passes; 402 native XCTest cases, 26 connection checks,
+nine real loopback scenarios, five menu checks pass. Five critical mutants are
+caught. Component render inspected; production probe passes against the installed
+gateway. Independent review findings repaired. Source/history secret scan clean
+with the existing reviewed allowlist. Full installed UI/voice/conversation proof
+remains outstanding; build 217 is still installed.
+
+Rollback: isolated local source checkpoint; patch and logs at
+`.builds/product-vision-2026-09-07/`. Do not reset the mixed tree. The existing
+`planning/learning-proposals.md` edit was excluded. Next: finish candidate Home
+layout/release proof, then wire real agenda/tasks to a persisted Today/Plan
+revision with completion/replan/undo using MobileCore. Follow the delivery plan's
+REC-USABLE-CLIENT and REC-LIVE-FOUNDATION path; do not mistake this first repair
+for complete runtime recovery or delivery of the whole vision.
+
+---
+
 ## 1. Where the program is
 
 **45 of 85 phases complete.** 25 part-done, 15 not started. The manifest is

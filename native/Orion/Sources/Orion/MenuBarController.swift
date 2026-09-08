@@ -11,6 +11,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
+    private var menuStatusTimer: Timer?
 
     private let toggleItem = NSMenuItem(title: "Show Orion", action: nil, keyEquivalent: "o")
     private let gatewayItem = NSMenuItem(title: "Gateway: checking…", action: nil, keyEquivalent: "")
@@ -130,17 +131,29 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         state.refreshStatus()
         state.refreshPermissions()
         refresh()
+        menuStatusTimer?.invalidate()
+        // Menu tracking uses a different run-loop mode. Keep both recovery
+        // observations and the 20-second evidence expiry visible while open.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
+        menuStatusTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .eventTracking)
     }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuStatusTimer?.invalidate()
+        menuStatusTimer = nil
+    }
+
+    deinit { menuStatusTimer?.invalidate() }
 
     func refresh(panelVisible: Bool? = nil) {
         if let panelVisible {
             toggleItem.title = panelVisible ? "Hide Orion" : "Show Orion"
         }
-        gatewayItem.title = state.gatewayUp
-            ? "Gateway: up on port \(GatewayClient.port())"
-            : "Gateway: not reachable on port \(GatewayClient.port())"
+        gatewayItem.title = state.gatewayAvailability.title
         voiceItem.title = state.voiceUp
-            ? "Voice: warm daemon connected"
+            ? "Voice: daemon reachable"
             : "Voice: daemon not running (built-in voice will be used)"
         providerItem.title = "Providers: \(state.voiceSummary)"
         if state.accessibilityTrusted {

@@ -79,7 +79,10 @@ final class AppState: ObservableObject {
     /// twice, and a Bool that is already `true` publishes no change.
     @Published var focusComposerToken: UInt = 0
 
-    @Published private(set) var gatewayUp = false
+    @Published private(set) var gatewayHealth = GatewayHealthSnapshot.initial
+    var gatewayAvailability: GatewayAvailability { gatewayHealth.current() }
+    var gatewayUp: Bool { gatewayAvailability == .ready }
+    private var statusRefreshInFlight = false
     @Published private(set) var voiceUp = false
     @Published private(set) var accessibilityTrusted = false
     @Published private(set) var micDenied = false
@@ -1944,12 +1947,17 @@ final class AppState: ObservableObject {
     // MARK: Status and permissions
 
     func refreshStatus() {
+        // Timer, menu and retry share one probe, so repeated clicks cannot queue
+        // old observations behind a slow service. All callers are on main.
+        guard !statusRefreshInFlight else { return }
+        statusRefreshInFlight = true
         statusQueue.async { [weak self] in
-            let gateway = GatewayClient.isUp()
+            let gateway = GatewayHealthProbe.check(port: GatewayClient.port())
             let voice = TTSClient.isReachable()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.gatewayUp = gateway
+                self.statusRefreshInFlight = false
+                self.gatewayHealth = gateway
                 self.voiceUp = voice
             }
         }
@@ -1981,8 +1989,8 @@ final class AppState: ObservableObject {
     }
 
     var statusSummary: String {
-        let gateway = gatewayUp ? "gateway up" : "gateway down"
-        let voice = voiceUp ? "voice warm" : "voice cold"
+        let gateway = gatewayAvailability.title
+        let voice = voiceUp ? "voice daemon reachable" : "voice fallback"
         return "\(gateway) · \(voice)"
     }
 

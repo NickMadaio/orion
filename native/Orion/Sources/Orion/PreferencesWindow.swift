@@ -153,8 +153,8 @@ struct PreferencesView: View {
             Divider()
 
             section("Connections") {
-                row("Gateway", state.gatewayUp ? "up · 127.0.0.1:\(GatewayClient.port())"
-                                               : "unreachable · 127.0.0.1:\(GatewayClient.port())")
+                row("Gateway", state.gatewayAvailability.title)
+                Text(state.gatewayAvailability.detail).font(.caption).foregroundStyle(.secondary)
                 row("Voice daemon", state.voiceUp ? "connected" : "not running")
                 row("Session key", GatewayClient.sessionKey)
             }

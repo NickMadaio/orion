@@ -324,8 +324,8 @@ struct DashboardView: View {
             }
             hairline
             StatChip(icon: state.gatewayUp ? "bolt.fill" : "bolt.slash.fill",
-                     value: state.gatewayUp ? "online" : "offline",
-                     tint: state.gatewayUp ? OrionTheme.green : OrionTheme.red)
+                     value: state.gatewayAvailability.title,
+                     tint: state.gatewayUp ? OrionTheme.green : OrionTheme.orange)
         }
         .fixedSize()
     }

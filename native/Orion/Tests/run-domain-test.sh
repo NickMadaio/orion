@@ -44,4 +44,7 @@ if [ ! -d "$XCODE" ]; then
 fi
 
 cd "$ROOT" || exit 2
-DEVELOPER_DIR="$XCODE" swift test "$@"
+DEVELOPER_DIR="$XCODE" swift test "$@" || exit $?
+# The app's connection claim also has a credential-free, local transport suite.
+# Keep it on the normal native test route rather than as an undiscovered script.
+"$HERE/run-gateway-health-test.sh"

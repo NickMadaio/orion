@@ -136,7 +136,7 @@ struct HomeTab: View {
     /// becoming a wall on a 6K display. The subtraction is the composer and the
     /// phase line, which sit below it.
     private var coreSize: CGFloat {
-        let forComposer: CGFloat = 96
+        let forComposer: CGFloat = 180
         return min(760, max(360, availableHeight - forComposer))
     }
 
@@ -183,6 +183,7 @@ struct HomeTab: View {
                 .shadow(color: OrionTheme.accent.opacity(composerFocused ? 0.45 : 0), radius: 5)
 
             phaseLine
+            RuntimeConnectionView(snapshot: state.gatewayHealth, refresh: state.refreshStatus)
             sessionCard
             previewControls
         }
@@ -262,7 +263,7 @@ struct HomeTab: View {
 
     private var phaseTitle: String {
         switch state.phase {
-        case .idle: "Orion is ready"
+        case .idle: "Awaiting your request"
         case .listening: "Listening"
         case .thinking: "Thinking"
         case .speaking: "Speaking"
@@ -272,7 +273,7 @@ struct HomeTab: View {
 
     private var phaseColor: Color {
         switch state.phase {
-        case .idle: OrionTheme.green
+        case .idle: OrionTheme.textDim
         case .listening: OrionTheme.accent
         case .thinking: OrionTheme.violet
         case .speaking: OrionTheme.orange

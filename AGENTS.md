@@ -32,8 +32,10 @@ Last updated 2026-09-07.
 
 ## Where the program is, and how to read a phase
 
-**Phases 0-33 are complete. Phase 40 is partially done. Phases 34-39 are not
-started, and the next work is Phase 34 onward in numeric order.**
+**Current phase status comes from `planning/v2/PHASE_GATES.json`; current
+product and installed-state evidence comes from `HANDOFF.md`.** The old
+“Phase 34 onward” snapshot here is superseded. Historical closure records do not
+prove that a capability is connected to the current product route.
 
 85 numbered phases, manifest at `planning/v2/MANIFEST_PHASES.json`, generated
 from `~/Desktop/Orion v two implementation plan.md`. **Phase numbers are the only

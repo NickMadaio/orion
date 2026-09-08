@@ -41,6 +41,8 @@ mutations = [
     ('wrong-replay', store, 'receipt.fingerprint == fingerprint', 'true', 'testReplayIdentifierCannotAuthorizeDifferentContent'),
     ('lost-undo', store, 'document.undo = document.current', 'document.undo = nil', 'testAtomicRevisionSurvivesReopenAndUndo'),
     ('free-time', scheduler, 'available - preferences.freeMinutes', 'available', 'testFreeTimeIsReservedBeforeSelectingWork'),
+    ('lost-pin', scheduler, 'isPinned: true', 'isPinned: false', 'testPinnedSlotSurvivesReplanningWhileOtherTasksMove'),
+    ('moved-pin', scheduler, 'start: pin.start, end: pin.end, isPinned: true', 'start: pin.start.addingTimeInterval(900), end: pin.end.addingTimeInterval(900), isPinned: true', 'testPinnedSlotSurvivesReplanningWhileOtherTasksMove'),
     ('deadline-order', scheduler, '($0.priority, $0.due ?? .distantFuture, $0.id) < ($1.priority, $1.due ?? .distantFuture, $1.id)', '($0.priority, $0.id) < ($1.priority, $1.id)', 'testEqualPriorityTasksUseDeadlinesBeforeSourceIdentifiers'),
 ]
 for name, path, old, new, expected in mutations:

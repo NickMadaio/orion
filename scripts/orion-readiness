@@ -91,7 +91,7 @@ CONDITIONS = [
      "They are read together and reported together: the morning brief joins commitments, due "
      "tasks, projects and the waiting list, and a focus session can bind to a calendar block. "
      "The Mac Today source now consumes MobileCore timeline proposals and persists accepted "
-     "local revisions with completion, replan and undo. Pinning and installed normal-route "
+     "local revisions with completion, replan, pins and undo. Installed normal-route "
      "verification remain outstanding; this static report does not prove deployment."),
 
     ("ORION understands state without pretending to provide medical certainty", "MET",

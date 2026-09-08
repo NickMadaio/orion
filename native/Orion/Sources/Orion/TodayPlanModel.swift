@@ -87,7 +87,7 @@ final class TodayPlanModel: ObservableObject {
         edits[id] ?? current()?.tasks.first(where: { $0.id == id })?.minutes ?? preferences.defaultTaskMinutes
     }
 
-    enum Change { case plan, replan, finish(String), moreTime(String) }
+    enum Change { case plan, replan, finish(String), moreTime(String), pin(String), unpin(String), unpinAll }
 
     func preview(_ change: Change, now: Date = Date()) {
         guard loaded, !isSaving else { return }
@@ -97,6 +97,12 @@ final class TodayPlanModel: ObservableObject {
             var complete = Set(old?.completedIDs ?? [])
             var durations = edits
             var favored: String?
+            // A successful full source snapshot can confirm completion/deletion.
+            // Release those slots in the preview; failed reads never reach here.
+            let unfinishedSources = Set(inputs.tasks.filter { !$0.completedInSource }.map(\.id))
+            var pins = (old?.blocks ?? []).filter { $0.pinned && unfinishedSources.contains($0.sourceID ?? "") }.compactMap { block in
+                block.sourceID.map { TodayPlanPin(taskID: $0, start: block.start, end: block.end) }
+            }
             let reason: String
             switch change {
             case .plan: reason = "A day proposal from your calendar, tasks and chosen time budgets."
@@ -104,7 +110,19 @@ final class TodayPlanModel: ObservableObject {
             case .finish(let id):
                 guard old?.blocks.contains(where: { $0.kind == .task && $0.sourceID == id }) == true else { throw TodayPlanError.unknownBlock }
                 complete.insert(id)
+                pins.removeAll { $0.taskID == id }
                 reason = "Finished a block. The remaining day is proposed again; the source reminder is unchanged."
+            case .pin(let id):
+                guard let block = old?.blocks.first(where: { $0.kind == .task && $0.sourceID == id }), !block.pinned else { throw TodayPlanError.unknownBlock }
+                pins.append(TodayPlanPin(taskID: id, start: block.start, end: block.end))
+                reason = "Pin this task's current slot. Future revisions must preserve it or report a conflict."
+            case .unpin(let id):
+                guard old?.blocks.contains(where: { $0.pinned && $0.sourceID == id }) == true else { throw TodayPlanError.unknownBlock }
+                pins.removeAll { $0.taskID == id }
+                reason = "Release this task's pinned slot and preview where the remaining work fits."
+            case .unpinAll:
+                pins = []
+                reason = "Release all pinned slots. Review the new times before applying this revision."
             case .moreTime(let id):
                 guard let block = old?.blocks.first(where: { $0.kind == .task && $0.sourceID == id }) else { throw TodayPlanError.unknownBlock }
                 durations[id] = max(0, Int(ceil(block.end.timeIntervalSince(max(now, block.start)) / 60))) + 15
@@ -117,7 +135,7 @@ final class TodayPlanModel: ObservableObject {
                               priority: favored == task.id ? -100 : task.priority, due: task.due, completedInSource: task.completedInSource)
             }
             proposal = try TodayPlanScheduler.propose(now: now, timeZone: inputs.timeZone, preferences: preferences,
-                                                     tasks: tasks, commitments: inputs.commitments, completedIDs: complete,
+                                                     tasks: tasks, commitments: inputs.commitments, completedIDs: complete, pins: pins,
                                                      reason: reason, sourceFingerprint: inputs.fingerprint)
             proposalRevision = document.revision; operationID = UUID(); error = nil
         } catch { proposal = nil; self.error = error.localizedDescription }

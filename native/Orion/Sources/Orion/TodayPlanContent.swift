@@ -12,6 +12,7 @@ struct TodayPlanContent: View {
     @Binding var expanded: Bool
     var finish: (String) -> Void
     var moreTime: (String) -> Void
+    var togglePin: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -52,12 +53,13 @@ struct TodayPlanContent: View {
                                 .foregroundStyle(OrionTheme.textSoft)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(block.title).font(.system(size: 13, weight: block.contains(now) ? .semibold : .regular))
-                                Text(block.kind == .task ? "Planned work · estimated \(block.minutes) min" : block.kind == .free ? "Yours to use freely" : block.kind == .commitment ? "Calendar commitment" : "Protected transition")
+                                Text(block.kind == .task ? "\(block.pinned ? "Pinned slot" : "Planned work") · estimated \(block.minutes) min" : block.kind == .free ? "Yours to use freely" : block.kind == .commitment ? "Calendar commitment" : "Protected transition")
                                     .font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft)
                                 if block.kind == .task, let id = block.sourceID, !isProposal {
                                     HStack(spacing: 14) {
                                         Button("Finish block") { finish(id) }
                                         Button("15 more minutes") { moreTime(id) }
+                                        Button(block.pinned ? "Unpin slot" : "Pin slot") { togglePin(id) }
                                     }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(OrionTheme.accent)
                                 }
                             }
@@ -97,7 +99,13 @@ struct TodayPlanContent: View {
         let changes: [String] = old.blocks.filter { $0.kind == .task }.compactMap { block in
             guard let id = block.sourceID else { return nil }
             if plan.completedIDs.contains(id) { return "\(block.title): finished in this plan." }
-            guard let next = plan.blocks.first(where: { $0.kind == .task && $0.sourceID == id }) else { return "\(block.title): deferred or removed from the source." }
+            guard let next = plan.blocks.first(where: { $0.kind == .task && $0.sourceID == id }) else {
+                guard let source = plan.tasks.first(where: { $0.id == id }) else { return "\(block.title): removed from Reminders; slot released." }
+                return source.completedInSource ? "\(block.title): finished in Reminders; slot released." : "\(block.title): deferred."
+            }
+            if next.pinned != block.pinned {
+                return "\(block.title): \(next.pinned ? "pinned" : "unpinned") · \(time(next.start))–\(time(next.end))."
+            }
             guard next.start != block.start || next.end != block.end else { return nil }
             return "\(block.title): \(time(block.start))–\(time(block.end)) → \(time(next.start))–\(time(next.end))."
         }

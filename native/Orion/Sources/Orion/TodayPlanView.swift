@@ -24,7 +24,10 @@ struct TodayPlanView: View {
                     TodayPlanContent(plan: plan, previous: model.current(at: context.date), now: context.date,
                                      isProposal: model.proposal != nil,
                                      needsReview: !model.sourcesMatch(plan, at: context.date), expanded: $timelineExpanded,
-                                     finish: { model.preview(.finish($0)) }, moreTime: { model.preview(.moreTime($0)) })
+                                     finish: { model.preview(.finish($0)) }, moreTime: { model.preview(.moreTime($0)) },
+                                     togglePin: { id in
+                                         model.preview(plan.blocks.first(where: { $0.sourceID == id })?.pinned == true ? .unpin(id) : .pin(id))
+                                     })
                     if model.proposal != nil {
                         HStack {
                             Button("Accept this plan") { model.accept() }.buttonStyle(.borderedProminent).tint(OrionTheme.accent)
@@ -36,6 +39,7 @@ struct TodayPlanView: View {
                         HStack(spacing: 18) {
                             Button("Running late · replan from now") { model.preview(.replan) }
                             if model.document.hasUndo { Button("Undo last plan change") { model.undo() } }
+                            if plan.blocks.contains(where: \.pinned) { Button("Release all pinned slots") { model.preview(.unpinAll) } }
                         }.buttonStyle(.plain).foregroundStyle(OrionTheme.accent).disabled(model.isSaving)
                     }
                 } else {

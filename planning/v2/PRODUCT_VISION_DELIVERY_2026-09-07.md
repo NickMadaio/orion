@@ -91,7 +91,8 @@ This is source implementation and a rendered component preview, not an installed
 A first Mac Today/Plan slice now connects the existing calendar and Orion Reminders
 readers to MobileCore timeline proposals, accepted local revisions, completion,
 replanning and undo. The old missing-Mac-consumer statement above is superseded at
-the source level. Step 2 remains partial: pinning and installed normal-route proof
-are outstanding. See `TODAY_PLAN_IMPLEMENTATION_2026-09-08.md` for the 437-test
+the source level. Pinned slots, conflict handling and source-completion reconciliation are now
+implemented too. Step 2 remains partial until installed normal-route proof.
+See `TODAY_PLAN_IMPLEMENTATION_2026-09-08.md` for the 448-test
 checkpoint, independent review, boundaries and exact next gate. No recovery gate
 or numbered phase is closed by this source implementation.

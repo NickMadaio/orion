@@ -10,6 +10,37 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-08 22:55 BST — Pinned slots and source reconciliation
+
+Nick said “continue.” The initial Today slice was committed locally as `f597f7f`;
+this follow-up adds accepted task-slot pins. Replanning preserves them, including
+ongoing blocks. Missed pins and calendar/transition/duration/day-budget conflicts
+refuse the proposal instead of moving a pin. Individual unpin, release-all,
+completion and undo stay inside the existing preview/accept flow. Confirmed
+source completion/deletion releases its pin in a disclosed preview; local undo
+cannot reverse that external source change. Older unpinned files decode normally.
+
+Proof: full 448 XCTest cases pass; the last narrow Unpin repair also passed the
+14-case app suite. Reviewer independently reran 46 Today cases and confirmed the
+final source repair, with no actionable findings left. Eight critical mutants
+are caught; MobileCore 693 checks and iOS Simulator build pass. Actual expanded
+pinned content rendered with labeled fixtures and inspected. The connection
+wrapper's 26 health, nine transport and five menu checks also pass.
+
+Review caught stale pins after completion in Reminders and a remaining visible
+Unpin action checking the already-reconciled list. Both are repaired with actual
+model regressions. See updated `planning/v2/TODAY_PLAN_IMPLEMENTATION_2026-09-08.md`.
+Scoped pinning patch/logs: `.builds/today-plan-2026-09-08/pinning/`.
+
+Installed build remains 217. No install, restart, new permissions, external
+calendar/task write or remote push occurred. Next gate is an identity-preserving
+candidate and installed real-source acceptance pass, not more pinning scaffolding.
+The source pinning gap in the earlier entry is superseded. REC-USABLE-CLIENT still
+needs installed Mac evidence plus phone/backend work; no gate or numbered phase
+has been marked complete. Keep the unrelated learning-proposals edit excluded.
+
+---
+
 ## 2026-09-08 01:29 EDT — Today/Plan source implementation
 
 Nick said “start implementation.” Starting HEAD was `d0eeebb`; the only prior

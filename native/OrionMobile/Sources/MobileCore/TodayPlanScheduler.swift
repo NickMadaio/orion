@@ -12,7 +12,7 @@ public enum TodayPlanScheduler {
     public static func propose(
         now: Date, timeZone: String, preferences: TodayPlanPreferences,
         tasks: [TodayPlanTask], commitments: [TodayPlanCommitment],
-        completedIDs: Set<String> = [], reason: String, sourceFingerprint: String
+        completedIDs: Set<String> = [], pins: [TodayPlanPin] = [], reason: String, sourceFingerprint: String
     ) throws -> TodayPlan {
         try preferences.validate()
         guard finite(now), let zone = TimeZone(identifier: timeZone) else { throw TodayPlanError.invalidInput }
@@ -55,16 +55,33 @@ public enum TodayPlanScheduler {
         let buffer = Double(preferences.transitionMinutes * 60)
         let occupied = merge(fixed.compactMap { clipped($0.start.addingTimeInterval(-buffer), $0.end.addingTimeInterval(buffer)) })
         let transitions = occupied.flatMap { subtract($0, hard) }
-        var gaps = start < sleep ? subtract(Span(start: start, end: sleep), occupied) : []
+        guard pins.count <= tasks.count, Set(pins.map(\.taskID)).count == pins.count else { throw TodayPlanError.invalidInput }
+        let pinnedBlocks = try pins.map { pin -> TodayPlanBlock in
+            guard let task = tasks.first(where: { $0.id == pin.taskID }), !task.completedInSource, !completedIDs.contains(task.id),
+                  finite(pin.start), finite(pin.end), pin.start < pin.end else { throw TodayPlanError.pinConflict(pin.taskID) }
+            guard pin.start >= wake, pin.end <= sleep, pin.end > now,
+                  pin.end.timeIntervalSince(pin.start) == Double(task.minutes * 60),
+                  task.due.map({ $0 < now || pin.end <= $0 }) ?? true,
+                  !fixed.contains(where: { $0.start.addingTimeInterval(-buffer) < pin.end && pin.start < $0.end.addingTimeInterval(buffer) }),
+                  !pins.contains(where: { $0.taskID != pin.taskID && $0.start < pin.end && pin.start < $0.end })
+            else { throw TodayPlanError.pinConflict(task.title) }
+            return TodayPlanBlock(id: "task:\(task.id)", sourceID: task.id, title: task.title, kind: .task,
+                                  start: pin.start, end: pin.end, isPinned: true)
+        }
+        let blocked = merge(occupied + pins.compactMap { clipped($0.start, $0.end) })
+        var gaps = start < sleep ? subtract(Span(start: start, end: sleep), blocked) : []
         let available = gaps.reduce(0) { $0 + $1.minutes }
         var budget = max(0, available - preferences.freeMinutes)
         if available < preferences.freeMinutes {
+            if let pinned = pinnedBlocks.first { throw TodayPlanError.pinConflict(pinned.title) }
             warnings.append("Only \(available) minutes remain free around commitments; the \(preferences.freeMinutes)-minute free-time target cannot fit.")
         }
-        var remaining = tasks.filter { !$0.completedInSource && !completedIDs.contains($0.id) }
+        let pinnedIDs = Set(pins.map(\.taskID))
+        var remaining = tasks.filter { !$0.completedInSource && !completedIDs.contains($0.id) && !pinnedIDs.contains($0.id) }
         var blocks = fixed.map {
             TodayPlanBlock(id: "event:\($0.id)", sourceID: $0.id, title: $0.title, kind: .commitment, start: $0.start, end: $0.end)
         }
+        blocks += pinnedBlocks
         blocks += transitions.enumerated().map {
             TodayPlanBlock(id: "transition:\($0.offset)", sourceID: nil, title: "Transition time", kind: .transition, start: $0.element.start, end: $0.element.end)
         }

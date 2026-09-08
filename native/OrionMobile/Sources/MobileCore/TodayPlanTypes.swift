@@ -1,7 +1,8 @@
 import Foundation
 
-public enum TodayPlanError: String, Error, LocalizedError {
+public enum TodayPlanError: Error, LocalizedError, Equatable {
     case invalidInput, invalidPreferences, staleSources, revisionConflict, corruptStore, replayMismatch, nothingToUndo, unknownBlock
+    case pinConflict(String)
     public var errorDescription: String? {
         switch self {
         case .invalidInput: return "The plan contains invalid or conflicting data. Refresh its sources."
@@ -12,6 +13,7 @@ public enum TodayPlanError: String, Error, LocalizedError {
         case .replayMismatch: return "This operation identifier was already used for a different change."
         case .nothingToUndo: return "There is no plan change to undo."
         case .unknownBlock: return "That task block is no longer part of the current plan."
+        case .pinConflict(let title): return "The pinned slot for \(title) no longer fits. Finish it, release its pin, or resolve the calendar, estimate or day-budget conflict before replanning."
         }
     }
 }
@@ -57,6 +59,17 @@ public struct TodayPlanCommitment: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// A user-chosen slot carried into a new proposal as a hard constraint.
+/// Saved snapshots retain this on the task block; older unpinned files decode unchanged.
+public struct TodayPlanPin: Equatable, Sendable {
+    public let taskID: String
+    public let start: Date
+    public let end: Date
+    public init(taskID: String, start: Date, end: Date) {
+        self.taskID = taskID; self.start = start; self.end = end
+    }
+}
+
 public struct TodayPlanBlock: Codable, Equatable, Identifiable, Sendable {
     public enum Kind: String, Codable, Sendable { case commitment, task, transition, free }
     public let id: String
@@ -65,6 +78,8 @@ public struct TodayPlanBlock: Codable, Equatable, Identifiable, Sendable {
     public let kind: Kind
     public let start: Date
     public let end: Date
+    public var isPinned: Bool? = nil
+    public var pinned: Bool { isPinned == true }
     public var minutes: Int {
         let value = end.timeIntervalSince(start) / 60
         return value.isFinite && value >= 0 && value < Double(Int.max) ? Int(value) : 0
@@ -135,6 +150,7 @@ public struct TodayPlan: Codable, Equatable, Sendable {
         try validateInputs()
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: timeZone)!
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: day)!
+        let wake = calendar.date(bySettingHour: preferences.wakeMinute / 60, minute: preferences.wakeMinute % 60, second: 0, of: day)!
         let fixed = commitments.filter { !$0.allDay && $0.start < tomorrow && $0.end > day }
         let eventBlocks = blocks.filter { $0.kind == .commitment }
         guard Set(eventBlocks.compactMap(\.sourceID)) == Set(fixed.map(\.id)), eventBlocks.count == fixed.count,
@@ -146,17 +162,19 @@ public struct TodayPlan: Codable, Equatable, Sendable {
         let taskMinutes = scheduled.reduce(0) { $0 + $1.minutes }
         guard freeMinutes >= min(preferences.freeMinutes, freeMinutes + taskMinutes) else { throw TodayPlanError.invalidInput }
         for block in blocks where block.kind != .commitment {
-            guard block.start >= windowStart, block.end <= windowEnd,
+            let earliest = block.pinned && block.kind == .task ? wake : windowStart
+            guard block.start >= earliest, block.end <= windowEnd,
+                  (!block.pinned || (block.kind == .task && block.end > generatedAt)),
                   !blocks.contains(where: { $0.id != block.id && $0.start < block.end && block.start < $0.end })
             else { throw TodayPlanError.invalidInput }
         }
         for block in blocks where block.kind == .commitment {
-            guard commitments.contains(where: { $0.id == block.sourceID && !$0.allDay && $0.start == block.start && $0.end == block.end })
+            guard !block.pinned, commitments.contains(where: { $0.id == block.sourceID && !$0.allDay && $0.start == block.start && $0.end == block.end })
             else { throw TodayPlanError.invalidInput }
         }
         guard Set(scheduled.compactMap(\.sourceID)).count == scheduled.count else { throw TodayPlanError.invalidInput }
         for block in scheduled {
-            guard block.start >= windowStart, block.end <= windowEnd,
+            guard block.start >= (block.pinned ? wake : windowStart), block.end <= windowEnd,
                   let id = block.sourceID, !completedIDs.contains(id),
                   tasks.contains(where: { $0.id == id && !$0.completedInSource
                       && block.end.timeIntervalSince(block.start) == Double($0.minutes * 60)

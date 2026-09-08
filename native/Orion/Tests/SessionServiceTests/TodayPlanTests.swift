@@ -16,9 +16,9 @@ final class TodayPlanTests: XCTestCase {
         TodayPlanCommitment(id: id, title: id, start: start, end: end, allDay: allDay)
     }
     func plan(tasks: [TodayPlanTask] = [], events: [TodayPlanCommitment] = [], now: Date? = nil,
-              preferences: TodayPlanPreferences = .init(), completed: Set<String> = []) throws -> TodayPlan {
+              preferences: TodayPlanPreferences = .init(), completed: Set<String> = [], pins: [TodayPlanPin] = []) throws -> TodayPlan {
         try TodayPlanScheduler.propose(now: now ?? date(8), timeZone: zone, preferences: preferences,
-                                       tasks: tasks, commitments: events, completedIDs: completed,
+                                       tasks: tasks, commitments: events, completedIDs: completed, pins: pins,
                                        reason: "Test user request", sourceFingerprint: "fixture-sources")
     }
     func temporaryStore() throws -> TodayPlanStore {
@@ -214,6 +214,55 @@ final class TodayPlanTests: XCTestCase {
         let value = try plan(tasks: [task("work", 30)], events: [event("lecture", date(9), date(10))])
         XCTAssertEqual(value.nextCommitment(at: date(7))?.sourceID, "lecture")
         XCTAssertNil(value.nextCommitment(at: date(11)))
+    }
+
+    func testPinnedSlotSurvivesReplanningWhileOtherTasksMove() throws {
+        let pin = TodayPlanPin(taskID: "gym", start: date(12), end: date(13))
+        let tasks = [task("gym", 60), task("study", 90)]
+        for now in [date(8), date(10), date(12, 20)] {
+            let value = try plan(tasks: tasks, now: now, pins: [pin])
+            let block = try XCTUnwrap(value.blocks.first { $0.sourceID == "gym" })
+            XCTAssertTrue(block.pinned); XCTAssertEqual(block.start, date(12)); XCTAssertEqual(block.end, date(13))
+            XCTAssertGreaterThanOrEqual(value.freeMinutes, 60)
+            XCTAssertTrue(value.blocks.filter { $0.kind == .task && !$0.pinned }.allSatisfy { $0.start >= now })
+        }
+    }
+    func testMissedPinnedSlotRefusesSilentRescheduling() throws {
+        XCTAssertThrowsError(try plan(tasks: [task("gym", 60)], now: date(14), pins: [TodayPlanPin(taskID: "gym", start: date(12), end: date(13))])) {
+            XCTAssertEqual($0 as? TodayPlanError, .pinConflict("gym"))
+        }
+    }
+    func testPinConflictsWithNewCalendarEventTransitionsAndOtherPins() throws {
+        let pin = TodayPlanPin(taskID: "gym", start: date(12), end: date(13))
+        for fixed in [event("conflict", date(12, 30), date(13, 30)), event("transition", date(13, 5), date(14))] {
+            XCTAssertThrowsError(try plan(tasks: [task("gym", 60)], events: [fixed], pins: [pin]))
+        }
+        XCTAssertThrowsError(try plan(tasks: [task("gym", 60), task("study", 60)],
+            pins: [pin, TodayPlanPin(taskID: "study", start: date(12, 30), end: date(13, 30))]))
+    }
+    func testPinCannotChangeItsDurationOrViolateSleepAndFreeTime() throws {
+        XCTAssertThrowsError(try plan(tasks: [task("gym", 45)], pins: [TodayPlanPin(taskID: "gym", start: date(12), end: date(13))]))
+        XCTAssertThrowsError(try plan(tasks: [task("gym", 60)], pins: [TodayPlanPin(taskID: "gym", start: date(21, 30), end: date(22, 30))]))
+        var preferences = TodayPlanPreferences(); preferences.freeMinutes = 240
+        XCTAssertThrowsError(try plan(tasks: [task("gym", 720)], preferences: preferences,
+            pins: [TodayPlanPin(taskID: "gym", start: date(8), end: date(20))]))
+    }
+    func testPinsPersistAndUndoRestoresUnpinnedSnapshot() throws {
+        let store = try temporaryStore(), tasks = [task("gym", 60)]
+        let original = try plan(tasks: tasks)
+        _ = try store.accept(original, expectedRevision: 0, operationID: UUID())
+        let pinned = try plan(tasks: tasks, pins: [TodayPlanPin(taskID: "gym", start: date(8), end: date(9))])
+        _ = try store.accept(pinned, expectedRevision: 1, operationID: UUID())
+        XCTAssertEqual(try TodayPlanStore(url: store.url).load().current, pinned)
+        XCTAssertEqual(try store.undo(expectedRevision: 2, operationID: UUID()).current, original)
+    }
+    func testOldSnapshotWithoutPinFieldStillLoads() throws {
+        let original = try plan(tasks: [task("gym", 60)])
+        let data = try JSONEncoder().encode(original)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("isPinned"))
+        let decoded = try JSONDecoder().decode(TodayPlan.self, from: data)
+        try decoded.validate()
+        XCTAssertTrue(decoded.blocks.allSatisfy { !$0.pinned })
     }
 
 }

@@ -72,7 +72,7 @@ struct MorningBriefPanel: View {
 
     private var heading: some View {
         VStack(spacing: 10) {
-            Text(facts.day.start.formatted(.dateTime.weekday(.wide).month(.wide).day()).uppercased())
+            Text(facts.clock.heading)
                 .font(OrionTheme.mono(9, .semibold))
                 .tracking(3)
                 .foregroundStyle(OrionTheme.textDim)
@@ -136,7 +136,7 @@ struct MorningBriefPanel: View {
     /// spinner: the brief is complete without it, and a shimmer where a
     /// sentence will be is a promise the local model might not keep.
     @ViewBuilder private var narrative: some View {
-        if let text = writer.text {
+        if let text = writer.text(for: facts.narrativeKey) {
             Text(text)
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(OrionTheme.text.opacity(0.9))
@@ -151,8 +151,8 @@ struct MorningBriefPanel: View {
     private var schedule: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionRule(title: "Today", trailing: committedLabel)
-            if facts.events.isEmpty {
-                Text("Nothing on the calendar.")
+            if !facts.calendarConnected || facts.events.isEmpty {
+                Text(facts.calendarConnected ? "Nothing on the calendar." : "Today’s calendar has not been checked recently.")
                     .font(.system(size: 13))
                     .foregroundStyle(OrionTheme.textDim)
             } else {
@@ -180,15 +180,15 @@ struct MorningBriefPanel: View {
     }
 
     private var committedLabel: String? {
-        guard facts.committedMinutes > 0 else { return nil }
+        guard facts.calendarConnected, facts.committedMinutes > 0 else { return nil }
         return "\(facts.committedMinutes / 60)h \(facts.committedMinutes % 60)m committed"
     }
 
     private var due: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionRule(title: "Due", trailing: facts.overdue.isEmpty ? nil : "\(facts.overdue.count) overdue")
-            if facts.dueToday.isEmpty && facts.overdue.isEmpty {
-                Text("Nothing due.")
+            SectionRule(title: "Due", trailing: !facts.tasksConnected || facts.overdue.isEmpty ? nil : "\(facts.overdue.count) overdue")
+            if !facts.tasksConnected || (facts.dueToday.isEmpty && facts.overdue.isEmpty) {
+                Text(facts.tasksConnected ? "Nothing due." : "Reminders have not been checked recently.")
                     .font(.system(size: 13))
                     .foregroundStyle(OrionTheme.textDim)
             } else {
@@ -198,7 +198,7 @@ struct MorningBriefPanel: View {
                 ForEach(facts.dueToday.prefix(4)) { task in
                     DueLine(title: task.title,
                             tint: OrionTheme.textSoft,
-                            note: task.dueDate?.formatted(date: .omitted, time: .shortened))
+                            note: task.dueHasTime ? task.dueDate?.formatted(date: .omitted, time: .shortened) : "today")
                 }
             }
         }

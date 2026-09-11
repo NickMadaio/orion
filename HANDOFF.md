@@ -1,12 +1,38 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-08.** This is the only handoff. If you find another one
+**Last updated 2026-09-11.** This is the only handoff. If you find another one
 that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-11 16:48 BST — Installed Today proof and brief repair candidate
+
+The earlier installed-217 statement is superseded. Clean source `187fa15` was
+built and installed as signed build 220 with the original designated requirement.
+Actual UI checks on 10 September proved real Calendar/Orion Reminders → preview →
+accept, pin preservation and conflict refusal, restart persistence, local Finish,
+extra time and Undo. Source reminder stayed unfinished; final local revision 8
+is unfinished, unpinned and back to 30 minutes. Gateway and permissions unchanged.
+
+Live use exposed a civil-date/activity-day mix-up in the brief and missing standard
+Quit/reopen behavior. The repair separates the civil clock from the 4am activity
+boundary, invalidates stale narrative, verifies source freshness/window coverage,
+handles zone changes and date-only reminders, and restores Quit/reopen. Full native
+suite: 455 XCTest cases pass. Independent review is clear; all 40 connection wrapper checks pass. Installed
+repair proof is pending.
+
+Evidence, limitations, rollback and exact next gate:
+`planning/v2/TODAY_INSTALLED_PROOF_2026-09-11.md`. Build 217 rollback is in
+`.builds/today-release-2026-09-08/rollback/Orion.app`; retain a verified build 220
+copy before replacing it. Next: finish review, checkpoint only these repairs,
+build from a clean checkout, install with the same identity, verify civil-date
+brief and standard Quit/reopen, then update this record. No push, phase closure
+or phone/backend claim. Exclude unrelated learning-proposals work.
 
 ---
 

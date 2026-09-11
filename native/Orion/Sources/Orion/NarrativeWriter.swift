@@ -45,6 +45,10 @@ final class NarrativeWriter: ObservableObject {
 
     private let defaultsPrefix = "orion.narrative."
 
+    /// Rendering must reject prose for superseded facts even before a view's
+    /// change callback runs. The optional paragraph can safely disappear.
+    func text(for key: String) -> String? { loadedKey == key ? text : nil }
+
     /// `build` returns nil when there is nothing worth saying, which is
     /// different from "the model failed" and must not produce a request.
     func load(key: String, style: NarrativeStyle = .paragraph, build: () -> String?) {

@@ -25,6 +25,7 @@ import Foundation
 /// Everything the brief knows, gathered before anything is rendered or written.
 struct BriefFacts: Equatable {
     var day: LogicalDay
+    var clock: BriefClock = BriefClock(now: Date())
     var wokeAt: Date?
 
     /// Phase 33. The brief sits next to the calendar and the task list, and the
@@ -70,7 +71,7 @@ struct BriefFacts: Equatable {
 
     /// The next thing that has not happened yet.
     var nextEvent: AgendaEvent? {
-        events.filter { !$0.isPast }.min { $0.start < $1.start }
+        events.filter { $0.end > clock.now }.min { $0.start < $1.start }
     }
 
     var hasHealth: Bool { signal.hasAnything }
@@ -85,14 +86,7 @@ struct BriefFacts: Equatable {
     /// How to greet, given when the day actually started rather than what the
     /// clock says. Opening Orion for the first time at 3pm is still the start
     /// of your day, and "Good morning" would be wrong twice over.
-    var salutation: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 4..<12: return "Good morning"
-        case 12..<18: return "Here's where the day stands"
-        default: return "Here's what's left of today"
-        }
-    }
+    var salutation: String { clock.salutation }
 
     /// The facts, as lines a small model can follow without inventing anything.
     func prompt() -> String {
@@ -105,7 +99,7 @@ struct BriefFacts: Equatable {
         if let strainAdvice { lines.append("- \(strainAdvice)") }
 
         if !calendarConnected {
-            lines.append("- Calendar: not connected, so what is scheduled is unknown.")
+            lines.append("- Calendar: no current reading, so what is scheduled is unknown.")
         } else if events.isEmpty {
             lines.append("- Calendar: nothing scheduled.")
         } else {
@@ -119,7 +113,7 @@ struct BriefFacts: Equatable {
         }
 
         if !tasksConnected {
-            lines.append("- Tasks: not connected, so what is due is unknown.")
+            lines.append("- Tasks: no current reading, so what is due is unknown.")
         } else if overdue.isEmpty && dueToday.isEmpty {
             lines.append("- Tasks: nothing due.")
         } else {
@@ -149,8 +143,8 @@ struct BriefFacts: Equatable {
         - If the reading confidence is low, or it is not current, say so rather \
         than sounding certain. "I have not got a fresh reading" is a useful \
         sentence; a confident paragraph about stale numbers is not.
-        - If a fact says something is not connected, say you cannot see it. \
-        Never turn "not connected" into "nothing scheduled" or "nothing due".
+        - If a fact says there is no current reading, say you cannot see it. \
+        Never turn "no current reading" into "nothing scheduled" or "nothing due".
         - No greeting, no lists, no headings, no sign-off.
         - No generic wellness advice. Nothing about stretching, hydration, \
         breathing, taking breaks or listening to your body unless it is in the \
@@ -172,5 +166,5 @@ extension BriefFacts {
     /// change what the model is told and the cache entry changes with it, with
     /// nothing to keep in sync by hand. The day stays in the scope so entries
     /// remain readable and prunable.
-    var narrativeKey: String { NarrativeKey.make("brief.\(day.key)", facts: prompt()) }
+    var narrativeKey: String { NarrativeKey.make("brief.\(clock.dateKey)", facts: clock.timeZone.identifier + "\n" + clock.salutation + "\n" + prompt()) }
 }

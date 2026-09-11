@@ -101,6 +101,9 @@ final class AppleCalendarSync: ObservableObject {
     /// Everything in the loaded window, not just today.
     @Published private(set) var windowEvents: [AgendaEvent] = []
     @Published private(set) var lastSyncedAt: Date?
+    @Published private(set) var loadedInterval: DateInterval?
+    @Published private(set) var loadedTimeZone: TimeZone?
+    private var refreshGeneration = UUID()
     @Published private(set) var lastError: String?
     /// Which day the schedule is showing. Changing it reloads if it falls
     /// outside the window already held.
@@ -308,6 +311,8 @@ final class AppleCalendarSync: ObservableObject {
     }
 
     func refresh() {
+        let generation = UUID()
+        refreshGeneration = generation
         guard access.isGranted else { return }
         let calendar = Calendar.current
         // A fortnight centred on the selected week, so paging a day either way
@@ -326,7 +331,6 @@ final class AppleCalendarSync: ObservableObject {
             OrionLog.write("[calendar] EventKit returned ZERO calendars — no accounts configured, or access is limited")
             return
         }
-        lastError = nil
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: calendars)
         let created = createdIDs
 
@@ -388,6 +392,10 @@ final class AppleCalendarSync: ObservableObject {
                 + String(mapped.count) + " event(s) in window — " + parts.joined(separator: ", ")
 
             DispatchQueue.main.async {
+                guard self.refreshGeneration == generation, self.access.isGranted else { return }
+                self.loadedInterval = DateInterval(start: start, end: end)
+                self.loadedTimeZone = calendar.timeZone
+                self.lastError = nil
                 self.windowEvents = mapped
                 self.calendars = described
                 self.lastSyncedAt = Date()

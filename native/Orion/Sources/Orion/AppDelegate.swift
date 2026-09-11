@@ -135,7 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installEditMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem()
-        appItem.submenu = NSMenu()
+        appItem.submenu = NSMenu(title: "Orion")
+        appItem.submenu?.addItem(withTitle: "Quit Orion", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
@@ -150,6 +151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(editItem)
 
         NSApp.mainMenu = main
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        textWindowController.show()
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -77,6 +77,9 @@ struct DashboardView: View {
     @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "blackHole"
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
+    @State private var briefClock = BriefClock(now: Date())
+    private let briefTicks = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
     var body: some View {
         VStack(spacing: 0) {
             // Header and navigation carry their own scrim, so they stay
@@ -177,6 +180,18 @@ struct DashboardView: View {
                 .zIndex(10)
             }
         }
+        .onReceive(briefTicks) { instant in
+            let previous = briefClock
+            let current = BriefClock(now: instant)
+            briefClock = current
+            dayModel.refresh()
+            if current.needsSourceRefresh(after: previous) {
+                agenda.refresh(); reminders.refresh(); refreshPlanSources()
+            }
+            // Clear a paragraph when a deadline passes or remaining time changes.
+            // Clock-only drift does not warrant another model request.
+            loadBrief(allowGeneration: current.needsSourceRefresh(after: previous) || previous.hour != current.hour)
+        }
         .onChange(of: briefPresentation) { _, next in
             next.store(for: dayModel.day)
         }
@@ -193,12 +208,13 @@ struct DashboardView: View {
         .onChange(of: whoop.week) { _, week in
             health.recordWearable(week.readingsByDay)
         }
-        .onChange(of: agenda.events) { _, _ in loadBrief() }
-        .onChange(of: agenda.lastSyncedAt) { _, _ in refreshPlanSources() }
-        .onChange(of: reminders.lastSyncedAt) { _, _ in refreshPlanSources() }
-        .onChange(of: agenda.access) { _, _ in refreshPlanSources() }
-        .onChange(of: reminders.access) { _, _ in refreshPlanSources() }
-        .onChange(of: reminders.lastError) { _, _ in refreshPlanSources() }
+        .onChange(of: agenda.windowEvents) { _, _ in loadBrief() }
+        .onChange(of: agenda.lastError) { _, _ in loadBrief() }
+        .onChange(of: agenda.lastSyncedAt) { _, _ in refreshPlanSources(); loadBrief() }
+        .onChange(of: reminders.lastSyncedAt) { _, _ in refreshPlanSources(); loadBrief() }
+        .onChange(of: agenda.access) { _, _ in refreshPlanSources(); loadBrief() }
+        .onChange(of: reminders.access) { _, _ in refreshPlanSources(); loadBrief() }
+        .onChange(of: reminders.lastError) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.tasks) { _, _ in loadBrief() }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         .preferredColorScheme(.dark)
@@ -218,6 +234,8 @@ struct DashboardView: View {
     private func refreshPlanSources() { todayPlan.refresh(agenda: agenda, reminders: reminders) }
 
     private func start() {
+        briefClock = BriefClock(now: Date())
+        dayModel.refresh()
         todayPlan.load()
         refreshPlanSources()
         // Read the day's state BEFORE noting the session, since noting it is
@@ -256,10 +274,10 @@ struct DashboardView: View {
     }
 
     /// The brief's paragraph, and only when there is something to say about.
-    private func loadBrief() {
+    private func loadBrief(allowGeneration: Bool = true) {
         let facts = briefFacts
         briefWriter.load(key: facts.narrativeKey) {
-            facts.hasAnything ? facts.prompt() : nil
+            allowGeneration && facts.hasAnything ? facts.prompt() : nil
         }
     }
 
@@ -381,10 +399,16 @@ struct DashboardView: View {
     /// already holding, and keeping it derived means it can never disagree with
     /// what the Health and Tasks tabs are showing.
     private var briefFacts: BriefFacts {
-        let today = Calendar.current.startOfDay(for: Date())
-        let open = reminders.tasks.filter { !$0.isComplete }
+        let clock = briefClock
+        let calendarCurrent = agenda.access.isGranted && agenda.lastError == nil
+            && clock.calendarReadingIsCurrent(readAt: agenda.lastSyncedAt,
+                                               interval: agenda.loadedInterval, zone: agenda.loadedTimeZone)
+        let tasksCurrent = reminders.access.isGranted && reminders.lastError == nil
+            && clock.readingIsFresh(reminders.lastSyncedAt)
+        let events = calendarCurrent ? clock.eventsToday(agenda.windowEvents) : []
         return BriefFacts(
             day: dayModel.day,
+            clock: clock,
             wokeAt: dayModel.wokeAt,
             signal: PlanningSignal.derive(
                 recovery: whoop.snapshot?.recovery,
@@ -406,15 +430,12 @@ struct DashboardView: View {
                 restingHeartRate: whoop.snapshot?.restingHeartRate,
                 strainTarget: StrainTarget.forRecovery(whoop.snapshot?.recovery)
             ),
-            events: agenda.events,
-            committedMinutes: agenda.committedMinutesRemaining,
-            dueToday: open.filter {
-                guard let due = $0.dueDate, !$0.isOverdue else { return false }
-                return Calendar.current.startOfDay(for: due) == today
-            },
-            overdue: open.filter(\.isOverdue),
-            calendarConnected: agenda.access.isGranted,
-            tasksConnected: reminders.access.isGranted
+            events: events,
+            committedMinutes: clock.remainingMinutes(events),
+            dueToday: tasksCurrent ? clock.dueToday(reminders.tasks) : [],
+            overdue: tasksCurrent ? clock.overdue(reminders.tasks) : [],
+            calendarConnected: calendarCurrent,
+            tasksConnected: tasksCurrent
         )
     }
 
@@ -479,12 +500,7 @@ struct DashboardView: View {
 
     private var now: Date { Date() }
 
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: now)
-        if hour < 12 { return "Good morning" }
-        if hour < 18 { return "Good afternoon" }
-        return "Good evening"
-    }
+    private var greeting: String { briefClock.greeting }
 
     private var dayProgress: Double {
         min(1, max(0.04, Double(Calendar.current.component(.hour, from: now)) / 24))

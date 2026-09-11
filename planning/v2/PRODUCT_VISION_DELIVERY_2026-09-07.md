@@ -96,3 +96,14 @@ implemented too. Step 2 remains partial until installed normal-route proof.
 See `TODAY_PLAN_IMPLEMENTATION_2026-09-08.md` for the 448-test
 checkpoint, independent review, boundaries and exact next gate. No recovery gate
 or numbered phase is closed by this source implementation.
+
+## 11 September installed update
+
+Today/Plan is now present in installed Mac build 221. Build 220's actual-source
+checks proved acceptance, pins, refusal, restart persistence, local completion,
+replanning and undo. Build 221 repairs civil-date brief handling and standard
+Quit/reopen, with a fresh installed Today preview verified. The report
+`TODAY_INSTALLED_PROOF_2026-09-11.md` separates these live observations from
+fixture scenarios and records the remaining generated-prose accuracy issue.
+Step 2 has meaningful installed evidence but still has unperformed acceptance
+scenarios; phone/backend work and REC-USABLE-CLIENT remain open.

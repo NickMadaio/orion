@@ -18,7 +18,7 @@ The installed brief at 03:21 on 10 September labeled the agenda as 9 September. 
 
 Independent review found within-hour stale prose, time-zone detection that lost the prior zone, a calendar permission check incorrectly used as evidence of coverage, and date-only reminders displayed as midnight. Repairs preserve the previous clock's zone, require a fresh complete calendar-day reading, show unknown/stale source text, and display date-only deadlines as today. Calendar refresh results carry their actual window and zone; superseded asynchronous fetches cannot replace newer state. The narrative view rejects text whose key no longer matches its facts, and ticks clear obsolete prose without requesting model work each minute.
 
-The installed app also lacked the standard Quit shortcut and a window reopen handler. Both are now implemented. Installed verification of the repaired candidate is pending below.
+The installed app also lacked the standard Quit shortcut and a window reopen handler. Both are now implemented. Installed verification of build 221 is recorded below.
 
 ## Validation and release boundary
 
@@ -33,3 +33,15 @@ Release requires a clean source checkout, a signed candidate with the exact exis
 Build 217 remains at `.builds/today-release-2026-09-08/rollback/Orion.app`, plus the hidden previous bundle identified in that directory's `install.json`. Build 220's source and build log remain in the same release directory. Local plan data is not removed on application rollback. Source-only rollback uses a forward revert of the scoped repair checkpoint, not history rewriting. The unrelated `planning/learning-proposals.md` edit remains excluded.
 
 After this repaired Mac release, finish the remaining Today acceptance scenarios through a controlled normal route, then the delivery plan's real phone shell and minimal durable bridge. Phone installation, durable backend and cross-device continuity remain unproven. No remote push or backup claim is made.
+
+## 2026-09-11 16:54 BST — repaired release installed and checked
+
+Build 221 (1.2.0), from clean source `12583fc`, is installed at `/Applications/Orion.app`. Candidate production compilation took 35.02 seconds. Candidate and installed deep/strict signature verification pass; the designated requirement matches the existing identity exactly. Build 220 is retained at `.builds/today-release-2026-09-11/rollback/Orion-220.app`, plus the hidden previous application identified in `install.json`. Build/install/test/scan records are under `.builds/today-release-2026-09-11/`; the clean release checkout remains under the 8 September release directory.
+
+The actual installed app showed Friday, September 11, the afternoon greeting and the current civil-day brief. Command-Q terminated its installed process. Launch reopened the app; closing the window and reopening Orion through Finder restored the Command Center. Calendar and Orion Reminders refreshed successfully. A fresh Today preview scheduled the unfinished source task for 16:53–17:23, followed by 277 minutes of intentional free time ending at 22:00. The expanded production UI was inspected visually and through accessibility. The verification preview was discarded. The saved revision-8 plan remained byte-for-byte unchanged through install, launch, quit, reopen and this preview. No new permission prompt was observed.
+
+This daytime installed check proves the corrected date path for the actual observation date; early-hours, midnight, time-zone transition, within-hour prose invalidation and stale/out-of-window source cases are regression-test/source evidence, not all live-clock experiments. The permission-revocation and real overlapping-commitment cases remain unperformed. Existing 448-test/pinning/mobile evidence is historical to its source checkpoint; this repair's 455 native tests and 40 connection checks are current.
+
+One additional installed observation remains open: the optional model paragraph used “full day” wording late in the afternoon, while the structured Today proposal correctly budgeted only the remaining hours. Cache/freshness repair does not certify generated prose as factually faithful. The next bounded repair should ground narrative in the observation time and actual source age, with checks against unsupported duration/freshness claims, before broadening the phone work. No health interpretation was verified in this release.
+
+Local checkpoint `12583fc` contains the repair and pre-install report. This post-install evidence is a documentation follow-up; the installed source fingerprint remains `12583fc`. No remote push occurred, no recovery gate is closed, and phone/backend continuity is still unproven.

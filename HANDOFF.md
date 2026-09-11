@@ -10,6 +10,36 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-11 16:54 BST — Build 221 installed and normal routes checked
+
+Installed `/Applications/Orion.app` is now signed build 221 (1.2.0), clean source
+`12583fc`; the previous build-220 statement below is historical. Identity and
+candidate/installed deep signature checks pass. Actual UI confirms the correct
+civil-date brief, working Command-Q, launch and closed-window reopen, live source
+refresh and a fresh 16:53–17:23 task preview ending the day at 22:00. Preview was
+discarded; saved revision 8 remains byte-for-byte unchanged. No new permission,
+external task/calendar change, gateway restart or remote push occurred.
+
+Full repair proof: 455 native tests, 26 health checks, nine transport scenarios,
+five menu checks; secret scan clean; independent review clear. Its concurrent
+redirect test timed out once but all 40 gateway checks passed in isolation. Main
+full wrapper passed first run. Report distinguishes actual installed observations
+from the midnight/zone/coverage regressions and the prior pinning/mobile fixtures.
+
+Rollback: `.builds/today-release-2026-09-11/rollback/Orion-220.app`; install and
+verification manifests identify the additional hidden previous bundle. Build 217
+rollback also retained. No plan data should be removed during app rollback.
+
+Next concrete issue: optional generated prose said “full day” late in the afternoon,
+although Today budgeted only remaining hours. Ground brief narration in observation
+time and actual source age, verify its claims, then finish remaining Today scenarios
+and proceed to the phone shell/durable bridge. Files: `MorningBrief.swift`,
+`DashboardView.swift`, `NarrativeWriter.swift`, WHOOP snapshot metadata and existing
+health firewall tests. No REC-USABLE-CLIENT closure. Detailed evidence is in
+`planning/v2/TODAY_INSTALLED_PROOF_2026-09-11.md`. Preserve unrelated learning-proposals.
+
+---
+
 ## 2026-09-11 16:48 BST — Installed Today proof and brief repair candidate
 
 The earlier installed-217 statement is superseded. Clean source `187fa15` was

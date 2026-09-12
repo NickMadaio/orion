@@ -277,7 +277,7 @@ struct DashboardView: View {
     private func loadBrief(allowGeneration: Bool = true) {
         let facts = briefFacts
         briefWriter.load(key: facts.narrativeKey) {
-            allowGeneration && facts.hasAnything ? facts.prompt() : nil
+            allowGeneration && !facts.narrative.highlights.isEmpty ? facts.prompt() : nil
         }
     }
 
@@ -416,12 +416,9 @@ struct DashboardView: View {
                 sleepHours: whoop.snapshot?.sleepHours,
                 strain: whoop.snapshot?.strain,
                 sampleCount: whoop.week.readingsByDay.count,
-                readingAgeHours: nil
+                readingAgeHours: whoop.snapshot?.briefReadingAgeHours(at: clock.now)
             ),
-            strainAdvice: StrainPosition.of(
-                strain: whoop.snapshot?.strain,
-                band: StrainTarget.forRecovery(whoop.snapshot?.recovery)
-            ).line.replacingOccurrences(of: "- ", with: ""),
+            healthHighlights: whoop.snapshot?.briefHighlights(clock: clock) ?? [],
             readings: BriefFacts.Readings(
                 recovery: whoop.snapshot?.recovery,
                 sleepPerformance: whoop.snapshot?.sleepPerformance,
@@ -434,6 +431,7 @@ struct DashboardView: View {
             committedMinutes: clock.remainingMinutes(events),
             dueToday: tasksCurrent ? clock.dueToday(reminders.tasks) : [],
             overdue: tasksCurrent ? clock.overdue(reminders.tasks) : [],
+            openTaskCount: tasksCurrent ? reminders.openCount : nil,
             calendarConnected: calendarCurrent,
             tasksConnected: tasksCurrent
         )

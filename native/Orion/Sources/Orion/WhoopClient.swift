@@ -43,6 +43,10 @@ struct WhoopSnapshot: Equatable {
     var strain: Double?         // 0-21
     /// The day these numbers are ABOUT, which is frequently not today.
     var recordedOn: Date?
+    /// Brief provenance uses measurement intervals, not fetch/edit times.
+    var recoverySleepEndedAt: Date?
+    var sleepRecordedOn: Date?
+    var strainRecordedOn: Date?
     /// The end of the most recent real night — when you actually got up.
     var wokeAt: Date?
     /// When Orion fetched them.
@@ -444,14 +448,20 @@ final class WhoopClient: ObservableObject {
             next.restingHeartRate = rhr
             next.hrvMilliseconds = hrv
             next.recordedOn = timestamp(of: record)
+            if let sleepID = record["sleep_id"] as? String,
+               let related = mostRecentScored(sleeps.filter { ($0["id"] as? String) == sleepID }) {
+                next.recoverySleepEndedAt = (related["end"] as? String).flatMap(parseTimestamp)
+            }
         }
         if let record = mostRecentScored(sleeps) {
             let (performance, hours) = sleepFields(record)
             next.sleepPerformance = performance
             next.sleepHours = hours
+            next.sleepRecordedOn = (record["end"] as? String).flatMap(parseTimestamp)
         }
         if let record = mostRecentScored(cycles) {
             next.strain = strainField(record)
+            next.strainRecordedOn = (record["start"] as? String).flatMap(parseTimestamp)
         }
         return next
     }
@@ -524,7 +534,14 @@ final class WhoopClient: ObservableObject {
                 return state == "SCORED"
             }
             .max { left, right in
-                (timestamp(of: left) ?? .distantPast) < (timestamp(of: right) ?? .distantPast)
+                let leftDate = timestamp(of: left) ?? .distantPast
+                let rightDate = timestamp(of: right) ?? .distantPast
+                if leftDate != rightDate { return leftDate < rightDate }
+                // Overlapping fetch windows may include two revisions of one
+                // record. Its update time breaks ties, never sets its age.
+                let leftUpdate = (left["updated_at"] as? String).flatMap(parseTimestamp) ?? .distantPast
+                let rightUpdate = (right["updated_at"] as? String).flatMap(parseTimestamp) ?? .distantPast
+                return leftUpdate < rightUpdate
             }
     }
 

@@ -2,24 +2,10 @@ import Combine
 import Foundation
 
 /*
- The first thing Orion says each day.
-
- Two rules shape this file, and the second one is borrowed from `orion-daily`,
- which already learned it the hard way:
-
-   "Deliberately NOT a model call. A summariser that needs the gateway up, a
-    model warm and a network reachable is a summariser that silently stops
-    running some evening and leaves a hole in the record nobody notices."
-
- So the brief is FACTS FIRST. Recovery, sleep, wake time, what is on the
- calendar and what is due are read from clients that already have them, and
- they render whether or not any model is reachable. The written paragraph is an
- enhancement layered on top: it appears when it arrives and is simply absent
- when it does not. There is never a spinner where a number should be.
-
- And it goes to a LOCAL model — see LocalModel for why straight to Ollama and
- not through the agent. NarrativeWriter owns the mechanics and the caching; this
- file owns what Orion actually knows and how it is put to the model.
+ The brief renders a factual summary without a model. A local model can choose
+ one supported detail to highlight, but its prose never reaches the view.
+ Source dates, calendar coverage and task scope remain explicit. NarrativeWriter
+ caches only the selection; BriefNarrative validates it against current facts.
 */
 
 /// Everything the brief knows, gathered before anything is rendered or written.
@@ -28,12 +14,10 @@ struct BriefFacts: Equatable {
     var clock: BriefClock = BriefClock(now: Date())
     var wokeAt: Date?
 
-    /// Phase 33. The brief sits next to the calendar and the task list, and the
-    /// prompt asks the model to connect them -- which is Phase 38, health-aware
-    /// planning. That is the right feature and it is exactly why the raw numbers
-    /// must not be here: this is the prompt the firewall exists to protect.
+    /// Phase 33: the model receives only derived categories and provenance,
+    /// through BriefHealth's factual details. Raw measurements stay on the card.
     var signal: PlanningSignal = PlanningSignal()
-    var strainAdvice: String?
+    var healthHighlights: [BriefHighlight] = []
 
     /// Raw readings for the CARD ONLY. The ring meter and the figures beside it
     /// are Nick looking at his own numbers on his own machine, which is not a
@@ -58,6 +42,7 @@ struct BriefFacts: Equatable {
     var committedMinutes: Int = 0
     var dueToday: [SyncedTask] = []
     var overdue: [SyncedTask] = []
+    var openTaskCount: Int?
 
     /// Whether those two lists mean anything yet.
     ///
@@ -88,83 +73,13 @@ struct BriefFacts: Equatable {
     /// of your day, and "Good morning" would be wrong twice over.
     var salutation: String { clock.salutation }
 
-    /// The facts, as lines a small model can follow without inventing anything.
-    func prompt() -> String {
-        var lines: [String] = []
+    /// A constrained emphasis request; raw model prose is never rendered.
+    func prompt() -> String { narrative.prompt }
 
-        if let wokeAt {
-            lines.append("- Woke at \(wokeAt.formatted(date: .omitted, time: .shortened)).")
-        }
-        lines.append(contentsOf: signal.promptLines())
-        if let strainAdvice { lines.append("- \(strainAdvice)") }
-
-        if !calendarConnected {
-            lines.append("- Calendar: no current reading, so what is scheduled is unknown.")
-        } else if events.isEmpty {
-            lines.append("- Calendar: nothing scheduled.")
-        } else {
-            let hours = committedMinutes / 60
-            let minutes = committedMinutes % 60
-            lines.append("- Calendar: \(events.count) event\(events.count == 1 ? "" : "s"), "
-                         + "\(hours)h \(minutes)m still committed.")
-            if let next = nextEvent {
-                lines.append("- Next: \"\(next.title)\" at \(next.timeLabel).")
-            }
-        }
-
-        if !tasksConnected {
-            lines.append("- Tasks: no current reading, so what is due is unknown.")
-        } else if overdue.isEmpty && dueToday.isEmpty {
-            lines.append("- Tasks: nothing due.")
-        } else {
-            if !dueToday.isEmpty {
-                lines.append("- Due today: " + dueToday.prefix(4).map(\.title).joined(separator: ", ") + ".")
-            }
-            if !overdue.isEmpty {
-                lines.append("- Overdue: " + overdue.prefix(3).map(\.title).joined(separator: ", ") + ".")
-            }
-        }
-
-        return """
-        You are Orion, writing Nick's daily brief. Here are today's facts:
-
-        \(lines.joined(separator: "\n"))
-
-        Write 2 to 3 sentences addressed to him, as one paragraph.
-
-        Rules:
-        - Tie the recovery STATE to what is actually on his calendar today. \
-        This is the point of the brief: a good reading on an empty day and a \
-        poor one on a full day call for different things.
-        - If anything is overdue, name it.
-        - State NO health numbers at all -- no heart rate, no variability, no \
-        percentage, no hours slept. There are none in the facts above; do not \
-        estimate, infer or invent one. Times and task counts are fine.
-        - If the reading confidence is low, or it is not current, say so rather \
-        than sounding certain. "I have not got a fresh reading" is a useful \
-        sentence; a confident paragraph about stale numbers is not.
-        - If a fact says there is no current reading, say you cannot see it. \
-        Never turn "no current reading" into "nothing scheduled" or "nothing due".
-        - No greeting, no lists, no headings, no sign-off.
-        - No generic wellness advice. Nothing about stretching, hydration, \
-        breathing, taking breaks or listening to your body unless it is in the \
-        facts. Say something only these facts could have produced.
-        """
-    }
 }
 
 extension BriefFacts {
-    /// One paragraph per distinct set of facts — NOT one per day.
-    ///
-    /// Keying by day alone is what put "sleep score 81%, recovery 55%" on screen
-    /// beside tiles reading 27% and 12. The paragraph had been written earlier,
-    /// before Whoop synced the night Nick actually had, and a day-shaped key gave
-    /// nothing any reason to replace it. The facts are re-derived on every render
-    /// and were always correct; only the prose was frozen.
-    ///
-    /// Digesting the prompt itself means the key tracks the facts automatically:
-    /// change what the model is told and the cache entry changes with it, with
-    /// nothing to keep in sync by hand. The day stays in the scope so entries
-    /// remain readable and prunable.
-    var narrativeKey: String { NarrativeKey.make("brief.\(clock.dateKey)", facts: clock.timeZone.identifier + "\n" + clock.salutation + "\n" + prompt()) }
+    /// The versioned choice cache excludes the old freeform paragraphs. Semantic
+    /// changes invalidate a selection; the visible clock is rendered afresh.
+    var narrativeKey: String { narrative.key }
 }

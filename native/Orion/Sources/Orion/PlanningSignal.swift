@@ -48,6 +48,7 @@ import MobileCore
 /// How sure the reading is, and how recent — the two things a raw integer
 /// cannot carry and the reason the brief gets better rather than worse.
 enum SignalFreshness: String, CaseIterable {
+    case unknown
     case current
     case today
     case stale
@@ -55,9 +56,10 @@ enum SignalFreshness: String, CaseIterable {
 
     var phrase: String {
         switch self {
-        case .current: return "read this morning"
-        case .today: return "read earlier today"
-        case .stale: return "a day old"
+        case .unknown: return "source age unknown"
+        case .current: return "up to six hours old"
+        case .today: return "between six hours and a day old"
+        case .stale: return "between one and two days old"
         case .veryStale: return "several days old"
         }
     }
@@ -71,7 +73,7 @@ struct PlanningSignal: Equatable {
     var cognitiveCapacity: EnergyState = .unknown
     var stressTrend: StressTrend = .unknown
     var confidence: BaselineConfidence = .low
-    var freshness: SignalFreshness = .veryStale
+    var freshness: SignalFreshness = .unknown
 
     /// A sentence with no numbers in it. Built here rather than forwarded from
     /// MobileCore, for the reason in the header.
@@ -188,7 +190,7 @@ extension PlanningSignal {
         // the name, and twenty-one is where it stops being provisional.
         signal.confidence = sampleCount >= 21 ? .high : (sampleCount >= 7 ? .moderate : .low)
 
-        if let readingAgeHours {
+        if let readingAgeHours, readingAgeHours.isFinite, readingAgeHours >= 0 {
             signal.freshness = readingAgeHours <= 6 ? .current
                 : (readingAgeHours <= 24 ? .today
                    : (readingAgeHours <= 48 ? .stale : .veryStale))

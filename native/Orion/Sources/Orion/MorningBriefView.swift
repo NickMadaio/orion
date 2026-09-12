@@ -132,12 +132,9 @@ struct MorningBriefPanel: View {
         }
     }
 
-    /// Present only when there is something written. No placeholder, no
-    /// spinner: the brief is complete without it, and a shimmer where a
-    /// sentence will be is a promise the local model might not keep.
-    @ViewBuilder private var narrative: some View {
-        if let text = writer.text(for: facts.narrativeKey) {
-            Text(text)
+    /// Facts render immediately; an optional validated choice adds one detail.
+    private var narrative: some View {
+            Text(facts.narrative.text(selection: writer.text(for: facts.narrativeKey)))
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(OrionTheme.text.opacity(0.9))
                 .lineSpacing(6)
@@ -145,7 +142,6 @@ struct MorningBriefPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 620)
                 .transition(.opacity)
-        }
     }
 
     private var schedule: some View {

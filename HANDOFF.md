@@ -1,12 +1,33 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-11.** This is the only handoff. If you find another one
+**Last updated 2026-09-12.** This is the only handoff. If you find another one
 that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-12 16:40 BST — Grounded brief source checkpoint
+
+Build 221 is still installed. Nick said continue on the remaining inaccurate AI
+brief. The repaired view now renders a deterministic time/calendar/task summary,
+with at most one model-selected, allowlisted factual detail. Raw generated prose
+and old freeform cache entries cannot appear. Unfinished work remains visible
+even when nothing is due. Per-component WHOOP provenance uses linked sleep/end
+and cycle start, not fetch/edit times; unknown ages remain unknown.
+
+Full native suite: 467 XCTest cases and all 40 connection checks pass; health
+firewall: 38 checks. Independent review passed 12 new tests and is clear after
+canonical JSON cache keys and hostile title delimiters/bidi were repaired. Final
+freshness wording also receives focused verification. Source/history scan clean.
+
+Report: `planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Next: clean signed candidate,
+verify build-221 rollback, install, inspect the ordinary brief and a valid optional
+selection, then record installed evidence. Keep local plan state, permissions and
+gateway intact. No push or gate closure. Exclude unrelated learning-proposals.
 
 ---
 

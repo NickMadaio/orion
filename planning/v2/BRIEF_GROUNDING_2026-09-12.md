@@ -31,3 +31,13 @@ Prompt-only steering and a second model judging arbitrary prose were rejected: n
 No new model/provider, permission, credential, external task/calendar write or remote push is needed. The local plan file must remain unchanged during verification. Release from a clean checkout using the existing designated requirement, retaining a verified build-221 rollback under `.builds/brief-release-2026-09-12/`.
 
 Next: install the reviewed candidate and prove an actual late-afternoon brief with current source data, including a valid selected detail when the local model returns one. This does not establish medical interpretation, overall health-card freshness, phone/backend continuity or the remaining live Today conflict scenarios. REC-USABLE-CLIENT remains open.
+
+## 2026-09-12 16:44 BST — build 223 installed; visible launch check pending
+
+The reviewed source was checkpointed locally as `dfcaee2`. A clean detached checkout produced Orion 1.2.0 build 223 in 34.50 seconds. Candidate, rollback and installed deep/strict signature checks pass; the designated requirement exactly matches the existing Orion identity. The final 12-case focused suite and 38-case health firewall also pass after the boundary wording refinement. The final source/history secret scan is clean.
+
+Build 223 is now installed at `/Applications/Orion.app`. Orion was not running, so no active app or focus session was interrupted. The local plan fingerprint remained unchanged. Build 221 is retained at `.builds/brief-release-2026-09-12/rollback/Orion-221.app`, with a second prior bundle recorded in `install.json`. Source/test/build/install manifests are in that release directory. No gateway restart, permission change, credential access, external record change or remote push occurred.
+
+Computer Use reported that the Mac is locked and could not unlock it automatically. The user was asked to unlock it. Build 223 has therefore NOT been launched or verified through the ordinary visible brief route. No synthetic rendering or test result substitutes for this missing installed observation. Earlier build-221 UI proof remains historical to that binary.
+
+Exact next step after unlock: open `/Applications/Orion.app`, select Today and Read today's brief if parked, inspect the deterministic late-day summary and its actual source counts; allow the local model to return a choice and confirm a dated supported detail or an unchanged valid fallback. Verify the stored plan is unchanged. Use the existing release manifests and actual date when appending the result. Do not install again, change permissions or regenerate the signing identity. The remaining normal-route Today conflict scenarios and phone/backend work are still open.

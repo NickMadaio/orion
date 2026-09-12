@@ -10,6 +10,31 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-12 16:44 BST — Build 223 installed; Mac locked at live verification
+
+Installed app is now Orion 1.2.0 build 223, source `dfcaee2`, built from the clean
+release checkout. Candidate and installed deep signatures pass and identity is
+unchanged. Orion was not running; saved plan fingerprint is unchanged. Build 221
+rollback is `.builds/brief-release-2026-09-12/rollback/Orion-221.app`; install.json
+records the second previous bundle. No gateway restart, new permission or push.
+
+Built/tested: deterministic brief plus validated optional model selection,
+per-component source periods, unfinished-reminder context and hostile-title
+handling. 467 native tests, 40 connection checks and 38 health firewall checks;
+final 12 tests and firewall repeated after wording refinement. Independent review
+clear; final source/history scan clean. Full report:
+`planning/v2/BRIEF_GROUNDING_2026-09-12.md`.
+
+NOT YET PROVEN: build 223's actual visible brief and model selection. Computer Use
+reported the Mac locked; automatic unlock failed and Nick was asked to unlock it.
+The app was not launched. Next after unlock: open installed Orion, inspect Today →
+brief using real sources, confirm valid dated detail or factual fallback and unchanged
+plan, then record evidence. Do not rebuild/reinstall just to resume this check.
+Prior build-221 UI proof is historical. REC-USABLE-CLIENT and phone/backend remain
+open. Preserve unrelated learning-proposals work.
+
+---
+
 ## 2026-09-12 16:40 BST — Grounded brief source checkpoint
 
 Build 221 is still installed. Nick said continue on the remaining inaccurate AI

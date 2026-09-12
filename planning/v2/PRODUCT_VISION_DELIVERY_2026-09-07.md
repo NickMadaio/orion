@@ -107,3 +107,11 @@ Quit/reopen, with a fresh installed Today preview verified. The report
 fixture scenarios and records the remaining generated-prose accuracy issue.
 Step 2 has meaningful installed evidence but still has unperformed acceptance
 scenarios; phone/backend work and REC-USABLE-CLIENT remain open.
+
+## 12 September brief grounding update
+
+Build 223 adds a factual brief with optional constrained AI emphasis, fixes missing
+source-age handling, and preserves unfinished work even when nothing is due.
+Reviewed source and signed installed artifact are verified. Its visible app check
+awaits Mac unlock; do not extend build 221's historical UI proof to this release.
+See `BRIEF_GROUNDING_2026-09-12.md`. No phase or recovery gate is closed.

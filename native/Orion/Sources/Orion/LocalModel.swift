@@ -137,8 +137,14 @@ enum LocalModel {
             throw LocalModelError.unreachable
         }
         if failure != nil { throw LocalModelError.unreachable }
-        guard let body,
-              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+        guard let body else { throw LocalModelError.unreachable }
+        return try responseText(body, requireSentenceEnding: requireSentenceEnding)
+    }
+
+    /// Shared by the actual transport and boundary regressions. A structured
+    /// consumer validates its own schema rather than a prose punctuation rule.
+    static func responseText(_ body: Data, requireSentenceEnding: Bool) throws -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let text = json["response"] as? String
         else { throw LocalModelError.unreachable }
 

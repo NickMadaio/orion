@@ -276,7 +276,7 @@ struct DashboardView: View {
     /// The brief's paragraph, and only when there is something to say about.
     private func loadBrief(allowGeneration: Bool = true) {
         let facts = briefFacts
-        briefWriter.load(key: facts.narrativeKey) {
+        briefWriter.load(key: facts.narrativeKey, style: .selectionJSON) {
             allowGeneration && !facts.narrative.highlights.isEmpty ? facts.prompt() : nil
         }
     }

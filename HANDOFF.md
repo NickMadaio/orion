@@ -1,12 +1,30 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-12.** This is the only handoff. If you find another one
+**Last updated 2026-09-13.** This is the only handoff. If you find another one
 that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-13 15:39 BST — Live brief fallback proven; JSON client boundary repaired
+
+Build 223 launched after unlock. Real Sunday afternoon brief correctly retained
+all-day context and unfinished reminder scope; Tasks showed the unchecked source
+reminder. Saved revision 8 is unchanged. Optional detail failed because the shared
+LocalModel client required sentence punctuation for the JSON selection. The actual
+app log and call path establish this defect; prior rendering tests missed it.
+
+Source now uses selectionJSON style for the brief, retaining other prose guards.
+Four boundary tests exercise actual response decoding → writer → renderer/cache.
+Full native 471 tests and 40 connection checks pass; independent review is clear.
+Details: `planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Next: clean signed candidate,
+retain build-223 rollback, install and prove the model-selected detail in the app.
+No task/calendar change, new permission, gateway restart or push. Exclude unrelated
+learning-proposals. No phase or recovery gate is closed.
 
 ---
 

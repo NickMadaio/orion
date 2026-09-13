@@ -29,6 +29,8 @@ enum NarrativeStyle {
     case paragraph
     /// Keep one line per line.
     case lines
+    /// Preserve the structured response for the consumer's schema validation.
+    case selectionJSON
 }
 
 final class NarrativeWriter: ObservableObject {
@@ -44,6 +46,16 @@ final class NarrativeWriter: ObservableObject {
     private var attempted: Set<String> = []
 
     private let defaultsPrefix = "orion.narrative."
+    private let defaults: UserDefaults
+    private let complete: (String, Bool) throws -> String
+
+    init(defaults: UserDefaults = .standard,
+         complete: @escaping (String, Bool) throws -> String = { prompt, requireEnding in
+             try LocalModel.complete(prompt: prompt, requireSentenceEnding: requireEnding)
+         }) {
+        self.defaults = defaults
+        self.complete = complete
+    }
 
     /// Rendering must reject prose for superseded facts even before a view's
     /// change callback runs. The optional paragraph can safely disappear.
@@ -54,7 +66,7 @@ final class NarrativeWriter: ObservableObject {
     func load(key: String, style: NarrativeStyle = .paragraph, build: () -> String?) {
         guard loadedKey != key || text == nil else { return }
 
-        if let cached = UserDefaults.standard.string(forKey: defaultsPrefix + key), !cached.isEmpty {
+        if let cached = defaults.string(forKey: defaultsPrefix + key), !cached.isEmpty {
             text = cached
             loadedKey = key
             return
@@ -72,11 +84,12 @@ final class NarrativeWriter: ObservableObject {
         attempted.insert(key)
         isWriting = true
 
+        let complete = self.complete
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let started = Date()
             var written: String?
             do {
-                written = NarrativeWriter.tidy(try LocalModel.complete(prompt: prompt), style: style)
+                written = NarrativeWriter.tidy(try complete(prompt, style != .selectionJSON), style: style)
             } catch {
                 // Not surfaced. The screen is complete without it, and an error
                 // banner about a thing the user did not ask for is noise.
@@ -94,7 +107,7 @@ final class NarrativeWriter: ObservableObject {
                 }
                 OrionLog.write("[narrative] \(key): \(written.count) chars in "
                                + "\(Int(Date().timeIntervalSince(started) * 1000))ms")
-                UserDefaults.standard.set(written, forKey: self.defaultsPrefix + key)
+                self.defaults.set(written, forKey: self.defaultsPrefix + key)
                 self.prune(keeping: key)
                 guard self.loadedKey == key else { return }
                 self.text = written
@@ -116,7 +129,7 @@ final class NarrativeWriter: ObservableObject {
     private func prune(keeping key: String) {
         let today = Date().formatted(.iso8601.year().month().day().dateSeparator(.dash))
         let scope = key.split(separator: ".").dropLast().joined(separator: ".")
-        let store = UserDefaults.standard
+        let store = defaults
 
         for stored in store.dictionaryRepresentation().keys
         where stored.hasPrefix(defaultsPrefix) && stored != defaultsPrefix + key {
@@ -142,6 +155,7 @@ final class NarrativeWriter: ObservableObject {
     /// forever.
     static func tidy(_ raw: String, style: NarrativeStyle = .paragraph) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if style == .selectionJSON { return text }
 
         // Drop a leading label line like "Morning brief:" or "Here you go:".
         if let newline = text.firstIndex(of: "\n") {

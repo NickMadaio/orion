@@ -115,3 +115,12 @@ source-age handling, and preserves unfinished work even when nothing is due.
 Reviewed source and signed installed artifact are verified. Its visible app check
 awaits Mac unlock; do not extend build 221's historical UI proof to this release.
 See `BRIEF_GROUNDING_2026-09-12.md`. No phase or recovery gate is closed.
+
+## 13 September client-boundary update
+
+Installed build 225 now proves the factual brief through the normal Mac route.
+A live-discovered mismatch between JSON selection and prose validation was repaired
+and covered across the actual client/writer/renderer boundary. Its optional health
+detail check awaits the user's macOS Keychain prompt; the source and installed
+artifact are verified, but that live selection is not yet claimed. See the current
+brief report. General Health-tab availability labels remain a separate issue.

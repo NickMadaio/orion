@@ -10,6 +10,32 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-13 15:45 BST — Build 225 installed; factual brief live, Keychain detail check pending
+
+Installed Orion is 1.2.0 build 225, clean source `becb18c`. Deep signature and
+identity checks pass; installed executable matches candidate. Build-223 rollback:
+`.builds/brief-release-2026-09-13/rollback/Orion-223.app`; install.json records the
+additional previous bundle. No active focus was interrupted. Plan revision 8 is
+byte-for-byte unchanged; no source record, permission, credential or gateway change.
+
+Actual Today → brief shows correct Sunday afternoon and advancing observation time,
+all-day context and one unfinished reminder despite nothing due. The JSON client
+fix passed 471 native tests, 40 connection checks and independent four-case review;
+secret scan clean. Build-225 optional AI-selected detail is NOT yet proven: health
+source is stuck Checking with SecurityAgent running. Computer Use explicitly denies
+access to com.apple.SecurityAgent; Nick was asked to handle the macOS Keychain
+prompt. Do not try another tool to operate that protected dialog.
+
+Next after prompt: inspect live source refresh/selected detail in already-installed
+build 225; do not rebuild or reinstall. Report and exact boundaries:
+`planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Test-generated 0ms narrative log entries
+are fixtures, not live proof. Existing Health sections also mislabel pending source
+readings as no recorded sleep/workout with high confidence; keep that separate from
+the now-grounded brief. No REC or phase closure; phone/backend and remaining Today
+scenarios stay open. Exclude unrelated learning-proposals from checkpoints.
+
+---
+
 ## 2026-09-13 15:39 BST — Live brief fallback proven; JSON client boundary repaired
 
 Build 223 launched after unlock. Real Sunday afternoon brief correctly retained

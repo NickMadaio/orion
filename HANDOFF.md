@@ -10,6 +10,40 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 02:08 BST — Build 227 installed; missing and refreshed Health routes proven
+
+Installed Orion is 1.2.0 build 227, clean source `7fdba72`. Candidate/rollback/
+installed deep signatures pass, exact designated requirement is preserved, and
+the installed executable matches candidate. Build took 23.24 seconds. Rollback:
+`.builds/health-source-2026-09-14/rollback/Orion-225.app`; install.json records the
+additional previous bundle. No active focus interrupted, no source records,
+permissions, credentials or gateway changed by the agent. Revision-8 plan
+fingerprint unchanged. No push.
+
+Actual Health route first proved explicit missing-reading state, all seven
+sections and expanded source provenance. WHOOP then refreshed at 02:06; live
+Health showed real available metrics, hours-in-bed labeling and 9h12 rounding,
+source age, high corresponding WHOOP history confidence, moderate 14-reading
+trend confidence and low manual-entry confidence. Source access is now clear;
+no pending Keychain action for this verification. Final source harness 175/175,
+independent review clear, final app compilation passed; earlier native wrapper
+471 + 40 connection checks. Full report: planning/v2/HEALTH_SOURCE_TRUTH_2026-09-14.md.
+
+The earlier build-225 brief model-selection gap is also now proven through the
+normal Today → Read it route; see BRIEF_GROUNDING_2026-09-12.md. That proof belongs
+to build 225; build 227 Health proof is current.
+
+Next bounded repair: the separate freeform Health summary still turned an empty
+water log into immediate hydration advice and a generic sleep score into a
+personal-baseline claim. Its generated prose remains outside the seven-section
+repair. Inspect HealthTab.readingRail, HealthFacts/NarrativeFacts, NarrativeWriter
+and existing grounded-brief selection; preserve Phase 33 raw-health isolation.
+Also review older headline advice. Do not reinstall just to resume inspection.
+No phase/REC closure or phone/backend continuity claim. Exclude unrelated
+planning/learning-proposals.md from any checkpoint.
+
+---
+
 ## 2026-09-14 02:03 BST — Brief selection proven; Health source-truth repair ready
 
 Already-installed build 225 now refreshes real WHOOP data. Today → Read it showed

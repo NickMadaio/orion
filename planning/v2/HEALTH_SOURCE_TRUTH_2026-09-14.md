@@ -83,3 +83,34 @@ Build 225 rollback has been copied and deep-signature verified at
 `.builds/health-source-2026-09-14/rollback/Orion-225.app`. The saved plan matches the
 prior release fingerprint byte for byte, and there is no active focus session.
 Next is a clean signed candidate and installed normal-route check.
+
+## 2026-09-14 02:08 BST — build 227 installed and normal Health route proven
+
+Clean source `7fdba72` produced signed build 227 (1.2.0) in 23.24 seconds. The
+candidate, backup and installed deep signatures pass; designated requirement
+exactly matches the existing identity. The installed executable matches the
+candidate. Build 225 remains at the rollback path above, with an additional
+previous application bundle recorded in install.json.
+
+The ordinary Orion menu quit the old app, and the installed replacement launched.
+Its real Health route first showed unavailable readings, all seven sections, low
+confidence and the expanded source-age explanation. At 02:06, WHOOP refreshed
+successfully. Actual Health UI then showed time in bed as 9.2 hours in the tile
+and 9h12 in the section, reported sleep performance, recovery and strain, and
+source-age qualifications. WHOOP's available history gave high confidence to
+the corresponding sections, while the 14-reading trend remained moderate and
+manual entries low. No synthetic fixture substituted for either observation.
+
+Saved plan revision 8 remains byte-for-byte unchanged after quit, update, launch
+and both Health states. No external record, new permission, credential or
+gateway change was made by the agent. No protected Keychain dialog was operated.
+Source refresh completed without an unresolved user-action gate. No screenshot
+file was saved; the screenshots and AX observations are in the tool transcript.
+
+Next: repair the separate freeform Health summary. Its actual refreshed text
+asserted an immediate hydration need from an empty water log and treated a sleep
+score category as below-personal-usual. These are remaining unsupported claims
+in the older rail, not output from the repaired seven sections. Apply the same
+factual rendering/validated selection boundary used by the brief, retaining the
+Phase 33 raw-health privacy boundary. Other headline advice also still needs
+review. No Phase 34 or REC closure is claimed.

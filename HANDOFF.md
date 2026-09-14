@@ -10,6 +10,27 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 21:47 BST — Today source recovery 100%; installed build 232
+
+Source `0404632` prevents late callbacks and changed/unauthorized sources from
+revalidating a stale preview. Direct EventKit status checks run at callback,
+preview and acceptance. Final 56 focused tests +40 connection checks pass;
+independent seven race tests pass with no remaining review finding. Earlier
+full suite 489 passed before final permission correction. Secret scan clean.
+
+Signed clean build 232 installed with matching identity and executable. Actual
+Today refresh/preview showed an existing off-hours commitment unchanged,
+insufficient free time and task deferral. Preview discarded; saved revision-8
+plan unchanged. Permission-loss and recovery proof is controlled tests only.
+Rollback: .builds/today-source-race-2026-09-14/rollback/Orion-229.app.
+Report: planning/v2/TODAY_SOURCE_RECOVERY_2026-09-14.md. No phase/REC closure,
+remote push, external record mutation or permission/gateway change. Preserve
+unrelated planning/learning-proposals.md. Formal roadmap remains53% (45/85).
+Next: numbered-manifest connected-client/durable-bridge gaps; physical
+permission/overlapping-event experiments remain unproven.
+
+---
+
 ## 2026-09-14 15:57 BST — Health summary 100%; installed build 229 live selection proven
 
 The pending source-access gate cleared. Already-installed build 229 showed

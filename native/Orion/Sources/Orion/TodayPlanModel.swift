@@ -1,6 +1,35 @@
 import Foundation
+import EventKit
 import MobileCore
 import SessionService
+
+/// Read-only source seams shared by the live EventKit adapters and race tests.
+protocol TodayPlanCalendarSource: AnyObject {
+    var canReadForPlanning: Bool { get }
+    func fetch(interval: DateInterval, completion: @escaping ([AgendaEvent], String?) -> Void)
+}
+
+protocol TodayPlanRemindersSource: AnyObject {
+    var canReadForPlanning: Bool { get }
+    var tasks: [SyncedTask] { get }
+    var lastSyncedAt: Date? { get }
+    var lastError: String? { get }
+}
+
+enum TodayPlanReadAuthorization {
+    static func permitsRead(_ status: EKAuthorizationStatus) -> Bool { status == .fullAccess }
+}
+
+extension AppleCalendarSync: TodayPlanCalendarSource {
+    var canReadForPlanning: Bool {
+        access.isGranted && TodayPlanReadAuthorization.permitsRead(EKEventStore.authorizationStatus(for: .event))
+    }
+}
+extension AppleRemindersSync: TodayPlanRemindersSource {
+    var canReadForPlanning: Bool {
+        access.isGranted && TodayPlanReadAuthorization.permitsRead(EKEventStore.authorizationStatus(for: .reminder))
+    }
+}
 
 final class TodayPlanModel: ObservableObject {
     @Published private(set) var document = TodayPlanDocument()
@@ -16,6 +45,7 @@ final class TodayPlanModel: ObservableObject {
     private var fetchGeneration = 0
     private var proposalRevision = 0
     private var operationID = UUID()
+    private var validateSources: (() -> Bool)?
     @Published private var edits: [String: Int] = [:]
 
     init(store: TodayPlanStore = TodayPlanStore()) { self.store = store }
@@ -44,13 +74,17 @@ final class TodayPlanModel: ObservableObject {
     }
 
     func sourcesMatch(_ plan: TodayPlan, at now: Date) -> Bool {
-        inputs?.isFresh(at: now) == true && inputs?.fingerprint == plan.sourceFingerprint
+        hasUsableSources(at: now) && inputs?.fingerprint == plan.sourceFingerprint
     }
 
-    func refresh(agenda: AppleCalendarSync, reminders: AppleRemindersSync) {
+    func hasUsableSources(at now: Date) -> Bool {
+        inputs?.isFresh(at: now) == true && (validateSources?() ?? true)
+    }
+
+    func refresh(agenda: TodayPlanCalendarSource, reminders: TodayPlanRemindersSource) {
         fetchGeneration += 1
         let generation = fetchGeneration
-        guard agenda.access.isGranted, reminders.access.isGranted,
+        guard agenda.canReadForPlanning, reminders.canReadForPlanning,
               let taskReadAt = reminders.lastSyncedAt, reminders.lastError == nil,
               let interval = Calendar.current.dateInterval(of: .day, for: Date()) else {
             inputs = nil; proposal = nil
@@ -59,8 +93,18 @@ final class TodayPlanModel: ObservableObject {
         }
         let tasks = reminders.tasks
         let requestedZone = TimeZone.current.identifier
+        let validate = { [weak agenda, weak reminders] in
+            agenda?.canReadForPlanning == true && reminders?.canReadForPlanning == true
+                && reminders?.lastError == nil && reminders?.lastSyncedAt == taskReadAt
+                && reminders?.tasks == tasks
+        }
         agenda.fetch(interval: interval) { [weak self] events, failure in
             guard let self, generation == self.fetchGeneration else { return }
+            guard validate() else {
+                self.inputs = nil; self.proposal = nil
+                self.sourceMessage = "Calendar or Orion Reminders changed while loading. Refresh the plan sources."
+                return
+            }
             guard failure == nil, requestedZone == TimeZone.current.identifier,
                   Calendar.current.isDate(interval.start, inSameDayAs: Date()) else {
                 self.inputs = nil; self.proposal = nil
@@ -70,15 +114,16 @@ final class TodayPlanModel: ObservableObject {
             do {
                 let value = try TodayPlanInputs.make(events: events, tasks: tasks, calendarReadAt: Date(),
                                                     tasksReadAt: taskReadAt, now: Date(), defaultMinutes: self.preferences.defaultTaskMinutes)
-                self.receive(value)
+                self.receive(value, validate: validate)
             } catch { self.inputs = nil; self.proposal = nil; self.sourceMessage = error.localizedDescription }
         }
     }
 
     /// The asynchronous EventKit adapter and the model share one snapshot boundary.
-    func receive(_ value: TodayPlanInputs) {
+    func receive(_ value: TodayPlanInputs, validate: (() -> Bool)? = nil) {
         if inputs?.fingerprint != value.fingerprint { proposal = nil }
         inputs = value
+        validateSources = validate
         sourceMessage = "Calendar and Orion Reminders checked. Task durations are editable estimates."
     }
 
@@ -92,7 +137,7 @@ final class TodayPlanModel: ObservableObject {
     func preview(_ change: Change, now: Date = Date()) {
         guard loaded, !isSaving else { return }
         do {
-            guard let inputs, inputs.isFresh(at: now) else { throw TodayPlanError.staleSources }
+            guard let inputs, hasUsableSources(at: now) else { throw TodayPlanError.staleSources }
             let old = current(at: now)
             var complete = Set(old?.completedIDs ?? [])
             var durations = edits
@@ -143,7 +188,7 @@ final class TodayPlanModel: ObservableObject {
 
     func accept(now: Date = Date()) {
         guard let plan = proposal, let inputs, !isSaving,
-              inputs.isFresh(at: now), plan.sourceFingerprint == inputs.fingerprint,
+              hasUsableSources(at: now), plan.sourceFingerprint == inputs.fingerprint,
               plan.preferences == preferences, (0...60).contains(now.timeIntervalSince(plan.generatedAt)) else {
             error = "The preview or its sources changed. Create a fresh preview before applying it."; return
         }

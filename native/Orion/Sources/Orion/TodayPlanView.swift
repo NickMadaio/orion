@@ -15,7 +15,7 @@ struct TodayPlanView: View {
                     Spacer()
                     Button("Refresh sources", action: refresh).buttonStyle(.plain).foregroundStyle(OrionTheme.accent)
                 }
-                Text(model.inputs?.isFresh(at: context.date) == true ? model.sourceMessage : "Source data is missing or out of date. Refresh before making a plan.")
+                Text(model.hasUsableSources(at: context.date) ? model.sourceMessage : "Source data is missing or out of date. Refresh before making a plan.")
                     .font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
                 if let error = model.error {
                     Text(error).font(.system(size: 12)).foregroundStyle(OrionTheme.orange)
@@ -31,6 +31,7 @@ struct TodayPlanView: View {
                     if model.proposal != nil {
                         HStack {
                             Button("Accept this plan") { model.accept() }.buttonStyle(.borderedProminent).tint(OrionTheme.accent)
+                                .disabled(!model.hasUsableSources(at: context.date))
                             Button("Discard preview") { model.dismissProposal() }.buttonStyle(.plain)
                             Text("Preview only until accepted").font(.caption).foregroundStyle(OrionTheme.textSoft)
                         }
@@ -71,7 +72,7 @@ struct TodayPlanView: View {
                 }.font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
                 HStack {
                     Button(model.current() == nil ? "Preview my day" : "Preview updated plan") { model.preview(.plan) }
-                        .buttonStyle(.bordered).disabled(!model.loaded || model.isSaving || model.inputs?.isFresh(at: context.date) != true)
+                        .buttonStyle(.bordered).disabled(!model.loaded || model.isSaving || !model.hasUsableSources(at: context.date))
                     if model.isSaving { ProgressView().controlSize(.small) }
                 }
                 Text("Plan changes stay on this Mac. Finish block records work in this plan; edit the original reminder in Tasks. Calendar commitments are never moved here.")

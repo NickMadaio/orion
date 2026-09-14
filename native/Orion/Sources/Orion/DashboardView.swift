@@ -215,7 +215,7 @@ struct DashboardView: View {
         .onChange(of: agenda.access) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.access) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.lastError) { _, _ in refreshPlanSources(); loadBrief() }
-        .onChange(of: reminders.tasks) { _, _ in loadBrief() }
+        .onChange(of: reminders.tasks) { _, _ in refreshPlanSources(); loadBrief() }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         .preferredColorScheme(.dark)
         .onAppear(perform: start)

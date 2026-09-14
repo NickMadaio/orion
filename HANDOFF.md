@@ -10,6 +10,35 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 07:40 BST — Build 229 installed; Health summary 95%, source access pending
+
+Installed Orion is build 229 (1.2.0), clean source `882681a`. Build 25.55 seconds;
+candidate/rollback/installed deep signatures and exact identity pass, installed
+executable matches candidate. Rollback is
+.builds/health-summary-2026-09-14/rollback/Orion-227.app; install.json records the
+additional previous bundle. No active focus interrupted; saved plan revision 8
+byte-for-byte unchanged. No source record, credential, permission or gateway
+change by the agent, no remote push.
+
+Actual Health route proves factual fallback, activity date and missing-log
+uncertainty; no arbitrary model prose is rendered. WHOOP remains Checking with
+SecurityAgent present. Nick was asked asynchronously to handle the macOS
+Keychain prompt. Computer Use cannot operate that protected dialog. Do not
+attempt another tool to bypass it. No live refreshed Health or optional model
+selection proof is claimed for build 229. Test-generated 0ms September-13
+health-choice entries are not live completions.
+
+Continue at 95% of this repair (user asked for progress percentages). After the
+prompt clears, inspect already-installed Health and its valid factual selection;
+verify record dates, no old advice/coaching and unchanged saved plan. Do not
+rebuild/reinstall. Source gate is done: 481 earlier native tests + 40 connection
+checks, 38 health firewall checks, final 28 focused independent tests after two
+review fixes, source/history secret scan clean. Report:
+planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md. No phase/REC closure or overall
+program completion percentage. Preserve unrelated learning-proposals.
+
+---
+
 ## 2026-09-14 07:36 BST — Health summary source gate passed (85% of this repair)
 
 User asked to continue and show progress percentages. Percentages refer to this

@@ -78,3 +78,31 @@ checks. Final source compiles through the focused run. Source/history secret
 scan and diff checks pass. Logs and the verified build-227 backup are retained
 under the release directory. No active focus session. Next: clean signed update
 and actual Health selection/fallback verification.
+
+## 2026-09-14 07:40 BST — build 229 installed; live source gate pending (95%)
+
+Source checkpoint `882681a` produced clean signed build 229 (1.2.0) in 25.55
+seconds. Candidate, rollback and installed deep signatures pass and the exact
+designated requirement is unchanged. The installed executable matches the
+candidate. Build 227 rollback and the additional previous bundle are recorded
+in `.builds/health-summary-2026-09-14/install.json`. Quit used the ordinary Orion
+menu; no active focus session was interrupted.
+
+The actual Health screen shows the new factual fallback, correct activity date
+and all seven sections. Empty water/food/workout logs explicitly leave actual
+activity unknown. The previous arbitrary advice is absent. This is installed
+UI evidence, not a fixture. Saved plan revision 8 is unchanged byte for byte.
+
+WHOOP remains Checking and SecurityAgent is present. The user was asked to
+handle the macOS Keychain prompt. Computer Use's protected-dialog restriction
+remains in force; the agent did not operate the prompt or access credentials.
+Source refresh and a valid optional Health model selection are not yet proven
+on build 229. Zero-millisecond health-choice log lines on activity day September
+13 came from tests and must not count as live model proof.
+
+Next after source access clears: inspect already-installed Health, verify the
+record dates and absence of the old coaching/advice, and observe an actual valid
+optional selection if returned. Check the saved plan again. Do not rebuild or
+reinstall just to resume this gate. Report 95% for this bounded repair until that
+proof is obtained; this is not an overall program percentage. The source-history
+secret scan is clean and no remote push or phase/REC closure occurred.

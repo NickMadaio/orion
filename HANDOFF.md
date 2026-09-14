@@ -10,6 +10,24 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 22:42 BST — Local durable Today read-service foundation
+
+Added backend/local_today/repository.py and backend/adapters/local_today.py:
+private SQLite owner-scoped snapshots, transactional revision checks, read audit,
+ephemeral local harness sessions and loopback-only GET /plan.119 combined tests
+pass; final ten service tests and independent ten-test review pass. Secret scan
+clean. Exact inbound http.server adapter exception preserves outbound restrictions.
+See planning/v2/LOCAL_TODAY_SERVICE_2026-09-14.md and backend/local_today/README.md.
+
+Local service proof100%; phone remains sample-only. This is not account auth,
+a deployed server or a connected-client closure. No real plan imported or daemon
+installed; tests use disposable stores/sockets. Mac build232 untouched. Next:
+validated Mac exporter and Simulator client with stale/offline/reconnect proof.
+All live foundation/client REC gates remain open; roadmap53% unchanged. Preserve
+unrelated planning/learning-proposals.md. Local checkpoint only, no remote push.
+
+---
+
 ## 2026-09-14 22:22 BST — Real phone Simulator shell delivered
 
 The old “no iPhone app target” gap is now narrowed: native/OrionMobile has

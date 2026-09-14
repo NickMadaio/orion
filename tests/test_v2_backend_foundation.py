@@ -126,6 +126,16 @@ class ImportBoundaryTests(unittest.TestCase):
         root = self.sample_tree({"anything.py": "from orion.mac import inference_ledger\n"})
         self.assertTrue(any("orion.mac" in error for error in import_errors(root)))
 
+    def test_local_listener_exception_does_not_allow_outbound_clients(self):
+        root = self.sample_tree({"adapters/local_today.py": "from http.server import HTTPServer\n"})
+        self.assertEqual(import_errors(root), [])
+        for source in ("import http.client\n", "import urllib.request\n", "import socket\n"):
+            (root / "adapters/local_today.py").write_text(source)
+            self.assertTrue(import_errors(root))
+        (root / "adapters/local_today.py").unlink()
+        (root / "other.py").write_text("from http.server import HTTPServer\n")
+        self.assertTrue(import_errors(root))
+
     def test_only_the_egress_guard_may_reach_the_network(self):
         # Any other module importing an HTTP client is a fetch that never passed
         # the SSRF guard -- the one way that invariant reopens without anybody

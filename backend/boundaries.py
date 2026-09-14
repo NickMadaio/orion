@@ -124,7 +124,11 @@ def import_errors(root: Path) -> list[str]:
         owning = _owning_module(path, root)
         for line, name in imported_names(path):
             head = name.split(".", 1)[0]
-            if head in NETWORK_ROOTS and path.name != EGRESS_MODULE:
+            # The local inbound adapter cannot use a client or raw socket API.
+            # This exact server import is distinct from outbound egress.
+            local_listener = (path.relative_to(root).as_posix() == "adapters/local_today.py"
+                              and name == "http.server")
+            if head in NETWORK_ROOTS and path.name != EGRESS_MODULE and not local_listener:
                 errors.append(
                     f"{relative}:{line}: only egress.py may reach the network; "
                     f"route the request through egress.check first"

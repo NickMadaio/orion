@@ -106,3 +106,32 @@ optional selection if returned. Check the saved plan again. Do not rebuild or
 reinstall just to resume this gate. Report 95% for this bounded repair until that
 proof is obtained; this is not an overall program percentage. The source-history
 secret scan is clean and no remote push or phase/REC closure occurred.
+
+## 2026-09-14 15:57 BST — installed build 229 live gate complete (100% of this repair)
+
+Source access cleared without an agent operation of the protected dialog. The
+already-installed build 229 showed real WHOOP data last synced at 15:42, dated
+recovery/sleep sources ending September 14 at 07:19 and the strain cycle starting
+at 02:38. Its rail retained explicit uncertainty about the empty water log and
+did not display the earlier immediate hydration instruction or personal-baseline
+claim. The generic-score coaching card is absent.
+
+After the ordinary Health tab opened, the local model completed a current-day
+selection at 15:56:05 (16,593ms in the live log). The actual UI displayed the
+validated-selection attribution and a leading Recovery Source fact with the
+correct associated sleep date/time. This proves the actual local client, writer,
+current-key lookup, selection validation and renderer on build 229. It is not
+one of the prior test-generated zero-millisecond completions. No screenshot
+file was saved; the tool transcript contains the actual AX and image evidence.
+
+Installed deep signature passes and saved plan revision 8 still matches preflight
+byte for byte. No reinstall, gateway restart, credential or permission change,
+external record edit or active focus interruption was needed to complete this
+check. Rollback remains build 227 at the previously recorded path.
+
+The Health-summary repair is complete. Overall formal roadmap counts remain
+45 complete, 26 in progress and 14 not started (53% marked complete); no phase
+or recovery gate was closed by this repair. The next delivery work remains
+remaining Today normal-route conflict/recovery proofs and the connected-client
+path in PRODUCT_VISION_DELIVERY_2026-09-07.md. Personal baseline analysis and
+health-aware planning are not implied implemented by this factual summary.

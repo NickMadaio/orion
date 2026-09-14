@@ -10,6 +10,37 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 15:57 BST — Health summary 100%; installed build 229 live selection proven
+
+The pending source-access gate cleared. Already-installed build 229 showed
+real WHOOP refresh at 15:42, dated source facts and unchanged missing-log
+uncertainty. Actual local-model completion at 15:56:05 produced a valid selection;
+the Health UI displayed the selection attribution and leading Recovery Source
+fact for the associated sleep ending September 14 at 07:19. Earlier invented
+advice and the visible fixed-score coaching card are absent. No protected
+dialog was operated and no reinstall was needed. Deep signature passes; saved
+revision-8 plan fingerprint remains unchanged.
+
+Health-summary repair is 100% complete; source `882681a`, installed build 229.
+Proof: planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md and
+.builds/health-summary-2026-09-14/verification.json. Rollback remains
+.builds/health-summary-2026-09-14/rollback/Orion-227.app. Existing source test and
+review evidence below is unchanged. No new test run is claimed for read-only
+installed verification. No external records, permissions, credentials or gateway
+changed by the agent. No remote push or phase/REC closure.
+
+Nick also requested a code walkthrough: outputs/ORION_CODE_GUIDE.md in this
+Codex task lists the actual Desktop source tree, reading order and linked
+Health example. Finder was asked to reveal the real HealthSummary.swift.
+He then said to continue implementation. Preserve progress percentages per
+bounded repair and explicitly distinguish formal total: 45/85 phases marked
+complete (53%), 26 in progress, 14 not started. Next work follows the product
+delivery plan: remaining Today conflict/recovery proofs, then connected client
+and durable bridge work. Do not mistake the summary for personal-baseline or
+health-aware-planning completion. Exclude unrelated learning-proposals.
+
+---
+
 ## 2026-09-14 07:40 BST — Build 229 installed; Health summary 95%, source access pending
 
 Installed Orion is build 229 (1.2.0), clean source `882681a`. Build 25.55 seconds;

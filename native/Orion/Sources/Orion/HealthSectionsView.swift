@@ -52,6 +52,12 @@ struct HealthSectionsView: View {
                 .kerning(0.6)
                 .foregroundStyle(.secondary)
 
+            if [.today, .sleep, .recovery, .activity].contains(content.section) {
+                Text(model.readingStatus)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
             // What happened. Always present.
             Text(content.narrative.happened)
                 .font(.system(size: 15))
@@ -179,22 +185,11 @@ struct HealthSectionsView: View {
 
     private func shortProvenance(_ content: HealthSectionContent) -> String {
         let sources = content.narrative.sources.map(\.label).joined(separator: ", ")
-        return "\(sources) · \(confidenceWord(content.narrative.confidence)) confidence"
+        return "\(sources) · \(confidenceWord(content.narrative.confidence)) history confidence"
     }
 
     private func longProvenance(_ content: HealthSectionContent) -> String {
-        switch content.narrative.confidence {
-        case .low:
-            return "Fewer than seven days of history, so Orion will report what it sees "
-                + "and will not tell you what it means. That is why this section has no "
-                + "interpretation under it."
-        case .moderate:
-            return "Between one and three weeks of history. Enough to compare today "
-                + "against your own normal, not yet enough to be confident about a trend."
-        case .high:
-            return "Three weeks or more of history, so today is being compared against "
-                + "a baseline built from your own readings rather than a general one."
-        }
+        model.provenanceDetail(for: content.section)
     }
 
     private func confidenceWord(_ confidence: BaselineConfidence) -> String {

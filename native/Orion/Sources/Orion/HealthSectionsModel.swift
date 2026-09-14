@@ -24,12 +24,10 @@ import MobileCore
    strap did not sync looks identical to a section that has nothing to say, and
    `DayScore` already records what scoring a missing input as zero costs.
 
- • **Interpretation is gated on confidence by the TYPE, not by these builders.**
-   `SectionNarrative.init` returns nil if a `.low`-confidence narrative carries
-   an inference, so a builder that gets carried away fails loudly at the seam
-   rather than shipping a confident sentence about two nights of data. Every
-   builder here therefore passes `likelyMeans` and `consider` optimistically and
-   lets the type refuse them — which is why `fallback` exists.
+ • **History is not a personal comparison.** These sections report available
+   readings and local entries. Generic score thresholds and sample counts do
+   not establish someone's usual sleep, energy or capacity, so these builders
+   do not turn them into personalised advice.
 */
 
 struct HealthSectionsModel {
@@ -47,9 +45,10 @@ struct HealthSectionsModel {
         var calorieTarget: Int
         var waterBottles: Int
         var waterTarget: Int
-        /// How many days of history exist. Phase 31's ladder decides confidence
-        /// from this and nothing else.
-        var sampleCount: Int
+        /// Count only days containing the corresponding WHOOP measurement.
+        var recoverySampleCount: Int
+        var sleepSampleCount: Int
+        var strainSampleCount: Int
         var readingAgeHours: Double?
         /// Most recent first, at most a fortnight — the Trends section's series.
         var recentSleepHours: [Double]
@@ -61,7 +60,8 @@ struct HealthSectionsModel {
             hrv: Int? = nil, restingHeartRate: Int? = nil, strain: Double? = nil,
             calories: Int = 0, calorieTarget: Int = 2_200,
             waterBottles: Int = 0, waterTarget: Int = 9,
-            sampleCount: Int = 0, readingAgeHours: Double? = nil,
+            recoverySampleCount: Int = 0, sleepSampleCount: Int = 0,
+            strainSampleCount: Int = 0, readingAgeHours: Double? = nil,
             recentSleepHours: [Double] = [], recentRecovery: [Double] = [],
             journalEntryCount: Int = 0
         ) {
@@ -75,7 +75,9 @@ struct HealthSectionsModel {
             self.calorieTarget = calorieTarget
             self.waterBottles = waterBottles
             self.waterTarget = waterTarget
-            self.sampleCount = sampleCount
+            self.recoverySampleCount = recoverySampleCount
+            self.sleepSampleCount = sleepSampleCount
+            self.strainSampleCount = strainSampleCount
             self.readingAgeHours = readingAgeHours
             self.recentSleepHours = recentSleepHours
             self.recentRecovery = recentRecovery
@@ -85,25 +87,32 @@ struct HealthSectionsModel {
 
     let inputs: Inputs
 
-    /// The derived states, from the same engine the planner uses. Reusing
-    /// `PlanningSignal.derive` rather than re-deriving means the tab and the
-    /// brief can never disagree about whether recovery was "good" — two
-    /// thresholds for one word is how they drift.
-    private var signal: PlanningSignal {
-        PlanningSignal.derive(
-            recovery: inputs.recovery,
-            sleepPerformance: inputs.sleepPerformance,
-            sleepHours: inputs.sleepHours,
-            strain: inputs.strain,
-            sampleCount: inputs.sampleCount,
-            readingAgeHours: inputs.readingAgeHours
-        )
+    private func confidence(samples: Int) -> BaselineConfidence {
+        guard let age = inputs.readingAgeHours, age.isFinite, age >= 0, age <= 24 else {
+            return .low
+        }
+        return seriesConfidence(count: samples)
     }
 
-    private var confidence: BaselineConfidence { signal.confidence }
+    /// Age of the oldest available WHOOP component, not the last network sync.
+    var readingStatus: String {
+        guard let age = inputs.readingAgeHours, age.isFinite, age >= 0 else {
+            return "Reading age unknown"
+        }
+        if age <= 24 { return "Available readings are at most a day old" }
+        return "Older readings — not a current-day assessment"
+    }
 
-    /// Whether an inference is allowed at all right now.
-    private var mayInterpret: Bool { confidence != .low }
+    func provenanceDetail(for section: HealthSection) -> String {
+        switch section {
+        case .energy, .journal:
+            return "Local entries only. These do not establish a personal baseline or support an interpretation."
+        case .trends:
+            return "History coverage describes the available series, not a comparison with your personal baseline."
+        default:
+            return readingStatus + ". Age uses the oldest available WHOOP record; syncing does not make an old reading current. History coverage alone is not a personal baseline."
+        }
+    }
 
     // MARK: - The seven
 
@@ -129,135 +138,97 @@ struct HealthSectionsModel {
 
     // MARK: Builders
 
-    /// Build with inferences when allowed, and fall back to the observation
-    /// alone when the type refuses them.
-    ///
-    /// The fallback is not defensive padding: it is the behaviour the manifest
-    /// asks for. At low confidence a section still says what happened.
-    private func build(
-        _ happened: String, _ likelyMeans: String?, _ consider: String?,
-        _ sources: [HealthSource]
-    ) -> SectionNarrative? {
-        if mayInterpret,
-           let full = SectionNarrative(happened: happened, likelyMeans: likelyMeans,
-                                       consider: consider, sources: sources,
-                                       confidence: confidence) {
-            return full
-        }
-        return SectionNarrative(happened: happened, sources: sources, confidence: confidence)
+    private func observation(_ text: String, sources: [HealthSource],
+                             confidence: BaselineConfidence = .low) -> SectionNarrative? {
+        SectionNarrative(happened: text, sources: sources, confidence: confidence)
     }
 
     private func today() -> SectionNarrative? {
-        guard signal.hasAnything else {
-            return SectionNarrative(
-                happened: "No readings have arrived yet today.",
-                sources: [.derived], confidence: confidence)
+        let available = [inputs.recovery != nil ? "recovery" : nil,
+                         inputs.sleepHours != nil || inputs.sleepPerformance != nil ? "sleep" : nil,
+                         inputs.strain != nil ? "strain" : nil].compactMap { $0 }
+        guard !available.isEmpty else {
+            return observation("WHOOP readings are unavailable. This does not establish what happened today.",
+                               sources: [.whoop])
         }
-        let happened = "Recovery is \(signal.recoveryWord) and last night reads \(signal.sleepWord)."
-        return build(
-            happened,
-            "That usually means \(signal.cognitiveCapacityWord) capacity for focused work today.",
-            "Put the demanding block where your capacity actually is, rather than where the calendar put it.",
-            [.whoop, .derived])
+        let sampleCounts = [inputs.recovery != nil ? inputs.recoverySampleCount : nil,
+                            inputs.sleepHours != nil || inputs.sleepPerformance != nil ? inputs.sleepSampleCount : nil,
+                            inputs.strain != nil ? inputs.strainSampleCount : nil].compactMap { $0 }
+        return observation("Available WHOOP readings cover " + available.joined(separator: ", ") + ".",
+                           sources: [.whoop], confidence: confidence(samples: sampleCounts.min() ?? 0))
     }
 
     private func sleep() -> SectionNarrative? {
-        guard let hours = inputs.sleepHours else {
-            return SectionNarrative(
-                happened: "No sleep was recorded for last night.",
-                sources: [.whoop], confidence: confidence)
+        var facts: [String] = []
+        if let hours = inputs.sleepHours {
+            facts.append("WHOOP reports \(Self.hours(hours)) in bed in the available sleep record.")
         }
-        // One figure, deliberately. The score and the hours together with a
-        // baseline would be three, which is the budget, and leaves nothing for
-        // the sentence that follows.
-        let happened = "You slept \(Self.hours(hours)), which reads as \(signal.sleepWord)."
-        return build(
-            happened,
-            "Short nights show up in the afternoon more often than the morning.",
-            "If tonight can start earlier, that is worth more than catching up at the weekend.",
-            [.whoop])
+        if let performance = inputs.sleepPerformance {
+            facts.append("Reported sleep performance is \(performance)%.")
+        }
+        guard !facts.isEmpty else {
+            return observation("A sleep reading is unavailable; this does not mean you did not sleep.",
+                               sources: [.whoop])
+        }
+        return observation(facts.joined(separator: " "), sources: [.whoop],
+                           confidence: confidence(samples: inputs.sleepSampleCount))
     }
 
     private func recovery() -> SectionNarrative? {
         guard let recovery = inputs.recovery else {
-            return SectionNarrative(
-                happened: "Recovery has not come in — the strap may not have synced.",
-                sources: [.whoop], confidence: confidence)
+            return observation("Recovery has not come in; a reading may still be awaiting sync or scoring.",
+                               sources: [.whoop])
         }
-        let happened = "Recovery came in at \(recovery)%, which is \(signal.recoveryWord)."
-        return build(
-            happened,
-            "Recovery is a morning number: it describes the night you had, not how the day is going.",
-            "Treat it as the band you are working inside today rather than a score to beat.",
-            [.whoop])
+        return observation("The available WHOOP recovery reading is \(recovery)%.",
+                           sources: [.whoop], confidence: confidence(samples: inputs.recoverySampleCount))
     }
 
     private func activity() -> SectionNarrative? {
         guard let strain = inputs.strain else {
-            return SectionNarrative(
-                happened: "No workout or strain has been recorded today.",
-                sources: [.whoop, .manual], confidence: confidence)
+            return observation("A WHOOP strain reading is unavailable. This does not establish whether you worked out.",
+                               sources: [.whoop])
         }
-        let word: String
-        switch signal.physicalLoad {
-        case .heavy: word = "a heavy day"
-        case .steady: word = "a steady day"
-        case .light: word = "a light day"
-        case .unknown: word = "an unread day"
-        }
-        return build(
-            "Strain is \(Self.oneDecimal(strain)) so far, which is \(word).",
-            "Load and recovery move together across a week rather than within one day.",
-            "If the rest of the day is meant to be easy, it is worth keeping it that way.",
-            [.whoop])
+        return observation("The available WHOOP strain reading is \(Self.oneDecimal(strain)).",
+                           sources: [.whoop], confidence: confidence(samples: inputs.strainSampleCount))
     }
 
     private func energy() -> SectionNarrative? {
         let fuelled = inputs.calories > 0
         let watered = inputs.waterBottles > 0
-        // Two figures at most, and only the ones the person entered themselves.
         let happened: String
         if fuelled && watered {
             happened = "You have logged \(inputs.calories) calories and \(inputs.waterBottles) bottles."
         } else if fuelled {
-            happened = "You have logged \(inputs.calories) calories and no water yet."
+            happened = "You have logged \(inputs.calories) calories; no water is logged yet."
         } else if watered {
-            happened = "You have logged \(inputs.waterBottles) bottles and no food yet."
+            happened = "You have logged \(inputs.waterBottles) bottles; no food is logged yet."
         } else {
             happened = "Nothing has been logged for food or water yet today."
         }
-        return build(
-            happened,
-            "Energy through the afternoon tracks what went in during the morning.",
-            "A glass of water is the cheapest thing on this page.",
-            [.manual, .derived])
+        return observation(happened, sources: [.manual])
     }
 
     private func trends() -> SectionNarrative? {
-        let nights = inputs.recentSleepHours.count
+        let nights = min(inputs.recentSleepHours.count, HealthTrend.maximumPoints)
         guard nights > 0 else {
-            return SectionNarrative(
-                happened: "There is not enough history yet to show a trend.",
-                sources: [.derived], confidence: confidence)
+            return observation("There is not enough history yet to show a trend.", sources: [.whoop])
         }
-        return build(
-            "The last \(nights) nights are on record.",
-            "A fortnight is enough to see a direction; a single night is not.",
-            "Look at the shape rather than yesterday.",
-            [.whoop, .derived])
+        return observation("The available history includes \(nights) time-in-bed readings.",
+                           sources: [.whoop], confidence: seriesConfidence(count: nights))
     }
 
     private func journal() -> SectionNarrative? {
         guard inputs.journalEntryCount > 0 else {
-            return SectionNarrative(
-                happened: "Nothing written down today. Anything you note here is used to explain later readings.",
-                sources: [.manual], confidence: confidence)
+            return observation("Nothing written down today. You can add context here for later review.",
+                               sources: [.manual])
         }
-        return build(
-            "You noted \(inputs.journalEntryCount) things today.",
-            "Notes are what turn a number into something explainable.",
-            "Keep noting the unusual days; they are the ones worth explaining.",
-            [.manual])
+        return observation("You noted \(inputs.journalEntryCount) things today.", sources: [.manual])
+    }
+
+    private func seriesConfidence(count: Int) -> BaselineConfidence {
+        PlanningSignal.derive(recovery: nil, sleepPerformance: nil, sleepHours: nil,
+                              strain: nil, sampleCount: count,
+                              readingAgeHours: nil).confidence
     }
 
     // MARK: Trend series
@@ -275,8 +246,10 @@ struct HealthSectionsModel {
         }
         guard !series.isEmpty else { return nil }
         let points = Array(series.prefix(HealthTrend.maximumPoints))
-        return HealthTrend(kind: kind, direction: Self.direction(points, mayInterpret: mayInterpret),
-                           points: points, span: points.count, confidence: confidence)
+        let historyConfidence = seriesConfidence(count: points.count)
+        return HealthTrend(kind: kind,
+                           direction: Self.direction(points, mayInterpret: historyConfidence != .low),
+                           points: points, span: points.count, confidence: historyConfidence)
     }
 
     /// Newest first, so the FIRST half is the recent one.
@@ -313,19 +286,15 @@ struct HealthSectionsModel {
     /// `6h20`, not `6.333333`. One figure to a reader.
     static func hours(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "an unread night" }
-        let whole = Int(value)
-        let minutes = Int((value - Double(whole)) * 60).clamped(to: 0...59)
+        let totalMinutes = (value * 60).rounded()
+        guard totalMinutes.isFinite, totalMinutes < Double(Int.max) else { return "an unread night" }
+        let whole = Int(totalMinutes) / 60
+        let minutes = Int(totalMinutes) % 60
         return minutes == 0 ? "\(whole)h" : "\(whole)h\(String(format: "%02d", minutes))"
     }
 
     static func oneDecimal(_ value: Double) -> String {
         guard value.isFinite else { return "unread" }
         return String(format: "%.1f", value)
-    }
-}
-
-private extension Int {
-    func clamped(to range: ClosedRange<Int>) -> Int {
-        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }

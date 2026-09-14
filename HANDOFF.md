@@ -1,12 +1,37 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-13.** This is the only handoff. If you find another one
+**Last updated 2026-09-14.** This is the only handoff. If you find another one
 that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-14 02:03 BST — Brief selection proven; Health source-truth repair ready
+
+Already-installed build 225 now refreshes real WHOOP data. Today → Read it showed
+Monday September 14 at 01:51 and a valid optional model-selected calendar detail
+matching the 22:30 agenda entry. This closes the previous brief selection proof
+gap without reinstalling or operating the protected Keychain dialog. Plan revision
+8 remains byte-for-byte unchanged. See BRIEF_GROUNDING_2026-09-12.md for scope.
+
+Health seven-section source repair now distinguishes unavailable readings from
+no sleep/workout, labels time in bed, removes unsupported personalised advice,
+uses per-measurement history and actual record age, and expires age each minute.
+Independent review's mixed-history finding was repaired; final harness 175/175,
+final app compilation passed, earlier full native 471 + 40 connection checks.
+Source/history secret scan clean. Report: planning/v2/HEALTH_SOURCE_TRUTH_2026-09-14.md.
+
+Build 225 is still installed. Verified rollback is
+.builds/health-source-2026-09-14/rollback/Orion-225.app. No active focus. Next: clean
+signed Health candidate, exact identity check, install, normal Health route and
+unchanged-plan verification. Existing freeform Health rail/headline interpretations
+and connector Checking lifecycle remain separate work. No external source writes,
+new permission, gateway restart, push or phase/REC closure. Preserve unrelated
+planning/learning-proposals.md.
 
 ---
 

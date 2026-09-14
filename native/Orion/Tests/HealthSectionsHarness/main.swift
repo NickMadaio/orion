@@ -26,7 +26,7 @@ func section(_ name: String) { print("\n\(name)") }
 let goodDay = HealthSectionsModel(inputs: .init(
     recovery: 71, sleepPerformance: 88, sleepHours: 7.5, hrv: 108, restingHeartRate: 52,
     strain: 11.4, calories: 1_850, calorieTarget: 2_200, waterBottles: 5, waterTarget: 9,
-    sampleCount: 41, readingAgeHours: 2,
+    recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41, readingAgeHours: 2,
     recentSleepHours: [7.5, 7.2, 8.0, 6.9, 7.1, 7.4, 7.8, 6.6, 7.0, 7.3],
     recentRecovery: [71, 63, 80, 44, 58, 66, 74, 39, 55, 61],
     journalEntryCount: 2))
@@ -34,11 +34,11 @@ let goodDay = HealthSectionsModel(inputs: .init(
 /// The same day with only two nights behind it — the low-confidence case.
 let thinHistory = HealthSectionsModel(inputs: .init(
     recovery: 71, sleepPerformance: 88, sleepHours: 7.5, strain: 11.4,
-    sampleCount: 2, readingAgeHours: 2,
+    recoverySampleCount: 2, sleepSampleCount: 2, strainSampleCount: 2, readingAgeHours: 2,
     recentSleepHours: [7.5, 7.2], recentRecovery: [71, 63]))
 
 /// Nothing synced. The case that must NOT make sections disappear.
-let emptyDay = HealthSectionsModel(inputs: .init(sampleCount: 41, readingAgeHours: 40))
+let emptyDay = HealthSectionsModel(inputs: .init(recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41, readingAgeHours: 40))
 
 // -- all seven, always ------------------------------------------------------
 
@@ -62,12 +62,16 @@ for (label, model) in [("a full day", goodDay), ("two nights of history", thinHi
 section("what happened / what it means / what to consider")
 
 let rich = goodDay.sections()
-expect(rich.contains { $0.narrative.likelyMeans != nil },
-       "a full day with real history produces interpretations")
-expect(rich.contains { $0.narrative.consider != nil },
-       "and suggestions")
-expect(rich.allSatisfy { $0.narrative.confidence == .high },
-       "41 samples is high confidence, per Phase 31's ladder")
+expect(rich.allSatisfy { $0.narrative.likelyMeans == nil && $0.narrative.consider == nil },
+       "history alone cannot establish personalised advice or comparisons")
+expect(rich.filter { [.today, .sleep, .recovery, .activity].contains($0.section) }
+       .allSatisfy { $0.narrative.confidence == .high },
+       "fresh WHOOP observations use WHOOP history coverage")
+expect(rich.filter { [.energy, .journal].contains($0.section) }
+       .allSatisfy { $0.narrative.confidence == .low },
+       "manual entries cannot borrow WHOOP confidence")
+expect(rich.first { $0.section == .trends }?.narrative.confidence == .moderate,
+       "ten available nights cannot borrow high confidence from a larger history count")
 
 // The load-bearing asymmetry, checked on the REAL output rather than on the
 // type: two nights may report, and may not interpret.
@@ -99,10 +103,60 @@ expect(narrative(.recovery, in: empty).map {
         $0.happened.lowercased().contains("not come in") || $0.happened.lowercased().contains("sync")
        } == true,
        "a missing recovery says the strap did not sync rather than showing a zero")
-expect(narrative(.sleep, in: empty)?.happened.lowercased().contains("no sleep") == true,
-       "a missing night says so")
+expect(narrative(.sleep, in: empty)?.happened.lowercased().contains("unavailable") == true,
+       "a missing reading is unavailable, not evidence of no sleep")
+expect(narrative(.activity, in: empty)?.happened.contains("does not establish whether you worked out") == true,
+       "a missing strain reading cannot establish that no workout happened")
+expect(empty.allSatisfy { $0.narrative.confidence == .low },
+       "absent readings cannot borrow confidence from history")
 expect(!empty.contains { $0.narrative.happened.contains(" 0") },
        "and nothing anywhere reports a missing reading as zero")
+
+section("source uncertainty does not become a current-day assessment")
+
+for age: Double? in [nil, -1, .nan, .infinity, 24.01, 48, 200] {
+    let model = HealthSectionsModel(inputs: .init(recovery: 71, sleepPerformance: 88,
+        sleepHours: 9.2, strain: 11.4, recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41, readingAgeHours: age))
+    let observations = model.sections().filter { [.today, .sleep, .recovery, .activity].contains($0.section) }
+    expect(observations.count == 4 && observations.allSatisfy { $0.narrative.confidence == .low },
+           "unknown, future, invalid or older readings never claim high confidence: \(String(describing: age))")
+    expect(observations.allSatisfy { $0.narrative.likelyMeans == nil && $0.narrative.consider == nil },
+           "uncertain readings never drive advice")
+    expect(narrative(.sleep, in: model.sections())?.happened.contains("in bed") == true,
+           "available historical time in bed remains visible")
+    expect(!model.readingStatus.contains("at most a day"),
+           "uncertain or old age never gets the recent-reading label")
+}
+let boundary = HealthSectionsModel(inputs: .init(recovery: 71, recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41, readingAgeHours: 24))
+expect(boundary.narrative(for: .recovery)?.confidence == .high, "one-day age boundary is inclusive")
+expect(boundary.narrative(for: .sleep)?.confidence == .low, "fresh recovery cannot fill a missing sleep reading")
+let mixedHistory = HealthSectionsModel(inputs: .init(recovery: 71, sleepHours: 9.2, strain: 11.4,
+    recoverySampleCount: 1, sleepSampleCount: 1, strainSampleCount: 21, readingAgeHours: 2))
+expect(mixedHistory.narrative(for: .activity)?.confidence == .high,
+       "strain history supports only strain confidence")
+expect(mixedHistory.narrative(for: .recovery)?.confidence == .low &&
+       mixedHistory.narrative(for: .sleep)?.confidence == .low &&
+       mixedHistory.narrative(for: .today)?.confidence == .low,
+       "twenty-one strain days cannot lend confidence to a single recovery or sleep reading")
+let performanceOnly = HealthSectionsModel(inputs: .init(sleepPerformance: 88, recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41, readingAgeHours: 2))
+expect(performanceOnly.narrative(for: .sleep)?.happened.contains("88%") == true,
+       "sleep score remains visible when duration is absent")
+expect(performanceOnly.narrative(for: .sleep)?.happened.contains("in bed") == false,
+       "score-only record does not invent a duration")
+expect(goodDay.narrative(for: .sleep)?.happened.contains("in bed") == true,
+       "WHOOP total_in_bed_time is labelled as time in bed")
+expect(goodDay.narrative(for: .sleep)?.happened.contains("You slept") == false,
+       "time in bed is not claimed as actual sleep duration")
+let partialFood = HealthSectionsModel(inputs: .init(waterBottles: 2))
+expect(partialFood.narrative(for: .energy)?.happened.contains("no food is logged") == true,
+       "missing manual log does not claim no food was consumed")
+expect(goodDay.provenanceDetail(for: .recovery).contains("not a personal baseline"),
+       "history count does not claim an implemented personal baseline comparison")
+let shortSeries = HealthSectionsModel(inputs: .init(recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41,
+    recentSleepHours: [9, 9, 5, 5]))
+expect(shortSeries.trend(.sleepDuration)?.confidence == .low &&
+       shortSeries.trend(.sleepDuration)?.direction == .unclear,
+       "four actual points cannot borrow confidence from forty-one unrelated records")
 
 // -- no medical advice, over the real text ----------------------------------
 
@@ -166,7 +220,10 @@ section("figures a person reads")
 
 expect(HealthSectionsModel.hours(7.5) == "7h30", "7.5 hours is 7h30")
 expect(HealthSectionsModel.hours(7.0) == "7h", "a whole number drops the minutes")
-expect(HealthSectionsModel.hours(6.333) == "6h19", "and rounds down rather than inventing precision")
+expect(HealthSectionsModel.hours(9.2) == "9h12", "binary floating-point does not drop a minute")
+expect(HealthSectionsModel.hours(6.999) == "7h", "rounding carries into the next hour")
+expect(HealthSectionsModel.hours(Double.greatestFiniteMagnitude) == "an unread night", "huge values cannot overflow Int")
+expect(HealthSectionsModel.hours(6.333) == "6h20", "duration rounds to the nearest minute")
 expect(HealthSectionsModel.hours(.nan) == "an unread night",
        "a non-finite duration never reaches Int(), which is a crash in Swift and not an exception")
 expect(HealthSectionsModel.oneDecimal(11.44) == "11.4", "strain gets one decimal")
@@ -177,7 +234,7 @@ expect(HealthSectionsModel.oneDecimal(.infinity) == "unread", "and infinity is r
 section("trends are summarised, not dumped")
 
 let longSeries = HealthSectionsModel(inputs: .init(
-    sampleCount: 41, readingAgeHours: 1,
+    recoverySampleCount: 41, sleepSampleCount: 41, strainSampleCount: 41, readingAgeHours: 1,
     recentSleepHours: Array(repeating: 7.0, count: 90)))
 if let trend = longSeries.trend(.sleepDuration) {
     expect(trend.points.count <= HealthTrend.maximumPoints,

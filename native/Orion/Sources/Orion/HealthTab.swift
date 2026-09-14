@@ -62,7 +62,9 @@ struct HealthTab: View {
             VStack(alignment: .leading, spacing: 40) {
                 headline
                 if !whoop.week.isEmpty { week }
-                HealthSectionsView(model: sectionsModel, journal: journal)
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    HealthSectionsView(model: sectionsModel(at: context.date), journal: journal)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -106,10 +108,9 @@ struct HealthTab: View {
     ///   NEWEST FIRST. `newestFirst` does the conversion and is pinned by a
     ///   test in both directions, because a bare `.reversed()` at a call site
     ///   inverts every trend on the page and nothing complains.
-    /// · `sampleCount` is how many days of history exist, NOT how many readings
-    ///   today has. Phase 31's confidence ladder reads it, and passing today's
-    ///   count would report high confidence on the first morning.
-    private var sectionsModel: HealthSectionsModel {
+    /// · History counts are per measurement. A day with strain but no recovery
+    ///   must not lend confidence to the recovery section.
+    private func sectionsModel(at now: Date) -> HealthSectionsModel {
         let snapshot = whoop.snapshot
         let points = whoop.week.points
         return HealthSectionsModel(inputs: .init(
@@ -123,12 +124,14 @@ struct HealthTab: View {
             calorieTarget: health.nutritionGoals.calories,
             waterBottles: health.hydrationBottles,
             waterTarget: bottleTarget,
-            sampleCount: health.dailyRecords.count,
-            readingAgeHours: snapshot.map { Date().timeIntervalSince($0.capturedAt) / 3600 },
+            recoverySampleCount: points.filter { $0.recovery != nil }.count,
+            sleepSampleCount: points.filter { $0.sleepHours != nil || $0.sleepPerformance != nil }.count,
+            strainSampleCount: points.filter { $0.strain != nil }.count,
+            readingAgeHours: snapshot?.briefReadingAgeHours(at: now),
             recentSleepHours: HealthSectionsModel.newestFirst(points.compactMap(\.sleepHours)),
             recentRecovery: HealthSectionsModel.newestFirst(
                 points.compactMap { $0.recovery.map(Double.init) }),
-            journalEntryCount: journal.entryCount(on: Date())))
+            journalEntryCount: journal.entryCount(on: now)))
     }
 
     // MARK: - Headline
@@ -163,7 +166,7 @@ struct HealthTab: View {
                               detail: snapshot.recovery.map { "\($0)% readiness" } ?? "not available",
                               progress: Double(snapshot.recovery ?? 0) / 100, tint: recoveryTint(snapshot.recovery))
                 wellnessMetric(title: "Sleep", value: snapshot.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
-                              detail: snapshot.sleepHours == nil ? "not available" : "hours last night",
+                              detail: snapshot.sleepHours == nil ? "not available" : "hours in bed",
                               progress: Double(snapshot.sleepPerformance ?? 0) / 100, tint: OrionTheme.violet)
                 wellnessMetric(title: "Strain", value: snapshot.strain.map { String(format: "%.1f", $0) } ?? "—",
                               detail: StrainTarget.forRecovery(snapshot.recovery).verdict(snapshot.strain),
@@ -423,7 +426,7 @@ struct HealthTab: View {
                     // Says why rather than showing an empty column. The tab is
                     // complete without this, and it should look deliberate
                     // rather than broken.
-                    Text("The local model is not running, so there is no summary — every number on this page is still live.")
+                    Text("The local summary is unavailable. The page still shows available readings; check their source and age.")
                         .font(OrionTheme.mono(10))
                         .foregroundStyle(OrionTheme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -553,7 +556,7 @@ struct HealthTab: View {
                 sleepHours: whoop.snapshot?.sleepHours,
                 strain: whoop.snapshot?.strain,
                 sampleCount: whoop.week.readingsByDay.count,
-                readingAgeHours: nil
+                readingAgeHours: whoop.snapshot?.briefReadingAgeHours(at: Date())
             ),
             strainPosition: StrainPosition.of(
                 strain: whoop.snapshot?.strain,

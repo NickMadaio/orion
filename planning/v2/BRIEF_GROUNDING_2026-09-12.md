@@ -63,3 +63,26 @@ The optional live model detail remains unproven on build 225: health data stayed
 The app is left displaying its factual brief. Next: once the user handles the prompt, inspect source refresh and the optional selected detail without reinstalling, changing credentials or signing identity. Actual writer/response/rendering boundary regressions pass, but that is not live model proof. Test-generated zero-millisecond narrative log entries are fixtures and must not be mistaken for live completions. The only live build-223 narrative entries before this repair reported truncation; no successful build-225 selection is claimed here.
 
 A separate existing Health-tab issue is visible while its reading is pending: some sections say no sleep/workout was recorded and show high-confidence labels. This is outside the grounded-brief repair and should be addressed as source-availability presentation, not as a health conclusion. Remaining Today conflict/permission-loss scenarios and phone/backend continuity remain open; no phase or recovery gate is closed.
+
+## 2026-09-14 01:58 BST — installed build 225 selected detail proven
+
+The previously pending source-access block has cleared. The already-installed build
+225 refreshed real WHOOP data (Health showed a 01:49 sync), with no reinstall or
+agent operation of the protected Keychain dialog. Through Today → Read it, the
+actual brief showed Monday September 14 at 01:51, one remaining timed calendar
+event, no reminders due today and one unfinished Orion reminder. The optional
+AI-selected detail named the real calendar entry and its 22:30 start, matching the
+agenda. This proves a successful local-model selection through the installed
+client and renderer; it was a calendar selection, not a health interpretation.
+
+The civil date remained Monday during the separate activity day's pre-04:00
+period. Saved plan revision 8 still matches the preflight fingerprint byte for
+byte. No calendar/reminder record, permission, credential or gateway was changed.
+The real app log also contains non-fixture brief-choice completions; one long
+wall-clock interval spans a possible suspension and is not a latency benchmark.
+No screenshot artifact was saved; this evidence is the actual Computer Use UI
+observation. The prior pending entries are historical.
+
+Next bounded work is the existing Health seven-section source/wording defect.
+Phone/backend continuity and the remaining Today conflict/permission-loss
+scenarios are still open. No phase or recovery gate is closed.

@@ -1,28 +1,10 @@
 import SwiftUI
 
 /*
- Health, and what the day is asking of you right now.
-
- The complaint this rebuild answers: "the only big metric is yesterday's
- recovery, unless it's the morning." Which was fair. Recovery is a morning
- number — it is computed once, from the night you just had, and by two in the
- afternoon it is history. A dashboard whose headline never changes is a
- dashboard you stop looking at after breakfast.
-
- So the headline moves with the day:
-
-   MORNING   recovery and sleep. What you woke up with.
-   DAY       strain against the band that recovery bought you. What you have
-             spent, and what is left.
-   EVENING   what tonight needs to look like.
-
- The phase comes from the LOGICAL day (OrionDay), not the clock, so a day that
- started at 11am is four hours old at 3pm rather than most of the way through.
-
- And the week is on screen now. Orion was already downloading seven days and
- keeping one; every reading carries its own line and how far today sits from
- your own baseline, which is the difference between "HRV 71" and "HRV 71, eight
- above normal for you."
+ Health shows available readings and the owner's activity-day logs.
+ WHOOP values stay in the local UI; the optional model sees only source
+ availability/periods and manual log facts, and can select emphasis only.
+ The seven sections retain explicit source and history-confidence boundaries.
 */
 
 struct HealthTab: View {
@@ -78,14 +60,9 @@ struct HealthTab: View {
         // Persisting what the watch said is NOT done here any more — see
         // DashboardView. A health record that only exists on days Nick happened
         // to open this tab is what left the calendar grey.
-        .onChange(of: whoop.snapshot) { _, _ in
-            loadSummary()
-        }
-        .onChange(of: health.hydrationBottles) { _, _ in loadSummary() }
-        .onChange(of: health.takenToday) { _, _ in loadSummary() }
+        .onChange(of: summaryFacts.narrativeKey) { _, _ in loadSummary() }
         .onChange(of: health.caloriesToday) { _, value in
             calorieDraft = value == 0 ? "" : String(value)
-            loadSummary()
         }
         .sheet(isPresented: $workoutSheetVisible) {
             WorkoutSheet(health: health) { workoutSheetVisible = false }
@@ -144,16 +121,13 @@ struct HealthTab: View {
         }
     }
 
-    /// A compact health home: three live signals first, then the single piece
-    /// of coaching the rest of the screen should support. Inspired by the
-    /// reference dashboards' hierarchy, but drawn from Orion's actual Whoop
-    /// snapshot rather than invented "optimal" scores.
+    /// Raw available readings, without a fixed-score prescription.
     private func wellnessOverview(_ snapshot: WhoopSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 5) {
-                    phaseLabel("Health today · \(snapshot.dayLabel)")
-                    Text("Your readiness, in context")
+                    phaseLabel("WHOOP · \(snapshot.dayLabel)")
+                    Text("Your available readings")
                         .font(OrionTheme.display(30))
                         .foregroundStyle(OrionTheme.text)
                 }
@@ -163,17 +137,16 @@ struct HealthTab: View {
 
             HStack(spacing: 14) {
                 wellnessMetric(title: "Recovery", value: snapshot.recovery.map(String.init) ?? "—",
-                              detail: snapshot.recovery.map { "\($0)% readiness" } ?? "not available",
+                              detail: snapshot.recovery == nil ? "not available" : "WHOOP recovery score",
                               progress: Double(snapshot.recovery ?? 0) / 100, tint: recoveryTint(snapshot.recovery))
                 wellnessMetric(title: "Sleep", value: snapshot.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
                               detail: snapshot.sleepHours == nil ? "not available" : "hours in bed",
                               progress: Double(snapshot.sleepPerformance ?? 0) / 100, tint: OrionTheme.violet)
                 wellnessMetric(title: "Strain", value: snapshot.strain.map { String(format: "%.1f", $0) } ?? "—",
-                              detail: StrainTarget.forRecovery(snapshot.recovery).verdict(snapshot.strain),
-                              progress: StrainTarget.forRecovery(snapshot.recovery).progress(snapshot.strain), tint: OrionTheme.orange)
+                              detail: snapshot.strain == nil ? "not available" : "available cycle reading",
+                              progress: min(1, max(0, (snapshot.strain ?? 0) / 21)), tint: OrionTheme.orange)
             }
 
-            coachingCard(snapshot)
         }
     }
 
@@ -196,30 +169,6 @@ struct HealthTab: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 122)
-    }
-
-    private func coachingCard(_ snapshot: WhoopSnapshot) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(OrionTheme.violet)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(OrionTheme.violet.opacity(0.16)))
-            VStack(alignment: .leading, spacing: 5) {
-                Text(snapshot.call.headline)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(OrionTheme.text)
-                Text(snapshot.call.detail)
-                    .font(.system(size: 13))
-                    .foregroundStyle(OrionTheme.textSoft)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(LinearGradient(colors: [OrionTheme.violet.opacity(0.20), OrionTheme.card], startPoint: .topLeading, endPoint: .bottomTrailing)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(OrionTheme.violet.opacity(0.28), lineWidth: 1))
     }
 
     /// Morning: what you woke up with.
@@ -384,60 +333,30 @@ struct HealthTab: View {
 
     // MARK: - What Orion makes of it
 
-    /// The numbers say what they are; this says what they mean together.
-    ///
-    /// Written by a local model and cached per day and phase, so it is composed
-    /// about three times a day rather than every time a bottle of water is
-    /// logged — which would be both wasteful and unsettling to watch rewrite
-    /// itself under you.
-    @ViewBuilder private var readingRail: some View {
-        if whoop.snapshot != nil || health.hydrationBottles > 0 {
-            VStack(alignment: .leading, spacing: 14) {
-                railDailyProgress
-                SectionRule(title: "Orion reads this as")
-
-                if let text = writer.text {
-                    let takeaways = Takeaway.parse(text)
-                    if takeaways.isEmpty {
-                        // Parsed to nothing — show what the model said rather
-                        // than an empty column. The rail is still useful as
-                        // prose; it is only less scannable.
-                        Text(text)
-                            .font(.system(size: 13))
-                            .foregroundStyle(OrionTheme.text.opacity(0.88))
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
-                                TakeawayRow(takeaway: takeaway)
-                                if index != takeaways.count - 1 {
-                                    Rectangle().fill(OrionTheme.line).frame(height: 1)
-                                }
-                            }
-                        }
-                        .transition(.opacity)
+    /// The app writes the facts; the local model may choose one to lead with.
+    /// Raw prose and superseded selections never reach a row.
+    private var readingRail: some View {
+        let facts = summaryFacts
+        let selection = writer.text(for: facts.narrativeKey)
+        let takeaways = facts.takeaways(selection: selection)
+        return VStack(alignment: .leading, spacing: 14) {
+            railDailyProgress
+            SectionRule(title: "From your records")
+            Text("Activity day \(facts.dayKey)")
+                .font(OrionTheme.mono(9))
+                .foregroundStyle(OrionTheme.textDim)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
+                    TakeawayRow(takeaway: takeaway)
+                    if index != takeaways.count - 1 {
+                        Rectangle().fill(OrionTheme.line).frame(height: 1)
                     }
-                } else if writer.isWriting {
-                    Text("Reading the numbers…")
-                        .font(OrionTheme.mono(10))
-                        .foregroundStyle(OrionTheme.textDim)
-                } else {
-                    // Says why rather than showing an empty column. The tab is
-                    // complete without this, and it should look deliberate
-                    // rather than broken.
-                    Text("The local summary is unavailable. The page still shows available readings; check their source and age.")
-                        .font(OrionTheme.mono(10))
-                        .foregroundStyle(OrionTheme.textDim)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                if writer.text != nil {
-                    FadingRule()
-                    Text("written on this Mac by \(LocalModel.defaultModel)")
-                        .font(OrionTheme.mono(9))
-                        .foregroundStyle(OrionTheme.textDim)
-                }
+            }
+            if facts.selectedDetail(selection) != nil {
+                Text("Highlight selected on this Mac · wording from your records")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
             }
         }
     }
@@ -546,26 +465,11 @@ struct HealthTab: View {
         HealthFacts(
             dayKey: day.key,
             phase: phaseName,
-            // Phase 33: the raw snapshot stops here. The tiles above still read
-            // `whoop.snapshot` directly -- Nick looking at his own numbers is
-            // not an unrelated subsystem -- but only categories go on to the
-            // prompt.
-            signal: PlanningSignal.derive(
-                recovery: whoop.snapshot?.recovery,
-                sleepPerformance: whoop.snapshot?.sleepPerformance,
-                sleepHours: whoop.snapshot?.sleepHours,
-                strain: whoop.snapshot?.strain,
-                sampleCount: whoop.week.readingsByDay.count,
-                readingAgeHours: whoop.snapshot?.briefReadingAgeHours(at: Date())
-            ),
-            strainPosition: StrainPosition.of(
-                strain: whoop.snapshot?.strain,
-                band: StrainTarget.forRecovery(whoop.snapshot?.recovery)
-            ),
+            healthDetails: whoop.snapshot?.healthSummaryDetails(clock: BriefClock(now: Date())) ?? [],
             bottles: health.hydrationBottles,
-            bottleTarget: bottleTarget,
-            supplementsTaken: health.takenToday.count,
-            supplementsTotal: health.supplements.count,
+            takenSupplementIDs: health.takenToday,
+            listedSupplementIDs: Set(health.supplements.map(\.id)),
+            workoutLogged: health.todaysWorkout != nil,
             workoutSets: health.todaysWorkout?.totalSets ?? 0,
             calories: health.caloriesToday
         )
@@ -581,7 +485,7 @@ struct HealthTab: View {
 
     private func loadSummary() {
         let facts = summaryFacts
-        writer.load(key: facts.narrativeKey, style: .lines) { facts.prompt() }
+        writer.load(key: facts.narrativeKey, style: .selectionJSON) { facts.prompt() }
     }
 
     // MARK: - Not connected

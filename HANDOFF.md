@@ -10,6 +10,28 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 07:36 BST — Health summary source gate passed (85% of this repair)
+
+User asked to continue and show progress percentages. Percentages refer to this
+bounded Health-summary repair, not overall Orion/phase completion. Build 227 is
+still installed. The new rail renders app-owned source/log facts with an optional
+validated model ID selection; no arbitrary prose or legacy advice cache reaches
+the view. Missing logs stay unknown, source periods replace score-based claims,
+and visible generic-score coaching is removed. Raw WHOOP values remain outside
+the model prompt.
+
+Independent review repaired heart-only availability and removed-supplement
+counting. Final 28 focused tests pass; earlier native 481 + 40 connection checks,
+38 firewall checks and source/history secret scan pass. Full report:
+planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md. Verified rollback:
+.builds/health-summary-2026-09-14/rollback/Orion-227.app. Current plan fingerprint
+recorded, no active focus. Next: clean signed candidate, exact identity, install,
+normal Health route and a real optional selection. No source records, credentials,
+permissions, gateway or remote push changed. Preserve learning-proposals. No
+phase/REC closure; personal baseline and broader health-aware planning remain.
+
+---
+
 ## 2026-09-14 02:08 BST — Build 227 installed; missing and refreshed Health routes proven
 
 Installed Orion is 1.2.0 build 227, clean source `7fdba72`. Candidate/rollback/

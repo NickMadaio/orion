@@ -34,11 +34,7 @@ struct BriefNarrative: Equatable {
     var key: String { NarrativeKey.make("brief-choice-v1.\(clock.dateKey)", facts: clock.timeZone.identifier + "\n" + prompt) }
 
     func selectedHighlight(_ response: String?) -> String? {
-        guard let response, response.utf8.count <= 256,
-              let data = response.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-              object.count == 1, let id = object["highlight"], id != "none"
-        else { return nil }
+        guard let id = NarrativeSelection.selectedID(response, allowed: highlights.map(\.id)) else { return nil }
         return highlights.first { $0.id == id }?.text
     }
 

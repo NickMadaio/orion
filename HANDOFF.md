@@ -10,6 +10,26 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-14 22:22 BST — Real phone Simulator shell delivered
+
+The old “no iPhone app target” gap is now narrowed: native/OrionMobile has
+OrionMobile.xcodeproj, the OrionPhone SwiftUI target, five tabs and clearly
+labeled opt-in Today/Plan fixtures from shared TodayPlanScheduler. Default
+state is disconnected. One actual XCTest UI route passed on iPhone17 Pro
+Simulator/iOS26.5, including sample-open relaunch and dismissal;693 core checks
+and iOS library build pass. Independent source review clean;secret scan clean.
+See planning/v2/PHONE_SHELL_2026-09-14.md and native/OrionMobile/README.md.
+
+Simulator shell milestone100%; connected client remains unimplemented. No
+authentication, pairing, real Today sync, durable backend, chat, push, HealthKit
+or physical-phone proof. No phase/REC closure;45/85 phases remain marked complete
+(53%). Mac build232 and accepted plan untouched. Next: authenticated read-only
+Today route with owner-scoped durability and stale/offline/reconnect proof.
+No provider choice, new integration, recurring cost or remote push. Preserve
+planning/learning-proposals.md. Outputs include phone screenshots and code links.
+
+---
+
 ## 2026-09-14 21:47 BST — Today source recovery 100%; installed build 232
 
 Source `0404632` prevents late callbacks and changed/unauthorized sources from

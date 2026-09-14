@@ -20,13 +20,11 @@ import PackageDescription
 // UserNotifications -- frameworks that exist on both platforms and so compile
 // perfectly happily.
 //
-// Still missing, and not for want of a toolchain: the SwiftUI layer, an app
-// target, a Keychain adapter and push registration. That is work nobody has
-// done, which is a weaker excuse than the one this comment used to make.
-//
-// XCTest and swift-testing both ship with Xcode, so neither is available.
-// MobileCoreCheck is an executable that asserts and exits non-zero on failure;
-// it was proven to fail before it was trusted.
+// The SwiftUI Simulator shell lives in App/ and OrionMobile.xcodeproj. It links
+// this package and keeps example data explicitly separate from a live account.
+// Pairing, Keychain storage, push registration and a connected service remain
+// unimplemented. MobileCoreCheck is a portable executable by choice; XCTest UI
+// tests for the phone shell live in AppUITests/ and run with Xcode.
 let package = Package(
     name: "OrionMobile",
     platforms: [.macOS(.v14), .iOS(.v17)],

@@ -104,6 +104,16 @@ struct PhoneRootView: View {
                     Button("Retry identity") { identity.load() }
                 }
             }
+            #if targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--pairing-proof-test") {
+                Section("Disposable pairing test") {
+                    Text("Test account only · no real account will be paired")
+                    Button("Sign test pairing claim") { identity.writeTestPairingProof() }
+                        .accessibilityIdentifier("signTestPairing")
+                    Text(identity.pairingTestStatus).accessibilityIdentifier("pairingTestStatus")
+                }
+            }
+            #endif
             Section("Connection") {
                 Text(reader.message)
                 Text("Mac availability is unknown. A Simulator-only local read connection can be configured for development; physical-device pairing is not available.").foregroundStyle(.secondary)
@@ -258,108 +268,3 @@ private final class NoReadRedirect: NSObject, URLSessionTaskDelegate {
 }
 
 // Platform adapter kept outside MobileCore. No private-key bytes are exported.
-@MainActor
-final class PhoneDeviceIdentity: ObservableObject {
-    @Published private(set) var identifier: String?
-    @Published private(set) var status = "Identity not loaded"
-    @Published private(set) var verified = false
-    private var key: SecKey?
-    private var readyStatus = "Identity not loaded"
-    private var failureCode: Int?
-    private let tag = Data("com.nickmadaio.orion.phone.device-key.v1".utf8)
-
-    init() { load() }
-
-    func load() {
-        verified = false
-        failureCode = nil
-        do {
-            let stored = try readKey() ?? createKey()
-            guard let attributes = SecKeyCopyAttributes(stored) as? [String: Any],
-                  attributes[kSecAttrKeyType as String] as? String == kSecAttrKeyTypeECSECPrimeRandom as String,
-                  (attributes[kSecAttrKeySizeInBits as String] as? NSNumber)?.intValue == 256,
-                  let publicKey = SecKeyCopyPublicKey(stored),
-                  let publicBytes = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else {
-                throw IdentityFailure.invalid
-            }
-            #if targetEnvironment(simulator)
-            let description = "Simulator key · software-backed · not paired"
-            #else
-            guard attributes[kSecAttrTokenID as String] as? String == kSecAttrTokenIDSecureEnclave as String else {
-                throw IdentityFailure.invalid
-            }
-            let description = "Secure Enclave key · not paired"
-            #endif
-            key = stored
-            identifier = SHA256.hash(data: publicBytes).map { String(format: "%02x", $0) }.joined()
-            readyStatus = description
-            status = description
-        } catch {
-            key = nil; identifier = nil
-            status = "Identity unavailable · unlock this device and retry" + (failureCode.map { " (\($0))" } ?? "")
-        }
-    }
-
-    /// Prove local possession only. This does not register a device or approve an action.
-    func verifyLocalKey() {
-        verified = false
-        guard let key, let publicKey = SecKeyCopyPublicKey(key) else { return }
-        let challenge = Data("orion-local-key-check-v1|\(UUID().uuidString)".utf8)
-        let algorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
-        guard SecKeyIsAlgorithmSupported(key, .sign, algorithm),
-              let signature = SecKeyCreateSignature(key, algorithm, challenge as CFData, nil),
-              SecKeyVerifySignature(publicKey, algorithm, challenge as CFData, signature, nil),
-              !SecKeyVerifySignature(publicKey, algorithm, Data("different challenge".utf8) as CFData, signature, nil) else {
-            status = "Local key verification failed"; return
-        }
-        status = readyStatus
-        verified = true
-    }
-
-    private func readKey() throws -> SecKey? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: tag,
-            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-            kSecReturnRef as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: CFTypeRef?
-        let code = SecItemCopyMatching(query as CFDictionary, &result)
-        if code == errSecItemNotFound { return nil }
-        guard code == errSecSuccess, let result, CFGetTypeID(result) == SecKeyGetTypeID() else {
-            failureCode = Int(code)
-            print("Device identity lookup failed: OSStatus \(code)")
-            throw IdentityFailure.unavailable
-        }
-        return (result as! SecKey)
-    }
-
-    private func createKey() throws -> SecKey {
-        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                                                         .privateKeyUsage, nil) else { throw IdentityFailure.unavailable }
-        var parameters: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: true,
-                kSecAttrApplicationTag as String: tag,
-                kSecAttrAccessControl as String: access
-            ]
-        ]
-        #if !targetEnvironment(simulator)
-        parameters[kSecAttrTokenID as String] = kSecAttrTokenIDSecureEnclave
-        #endif
-        var failure: Unmanaged<CFError>?
-        if let created = SecKeyCreateRandomKey(parameters as CFDictionary, &failure) { return created }
-        // Another scene may have created the same persistent key first.
-        if let failure {
-            let code = CFErrorGetCode(failure.takeRetainedValue())
-            if code == errSecDuplicateItem, let existing = try readKey() { return existing }
-            failureCode = code
-            print("Device identity creation failed: OSStatus \(code)")
-        }
-        throw IdentityFailure.unavailable
-    }
-    private enum IdentityFailure: Error { case unavailable, invalid }
-}

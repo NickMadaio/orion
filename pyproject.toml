@@ -5,3 +5,6 @@ description = "Local-first personal AI runtime"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.optional-dependencies]
+device-crypto = ["cryptography==50.0.1"]

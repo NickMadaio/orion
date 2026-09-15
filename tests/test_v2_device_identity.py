@@ -386,6 +386,14 @@ class AdoptionTests(unittest.TestCase):
         record = self.adopt()
         self.assertIs(record.attestation.state, AttestationState.UNATTESTED)
 
+    def test_new_key_cannot_overwrite_revoked_device_id(self):
+        register(self.registry, self.owner)
+        self.registry.revoke(self.owner, "device-mac-0001", now=NOW)
+        before = self.registry.list(self.owner)
+        with self.assertRaises(DeviceRejected):
+            self.adopt(device_id="device-mac-0001")
+        self.assertEqual(self.registry.list(self.owner), before)
+
     def test_a_good_proof_is_adopted(self):
         record = self.adopt()
         self.assertEqual(str(record.device_id), "device-iphone-0001")

@@ -20,6 +20,7 @@ fi
 xcodebuild -project native/OrionMobile/OrionMobile.xcodeproj -scheme OrionPhone \
   -destination "platform=iOS Simulator,id=$simulator" \
   -derivedDataPath .builds/phone-shell-check \
+  -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingClaimProof \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPublishedPlanReading \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test

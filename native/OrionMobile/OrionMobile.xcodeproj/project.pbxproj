@@ -3,13 +3,13 @@
 000000000000000000000001 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; TargetAttributes = { 000000000000000000000003 = { TestTargetID = 000000000000000000000002; }; }; }; buildConfigurationList = 000000000000000000000014; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = 000000000000000000000004; productRefGroup = 000000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000002, 000000000000000000000003); packageReferences = (00000000000000000000001E); };
 000000000000000000000002 = { isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000015; buildPhases = (00000000000000000000000A, 00000000000000000000000C); buildRules = (); dependencies = (); name = OrionPhone; packageProductDependencies = (00000000000000000000001F); productName = OrionPhone; productReference = 000000000000000000000008; productType = "com.apple.product-type.application"; };
 000000000000000000000003 = { isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000016; buildPhases = (00000000000000000000000B,); buildRules = (); dependencies = (000000000000000000000022); name = OrionPhoneUITests; productName = OrionPhoneUITests; productReference = 000000000000000000000009; productType = "com.apple.product-type.bundle.ui-testing"; };
-000000000000000000000004 = { isa = PBXGroup; children = (000000000000000000000006, 000000000000000000000007, 000000000000000000000005); sourceTree = "<group>"; };
+000000000000000000000004 = { isa = PBXGroup; children = (000000000000000000000023, 000000000000000000000006, 000000000000000000000007, 000000000000000000000005); sourceTree = "<group>"; };
 000000000000000000000005 = { isa = PBXGroup; children = (000000000000000000000008, 000000000000000000000009); name = Products; sourceTree = "<group>"; };
 000000000000000000000006 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/OrionMobileApp.swift"; sourceTree = "<group>"; };
 000000000000000000000007 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppUITests/PhoneShellTests.swift"; sourceTree = "<group>"; };
 000000000000000000000008 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = OrionPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 000000000000000000000009 = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OrionPhoneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-00000000000000000000000A = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000D); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000000A = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000D, 000000000000000000000024); runOnlyForDeploymentPostprocessing = 0; };
 00000000000000000000000B = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000E); runOnlyForDeploymentPostprocessing = 0; };
 00000000000000000000000C = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000020); runOnlyForDeploymentPostprocessing = 0; };
 00000000000000000000000D = { isa = PBXBuildFile; fileRef = 000000000000000000000006; };
@@ -28,4 +28,6 @@
 000000000000000000000020 = { isa = PBXBuildFile; productRef = 00000000000000000000001F; };
 000000000000000000000021 = { isa = PBXContainerItemProxy; containerPortal = 000000000000000000000001; proxyType = 1; remoteGlobalIDString = 000000000000000000000002; remoteInfo = OrionPhone; };
 000000000000000000000022 = { isa = PBXTargetDependency; target = 000000000000000000000002; targetProxy = 000000000000000000000021; };
+000000000000000000000023 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/PhoneDeviceIdentity.swift"; sourceTree = "<group>"; };
+000000000000000000000024 = { isa = PBXBuildFile; fileRef = 000000000000000000000023; };
 }; rootObject = 000000000000000000000001; }

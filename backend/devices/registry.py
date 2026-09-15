@@ -222,7 +222,7 @@ class DeviceRegistry:
         _require_owner(owner)
         if not proven_by:
             raise DeviceRejected("adoption must record which proof admitted the device")
-        if str(device_id) in self._devices:
+        if (str(owner.user_id), str(device_id)) in self._devices:
             raise DeviceRejected(f"{device_id} is already registered")
         try:
             verified = self._verifier.verify(identity.public_key, proof_message, proof_signature)

@@ -1,6 +1,17 @@
 import XCTest
 
 final class PhoneShellTests: XCTestCase {
+    func testPairingClaimProof() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--pairing-proof-test"]
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertTrue(app.staticTexts["deviceIdentityID"].waitForExistence(timeout: 10))
+        app.buttons["signTestPairing"].tap()
+        XCTAssertEqual(app.staticTexts["pairingTestStatus"].label, "Test claim signed · no account paired")
+        XCTAssertTrue(app.staticTexts["deviceIdentityStatus"].label.contains("not paired"))
+    }
+
     func testDeviceIdentitySurvivesRelaunch() {
         let app = XCUIApplication()
         app.launch()

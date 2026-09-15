@@ -116,5 +116,16 @@ Simulator Keychain item is removed. No identity reset or deletion is automated.
 
 Run `scripts/orion_v2_phone_check.sh` for sample and identity UI verification, or
 `python3 scripts/orion_v2_phone_read_check.py` for identity plus the complete local
-read/recovery scenario. See `PhoneDeviceIdentity` in `App/OrionMobileApp.swift`
+read/recovery scenario. See `PhoneDeviceIdentity` in `App/PhoneDeviceIdentity.swift`
 and `testDeviceIdentitySurvivesRelaunch` in `AppUITests/PhoneShellTests.swift`.
+
+## Pairing signature interoperability
+
+With the optional Python `device-crypto` dependency available, run
+`python3 scripts/orion_v2_phone_pairing_check.py` from the repository root.
+The Simulator signs a test pairing claim using its persistent key; the backend
+verifies it and exercises two-sided pairing with a disposable offering Mac key.
+This does not pair a real account or prove durable revocation/human confirmation.
+The test UI/file bridge is excluded from physical-iPhone builds. Normal launch
+still shows no account paired. See
+`docs/planning/v2/PHONE_PAIRING_PROOF_2026-09-15.md` for proof and remaining gates.

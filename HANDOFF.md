@@ -10,6 +10,35 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-15 21:47 BST — Real phone pairing signatures verified locally
+
+Added explicit P256Verifier with optional cryptography50.0.1 dependency; default
+registry still refuses. Extracted PhoneDeviceIdentity.swift and added typed
+pairing-claim signing. Simulator-only test bridge proves the persistent phone
+key through existing registration/claim/confirmation/replay/revocation contracts.
+Offering Mac key, account and registry are disposable fixtures; no real account
+paired, no human confirmation UI or durable revocation claimed.
+
+Fixed adoption's string-vs-tuple duplicate guard, which allowed a new key to
+overwrite an existing/revoked device ID. Regression covered both with real crypto
+and in the dependency-free suite. 60 identity/pairing tests +43 foundation/boundary
+checks pass. Actual pairing UI/signature interoperability passes; three existing
+Simulator identity/sample/read-recovery scenarios pass (46.035s). Unsigned generic
+physical-iOS compilation passes. Independent review clean; reviewer reran60 tests.
+Source/history secret scan clean (3371 reviewed occurrences).
+Report: docs/planning/v2/PHONE_PAIRING_PROOF_2026-09-15.md. Logs in
+.builds/phone-pairing-check/ and .builds/pairing-2026-09-15/.
+
+Pairing-signature milestone100%; roadmap53% unchanged. Mac build232 and personal
+accepted plan hash unchanged. No daemon, network endpoint, global dependency
+install, real account pairing or remote push. Temporary bridge files cleaned;
+persistent Simulator key intentionally retained. Preserve unrelated capabilities.md.
+Next: owner-scoped durable device registry/revocation with restart proof, then
+explicit offering-device confirmation UI and authenticated pairing transport.
+Rollback: revert scoped local checkpoint; no installed Mac state to restore.
+
+---
+
 ## 2026-09-15 14:22 BST — Persistent local phone identity verified
 
 PhoneDeviceIdentity now creates/reloads P-256 Keychain references, exports only

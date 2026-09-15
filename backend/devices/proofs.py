@@ -6,10 +6,10 @@ the signature: it must be **single-use**, or a captured proof can be replayed
 forever, and it must be **short-lived**, or a captured proof can be replayed for
 a while.
 
-There is no Ed25519 in the standard library and no third-party dependency in this
-repository, so verification is a port with a refusing default -- the same
-position as Phase 12's cipher, and the same answer. A device cannot become
-trusted because nobody installed a verifier.
+Verification remains an explicitly injected port with a refusing default.
+The optional P256Verifier adapter verifies Apple device-key signatures; merely
+installing its dependency does not activate it. A device cannot become trusted
+because nobody configured a verifier.
 """
 
 from __future__ import annotations

@@ -129,3 +129,8 @@ This does not pair a real account or prove durable revocation/human confirmation
 The test UI/file bridge is excluded from physical-iPhone builds. Normal launch
 still shows no account paired. See
 `docs/planning/v2/PHONE_PAIRING_PROOF_2026-09-15.md` for proof and remaining gates.
+
+The pairing harness now uses a temporary durable device registry, reopens it,
+revokes the phone, and verifies that revocation in a separate Python process.
+Real-account authentication and human confirmation UI remain pending. See
+`docs/planning/v2/DURABLE_DEVICE_REGISTRY_2026-09-15.md`.

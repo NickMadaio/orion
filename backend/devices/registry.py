@@ -14,6 +14,7 @@ built by hand in tests.
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -127,6 +128,10 @@ class DeviceRegistry:
         self._devices: dict[tuple[str, str], DeviceRecord] = {}
         self._challenges = challenges or ChallengeStore()
         self._verifier = verifier or RefusingVerifier()
+
+    def transaction(self):
+        """Durable adapters hold one transaction across pairing's trust check/adoption."""
+        return nullcontext()
 
     @property
     def challenges(self) -> ChallengeStore:

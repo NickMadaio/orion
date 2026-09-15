@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Callable
+from functools import wraps
 
 from backend.devices.identity import Attestation, AttestationState, DeviceIdentity
 from backend.devices.registry import DeviceRegistry, DeviceRejected, _registration_message
@@ -95,6 +96,27 @@ class Pairing:
         return f"orion-pair://{self.pairing_id}#{self.nonce}"
 
 
+def _registry_transaction(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        # Revocation and confirmation must serialize. Otherwise an offering key
+        # can be revoked after the check but before its new phone is admitted.
+        result = None
+        try:
+            with self._registry.transaction():
+                result = method(self, *args, **kwargs)
+            return result
+        except Exception:
+            # The method can finish before the durable commit fails. Never keep
+            # a successful pairing label for an admission that was rolled back.
+            # The nonce stays spent; retry requires a new deliberate offer.
+            if result is not None and result.state is PairingState.COMPLETED:
+                self._pairings[str(result.pairing_id)] = replace(
+                    result, state=PairingState.CANCELLED, nonce="", joining_device_id=None)
+            raise
+    return wrapped
+
+
 class PairingService:
     def __init__(
         self,
@@ -171,6 +193,7 @@ class PairingService:
 
     # -- step three --------------------------------------------------------
 
+    @_registry_transaction
     def confirm(
         self,
         owner: Owner,

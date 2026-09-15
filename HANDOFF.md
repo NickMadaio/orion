@@ -10,6 +10,36 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-15 21:56 BST — Durable local device registry and revocation proven
+
+DurableDeviceRegistry adds private SQLite storage while preserving existing
+owner/signature contracts. Transaction reloads prevent stale writers restoring
+revoked trust; pairing confirmation serializes trust check and admission with
+revocation. Explicit create=True only creates a fresh store; reopening missing,
+truncated, corrupt or unknown-schema storage refuses. No auto-reset/migration.
+Failed durable confirmation cancels pairing rather than retaining completed.
+
+121 combined tests pass; actual Simulator P-256 pairing harness passes and a
+separate Python process observes persisted revocation. Independent review found
+and verified fixes for lost database recreation and completed-label-after-failed-
+commit;18 durable tests independently pass. No remaining review findings.
+Source/history secret scan clean (3401 reviewed occurrences); matching Simulator
+request/proof files removed after final run.
+Report: docs/planning/v2/DURABLE_DEVICE_REGISTRY_2026-09-15.md. Evidence under
+.builds/durable-devices-2026-09-15/ and .builds/phone-pairing-check/.
+
+Local durability milestone100%; roadmap53% unchanged. Offering account/key remain
+fixtures; temporary durable store removed after proof. Pending challenges and
+pairings intentionally die on restart. No real account paired or bearer-session
+revocation integration. Mac build232 and personal plan hash unchanged. No remote
+push, production service/store install or new dependency. Persistent Simulator
+key retained. Preserve unrelated capabilities.md.
+Next: explicit offering-device confirmation UI and authenticated transport/session
+lifecycle, with fresh durable device status on decisions. Rollback local checkpoint;
+never delete a real registry/tombstones automatically.
+
+---
+
 ## 2026-09-15 21:47 BST — Real phone pairing signatures verified locally
 
 Added explicit P256Verifier with optional cryptography50.0.1 dependency; default

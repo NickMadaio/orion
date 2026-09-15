@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Disposable two-device pairing proof using the Simulator's persistent key.
 
-No listener, real account, read token or durable device registry is created.
+No listener, real account or read token is created. A temporary durable registry
+is used to verify that revoked trust survives reopening and a process restart.
 The offering Mac is an ephemeral fixture; its confirmation is test orchestration,
 not evidence of a human approval UI. Requires the device-crypto optional extra.
 """
@@ -12,12 +13,14 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.devices.p256 import P256Verifier
 from backend.devices.identity import DeviceIdentity
-from backend.devices.registry import DeviceRegistry, _registration_message
+from backend.devices.registry import _registration_message
+from backend.devices.durable import DurableDeviceRegistry
 from backend.ownership import Session, resolve_owner
 from backend.pairing.session import PairingService, PairingRejected, PairingState
 
@@ -63,7 +66,16 @@ def main():
         serialization.PublicFormat.UncompressedPoint)).decode('ascii')
     identity = DeviceIdentity(key, verifier.algorithm, False)
     sign = lambda message: mac.sign(message, ec.ECDSA(hashes.SHA256()))
-    registry = DeviceRegistry(verifier=verifier)
+    store = tempfile.TemporaryDirectory(prefix='orion-pairing-registry-')
+    try:
+        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device)
+    finally:
+        store.cleanup()
+
+
+def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device):
+    registry_path = Path(store.name) / 'private'
+    registry = DurableDeviceRegistry(registry_path, verifier=verifier, create=True)
     challenge = registry.begin_registration(owner, now=now())
     registry.register(owner, device_id='pairing-test-mac', name='Ephemeral test Mac', platform='macos',
         identity=identity, challenge=challenge.value,
@@ -102,9 +114,24 @@ def main():
             pass
         else:
             raise RuntimeError('Spent pairing accepted a replay')
-        assert registry.revoke(owner, 'pairing-test-phone', now=now()).revoked
-        print('PASS: persistent Simulator key -> real P-256 verification -> two-sided fixture pairing -> replay refusal -> revocation')
-        print('No real account paired; offering key and registry are disposable; no durable revocation proof.')
+        reopened = DurableDeviceRegistry(registry_path, verifier=verifier)
+        assert len(reopened.list(owner)) == 2
+        assert reopened.revoke(owner, 'pairing-test-phone', now=now()).revoked
+        assert registry._owned(owner, 'pairing-test-phone').revoked
+        # A separate interpreter has neither this process's keys nor registry cache.
+        code = """from pathlib import Path
+import sys
+from backend.devices.durable import DurableDeviceRegistry
+from backend.ownership import Session, resolve_owner
+owner=resolve_owner(Session('pairing-test-session','pairing-test-owner','pairing-test-mac'))
+registry=DurableDeviceRegistry(Path(sys.argv[1]))
+assert registry._owned(owner,'pairing-test-phone').revoked
+assert len(registry.list(owner))==2
+print('PASS: revoked phone remains revoked after process restart')
+"""
+        run([sys.executable, '-c', code, str(registry_path)])
+        print('PASS: persistent Simulator key -> real P-256 verification -> two-sided fixture pairing -> replay refusal -> durable revocation')
+        print('No real account paired; offering key and temporary registry are disposable; approval UI remains unproven.')
     finally:
         try:
             candidates = {directory, container()}

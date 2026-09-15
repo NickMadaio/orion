@@ -71,3 +71,24 @@ Core contract regressions: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Devel
 swift test --package-path native/OrionMobile --filter TodayReadTests` (one shell
 command). Actual redirect/oversized-response transport experiments, persistent
 account storage, TLS and physical-device access remain unproven.
+
+## Preview your accepted Mac plan locally
+
+From the repo root:
+
+```bash
+python3 scripts/orion_phone_preview.py --source "$HOME/.openclaw/orion-controlled/today-plan.json"
+```
+
+This opens a five-minute, read-only Simulator preview of that explicit file.
+Use `--seconds 60` for one minute, or `--verify` to run the UI check and exit.
+Relative source paths resolve from your calling directory. No daemon or public
+listener is installed. The temporary session, database copy and Simulator access
+file are removed when the command exits normally, on timeout, or on Ctrl-C.
+
+Each refresh validates the configured file through TodayPlanExport and publishes
+its accepted revision. Unreadable, invalid or rolled-back sources refuse the read
+while preserving the previous database snapshot. Only the configured owner can
+trigger export. The command never accepts a new plan or edits Calendar/Reminders.
+An old accepted plan remains marked stale; this is not a live calendar refresh.
+Physical-phone pairing and production account access remain separate work.

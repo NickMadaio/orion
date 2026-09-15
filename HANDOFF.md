@@ -10,6 +10,33 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-15 14:09 BST — Personal accepted plan published to Simulator
+
+Bounded personal-plan publication 100%. scripts/orion_phone_preview.py accepts an
+explicit source, validates through Swift exporter and serves only the configured
+owner via loopback. Refresh republishes valid revisions; export failure/rollback
+refuses read and preserves durable snapshot. Actual revision 8 read+refresh UI
+test passed; source date/reason/blocks matched visually and were labeled stale.
+Normal 15-second preview exited with source unchanged; access file cleanup verified.
+123 tests pass; independent publication review clean after fixing relative paths.
+Report: docs/planning/v2/PERSONAL_PHONE_PUBLICATION_2026-09-15.md.
+
+During continuation, unrelated repo reorganization landed through 3941e8f. Planning
+is now docs/planning and plugin files live under plugin. Native paths unchanged;
+relevant tests rerun on current tree. Do not undo those commits.
+The reorganization dropped six historical fixture-path allowlist entries; exact
+previously reviewed entries restored for the history scan, without new values.
+Independent review confirmed restoration; full history scan clean (3311 reviewed
+occurrences).
+
+No physical pairing, production identity/TLS or installed background service.
+Personal source unchanged, Mac build 232 unchanged, temporary copies cleaned.
+Next: durable device/account identity and deliberate pairing, then remote
+transport. REC gates remain open; formal roadmap 53% unchanged. Local checkpoint
+only; no remote push.
+
+---
+
 ## 2026-09-15 01:33 BST — Simulator read-only Today connection proven
 
 Phone UI now reads actual loopback HTTP using synthetic data. Shared

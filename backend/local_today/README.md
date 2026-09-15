@@ -78,3 +78,11 @@ Next: a validated Mac snapshot exporter and an authenticated Simulator read
 client, then explicit stale/offline/reconnect behavior. Real account/device
 identity, TLS, production storage and physical-device deployment remain separate
 requirements before any live remote route can be enabled.
+
+## Explicit personal publication
+
+`PublishingTodayRepository` now refreshes its configured owner's snapshot before
+serving a read. Its source and validated exporter are supplied only by the local
+caller. Other owners cannot trigger export. `scripts/orion_phone_preview.py`
+provides the bounded Simulator route; see `native/OrionMobile/README.md`. This
+adds neither an HTTP publishing endpoint nor a continuously installed service.

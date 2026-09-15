@@ -1,6 +1,28 @@
 import XCTest
 
 final class PhoneShellTests: XCTestCase {
+    func testPublishedPlanReading() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--local-today"]
+        app.launch()
+        let revision = app.staticTexts["readingRevision"]
+        XCTAssertTrue(revision.waitForExistence(timeout: 15))
+        XCTAssertTrue(revision.label.hasPrefix("Revision "))
+        let initialRevision = revision.label
+        XCTAssertFalse(app.staticTexts["sampleNotice"].exists)
+        XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Read from local development service")
+        app.buttons["refreshReading"].tap()
+        let ready = NSPredicate(format: "enabled == true")
+        expectation(for: ready, evaluatedWith: app.buttons["refreshReading"])
+        waitForExpectations(timeout: 15)
+        XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Read from local development service")
+        XCTAssertEqual(revision.label, initialRevision)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Personal accepted plan — local read only"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testLocalReadRecoveryAndRevocation() {
         let app = XCUIApplication()
         app.launchArguments = ["--local-today"]

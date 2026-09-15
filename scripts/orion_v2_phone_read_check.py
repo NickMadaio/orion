@@ -76,7 +76,7 @@ def main():
             with os.fdopen(fd, "w") as stream:
                 json.dump({"port": server.server_port, "owner": "read-owner", "token": token}, stream)
             with (derived / "ui.log").open("w") as log:
-                run(build + ["-only-testing:OrionPhoneUITests/PhoneShellTests", "test-without-building"], stdout=log, stderr=subprocess.STDOUT)
+                run(build + ["-only-testing:OrionPhoneUITests/PhoneShellTests/testDisconnectedAndSampleRoutes", "-only-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation", "test-without-building"], stdout=log, stderr=subprocess.STDOUT)
             assert repo.calls == 3, "UI did not execute the read/outage/recovery scenario"
             print("PASS: real Simulator read, stale display, outage, recovery and revoked-access clearing")
         finally:

@@ -17,11 +17,11 @@
     },
     {
       "fact": "Gmail reads (orion-gmail-latest, orion-gmail-search) and the EventKit calendar/reminders bridge (orion-agenda) are both live, connected, exec-allowlisted, ask=off wrappers \u2014 not hypothetical or pending capabilities.",
-      "provenBy": "openclaw-workspace/TOOLS.md 'Commands you run through exec' section; docs/planning/v2/DATA_INVENTORY.json entry for Gmail"
+      "provenBy": "plugin/workspace/TOOLS.md 'Commands you run through exec' section; docs/planning/v2/DATA_INVENTORY.json entry for Gmail"
     },
     {
       "fact": "Orion has TWO independent authority axes: a 5-rung permission profile (what exists) and a strictness mode of contained|guarded|open|sovereign (what it costs to use what exists). A truthful self-description names both, not just one.",
-      "provenBy": "openclaw-workspace/SOUL.md 'Runtime truth' section; scripts/orion-authority explain output format"
+      "provenBy": "plugin/workspace/SOUL.md 'Runtime truth' section; scripts/orion-authority explain output format"
     }
   ],
   "authority": {

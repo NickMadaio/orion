@@ -27,7 +27,7 @@ export const HOME = homedir();
 
 export const PATHS = {
   installed: join(HOME, ".openclaw/extensions/orion-control/dist"),
-  built: join(HOME, "Desktop/ORION/openclaw-plugins/orion-control/dist"),
+  built: join(HOME, "Desktop/ORION/plugin/orion-control/dist"),
   config: join(HOME, ".openclaw/openclaw.json"),
   approvals: join(HOME, ".openclaw/exec-approvals.json"),
   state: join(HOME, ".openclaw/orion-controlled/permission-state.json"),

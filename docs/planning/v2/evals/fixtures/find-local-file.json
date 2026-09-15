@@ -17,7 +17,7 @@
     },
     {
       "fact": "desktop_list()/desktop_metadata(relativePath) are read-only typed actions under the desktop_read capability group and are available without approval under the current profile.",
-      "provenBy": "openclaw-workspace/TOOLS.md, 'General tools' / 'Mac actions' sections; scripts/orion-authority explain"
+      "provenBy": "plugin/workspace/TOOLS.md, 'General tools' / 'Mac actions' sections; scripts/orion-authority explain"
     }
   ],
   "authority": {

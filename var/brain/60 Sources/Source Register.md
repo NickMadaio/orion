@@ -54,8 +54,8 @@ bulk-copied.
 
 - Owner: Nick Madaio
 - Sources:
-  - `/Users/nickmadaio/Desktop/ORION/planning/ORION_COGNITIVE_ARCHITECTURE.md`
-  - `/Users/nickmadaio/Desktop/ORION/planning/IMPLEMENTATION_HANDOFF.md`
+  - `/Users/nickmadaio/Desktop/ORION/docs/planning/ORION_COGNITIVE_ARCHITECTURE.md`
+  - `/Users/nickmadaio/Desktop/ORION/docs/planning/IMPLEMENTATION_HANDOFF.md`
 - License/use: user-owned internal material, used only inside the user's local
   vault.
 

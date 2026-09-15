@@ -4,7 +4,7 @@ note_type: project
 status: active
 source_type: user-owned-and-original-synthesis
 sources:
-  - /Users/nickmadaio/Desktop/ORION/planning/ORION_COGNITIVE_ARCHITECTURE.md
+  - /Users/nickmadaio/Desktop/ORION/docs/planning/ORION_COGNITIVE_ARCHITECTURE.md
 created: 2026-07-29
 updated: 2026-07-29
 tags: [orion, architecture, project]

@@ -42,7 +42,7 @@ The finding was true and the generalisation was not: phases 34-39 are Health UI,
 Journal, Correlations, Experiments, Health-Aware Planning, Daily Planning, and
 not one of them touches Python. **If a phase's requirements mention the Python
 runtime, read them against the live stack — the Swift app in `native/Orion` and
-the TS plugin in `openclaw-plugins/orion-control`. That changes how requirements
+the TS plugin in `plugin/orion-control`. That changes how requirements
 are READ, never their ORDER.** Do not invent a parallel taxonomy. If the
 sequence genuinely has to bend, record it in `PHASE_GATES.json` with
 `entrySatisfied: false` and close the gap, which the validator will then force.

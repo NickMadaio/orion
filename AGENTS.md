@@ -4,7 +4,7 @@ For any AI working on this repository: Claude Code, ChatGPT/Codex, or anything
 else. One file, so two assistants do not hold two different beliefs about how
 this thing is built.
 
-Not to be confused with `openclaw-workspace/AGENTS.md`, which is Orion's OWN
+Not to be confused with `plugin/workspace/AGENTS.md`, which is Orion's OWN
 runtime instructions — how the assistant behaves when it is running. This file
 is about the codebase.
 
@@ -47,7 +47,7 @@ move to London had a date on it; that is a recorded deviation with
 
 > **Where a phase's requirements refer to the Python runtime or to `orion/*.py`,
 > interpret them against the LIVE stack — the Swift app in `native/Orion` and the
-> TypeScript plugin in `openclaw-plugins/orion-control`. The Python package is
+> TypeScript plugin in `plugin/orion-control`. The Python package is
 > not the implementation path. This changes how requirements are READ; it does
 > not change their ORDER.**
 
@@ -236,7 +236,7 @@ refuses to build after. Renewal costs one permission reset, so plan it.
 | The Mac app (Swift, SwiftPM) | `native/Orion/` |
 | Pure domain logic, no I/O | `native/Orion/Sources/SessionDomain/` |
 | State files, history, locks | `native/Orion/Sources/SessionService/` |
-| The OpenClaw plugin | `openclaw-plugins/orion-control` |
+| The OpenClaw plugin | `plugin/orion-control` |
 | Runtime data the app reads/writes | `~/.openclaw/orion-controlled/` |
 | App log | `~/.openclaw/logs/orion-app.log` |
 

@@ -36,9 +36,9 @@ capability, or change visible output.
 Do not edit these while the shared plugin worktree is dirty or another agent
 owns it:
 
-- `openclaw-plugins/orion-control/src/index.ts` — default-off config flag and
+- `plugin/orion-control/src/index.ts` — default-off config flag and
   envelope translation at the single authorized-graph route;
-- `openclaw-plugins/orion-control/openclaw.plugin.json` — declare that flag;
+- `plugin/orion-control/openclaw.plugin.json` — declare that flag;
 - new TypeScript contract/adapter files under `src/v2/`;
 - focused TypeScript parity tests plus the existing full plugin suite.
 

@@ -24,7 +24,7 @@ coordinates an integration change:
 
 - `native/Orion/**`
 - `native/OrionMacBridge/**`
-- existing files under `openclaw-plugins/orion-control/**`
+- existing files under `plugin/orion-control/**`
 - existing `scripts/orion-*` files that do not start with `orion_v2_`
 - root `HANDOFF.md`, `HANDOFF.md`, and `HANDOFF.md`
 

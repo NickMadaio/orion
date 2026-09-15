@@ -46,7 +46,7 @@ import Foundation
  Those three numbers, and the lockfile NAME, are load-bearing across the two
  languages. A Swift lock at `<path>.lock` and a node lock at `<path>.lockfile`
  would both "work" and would exclude nothing. Change them here and you must
- change `openclaw-plugins/orion-control/src/health.ts` in the same commit.
+ change `plugin/orion-control/src/health.ts` in the same commit.
 
  Advisory, not enforced by the kernel: it only excludes writers who ask. That
  is the same guarantee the node side has, and both writers ask. Readers do NOT

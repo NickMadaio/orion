@@ -102,7 +102,7 @@ firing at the wrong hour.
 `docs/planning/_archive/workspace-before-2026-08-14/USER.md:42-44` recorded the move
 as being **"to attend Eastern University"**, and told Orion to treat both the
 Montvale address *and* the timezone as expiring. The current
-`openclaw-workspace/USER.md` lost the university entirely in the 2026-08-14
+`plugin/workspace/USER.md` lost the university entirely in the 2026-08-14
 rewrite — it now says only "Moving to London."
 
 That matters more than a missing detail usually would. The Phase 32.5 charter

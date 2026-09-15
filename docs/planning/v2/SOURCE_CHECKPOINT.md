@@ -50,7 +50,7 @@ git worktree add --detach /private/tmp/orion-v2-repro \
   613c6acbc899482bc78020509752758033a95c23
 cd /private/tmp/orion-v2-repro
 uv run python -m unittest discover -s tests -q
-cd openclaw-plugins/orion-control
+cd plugin/orion-control
 npm ci --ignore-scripts
 npm test
 npm run build

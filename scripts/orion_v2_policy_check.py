@@ -34,7 +34,7 @@ from orion.security.request import PolicyRequest  # noqa: E402
 from orion.security.risk import classify, tier_of  # noqa: E402
 from orion.shared.result import DecisionOutcome  # noqa: E402
 
-PLUGIN = REPO_ROOT / "openclaw-plugins" / "orion-control"
+PLUGIN = REPO_ROOT / "plugin" / "orion-control"
 REGISTRY = REPO_ROOT / "docs" / "planning" / "v2" / "capability-registry.json"
 
 #: A fixed instant. The engine takes the clock as an argument precisely so a

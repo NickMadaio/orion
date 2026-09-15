@@ -1269,7 +1269,7 @@ no restart, no rebuild; v2 flag still false, Orion untouched.
 ### Next
 
 Phases 4 and 5, in a fresh context. Phase 4 is the tool registry, and
-`openclaw-plugins/orion-control/src/catalog.ts` already does most of it — the
+`plugin/orion-control/src/catalog.ts` already does most of it — the
 gaps are flat names instead of dotted ones, argument *lists* instead of schemas,
 no output schemas, no unknown-argument rejection, and no domain per capability.
 That last one is what Phase 3's integration is waiting on.

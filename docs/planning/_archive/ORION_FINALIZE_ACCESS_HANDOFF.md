@@ -13,7 +13,7 @@ history). Historical references kept alongside this file: `ORION_STATE_AUDIT.md`
 - **Orion's distinctive piece:** the `orion-control` plugin — a permission-gated
   Mac "body." Every action flows proposal → validate → guarded execute →
   independent verify → append-only JSONL audit ledger. Source:
-  `~/Desktop/ORION/openclaw-plugins/orion-control`; installed (separate copy):
+  `~/Desktop/ORION/plugin/orion-control`; installed (separate copy):
   `~/.openclaw/extensions/orion-control`. A rebuild must be copied to the
   installed path, then the gateway reloaded (`openclaw daemon restart`).
 

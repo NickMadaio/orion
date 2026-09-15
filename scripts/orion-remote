@@ -412,7 +412,7 @@ const usage = (verb) => {
 
  Deliberately only facts, and only facts about this channel. It is not a
  personality, it does not tell Orion how to be, and it must never grow into
- one -- the assistant's own instructions live in openclaw-workspace/AGENTS.md
+ one -- the assistant's own instructions live in plugin/workspace/AGENTS.md
  and are not this file's business.
 
  ## The vocabulary this text may not use

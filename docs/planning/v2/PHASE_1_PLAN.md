@@ -11,7 +11,7 @@ ORION Core") is *not* met and was closed as an acknowledged deviation; see
 ## Slice 5 evidence — the live integration, 2026-08-20
 
 - TypeScript contracts and adapter under
-  `openclaw-plugins/orion-control/src/v2/`, a default-`false`
+  `plugin/orion-control/src/v2/`, a default-`false`
   `enableV2SystemStatusAdapter` flag, and the single wrapped `system_status`
   route in `src/index.ts`.
 - The bridge **fails open**: a contract violation records `contractError`, warns

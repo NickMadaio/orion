@@ -4197,7 +4197,7 @@
       "status": "in_progress",
       "entryRequiresPhase": "45",
       "entrySatisfied": true,
-      "evidence": "The four actions already existed in the deployed catalogue. Verified against openclaw-plugins/orion-control/dist and against the real execution ledger rather than rebuilt.",
+      "evidence": "The four actions already existed in the deployed catalogue. Verified against plugin/orion-control/dist and against the real execution ledger rather than rebuilt.",
       "decisions": [
         "NOT BUILT. All four actions were already in the deployed ACTION_CATALOG under the live stack's names, which is the interpretation rule working as intended: the manifest's `application.launch` is `app_open`, `system.volume.set` is `volume_set`. Grepping the catalogue before designing is what stopped this becoming the third phase in this program to be built twice.",
         "Evidence is taken from the REAL ledger -- actions that have actually run on this Mac -- rather than from a fixture. browser_open_url has seven recorded executions."
@@ -4388,7 +4388,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/{approvals,strictness}.ts and the gate in validator.ts, covered by src/gate.test.ts and src/index.test.ts (170 tests) and by scripts/orion_v2_strictness_check.sh (27 checks) against the live machine.",
+      "evidence": "plugin/orion-control/src/{approvals,strictness}.ts and the gate in validator.ts, covered by src/gate.test.ts and src/index.test.ts (170 tests) and by scripts/orion_v2_strictness_check.sh (27 checks) against the live machine.",
       "requirements": [
         {
           "id": "creates_a_canonical_job_representation_and_hashes_it",
@@ -4460,7 +4460,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/{approvals,strictness}.ts and the gate in validator.ts, covered by src/gate.test.ts and src/index.test.ts (170 tests) and by scripts/orion_v2_strictness_check.sh (27 checks) against the live machine.",
+      "evidence": "plugin/orion-control/src/{approvals,strictness}.ts and the gate in validator.ts, covered by src/gate.test.ts and src/index.test.ts (170 tests) and by scripts/orion_v2_strictness_check.sh (27 checks) against the live machine.",
       "requirements": [
         {
           "id": "allows_preauthorizing_narrowly_defined_capabilities",
@@ -4499,7 +4499,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/devops.ts plus seven ACTION_CATALOG entries, covered by src/gate.test.ts and exercised against the real repository. Enabled live in openclaw.json.",
+      "evidence": "plugin/orion-control/src/devops.ts plus seven ACTION_CATALOG entries, covered by src/gate.test.ts and exercised against the real repository. Enabled live in openclaw.json.",
       "requirements": [
         {
           "id": "does_not_begin_with_raw_shell",
@@ -4623,7 +4623,7 @@
       "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "The four prohibitions are enforced and adversarially tested in openclaw-plugins/orion-control/src/index.test.ts and gate.test.ts; the screen half has no surface yet.",
+      "evidence": "The four prohibitions are enforced and adversarially tested in plugin/orion-control/src/index.test.ts and gate.test.ts; the screen half has no surface yet.",
       "requirements": [
         {
           "id": "external_content_may_not_approve_an_action",
@@ -4697,7 +4697,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/automation.ts, four ACTION_CATALOG entries under the `automation` tier, and scripts/orion-automation for the half Orion may not run. Covered by src/gate.test.ts and by scripts/orion_v2_strictness_check.sh.",
+      "evidence": "plugin/orion-control/src/automation.ts, four ACTION_CATALOG entries under the `automation` tier, and scripts/orion-automation for the half Orion may not run. Covered by src/gate.test.ts and by scripts/orion_v2_strictness_check.sh.",
       "requirements": [
         {
           "id": "defines_automation_as_structured_rules",
@@ -4896,7 +4896,7 @@
       "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/explain.ts and scripts/orion-why, covered by src/gate.test.ts and verified against the real task ledger.",
+      "evidence": "plugin/orion-control/src/explain.ts and scripts/orion-why, covered by src/gate.test.ts and verified against the real task ledger.",
       "requirements": [
         {
           "id": "every_consequential_recommendation_supports_why",
@@ -4923,7 +4923,7 @@
       "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. The phases behind this one are open on surfaces that do not exist -- an iOS app and a computer-use layer -- neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/explain.ts and scripts/orion-why, covered by src/gate.test.ts and verified against the real task ledger.",
+      "evidence": "plugin/orion-control/src/explain.ts and scripts/orion-why, covered by src/gate.test.ts and verified against the real task ledger.",
       "requirements": [
         {
           "id": "distinguishes_known_observed_inferred_uncertain_and_unable_to_verify",
@@ -5361,7 +5361,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-04",
       "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "openclaw-plugins/orion-control/src/travel.ts, five actions under the `travel` tier, covered by src/gate.test.ts and enabled live.",
+      "evidence": "plugin/orion-control/src/travel.ts, five actions under the `travel` tier, covered by src/gate.test.ts and enabled live.",
       "requirements": [
         {
           "id": "builds_on_calendar_gmail_travel_detection_and_timezone",

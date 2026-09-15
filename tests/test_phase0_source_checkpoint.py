@@ -21,7 +21,7 @@ class SourceCheckpointTests(unittest.TestCase):
     def test_includes_current_source_test_and_handoff_paths(self):
         for path in (
             "native/Orion/Sources/Orion/NewView.swift",
-            "openclaw-plugins/orion-control/src/new.ts",
+            "plugin/orion-control/src/new.ts",
             "orion/core/runtime/__init__.py",
             "docs/planning/v2/PHASE_1_PLAN.md",
             "scripts/orion-repair",
@@ -35,7 +35,7 @@ class SourceCheckpointTests(unittest.TestCase):
         for path in (
             ".builds/Orion-LATEST.app/Contents/MacOS/Orion",
             ".builds/openclaw.json.pre-change",
-            "openclaw-workspace/MEMORY.md",
+            "plugin/workspace/MEMORY.md",
             "docs/planning/_archive/workspace/MEMORY.md",
             ".env",
             ".env.save",
@@ -48,10 +48,10 @@ class SourceCheckpointTests(unittest.TestCase):
 
     def test_selection_is_sorted_and_reports_exclusions(self):
         included, excluded = checkpoint.select_untracked(
-            ["tests/z.py", ".builds/a", "scripts/a", "openclaw-workspace/USER.md"]
+            ["tests/z.py", ".builds/a", "scripts/a", "plugin/workspace/USER.md"]
         )
         self.assertEqual(included, ["scripts/a", "tests/z.py"])
-        self.assertEqual(excluded, [".builds/a", "openclaw-workspace/USER.md"])
+        self.assertEqual(excluded, [".builds/a", "plugin/workspace/USER.md"])
 
 
 if __name__ == "__main__":

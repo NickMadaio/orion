@@ -20,7 +20,7 @@ contract; `catalog.ts` remains the implementation.
 
 ## What already exists
 
-`ActionDefinition` in `openclaw-plugins/orion-control/src/catalog.ts` already
+`ActionDefinition` in `plugin/orion-control/src/catalog.ts` already
 declares, for all 59 actions:
 
 | Manifest requirement | catalog.ts today |

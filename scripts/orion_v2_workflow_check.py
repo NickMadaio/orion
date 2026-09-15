@@ -45,7 +45,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 GATES = REPO / "docs/planning/v2/PHASE_GATES.json"
-PLUGIN_SRC = "openclaw-plugins/orion-control/src/"
+PLUGIN_SRC = "plugin/orion-control/src/"
 
 #: Kept in step with ENFORCEMENT_PLUGIN_FILES in selfrepair.ts. Duplicated
 #: deliberately and narrowly: this script must work without importing the

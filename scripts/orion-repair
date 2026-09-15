@@ -98,7 +98,7 @@ if [[ "$REPO" != "$DEFAULT_REPO" && -z "${ORION_REPAIR_SELFTEST:-}" ]]; then
   print -r -- "         tree they came from. Set both, or neither." >&2
   exit 2
 fi
-PLUGIN="$REPO/openclaw-plugins/orion-control"
+PLUGIN="$REPO/plugin/orion-control"
 SRC="$PLUGIN/src"
 SCRIPTS="$REPO/scripts"
 LIB="$SCRIPTS/lib"

@@ -23,7 +23,7 @@ export const DEV_REPOSITORIES = new Map([
     [
         "orion-plugin",
         {
-            root: path.join(os.homedir(), "Desktop/ORION/openclaw-plugins/orion-control"),
+            root: path.join(os.homedir(), "Desktop/ORION/plugin/orion-control"),
             describe: "the plugin that gives Orion his tools",
             test: ["npx", "vitest", "run"],
             build: ["npm", "run", "build"],

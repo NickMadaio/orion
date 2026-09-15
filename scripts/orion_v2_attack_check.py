@@ -41,7 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 ATTACK_MAP = REPO / "docs/planning/v2/ATTACK_SURFACE.json"
 RELIABILITY_MAP = REPO / "docs/planning/v2/RELIABILITY_SURFACE.json"
-PLUGIN = REPO / "openclaw-plugins/orion-control"
+PLUGIN = REPO / "plugin/orion-control"
 
 #: The manifest's own list, Phase 69, in its order. Kept here rather than read
 #: from the map so that the map cannot satisfy the check by shortening itself.

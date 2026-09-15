@@ -14,8 +14,8 @@ here together.
 |---|---|
 | `orion/` | Python runtime — planner, executor, scheduler, memory, permissions, tool registry, HTTP server |
 | `native/` | The macOS app (SwiftUI), the Mac bridge, and the launchd agents |
-| `openclaw-plugins/orion-control/` | OpenClaw plugin exposing Orion's action catalog and executors |
-| `openclaw-workspace/` | Orion's operating context — `SELF`, `SOUL`, `MEMORY`, `USER`, `PLAYBOOK`, `AGENTS` |
+| `plugin/orion-control/` | OpenClaw plugin exposing Orion's action catalog and executors |
+| `plugin/workspace/` | Orion's operating context — `SELF`, `SOUL`, `MEMORY`, `USER`, `PLAYBOOK`, `AGENTS` |
 | `var/brain/` | The knowledge vault (Obsidian, PARA-structured) — concepts, sources, operating principles |
 | `scripts/` | Operational scripts — TTS daemon, identity checks, repair, cron delivery |
 | `launchers/` | Double-clickable `.command` entry points for everyday use |

@@ -16,7 +16,7 @@
  or budget ever runs. This file only decides local vs. cloud, and when to
  stop running at all, given a job already accepted.
 
- Extends Phase 67 (openclaw-plugins/orion-control/src -- see `scripts/orion-budget`
+ Extends Phase 67 (plugin/orion-control/src -- see `scripts/orion-budget`
  and PHASE_GATES.json's "67" entry) rather than duplicating it: orion-budget's
  ceilings are DAILY, PER-AUTOMATION and PER-REMOTE-SESSION, read from usage
  logged after the fact. This is PER-JOB, checked before and during a run that

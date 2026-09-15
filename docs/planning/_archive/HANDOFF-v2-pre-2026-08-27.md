@@ -1396,11 +1396,11 @@ Additive contracts and tests:
 
 Coordinated shared files (Nick confirmed the integration window):
 
-- `openclaw-plugins/orion-control/src/v2/**`
-- `openclaw-plugins/orion-control/src/index.ts` — flag declaration and the single
+- `plugin/orion-control/src/v2/**`
+- `plugin/orion-control/src/index.ts` — flag declaration and the single
   wrapped route, plus the `hostWarn` sink
-- `openclaw-plugins/orion-control/src/index.test.ts` — two host-seam parity tests
-- `openclaw-plugins/orion-control/openclaw.plugin.json` and `package.json` —
+- `plugin/orion-control/src/index.test.ts` — two host-seam parity tests
+- `plugin/orion-control/openclaw.plugin.json` and `package.json` —
   **generated**, never hand-edited; regenerate with
   `openclaw plugins build --entry ./dist/index.js`
 

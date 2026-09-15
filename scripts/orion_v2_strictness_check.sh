@@ -203,7 +203,7 @@ import json, subprocess, sys
 repo = sys.argv[1]
 live = json.loads(subprocess.run([f"{repo}/scripts/orion-authority", "show", "--json"],
                                  capture_output=True, text=True).stdout)
-before = json.load(open(f"{repo}/planning/v2/GUARDED_BASELINE.json"))["actions"]
+before = json.load(open(f"{repo}/docs/planning/v2/GUARDED_BASELINE.json"))["actions"]
 now = {c["name"]: c["level"] for c in live["capabilities"] if c["kind"] == "action"}
 # Compatibility is about actions that EXISTED changing, and about actions
 # disappearing. A new action is new work, not a regression -- Phase 51 added

@@ -33,7 +33,7 @@ LIVE_STATE="$HOME/.openclaw/orion-controlled/permission-state.json"
 NODE="$HOME/.openclaw/tools/node-v24.15.0/bin/node"
 [ -x "$NODE" ] || NODE="$(command -v node)"
 [ -n "$NODE" ] || { echo "lock check: no node found"; exit 2; }
-[ -f "$REPO/openclaw-plugins/orion-control/dist/permissions.js" ] || {
+[ -f "$REPO/plugin/orion-control/dist/permissions.js" ] || {
     echo "lock check: the plugin is not built"; exit 2; }
 
 live_before=""
@@ -122,8 +122,8 @@ check $? "every scheduled job was asked to be disabled, by id"
 echo ""
 echo "== what the floor actually denies =="
 "$NODE" --input-type=module -e "
-import { profileAllowedTiers } from '$REPO/openclaw-plugins/orion-control/dist/permissions.js';
-import { ACTION_CATALOG } from '$REPO/openclaw-plugins/orion-control/dist/catalog.js';
+import { profileAllowedTiers } from '$REPO/plugin/orion-control/dist/permissions.js';
+import { ACTION_CATALOG } from '$REPO/plugin/orion-control/dist/catalog.js';
 const reach = (p) => {
   const tiers = new Set(profileAllowedTiers(p));
   return Object.values(ACTION_CATALOG).filter((a) => tiers.has(a.capabilityTier)).length;

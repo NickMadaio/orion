@@ -25,7 +25,7 @@ import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const INSTALLED = join(homedir(), ".openclaw/extensions/orion-control/dist");
-const REPO = join(import.meta.dirname, "../../openclaw-plugins/orion-control/dist");
+const REPO = join(import.meta.dirname, "../../plugin/orion-control/dist");
 
 function load() {
   for (const [dir, source] of [[INSTALLED, "installed"], [REPO, "repo"]]) {

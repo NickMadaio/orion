@@ -48,7 +48,7 @@ const SESSIONS = join(HOME, ".openclaw/agents/main");
 const MEMORY = join(HOME, ".openclaw/workspace/memory");
 const BRAIN = join(HOME, "Documents/orionBrain");
 const CONFIG = join(HOME, ".openclaw/openclaw.json");
-const INVENTORY = join(HOME, "Desktop/ORION/planning/v2/DATA_INVENTORY.json");
+const INVENTORY = join(HOME, "Desktop/ORION/docs/planning/v2/DATA_INVENTORY.json");
 
 const argv = process.argv.slice(2);
 const yes = argv.includes("--yes");

@@ -34,7 +34,7 @@ ceiling.
 
 Status: implemented and loaded.
 
-The local `openclaw-plugins/orion-control` package provides:
+The local `plugin/orion-control` package provides:
 
 - a typed TaskGraph contract;
 - a fixed action catalog and risk taxonomy;

@@ -76,7 +76,7 @@ cat <<'BOOK'
   MALICIOUS DEPENDENCY
     1. orion-incident freeze — a compromised package runs when something builds
        or tests, and dev_operations is exactly that path.
-    2. cd openclaw-plugins/orion-control && npm ci   (the lockfile, nothing else)
+    2. cd plugin/orion-control && npm ci   (the lockfile, nothing else)
     3. git log --oneline -- package-lock.json — when did it change, and did a
        person change it?
     4. npm audit, and scripts/orion_v2_ci_check.sh.

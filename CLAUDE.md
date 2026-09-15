@@ -33,7 +33,7 @@ about what order to do phases in:
 
 > **Where a phase's requirements refer to the Python runtime or to `orion/*.py`,
 > interpret them against the LIVE stack — the Swift app in `native/Orion` and the
-> TypeScript plugin in `openclaw-plugins/orion-control`. The Python package is not
+> TypeScript plugin in `plugin/orion-control`. The Python package is not
 > the implementation path. This changes how requirements are READ; it does not
 > change their ORDER.**
 

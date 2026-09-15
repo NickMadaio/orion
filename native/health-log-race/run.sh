@@ -40,7 +40,7 @@ cd "$(dirname "$0")"
 SECS=${1:-4}
 RUNS=${2:-3}
 LOG=~/.openclaw/orion-controlled/health-log.json
-PLUGIN=~/Desktop/ORION/openclaw-plugins/orion-control/dist/health.js
+PLUGIN=~/Desktop/ORION/plugin/orion-control/dist/health.js
 SOURCES=~/Desktop/ORION/native/Orion/Sources/Orion
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -51,7 +51,7 @@ if pgrep -f "/Applications/Orion.app" > /dev/null; then
   echo "Orion.app is running — quit it first (osascript -e 'quit app \"Orion\"')."
   exit 1
 fi
-[[ -f $PLUGIN ]] || { echo "build the plugin first: (cd ../../openclaw-plugins/orion-control && node_modules/.bin/tsc -p tsconfig.json)"; exit 1; }
+[[ -f $PLUGIN ]] || { echo "build the plugin first: (cd ../../plugin/orion-control && node_modules/.bin/tsc -p tsconfig.json)"; exit 1; }
 
 echo "building the swift side against the real HealthLog.swift..."
 swiftc -O "$SOURCES/HealthLog.swift" "$SOURCES/OrionDay.swift" "$SOURCES/FileLock.swift" \

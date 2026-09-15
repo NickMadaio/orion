@@ -74,7 +74,7 @@ phrases, with a safe generic fallback ("Ran a step.") for anything else.
 
 **A finding that changed the design, checked against the real schema**
 (`packages/gateway-protocol/src/schema/audit.d.ts` inside
-`openclaw-plugins/orion-control/node_modules/openclaw/dist/`) and against
+`plugin/orion-control/node_modules/openclaw/dist/`) and against
 `docs/planning/v2/evals/README.md`'s own note ("`toolName` is `exec`, and the
 command that `exec` ran is not in it"):
 
@@ -82,7 +82,7 @@ Every OpenClaw BUILTIN tool — `bash`, `shell`, `exec`, `web_search`, `browser`
 `grep`, `glob` — is a distinct, stable top-level name that audit can and does
 report. But every Orion-DOMAIN action (calendar, reminders, mail, health)
 dispatches through **one** tool, `orion_task_run`
-(`openclaw-plugins/orion-control/src/index.ts:990`), with the actual action
+(`plugin/orion-control/src/index.ts:990`), with the actual action
 name inside `arguments` — which the audit ledger deliberately never records
 (`redaction: "metadata_only"`; the schema has no argument field at all).
 

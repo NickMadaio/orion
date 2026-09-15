@@ -51,10 +51,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: openclaw-plugins/orion-control/package-lock.json
+          cache-dependency-path: plugin/orion-control/package-lock.json
 
       - name: install exactly the lockfile
-        working-directory: openclaw-plugins/orion-control
+        working-directory: plugin/orion-control
         # `ci`, never `install` — the same rule Phase 51 applies to Orion.
         run: npm ci
 
@@ -62,19 +62,19 @@ jobs:
         # FIRST, and on its own step so a failure is unmissable in the run list.
         # These are the adversarial cases: the approval gate, the trust
         # boundary, the strictness floor, the injection tests.
-        working-directory: openclaw-plugins/orion-control
+        working-directory: plugin/orion-control
         run: npx vitest run src/gate.test.ts src/index.test.ts
 
       - name: unit and integration tests
-        working-directory: openclaw-plugins/orion-control
+        working-directory: plugin/orion-control
         run: npm test
 
       - name: static analysis
-        working-directory: openclaw-plugins/orion-control
+        working-directory: plugin/orion-control
         run: npx tsc --noEmit -p tsconfig.json
 
       - name: schema validation
-        working-directory: openclaw-plugins/orion-control
+        working-directory: plugin/orion-control
         run: npx vitest run src/manifest.test.ts
 
       - name: secret scanning
@@ -94,7 +94,7 @@ jobs:
             --allowlist docs/planning/v2/secret-scan-allowlist.json
 
       - name: dependency scanning
-        working-directory: openclaw-plugins/orion-control
+        working-directory: plugin/orion-control
         # Reported, not fatal. A transitive advisory in a dev dependency should
         # be visible without blocking an unrelated fix — the judgement call is
         # Nick's, and burying it in a red X does not help him make it.

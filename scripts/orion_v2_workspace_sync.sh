@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# The repo's `openclaw-workspace/` is not what Orion reads.
+# The repo's `plugin/workspace/` is not what Orion reads.
 #
 # He reads `~/.openclaw/workspace/`, named by `agents.defaults.workspace` in
 # openclaw.json. The repo copy is the tracked source; the live copy is what the
@@ -24,7 +24,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$REPO/openclaw-workspace"
+SRC="$REPO/plugin/workspace"
 LIVE="${ORION_WORKSPACE:-$HOME/.openclaw/workspace}"
 FILES=(AGENTS.md SOUL.md SELF.md USER.md PLAYBOOK.md MEMORY.md)
 APPLY=0

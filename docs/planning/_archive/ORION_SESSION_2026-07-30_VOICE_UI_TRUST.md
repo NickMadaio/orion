@@ -348,7 +348,7 @@ time ./scripts/orion-local-tts /tmp/a.wav "System check, one."
 time ./scripts/orion-local-tts /tmp/b.wav "System check, two."
 
 ./scripts/orion-interface --status     # gateway / voice / interface at a glance
-cd openclaw-plugins/orion-control && npm test    # real vitest, expect 35 passing
+cd plugin/orion-control && npm test    # real vitest, expect 35 passing
 ```
 
 Then in the interface: hold space, ask something current, confirm it searches and

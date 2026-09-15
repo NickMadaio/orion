@@ -31,7 +31,7 @@ must never be confused:
 Research may ask for wider sources. Creative may brainstorm without limit.
 Coach may be more directive. **None of them may grant file, account,
 messaging, system, or self-modification access.** This is enforced in
-`openclaw-plugins/orion-control/src/personalities.ts`, proven in
+`plugin/orion-control/src/personalities.ts`, proven in
 `personalities.test.ts`, by three independent layers:
 
 1. **The type cannot express authority.** `PersonalityProfile` has exactly
@@ -108,9 +108,9 @@ with no instruction able to reopen any of them:
 
 | Named surface | Path(s) | Reason |
 |---|---|---|
-| policy evaluator | `openclaw-plugins/orion-control/src/catalog.ts`, `validator.ts` | tier tables and the code that enforces them |
-| approval verifier | `openclaw-plugins/orion-control/src/approvals.ts` | decides whether a person said yes |
-| audit ledger | `openclaw-plugins/orion-control/src/ledger.ts`, `provenance.ts` | the record and its hash chain |
+| policy evaluator | `plugin/orion-control/src/catalog.ts`, `validator.ts` | tier tables and the code that enforces them |
+| approval verifier | `plugin/orion-control/src/approvals.ts` | decides whether a person said yes |
+| audit ledger | `plugin/orion-control/src/ledger.ts`, `provenance.ts` | the record and its hash chain |
 | secret store / sandbox rules | `orion/security/**` | Keychain-adjacent Python, risk and profile derivation |
 | update signing | `native/Orion/**` (whole tree) | Sparkle, the EdDSA key reference, `make_app_bundle.sh`'s signing order -- AGENTS.md's one invariant |
 | LOCK ORION | `scripts/orion-lock` | the emergency off switch |
@@ -135,7 +135,7 @@ actually lands, not refused for containing a `..` character.
 **Mutation proof, executed live:** removed the `approvals.ts` entry from
 `FORBIDDEN_SELF_CHANGE_SURFACES`. Ran the named test `assertDiffAllowed: the
 forbidden self-change surfaces > REFUSES a diff touching
-openclaw-plugins/orion-control/src/approvals.ts`. It failed:
+plugin/orion-control/src/approvals.ts`. It failed:
 
 ```
 AssertionError: expected function to throw an error, but it didn't
@@ -300,7 +300,7 @@ instead, for whoever reconciles the two sessions' work.
 
 ## Test count
 
-`cd openclaw-plugins/orion-control && npm test`: **236 tests, 6 files** before
+`cd plugin/orion-control && npm test`: **236 tests, 6 files** before
 this session's changes; **307 tests, 9 files** after (3 new files: 19 + 29 +
 23 = 71 new tests, all passing; 236 + 71 = 307). `npx tsc -p tsconfig.json
 --noEmit` clean both before and after. Python: `tests.test_v2_model_contract`

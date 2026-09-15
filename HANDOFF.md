@@ -502,7 +502,7 @@ only way to tell them apart, which is why it is printed in full.
 **The interpretation rule still applies** (see `AGENTS.md`): where a phase's text
 refers to the Python runtime or `orion/*.py`, read it against the LIVE stack —
 the Swift app in `native/Orion` and the TypeScript plugin in
-`openclaw-plugins/orion-control`. That changes how a requirement is READ, never
+`plugin/orion-control`. That changes how a requirement is READ, never
 the order phases are done in.
 
 | # | phase | state | what is still unmet |
@@ -771,7 +771,7 @@ correct change as a regression. Assert the names.
 the `orion-authority` regex declarations, a secret scan on a comment, and a
 deferred check reading source prose.
 
-**The repo copy is not always the live copy.** `openclaw-workspace/AGENTS.md` is
+**The repo copy is not always the live copy.** `plugin/workspace/AGENTS.md` is
 tracked; Orion reads `~/.openclaw/workspace/AGENTS.md`. Nothing kept them in
 step, so two same-day edits were inert while looking authoritative. Seven live
 *skills* existed in no repo at all, one of them actively telling Orion to

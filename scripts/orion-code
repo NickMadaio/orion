@@ -150,7 +150,7 @@ def link_dependencies() -> None:
     Symlinked rather than installed: `npm ci` here would take minutes on every
     fresh worktree and would need the network, which on a flight there is not.
     """
-    for package in ("openclaw-plugins/orion-control",):
+    for package in ("plugin/orion-control",):
         source = REPO / package / "node_modules"
         target = WORKTREE / package / "node_modules"
         if source.exists() and not target.exists():
@@ -431,8 +431,8 @@ def do_task(task: str, relative_path: str | None, check: str, iterations: int, b
         return False
 
     original = target.read_text()
-    check_cwd = tree / "openclaw-plugins/orion-control" if relative_path.startswith(
-        "openclaw-plugins/orion-control"
+    check_cwd = tree / "plugin/orion-control" if relative_path.startswith(
+        "plugin/orion-control"
     ) else tree
 
     failure: str | None = None

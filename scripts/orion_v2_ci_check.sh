@@ -35,7 +35,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN="$REPO/openclaw-plugins/orion-control"
+PLUGIN="$REPO/plugin/orion-control"
 # One run-scoped directory rather than fixed /tmp paths. The DEBT branch below
 # printed its heading and then nothing, because it was grepping a log another
 # process owned -- a check whose evidence goes missing is a check nobody acts on.
@@ -165,7 +165,7 @@ done
 
 # The workspace Orion actually reads.
 #
-# `openclaw-workspace/` is tracked; `~/.openclaw/workspace/` is loaded. Nothing
+# `plugin/workspace/` is tracked; `~/.openclaw/workspace/` is loaded. Nothing
 # kept them in step, so on 2026-09-06 two same-day edits to AGENTS.md -- a date
 # rule and an Atlas routing bullet -- were both inert while looking authoritative.
 # Skipped rather than failed where the live workspace does not exist, because in

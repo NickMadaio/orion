@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from orion.core.context.domains import Domain  # noqa: E402
 from orion.core.tools.registry import decode_registry  # noqa: E402
 
-PLUGIN = REPO_ROOT / "openclaw-plugins" / "orion-control"
+PLUGIN = REPO_ROOT / "plugin" / "orion-control"
 REGISTRY = REPO_ROOT / "docs" / "planning" / "v2" / "capability-registry.json"
 
 #: Words that would name a general-purpose escape hatch. The manifest forbids

@@ -1,4 +1,5 @@
 import path from "node:path";
+
 /*
  GOVERNED SELF-DEVELOPMENT -- the boundary, built before the loop.
 
@@ -74,26 +75,37 @@ import path from "node:path";
  to be refused, watch it fail with a quoted assertion message, then restore
  the entry and watch the same test pass again.
 */
+
 /** Off tonight, and every night after this one until something turns it on
  * deliberately. Not read from an environment variable or a config file --
  * both are things a local model's own diff could eventually touch, and a
  * kill switch that the thing it switches off can move is not a kill switch. */
-export const GOVERNED_SELF_DEVELOPMENT_ENABLED = false;
+export const GOVERNED_SELF_DEVELOPMENT_ENABLED = false as const;
+
 export class GovernedSelfDevelopmentDisabledError extends Error {
-    constructor() {
-        super("governed self-development is disabled (GOVERNED_SELF_DEVELOPMENT_ENABLED " +
-            "is false in self-development-authority.ts). The machinery and the " +
-            "boundary exist; nothing may run yet.");
-        this.name = "GovernedSelfDevelopmentDisabledError";
-    }
+  constructor() {
+    super(
+      "governed self-development is disabled (GOVERNED_SELF_DEVELOPMENT_ENABLED " +
+        "is false in self-development-authority.ts). The machinery and the " +
+        "boundary exist; nothing may run yet.",
+    );
+    this.name = "GovernedSelfDevelopmentDisabledError";
+  }
 }
+
 /** Call this at the single entry point that would ever hand a diff to a
  * local model for authorship. Throws unconditionally while the flag is off. */
-export function assertGovernedSelfDevelopmentEnabled() {
-    if (!GOVERNED_SELF_DEVELOPMENT_ENABLED) {
-        throw new GovernedSelfDevelopmentDisabledError();
-    }
+export function assertGovernedSelfDevelopmentEnabled(): void {
+  if (!GOVERNED_SELF_DEVELOPMENT_ENABLED) {
+    throw new GovernedSelfDevelopmentDisabledError();
+  }
 }
+
+export interface ForbiddenSurface {
+  readonly pattern: RegExp;
+  readonly reason: string;
+}
+
 /**
  * Checked in order; the first match wins. Patterns are anchored (`^...$` or
  * a directory prefix) against a POSIX-style, repo-root-relative path, never
@@ -101,140 +113,147 @@ export function assertGovernedSelfDevelopmentEnabled() {
  * the real `approvals.ts` and a same-named file elsewhere in the tree cannot
  * borrow its refusal or, worse, its absence of one.
  */
-export const FORBIDDEN_SELF_CHANGE_SURFACES = [
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/catalog\.ts$/,
-        reason: "the policy evaluator's tier and action tables (catalog.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/validator\.ts$/,
-        reason: "the policy evaluator that enforces those tables against a real argument (validator.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/approvals\.ts$/,
-        reason: "the approval verifier (approvals.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/permissions\.ts$/,
-        reason: "the permission-profile ladder permissions.ts enforces",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/strictness\.ts$/,
-        reason: "the friction ladder and its floor (strictness.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/ledger\.ts$/,
-        reason: "the audit ledger (ledger.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/provenance\.ts$/,
-        reason: "the hash chain behind the audit ledger (provenance.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/selfrepair\.ts$/,
-        reason: "the classification tables that decide what ordinary self-repair may touch (selfrepair.ts)",
-    },
-    {
-        pattern: /^openclaw-plugins\/orion-control\/src\/self-development-authority\.ts$/,
-        reason: "this file: the deny-list may not remove itself from its own deny-list",
-    },
-    {
-        pattern: /^orion\/security\//,
-        reason: "the sandbox and secret-handling rules under orion/security/",
-    },
-    {
-        pattern: /^scripts\/orion-lock$/,
-        reason: "LOCK ORION, the emergency off switch",
-    },
-    {
-        pattern: /^scripts\/orion-repair$/,
-        reason: "the repair engine that enforces selfrepair.ts's own rules",
-    },
-    {
-        pattern: /^scripts\/orion-forge$/,
-        reason: "the Swift self-modification engine and its gates",
-    },
-    {
-        pattern: /^scripts\/orion-approve$/,
-        reason: "how a person says yes",
-    },
-    {
-        pattern: /^scripts\/orion-mode$/,
-        reason: "how a person sets how much has to be asked",
-    },
-    {
-        pattern: /^scripts\/orion-sign-setup$/,
-        reason: "code-signing setup",
-    },
-    {
-        pattern: /^scripts\/orion-keys$/,
-        reason: "credential and Keychain material",
-    },
-    {
-        pattern: /^native\/Orion\//,
-        reason: "the signed Mac app -- update signing (Sparkle), the designated code-signing " +
-            "identity, and LOCK ORION's native half all live under it",
-    },
-    {
-        pattern: /^backend\/connectors\/broker\.py$/,
-        reason: "the privileged broker that actually sends or writes to an external service",
-    },
+export const FORBIDDEN_SELF_CHANGE_SURFACES: readonly ForbiddenSurface[] = [
+  {
+    pattern: /^plugin\/orion-control\/src\/catalog\.ts$/,
+    reason: "the policy evaluator's tier and action tables (catalog.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/validator\.ts$/,
+    reason: "the policy evaluator that enforces those tables against a real argument (validator.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/approvals\.ts$/,
+    reason: "the approval verifier (approvals.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/permissions\.ts$/,
+    reason: "the permission-profile ladder permissions.ts enforces",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/strictness\.ts$/,
+    reason: "the friction ladder and its floor (strictness.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/ledger\.ts$/,
+    reason: "the audit ledger (ledger.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/provenance\.ts$/,
+    reason: "the hash chain behind the audit ledger (provenance.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/selfrepair\.ts$/,
+    reason: "the classification tables that decide what ordinary self-repair may touch (selfrepair.ts)",
+  },
+  {
+    pattern: /^plugin\/orion-control\/src\/self-development-authority\.ts$/,
+    reason: "this file: the deny-list may not remove itself from its own deny-list",
+  },
+  {
+    pattern: /^orion\/security\//,
+    reason: "the sandbox and secret-handling rules under orion/security/",
+  },
+  {
+    pattern: /^scripts\/orion-lock$/,
+    reason: "LOCK ORION, the emergency off switch",
+  },
+  {
+    pattern: /^scripts\/orion-repair$/,
+    reason: "the repair engine that enforces selfrepair.ts's own rules",
+  },
+  {
+    pattern: /^scripts\/orion-forge$/,
+    reason: "the Swift self-modification engine and its gates",
+  },
+  {
+    pattern: /^scripts\/orion-approve$/,
+    reason: "how a person says yes",
+  },
+  {
+    pattern: /^scripts\/orion-mode$/,
+    reason: "how a person sets how much has to be asked",
+  },
+  {
+    pattern: /^scripts\/orion-sign-setup$/,
+    reason: "code-signing setup",
+  },
+  {
+    pattern: /^scripts\/orion-keys$/,
+    reason: "credential and Keychain material",
+  },
+  {
+    pattern: /^native\/Orion\//,
+    reason:
+      "the signed Mac app -- update signing (Sparkle), the designated code-signing " +
+      "identity, and LOCK ORION's native half all live under it",
+  },
+  {
+    pattern: /^backend\/connectors\/broker\.py$/,
+    reason: "the privileged broker that actually sends or writes to an external service",
+  },
 ];
+
 export class SelfChangeForbiddenError extends Error {
-    path;
-    surfaceReason;
-    constructor(path, surfaceReason) {
-        super(`a proposed diff may not touch "${path}" -- that is ${surfaceReason}. ` +
-            "This surface is refused for governed self-development regardless of " +
-            "strictness mode; there is no instruction that reopens it.");
-        this.path = path;
-        this.surfaceReason = surfaceReason;
-        this.name = "SelfChangeForbiddenError";
-    }
+  constructor(
+    public readonly path: string,
+    public readonly surfaceReason: string,
+  ) {
+    super(
+      `a proposed diff may not touch "${path}" -- that is ${surfaceReason}. ` +
+        "This surface is refused for governed self-development regardless of " +
+        "strictness mode; there is no instruction that reopens it.",
+    );
+    this.name = "SelfChangeForbiddenError";
+  }
 }
+
 class UnsafeDiffPathError extends Error {
-    constructor(raw, reason) {
-        super(`"${raw}" is not an acceptable diff path: ${reason}`);
-        this.name = "UnsafeDiffPathError";
-    }
+  constructor(raw: string, reason: string) {
+    super(`"${raw}" is not an acceptable diff path: ${reason}`);
+    this.name = "UnsafeDiffPathError";
+  }
 }
+
 /**
  * Turn whatever a caller handed in into a repo-root-relative, forward-slash
  * path, refusing anything that could name a location outside the deny-list's
  * own vocabulary by escaping it rather than by being listed.
  */
-function normalizeRelativePath(raw) {
-    if (typeof raw !== "string" || raw.length === 0) {
-        throw new UnsafeDiffPathError(String(raw), "path must be a non-empty string");
-    }
-    if (path.isAbsolute(raw) || raw.startsWith("~")) {
-        throw new UnsafeDiffPathError(raw, "path must be relative to the repository root");
-    }
-    const posixed = raw.split(path.sep).join("/");
-    const normalized = path.posix.normalize(posixed);
-    if (normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
-        throw new UnsafeDiffPathError(raw, "path must not traverse above the repository root");
-    }
-    if (normalized.includes("\0")) {
-        throw new UnsafeDiffPathError(raw, "path must not contain a NUL byte");
-    }
-    return normalized.startsWith("./") ? normalized.slice(2) : normalized;
+function normalizeRelativePath(raw: string): string {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new UnsafeDiffPathError(String(raw), "path must be a non-empty string");
+  }
+  if (path.isAbsolute(raw) || raw.startsWith("~")) {
+    throw new UnsafeDiffPathError(raw, "path must be relative to the repository root");
+  }
+  const posixed = raw.split(path.sep).join("/");
+  const normalized = path.posix.normalize(posixed);
+  if (normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
+    throw new UnsafeDiffPathError(raw, "path must not traverse above the repository root");
+  }
+  if (normalized.includes("\0")) {
+    throw new UnsafeDiffPathError(raw, "path must not contain a NUL byte");
+  }
+  return normalized.startsWith("./") ? normalized.slice(2) : normalized;
 }
+
 /** The matching entry, or `undefined` if the path is not on the deny-list. */
-export function forbiddenSelfChangeSurface(relativePath) {
-    const normalized = normalizeRelativePath(relativePath);
-    return FORBIDDEN_SELF_CHANGE_SURFACES.find((surface) => surface.pattern.test(normalized));
+export function forbiddenSelfChangeSurface(relativePath: string): ForbiddenSurface | undefined {
+  const normalized = normalizeRelativePath(relativePath);
+  return FORBIDDEN_SELF_CHANGE_SURFACES.find((surface) => surface.pattern.test(normalized));
 }
+
 /**
  * The one function anything proposing a diff must call before accepting it.
  * Throws `SelfChangeForbiddenError` naming the first forbidden path found;
  * returns nothing when every path is acceptable.
  */
-export function assertDiffAllowed(paths) {
-    for (const candidate of paths) {
-        const hit = forbiddenSelfChangeSurface(candidate);
-        if (hit) {
-            throw new SelfChangeForbiddenError(normalizeRelativePath(candidate), hit.reason);
-        }
+export function assertDiffAllowed(paths: readonly string[]): void {
+  for (const candidate of paths) {
+    const hit = forbiddenSelfChangeSurface(candidate);
+    if (hit) {
+      throw new SelfChangeForbiddenError(normalizeRelativePath(candidate), hit.reason);
     }
+  }
 }

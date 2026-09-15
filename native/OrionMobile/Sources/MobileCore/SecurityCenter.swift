@@ -30,7 +30,7 @@ import Foundation
 //
 // `AuthoritySnapshot` decodes `docs/planning/v2/CURRENT_AUTHORITY.json`, which
 // `scripts/orion_v2_authority_snapshot.py` generates from the real capability
-// catalogue in `openclaw-plugins/orion-control`. It is not a Swift-side
+// catalogue in `plugin/orion-control`. It is not a Swift-side
 // re-listing of the tiers: the profile names are the five in `permissions.ts`
 // and a sixth one appearing there makes the Swift decode FAIL and name the
 // string, rather than quietly displaying nothing.
@@ -285,7 +285,7 @@ public struct SecurityEventLog: Sendable, Equatable {
 
 // MARK: - Automation permissions, decoded from the live snapshot
 
-/// The five profiles in `openclaw-plugins/orion-control/src/permissions.ts`.
+/// The five profiles in `plugin/orion-control/src/permissions.ts`.
 ///
 /// Raw values are that file's strings. A sixth profile added there makes the
 /// decode below fail and name the unknown string, which is the loud failure the

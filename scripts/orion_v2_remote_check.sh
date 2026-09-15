@@ -184,7 +184,7 @@ LEAK="$("$NODE" -e '
 const fs = require("fs");
 const brief = fs.readFileSync("'"$REPO"'/scripts/orion-remote", "utf8")
   .split("const CHANNEL_BRIEF = [")[1].split("].join")[0];
-const cat = fs.readFileSync("'"$REPO"'/openclaw-plugins/orion-control/src/catalog.ts", "utf8");
+const cat = fs.readFileSync("'"$REPO"'/plugin/orion-control/src/catalog.ts", "utf8");
 const m = cat.match(/AUTHORITY_INSTRUCTION\s*=\s*\n?\s*(\/.+\/[a-z]*)/);
 if (!m) { process.stdout.write("REGEX-NOT-FOUND"); process.exit(0); }
 const re = new RegExp(m[1].slice(1, m[1].lastIndexOf("/")), "gi");

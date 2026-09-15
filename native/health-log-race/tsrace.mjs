@@ -5,7 +5,7 @@ import path from "node:path";
 import { writeFileSync } from "node:fs";
 
 const mod = await import(
-  path.join(os.homedir(), "Desktop/ORION/openclaw-plugins/orion-control/dist/health.js")
+  path.join(os.homedir(), "Desktop/ORION/plugin/orion-control/dist/health.js")
 );
 const { addSupplement, defaultHealthLogPath } = mod;
 

@@ -85,7 +85,7 @@ adding anything that holds a credential or machine-local state.
 The full history was scanned for credentials on 2026-08-20 and is clean. **One known false
 positive** — do not "fix" it:
 
-`openclaw-plugins/orion-control/src/index.test.ts` (and its `dist/` twin)
+`plugin/orion-control/src/index.test.ts` (and its `dist/` twin)
 contains the literal string `-----BEGIN RSA PRIVATE KEY-----` inside a test
 asserting that Orion *refuses* to transmit credentials. That is the test doing
 its job.

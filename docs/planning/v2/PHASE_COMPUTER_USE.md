@@ -377,32 +377,32 @@ clicked; that decision belongs to Nick, not to this session.
   click/type/key via `CGEvent`.
 - `scripts/orion-computer` (new) — the non-allowlisted wrapper the executor
   spawns, same shape as `orion-agenda-change`/`orion-messages-send`.
-- `openclaw-plugins/orion-control/src/catalog.ts` — two new
+- `plugin/orion-control/src/catalog.ts` — two new
   `CapabilityTier`s, two new `ExecutionPolicy` kinds, the
   `computerObserveAction`/`computerControlAction` helpers, and the five
   actions.
-- `openclaw-plugins/orion-control/src/executors.ts` — `observeScreen`,
+- `plugin/orion-control/src/executors.ts` — `observeScreen`,
   `controlScreen`, and their `executeAction`/`verifyAction` dispatch.
-- `openclaw-plugins/orion-control/src/permissions.ts` — `computer_observe`/
+- `plugin/orion-control/src/permissions.ts` — `computer_observe`/
   `computer_control` added only to `external_connected`'s tier set;
   `PROFILE_MATRIX` text updated.
-- `openclaw-plugins/orion-control/src/index.ts` — two new config flags
+- `plugin/orion-control/src/index.ts` — two new config flags
   (`enableComputerObserveActions`/`enableComputerControlActions`, both
   default off), wired into `configuredTiers`; `describeForApproval` gained
   `expectedBundleId`/`x`/`y`/`typedText`/`keyName`.
-- `openclaw-plugins/orion-control/src/validator.ts` — `typedText` added to
+- `plugin/orion-control/src/validator.ts` — `typedText` added to
   `TAINTED_ARGUMENTS`. This is the one edit inside a file the brief marked
   "may not be weakened" — it is a strengthening (refuses more, never less),
   reported here explicitly rather than left to be discovered in the diff.
-- `openclaw-plugins/orion-control/src/computer-use.test.ts` (new) — 9 tests.
-- `openclaw-plugins/orion-control/openclaw.plugin.json` — the two new config
+- `plugin/orion-control/src/computer-use.test.ts` (new) — 9 tests.
+- `plugin/orion-control/openclaw.plugin.json` — the two new config
   keys, kept in sync with `ConfigSchema` (a test enforces this).
 - `orion/security/risk.py` — `computer_observe`/`computer_control` added to
   `TIER_REACH`; `computer_control` added to `NEVER_DEMOTED_TIERS`.
 
 ## Verification run
 
-- `cd openclaw-plugins/orion-control && npm test`: **316 passed** (307
+- `cd plugin/orion-control && npm test`: **316 passed** (307
   before this change; 9 new in `computer-use.test.ts`). `npm run build`
   (tsc) clean.
 - `cd native/OrionMacBridge && swift build -c release`: clean (one

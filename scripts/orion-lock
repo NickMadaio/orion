@@ -103,7 +103,7 @@ function permissions() {
   // true, but if they ever drift the running one is the one with authority.
   const installed = join(homedir(), ".openclaw/extensions/orion-control/dist/permissions.js");
   try { return require(installed); }
-  catch { return require(join(HERE, "../openclaw-plugins/orion-control/dist/permissions.js")); }
+  catch { return require(join(HERE, "../plugin/orion-control/dist/permissions.js")); }
 }
 
 async function cronJobs() {

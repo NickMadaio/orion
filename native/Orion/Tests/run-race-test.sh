@@ -31,7 +31,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-PLUGIN="$ROOT/../../openclaw-plugins/orion-control"
+PLUGIN="$ROOT/../../plugin/orion-control"
 BUILD="$HERE/.build"
 SECONDS_PER_ROUND="${1:-4}"
 

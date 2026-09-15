@@ -103,8 +103,8 @@ approvals, and cross-device targeting do not exist yet.
 | Native Mac app | `native/Orion/Sources/Orion` | SwiftUI UI, voice, health views, connections, Calendar/Reminders, Console, gateway client | Mac adapter and UI; platform-independent decisions must move behind Core interfaces later |
 | Session domain | `native/Orion/Sources/SessionDomain` | Pure reducer, clocks, reconciliation, policy values | Preserve as a proven pure domain; do not create a second session writer |
 | Session service | `native/Orion/Sources/SessionService` | Sole session-state writer, persistence, IPC, effects, sensors, audio | Preserve writer ownership; adapt through typed Core contracts |
-| ORION Control | `openclaw-plugins/orion-control/src` | Central action catalog, TypeBox schemas, graph validation, provenance, permissions, execution, audit | Strong starting point for tool contracts, policy, and audit; normalize to v2 schemas incrementally |
-| OpenClaw workspace | `openclaw-workspace` and live `~/.openclaw/workspace` | Agent instructions, memory, procedural playbook | Treat as knowledge/context, never authority |
+| ORION Control | `plugin/orion-control/src` | Central action catalog, TypeBox schemas, graph validation, provenance, permissions, execution, audit | Strong starting point for tool contracts, policy, and audit; normalize to v2 schemas incrementally |
+| OpenClaw workspace | `plugin/workspace` and live `~/.openclaw/workspace` | Agent instructions, memory, procedural playbook | Treat as knowledge/context, never authority |
 | Wrapper toolbelt | `scripts/orion-*` and `scripts/lib` | Fixed local integrations and diagnostic/repair commands | Keep fixed argv contracts; replace generic shell-shaped paths with explicit capabilities |
 | Native bridge | `native/OrionMacBridge` | EventKit/Reminders and macOS bridge operations | Mac adapter behind typed broker |
 | TTS and voice ID daemons | `scripts/orion_tts_daemon.py`, `scripts/orion_voiceid_daemon.py` | Local Unix-socket voice services with optional cloud TTS | Local device services; credentials remain outside model context |
@@ -405,7 +405,7 @@ uv run python -m unittest discover -s tests -v
 uv run python scripts/orion_v2_live_smoke.py
 uv run python scripts/orion_v2_authority_snapshot.py --check
 uv run python scripts/orion_v2_secret_inventory.py --check
-cd openclaw-plugins/orion-control && npm test && npm run build
+cd plugin/orion-control && npm test && npm run build
 cd native/Orion && ./Tests/run-domain-test.sh && ./make_app_bundle.sh
 python3 scripts/orion_v2_secret_scan.py \
   --root . \

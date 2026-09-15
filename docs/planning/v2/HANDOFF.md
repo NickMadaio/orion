@@ -224,7 +224,7 @@ permission changed, no rebuild, no install.** The installed app is still build
 Rollback, all in-repo:
 
     git revert <this commit>                       # the code
-    git show 184c4a5:openclaw-workspace/USER.md > ~/.openclaw/workspace/USER.md
+    git show 184c4a5:plugin/workspace/USER.md > ~/.openclaw/workspace/USER.md
     rm ~/.openclaw/orion-controlled/location.json ~/.openclaw/orion-controlled/projects.json
 
 `location-audit.jsonl` records every change with its previous value, and

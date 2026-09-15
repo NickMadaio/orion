@@ -724,7 +724,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Where live code lives. `archive/` and `_archive/` are excluded because they are
 # kept for reference and are not run; vendored trees are excluded because they
 # are not ours to hold to this rule.
-LIVE_SOURCE_ROOTS = ("orion", "backend", "scripts", "native", "openclaw-plugins")
+LIVE_SOURCE_ROOTS = ("orion", "backend", "scripts", "native", "plugin")
 SKIP_PARTS = frozenset({
     "node_modules", ".build", "dist", "_archive", "archive", ".claude", ".git", "__pycache__",
 })

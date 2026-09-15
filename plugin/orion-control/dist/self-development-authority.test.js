@@ -11,15 +11,15 @@ describe("default state: OFF", () => {
 });
 describe("assertDiffAllowed: the forbidden self-change surfaces", () => {
     it.each([
-        ["openclaw-plugins/orion-control/src/approvals.ts", "approval verifier"],
-        ["openclaw-plugins/orion-control/src/validator.ts", "policy evaluator"],
-        ["openclaw-plugins/orion-control/src/catalog.ts", "policy evaluator"],
-        ["openclaw-plugins/orion-control/src/permissions.ts", "permission-profile ladder"],
-        ["openclaw-plugins/orion-control/src/strictness.ts", "friction ladder"],
-        ["openclaw-plugins/orion-control/src/ledger.ts", "audit ledger"],
-        ["openclaw-plugins/orion-control/src/provenance.ts", "hash chain"],
-        ["openclaw-plugins/orion-control/src/selfrepair.ts", "classification tables"],
-        ["openclaw-plugins/orion-control/src/self-development-authority.ts", "deny-list may not remove itself"],
+        ["plugin/orion-control/src/approvals.ts", "approval verifier"],
+        ["plugin/orion-control/src/validator.ts", "policy evaluator"],
+        ["plugin/orion-control/src/catalog.ts", "policy evaluator"],
+        ["plugin/orion-control/src/permissions.ts", "permission-profile ladder"],
+        ["plugin/orion-control/src/strictness.ts", "friction ladder"],
+        ["plugin/orion-control/src/ledger.ts", "audit ledger"],
+        ["plugin/orion-control/src/provenance.ts", "hash chain"],
+        ["plugin/orion-control/src/selfrepair.ts", "classification tables"],
+        ["plugin/orion-control/src/self-development-authority.ts", "deny-list may not remove itself"],
         ["orion/security/profiles.py", "sandbox and secret-handling"],
         ["orion/security/risk.py", "sandbox and secret-handling"],
         ["scripts/orion-lock", "LOCK ORION"],
@@ -48,14 +48,14 @@ describe("assertDiffAllowed: the forbidden self-change surfaces", () => {
     });
     it("refuses on the FIRST forbidden path in a multi-file diff, even when it is not first in the list", () => {
         expect(() => assertDiffAllowed([
-            "openclaw-plugins/orion-control/src/some-new-feature.ts",
-            "openclaw-plugins/orion-control/src/approvals.ts",
-            "openclaw-plugins/orion-control/src/another-new-file.ts",
+            "plugin/orion-control/src/some-new-feature.ts",
+            "plugin/orion-control/src/approvals.ts",
+            "plugin/orion-control/src/another-new-file.ts",
         ])).toThrow(SelfChangeForbiddenError);
     });
     it("ALLOWS an ordinary new plugin source file", () => {
-        expect(() => assertDiffAllowed(["openclaw-plugins/orion-control/src/some-new-feature.ts"])).not.toThrow();
-        expect(forbiddenSelfChangeSurface("openclaw-plugins/orion-control/src/some-new-feature.ts")).toBeUndefined();
+        expect(() => assertDiffAllowed(["plugin/orion-control/src/some-new-feature.ts"])).not.toThrow();
+        expect(forbiddenSelfChangeSurface("plugin/orion-control/src/some-new-feature.ts")).toBeUndefined();
     });
     it("ALLOWS a file that merely shares a basename with a forbidden one elsewhere in the tree", () => {
         expect(() => assertDiffAllowed(["notes/approvals.ts"])).not.toThrow();
@@ -63,22 +63,22 @@ describe("assertDiffAllowed: the forbidden self-change surfaces", () => {
     });
     it("REFUSES a path that traverses above the repository root, and absolute or ~-relative paths", () => {
         // Four "../" segments climb past all three of
-        // "openclaw-plugins/orion-control/src" and one level further, so the
+        // "plugin/orion-control/src" and one level further, so the
         // normalized path starts with ".." -- genuinely outside the repo, not
         // merely relocated within it.
         expect(() => assertDiffAllowed([
-            "openclaw-plugins/orion-control/src/../../../../etc/passwd",
+            "plugin/orion-control/src/../../../../etc/passwd",
         ])).toThrow(/must not traverse/);
         expect(() => assertDiffAllowed(["/etc/passwd"])).toThrow(/relative to the repository root/);
         expect(() => assertDiffAllowed(["~/Desktop/ORION/orion/security/risk.py"])).toThrow(/relative to the repository root/);
     });
     it("a relative path with '..' that STAYS inside the repo is judged on where it actually lands", () => {
-        // Two "../" segments from "openclaw-plugins/orion-control/src" resolve to
-        // "openclaw-plugins/orion/security/risk.py" -- a path that merely LOOKS
+        // Two "../" segments from "plugin/orion-control/src" resolve to
+        // "plugin/orion/security/risk.py" -- a path that merely LOOKS
         // like it is reaching for the real orion/security/risk.py but is not it,
         // and is not on the deny-list. The function judges the resolved
         // destination, not the presence of ".." in the input.
-        expect(() => assertDiffAllowed(["openclaw-plugins/orion-control/src/../../orion/security/risk.py"])).not.toThrow();
+        expect(() => assertDiffAllowed(["plugin/orion-control/src/../../orion/security/risk.py"])).not.toThrow();
     });
 });
 describe("SelfChangeForbiddenError", () => {

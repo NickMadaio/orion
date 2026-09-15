@@ -29,7 +29,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 MOBILE="$REPO/native/OrionMobile"
 SNAPSHOT="$REPO/docs/planning/v2/CURRENT_AUTHORITY.json"
-PLUGIN="$REPO/openclaw-plugins/orion-control/dist/permissions.js"
+PLUGIN="$REPO/plugin/orion-control/dist/permissions.js"
 
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT

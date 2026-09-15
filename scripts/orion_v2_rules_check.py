@@ -36,7 +36,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DIST = Path.home() / ".openclaw/extensions/orion-control/dist"
-SRC = REPO / "openclaw-plugins/orion-control/src"
+SRC = REPO / "plugin/orion-control/src"
 CONTROLLED = Path.home() / ".openclaw/orion-controlled"
 GATES = REPO / "docs/planning/v2/PHASE_GATES.json"
 

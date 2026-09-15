@@ -7,7 +7,7 @@
     "source": "strictness.json",
     "expiresAt": null
   },
-  "installedPluginParity": true,
+  "installedPluginParity": false,
   "execPolicy": {
     "security": "allowlist",
     "ask": "off",

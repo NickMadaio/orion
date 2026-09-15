@@ -144,7 +144,7 @@ orion/core/schemas/envelopes.py
 orion/core/schemas/proposal.schema.json
 orion/core/schemas/decision.schema.json
 orion/core/schemas/execution-result.schema.json
-orion/core/docs/planning/ports.py
+orion/core/planning/ports.py
 orion/shared/__init__.py
 orion/shared/identifiers.py
 orion/shared/json_values.py

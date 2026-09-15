@@ -217,7 +217,7 @@ absolute paths, no pipeline.
 ```
 
 **Evidence.** Same prompt, three sessions, no guidance: `aborted`, `aborted`,
-`aborted`. The tool calls were `cat ~/Desktop/ORION/planning/ORION_BENCHMARK.md`,
+`aborted`. The tool calls were `cat ~/Desktop/ORION/docs/planning/ORION_BENCHMARK.md`,
 `cat ~/Desktop/ORION/ORION_BENCHMARK.md`, and
 `find ~/Desktop/ORION -name "ORION_BENCHMARK.md" -o -name "orion-benchmark.json" | head -20`.
 Each logged `openclaw:prompt-error / request timed out` and a synthetic

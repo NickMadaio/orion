@@ -2117,7 +2117,7 @@
       "openedOn": "2026-08-25",
       "closedOn": "2026-08-25",
       "closedAgainst": "docs/planning/v2/PHASE_23_PLAN.md exit criteria",
-      "evidence": "docs/planning/v2/PHASE_23_PLAN.md, backend/docs/planning/{objects,planner}.py, tests/test_v2_planner.py",
+      "evidence": "docs/planning/v2/PHASE_23_PLAN.md, backend/planning/{objects,planner}.py, tests/test_v2_planner.py",
       "requirements": [
         {
           "id": "three_classes_imported_not_redeclared",
@@ -2190,7 +2190,7 @@
       "openedOn": "2026-08-25",
       "closedOn": "2026-08-25",
       "closedAgainst": "docs/planning/v2/PHASE_24_PLAN.md exit criteria",
-      "evidence": "docs/planning/v2/PHASE_24_PLAN.md, backend/docs/planning/stability.py, tests/test_v2_planner.py",
+      "evidence": "docs/planning/v2/PHASE_24_PLAN.md, backend/planning/stability.py, tests/test_v2_planner.py",
       "requirements": [
         {
           "id": "all_nine_named_inputs_are_read",

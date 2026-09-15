@@ -56,8 +56,8 @@ the record:
 |---|---|---|
 | 21 Task System | `backend/tasks/` | Blocked is derived from the graph, never stored; a learned estimate cannot be recorded as a measurement |
 | 22 Calendar Read | `backend/connectors/`, `backend/calendar/` | A webhook `Notification` has no field an event could live in; incremental absence is never deletion |
-| 23 Planner v1 | `backend/docs/planning/` | Determinism proven by shuffling; a `Suggestion` has no method that applies it |
-| 24 Schedule Stability | `backend/docs/planning/stability.py` | Moving something prices *disturbing a decision*, so a planner's own fallback is cheap to correct |
+| 23 Planner v1 | `backend/planning/` | Determinism proven by shuffling; a `Suggestion` has no method that applies it |
+| 24 Schedule Stability | `backend/planning/stability.py` | Moving something prices *disturbing a decision*, so a planner's own fallback is cheap to correct |
 | 25 Calendar Writes | `backend/calendar/writes.py` | The approval carries a fingerprint of the preview; what was approved is what executes |
 | 26 Gmail Read | `backend/gmail/` | `StoredMessage` has no text field at all — not even a subject |
 | 27 Action Inbox | `backend/gmail/inbox.py` | A correction signal is scoped and `ORION_INFERRED`, so Phase 18 refuses to make it durable |
@@ -165,7 +165,7 @@ provider-shape parsers and the rules around them. Nothing has spoken to Google.
 ### Rollback
 
 Delete `backend/tasks/`, `backend/connectors/`, `backend/calendar/`,
-`backend/docs/planning/`, `backend/gmail/`, the seven new `tests/test_v2_*` files
+`backend/planning/`, `backend/gmail/`, the seven new `tests/test_v2_*` files
 (`task_system`, `calendar_read`, `planner`, `calendar_writes`, `gmail_read`,
 `action_inbox`, `gmail_write`), `native/OrionMobile/Sources/MobileCore/Health.swift`,
 and `docs/planning/v2/PHASE_{21..30}_PLAN.md`. Revert `Deferred.swift` and the health

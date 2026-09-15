@@ -1,12 +1,37 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-14.** This is the only handoff. If you find another one
+**Last updated 2026-09-15.** This is the only handoff. If you find another one
 that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-15 01:33 BST — Simulator read-only Today connection proven
+
+Phone UI now reads actual loopback HTTP using synthetic data. Shared
+TodayReadSnapshot validates owner/schema/plan, history rejects repeated old or
+conflicting revisions, freshness preserves original evidence age. Explicit
+TodayPlanExport validates a specified source without editing it; actual saved
+revision8 export verified unchanged, never sent to Simulator.
+
+Final twoUIscenarios pass: sample shell and network stale/outage/recovery/revocation.
+Four Swift snapshot tests pass;693existing corechecks+iOSbuild passed before
+explicit-null correction, which final Simulator build compiles. Python cleanup
+regression passes. Independent review no remaining findings. Source/history
+secret scan clean. Logs: .builds/phone-read-2026-09-15/ and .builds/phone-read-check/.
+Report: planning/v2/PHONE_READ_CONNECTION_2026-09-15.md.
+
+Bounded Simulator connection100%; production auth/TLS/physical pairing and
+normal personal-plan publication remain unimplemented. No permanent service
+installed, no personal data sent to Simulator; fixture credentials cleaned.
+Redirect/oversize transport cases source-reviewed only. Mac build232 unchanged.
+Next: deliberate connection configuration and personal-plan publication, then
+durable identity/remote transport. REC gates stayopen,45/85phases(53%) unchanged.
+Preserve unrelated planning/learning-proposals.md; local checkpoint only.
 
 ---
 

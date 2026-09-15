@@ -7,6 +7,7 @@ struct OrionMobileApp: App {
 }
 
 struct PhoneRootView: View {
+    @StateObject private var reader = PhoneTodayReader()
     @State private var sample: TodayPlan?
     @State private var sampleError: String?
     private let sampleNow = Date(timeIntervalSince1970: 1_788_948_000) // 2026-09-09 10:00 UTC
@@ -26,13 +27,16 @@ struct PhoneRootView: View {
             NavigationStack { control }.tabItem { Label("Control", systemImage: "slider.horizontal.3") }
         }
         .tint(.indigo)
+        .task { await reader.refresh() }
     }
 
     private var today: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 connectionNotice
-                if let sample {
+                if reader.configured {
+                    connectedReading
+                } else if let sample {
                     sampleNotice
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Room for what matters").font(.title2.bold())
@@ -57,7 +61,9 @@ struct PhoneRootView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 connectionNotice
-                if let sample {
+                if reader.configured {
+                    connectedReading
+                } else if let sample {
                     sampleNotice
                     Text("Wednesday, 9 September · London time").font(.headline)
                     ForEach(sample.blocks) { block in
@@ -81,12 +87,12 @@ struct PhoneRootView: View {
     private var control: some View {
         List {
             Section("Connection") {
-                Label("Not connected", systemImage: "link.badge.plus")
-                Text("Mac availability is unknown. This build has no pairing or network connection.").foregroundStyle(.secondary)
+                Text(reader.message)
+                Text("Mac availability is unknown. A Simulator-only local read connection can be configured for development; physical-device pairing is not available.").foregroundStyle(.secondary)
             }
             Section("On this phone") {
                 Text("No account signed in")
-                Text("No personal records loaded")
+                Text(reader.configured ? "Local development snapshot · memory only" : "No personal records loaded")
                 Text("Sample data is temporary and clears when the app closes.").foregroundStyle(.secondary)
             }
             Section("Build scope") {
@@ -97,8 +103,36 @@ struct PhoneRootView: View {
     }
 
     private var connectionNotice: some View {
-        Label("Not connected to your Mac", systemImage: "link.badge.plus")
+        Label(reader.message, systemImage: "link.badge.plus")
             .font(.subheadline).foregroundStyle(.secondary).accessibilityIdentifier("connectionStatus")
+    }
+    private var connectedReading: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("LOCAL DEVELOPMENT CONNECTION").font(.caption.bold())
+            Button(reader.loading ? "Refreshing…" : "Refresh reading") { Task { await reader.refresh() } }
+                .disabled(reader.loading).accessibilityIdentifier("refreshReading")
+            TimelineView(.periodic(from: .now, by: 10)) { context in
+                VStack(alignment: .leading, spacing: 12) {
+                    if let snapshot = reader.snapshot {
+                        let current = reader.available && snapshot.isCurrent(at: context.date)
+                        Text(current ? "Recent plan reading" : "Stale plan reading · refresh sources on your Mac")
+                            .accessibilityIdentifier("readingFreshness")
+                        Text("Revision \(snapshot.revision)").accessibilityIdentifier("readingRevision")
+                        if let plan = snapshot.plan {
+                            Text(plan.reason).accessibilityIdentifier("readingReason")
+                            Text("Plan created \(plan.generatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            ForEach(plan.blocks) { block in
+                                VStack(alignment: .leading) {
+                                    Text(block.title)
+                                    Text("\(block.minutes) minutes").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        } else { Text("No accepted plan in this snapshot") }
+                    } else { Text("No verified reading loaded") }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
     private var sampleNotice: some View {
         Label("SAMPLE DATA · Not your real day", systemImage: "info.circle")
@@ -132,5 +166,75 @@ struct PhoneRootView: View {
                 reason: "Example day for exploring the phone app", sourceFingerprint: "phone-sample-v1")
             sampleError = nil
         } catch { sampleError = "The sample could not be loaded." }
+    }
+}
+
+/// Explicit Simulator development connection. No bootstrap reader exists on physical iOS.
+@MainActor
+final class PhoneTodayReader: ObservableObject {
+    struct Bootstrap: Decodable { let port: Int; let owner: String; let token: String }
+    @Published private(set) var snapshot: TodayReadSnapshot?
+    @Published private(set) var message = "Not connected to your Mac"
+    @Published private(set) var loading = false
+    @Published private(set) var available = false
+    private let bootstrap: Bootstrap?
+    private var history = TodayReadHistory()
+    var configured: Bool { bootstrap != nil }
+
+    init() {
+        #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--local-today"),
+           let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+           let data = try? Data(contentsOf: directory.appendingPathComponent("local-today.json")), data.count < 4096,
+           let value = try? JSONDecoder().decode(Bootstrap.self, from: data),
+           (1...65535).contains(value.port), !value.owner.isEmpty,
+           value.token.count >= 32, value.token.count <= 128,
+           value.token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) {
+            bootstrap = value
+            message = "Local development source · not checked"
+        } else { bootstrap = nil }
+        #else
+        bootstrap = nil
+        #endif
+    }
+    func refresh() async {
+        guard let bootstrap, !loading else { return }
+        loading = true
+        defer { loading = false }
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil; config.httpCookieStorage = nil; config.urlCredentialStorage = nil
+        config.timeoutIntervalForRequest = 5; config.timeoutIntervalForResource = 8
+        let session = URLSession(configuration: config, delegate: NoReadRedirect(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(bootstrap.port)/plan")!)
+        request.setValue("Bearer \(bootstrap.token)", forHTTPHeaderField: "Authorization")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            guard let http = response as? HTTPURLResponse else { throw TodayPlanError.invalidInput }
+            if http.statusCode == 401 { history.clear(); snapshot = nil; available = false; message = "Access expired or revoked"; return }
+            if http.statusCode == 404 { snapshot = nil; available = false; message = "No published plan"; return }
+            guard http.statusCode == 200 else { throw URLError(.badServerResponse) }
+            guard http.mimeType == "application/json", response.expectedContentLength <= 1_100_000 else { throw TodayPlanError.invalidInput }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < 1_100_000 else { throw TodayPlanError.invalidInput }
+                data.append(byte)
+            }
+            let incoming = try TodayReadSnapshot.decodeResponse(data, expectedOwner: bootstrap.owner)
+            try history.receive(incoming)
+            snapshot = incoming; available = true; message = "Read from local development service"
+        } catch is URLError {
+            available = false; message = "Source unavailable · last reading may be out of date"
+        } catch {
+            snapshot = nil; available = false; message = "Plan response could not be verified"
+        }
+    }
+}
+
+private final class NoReadRedirect: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

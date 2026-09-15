@@ -32,6 +32,8 @@ let package = Package(
         .library(name: "MobileCore", targets: ["MobileCore"]),
     ],
     targets: [
+        .executableTarget(name: "TodayPlanExport", dependencies: ["MobileCore"]),
+        .testTarget(name: "TodayReadTests", dependencies: ["MobileCore"]),
         .target(
             name: "MobileCore",
             swiftSettings: [.swiftLanguageMode(.v5)]

@@ -44,8 +44,9 @@ Reading cannot refresh stale evidence. Revision is an integer up to 2^53−1.
 the shared Swift plan. It is not interpreted or scheduled by this service.
 Before display, the future client must decode it as TodayPlan and call validate();
 this service checks only the envelope and JSON/size bounds (one million bytes).
-Snapshot publication must come from a validated local exporter. That exporter
-and phone decoder/transport are not implemented by this slice.
+Snapshot publication must come from a validated local exporter. A validated Swift exporter and Simulator decoder/transport now exist; see
+`native/OrionMobile/README.md`. Automatic publication and production pairing
+remain unimplemented.
 
 Responses use `Cache-Control: no-store`. Missing/invalid/expired/revoked sessions
 return 401; another owner's absent snapshot and a genuinely absent snapshot both

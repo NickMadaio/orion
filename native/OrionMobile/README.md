@@ -12,8 +12,8 @@ sample clears it, and terminating/relaunching starts disconnected again.
 
 The five tabs match the mobile foundation: Today, Plan, ORION, Health, Control.
 Conversation, Health and Control describe their missing connections. There is
-no pairing, network client, account, health access, push registration or remote
-execution in this build. No personal data is loaded or written. The existing
+no production pairing, account, health access, push registration or remote
+execution in this build. A Simulator-only read client is described below. No personal data is loaded or written. The existing
 Mac application and its saved plan are unaffected.
 
 From the repository root:
@@ -38,3 +38,36 @@ with Phases 16 and 19. The recovery gate remains open: an authenticated read-onl
 Today route, ownership, stale/offline recovery and a durable service come next.
 Physical-device signing, biometric, notification and lost-device proof are
 separate from these Simulator results.
+
+## Simulator read-only service check — 15 September
+
+Run `python3 scripts/orion_v2_phone_read_check.py` from the repository root.
+This builds the app and exporter, starts the actual loopback adapter against a
+private disposable SQLite store, and runs both phone UI scenarios. The connection
+scenario uses a synthetic plan: it verifies stale display, a service outage,
+recovery and clearing the reading after access revocation. It does not load your
+personal plan. Logs and XCTest screenshots live in `.builds/phone-read-check/`.
+The script removes its temporary credential from the app's current data container
+and closes the server when it finishes. It refuses to overwrite an existing
+bootstrap. No service stays enabled.
+
+The app's `--local-today` bootstrap is compiled only for Simulator. It accepts a
+loopback port, expected owner and short-lived harness token from a development
+file. It is not physical-device pairing or production sign-in. Normal launches
+remain disconnected and support the original sample route. The reader uses an
+ephemeral bounded URLSession and refuses redirects, wrong owners, invalid plans,
+older revisions and changed content at the same revision. It remembers revision
+evidence even after refusing a response. It retains the last reading with an
+unavailable warning on a transport/service failure and clears it on 401 or an
+unverifiable response. Plan age is recomputed on-screen every ten seconds.
+
+`TodayPlanExport` accepts an explicit saved-plan path, validates the current plan
+using MobileCore, and emits a bounded read envelope. It never edits the input.
+There is no automatic publisher or personal-data connection yet. Its `--fixture`
+mode produces synthetic data for the check. Snapshot capture uses the original
+plan's generation time, so exporting old data cannot make it recent.
+
+Core contract regressions: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+swift test --package-path native/OrionMobile --filter TodayReadTests` (one shell
+command). Actual redirect/oversized-response transport experiments, persistent
+account storage, TLS and physical-device access remain unproven.

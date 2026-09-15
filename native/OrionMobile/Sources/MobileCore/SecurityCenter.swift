@@ -28,7 +28,7 @@ import Foundation
 //
 // ## Automation permissions are DECODED from the live producer
 //
-// `AuthoritySnapshot` decodes `planning/v2/CURRENT_AUTHORITY.json`, which
+// `AuthoritySnapshot` decodes `docs/planning/v2/CURRENT_AUTHORITY.json`, which
 // `scripts/orion_v2_authority_snapshot.py` generates from the real capability
 // catalogue in `openclaw-plugins/orion-control`. It is not a Swift-side
 // re-listing of the tiers: the profile names are the five in `permissions.ts`
@@ -389,7 +389,7 @@ public struct ExecPolicy: Sendable, Equatable, Codable {
     }
 }
 
-/// `planning/v2/CURRENT_AUTHORITY.json`, as the phone reads it.
+/// `docs/planning/v2/CURRENT_AUTHORITY.json`, as the phone reads it.
 public struct AuthoritySnapshot: Sendable, Equatable, Codable {
     public let schemaVersion: Int
     public let profile: PermissionProfile

@@ -13,7 +13,7 @@
  instead by `orion-mac-bridge --selftest`, and by mutation: comment out
  `isDenied`'s body, rebuild, watch the selftest fail, restore it, watch it
  pass again. That mutation was run by hand during this change and is
- recorded in planning/v2/PHASE_COMPUTER_USE.md; run
+ recorded in docs/planning/v2/PHASE_COMPUTER_USE.md; run
  `swift build -c release && .build/release/orion-mac-bridge --selftest`
  from native/OrionMacBridge to re-run the assertions.
 

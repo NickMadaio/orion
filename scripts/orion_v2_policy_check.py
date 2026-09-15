@@ -35,7 +35,7 @@ from orion.security.risk import classify, tier_of  # noqa: E402
 from orion.shared.result import DecisionOutcome  # noqa: E402
 
 PLUGIN = REPO_ROOT / "openclaw-plugins" / "orion-control"
-REGISTRY = REPO_ROOT / "planning" / "v2" / "capability-registry.json"
+REGISTRY = REPO_ROOT / "docs" / "planning" / "v2" / "capability-registry.json"
 
 #: A fixed instant. The engine takes the clock as an argument precisely so a
 #: check like this is reproducible.

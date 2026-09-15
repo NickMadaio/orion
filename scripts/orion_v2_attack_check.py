@@ -39,8 +39,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-ATTACK_MAP = REPO / "planning/v2/ATTACK_SURFACE.json"
-RELIABILITY_MAP = REPO / "planning/v2/RELIABILITY_SURFACE.json"
+ATTACK_MAP = REPO / "docs/planning/v2/ATTACK_SURFACE.json"
+RELIABILITY_MAP = REPO / "docs/planning/v2/RELIABILITY_SURFACE.json"
 PLUGIN = REPO / "openclaw-plugins/orion-control"
 
 #: The manifest's own list, Phase 69, in its order. Kept here rather than read

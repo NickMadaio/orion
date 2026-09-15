@@ -551,7 +551,7 @@ def survey_backlog() -> list[dict]:
     # 1. Phase requirements. The richest source and the most specific: each one
     #    is a named id somebody wrote down as the condition for a phase closing.
     try:
-        gates = json.loads((REPO / "planning/v2/PHASE_GATES.json").read_text())
+        gates = json.loads((REPO / "docs/planning/v2/PHASE_GATES.json").read_text())
         for number, phase in gates.get("phases", {}).items():
             for requirement in phase.get("requirements", []):
                 if requirement.get("status") != "passed":

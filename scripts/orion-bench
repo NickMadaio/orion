@@ -37,7 +37,7 @@ const run = promisify(execFile);
 
 const SPEC = join(
   homedir(),
-  "Desktop/ORION/planning/orion-benchmark.json",
+  "Desktop/ORION/docs/planning/orion-benchmark.json",
 );
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
 
@@ -316,7 +316,7 @@ if (liveResults.length > 0) {
 }
 
 console.log(
-  `  ${manual.length} further cases in the spec are scored by hand — see planning/ORION_BENCHMARK.md\n`,
+  `  ${manual.length} further cases in the spec are scored by hand — see docs/planning/ORION_BENCHMARK.md\n`,
 );
 
 const allOk =

@@ -85,7 +85,7 @@ def blocked_requirements(phase: dict[str, Any]) -> list[dict[str, Any]]:
 def main(argv: list[str] | None = None) -> int:
     repo = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--file", type=Path, default=repo / "planning/v2/PHASE_GATES.json")
+    parser.add_argument("--file", type=Path, default=repo / "docs/planning/v2/PHASE_GATES.json")
     parser.add_argument("--phase", default="0")
     parser.add_argument("--require-open", action="store_true")
     arguments = parser.parse_args(argv)

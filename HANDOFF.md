@@ -1,7 +1,7 @@
 # HANDOFF — ORION
 
 **Last updated 2026-09-15.** This is the only handoff. If you find another one
-that is not `planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
+that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
@@ -23,7 +23,7 @@ Four Swift snapshot tests pass;693existing corechecks+iOSbuild passed before
 explicit-null correction, which final Simulator build compiles. Python cleanup
 regression passes. Independent review no remaining findings. Source/history
 secret scan clean. Logs: .builds/phone-read-2026-09-15/ and .builds/phone-read-check/.
-Report: planning/v2/PHONE_READ_CONNECTION_2026-09-15.md.
+Report: docs/planning/v2/PHONE_READ_CONNECTION_2026-09-15.md.
 
 Bounded Simulator connection100%; production auth/TLS/physical pairing and
 normal personal-plan publication remain unimplemented. No permanent service
@@ -31,7 +31,7 @@ installed, no personal data sent to Simulator; fixture credentials cleaned.
 Redirect/oversize transport cases source-reviewed only. Mac build232 unchanged.
 Next: deliberate connection configuration and personal-plan publication, then
 durable identity/remote transport. REC gates stayopen,45/85phases(53%) unchanged.
-Preserve unrelated planning/learning-proposals.md; local checkpoint only.
+Preserve unrelated docs/planning/learning-proposals.md; local checkpoint only.
 
 ---
 
@@ -42,14 +42,14 @@ private SQLite owner-scoped snapshots, transactional revision checks, read audit
 ephemeral local harness sessions and loopback-only GET /plan.119 combined tests
 pass; final ten service tests and independent ten-test review pass. Secret scan
 clean. Exact inbound http.server adapter exception preserves outbound restrictions.
-See planning/v2/LOCAL_TODAY_SERVICE_2026-09-14.md and backend/local_today/README.md.
+See docs/planning/v2/LOCAL_TODAY_SERVICE_2026-09-14.md and backend/local_today/README.md.
 
 Local service proof100%; phone remains sample-only. This is not account auth,
 a deployed server or a connected-client closure. No real plan imported or daemon
 installed; tests use disposable stores/sockets. Mac build232 untouched. Next:
 validated Mac exporter and Simulator client with stale/offline/reconnect proof.
 All live foundation/client REC gates remain open; roadmap53% unchanged. Preserve
-unrelated planning/learning-proposals.md. Local checkpoint only, no remote push.
+unrelated docs/planning/learning-proposals.md. Local checkpoint only, no remote push.
 
 ---
 
@@ -61,7 +61,7 @@ labeled opt-in Today/Plan fixtures from shared TodayPlanScheduler. Default
 state is disconnected. One actual XCTest UI route passed on iPhone17 Pro
 Simulator/iOS26.5, including sample-open relaunch and dismissal;693 core checks
 and iOS library build pass. Independent source review clean;secret scan clean.
-See planning/v2/PHONE_SHELL_2026-09-14.md and native/OrionMobile/README.md.
+See docs/planning/v2/PHONE_SHELL_2026-09-14.md and native/OrionMobile/README.md.
 
 Simulator shell milestone100%; connected client remains unimplemented. No
 authentication, pairing, real Today sync, durable backend, chat, push, HealthKit
@@ -69,7 +69,7 @@ or physical-phone proof. No phase/REC closure;45/85 phases remain marked complet
 (53%). Mac build232 and accepted plan untouched. Next: authenticated read-only
 Today route with owner-scoped durability and stale/offline/reconnect proof.
 No provider choice, new integration, recurring cost or remote push. Preserve
-planning/learning-proposals.md. Outputs include phone screenshots and code links.
+docs/planning/learning-proposals.md. Outputs include phone screenshots and code links.
 
 ---
 
@@ -86,9 +86,9 @@ Today refresh/preview showed an existing off-hours commitment unchanged,
 insufficient free time and task deferral. Preview discarded; saved revision-8
 plan unchanged. Permission-loss and recovery proof is controlled tests only.
 Rollback: .builds/today-source-race-2026-09-14/rollback/Orion-229.app.
-Report: planning/v2/TODAY_SOURCE_RECOVERY_2026-09-14.md. No phase/REC closure,
+Report: docs/planning/v2/TODAY_SOURCE_RECOVERY_2026-09-14.md. No phase/REC closure,
 remote push, external record mutation or permission/gateway change. Preserve
-unrelated planning/learning-proposals.md. Formal roadmap remains53% (45/85).
+unrelated docs/planning/learning-proposals.md. Formal roadmap remains53% (45/85).
 Next: numbered-manifest connected-client/durable-bridge gaps; physical
 permission/overlapping-event experiments remain unproven.
 
@@ -106,7 +106,7 @@ dialog was operated and no reinstall was needed. Deep signature passes; saved
 revision-8 plan fingerprint remains unchanged.
 
 Health-summary repair is 100% complete; source `882681a`, installed build 229.
-Proof: planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md and
+Proof: docs/planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md and
 .builds/health-summary-2026-09-14/verification.json. Rollback remains
 .builds/health-summary-2026-09-14/rollback/Orion-227.app. Existing source test and
 review evidence below is unchanged. No new test run is claimed for read-only
@@ -149,7 +149,7 @@ verify record dates, no old advice/coaching and unchanged saved plan. Do not
 rebuild/reinstall. Source gate is done: 481 earlier native tests + 40 connection
 checks, 38 health firewall checks, final 28 focused independent tests after two
 review fixes, source/history secret scan clean. Report:
-planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md. No phase/REC closure or overall
+docs/planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md. No phase/REC closure or overall
 program completion percentage. Preserve unrelated learning-proposals.
 
 ---
@@ -167,7 +167,7 @@ the model prompt.
 Independent review repaired heart-only availability and removed-supplement
 counting. Final 28 focused tests pass; earlier native 481 + 40 connection checks,
 38 firewall checks and source/history secret scan pass. Full report:
-planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md. Verified rollback:
+docs/planning/v2/HEALTH_SUMMARY_GROUNDING_2026-09-14.md. Verified rollback:
 .builds/health-summary-2026-09-14/rollback/Orion-227.app. Current plan fingerprint
 recorded, no active focus. Next: clean signed candidate, exact identity, install,
 normal Health route and a real optional selection. No source records, credentials,
@@ -193,7 +193,7 @@ source age, high corresponding WHOOP history confidence, moderate 14-reading
 trend confidence and low manual-entry confidence. Source access is now clear;
 no pending Keychain action for this verification. Final source harness 175/175,
 independent review clear, final app compilation passed; earlier native wrapper
-471 + 40 connection checks. Full report: planning/v2/HEALTH_SOURCE_TRUTH_2026-09-14.md.
+471 + 40 connection checks. Full report: docs/planning/v2/HEALTH_SOURCE_TRUTH_2026-09-14.md.
 
 The earlier build-225 brief model-selection gap is also now proven through the
 normal Today → Read it route; see BRIEF_GROUNDING_2026-09-12.md. That proof belongs
@@ -206,7 +206,7 @@ repair. Inspect HealthTab.readingRail, HealthFacts/NarrativeFacts, NarrativeWrit
 and existing grounded-brief selection; preserve Phase 33 raw-health isolation.
 Also review older headline advice. Do not reinstall just to resume inspection.
 No phase/REC closure or phone/backend continuity claim. Exclude unrelated
-planning/learning-proposals.md from any checkpoint.
+docs/planning/learning-proposals.md from any checkpoint.
 
 ---
 
@@ -223,7 +223,7 @@ no sleep/workout, labels time in bed, removes unsupported personalised advice,
 uses per-measurement history and actual record age, and expires age each minute.
 Independent review's mixed-history finding was repaired; final harness 175/175,
 final app compilation passed, earlier full native 471 + 40 connection checks.
-Source/history secret scan clean. Report: planning/v2/HEALTH_SOURCE_TRUTH_2026-09-14.md.
+Source/history secret scan clean. Report: docs/planning/v2/HEALTH_SOURCE_TRUTH_2026-09-14.md.
 
 Build 225 is still installed. Verified rollback is
 .builds/health-source-2026-09-14/rollback/Orion-225.app. No active focus. Next: clean
@@ -231,7 +231,7 @@ signed Health candidate, exact identity check, install, normal Health route and
 unchanged-plan verification. Existing freeform Health rail/headline interpretations
 and connector Checking lifecycle remain separate work. No external source writes,
 new permission, gateway restart, push or phase/REC closure. Preserve unrelated
-planning/learning-proposals.md.
+docs/planning/learning-proposals.md.
 
 ---
 
@@ -253,7 +253,7 @@ prompt. Do not try another tool to operate that protected dialog.
 
 Next after prompt: inspect live source refresh/selected detail in already-installed
 build 225; do not rebuild or reinstall. Report and exact boundaries:
-`planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Test-generated 0ms narrative log entries
+`docs/planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Test-generated 0ms narrative log entries
 are fixtures, not live proof. Existing Health sections also mislabel pending source
 readings as no recorded sleep/workout with high confidence; keep that separate from
 the now-grounded brief. No REC or phase closure; phone/backend and remaining Today
@@ -272,7 +272,7 @@ app log and call path establish this defect; prior rendering tests missed it.
 Source now uses selectionJSON style for the brief, retaining other prose guards.
 Four boundary tests exercise actual response decoding → writer → renderer/cache.
 Full native 471 tests and 40 connection checks pass; independent review is clear.
-Details: `planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Next: clean signed candidate,
+Details: `docs/planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Next: clean signed candidate,
 retain build-223 rollback, install and prove the model-selected detail in the app.
 No task/calendar change, new permission, gateway restart or push. Exclude unrelated
 learning-proposals. No phase or recovery gate is closed.
@@ -292,7 +292,7 @@ per-component source periods, unfinished-reminder context and hostile-title
 handling. 467 native tests, 40 connection checks and 38 health firewall checks;
 final 12 tests and firewall repeated after wording refinement. Independent review
 clear; final source/history scan clean. Full report:
-`planning/v2/BRIEF_GROUNDING_2026-09-12.md`.
+`docs/planning/v2/BRIEF_GROUNDING_2026-09-12.md`.
 
 NOT YET PROVEN: build 223's actual visible brief and model selection. Computer Use
 reported the Mac locked; automatic unlock failed and Nick was asked to unlock it.
@@ -318,7 +318,7 @@ firewall: 38 checks. Independent review passed 12 new tests and is clear after
 canonical JSON cache keys and hostile title delimiters/bidi were repaired. Final
 freshness wording also receives focused verification. Source/history scan clean.
 
-Report: `planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Next: clean signed candidate,
+Report: `docs/planning/v2/BRIEF_GROUNDING_2026-09-12.md`. Next: clean signed candidate,
 verify build-221 rollback, install, inspect the ordinary brief and a valid optional
 selection, then record installed evidence. Keep local plan state, permissions and
 gateway intact. No push or gate closure. Exclude unrelated learning-proposals.
@@ -351,7 +351,7 @@ time and actual source age, verify its claims, then finish remaining Today scena
 and proceed to the phone shell/durable bridge. Files: `MorningBrief.swift`,
 `DashboardView.swift`, `NarrativeWriter.swift`, WHOOP snapshot metadata and existing
 health firewall tests. No REC-USABLE-CLIENT closure. Detailed evidence is in
-`planning/v2/TODAY_INSTALLED_PROOF_2026-09-11.md`. Preserve unrelated learning-proposals.
+`docs/planning/v2/TODAY_INSTALLED_PROOF_2026-09-11.md`. Preserve unrelated learning-proposals.
 
 ---
 
@@ -372,7 +372,7 @@ suite: 455 XCTest cases pass. Independent review is clear; all 40 connection wra
 repair proof is pending.
 
 Evidence, limitations, rollback and exact next gate:
-`planning/v2/TODAY_INSTALLED_PROOF_2026-09-11.md`. Build 217 rollback is in
+`docs/planning/v2/TODAY_INSTALLED_PROOF_2026-09-11.md`. Build 217 rollback is in
 `.builds/today-release-2026-09-08/rollback/Orion.app`; retain a verified build 220
 copy before replacing it. Next: finish review, checkpoint only these repairs,
 build from a clean checkout, install with the same identity, verify civil-date
@@ -400,7 +400,7 @@ wrapper's 26 health, nine transport and five menu checks also pass.
 
 Review caught stale pins after completion in Reminders and a remaining visible
 Unpin action checking the already-reconciled list. Both are repaired with actual
-model regressions. See updated `planning/v2/TODAY_PLAN_IMPLEMENTATION_2026-09-08.md`.
+model regressions. See updated `docs/planning/v2/TODAY_PLAN_IMPLEMENTATION_2026-09-08.md`.
 Scoped pinning patch/logs: `.builds/today-plan-2026-09-08/pinning/`.
 
 Installed build remains 217. No install, restart, new permissions, external
@@ -415,7 +415,7 @@ has been marked complete. Keep the unrelated learning-proposals edit excluded.
 ## 2026-09-08 01:29 EDT — Today/Plan source implementation
 
 Nick said “start implementation.” Starting HEAD was `d0eeebb`; the only prior
-uncommitted edit was `planning/learning-proposals.md`, left untouched. Installed
+uncommitted edit was `docs/planning/learning-proposals.md`, left untouched. Installed
 build 217 remains installed. No runtime/permission/install change was made.
 
 Implemented: actual-day calendar/Orion Reminders adapter; MobileCore real-gap
@@ -434,7 +434,7 @@ Independent review repaired stale advice, elapsed free totals, deadline order an
 omitted new-work summaries; final reviewer reran 35 cases, no actionable findings
 within this scope. Source/history secret scan clean with the existing allowlist.
 
-Full details and alternatives: `planning/v2/TODAY_PLAN_IMPLEMENTATION_2026-09-08.md`.
+Full details and alternatives: `docs/planning/v2/TODAY_PLAN_IMPLEMENTATION_2026-09-08.md`.
 Rollback: scoped local source commit/patch and logs in
 `.builds/today-plan-2026-09-08/`; nothing installed to roll back. Exclude the old
 learning-proposals edit from any checkpoint. No push/remote backup claim.
@@ -451,9 +451,9 @@ statements are superseded by this source implementation, not installed evidence.
 ## 2026-09-07 22:47 EDT — Product vision and first connection repair
 
 Nick asked to assess the supplied product vision and start implementation. The
-full delivery map is `planning/v2/PRODUCT_VISION_DELIVERY_2026-09-07.md`; the
+full delivery map is `docs/planning/v2/PRODUCT_VISION_DELIVERY_2026-09-07.md`; the
 first slice and proof record are in
-`planning/v2/RUNTIME_CONNECTION_IMPLEMENTATION_2026-09-07.md`.
+`docs/planning/v2/RUNTIME_CONNECTION_IMPLEMENTATION_2026-09-07.md`.
 
 Found: installed Mac build 217, gateway and remote bridge running, valid live and
 ready gateway probes. This supersedes the supplied document's earlier down
@@ -476,7 +476,7 @@ remains outstanding; build 217 is still installed.
 
 Rollback: isolated local source checkpoint; patch and logs at
 `.builds/product-vision-2026-09-07/`. Do not reset the mixed tree. The existing
-`planning/learning-proposals.md` edit was excluded. Next: finish candidate Home
+`docs/planning/learning-proposals.md` edit was excluded. Next: finish candidate Home
 layout/release proof, then wire real agenda/tasks to a persisted Today/Plan
 revision with completion/replan/undo using MobileCore. Follow the delivery plan's
 REC-USABLE-CLIENT and REC-LIVE-FOUNDATION path; do not mistake this first repair
@@ -487,7 +487,7 @@ for complete runtime recovery or delivery of the whole vision.
 ## 1. Where the program is
 
 **45 of 85 phases complete.** 25 part-done, 15 not started. The manifest is
-`planning/v2/MANIFEST_PHASES.json`; the live state is `planning/v2/PHASE_GATES.json`
+`docs/planning/v2/MANIFEST_PHASES.json`; the live state is `docs/planning/v2/PHASE_GATES.json`
 and that file, not this one, is the source of truth — this table is a snapshot of
 it and will drift.
 

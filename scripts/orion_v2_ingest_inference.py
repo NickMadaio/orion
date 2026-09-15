@@ -24,7 +24,7 @@ from orion.core.models.contract import decode_contract  # noqa: E402
 from orion.core.models.ingest import UnknownModel, dedupe, normalize_session  # noqa: E402
 from orion.core.models.telemetry import encode_record  # noqa: E402
 
-DEFAULT_CONTRACT = REPO_ROOT / "planning" / "v2" / "model-roles.seed.json"
+DEFAULT_CONTRACT = REPO_ROOT / "docs" / "planning" / "v2" / "model-roles.seed.json"
 SESSIONS = Path.home() / ".openclaw" / "agents"
 LEDGER = Path.home() / ".openclaw" / "orion-controlled" / "inference-ledger.jsonl"
 

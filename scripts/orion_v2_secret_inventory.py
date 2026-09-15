@@ -21,7 +21,7 @@ OPENCLAW_SECRET_PATHS = (
     "models.providers.anthropic.apiKey",
     "models.providers.ollama.apiKey",
 )
-ROTATION_EVIDENCE = Path("planning/v2/ANTHROPIC_ROTATION_EVIDENCE.json")
+ROTATION_EVIDENCE = Path("docs/planning/v2/ANTHROPIC_ROTATION_EVIDENCE.json")
 
 
 def read_dotenv(path: Path) -> dict[str, str]:
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=repo)
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument(
-        "--output", type=Path, default=repo / "planning/v2/CURRENT_SECRET_INVENTORY.json"
+        "--output", type=Path, default=repo / "docs/planning/v2/CURRENT_SECRET_INVENTORY.json"
     )
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)

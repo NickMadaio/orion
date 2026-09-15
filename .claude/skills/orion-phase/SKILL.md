@@ -5,7 +5,7 @@ description: How to build and close a numbered ORION manifest phase. Use wheneve
 
 # Closing an ORION phase
 
-The program is 85 numbered phases in `planning/v2/MANIFEST_PHASES.json`, from a
+The program is 85 numbered phases in `docs/planning/v2/MANIFEST_PHASES.json`, from a
 source manifest at `~/Desktop/Orion v two implementation plan.md`. Work goes in
 numeric order. One phase = build it, test it, mutate the tests, close the gate,
 commit. Six of them fit comfortably in a context window when done this way.
@@ -17,7 +17,7 @@ cd ~/Desktop/ORION && git fetch && git status -sb   # NOT just git log
 date                                                # before ANY dated write
 ```
 
-Read `AGENTS.md`, then `HANDOFF.md`, then `planning/v2/HANDOFF.md`. Position
+Read `AGENTS.md`, then `HANDOFF.md`, then `docs/planning/v2/HANDOFF.md`. Position
 lives in `MANIFEST_PHASES.json` → `additiveRoadmap.numberedProgramPosition`.
 
 Read the phase's actual text before designing anything:
@@ -111,7 +111,7 @@ If a mutation survives, suspect the code and the claim before adding a test.
 
 ## Closing the gate
 
-`planning/v2/PHASE_GATES.json`. The validator (`scripts/orion_v2_phase_gate.py`)
+`docs/planning/v2/PHASE_GATES.json`. The validator (`scripts/orion_v2_phase_gate.py`)
 enforces: every requirement needs `status` (`passed`|`blocked`) and `evidence`;
 a blocked one needs `reason`; `nextPhaseAllowed` must equal "all passed"; and
 `entrySatisfied` must match the previous phase's real state. It will refuse the
@@ -131,7 +131,7 @@ if the rule broke.
 ./.venv/bin/python scripts/orion_v2_phase_gate.py --phase N
 PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests -t tests -q
 ./.venv/bin/python scripts/orion_v2_secret_scan.py \
-  --allowlist planning/v2/secret-scan-allowlist.json
+  --allowlist docs/planning/v2/secret-scan-allowlist.json
 ```
 
 ## Running everything

@@ -5,17 +5,17 @@ working rules for Claude, Codex and other coding assistants.
 
 ## Where the program is
 
-Use `planning/v2/PHASE_GATES.json` for phase state and `HANDOFF.md` for live
+Use `docs/planning/v2/PHASE_GATES.json` for phase state and `HANDOFF.md` for live
 product evidence. Older phase counts and Discord setup instructions in this
 entrypoint were superseded; do not infer a running channel or an unconfigured
 account from them. Verify the installed route before claiming it works.
 
 The current product delivery plan is
-`planning/v2/PRODUCT_VISION_DELIVERY_2026-09-07.md`. It maps the supplied vision
+`docs/planning/v2/PRODUCT_VISION_DELIVERY_2026-09-07.md`. It maps the supplied vision
 to existing phases and recovery gates without replacing the numbered sequence.
 
 The program is 85 numbered phases. The manifest is
-`planning/v2/MANIFEST_PHASES.json`, generated from
+`docs/planning/v2/MANIFEST_PHASES.json`, generated from
 `~/Desktop/Orion v two implementation plan.md`. Phase numbers are how Nick tracks
 this and they are the only vocabulary for what comes next.
 
@@ -44,23 +44,23 @@ and checking showed it did not: Phases 34-39 are Health UI, Health Journal,
 Behavior Correlations, Experiment Mode, Health-Aware Planning and Daily Planning,
 and not one of them has a Python dependency to inherit. Full reasoning, and the
 findings that are still worth reading, are in
-`planning/v2/PROGRAM_CORRECTION_2026-09-01.md`.
+`docs/planning/v2/PROGRAM_CORRECTION_2026-09-01.md`.
 
 ## Read these, in order
 
 1. `HANDOFF.md`
 2. `NICK-TODO.md`
-3. `planning/v2/HANDOFF.md`
-4. `planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md`
-5. `planning/v2/ROADMAP_AMENDMENTS.json`
-6. `planning/v2/PROGRAM_CORRECTION_2026-09-01.md` — read the header first; its
+3. `docs/planning/v2/HANDOFF.md`
+4. `docs/planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md`
+5. `docs/planning/v2/ROADMAP_AMENDMENTS.json`
+6. `docs/planning/v2/PROGRAM_CORRECTION_2026-09-01.md` — read the header first; its
    re-sequencing is superseded and its findings are not.
 7. `docs/GAME_PLAN.md` — the July plan. Its permission half shipped; its
    architecture half did not. Read it so the reversal is not re-derived a third
    time.
 
 Entries older than 2026-08-27 were moved out of both handoffs on 2026-09-01 into
-`planning/_archive/`. Nothing was deleted, but do not plan from the archives.
+`docs/planning/_archive/`. Nothing was deleted, but do not plan from the archives.
 
 ## Gates and checkpoints
 

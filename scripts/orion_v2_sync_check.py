@@ -7,7 +7,7 @@ conversation without asking each other. Two implementations of one rule is
 exactly how two devices end up disagreeing about history, which is the failure
 Phase 17 exists to prevent.
 
-`planning/v2/sync-ordering-vectors.json` holds cases whose expected order was
+`docs/planning/v2/sync-ordering-vectors.json` holds cases whose expected order was
 written BY HAND. Generating them from either implementation would make them agree
 with whatever the code does, including if what it does is wrong.
 
@@ -33,7 +33,7 @@ from backend.sync.offline import CACHE_POLICY, may_cache  # noqa: E402
 from backend.sync.ordering import Position, ordered  # noqa: E402
 from backend.sync.records import SyncMessage  # noqa: E402
 
-VECTORS = REPO_ROOT / "planning" / "v2" / "sync-ordering-vectors.json"
+VECTORS = REPO_ROOT / "docs" / "planning" / "v2" / "sync-ordering-vectors.json"
 SWIFT_SOURCE = (
     REPO_ROOT / "native" / "OrionMobile" / "Sources" / "MobileCore" / "Conversation.swift"
 )

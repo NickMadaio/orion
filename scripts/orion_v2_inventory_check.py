@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-INVENTORY = REPO / "planning/v2/DATA_INVENTORY.json"
+INVENTORY = REPO / "docs/planning/v2/DATA_INVENTORY.json"
 # Ordinary audits describe what is installed. The protected deploy supplies its
 # candidate dist explicitly during preflight, otherwise adding a new tier creates
 # an impossible gate: the future inventory is compared with the old live catalog.

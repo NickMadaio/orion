@@ -44,7 +44,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-GATES = REPO / "planning/v2/PHASE_GATES.json"
+GATES = REPO / "docs/planning/v2/PHASE_GATES.json"
 PLUGIN_SRC = "openclaw-plugins/orion-control/src/"
 
 #: Kept in step with ENFORCEMENT_PLUGIN_FILES in selfrepair.ts. Duplicated
@@ -167,7 +167,11 @@ def main() -> int:
 
     # 15 — the data inventory, when the capability surface moved.
     if any(Path(f).name in {"catalog.ts", "permissions.ts"} for f in source):
-        if "planning/v2/DATA_INVENTORY.json" not in files:
+        # Matched by NAME, not by full path: the inventory moved from
+        # planning/v2/ to docs/planning/v2/ on 2026-09-15, and a diff range that
+        # straddles that rename carries the file under its old path. A full-path
+        # literal reports "the inventory did not move" when it plainly did.
+        if not any(Path(f).name == "DATA_INVENTORY.json" for f in files):
             failures.append(
                 "the capability surface changed and DATA_INVENTORY.json did not (step 15). "
                 "Run scripts/orion_v2_inventory_check.py — it will name the tier."

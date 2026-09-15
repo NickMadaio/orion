@@ -38,7 +38,7 @@ REPO = Path(__file__).resolve().parents[1]
 DIST = Path.home() / ".openclaw/extensions/orion-control/dist"
 SRC = REPO / "openclaw-plugins/orion-control/src"
 CONTROLLED = Path.home() / ".openclaw/orion-controlled"
-GATES = REPO / "planning/v2/PHASE_GATES.json"
+GATES = REPO / "docs/planning/v2/PHASE_GATES.json"
 
 
 def sh(*command: str, timeout: int = 30) -> tuple[int, str]:
@@ -204,7 +204,7 @@ def no_automatic_durable_memory() -> tuple[bool, str]:
 def no_logged_secrets() -> tuple[bool, str]:
     code, output = sh(
         "python3", str(REPO / "scripts/orion_v2_secret_scan.py"),
-        "--allowlist", str(REPO / "planning/v2/secret-scan-allowlist.json"),
+        "--allowlist", str(REPO / "docs/planning/v2/secret-scan-allowlist.json"),
     )
     if code != 0:
         return False, "the secret scan found something unreviewed: " + output.strip().split("\n")[-1][:120]
@@ -352,7 +352,7 @@ RULES: list[tuple[str, str, object]] = [
     ("Never ship production credentials inside mobile or desktop binaries", "assert",
      no_credentials_in_binaries),
     ("Never implement a dangerous capability before its policy and audit controls exist", "assert",
-     lambda: (True, "the standing example is calling: planning/v2/CALL_POLICY.md exists and no "
+     lambda: (True, "the standing example is calling: docs/planning/v2/CALL_POLICY.md exists and no "
                     "telephony does, enforced by orion_v2_deferred_check.py")),
     ("Never treat health correlations as medical facts", "assert", no_medical_facts),
     ("Never let health scores automatically cancel important commitments", "assert",

@@ -22,7 +22,7 @@
 - 2026-09-01 — **The move is to attend Northeastern University in London.**
   Restoring a fact this file lost: the 2026-08-14 rewrite dropped the university
   entirely, and the archived copy
-  (`planning/_archive/workspace-before-2026-08-14/USER.md:42-44`) says "Eastern
+  (`docs/planning/_archive/workspace-before-2026-08-14/USER.md:42-44`) says "Eastern
   University" because it was dictated by voice and the "North" was lost. Nick
   confirmed it is Northeastern on 2026-09-01.
 

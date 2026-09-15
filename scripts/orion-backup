@@ -99,7 +99,7 @@ sources() {
         "$HOME_DIR/.openclaw/orion-controlled" \
         "$HOME_DIR/.openclaw/openclaw.json" \
         "$HOME_DIR/.openclaw/exec-approvals.json" \
-        "$REPO/planning/v2"
+        "$REPO/docs/planning/v2"
 }
 
 # Everything excluded from the archive, by pattern. The first four are secrets;
@@ -341,7 +341,7 @@ json.dump({
     "createdAt": stamp,
     "files": files,
     "contains": ["memory", "orionBrain", "orion-controlled state", "openclaw.json",
-                 "exec-approvals.json", "planning/v2"],
+                 "exec-approvals.json", "docs/planning/v2"],
     "excludes": [".env", "*.key", "session archives", "repair backups", "workspaces", "logs"],
     "secretsPolicy": (
         "No credential file is in this archive, and credential-shaped VALUES inside "

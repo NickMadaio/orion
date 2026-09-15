@@ -14,15 +14,15 @@ project keeps re-learning. Read it first. It is the ONLY handoff: four parallel
 narratives were consolidated into it on 2026-09-07, because four files each
 claiming to say where the program stood was four chances to read the stale one.
 
-The one exception is `planning/v2/HANDOFF.md`, which is CLOSED and says so at the
+The one exception is `docs/planning/v2/HANDOFF.md`, which is CLOSED and says so at the
 top. It survives only because `PHASE_GATES.json` cites it as evidence for phases
 1–33; it is a record, not a place to look for what is current.
 
-Other companions: `planning/` (design docs, including one `PHASE_N_PLAN.md` per
+Other companions: `docs/planning/` (design docs, including one `PHASE_N_PLAN.md` per
 phase), `native/Orion/README.md` (the app), `NICK-TODO.md` (what Nick is waiting
 on). Phase 32.5's product charter and additive recovery gates are in
-`planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
-`planning/v2/ROADMAP_AMENDMENTS.json`; `planning/v2/SESSION_LOG_2026-08-25.md`
+`docs/planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
+`docs/planning/v2/ROADMAP_AMENDMENTS.json`; `docs/planning/v2/SESSION_LOG_2026-08-25.md`
 summarises phases 5–20 on one page. Read those before changing v2 contracts or
 the OpenClaw integration.
 
@@ -32,12 +32,12 @@ Last updated 2026-09-07.
 
 ## Where the program is, and how to read a phase
 
-**Current phase status comes from `planning/v2/PHASE_GATES.json`; current
+**Current phase status comes from `docs/planning/v2/PHASE_GATES.json`; current
 product and installed-state evidence comes from `HANDOFF.md`.** The old
 “Phase 34 onward” snapshot here is superseded. Historical closure records do not
 prove that a capability is connected to the current product route.
 
-85 numbered phases, manifest at `planning/v2/MANIFEST_PHASES.json`, generated
+85 numbered phases, manifest at `docs/planning/v2/MANIFEST_PHASES.json`, generated
 from `~/Desktop/Orion v two implementation plan.md`. **Phase numbers are the only
 vocabulary for what comes next.** Phase 40 was opened out of order because Nick's
 move to London had a date on it; that is a recorded deviation with
@@ -71,7 +71,7 @@ the manifest.
 **There is no Batch C onward.** "Batch A" and "Batch B" survive as labels on two
 bundles of 2026-09-01 work in the handoffs: Phase 33 plus Phase 43, and Phase 40.
 Anything telling you the next work is a letter is out of date.
-`planning/v2/PROGRAM_CORRECTION_2026-09-01.md` carries the full reasoning, and its
+`docs/planning/v2/PROGRAM_CORRECTION_2026-09-01.md` carries the full reasoning, and its
 findings — the three-stacks inventory, the live-defect list, the parity-harness
 scope warning — are still worth reading. Its §5 is not.
 
@@ -83,11 +83,11 @@ Two assistants work on this repo and neither sees the other's chat. These files
 are the entire channel, so treat them as the job rather than the paperwork.
 
 **Read before you touch anything:** this file, `HANDOFF.md`, `NICK-TODO.md`, and
-— only for the history of phases 1-33 — the CLOSED `planning/v2/HANDOFF.md`,
+— only for the history of phases 1-33 — the CLOSED `docs/planning/v2/HANDOFF.md`,
 which ends on 2026-09-01 and says so at the top. `HANDOFF.md` is the live one and
 the only one. For work after Phase 32, also read
-`planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
-`planning/v2/ROADMAP_AMENDMENTS.json`.
+`docs/planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
+`docs/planning/v2/ROADMAP_AMENDMENTS.json`.
 
 **A handoff's date is when it was written, not when the work stopped.** This has
 already cost a session. On 2026-08-19 Codex wrote its handoff at 18:32, kept
@@ -109,7 +109,7 @@ agent's full numbered transcript — every command, every result — so you can
 recover exactly where a dead session stopped instead of guessing.
 
 **When the manifest and reality disagree, register it — do not improvise.**
-`planning/v2/PHASE_GATES.json` holds two lists for this. `pendingGateAmendments`
+`docs/planning/v2/PHASE_GATES.json` holds two lists for this. `pendingGateAmendments`
 is for a gate whose text rests on an assumption the built system contradicts:
 record proposed replacement wording, keep working under a recorded deviation, and
 amend them together in one reviewed pass. `scopeNotInManifest` is for something
@@ -159,7 +159,7 @@ record, not once at the beginning. If you are recording work that took hours,
 the date you checked when you started is already suspect.
 
 **Write before you finish.** Append a dated section to `HANDOFF.md` (newest
-first, and `planning/v2/HANDOFF.md` too for v2 work) covering:
+first, and `docs/planning/v2/HANDOFF.md` too for v2 work) covering:
 
 - what state you found, and where the previous session's record was wrong;
 - what changed and why, including alternatives you rejected;
@@ -353,7 +353,7 @@ PYTHONPATH=. ./.venv/bin/python -m unittest discover -s tests -t tests -q
 
 
 `orion_v2_secret_scan.py` has **no default allowlist path**. Run without
-`--allowlist planning/v2/secret-scan-allowlist.json` it reports the reviewed
+`--allowlist docs/planning/v2/secret-scan-allowlist.json` it reports the reviewed
 synthetic fixtures as unexpected findings, which reads like a leak and is not one.
 
 The v2 check scripts, all read-only:
@@ -586,7 +586,7 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
   five-dimensional space. A headline that omits the fixed dimensions will be read
   as covering them.
 - **`docs/` is not on the assistant read path, and a whole plan was lost in it.**
-  `CLAUDE.md` routes to `HANDOFF.md`, `NICK-TODO.md`, `planning/v2/HANDOFF.md`,
+  `CLAUDE.md` routes to `HANDOFF.md`, `NICK-TODO.md`, `docs/planning/v2/HANDOFF.md`,
   the charter and the amendments. `docs/GAME_PLAN.md` -- a full architectural
   plan whose permission half shipped and whose architecture half did not -- is
   cited by nothing except a one-line directory listing in `README.md`. It was
@@ -775,7 +775,7 @@ If history genuinely has to change, that is a conversation with Nick.
   branch, commit or merge.
 - `.env`, `.env.save` and `.builds/openclaw.json.*` are untracked and must stay
   that way; run `orion_v2_secret_scan.py --history` before anything reaches the
-  remote. Note it needs `--allowlist planning/v2/secret-scan-allowlist.json` or
+  remote. Note it needs `--allowlist docs/planning/v2/secret-scan-allowlist.json` or
   it reports the reviewed fixtures as findings.
 - The working tree usually has uncommitted changes that are not yours. Builds
   include them. A release must require a clean tree.

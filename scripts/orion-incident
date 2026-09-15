@@ -52,7 +52,7 @@ cat <<'BOOK'
     Same: no database. The equivalent is a leak of ~/.openclaw/orion-controlled,
     which holds the task ledger, the waiting list, health data and Orion's own
     state. It contains no credentials by design. Treat it as a leak of
-    everything in planning/v2/DATA_INVENTORY.json marked medium or above:
+    everything in docs/planning/v2/DATA_INVENTORY.json marked medium or above:
     conversations, health, calendar titles, message excerpts.
 
   OAUTH CREDENTIAL LEAK
@@ -82,7 +82,7 @@ cat <<'BOOK'
     4. npm audit, and scripts/orion_v2_ci_check.sh.
     Note honestly: `npm ci` still runs install scripts, and tests_run/build_run
     execute repository code. That residual is written down in
-    planning/v2/ATTACK_SURFACE.json under dependency_compromise.
+    docs/planning/v2/ATTACK_SURFACE.json under dependency_compromise.
 
   PRODUCTION SECRET LEAK
     1. Rotate at the issuer FIRST. Editing the file changes nothing about a key
@@ -98,7 +98,7 @@ cat <<'BOOK'
     4. orion-why last 20          what has been running, with its evidence
     5. Read ~/.openclaw/orion-controlled/task-ledger.jsonl for what actually ran.
        An automation can only run something from a closed table, and it cannot
-       install itself — see planning/v2/PHASE_GATES.json phase 57 — so the
+       install itself — see docs/planning/v2/PHASE_GATES.json phase 57 — so the
        question is which of those five commands ran and how often.
 BOOK
 }

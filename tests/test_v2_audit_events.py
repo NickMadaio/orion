@@ -226,7 +226,7 @@ class TrailTests(unittest.TestCase):
 class LedgerAdapterTests(unittest.TestCase):
     def registry(self):
         return decode_registry(
-            json.loads((REPO_ROOT / "planning/v2/capability-registry.json").read_text(encoding="utf-8"))
+            json.loads((REPO_ROOT / "docs/planning/v2/capability-registry.json").read_text(encoding="utf-8"))
         )
 
     def row(self, **overrides):

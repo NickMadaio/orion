@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--authority", type=Path, default=repo / "scripts/orion-authority")
     parser.add_argument(
-        "--output", type=Path, default=repo / "planning/v2/CURRENT_AUTHORITY.json"
+        "--output", type=Path, default=repo / "docs/planning/v2/CURRENT_AUTHORITY.json"
     )
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)

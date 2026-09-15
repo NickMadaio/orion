@@ -511,7 +511,7 @@ if let data = try? Data(contentsOf: vectorsURL),
                "vector: \(name) -- got \(conversation.messages.map(\.id)), expected \(expectedOrder)")
     }
 } else {
-    failures.append("could not read planning/v2/sync-ordering-vectors.json")
+    failures.append("could not read docs/planning/v2/sync-ordering-vectors.json")
 }
 
 // -- Today screen (Phase 19) -----------------------------------------------

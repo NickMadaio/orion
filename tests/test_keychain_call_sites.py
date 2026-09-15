@@ -92,7 +92,7 @@ class KeychainCallSitesArePinned(unittest.TestCase):
             "place that decides which Keychain is in use, then update EXPECTED here.\n\n"
             "If you REMOVED one: update EXPECTED, and check that credentials did not "
             "quietly stop being stored in the Keychain at all.\n\n"
-            "Context: planning/v2/ROADMAP_AMENDMENTS.json -> "
+            "Context: docs/planning/v2/ROADMAP_AMENDMENTS.json -> "
             "programCorrection.foundationForTheAppleDeveloperProgram",
         )
 

@@ -24,7 +24,7 @@
 # WHAT THIS DOES NOT PROVE: that AppState actually wires these decisions to a
 # real microphone, a real Deepgram socket, or a real route change. That is
 # audio hardware and needs Nick at a microphone — see the "needs Nick at a
-# microphone" section of planning/v2/PHASE_VOICE_TURN_TAKING.md.
+# microphone" section of docs/planning/v2/PHASE_VOICE_TURN_TAKING.md.
 
 set -uo pipefail
 

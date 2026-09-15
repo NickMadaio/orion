@@ -1,7 +1,7 @@
 """The role-to-model contract: strict decoding and resolution.
 
 ORION owns this contract; OpenClaw and the native surfaces execute it. That
-division is the whole of the Phase 2 decision — see planning/v2/PHASE_2_PLAN.md.
+division is the whole of the Phase 2 decision — see docs/planning/v2/PHASE_2_PLAN.md.
 This module is the reference validator for the language-neutral schema at
 orion/core/schemas/model-roles.schema.json, in the same relationship the Phase 1
 envelopes have to theirs. It resolves and validates; it never performs
@@ -36,7 +36,7 @@ ROLES = (
     "embedding",
     "stt",
     "tts",
-    # Added for governed self-development (planning/v2/PHASE_GOVERNED_SELF_DEVELOPMENT.md),
+    # Added for governed self-development (docs/planning/v2/PHASE_GOVERNED_SELF_DEVELOPMENT.md),
     # off by default. Non-urgent coding work has a different correctness bar than
     # `local`'s text transforms -- a wrong sentence is embarrassing, a wrong diff
     # is a bug -- so it gets its own role rather than borrowing `local`'s, even

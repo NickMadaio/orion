@@ -276,7 +276,7 @@ final class AppState: ObservableObject {
     private let speechOutput = SpeechOutput()
     private let wakeWord = WakeWordListener()
     /// Spoken barge-in — see `BargeInMonitor.swift` and
-    /// `planning/v2/PHASE_VOICE_TURN_TAKING.md`. Active only during
+    /// `docs/planning/v2/PHASE_VOICE_TURN_TAKING.md`. Active only during
     /// `.thinking` and `.speaking`; gated by `setPhase`.
     private let bargeInMonitor = BargeInMonitor()
     private let statusQueue = DispatchQueue(label: "com.nickmadaio.orion.status")
@@ -371,7 +371,7 @@ final class AppState: ObservableObject {
     // left dead — `checkHandsFree` now reads `handsFreeEndpoint.verdict(at:)`
     // instead, seeded from `VoiceTuning.endpointingSeconds`. See
     // `AdaptiveEndpointModel.swift`'s file header and
-    // `planning/v2/PHASE_VOICE_TURN_TAKING.md`.
+    // `docs/planning/v2/PHASE_VOICE_TURN_TAKING.md`.
 
     // MARK: Conversation mode
     //

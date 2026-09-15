@@ -8,7 +8,7 @@ import Foundation
 
  `AppState.phase` (`OrionPhase`) stays the four cases it already is —
  replacing it wholesale was judged too large a change for this pass, and is
- named as follow-up work in `planning/v2/PHASE_VOICE_TURN_TAKING.md` rather
+ named as follow-up work in `docs/planning/v2/PHASE_VOICE_TURN_TAKING.md` rather
  than attempted and left half-migrated. What lives here instead is the
  substate the brief asked for, modelled completely and exercised completely
  by `Tests/TurnTakingHarness`, and used for real by two things `AppState`

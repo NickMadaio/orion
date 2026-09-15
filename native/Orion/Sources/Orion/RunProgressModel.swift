@@ -27,7 +27,7 @@ import Foundation
 
  What audit can and cannot say, checked against the real schema
  (`packages/gateway-protocol/src/schema/audit.d.ts`) and against
- `planning/v2/evals/README.md`'s own finding ("`toolName` is `exec`, and the
+ `docs/planning/v2/evals/README.md`'s own finding ("`toolName` is `exec`, and the
  command that `exec` ran is not in it"): every OpenClaw builtin tool — `bash`,
  `shell`, `exec`, `web_search`, `browser`, `grep`, `glob` — is a distinct,
  stable top-level name. But every Orion-domain action — calendar, reminders,

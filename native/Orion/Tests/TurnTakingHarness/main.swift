@@ -19,7 +19,7 @@ import Foundation
 
  WHAT THIS DOES NOT PROVE: that `AppState` actually wires these decisions to
  real audio, a real Deepgram socket, or a real route change. That needs Nick
- at a microphone — see `planning/v2/PHASE_VOICE_TURN_TAKING.md`.
+ at a microphone — see `docs/planning/v2/PHASE_VOICE_TURN_TAKING.md`.
  */
 
 // MARK: - The smallest test runner that is still honest

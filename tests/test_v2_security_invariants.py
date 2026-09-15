@@ -1,7 +1,7 @@
 """Phase 9: the permanent security invariant suite.
 
 Eighteen invariants from the manifest, each asserted against the primitive that
-actually enforces it -- and a registry, `planning/v2/SECURITY_INVARIANTS.json`,
+actually enforces it -- and a registry, `docs/planning/v2/SECURITY_INVARIANTS.json`,
 recording which ones are PENDING a subsystem that does not exist yet.
 
 That registry is the point of this phase as much as the tests are. A test

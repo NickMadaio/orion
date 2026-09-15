@@ -103,13 +103,13 @@ step "5. secret scanning"
 # exclusion could never do -- and it prints only a fingerprint, never the
 # suspected value, so a finding cannot leak the thing it found into a CI log.
 if python3 "$REPO/scripts/orion_v2_secret_scan.py" \
-       --allowlist "$REPO/planning/v2/secret-scan-allowlist.json" >"$LOGS"/orion-ci-secrets.log 2>&1; then
+       --allowlist "$REPO/docs/planning/v2/secret-scan-allowlist.json" >"$LOGS"/orion-ci-secrets.log 2>&1; then
     ok "$(tail -1 "$LOGS"/orion-ci-secrets.log)"
 else
     bad "secret scan found something not reviewed:"
     grep -v '^secret scan:' "$LOGS"/orion-ci-secrets.log | head -10 | sed 's/^/          /'
     echo "          Each line is path:line rule=<rule> fingerprint=<sha>. If it is a"
-    echo "          synthetic fixture, add it to planning/v2/secret-scan-allowlist.json"
+    echo "          synthetic fixture, add it to docs/planning/v2/secret-scan-allowlist.json"
     echo "          with a reason. NEVER allowlist a live credential."
 fi
 
@@ -195,7 +195,7 @@ fi
 
 step "8b. the v2 Python contract checks"
 # THESE WERE NOT IN ANY SUITE, and two of them had been failing silently since
-# Phase 51. Found on 2026-09-04 while auditing planning/v2: adding five
+# Phase 51. Found on 2026-09-04 while auditing docs/planning/v2: adding five
 # capability tiers across phases 51-78 drifted `capability-registry.json` and
 # the Python policy engine's tier tables, and both checks correctly refused to
 # classify a tier nobody had recorded — but nothing ran them, so nobody heard.

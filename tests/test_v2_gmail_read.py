@@ -93,7 +93,7 @@ class SequencingTests(unittest.TestCase):
         from pathlib import Path
 
         gates = json.loads(
-            (Path(__file__).resolve().parents[1] / "planning/v2/PHASE_GATES.json").read_text()
+            (Path(__file__).resolve().parents[1] / "docs/planning/v2/PHASE_GATES.json").read_text()
         )
         for phase in ("22", "25"):
             with self.subTest(phase=phase):

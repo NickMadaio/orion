@@ -6,7 +6,7 @@
 #
 # WHAT THIS PROVES: that the phone's `PermissionProfile` knows exactly the
 # profiles the LIVE plugin defines, and that `AuthoritySnapshot` decodes the
-# real `planning/v2/CURRENT_AUTHORITY.json` rather than a fixture shaped like it.
+# real `docs/planning/v2/CURRENT_AUTHORITY.json` rather than a fixture shaped like it.
 #
 # Why it earns its keep. The Security Center's most consequential panel is the
 # one saying what ORION is allowed to do on its own. Two things can silently
@@ -28,7 +28,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 MOBILE="$REPO/native/OrionMobile"
-SNAPSHOT="$REPO/planning/v2/CURRENT_AUTHORITY.json"
+SNAPSHOT="$REPO/docs/planning/v2/CURRENT_AUTHORITY.json"
 PLUGIN="$REPO/openclaw-plugins/orion-control/dist/permissions.js"
 
 SCRATCH="$(mktemp -d)"

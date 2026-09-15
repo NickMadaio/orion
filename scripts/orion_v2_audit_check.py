@@ -37,7 +37,7 @@ from orion.core.audit.redaction import redact  # noqa: E402
 from orion.core.tools.registry import decode_registry  # noqa: E402
 from orion.mac.audit_ledger import LedgerRowError, events_for, read_rows  # noqa: E402
 
-REGISTRY = REPO_ROOT / "planning" / "v2" / "capability-registry.json"
+REGISTRY = REPO_ROOT / "docs" / "planning" / "v2" / "capability-registry.json"
 SCANNER = REPO_ROOT / "scripts" / "orion_v2_secret_scan.py"
 
 #: Deliberately synthetic. Every one of these is a shape, not a live key.

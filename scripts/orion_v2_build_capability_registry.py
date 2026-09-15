@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from orion.core.tools.registry import decode_registry  # noqa: E402
 
 PLUGIN = REPO_ROOT / "openclaw-plugins" / "orion-control"
-REGISTRY = REPO_ROOT / "planning" / "v2" / "capability-registry.json"
+REGISTRY = REPO_ROOT / "docs" / "planning" / "v2" / "capability-registry.json"
 
 # Capability-name prefix and context domain per tier. The domain is the field
 # Phase 3's firewall was waiting on: until a capability says it belongs to

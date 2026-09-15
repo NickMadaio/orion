@@ -7,7 +7,7 @@ order.
 
 The rule is duplicated in Swift, in `native/OrionMobile/Sources/MobileCore/
 Conversation.swift`. Two implementations of one rule is precisely how two devices
-end up disagreeing about history, so `planning/v2/sync-ordering-vectors.json`
+end up disagreeing about history, so `docs/planning/v2/sync-ordering-vectors.json`
 holds the cases and both sides are checked against it.
 """
 

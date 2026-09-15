@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=repo / "planning/v2/OPENCLAW_SECRETREF_PLAN.json",
+        default=repo / "docs/planning/v2/OPENCLAW_SECRETREF_PLAN.json",
     )
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)

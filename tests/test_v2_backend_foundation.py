@@ -157,7 +157,7 @@ class ImportBoundaryTests(unittest.TestCase):
 
     def test_a_declared_dependency_is_allowed(self):
         root = self.sample_tree(
-            {"planning/day.py": "from backend.health import state\n"}
+            {"docs/planning/day.py": "from backend.health import state\n"}
         )
         self.assertEqual(import_errors(root), [])
 

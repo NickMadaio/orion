@@ -25,7 +25,7 @@ from orion.core.context.domains import Domain  # noqa: E402
 from orion.core.tools.registry import decode_registry  # noqa: E402
 
 PLUGIN = REPO_ROOT / "openclaw-plugins" / "orion-control"
-REGISTRY = REPO_ROOT / "planning" / "v2" / "capability-registry.json"
+REGISTRY = REPO_ROOT / "docs" / "planning" / "v2" / "capability-registry.json"
 
 #: Words that would name a general-purpose escape hatch. The manifest forbids
 #: exposing arbitrary command execution, and the way that requirement fails is

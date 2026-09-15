@@ -2324,7 +2324,7 @@ export const ACTION_CATALOG = {
     // control". `screen_click`, `screen_type` and `screen_key` are the
     // mutating half: R5-class, approval-gated unconditionally, and floored at
     // APPROVAL in every strictness mode including `sovereign` by
-    // `computerControlAction` above. See planning/v2/PHASE_COMPUTER_USE.md for
+    // `computerControlAction` above. See docs/planning/v2/PHASE_COMPUTER_USE.md for
     // what is built, what is gated, and what is deliberately not built.
     // -----------------------------------------------------------------------
     screen_observe: computerObserveAction("screen_observe", "screen_observed"),

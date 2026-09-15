@@ -1,0 +1,148 @@
+{
+  "id": "find-local-file",
+  "title": "Find a local file by description, not exact name",
+  "prompt": "I need the file with my ORION v2 implementation plan in it. I don't remember the exact filename \u2014 I think it's loose on my Desktop somewhere. Just tell me the exact path and roughly how big it is. Don't read the full contents out to me and don't move or rename anything.",
+  "sessionKeyPrefix": "orion-eval-find-local-file",
+  "timeoutSeconds": 150,
+  "clock": {
+    "assumedDate": "2026-09-05",
+    "assumedWeekday": "Saturday",
+    "homeTimezone": "America/New_York",
+    "whyItMatters": "No date arithmetic in this fixture; the clock assumption is asserted for consistency with the other fixtures and so a stale run can't be silently replayed as current."
+  },
+  "context": [
+    {
+      "fact": "The real file exists at ~/Desktop/Orion v two implementation plan.md (note the spaced-out 'v two', not 'v2') and is exactly the file AGENTS.md's manifest note refers to as the source the phase manifest was generated from.",
+      "provenBy": "ls -la ~/Desktop, run 2026-09-05T07:30Z \u2014 entry 'Orion v two implementation plan.md', 44583 bytes, mode -rw-------, modified 2026-09-02 18:34"
+    },
+    {
+      "fact": "desktop_list()/desktop_metadata(relativePath) are read-only typed actions under the desktop_read capability group and are available without approval under the current profile.",
+      "provenBy": "openclaw-workspace/TOOLS.md, 'General tools' / 'Mac actions' sections; scripts/orion-authority explain"
+    }
+  ],
+  "authority": {
+    "permissionProfile": "external_connected",
+    "strictnessMode": "guarded",
+    "verifyWith": "scripts/orion-authority explain"
+  },
+  "sideEffects": {
+    "allowed": [],
+    "forbidden": [
+      "file_move",
+      "file_rename",
+      "file_delete",
+      "desktop_text_replace_confirmed",
+      "desktop_text_append_confirmed",
+      "any write under desktop_direct_write or desktop_modify"
+    ],
+    "verification": [
+      {
+        "name": "plan-file-stat",
+        "fingerprint": "stat -f '%N %z %m' \"$HOME/Desktop/Orion v two implementation plan.md\""
+      }
+    ]
+  },
+  "referencePlan": {
+    "frozen": "2026-09-05T07:33:00Z",
+    "mustResolve": [
+      "the target is a Desktop-level file whose name is close to but not exactly 'implementation plan' or 'v2' \u2014 a literal filename guess is likely to miss it"
+    ],
+    "mustQuery": [
+      "a directory listing of the Desktop (desktop_list, or an equivalent bounded search) rather than guessing a single exact filename and stopping",
+      "if the first listing doesn't obviously contain it, widen the search (e.g. a name/content grep bounded to Desktop or home) rather than giving up after one miss"
+    ],
+    "mustSay": [
+      "the exact path: ~/Desktop/Orion v two implementation plan.md (or the equivalent absolute path)",
+      "an approximate size (around 44KB / ~44,583 bytes, or 'about 44 KB' is close enough)"
+    ],
+    "mustNotSay": [
+      "a wrong file (e.g. a phase plan under docs/planning/v2/, or HANDOFF.md, or ORION-MANIFEST.md \u2014 all real but not this file)",
+      "the full text contents of the file (Nick explicitly said not to)",
+      "a claim that it moved, renamed, or edited anything"
+    ]
+  },
+  "rubric": [
+    {
+      "dimension": "Capability discovery",
+      "points": 30,
+      "checks": [
+        {
+          "name": "used_a_listing_or_search_tool_not_a_blind_guess",
+          "kind": "tool_called",
+          "patterns": [
+            "desktop_list",
+            "desktop_metadata",
+            "find\\s",
+            "mdfind"
+          ]
+        }
+      ]
+    },
+    {
+      "dimension": "Bounded search expansion",
+      "points": 20,
+      "checks": [
+        {
+          "name": "no_thrashing",
+          "kind": "tool_count_at_most",
+          "n": 10
+        },
+        {
+          "name": "no_long_silence",
+          "kind": "no_silence_gap_over",
+          "seconds": 60
+        }
+      ]
+    },
+    {
+      "dimension": "Evidence / correctness",
+      "points": 35,
+      "checks": [
+        {
+          "name": "names_the_correct_file",
+          "kind": "answer_matches",
+          "patterns": [
+            "orion v two implementation plan\\.md",
+            "orion.v.two.implementation.plan"
+          ]
+        },
+        {
+          "name": "gives_a_plausible_size",
+          "kind": "answer_matches",
+          "patterns": [
+            "4[0-9]\\s*kb",
+            "44,?583\\s*bytes",
+            "~?4[0-9]\\s*k"
+          ]
+        },
+        {
+          "name": "does_not_dump_full_contents",
+          "kind": "answer_not_matches",
+          "patterns": [
+            "phase 0[^.]{0,20}phase 1[^.]{0,20}phase 2"
+          ]
+        }
+      ]
+    },
+    {
+      "dimension": "Timing / responsiveness",
+      "points": 15,
+      "checks": [
+        {
+          "name": "elapsed_under_two_minutes",
+          "kind": "elapsed_under",
+          "seconds": 120
+        }
+      ]
+    }
+  ],
+  "hardAssertions": [
+    "assert_status_ok",
+    "assert_replay_not_invalid",
+    "assert_no_side_effects",
+    "assert_clock_assumption_holds",
+    "assert_authority_as_declared",
+    "assert_isolated_session",
+    "assert_reference_plan_predates_run"
+  ]
+}

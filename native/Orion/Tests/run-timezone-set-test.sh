@@ -20,7 +20,7 @@
 # emergency lockdown would have reported failure. Caught only by running it.
 #
 # WHAT IT DOES NOT PROVE: that `openclaw cron edit --tz` behaves as assumed.
-# That is proven by a real round trip, recorded in planning/v2/HANDOFF.md.
+# That is proven by a real round trip, recorded in docs/planning/v2/HANDOFF.md.
 
 set -uo pipefail
 

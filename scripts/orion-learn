@@ -18,7 +18,7 @@
  knowing; this reuses that reading and asks the next question -- not "why did
  that turn fail" but "what keeps failing, and what would fix the class of it".
 
-   orion-learn                every session on disk -> planning/learning-proposals.md
+   orion-learn                every session on disk -> docs/planning/learning-proposals.md
    orion-learn --days 3       narrow the window
    orion-learn --last 40      narrow by count
    orion-learn --dry-run      print the report, write nothing
@@ -34,7 +34,7 @@ const HOME = homedir();
 const SESSIONS = join(HOME, ".openclaw/agents/main/sessions");
 const APPROVALS = join(HOME, ".openclaw/exec-approvals.json"); // read, never written
 const AGENTS_MD = join(HOME, ".openclaw/workspace/AGENTS.md"); // read, never written
-const OUT = join(HOME, "Desktop/ORION/planning/learning-proposals.md");
+const OUT = join(HOME, "Desktop/ORION/docs/planning/learning-proposals.md");
 const OLLAMA = "http://127.0.0.1:11434/api/generate";
 
 const argv = process.argv.slice(2);
@@ -465,7 +465,7 @@ const report = `# Orion — learning proposals
 > session history and writes this file. Every item below is waiting on a human:
 > **PROPOSE → TEST → ACCEPT IF BETTER → ROLLBACK IF WORSE.**
 > Paste the drafted text yourself, run \`orion-bench\`, and revert if the numbers
-> get worse. The assembled AGENTS.md section lives in \`planning/fragment-p5.md\`.
+> get worse. The assembled AGENTS.md section lives in \`docs/planning/fragment-p5.md\`.
 
 Generated ${new Date().toISOString()} from ${corpus.length} sessions${options.days ? ` (last ${options.days} days)` : ""} — ${findings.length} findings.
 AGENTS.md last modified ${GUIDANCE_AT}. Evidence newer than that is guidance being ignored; evidence older may already be fixed, so re-run before acting.

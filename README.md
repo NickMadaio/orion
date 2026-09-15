@@ -20,7 +20,7 @@ here together.
 | `scripts/` | Operational scripts — TTS daemon, identity checks, repair, cron delivery |
 | `launchers/` | Double-clickable `.command` entry points for everyday use |
 | `tests/` | Python test suite, plus `tests/workspace/` — artifacts from controlled live runs |
-| `planning/` | Design docs and phase plans, current and archived |
+| `docs/planning/` | Design docs and phase plans, current and archived |
 | `docs/` | Roadmap, game plan, integration handoff |
 | `web/privacy/` | The public privacy page |
 | `vault/`, `archive/` | Legacy notes and earlier prototypes |

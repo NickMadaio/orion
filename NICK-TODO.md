@@ -11,14 +11,14 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 ## Current v2 decisions — Phase 32.5, 2026-08-27
 
 The product charter and proposed implementation order now live in
-`planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
-`planning/v2/ROADMAP_AMENDMENTS.json`. Before setting up the new backend, choose
+`docs/planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and
+`docs/planning/v2/ROADMAP_AMENDMENTS.json`. Before setting up the new backend, choose
 the hosting/database/authentication approach, a running-cost budget and the
 first read-only feature to make visible. Distinguish the provider's operations
 dashboard from Orion's own home/control UI. No provider or plan has been chosen.
 
 The Phases 11–20 review is **done (2026-08-28)** — five of ten were not complete
-as claimed, 64 defects, 62 repaired. See `planning/v2/PHASE_11_20_REVIEW_REPORT.md`.
+as claimed, 64 defects, 62 repaired. See `docs/planning/v2/PHASE_11_20_REVIEW_REPORT.md`.
 What is still a coding-assistant task: the mixed-backlog commit plan, which needs
 **your approval of the grouping before anything is staged**. Nothing has been
 committed or pushed. UI taste, call/text delegation rules, presence signals and model
@@ -82,7 +82,7 @@ Smaller than the earlier note said.
 
 ## 0. Six decisions, from the 2026-09-01 program review
 
-Full reasoning in `planning/v2/PROGRAM_CORRECTION_2026-09-01.md`. These are the
+Full reasoning in `docs/planning/v2/PROGRAM_CORRECTION_2026-09-01.md`. These are the
 only things blocking work.
 
 **a. ~~Have you moved to London, and has term started?~~ ANSWERED and BUILT, 2026-09-01.**
@@ -99,7 +99,7 @@ this and the deadline passed. If you have moved, the morning brief has been
 firing at the wrong hour.
 
 **There is a memory regression attached to this.** The archived
-`planning/_archive/workspace-before-2026-08-14/USER.md:42-44` recorded the move
+`docs/planning/_archive/workspace-before-2026-08-14/USER.md:42-44` recorded the move
 as being **"to attend Eastern University"**, and told Orion to treat both the
 Montvale address *and* the timezone as expiring. The current
 `openclaw-workspace/USER.md` lost the university entirely in the 2026-08-14
@@ -338,7 +338,7 @@ Then move that file off the machine and delete the local copy.
 
 **Why:** Phase 5 built the policy engine and both of these are yours to answer,
 not mine. Neither blocks the phases that follow — I have kept going and recorded
-both in `planning/v2/PHASE_GATES.json` — but the second one is a live security
+both in `docs/planning/v2/PHASE_GATES.json` — but the second one is a live security
 posture question and I would rather you saw it now than in a handoff you read
 next month.
 

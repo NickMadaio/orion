@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""orion-eval — the permanent evaluation harness described in planning/v2/evals/README.md.
+"""orion-eval — the permanent evaluation harness described in docs/planning/v2/evals/README.md.
 
 Nick's ask, verbatim: "do actual tests. i have something this friday, if you
 were orion, what would YOU do, then give it to orion and see what he does.

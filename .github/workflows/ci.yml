@@ -84,14 +84,14 @@ jobs:
         # thing it found into this log.
         run: |
           python3 scripts/orion_v2_secret_scan.py \
-            --allowlist planning/v2/secret-scan-allowlist.json
+            --allowlist docs/planning/v2/secret-scan-allowlist.json
 
       - name: secret scanning (full history)
         # Separate step because it is the slow one, and because a leak that was
         # committed and then reverted is still a leak that has to be rotated.
         run: |
           python3 scripts/orion_v2_secret_scan.py --history \
-            --allowlist planning/v2/secret-scan-allowlist.json
+            --allowlist docs/planning/v2/secret-scan-allowlist.json
 
       - name: dependency scanning
         working-directory: openclaw-plugins/orion-control

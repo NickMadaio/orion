@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from orion.core.models.contract import ModelRoleContract, decode_contract  # noqa: E402
 
-DEFAULT_CONTRACT = REPO_ROOT / "planning" / "v2" / "model-roles.seed.json"
+DEFAULT_CONTRACT = REPO_ROOT / "docs" / "planning" / "v2" / "model-roles.seed.json"
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 LOCAL_MODEL_SWIFT = REPO_ROOT / "native/Orion/Sources/Orion/LocalModel.swift"
 DEEPGRAM_SWIFT = REPO_ROOT / "native/Orion/Sources/Orion/DeepgramSpeech.swift"

@@ -78,7 +78,7 @@ a command you run.
 
 ## Secrets
 
-`.gitignore` covers `.env`, `.env.*` (except `.env.example`), `data/orion.db`,
+`.gitignore` covers `.env`, `.env.*` (except `.env.example`), `var/data/orion.db`,
 `.claude/settings.local.json`, and the big vendored trees. Check it before
 adding anything that holds a credential or machine-local state.
 
@@ -99,10 +99,10 @@ Four folders were merged into this repo on 2026-08-20:
 
 | Was | Is now |
 |---|---|
-| `~/orionBrain` (Obsidian vault) | `brain/` |
+| `~/orionBrain` (Obsidian vault) | `var/brain/` |
 | `~/orion-privacy` | `web/privacy/` |
 | `~/Orion Controlled Test Workspace` | `tests/workspace/` |
 
 The originals still exist on disk — they were copied, not moved. **The repo is
 authoritative.** Editing `~/orionBrain` does not reach GitHub, and a future
-session reading that folder is reading a stale fork of `brain/`.
+session reading that folder is reading a stale fork of `var/brain/`.

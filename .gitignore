@@ -20,10 +20,10 @@ __pycache__/
 archive/orion-ui-prototype/runtime/
 
 # Local runtime state — machine-specific, contains conversation history
-data/orion.db
-data/*.log
-data/computer_sandbox/
-data/computer_controls/
+var/data/orion.db
+var/data/*.log
+var/data/computer_sandbox/
+var/data/computer_controls/
 orion/data/
 
 # macOS
@@ -31,7 +31,7 @@ orion/data/
 
 # Built from Resources/Orion.iconset by make_app_bundle.sh
 native/Orion/Resources/Orion.icns
-data/icon-preview.png
+var/data/icon-preview.png
 
 # Agent worktrees — a full duplicate checkout of this repo (6.5MB and growing).
 # Was excluded only in .git/info/exclude, which is NOT committed, so a fresh

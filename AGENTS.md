@@ -718,13 +718,13 @@ one tree now:
 | Was | Is now |
 |---|---|
 | `~/Desktop/ORION` | repo root |
-| `~/orionBrain` (Obsidian vault) | `brain/` |
+| `~/orionBrain` (Obsidian vault) | `var/brain/` |
 | `~/orion-privacy` | `web/privacy/` |
 | `~/Orion Controlled Test Workspace` | `tests/workspace/` |
 
 The originals still exist on disk; they were copied, not moved. **The repo is
 authoritative.** Editing `~/orionBrain` does not reach GitHub, and a session
-that reads that folder is reading a stale fork of `brain/`.
+that reads that folder is reading a stale fork of `var/brain/`.
 
 Full workflow, including branch layout and the secret-scanning rules, is in
 `.claude/skills/orion-git/SKILL.md`. Claude Code loads it as a skill; anything

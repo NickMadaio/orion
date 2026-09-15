@@ -16,7 +16,7 @@ here together.
 | `native/` | The macOS app (SwiftUI), the Mac bridge, and the launchd agents |
 | `openclaw-plugins/orion-control/` | OpenClaw plugin exposing Orion's action catalog and executors |
 | `openclaw-workspace/` | Orion's operating context — `SELF`, `SOUL`, `MEMORY`, `USER`, `PLAYBOOK`, `AGENTS` |
-| `brain/` | The knowledge vault (Obsidian, PARA-structured) — concepts, sources, operating principles |
+| `var/brain/` | The knowledge vault (Obsidian, PARA-structured) — concepts, sources, operating principles |
 | `scripts/` | Operational scripts — TTS daemon, identity checks, repair, cron delivery |
 | `launchers/` | Double-clickable `.command` entry points for everyday use |
 | `tests/` | Python test suite, plus `tests/workspace/` — artifacts from controlled live runs |
@@ -30,7 +30,7 @@ here together.
 - `AGENTS.md` — how agents working in this repo should behave
 - `HANDOFF.md` — current state and what comes next
 - `NICK-TODO.md` — decisions and actions waiting on a human
-- `brain/Home.md` — map of the knowledge vault
+- `var/brain/Home.md` — map of the knowledge vault
 
 ## Running it
 
@@ -39,12 +39,12 @@ uv run python main.py serve        # start the persistent local runtime
 uv run python main.py "..."        # send one message
 ```
 
-The local database is created at `data/orion.db` and is not tracked.
+The local database is created at `var/data/orion.db` and is not tracked.
 
 ## What is deliberately not in this repo
 
 Build outputs (`.build/`, `.builds/`), dependencies (`node_modules/`, `.venv/`),
-the vendored Ollama runtime, and all local state — `data/orion.db`, logs, and
+the vendored Ollama runtime, and all local state — `var/data/orion.db`, logs, and
 the sandbox directories. Secrets live in `.env`, which is ignored; copy
 `.env.example` to start.
 

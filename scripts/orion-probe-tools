@@ -10,15 +10,15 @@
 # where it sits that is what it looks like.
 #
 # This asks the plugin directly instead of asking the model to guess.
-# Writes data/tools-probe.log.
+# Writes var/data/tools-probe.log.
 #
 emulate -L zsh
 set -u
 
 repo="${0:A:h:h}"
 cd "$repo"
-mkdir -p data
-out="$repo/data/tools-probe.log"
+mkdir -p var/data
+out="$repo/var/data/tools-probe.log"
 : > "$out"
 
 bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"

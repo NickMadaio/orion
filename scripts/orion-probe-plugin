@@ -23,8 +23,8 @@ set -u
 
 repo="${0:A:h:h}"
 cd "$repo"
-mkdir -p data
-out="$repo/data/plugin-probe.log"
+mkdir -p var/data
+out="$repo/var/data/plugin-probe.log"
 : > "$out"
 
 bin="${ORION_OPENCLAW_BIN:-$HOME/.openclaw/bin/openclaw}"

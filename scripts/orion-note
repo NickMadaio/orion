@@ -174,7 +174,7 @@ if (command === "write") {
 
   console.log(`${existed ? "updated" : "wrote"} ${file}`);
   console.log(`recall will show: "${claim.slice(0, 70)}${claim.length > 70 ? "…" : ""}" then "${attribution}"`);
-  if (!existed) console.log("Mirror to the repo's brain/ when convenient; this wrote only the indexed vault.");
+  if (!existed) console.log("Mirror to the repo's var/brain/ when convenient; this wrote only the indexed vault.");
   process.exit(0);
 }
 

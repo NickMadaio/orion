@@ -108,7 +108,7 @@ approvals, and cross-device targeting do not exist yet.
 | Wrapper toolbelt | `scripts/orion-*` and `scripts/lib` | Fixed local integrations and diagnostic/repair commands | Keep fixed argv contracts; replace generic shell-shaped paths with explicit capabilities |
 | Native bridge | `native/OrionMacBridge` | EventKit/Reminders and macOS bridge operations | Mac adapter behind typed broker |
 | TTS and voice ID daemons | `scripts/orion_tts_daemon.py`, `scripts/orion_voiceid_daemon.py` | Local Unix-socket voice services with optional cloud TTS | Local device services; credentials remain outside model context |
-| Legacy Python runtime | `orion`, `main.py`, `data/orion.db` | Older local HTTP assistant, SQLite state, planner and tool loop | Inventory and retain for regression; do not treat it as the active architecture |
+| Legacy Python runtime | `orion`, `main.py`, `var/data/orion.db` | Older local HTTP assistant, SQLite state, planner and tool loop | Inventory and retain for regression; do not treat it as the active architecture |
 | Archived prototypes/plans | `archive`, `planning/_archive` | Historical evidence | Read-only reference; not runtime input |
 | Cloud backend | absent | None | Phase 10+, after Phases 1-9 pass |
 | iPhone app | absent | None | Phase 16+, after backend/security foundations |
@@ -203,12 +203,12 @@ an explicit signing/runtime review before public release.
 
 | Store | Data |
 |---|---|
-| `data/orion.db` | legacy Python conversations, messages, tool executions, tasks, approvals, memories, timers, jobs, provider usage, native actions |
+| `var/data/orion.db` | legacy Python conversations, messages, tool executions, tasks, approvals, memories, timers, jobs, provider usage, native actions |
 | `~/.openclaw/orion-controlled/*.json/jsonl` | permission state/audit, task and repair ledgers, focus state/history, health log, remote state, inbox/outbox, reminders and automation delivery state |
 | `~/.openclaw/workspace` and configured Brain paths | working instructions, episodic and semantic memory sources |
 | macOS UserDefaults | UI, voice, focus, and connection preferences; not credentials |
 | macOS Keychain | native connector tokens/secrets for Whoop, Plaid, and OAuth-based connections |
-| repository `data/*.log` and `~/.openclaw/logs` | developer/runtime diagnostics |
+| repository `var/data/*.log` and `~/.openclaw/logs` | developer/runtime diagnostics |
 | focus/session JSON plus immutable JSONL history | active session state and terminal history, written by `SessionService` |
 
 The legacy SQLite schema has no migration framework and assumes a local single

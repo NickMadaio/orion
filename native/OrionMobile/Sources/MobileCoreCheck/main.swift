@@ -484,6 +484,7 @@ let repositoryRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()   // native
     .deletingLastPathComponent()   // ORION
 let vectorsURL = repositoryRoot
+    .appendingPathComponent("docs")
     .appendingPathComponent("planning")
     .appendingPathComponent("v2")
     .appendingPathComponent("sync-ordering-vectors.json")

@@ -10,6 +10,30 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-15 14:22 BST — Persistent local phone identity verified
+
+PhoneDeviceIdentity now creates/reloads P-256 Keychain references, exports only
+the public key, and displays its fingerprint/status in Control. Lookup failure
+does not regenerate; physical path requires Secure Enclave without software
+fallback. Simulator key explicitly software-backed. No pairing/account claim.
+
+Three actual Simulator UI scenarios pass including fingerprint persistence over
+termination/relaunch, fresh challenge signing and changed-challenge rejection.
+693 core checks + iOS library build pass; generic physical-iOS compilation passes
+without signing/install. Independent review clean after retry-status fix.
+Simulator scripts now use ad-hoc signing for Keychain entitlements. A missed
+reorganization path in MobileCoreCheck now resolves docs/planning vectors.
+Source/history scan clean. Report: docs/planning/v2/PHONE_DEVICE_IDENTITY_2026-09-15.md.
+
+Local identity milestone 100%; physical hardware, biometrics, account pairing
+and durable server revocation remain unproven. Key intentionally persists in
+Simulator Keychain; temporary read credentials still cleaned. Mac build 232
+unchanged. No REC/phase closure; roadmap 53% unchanged. Next: bind device public
+identity into pairing/session contracts with approval and durable revocation.
+Local checkpoint only; no remote push.
+
+---
+
 ## 2026-09-15 14:09 BST — Personal accepted plan published to Simulator
 
 Bounded personal-plan publication 100%. scripts/orion_phone_preview.py accepts an

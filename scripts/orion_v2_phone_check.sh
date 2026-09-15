@@ -22,4 +22,4 @@ xcodebuild -project native/OrionMobile/OrionMobile.xcodeproj -scheme OrionPhone 
   -derivedDataPath .builds/phone-shell-check \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPublishedPlanReading \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation \
-  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test

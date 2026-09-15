@@ -1,4 +1,6 @@
 import SwiftUI
+import Security
+import CryptoKit
 import MobileCore
 
 @main
@@ -8,6 +10,7 @@ struct OrionMobileApp: App {
 
 struct PhoneRootView: View {
     @StateObject private var reader = PhoneTodayReader()
+    @StateObject private var identity = PhoneDeviceIdentity()
     @State private var sample: TodayPlan?
     @State private var sampleError: String?
     private let sampleNow = Date(timeIntervalSince1970: 1_788_948_000) // 2026-09-09 10:00 UTC
@@ -86,6 +89,21 @@ struct PhoneRootView: View {
 
     private var control: some View {
         List {
+            Section("Device identity") {
+                Text(identity.status).accessibilityIdentifier("deviceIdentityStatus")
+                if let identifier = identity.identifier {
+                    Text(identifier).font(.caption.monospaced()).textSelection(.enabled)
+                        .accessibilityIdentifier("deviceIdentityID")
+                    Button("Verify local key") { identity.verifyLocalKey() }
+                        .accessibilityIdentifier("verifyDeviceKey")
+                    if identity.verified {
+                        Text("Local key verified · no account paired")
+                            .accessibilityIdentifier("deviceKeyVerified")
+                    }
+                } else {
+                    Button("Retry identity") { identity.load() }
+                }
+            }
             Section("Connection") {
                 Text(reader.message)
                 Text("Mac availability is unknown. A Simulator-only local read connection can be configured for development; physical-device pairing is not available.").foregroundStyle(.secondary)
@@ -237,4 +255,111 @@ private final class NoReadRedirect: NSObject, URLSessionTaskDelegate {
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
     }
+}
+
+// Platform adapter kept outside MobileCore. No private-key bytes are exported.
+@MainActor
+final class PhoneDeviceIdentity: ObservableObject {
+    @Published private(set) var identifier: String?
+    @Published private(set) var status = "Identity not loaded"
+    @Published private(set) var verified = false
+    private var key: SecKey?
+    private var readyStatus = "Identity not loaded"
+    private var failureCode: Int?
+    private let tag = Data("com.nickmadaio.orion.phone.device-key.v1".utf8)
+
+    init() { load() }
+
+    func load() {
+        verified = false
+        failureCode = nil
+        do {
+            let stored = try readKey() ?? createKey()
+            guard let attributes = SecKeyCopyAttributes(stored) as? [String: Any],
+                  attributes[kSecAttrKeyType as String] as? String == kSecAttrKeyTypeECSECPrimeRandom as String,
+                  (attributes[kSecAttrKeySizeInBits as String] as? NSNumber)?.intValue == 256,
+                  let publicKey = SecKeyCopyPublicKey(stored),
+                  let publicBytes = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else {
+                throw IdentityFailure.invalid
+            }
+            #if targetEnvironment(simulator)
+            let description = "Simulator key · software-backed · not paired"
+            #else
+            guard attributes[kSecAttrTokenID as String] as? String == kSecAttrTokenIDSecureEnclave as String else {
+                throw IdentityFailure.invalid
+            }
+            let description = "Secure Enclave key · not paired"
+            #endif
+            key = stored
+            identifier = SHA256.hash(data: publicBytes).map { String(format: "%02x", $0) }.joined()
+            readyStatus = description
+            status = description
+        } catch {
+            key = nil; identifier = nil
+            status = "Identity unavailable · unlock this device and retry" + (failureCode.map { " (\($0))" } ?? "")
+        }
+    }
+
+    /// Prove local possession only. This does not register a device or approve an action.
+    func verifyLocalKey() {
+        verified = false
+        guard let key, let publicKey = SecKeyCopyPublicKey(key) else { return }
+        let challenge = Data("orion-local-key-check-v1|\(UUID().uuidString)".utf8)
+        let algorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
+        guard SecKeyIsAlgorithmSupported(key, .sign, algorithm),
+              let signature = SecKeyCreateSignature(key, algorithm, challenge as CFData, nil),
+              SecKeyVerifySignature(publicKey, algorithm, challenge as CFData, signature, nil),
+              !SecKeyVerifySignature(publicKey, algorithm, Data("different challenge".utf8) as CFData, signature, nil) else {
+            status = "Local key verification failed"; return
+        }
+        status = readyStatus
+        verified = true
+    }
+
+    private func readKey() throws -> SecKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tag,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            kSecReturnRef as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        let code = SecItemCopyMatching(query as CFDictionary, &result)
+        if code == errSecItemNotFound { return nil }
+        guard code == errSecSuccess, let result, CFGetTypeID(result) == SecKeyGetTypeID() else {
+            failureCode = Int(code)
+            print("Device identity lookup failed: OSStatus \(code)")
+            throw IdentityFailure.unavailable
+        }
+        return (result as! SecKey)
+    }
+
+    private func createKey() throws -> SecKey {
+        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                                                         .privateKeyUsage, nil) else { throw IdentityFailure.unavailable }
+        var parameters: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true,
+                kSecAttrApplicationTag as String: tag,
+                kSecAttrAccessControl as String: access
+            ]
+        ]
+        #if !targetEnvironment(simulator)
+        parameters[kSecAttrTokenID as String] = kSecAttrTokenIDSecureEnclave
+        #endif
+        var failure: Unmanaged<CFError>?
+        if let created = SecKeyCreateRandomKey(parameters as CFDictionary, &failure) { return created }
+        // Another scene may have created the same persistent key first.
+        if let failure {
+            let code = CFErrorGetCode(failure.takeRetainedValue())
+            if code == errSecDuplicateItem, let existing = try readKey() { return existing }
+            failureCode = code
+            print("Device identity creation failed: OSStatus \(code)")
+        }
+        throw IdentityFailure.unavailable
+    }
+    private enum IdentityFailure: Error { case unavailable, invalid }
 }

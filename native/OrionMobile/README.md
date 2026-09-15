@@ -92,3 +92,29 @@ while preserving the previous database snapshot. Only the configured owner can
 trigger export. The command never accepts a new plan or edits Calendar/Reminders.
 An old accepted plan remains marked stale; this is not a live calendar refresh.
 Physical-phone pairing and production account access remain separate work.
+
+## Persistent device identity
+
+Control now shows the device key’s public fingerprint and whether it is paired.
+The app creates an EC P-256 private key in the platform Keychain, then reloads
+its reference on later launches. Only the public key is exported to compute the
+fingerprint. A lookup error never silently replaces an existing identity.
+
+Simulator keys are software-backed and explicitly labeled that way. The physical
+iPhone code requires Secure Enclave with WhenUnlockedThisDeviceOnly access and
+no software fallback. That path compiles, but has not run on a physical iPhone.
+The local verification button signs a fresh challenge and checks both a valid
+signature and rejection of a changed challenge. It proves local key possession;
+it does not authenticate an account or approve a remote action.
+
+Simulator build commands now use normal ad-hoc signing so Xcode supplies the
+Simulator entitlements needed for Keychain. This needs no paid account and does
+not change the installed Mac application's identity or permissions. The device
+key intentionally survives app relaunch; temporary read-session files are still
+cleaned up by the preview harness. Uninstalling an app is not a promise that its
+Simulator Keychain item is removed. No identity reset or deletion is automated.
+
+Run `scripts/orion_v2_phone_check.sh` for sample and identity UI verification, or
+`python3 scripts/orion_v2_phone_read_check.py` for identity plus the complete local
+read/recovery scenario. See `PhoneDeviceIdentity` in `App/OrionMobileApp.swift`
+and `testDeviceIdentitySurvivesRelaunch` in `AppUITests/PhoneShellTests.swift`.

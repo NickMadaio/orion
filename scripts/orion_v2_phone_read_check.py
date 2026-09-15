@@ -37,7 +37,7 @@ def main():
         return subprocess.run(args, env=env, check=True, **kwargs)
     build = ["xcodebuild", "-project", "native/OrionMobile/OrionMobile.xcodeproj", "-scheme", "OrionPhone",
              "-destination", f"platform=iOS Simulator,id={device}", "-derivedDataPath", str(derived),
-             "-parallel-testing-enabled", "NO", "CODE_SIGNING_ALLOWED=NO"]
+             "-parallel-testing-enabled", "NO", "CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_IDENTITY=-"]
     with (derived / "build.log").open("w") as log:
         run(build + ["build-for-testing"], stdout=log, stderr=subprocess.STDOUT)
     with (derived / "export-build.log").open("w") as log:
@@ -76,7 +76,7 @@ def main():
             with os.fdopen(fd, "w") as stream:
                 json.dump({"port": server.server_port, "owner": "read-owner", "token": token}, stream)
             with (derived / "ui.log").open("w") as log:
-                run(build + ["-only-testing:OrionPhoneUITests/PhoneShellTests/testDisconnectedAndSampleRoutes", "-only-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation", "test-without-building"], stdout=log, stderr=subprocess.STDOUT)
+                run(build + ["-only-testing:OrionPhoneUITests/PhoneShellTests/testDeviceIdentitySurvivesRelaunch", "-only-testing:OrionPhoneUITests/PhoneShellTests/testDisconnectedAndSampleRoutes", "-only-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation", "test-without-building"], stdout=log, stderr=subprocess.STDOUT)
             assert repo.calls == 3, "UI did not execute the read/outage/recovery scenario"
             print("PASS: real Simulator read, stale display, outage, recovery and revoked-access clearing")
         finally:

@@ -22,8 +22,8 @@ import PackageDescription
 //
 // The SwiftUI Simulator shell lives in App/ and OrionMobile.xcodeproj. It links
 // this package and keeps example data explicitly separate from a live account.
-// Pairing, Keychain storage, push registration and a connected service remain
-// unimplemented. MobileCoreCheck is a portable executable by choice; XCTest UI
+// A platform device-key adapter lives in the app; production pairing, token
+// storage and push registration remain unimplemented. MobileCoreCheck is a portable executable by choice; XCTest UI
 // tests for the phone shell live in AppUITests/ and run with Xcode.
 let package = Package(
     name: "OrionMobile",

@@ -37,7 +37,7 @@ def main():
         return subprocess.run(command, env=env, check=True, **kwargs)
     build = ["xcodebuild", "-project", "native/OrionMobile/OrionMobile.xcodeproj", "-scheme", "OrionPhone",
              "-destination", f"platform=iOS Simulator,id={args.simulator}", "-derivedDataPath", str(derived),
-             "-parallel-testing-enabled", "NO", "CODE_SIGNING_ALLOWED=NO"]
+             "-parallel-testing-enabled", "NO", "CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_IDENTITY=-"]
     with (derived / "build.log").open("w") as log:
         run(build + ["build-for-testing" if args.verify else "build"], stdout=log, stderr=subprocess.STDOUT)
     with (derived / "export-build.log").open("w") as log:

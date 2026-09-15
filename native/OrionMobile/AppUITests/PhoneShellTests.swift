@@ -1,6 +1,30 @@
 import XCTest
 
 final class PhoneShellTests: XCTestCase {
+    func testDeviceIdentitySurvivesRelaunch() {
+        let app = XCUIApplication()
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        let identifier = app.staticTexts["deviceIdentityID"]
+        XCTAssertTrue(identifier.waitForExistence(timeout: 10))
+        let first = identifier.label
+        XCTAssertEqual(first.count, 64)
+        XCTAssertTrue(app.staticTexts["deviceIdentityStatus"].label.contains("software-backed"))
+        app.buttons["verifyDeviceKey"].tap()
+        XCTAssertTrue(app.staticTexts["deviceKeyVerified"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertTrue(identifier.waitForExistence(timeout: 10))
+        XCTAssertEqual(identifier.label, first)
+        app.buttons["verifyDeviceKey"].tap()
+        XCTAssertTrue(app.staticTexts["deviceKeyVerified"].waitForExistence(timeout: 5))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Persistent Simulator identity — not paired"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testPublishedPlanReading() {
         let app = XCUIApplication()
         app.launchArguments = ["--local-today"]

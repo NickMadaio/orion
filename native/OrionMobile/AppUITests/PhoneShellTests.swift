@@ -91,6 +91,28 @@ final class PhoneShellTests: XCTestCase {
         add(screenshot)
     }
 
+    func testHTTPDisconnectDuringRefresh() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--http-session-test"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["readingRevision"].waitForExistence(timeout: 15))
+        app.buttons["refreshReading"].tap()
+        app.tabBars.buttons["Control"].tap()
+        app.buttons["disconnectReading"].tap()
+        XCTAssertTrue(app.staticTexts["cancelledPendingRead"].waitForExistence(timeout: 2))
+        app.tabBars.buttons["Today"].tap()
+        XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Reading disconnected")
+        // The server delays the refresh response. Observe beyond that delay so
+        // stale bytes or a cancellation error cannot restore the old reading.
+        let end = Date().addingTimeInterval(7)
+        while Date() < end {
+            XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+            XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Reading disconnected")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertFalse(app.buttons["refreshReading"].exists)
+    }
+
     func testHTTPPublishedPlanReadingAndRevocation() {
         checkPublishedPlan(arguments: ["--http-session-test"], revokedAfterRefresh: true)
     }

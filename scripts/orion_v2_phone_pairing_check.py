@@ -58,7 +58,10 @@ def main():
     transport.add_argument('--http-session', action='store_true', help='exchange phone proof and read token over loopback HTTP')
     parser.add_argument('--source', type=Path, help='Explicit personal accepted-plan file for --http-session; read only')
     parser.add_argument('--preview-seconds', type=int, help='Open authenticated personal preview for 1-120 seconds instead of testing reads')
+    parser.add_argument('--disconnect-test', action='store_true', help='Test disconnect while an authenticated refresh is in flight')
     options = parser.parse_args()
+    if options.disconnect_test and (not options.http_session or options.source is not None or options.preview_seconds is not None):
+        parser.error('--disconnect-test requires --http-session without --source or --preview-seconds')
     if options.preview_seconds is not None and (options.source is None or not options.http_session or not 1 <= options.preview_seconds <= 120):
         parser.error('--preview-seconds requires --http-session --source and a duration from 1 to 120')
     if options.source is not None and not options.http_session:
@@ -94,12 +97,12 @@ def main():
     sign = lambda message: mac.sign(message, ec.ECDSA(hashes.SHA256()))
     store = tempfile.TemporaryDirectory(prefix='orion-pairing-registry-')
     try:
-        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval, options.read_session, options.http_session, source, options.preview_seconds)
+        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval, options.read_session, options.http_session, source, options.preview_seconds, options.disconnect_test)
     finally:
         store.cleanup()
 
 
-def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False, read_session=False, http_session=False, source=None, preview_seconds=None):
+def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False, read_session=False, http_session=False, source=None, preview_seconds=None, disconnect_test=False):
     registry_path = Path(store.name) / 'private'
     registry = DurableDeviceRegistry(registry_path, verifier=verifier, create=True)
     challenge = registry.begin_registration(owner, now=now())
@@ -148,7 +151,7 @@ def run_pairing(store, verifier, owner, identity, sign, now, directory, names, b
             check_phone_session(registry, owner, phone, now, build, derived, run, container)
         if http_session:
             from orion_phone_http_session_scenario import check_http_session
-            check_http_session(registry, owner, now, build, derived, run, container, source=source, preview_seconds=preview_seconds, env=env, device=device)
+            check_http_session(registry, owner, now, build, derived, run, container, source=source, preview_seconds=preview_seconds, disconnect_test=disconnect_test, env=env, device=device)
         reopened = DurableDeviceRegistry(registry_path, verifier=verifier)
         assert len(reopened.list(owner)) == (3 if approval else 2)
         assert reopened.revoke(owner, 'pairing-test-phone', now=now()).revoked

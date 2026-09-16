@@ -146,6 +146,15 @@ struct PhoneRootView: View {
             #endif
             Section("Connection") {
                 Text(reader.message)
+                if reader.cancelledPendingRead {
+                    Text("Pending refresh cancelled").accessibilityIdentifier("cancelledPendingRead")
+                }
+                if reader.configured {
+                    Button("Disconnect this reading", role: .destructive) { reader.disconnect() }
+                        .accessibilityIdentifier("disconnectReading")
+                    Text("Clears this phone’s reading and local access token. It does not remove the device from an account.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Text("Mac availability is unknown. A Simulator-only local read connection can be configured for development; physical-device pairing is not available.").foregroundStyle(.secondary)
             }
             Section("On this phone") {
@@ -235,8 +244,11 @@ final class PhoneTodayReader: ObservableObject {
     @Published private(set) var message = "Not connected to your Mac"
     @Published private(set) var loading = false
     @Published private(set) var available = false
+    @Published private(set) var cancelledPendingRead = false
     private var bootstrap: Bootstrap?
     private var history = TodayReadHistory()
+    private var connectionGeneration = UUID()
+    private var activeRead: URLSession?
     var configured: Bool { bootstrap != nil }
 
     init() {
@@ -260,30 +272,45 @@ final class PhoneTodayReader: ObservableObject {
     func useDeviceSession(port: Int, owner: String, token: String) throws {
         guard (1...65535).contains(port), !owner.isEmpty, (32...128).contains(token.count),
               token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { throw TodayPlanError.invalidInput }
-        history.clear(); snapshot = nil; available = false
+        disconnect()
+        cancelledPendingRead = false
         bootstrap = Bootstrap(port: port, owner: owner, token: token)
         message = "Local device session · not checked"
     }
     func refuseDeviceSession() {
-        bootstrap = nil; history.clear(); snapshot = nil; available = false
+        disconnect()
+        cancelledPendingRead = false
         message = "Device session could not be verified"
     }
     #endif
 
+    func disconnect() {
+        // Invalidates already-delivered bytes as well as cancelling transport.
+        cancelledPendingRead = loading
+        connectionGeneration = UUID()
+        activeRead?.invalidateAndCancel(); activeRead = nil
+        bootstrap = nil; history.clear(); snapshot = nil
+        available = false; loading = false
+        message = "Reading disconnected"
+    }
+
     func refresh() async {
         guard let bootstrap, !loading else { return }
+        let generation = connectionGeneration
         loading = true
-        defer { loading = false }
+        defer { if generation == connectionGeneration { loading = false; activeRead = nil } }
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil; config.httpCookieStorage = nil; config.urlCredentialStorage = nil
         config.timeoutIntervalForRequest = 5; config.timeoutIntervalForResource = 8
         let session = URLSession(configuration: config, delegate: NoReadRedirect(), delegateQueue: nil)
+        activeRead = session
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(bootstrap.port)/plan")!)
         request.setValue("Bearer \(bootstrap.token)", forHTTPHeaderField: "Authorization")
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
             let (bytes, response) = try await session.bytes(for: request)
+            guard generation == connectionGeneration else { return }
             guard let http = response as? HTTPURLResponse else { throw TodayPlanError.invalidInput }
             if http.statusCode == 401 { history.clear(); snapshot = nil; available = false; message = "Access expired or revoked"; return }
             if http.statusCode == 404 { snapshot = nil; available = false; message = "No published plan"; return }
@@ -294,12 +321,15 @@ final class PhoneTodayReader: ObservableObject {
                 guard data.count < 1_100_000 else { throw TodayPlanError.invalidInput }
                 data.append(byte)
             }
+            guard generation == connectionGeneration else { return }
             let incoming = try TodayReadSnapshot.decodeResponse(data, expectedOwner: bootstrap.owner)
             try history.receive(incoming)
             snapshot = incoming; available = true; message = "Read from local development service"
         } catch is URLError {
+            guard generation == connectionGeneration else { return }
             available = false; message = "Source unavailable · last reading may be out of date"
         } catch {
+            guard generation == connectionGeneration else { return }
             snapshot = nil; available = false; message = "Plan response could not be verified"
         }
     }

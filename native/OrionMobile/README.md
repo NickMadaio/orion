@@ -172,3 +172,11 @@ To keep that authenticated personal route open for a timed Simulator preview, ad
 successful authenticated read. Expiry or Ctrl-C revokes the disposable device,
 stops the local service and removes matching setup files. Enrollment is still a
 fixture; the persistent Simulator key remains for future runs.
+
+## Disconnect a local reading
+
+Control → Disconnect this reading clears the current reading, revision history
+and in-memory access token, and cancels a pending refresh. A delayed response
+cannot restore the reading. This is local disconnection, not account/device
+revocation; explicitly launching a development harness again can reconnect.
+Verify the pending-request case with `--http-session --disconnect-test`.

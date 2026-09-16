@@ -20,7 +20,7 @@ from backend.local_today.publication import PublishingTodayRepository
 from backend.local_today.session_exchange import LocalSessionExchange, ExchangeRejected
 
 
-def check_http_session(registry, owner, now, build, derived, run, container, *, source=None, preview_seconds=None, env=None, device=None):
+def check_http_session(registry, owner, now, build, derived, run, container, *, source=None, preview_seconds=None, disconnect_test=False, env=None, device=None):
     root = Path(__file__).resolve().parents[1]
     with (derived/'http-export-build.log').open('w') as log:
         run(['swift','build','--package-path','native/OrionMobile','--product','TodayPlanExport'], stdout=log, stderr=subprocess.STDOUT)
@@ -49,7 +49,9 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
         calls = 0
         def get(self, owner, record_id):
             self.calls += 1
-            if self.calls == 2: raise OSError('synthetic snapshot outage')
+            if self.calls == 2:
+                if disconnect_test: time.sleep(4)
+                else: raise OSError('synthetic snapshot outage')
             value = super().get(owner, record_id)
             if self.calls == 3: registry.revoke(owner, 'pairing-test-phone', now=now())
             return value
@@ -91,11 +93,16 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                         time.sleep(min(1, max(0, deadline-time.monotonic())))
                 else:
                     with (derived/'http-session-ui.log').open('w') as log:
-                        test = 'testHTTPPublishedPlanReadingAndRevocation' if source is not None else 'testHTTPDeviceSessionReadAndRevocation'
+                        test = ('testHTTPDisconnectDuringRefresh' if disconnect_test else
+                                'testHTTPPublishedPlanReadingAndRevocation' if source is not None else 'testHTTPDeviceSessionReadAndRevocation')
                         run(build+['-only-testing:OrionPhoneUITests/PhoneShellTests/'+test,
                                    'test-without-building'], stdout=log, stderr=subprocess.STDOUT, timeout=120)
                     assert exchange.accepted == ['/session/challenge','/session/exchange']
-                    assert repo.calls == expected_reads
+                    if disconnect_test:
+                        assert repo.calls == 2, 'Disconnect must cancel an actual in-flight refresh'
+                        registry.revoke(owner, 'pairing-test-phone', now=now())
+                    else:
+                        assert repo.calls == expected_reads
                     assert registry._owned(owner, 'pairing-test-phone').revoked
                     try: exchange.handle('/session/challenge', 'Bearer '+grant, {})
                     except ExchangeRejected: pass
@@ -111,7 +118,7 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                     with (derived/'http-session-refusal.log').open('w') as log:
                         run(build+['-only-testing:OrionPhoneUITests/PhoneShellTests/testHTTPFailureDoesNotUseLegacyToken',
                                    'test-without-building'], stdout=log, stderr=subprocess.STDOUT)
-                    assert repo.calls == expected_reads
+                    assert repo.calls == (2 if disconnect_test else expected_reads)
                     assert exchange.accepted == ['/session/challenge','/session/exchange']
             finally:
                 try:
@@ -123,6 +130,8 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                 raise RuntimeError('Source changed during read-only verification; inspect concurrent writers')
             action = 'timed authenticated preview' if preview_seconds is not None else 'authenticated read/refresh/revocation'
             print(f"PASS: personal revision {snapshot['revision']} {action}; source unchanged")
+        elif disconnect_test:
+            print('PASS: disconnect clears reading and token; delayed refresh cannot restore old state')
         else:
             print('PASS: actual phone HTTP challenge/signature/token exchange, memory-only read token, read/outage/recovery and durable revoke clearing')
     finally:

@@ -10,6 +10,30 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-16 15:05 BST — Immediate phone reading disconnect
+
+Found that the authenticated phone reader had no local off control. Control now
+clears its token, snapshot and history, cancels active transport and invalidates
+old callbacks with a connection generation. This is local disconnect, not server
+membership revocation; the UI states that distinction. Pending-refresh cancellation
+is visible. Existing explicit harness launch may reconnect from development setup.
+
+Actual Simulator delayed-refresh disconnect passes, including proof that refresh
+was pending at the tap and that later completion cannot restore state. Independent
+review caught a timing-test gap; synchronous pending-state evidence fixes it, final
+review clear. Existing HTTP read/outage/recovery/revoke and fallback refusal pass.
+Generic physical iOS compile passes unsigned only. Evidence:
+.builds/phone-disconnect-2026-09-16/; report:
+docs/planning/v2/PHONE_DISCONNECT_2026-09-16.md.
+
+Mac remains build232; saved revision8 hash unchanged. No hands-on action required
+for this slice, no new account/provider or physical installation. Roadmap53% stays
+unchanged. Persistent user-approved setup remains next; immediate disconnect is
+now a tested prerequisite. Preserve capabilities.md. Rollback scoped checkpoint;
+no installed production state changed and no remote push.
+
+---
+
 ## 2026-09-16 14:46 BST — Authenticated personal plan and timed preview
 
 The previous HTTP exchange checkpoint used synthetic data. Explicit --source now

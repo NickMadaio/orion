@@ -180,3 +180,21 @@ and in-memory access token, and cancels a pending refresh. A delayed response
 cannot restore the reading. This is local disconnection, not account/device
 revocation; explicitly launching a development harness again can reconnect.
 Verify the pending-request case with `--http-session --disconnect-test`.
+
+## Review before connecting
+
+Add `--review-connection` to a timed authenticated personal preview:
+
+```sh
+python3 scripts/orion_v2_phone_pairing_check.py --http-session --source /absolute/path/to/today-plan.json --preview-seconds 120 --review-connection
+```
+
+Use a Python runtime with device-crypto available as described above. The Simulator
+shows the local address, read-only scope and temporary account before Connect.
+Not now does not exchange the setup grant. Cancel connection prevents a late
+exchange reply from installing access. The host waits up to90 seconds for the
+first approved reading, then starts the preview timer. Timeout/exit cleans up.
+This is still a disposable local setup, not persistent enrollment or sign-in.
+
+Automated scenarios: `--http-session --setup-review-test` and
+`--http-session --setup-cancel-test`. Run them sequentially.

@@ -20,7 +20,7 @@ from backend.local_today.publication import PublishingTodayRepository
 from backend.local_today.session_exchange import LocalSessionExchange, ExchangeRejected
 
 
-def check_http_session(registry, owner, now, build, derived, run, container, *, source=None, preview_seconds=None, disconnect_test=False, env=None, device=None):
+def check_http_session(registry, owner, now, build, derived, run, container, *, source=None, preview_seconds=None, disconnect_test=False, setup_review_test=False, setup_cancel_test=False, review_connection=False, env=None, device=None):
     root = Path(__file__).resolve().parents[1]
     with (derived/'http-export-build.log').open('w') as log:
         run(['swift','build','--package-path','native/OrionMobile','--product','TodayPlanExport'], stdout=log, stderr=subprocess.STDOUT)
@@ -39,6 +39,7 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
     class ObservedExchange(LocalSessionExchange):
         accepted = []
         def handle(self, path, header, body):
+            if setup_cancel_test and path == '/session/exchange': time.sleep(4)
             result = super().handle(path, header, body)
             self.accepted.append(path)
             return result
@@ -65,7 +66,7 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
             self.calls += 1
             if self.calls == 2 and preview_seconds is None: registry.revoke(owner, 'pairing-test-phone', now=now())
             return result
-    expected_reads = 2 if source is not None else 3
+    expected_reads = 0 if setup_cancel_test else 1 if setup_review_test else 2 if source is not None or disconnect_test else 3
     try:
         with tempfile.TemporaryDirectory(prefix='orion-http-session-') as path:
             repo = (PersonalRepository(Path(path)/'private',owner=owner,source=source,exporter=export)
@@ -81,9 +82,12 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                 if preview_seconds is not None:
                     subprocess.run(['xcrun','simctl','terminate',device,'com.nickmadaio.orion.phone'], env=env,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    run(['xcrun','simctl','launch',device,'com.nickmadaio.orion.phone','--http-session-test'], stdout=subprocess.DEVNULL)
+                    launch_mode = '--review-http-session' if review_connection else '--http-session-test'
+                    run(['xcrun','simctl','launch',device,'com.nickmadaio.orion.phone',launch_mode], stdout=subprocess.DEVNULL)
                     run(['open','-a','/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app'])
-                    ready_deadline = time.monotonic()+12
+                    if review_connection:
+                        print('Review the connection in Simulator, then tap Connect and read plan. Waiting up to 90 seconds; Ctrl-C closes access.', flush=True)
+                    ready_deadline = time.monotonic()+(90 if review_connection else 12)
                     while repo.calls == 0 and time.monotonic() < ready_deadline:
                         time.sleep(0.1)
                     if repo.calls == 0: raise RuntimeError('Phone did not authenticate and read during preview setup')
@@ -93,13 +97,15 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                         time.sleep(min(1, max(0, deadline-time.monotonic())))
                 else:
                     with (derived/'http-session-ui.log').open('w') as log:
-                        test = ('testHTTPDisconnectDuringRefresh' if disconnect_test else
+                        test = ('testHTTPCancelConnectionReview' if setup_cancel_test else
+                                'testHTTPConnectionReview' if setup_review_test else
+                                'testHTTPDisconnectDuringRefresh' if disconnect_test else
                                 'testHTTPPublishedPlanReadingAndRevocation' if source is not None else 'testHTTPDeviceSessionReadAndRevocation')
                         run(build+['-only-testing:OrionPhoneUITests/PhoneShellTests/'+test,
                                    'test-without-building'], stdout=log, stderr=subprocess.STDOUT, timeout=120)
                     assert exchange.accepted == ['/session/challenge','/session/exchange']
-                    if disconnect_test:
-                        assert repo.calls == 2, 'Disconnect must cancel an actual in-flight refresh'
+                    if disconnect_test or setup_review_test or setup_cancel_test:
+                        assert repo.calls == expected_reads, 'Unexpected read count'
                         registry.revoke(owner, 'pairing-test-phone', now=now())
                     else:
                         assert repo.calls == expected_reads
@@ -118,7 +124,7 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                     with (derived/'http-session-refusal.log').open('w') as log:
                         run(build+['-only-testing:OrionPhoneUITests/PhoneShellTests/testHTTPFailureDoesNotUseLegacyToken',
                                    'test-without-building'], stdout=log, stderr=subprocess.STDOUT)
-                    assert repo.calls == (2 if disconnect_test else expected_reads)
+                    assert repo.calls == expected_reads
                     assert exchange.accepted == ['/session/challenge','/session/exchange']
             finally:
                 try:
@@ -130,6 +136,10 @@ def check_http_session(registry, owner, now, build, derived, run, container, *, 
                 raise RuntimeError('Source changed during read-only verification; inspect concurrent writers')
             action = 'timed authenticated preview' if preview_seconds is not None else 'authenticated read/refresh/revocation'
             print(f"PASS: personal revision {snapshot['revision']} {action}; source unchanged")
+        elif setup_cancel_test:
+            print('PASS: cancellation during signed exchange never installs a reading or starts a plan request')
+        elif setup_review_test:
+            print('PASS: review and decline do not exchange grant; explicit connect reads once; disconnect clears')
         elif disconnect_test:
             print('PASS: disconnect clears reading and token; delayed refresh cannot restore old state')
         else:

@@ -59,7 +59,16 @@ def main():
     parser.add_argument('--source', type=Path, help='Explicit personal accepted-plan file for --http-session; read only')
     parser.add_argument('--preview-seconds', type=int, help='Open authenticated personal preview for 1-120 seconds instead of testing reads')
     parser.add_argument('--disconnect-test', action='store_true', help='Test disconnect while an authenticated refresh is in flight')
+    parser.add_argument('--setup-review-test', action='store_true', help='Test explicit local read connection review and decline')
+    parser.add_argument('--setup-cancel-test', action='store_true', help='Test cancellation during signed connection exchange')
+    parser.add_argument('--review-connection', action='store_true', help='Require an explicit tap before connecting a timed personal preview')
     options = parser.parse_args()
+    if options.review_connection and (not options.http_session or options.source is None or options.preview_seconds is None):
+        parser.error('--review-connection requires --http-session --source --preview-seconds')
+    if options.setup_cancel_test and (not options.http_session or options.source is not None or options.preview_seconds is not None or options.disconnect_test or options.setup_review_test):
+        parser.error('--setup-cancel-test requires --http-session without other scenarios')
+    if options.setup_review_test and (not options.http_session or options.source is not None or options.preview_seconds is not None or options.disconnect_test):
+        parser.error('--setup-review-test requires --http-session without source, preview or disconnect test')
     if options.disconnect_test and (not options.http_session or options.source is not None or options.preview_seconds is not None):
         parser.error('--disconnect-test requires --http-session without --source or --preview-seconds')
     if options.preview_seconds is not None and (options.source is None or not options.http_session or not 1 <= options.preview_seconds <= 120):
@@ -97,12 +106,12 @@ def main():
     sign = lambda message: mac.sign(message, ec.ECDSA(hashes.SHA256()))
     store = tempfile.TemporaryDirectory(prefix='orion-pairing-registry-')
     try:
-        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval, options.read_session, options.http_session, source, options.preview_seconds, options.disconnect_test)
+        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval, options.read_session, options.http_session, source, options.preview_seconds, options.disconnect_test, options.setup_review_test, options.setup_cancel_test, options.review_connection)
     finally:
         store.cleanup()
 
 
-def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False, read_session=False, http_session=False, source=None, preview_seconds=None, disconnect_test=False):
+def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False, read_session=False, http_session=False, source=None, preview_seconds=None, disconnect_test=False, setup_review_test=False, setup_cancel_test=False, review_connection=False):
     registry_path = Path(store.name) / 'private'
     registry = DurableDeviceRegistry(registry_path, verifier=verifier, create=True)
     challenge = registry.begin_registration(owner, now=now())
@@ -151,7 +160,7 @@ def run_pairing(store, verifier, owner, identity, sign, now, directory, names, b
             check_phone_session(registry, owner, phone, now, build, derived, run, container)
         if http_session:
             from orion_phone_http_session_scenario import check_http_session
-            check_http_session(registry, owner, now, build, derived, run, container, source=source, preview_seconds=preview_seconds, disconnect_test=disconnect_test, env=env, device=device)
+            check_http_session(registry, owner, now, build, derived, run, container, source=source, preview_seconds=preview_seconds, disconnect_test=disconnect_test, setup_review_test=setup_review_test, setup_cancel_test=setup_cancel_test, review_connection=review_connection, env=env, device=device)
         reopened = DurableDeviceRegistry(registry_path, verifier=verifier)
         assert len(reopened.list(owner)) == (3 if approval else 2)
         assert reopened.revoke(owner, 'pairing-test-phone', now=now()).revoked

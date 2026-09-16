@@ -13,6 +13,10 @@ struct PhoneRootView: View {
     @StateObject private var identity = PhoneDeviceIdentity()
     #if targetEnvironment(simulator)
     @StateObject private var pairingApproval = PairingApprovalTestBridge()
+    @State private var reviewedSetup: PhoneHTTPReadSession.Bootstrap?
+    @State private var setupStatus = "Review the local connection before loading a reading."
+    @State private var connectionTask: Task<Void, Never>?
+    private var reviewsConnection: Bool { ProcessInfo.processInfo.arguments.contains("--review-http-session") }
     #endif
     @State private var sample: TodayPlan?
     @State private var sampleError: String?
@@ -35,7 +39,10 @@ struct PhoneRootView: View {
         .tint(.indigo)
         .task {
             #if targetEnvironment(simulator)
-            if ProcessInfo.processInfo.arguments.contains("--http-session-test") {
+            if reviewsConnection {
+                do { reviewedSetup = try PhoneHTTPReadSession.loadSetup() }
+                catch { setupStatus = "Connection setup is unavailable. Start a new preview on your Mac." }
+            } else if ProcessInfo.processInfo.arguments.contains("--http-session-test") {
                 await PhoneHTTPReadSession.connect(identity: identity, reader: reader)
             }
             #endif
@@ -43,10 +50,52 @@ struct PhoneRootView: View {
         }
     }
 
+    #if targetEnvironment(simulator)
+    private var connectionSetup: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let setup = reviewedSetup {
+                Text("Review local connection").font(.headline)
+                Text("This Simulator can read the saved plan shared by the local service on this Mac. It cannot change your plan.")
+                Text("Local address: 127.0.0.1:\(setup.port)")
+                    .font(.caption.monospaced()).accessibilityIdentifier("setupAddress")
+                Text("Temporary test account · access lasts up to five minutes. No account is signed in. Disconnect from Control to clear the reading.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Connect and read plan") {
+                    reviewedSetup = nil
+                    setupStatus = "Connecting to the local service…"
+                    connectionTask = Task {
+                        await PhoneHTTPReadSession.connect(identity: identity, reader: reader, reviewedSetup: setup)
+                        if !Task.isCancelled {
+                            await reader.refresh()
+                            if !Task.isCancelled { setupStatus = "Start a new preview on your Mac to connect again."; connectionTask = nil }
+                        }
+                    }
+                }.accessibilityIdentifier("approveReadConnection")
+                Button("Not now", role: .cancel) {
+                    reviewedSetup = nil
+                    setupStatus = "Connection declined · no reading loaded"
+                }.accessibilityIdentifier("declineReadConnection")
+            } else {
+                Text(setupStatus).accessibilityIdentifier("setupStatus")
+                if connectionTask != nil {
+                    Button("Cancel connection", role: .cancel) {
+                        connectionTask?.cancel(); connectionTask = nil
+                        reader.disconnect()
+                        setupStatus = "Connection cancelled · no reading loaded"
+                    }.accessibilityIdentifier("cancelReadConnection")
+                }
+            }
+        }
+    }
+    #endif
+
     private var today: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 connectionNotice
+                #if targetEnvironment(simulator)
+                if reviewsConnection && (!reader.configured || connectionTask != nil) { connectionSetup }
+                #endif
                 if reader.configured {
                     connectedReading
                 } else if let sample {
@@ -255,6 +304,7 @@ final class PhoneTodayReader: ObservableObject {
         #if targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--local-today"),
            !ProcessInfo.processInfo.arguments.contains("--http-session-test"),
+           !ProcessInfo.processInfo.arguments.contains("--review-http-session"),
            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
            let data = try? Data(contentsOf: directory.appendingPathComponent("local-today.json")), data.count < 4096,
            let value = try? JSONDecoder().decode(Bootstrap.self, from: data),

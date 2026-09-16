@@ -10,6 +10,31 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-16 17:35 BST — Explicit local phone connection review
+
+The Simulator can now review a validated local setup before exchanging its grant.
+Connect uses the immutable reviewed value; decline makes no request. Cancel
+connection prevents delayed exchange completion from installing a token or
+replacing disconnected state. Review mode excludes legacy bootstrap loading.
+Optional --review-connection on timed personal previews waits at most90 seconds
+for approval/first read, then applies the existing bounded preview timer.
+
+Actual review/decline/relaunch/approve/read/disconnect and delayed signed-exchange
+cancellation scenarios pass. Cancellation reached both exchange endpoints but
+made zero plan reads. Standard HTTP read/outage/recovery/revoke/fallback regression
+also passes. Physical iOS compiles unsigned only. Independent review found no
+open issues. Report: docs/planning/v2/PHONE_CONNECTION_REVIEW_2026-09-16.md.
+Logs: .builds/phone-setup-review-2026-09-16/; UI xcresults in phone-pairing-check.
+
+Still disposable account enrollment; this is explicit connection review, not
+persistent account setup. Human-operated reviewed-preview invocation not claimed
+as proven. No hands-on action required for this slice. Roadmap53% unchanged.
+Mac build232/personal plan unchanged; no production install or remote push.
+Next: durable user-approved configuration/enrollment and physical transport.
+Rollback scoped checkpoint; preserve unrelated capabilities.md.
+
+---
+
 ## 2026-09-16 15:05 BST — Immediate phone reading disconnect
 
 Found that the authenticated phone reader had no local off control. Control now

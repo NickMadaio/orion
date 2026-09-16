@@ -6,7 +6,7 @@ import MobileCore
 /// reaches disk; the resulting read token stays in this app process.
 @MainActor
 enum PhoneHTTPReadSession {
-    private struct Bootstrap: Decodable {
+    struct Bootstrap: Decodable {
         let port: Int
         let owner: String
         let device: String
@@ -19,14 +19,21 @@ enum PhoneHTTPReadSession {
         let token: String
     }
 
-    static func connect(identity: PhoneDeviceIdentity, reader: PhoneTodayReader) async {
+    static func loadSetup() throws -> Bootstrap {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("http-session-bootstrap.json")
+        guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4096 else { throw URLError(.badURL) }
+        let grant = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
+        guard (1...65535).contains(grant.port), grant.owner == "pairing-test-owner", grant.device == "pairing-test-phone",
+              (32...128).contains(grant.token.count), grant.token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { throw URLError(.badURL) }
+        return grant
+    }
+
+    static func connect(identity: PhoneDeviceIdentity, reader: PhoneTodayReader, reviewedSetup: Bootstrap? = nil) async {
         do {
-            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("http-session-bootstrap.json")
-            guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4096 else { throw URLError(.badURL) }
-            let grant = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
-            guard (1...65535).contains(grant.port), grant.owner == "pairing-test-owner", grant.device == "pairing-test-phone",
-                  (32...128).contains(grant.token.count), grant.token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { throw URLError(.badURL) }
+            // Use the exact reviewed value; never reload a changed setup after approval.
+            let grant = try reviewedSetup ?? loadSetup()
+            try Task.checkCancellation()
             let config = URLSessionConfiguration.ephemeral
             config.urlCache = nil; config.httpCookieStorage = nil; config.urlCredentialStorage = nil
             config.timeoutIntervalForRequest = 5; config.timeoutIntervalForResource = 8
@@ -34,13 +41,15 @@ enum PhoneHTTPReadSession {
             defer { session.invalidateAndCancel() }
             let challengeData = try await post(session, grant: grant, path: "/session/challenge", body: [:])
             let challenge = try JSONDecoder().decode(DeviceReadChallenge.self, from: challengeData)
+            try Task.checkCancellation()
             let signature = try identity.signReadSessionChallenge(challenge)
             let result = try await post(session, grant: grant, path: "/session/exchange",
                                         body: ["challenge": challenge.challenge, "signature": signature])
             let token = try JSONDecoder().decode(TokenResponse.self, from: result)
             guard token.schema == 1, token.ownerID == grant.owner, token.deviceID == grant.device else { throw URLError(.badServerResponse) }
+            try Task.checkCancellation()
             try reader.useDeviceSession(port: grant.port, owner: grant.owner, token: token.token)
-        } catch { reader.refuseDeviceSession() }
+        } catch { if !Task.isCancelled { reader.refuseDeviceSession() } }
     }
 
     private static func post(_ session: URLSession, grant: Bootstrap, path: String, body: [String:String]) async throws -> Data {

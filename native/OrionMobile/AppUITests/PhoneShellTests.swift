@@ -91,6 +91,52 @@ final class PhoneShellTests: XCTestCase {
         add(screenshot)
     }
 
+    func testHTTPCancelConnectionReview() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--review-http-session"]
+        app.launch()
+        XCTAssertTrue(app.buttons["approveReadConnection"].waitForExistence(timeout: 10))
+        app.buttons["approveReadConnection"].tap()
+        XCTAssertTrue(app.buttons["cancelReadConnection"].waitForExistence(timeout: 5))
+        // The harness delays the signed exchange and asserts it was actually
+        // reached. Cancellation must prevent that response installing a token.
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        app.buttons["cancelReadConnection"].tap()
+        let end = Date().addingTimeInterval(7)
+        while Date() < end {
+            XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+            XCTAssertEqual(app.staticTexts["setupStatus"].label, "Connection cancelled · no reading loaded")
+            XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Reading disconnected")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+    }
+
+    func testHTTPConnectionReview() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--review-http-session", "--local-today"]
+        app.launch()
+        XCTAssertTrue(app.buttons["approveReadConnection"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["setupAddress"].label.hasPrefix("Local address: 127.0.0.1:"))
+        XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+        app.buttons["declineReadConnection"].tap()
+        XCTAssertEqual(app.staticTexts["setupStatus"].label, "Connection declined · no reading loaded")
+        XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["approveReadConnection"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+        // The same single-use grant must still work: reviewing/declining did
+        // not consume a challenge or connect silently.
+        app.buttons["approveReadConnection"].tap()
+        XCTAssertTrue(app.staticTexts["readingRevision"].waitForExistence(timeout: 15))
+        app.tabBars.buttons["Control"].tap()
+        app.buttons["disconnectReading"].tap()
+        app.tabBars.buttons["Today"].tap()
+        XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+        XCTAssertFalse(app.buttons["approveReadConnection"].exists)
+        XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Reading disconnected")
+    }
+
     func testHTTPDisconnectDuringRefresh() {
         let app = XCUIApplication()
         app.launchArguments = ["--http-session-test"]

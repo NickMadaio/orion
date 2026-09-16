@@ -20,6 +20,9 @@ fi
 xcodebuild -project native/OrionMobile/OrionMobile.xcodeproj -scheme OrionPhone \
   -destination "platform=iOS Simulator,id=$simulator" \
   -derivedDataPath .builds/phone-shell-check \
+  -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingApprovalAccept \
+  -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingApprovalReject \
+  -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingApprovalExpired \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingClaimProof \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPublishedPlanReading \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation \

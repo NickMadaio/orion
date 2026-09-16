@@ -1,12 +1,43 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-15.** This is the only handoff. If you find another one
+**Last updated 2026-09-16.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-16 02:43 BST — Explicit Simulator pairing approval verified
+
+Added immutable PairingApprovalRequest and PairingApprovalView, showing exact
+joining device ID/full grouped key fingerprint. Approval requires a comparison
+toggle then tap; request/account/offering-key/expiry validation is repeated at
+signing. UI says confirmation signed/awaiting service acceptance, never paired.
+Simulator-only bridge/signing route; no real account authenticated. In the test,
+fixture Mac first admits phone, then persistent phone key explicitly approves a
+new joining fixture device through actual UI and backend confirmation.
+
+Approve/reject/expired scenarios pass, with real signature/id binding, replay
+refusal and durable revocation across process restart. 122 backend tests +9Swift
+tests pass; final three existing identity/sample/read-recovery UI scenarios pass.
+Physical iOS compilation passes unsigned only. Independent review found ID-format
+and cleanup-failure gaps; both fixed, verified and tested. Fingerprint rendering
+visually checked after grouping fix. Source/history scan clean (3431 reviewed).
+Two overlapping resumed UI runs were stopped and rerun sequentially; final
+isolated results are the evidence. Report:
+docs/planning/v2/PHONE_PAIRING_APPROVAL_2026-09-16.md. Logs under
+.builds/approval-2026-09-16/ and .builds/phone-pairing-check/.
+
+Local approval-screen milestone100%; roadmap53% unchanged. No hosted account,
+physical-device/biometric proof, remote transport, or actual user pairing. Mac
+build232 and personal plan hash unchanged. No global install or push. Temporary
+files cleaned; persistent Simulator key retained. Preserve capabilities.md.
+Next: authenticated local transport/session lifecycle with durable device status
+checked on every request, then physical/real-account pairing. Revert this scoped
+checkpoint for rollback; no production service or store was installed.
 
 ---
 

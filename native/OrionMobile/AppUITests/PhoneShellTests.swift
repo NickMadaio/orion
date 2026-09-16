@@ -1,6 +1,50 @@
 import XCTest
 
 final class PhoneShellTests: XCTestCase {
+    private func openApproval() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--pairing-approval-test"]
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertTrue(app.buttons["reviewPairing"].waitForExistence(timeout: 10))
+        app.buttons["reviewPairing"].tap()
+        XCTAssertTrue(app.staticTexts["joiningDeviceID"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["joiningFingerprint"].label.count, 64)
+        return app
+    }
+
+    func testPairingApprovalAccept() {
+        let app = openApproval()
+        XCTAssertFalse(app.buttons["approvePairing"].isEnabled)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Review exact device key before approval"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.switches["comparedPairingKey"].tap()
+        XCTAssertTrue(app.buttons["approvePairing"].isEnabled)
+        app.buttons["approvePairing"].tap()
+        XCTAssertEqual(app.staticTexts["approvalStatus"].label, "Confirmation signed · awaiting service acceptance")
+        XCTAssertFalse(app.buttons["approvePairing"].isEnabled)
+        XCTAssertFalse(app.buttons["rejectPairing"].isEnabled)
+    }
+
+    func testPairingApprovalReject() {
+        let app = openApproval()
+        app.buttons["rejectPairing"].tap()
+        XCTAssertEqual(app.staticTexts["approvalStatus"].label, "Pairing rejected · no confirmation signed")
+        XCTAssertFalse(app.buttons["approvePairing"].isEnabled)
+    }
+
+    func testPairingApprovalExpired() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--pairing-approval-test"]
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertTrue(app.staticTexts["approvalLoadStatus"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["approvalLoadStatus"].label, "Pairing request refused")
+        XCTAssertFalse(app.buttons["reviewPairing"].exists)
+    }
+
     func testPairingClaimProof() {
         let app = XCUIApplication()
         app.launchArguments = ["--pairing-proof-test"]

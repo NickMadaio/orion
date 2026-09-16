@@ -7,6 +7,7 @@ The offering Mac is an ephemeral fixture; its confirmation is test orchestration
 not evidence of a human approval UI. Requires the device-crypto optional extra.
 """
 import base64
+import argparse
 from datetime import datetime, timezone
 import json
 import os
@@ -33,13 +34,27 @@ def cleanup(path, pairing_id):
         pass
 
 
+def cleanup_pairing_files(directory, container, names, pairing_id):
+    try:
+        candidates = {directory, container()}
+    except subprocess.CalledProcessError:
+        candidates = {directory}
+    for candidate in candidates:
+        for name in names:
+            cleanup(candidate / name, pairing_id)
+
+
 def main():
     verifier = P256Verifier()  # Fail before building if the optional runtime is absent.
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     os.chdir(ROOT)
     env = dict(os.environ, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer')
-    device = sys.argv[1] if len(sys.argv) > 1 else '98256948-7A0B-4AE9-9928-8ED1A66C971F'
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('device', nargs='?', default='98256948-7A0B-4AE9-9928-8ED1A66C971F')
+    parser.add_argument('--approval', action='store_true', help='also test persistent phone key as the offering device')
+    options = parser.parse_args()
+    device = options.device
     derived = ROOT / '.builds/phone-pairing-check'
     derived.mkdir(parents=True, exist_ok=True)
     def run(args, **kwargs):
@@ -68,12 +83,12 @@ def main():
     sign = lambda message: mac.sign(message, ec.ECDSA(hashes.SHA256()))
     store = tempfile.TemporaryDirectory(prefix='orion-pairing-registry-')
     try:
-        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device)
+        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval)
     finally:
         store.cleanup()
 
 
-def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device):
+def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False):
     registry_path = Path(store.name) / 'private'
     registry = DurableDeviceRegistry(registry_path, verifier=verifier, create=True)
     challenge = registry.begin_registration(owner, now=now())
@@ -114,8 +129,11 @@ def run_pairing(store, verifier, owner, identity, sign, now, directory, names, b
             pass
         else:
             raise RuntimeError('Spent pairing accepted a replay')
+        if approval:
+            from orion_phone_approval_scenario import check_approval
+            check_approval(registry, service, owner, phone, now, build, derived, run, container)
         reopened = DurableDeviceRegistry(registry_path, verifier=verifier)
-        assert len(reopened.list(owner)) == 2
+        assert len(reopened.list(owner)) == (3 if approval else 2)
         assert reopened.revoke(owner, 'pairing-test-phone', now=now()).revoked
         assert registry._owned(owner, 'pairing-test-phone').revoked
         # A separate interpreter has neither this process's keys nor registry cache.
@@ -126,12 +144,12 @@ from backend.ownership import Session, resolve_owner
 owner=resolve_owner(Session('pairing-test-session','pairing-test-owner','pairing-test-mac'))
 registry=DurableDeviceRegistry(Path(sys.argv[1]))
 assert registry._owned(owner,'pairing-test-phone').revoked
-assert len(registry.list(owner))==2
+assert len(registry.list(owner)) in (2,3)
 print('PASS: revoked phone remains revoked after process restart')
 """
         run([sys.executable, '-c', code, str(registry_path)])
         print('PASS: persistent Simulator key -> real P-256 verification -> two-sided fixture pairing -> replay refusal -> durable revocation')
-        print('No real account paired; offering key and temporary registry are disposable; approval UI remains unproven.')
+        print('No real account paired; offering key and temporary registry are disposable; real-account transport and physical-device approval remain unproven.')
     finally:
         try:
             candidates = {directory, container()}

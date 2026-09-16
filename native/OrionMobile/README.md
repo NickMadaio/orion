@@ -134,3 +134,12 @@ The pairing harness now uses a temporary durable device registry, reopens it,
 revokes the phone, and verifies that revocation in a separate Python process.
 Real-account authentication and human confirmation UI remain pending. See
 `docs/planning/v2/DURABLE_DEVICE_REGISTRY_2026-09-15.md`.
+
+## Explicit offering-device approval test
+
+Run `python3 scripts/orion_v2_phone_pairing_check.py --approval` with device-crypto
+available. After disposable phone enrollment, the phone becomes the offering
+device: its review screen shows the joining key/id and signs confirmation only
+after an explicit tap. Rejection and expired-request scenarios produce no
+approval. Normal launches and physical builds have no test file bridge or real
+account pairing. See `docs/planning/v2/PHONE_PAIRING_APPROVAL_2026-09-16.md`.

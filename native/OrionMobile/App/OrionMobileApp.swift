@@ -11,6 +11,9 @@ struct OrionMobileApp: App {
 struct PhoneRootView: View {
     @StateObject private var reader = PhoneTodayReader()
     @StateObject private var identity = PhoneDeviceIdentity()
+    #if targetEnvironment(simulator)
+    @StateObject private var pairingApproval = PairingApprovalTestBridge()
+    #endif
     @State private var sample: TodayPlan?
     @State private var sampleError: String?
     private let sampleNow = Date(timeIntervalSince1970: 1_788_948_000) // 2026-09-09 10:00 UTC
@@ -105,6 +108,18 @@ struct PhoneRootView: View {
                 }
             }
             #if targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--pairing-approval-test") {
+                Section("Pairing test") {
+                    if let request = pairingApproval.request {
+                        NavigationLink("Review pairing request") {
+                            PairingApprovalView(request: request,
+                                approve: { pairingApproval.decide(approve: true, identity: identity) },
+                                reject: { pairingApproval.decide(approve: false, identity: identity) },
+                                finished: pairingApproval.finished, status: pairingApproval.status)
+                        }.accessibilityIdentifier("reviewPairing")
+                    } else { Text(pairingApproval.status).accessibilityIdentifier("approvalLoadStatus") }
+                }.onAppear { pairingApproval.load(identity: identity) }
+            }
             if ProcessInfo.processInfo.arguments.contains("--pairing-proof-test") {
                 Section("Disposable pairing test") {
                     Text("Test account only · no real account will be paired")

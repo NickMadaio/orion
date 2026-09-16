@@ -80,6 +80,17 @@ final class PhoneDeviceIdentity: ObservableObject {
     }
 
     #if targetEnvironment(simulator)
+    func pairingConfirmation(_ request: PairingApprovalRequest) throws -> String {
+        guard let key, let identifier else { throw IdentityFailure.unavailable }
+        // The caller must supply the authenticated account in a production route.
+        // Only the isolated test bridge currently invokes this operation.
+        try request.validate(expectedOwner: "pairing-test-owner", offeringFingerprint: identifier, now: Date())
+        _ = try P256.Signing.PublicKey(x963Representation: Data(base64Encoded: request.joiningPublicKey)!)
+        guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256,
+                Data(request.confirmationMessage.utf8) as CFData, nil) as Data? else { throw IdentityFailure.unavailable }
+        return signature.base64EncodedString()
+    }
+
     @Published var pairingTestStatus = "Awaiting test claim"
     /// Local file bridge for interoperability testing. Never compiled for a physical phone.
     func writeTestPairingProof() {

@@ -86,3 +86,8 @@ serving a read. Its source and validated exporter are supplied only by the local
 caller. Other owners cannot trigger export. `scripts/orion_phone_preview.py`
 provides the bounded Simulator route; see `native/OrionMobile/README.md`. This
 adds neither an HTTP publishing endpoint nor a continuously installed service.
+
+DeviceReadSessions now supports signed challenge exchange and checks registered
+device revocation on each request. The Simulator read harness uses this with a
+synthetic fixture device; persistent phone-key session exchange remains pending.
+See `docs/planning/v2/DEVICE_READ_SESSIONS_2026-09-16.md` for exact evidence.

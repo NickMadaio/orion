@@ -110,6 +110,17 @@ class RealPairingTests(unittest.TestCase):
             self.assertFalse(self.verifier.verify(key, message, signature))
         self.assertFalse(self.verifier.verify(public(self.phone), bytes(16385), signature))
 
+    def test_real_device_signature_opens_read_session_and_revocation_closes_it(self):
+        from backend.local_today.device_sessions import DeviceReadSessions
+        sessions = DeviceReadSessions(self.registry)
+        challenge = sessions.begin(self.owner, 'fixture-mac', now=self.now)
+        message = sessions.message(self.owner, 'fixture-mac', public(self.mac), challenge.value)
+        token = sessions.exchange(self.owner, 'fixture-mac', challenge=challenge.value,
+            signature=sign(self.mac, message), now=self.now)
+        self.assertEqual(str(sessions.resolve('Bearer '+token).device_id), 'fixture-mac')
+        self.registry.revoke(self.owner, 'fixture-mac', now=self.now)
+        self.assertIsNone(sessions.resolve('Bearer '+token))
+
     def test_default_still_refuses(self):
         registry = DeviceRegistry()
         challenge = registry.begin_registration(self.owner, now=self.now)

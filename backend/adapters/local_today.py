@@ -12,7 +12,7 @@ import json
 import math
 import secrets
 import time
-from typing import Callable
+from typing import Callable, Protocol
 
 from backend.ownership import Session, resolve_owner
 from orion.shared.json_values import thaw_json
@@ -50,7 +50,11 @@ class LocalReadSessions:
         return grant.session
 
 
-def local_server(repository: TodaySnapshotRepository, sessions: LocalReadSessions,
+class ReadSessionResolver(Protocol):
+    def resolve(self, header: str | None) -> Session | None: ...
+
+
+def local_server(repository: TodaySnapshotRepository, sessions: ReadSessionResolver,
                  *, clock: Callable[[], float] = time.time) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -75,7 +79,10 @@ def local_server(repository: TodaySnapshotRepository, sessions: LocalReadSession
             if self.path != "/plan":
                 return self._reply(404, {"error": "not_found"})
             headers = self.headers.get_all("Authorization", [])
-            session = sessions.resolve(headers[0]) if len(headers) == 1 else None
+            try:
+                session = sessions.resolve(headers[0]) if len(headers) == 1 else None
+            except Exception:
+                return self._reply(503, {"error": "unavailable"})
             if session is None:
                 return self._reply(401, {"error": "unauthorized"})
             owner = resolve_owner(session)

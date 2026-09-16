@@ -7,12 +7,21 @@ import subprocess
 import sys
 import tempfile
 import threading
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.ownership import Session, resolve_owner
 from backend.local_today.repository import TodaySnapshotRepository
-from backend.adapters.local_today import LocalReadSessions, local_server
+from backend.adapters.local_today import local_server
+from backend.local_today.device_sessions import DeviceReadSessions
+from backend.devices.durable import DurableDeviceRegistry
+from backend.devices.identity import DeviceIdentity
+from backend.devices.proofs import HmacVerifier
+from backend.devices.registry import _registration_message
 
 
 def remove_matching_bootstrap(path, token):
@@ -44,9 +53,7 @@ def main():
         run(["swift", "build", "--package-path", "native/OrionMobile", "--product", "TodayPlanExport"], stdout=log, stderr=subprocess.STDOUT)
     snapshot = json.loads(subprocess.check_output([str(ROOT / "native/OrionMobile/.build/debug/TodayPlanExport"), "--fixture"], env=env))
     snapshot["capturedAt"] = 0  # Explicit stale fixture; a successful fetch must not make it fresh.
-    sessions = LocalReadSessions()
     identity = Session("read-session", "read-owner", "read-device")
-    token = sessions.issue(identity, lifetime=600)
     class ScenarioRepository(TodaySnapshotRepository):
         calls = 0
         def get(self, owner, record_id):
@@ -55,7 +62,9 @@ def main():
                 raise OSError("fixture storage outage")
             value = super().get(owner, record_id)
             if self.calls == 3:
-                sessions.revoke(token)  # This completed read succeeds; subsequent refresh is unauthorized.
+                devices.revoke(resolve_owner(identity), identity.device_id, now=datetime.now(timezone.utc))
+                # Durable device revocation, not token deletion. This in-flight
+                # read finishes; the next request must recheck and clear access.
             return value
     run(["xcrun", "simctl", "bootstatus", device, "-b"], stdout=subprocess.DEVNULL)
     app = derived / "Build/Products/Debug-iphonesimulator/OrionPhone.app"
@@ -66,6 +75,23 @@ def main():
     if bootstrap.exists():
         raise RuntimeError("Existing local bootstrap preserved; remove it explicitly before this test")
     with tempfile.TemporaryDirectory(prefix="orion-read-") as directory:
+        # Explicit synthetic device key. This proves session-to-registry wiring;
+        # the separate pairing harness exercises the phone's persistent P-256 key.
+        public = "read-device-public-fixture"
+        secret = secrets.token_bytes(32)
+        sign = lambda message: hmac.new(secret, message, hashlib.sha256).digest()
+        devices = DurableDeviceRegistry(Path(directory) / "devices", verifier=HmacVerifier({public: secret}), create=True)
+        owner = resolve_owner(identity)
+        key = DeviceIdentity(public, HmacVerifier.algorithm, False)
+        now = datetime.now(timezone.utc)
+        registration = devices.begin_registration(owner, now=now)
+        devices.register(owner, device_id=identity.device_id, name="Synthetic read device", platform="ios",
+            identity=key, challenge=registration.value,
+            signature=sign(_registration_message(owner, identity.device_id, key, registration.value)), now=now)
+        sessions = DeviceReadSessions(devices)
+        challenge = sessions.begin(owner, identity.device_id, now=now)
+        token = sessions.exchange(owner, identity.device_id, challenge=challenge.value,
+            signature=sign(sessions.message(owner, identity.device_id, public, challenge.value)), now=now, lifetime=600)
         repo = ScenarioRepository(Path(directory) / "private")
         repo.put(resolve_owner(identity), "today-plan", snapshot)
         server = local_server(repo, sessions)
@@ -78,7 +104,7 @@ def main():
             with (derived / "ui.log").open("w") as log:
                 run(build + ["-only-testing:OrionPhoneUITests/PhoneShellTests/testDeviceIdentitySurvivesRelaunch", "-only-testing:OrionPhoneUITests/PhoneShellTests/testDisconnectedAndSampleRoutes", "-only-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation", "test-without-building"], stdout=log, stderr=subprocess.STDOUT)
             assert repo.calls == 3, "UI did not execute the read/outage/recovery scenario"
-            print("PASS: real Simulator read, stale display, outage, recovery and revoked-access clearing")
+            print("PASS: real Simulator read, stale display, outage, recovery and durable-device-revocation clearing")
         finally:
             sessions.revoke(token)
             try:

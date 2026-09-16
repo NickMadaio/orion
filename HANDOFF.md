@@ -10,6 +10,35 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-16 02:53 BST — Device-bound local read sessions verified
+
+DeviceReadSessions now exchanges fresh single-use signatures bound to owner,
+registered device/key and challenge for short-lived opaque local read tokens.
+Every resolution checks fresh durable device trust; revoke/failed attestation
+refuses401 and retires token. Storage lookup failure refuses503 without trusting
+cache. Restart invalidates all sessions/challenges. HTTP remains loopback-only,
+GET /plan, no session-exchange/sign-in endpoint or real account activation.
+
+141 combined tests pass; actual Simulator identity/sample/read-recovery scenario
+passes with durable registry revocation causing next refresh to clear reading.
+Real-P256 exchange/revoke test passes. Independent review eight session/ten
+real-crypto checks pass, no actionable findings. Source/history secret scan clean
+(3461 reviewed occurrences). Report:
+docs/planning/v2/DEVICE_READ_SESSIONS_2026-09-16.md. Evidence:
+.builds/device-sessions-2026-09-16/ and .builds/phone-read-check/.
+
+Local session-enforcement milestone100%; roadmap53% unchanged. Simulator credential
+is still a synthetic registered HMAC fixture, not its persistent key. Phone-key
+pairing/approval was proven separately; persistent phone-key session exchange is
+next. Personal-preview script intentionally still uses legacy harness token.
+Mac build232 and personal plan unchanged. Temporary grant/stores cleaned; no
+production service/provider/install/push. Preserve capabilities.md.
+Next: connect persistent phone key to bounded session exchange/trusted owner,
+then real-account physical transport. Rollback scoped checkpoint; no production
+registry or installed app state modified.
+
+---
+
 ## 2026-09-16 02:43 BST — Explicit Simulator pairing approval verified
 
 Added immutable PairingApprovalRequest and PairingApprovalView, showing exact

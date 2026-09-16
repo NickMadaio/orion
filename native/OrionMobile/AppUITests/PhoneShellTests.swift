@@ -91,9 +91,17 @@ final class PhoneShellTests: XCTestCase {
         add(screenshot)
     }
 
+    func testHTTPPublishedPlanReadingAndRevocation() {
+        checkPublishedPlan(arguments: ["--http-session-test"], revokedAfterRefresh: true)
+    }
+
     func testPublishedPlanReading() {
+        checkPublishedPlan(arguments: ["--local-today"], revokedAfterRefresh: false)
+    }
+
+    private func checkPublishedPlan(arguments: [String], revokedAfterRefresh: Bool) {
         let app = XCUIApplication()
-        app.launchArguments = ["--local-today"]
+        app.launchArguments = arguments
         app.launch()
         let revision = app.staticTexts["readingRevision"]
         XCTAssertTrue(revision.waitForExistence(timeout: 15))
@@ -111,6 +119,13 @@ final class PhoneShellTests: XCTestCase {
         screenshot.name = "Personal accepted plan — local read only"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        if revokedAfterRefresh {
+            app.buttons["refreshReading"].tap()
+            let denied = NSPredicate(format: "label == %@", "Access expired or revoked")
+            expectation(for: denied, evaluatedWith: app.staticTexts["connectionStatus"])
+            waitForExpectations(timeout: 10)
+            XCTAssertFalse(revision.exists)
+        }
     }
 
     func testHTTPFailureDoesNotUseLegacyToken() {

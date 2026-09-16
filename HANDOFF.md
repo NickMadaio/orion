@@ -10,6 +10,32 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-16 14:46 BST — Authenticated personal plan and timed preview
+
+The previous HTTP exchange checkpoint used synthetic data. Explicit --source now
+publishes the saved personal plan through that persistent-key authenticated route;
+--preview-seconds 1..120 opens a timed Simulator preview after the first successful
+read. Source remains read-only; revocation, listener shutdown and matching setup
+cleanup run on exit/interruption. Enrollment is still a disposable account fixture.
+
+Actual revision8 read/refresh/revoke-clearing and 15-second preview pass. Screenshot
+visually matches the saved stale plan. Source SHA256 remains a4111fae45135cfc2bd14b48b07f761df286bb63b2de5cdd11c707779ff0a5b1.
+156 backend/publication tests and synthetic HTTP regression pass; invalid CLI
+options refuse before build. Temporary setup/pairing files confirmed absent.
+Independent personal-publication and timed-preview reviews have no open findings.
+Report: docs/planning/v2/AUTHENTICATED_PERSONAL_PLAN_2026-09-16.md; evidence:
+.builds/personal-auth-read-2026-09-16/ (including secret-scan.log).
+
+Bounded authenticated personal preview milestone100%; formal roadmap53% unchanged.
+Mac build232 remains untouched; no production account, physical deployment,
+provider, permanent service or remote push. Preserve unrelated capabilities.md.
+Next: persistent user-approved enrollment/configuration, then physical transport;
+work from the phone identity/session modules and local device registry contracts.
+Rollback this scoped local checkpoint; no production state restoration required.
+The legacy personal preview remains available separately for regression comparison.
+
+---
+
 ## 2026-09-16 09:07 BST — Phone session challenge/proof/token over HTTP
 
 LocalSessionExchange issues120-second trusted-host bootstrap grants fixed to an

@@ -27,6 +27,7 @@ xcodebuild -project native/OrionMobile/OrionMobile.xcodeproj -scheme OrionPhone 
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testHTTPDeviceSessionReadAndRevocation \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPersistentKeyReadSessionProof \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingClaimProof \
+  -skip-testing:OrionPhoneUITests/PhoneShellTests/testHTTPPublishedPlanReadingAndRevocation \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPublishedPlanReading \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test

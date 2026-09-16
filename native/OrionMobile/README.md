@@ -159,3 +159,16 @@ challenge/proof/token delivery over loopback HTTP using the persistent phone key
 Only a short-lived setup grant is injected via file; the resulting read token
 stays in memory. Account enrollment remains a fixture, with physical/account
 setup pending. See `docs/planning/v2/HTTP_DEVICE_SESSION_2026-09-16.md`.
+
+For explicit personal publication verification, append
+`--source /absolute/path/to/today-plan.json` to the `--http-session` harness.
+The saved plan is read/refreshed, then access is revoked and the visible reading
+must clear. Source hashes are compared; the original file is never written.
+This is a bounded verification run with disposable enrollment, not permanent
+setup. See `docs/planning/v2/AUTHENTICATED_PERSONAL_PLAN_2026-09-16.md`.
+
+To keep that authenticated personal route open for a timed Simulator preview, add
+`--preview-seconds 120` (allowed range: 1–120). The timer starts after the first
+successful authenticated read. Expiry or Ctrl-C revokes the disposable device,
+stops the local service and removes matching setup files. Enrollment is still a
+fixture; the persistent Simulator key remains for future runs.

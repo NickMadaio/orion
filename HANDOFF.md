@@ -10,6 +10,34 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-16 09:07 BST — Phone session challenge/proof/token over HTTP
+
+LocalSessionExchange issues120-second trusted-host bootstrap grants fixed to an
+owner/device/key, then accepts one signed exchange. Optional loopback POST routes
+validate bounded exact-length JSON, no duplicate framing/fields; plan writes and
+other verbs remain refused. Simulator PhoneHTTPReadSession gets challenge,
+signs with persistent key and receives read token entirely over HTTP; token is
+memory-only. Failed exchange clears old state; HTTP mode excludes legacy token.
+
+Actual Simulator HTTP exchange/read/outage/recovery/durable-revoke-clearing and
+old-mode fallback refusal pass.153 backend checks pass; physical iOS compile
+passes unsigned only. Review found truncated-body admission and old-session
+retention defects; fixed with socket/UI regressions, final review clear. Cleanup
+tracks observed containers and preserves unrelated files. Secret scan clean
+(3521 reviewed); temporary HTTP/read/pairing files verified absent.
+Report: docs/planning/v2/HTTP_DEVICE_SESSION_2026-09-16.md. Logs:
+.builds/http-session-2026-09-16/ and .builds/phone-pairing-check/.
+
+HTTP exchange milestone100%; roadmap53% unchanged. Setup grant still injected
+via privatefile; account/enrollment remain fixtures. No real-account sign-in,
+physicaltransport/TLS, provider, remoteactions or personal-plan publication via
+this route. Macbuild232 and personalplan unchanged. No service installed/push.
+Preserve capabilities.md. Next: deliberate host setup plus saved personal-plan
+publication on this authenticated route, then physical/account-auth gates.
+Rollback scoped checkpoint; no production store/runtime changed.
+
+---
+
 ## 2026-09-16 08:57 BST — Persistent phone key opens a local read session
 
 DeviceReadChallenge binds owner/device/public key/server nonce with a distinct

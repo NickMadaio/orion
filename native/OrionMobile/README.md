@@ -151,3 +151,11 @@ Simulator key signing to DeviceReadSessions and the real HTTP reader. Add
 `--approval` to exercise offering-device approval first. This uses a disposable
 account and private-file credential delivery; production authentication remains
 pending. See `docs/planning/v2/PHONE_KEY_READ_SESSION_2026-09-16.md`.
+
+## HTTP device-session exchange
+
+Run `python3 scripts/orion_v2_phone_pairing_check.py --http-session` to verify
+challenge/proof/token delivery over loopback HTTP using the persistent phone key.
+Only a short-lived setup grant is injected via file; the resulting read token
+stays in memory. Account enrollment remains a fixture, with physical/account
+setup pending. See `docs/planning/v2/HTTP_DEVICE_SESSION_2026-09-16.md`.

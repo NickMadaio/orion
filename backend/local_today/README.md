@@ -91,3 +91,9 @@ DeviceReadSessions now supports signed challenge exchange and checks registered
 device revocation on each request. The Simulator read harness uses this with a
 synthetic fixture device; persistent phone-key session exchange remains pending.
 See `docs/planning/v2/DEVICE_READ_SESSIONS_2026-09-16.md` for exact evidence.
+
+Optional LocalSessionExchange exposes bounded POST challenge/exchange routes on
+the existing loopback server. A trusted-host setup grant fixes owner/device;
+clients cannot choose them. Actual Simulator HTTP signing/read/revocation is
+verified; real account/physical setup remains pending. See
+`docs/planning/v2/HTTP_DEVICE_SESSION_2026-09-16.md`.

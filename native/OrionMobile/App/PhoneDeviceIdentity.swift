@@ -91,6 +91,16 @@ final class PhoneDeviceIdentity: ObservableObject {
         return signature.base64EncodedString()
     }
 
+    func signReadSessionChallenge(_ request: DeviceReadChallenge) throws -> String {
+        guard let key, let publicKey = SecKeyCopyPublicKey(key),
+              let point = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else { throw IdentityFailure.unavailable }
+        try request.validate(expectedOwner: "pairing-test-owner", expectedDevice: "pairing-test-phone",
+                             expectedKey: point.base64EncodedString(), now: Date())
+        guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256,
+                Data(request.proofMessage.utf8) as CFData, nil) as Data? else { throw IdentityFailure.unavailable }
+        return signature.base64EncodedString()
+    }
+
     @Published var readSessionTestStatus = "Awaiting session challenge"
     func writeTestReadSessionProof() {
         guard ProcessInfo.processInfo.arguments.contains("--read-session-test") else { return }

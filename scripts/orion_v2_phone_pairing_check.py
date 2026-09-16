@@ -53,7 +53,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('device', nargs='?', default='98256948-7A0B-4AE9-9928-8ED1A66C971F')
     parser.add_argument('--approval', action='store_true', help='also test persistent phone key as the offering device')
-    parser.add_argument('--read-session', action='store_true', help='prove persistent phone key session issuance and HTTP reads')
+    transport = parser.add_mutually_exclusive_group()
+    transport.add_argument('--read-session', action='store_true', help='prove persistent phone key session issuance and HTTP reads')
+    transport.add_argument('--http-session', action='store_true', help='exchange phone proof and read token over loopback HTTP')
     options = parser.parse_args()
     device = options.device
     derived = ROOT / '.builds/phone-pairing-check'
@@ -84,12 +86,12 @@ def main():
     sign = lambda message: mac.sign(message, ec.ECDSA(hashes.SHA256()))
     store = tempfile.TemporaryDirectory(prefix='orion-pairing-registry-')
     try:
-        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval, options.read_session)
+        return run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, options.approval, options.read_session, options.http_session)
     finally:
         store.cleanup()
 
 
-def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False, read_session=False):
+def run_pairing(store, verifier, owner, identity, sign, now, directory, names, build, derived, run, container, env, device, approval=False, read_session=False, http_session=False):
     registry_path = Path(store.name) / 'private'
     registry = DurableDeviceRegistry(registry_path, verifier=verifier, create=True)
     challenge = registry.begin_registration(owner, now=now())
@@ -136,6 +138,9 @@ def run_pairing(store, verifier, owner, identity, sign, now, directory, names, b
         if read_session:
             from orion_phone_session_scenario import check_phone_session
             check_phone_session(registry, owner, phone, now, build, derived, run, container)
+        if http_session:
+            from orion_phone_http_session_scenario import check_http_session
+            check_http_session(registry, owner, now, build, derived, run, container)
         reopened = DurableDeviceRegistry(registry_path, verifier=verifier)
         assert len(reopened.list(owner)) == (3 if approval else 2)
         assert reopened.revoke(owner, 'pairing-test-phone', now=now()).revoked

@@ -1,4 +1,5 @@
-"""Loopback-only transport proof. No sign-in endpoint, writes or public bind.
+"""Loopback-only plan reads and optional device-session exchange. No account
+sign-in, plan writes or public bind.
 
 LocalReadSessions are ephemeral harness credentials, not production account
 sessions or phone pairing. Restart invalidates them; durable snapshots survive.
@@ -55,7 +56,7 @@ class ReadSessionResolver(Protocol):
 
 
 def local_server(repository: TodaySnapshotRepository, sessions: ReadSessionResolver,
-                 *, clock: Callable[[], float] = time.time) -> HTTPServer:
+                 *, clock: Callable[[], float] = time.time, exchange=None) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
             super().setup()
@@ -106,11 +107,43 @@ def local_server(repository: TodaySnapshotRepository, sessions: ReadSessionResol
             self._reply(200, result)
 
         def do_POST(self):
-            self._reply(405, {"error": "read_only"})
+            if exchange is None or self.path not in {"/session/challenge", "/session/exchange"}:
+                return self._reply(405, {"error": "read_only"})
+            from backend.local_today.session_exchange import ExchangeRejected
+            lengths = self.headers.get_all("Content-Length", [])
+            auth = self.headers.get_all("Authorization", [])
+            types = self.headers.get_all("Content-Type", [])
+            if len(auth) != 1:
+                return self._reply(401, {"error": "unauthorized"})
+            if (self.headers.get_all("Transfer-Encoding", []) or len(lengths) != 1
+                    or len(lengths[0]) > 4 or not lengths[0].isascii() or not lengths[0].isdecimal()
+                    or not 1 <= int(lengths[0]) <= 4096 or types != ["application/json"]):
+                return self._reply(400, {"error": "invalid_request"})
+            def unique(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result: raise ValueError("duplicate field")
+                    result[key] = value
+                return result
+            try:
+                raw = self.rfile.read(int(lengths[0]))
+                if len(raw) != int(lengths[0]): raise ValueError("incomplete body")
+                body = json.loads(raw, object_pairs_hook=unique)
+                if not isinstance(body, dict): raise ValueError("object required")
+            except (ValueError, OSError):
+                return self._reply(400, {"error": "invalid_request"})
+            try:
+                result = exchange.handle(self.path, auth[0], body)
+            except ExchangeRejected:
+                return self._reply(401, {"error": "unauthorized"})
+            except Exception:
+                return self._reply(503, {"error": "unavailable"})
+            self._reply(200, result)
 
-        do_PUT = do_POST
-        do_PATCH = do_POST
-        do_DELETE = do_POST
+        def do_PUT(self):
+            self._reply(405, {"error": "read_only"})
+        do_PATCH = do_PUT
+        do_DELETE = do_PUT
 
     # No caller-supplied host; this can never listen on a LAN/public interface.
     return HTTPServer(("127.0.0.1", 0), Handler)

@@ -113,9 +113,28 @@ final class PhoneShellTests: XCTestCase {
         add(screenshot)
     }
 
-    func testLocalReadRecoveryAndRevocation() {
+    func testHTTPFailureDoesNotUseLegacyToken() {
         let app = XCUIApplication()
-        app.launchArguments = ["--local-today"]
+        app.launchArguments = ["--http-session-test", "--local-today"]
+        app.launch()
+        let refused = NSPredicate(format: "label == %@", "Device session could not be verified")
+        expectation(for: refused, evaluatedWith: app.staticTexts["connectionStatus"])
+        waitForExpectations(timeout: 12)
+        XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+        XCTAssertFalse(app.buttons["refreshReading"].exists)
+    }
+
+    func testHTTPDeviceSessionReadAndRevocation() {
+        checkReadRecovery(arguments: ["--http-session-test"])
+    }
+
+    func testLocalReadRecoveryAndRevocation() {
+        checkReadRecovery(arguments: ["--local-today"])
+    }
+
+    private func checkReadRecovery(arguments: [String]) {
+        let app = XCUIApplication()
+        app.launchArguments = arguments
         app.launch()
         let revision = app.staticTexts["readingRevision"]
         XCTAssertTrue(revision.waitForExistence(timeout: 15))

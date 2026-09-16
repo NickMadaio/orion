@@ -33,7 +33,14 @@ struct PhoneRootView: View {
             NavigationStack { control }.tabItem { Label("Control", systemImage: "slider.horizontal.3") }
         }
         .tint(.indigo)
-        .task { await reader.refresh() }
+        .task {
+            #if targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--http-session-test") {
+                await PhoneHTTPReadSession.connect(identity: identity, reader: reader)
+            }
+            #endif
+            await reader.refresh()
+        }
     }
 
     private var today: some View {
@@ -228,13 +235,14 @@ final class PhoneTodayReader: ObservableObject {
     @Published private(set) var message = "Not connected to your Mac"
     @Published private(set) var loading = false
     @Published private(set) var available = false
-    private let bootstrap: Bootstrap?
+    private var bootstrap: Bootstrap?
     private var history = TodayReadHistory()
     var configured: Bool { bootstrap != nil }
 
     init() {
         #if targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--local-today"),
+           !ProcessInfo.processInfo.arguments.contains("--http-session-test"),
            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
            let data = try? Data(contentsOf: directory.appendingPathComponent("local-today.json")), data.count < 4096,
            let value = try? JSONDecoder().decode(Bootstrap.self, from: data),
@@ -248,6 +256,20 @@ final class PhoneTodayReader: ObservableObject {
         bootstrap = nil
         #endif
     }
+    #if targetEnvironment(simulator)
+    func useDeviceSession(port: Int, owner: String, token: String) throws {
+        guard (1...65535).contains(port), !owner.isEmpty, (32...128).contains(token.count),
+              token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { throw TodayPlanError.invalidInput }
+        history.clear(); snapshot = nil; available = false
+        bootstrap = Bootstrap(port: port, owner: owner, token: token)
+        message = "Local device session · not checked"
+    }
+    func refuseDeviceSession() {
+        bootstrap = nil; history.clear(); snapshot = nil; available = false
+        message = "Device session could not be verified"
+    }
+    #endif
+
     func refresh() async {
         guard let bootstrap, !loading else { return }
         loading = true
@@ -283,7 +305,7 @@ final class PhoneTodayReader: ObservableObject {
     }
 }
 
-private final class NoReadRedirect: NSObject, URLSessionTaskDelegate {
+final class NoReadRedirect: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)

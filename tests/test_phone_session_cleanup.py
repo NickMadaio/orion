@@ -29,3 +29,18 @@ class PhoneSessionCleanupTests(unittest.TestCase):
             cleanup_session_files([], lambda:current, ('response.json',), 'our-challenge','our-fixture-token')
             self.assertFalse((current/'response.json').exists())
             self.assertTrue((current/'local-today.json').exists())
+
+class HTTPBootstrapCleanupTests(unittest.TestCase):
+    def test_every_observed_container_cleaned_on_lookup_failure(self):
+        from scripts.orion_phone_http_session_scenario import cleanup_http_bootstraps
+        with tempfile.TemporaryDirectory() as root:
+            folders = [Path(root)/name for name in ('initial','intermediate')]
+            for folder in folders:
+                folder.mkdir()
+                (folder/'http-session-bootstrap.json').write_text(json.dumps({'token':'our-grant'}))
+                (folder/'local-today.json').write_text(json.dumps({'token':'other-token'}))
+            def missing(): raise subprocess.CalledProcessError(1,'simctl')
+            cleanup_http_bootstraps(folders,missing,'our-grant','our-legacy-token')
+            for folder in folders:
+                self.assertFalse((folder/'http-session-bootstrap.json').exists())
+                self.assertTrue((folder/'local-today.json').exists())

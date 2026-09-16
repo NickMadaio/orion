@@ -45,6 +45,17 @@ final class PhoneShellTests: XCTestCase {
         XCTAssertFalse(app.buttons["reviewPairing"].exists)
     }
 
+    func testPersistentKeyReadSessionProof() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--read-session-test"]
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertTrue(app.staticTexts["deviceIdentityID"].waitForExistence(timeout: 10))
+        app.buttons["signReadSession"].tap()
+        XCTAssertEqual(app.staticTexts["readSessionProofStatus"].label, "Session proof signed · awaiting service acceptance")
+        XCTAssertTrue(app.staticTexts["deviceIdentityStatus"].label.contains("not paired"))
+    }
+
     func testPairingClaimProof() {
         let app = XCUIApplication()
         app.launchArguments = ["--pairing-proof-test"]

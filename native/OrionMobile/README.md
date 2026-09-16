@@ -143,3 +143,11 @@ device: its review screen shows the joining key/id and signs confirmation only
 after an explicit tap. Rejection and expired-request scenarios produce no
 approval. Normal launches and physical builds have no test file bridge or real
 account pairing. See `docs/planning/v2/PHONE_PAIRING_APPROVAL_2026-09-16.md`.
+
+## Persistent key to read session
+
+`python3 scripts/orion_v2_phone_pairing_check.py --read-session` joins actual
+Simulator key signing to DeviceReadSessions and the real HTTP reader. Add
+`--approval` to exercise offering-device approval first. This uses a disposable
+account and private-file credential delivery; production authentication remains
+pending. See `docs/planning/v2/PHONE_KEY_READ_SESSION_2026-09-16.md`.

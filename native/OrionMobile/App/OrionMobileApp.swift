@@ -108,6 +108,14 @@ struct PhoneRootView: View {
                 }
             }
             #if targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--read-session-test") {
+                Section("Device session test") {
+                    Text("Disposable account · local read access only")
+                    Button("Sign read-session challenge") { identity.writeTestReadSessionProof() }
+                        .accessibilityIdentifier("signReadSession")
+                    Text(identity.readSessionTestStatus).accessibilityIdentifier("readSessionProofStatus")
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("--pairing-approval-test") {
                 Section("Pairing test") {
                     if let request = pairingApproval.request {

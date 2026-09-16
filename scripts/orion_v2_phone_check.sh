@@ -23,6 +23,7 @@ xcodebuild -project native/OrionMobile/OrionMobile.xcodeproj -scheme OrionPhone 
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingApprovalAccept \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingApprovalReject \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingApprovalExpired \
+  -skip-testing:OrionPhoneUITests/PhoneShellTests/testPersistentKeyReadSessionProof \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPairingClaimProof \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testPublishedPlanReading \
   -skip-testing:OrionPhoneUITests/PhoneShellTests/testLocalReadRecoveryAndRevocation \

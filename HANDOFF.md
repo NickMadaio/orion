@@ -10,6 +10,34 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-16 08:57 BST — Persistent phone key opens a local read session
+
+DeviceReadChallenge binds owner/device/public key/server nonce with a distinct
+message domain and signing-time expiry. Simulator-only bridge compares the
+request key to its actual stored key and signs; DeviceReadSessions exchanges
+that exact proof for the token used by the real Swift HTTP reader. Combined
+pairing/approval/session/read/outage/recovery/revoke flow passes. A final isolated
+--read-session rerun after cleanup repair also passes, including replay refusal
+and durable revoke clearing reading and surviving process restart.
+
+143 backend tests and13 Swift tests pass; generic physical-iOS build compiles
+unsigned only. Independent review found intermediate Simulator-container cleanup
+gap; all observed directories now tracked, two regressions independently pass,
+no remaining findings. Source/history scan clean (3491 reviewed). Report:
+docs/planning/v2/PHONE_KEY_READ_SESSION_2026-09-16.md. Evidence:
+.builds/phone-key-session-2026-09-16/ and .builds/phone-pairing-check/.
+
+Persistent-key issuance milestone100%; roadmap53% unchanged. Fixture enrollment
+and private-file challenge/token delivery remain; no production auth endpoint,
+real account or physicalphone proof. Personal-preview still separate legacy
+development-token route. Mac build232/personal plan hash unchanged, temporary
+files/stores cleaned, persistent Simulator key retained. Preserve capabilities.md.
+Next: bounded authenticated local exchange transport replacing private files,
+then real-account/physical deployment gates. Revert scoped local checkpoint for
+rollback; no production service/store installed, no remote push.
+
+---
+
 ## 2026-09-16 02:53 BST — Device-bound local read sessions verified
 
 DeviceReadSessions now exchanges fresh single-use signatures bound to owner,

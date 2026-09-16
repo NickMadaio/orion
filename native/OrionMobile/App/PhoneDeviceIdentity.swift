@@ -91,6 +91,34 @@ final class PhoneDeviceIdentity: ObservableObject {
         return signature.base64EncodedString()
     }
 
+    @Published var readSessionTestStatus = "Awaiting session challenge"
+    func writeTestReadSessionProof() {
+        guard ProcessInfo.processInfo.arguments.contains("--read-session-test") else { return }
+        do {
+            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let requestURL = directory.appendingPathComponent("read-session-request.json")
+            let responseURL = directory.appendingPathComponent("read-session-response.json")
+            guard !FileManager.default.fileExists(atPath: responseURL.path),
+                  let size = try requestURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4096,
+                  let key, let publicKey = SecKeyCopyPublicKey(key),
+                  let point = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else { throw IdentityFailure.invalid }
+            let request = try JSONDecoder().decode(DeviceReadChallenge.self, from: Data(contentsOf: requestURL))
+            try request.validate(expectedOwner: "pairing-test-owner", expectedDevice: "pairing-test-phone",
+                                 expectedKey: point.base64EncodedString(), now: Date())
+            guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256,
+                    Data(request.proofMessage.utf8) as CFData, nil) as Data? else { throw IdentityFailure.unavailable }
+            let response = ReadSessionProof(challenge: request.challenge, publicKey: point.base64EncodedString(),
+                                            signature: signature.base64EncodedString())
+            try JSONEncoder().encode(response).write(to: responseURL, options: [.atomic, .completeFileProtection])
+            readSessionTestStatus = "Session proof signed · awaiting service acceptance"
+        } catch { readSessionTestStatus = "Session challenge refused" }
+    }
+    private struct ReadSessionProof: Encodable {
+        let challenge: String
+        let publicKey: String
+        let signature: String
+    }
+
     @Published var pairingTestStatus = "Awaiting test claim"
     /// Local file bridge for interoperability testing. Never compiled for a physical phone.
     func writeTestPairingProof() {

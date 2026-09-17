@@ -16,6 +16,12 @@ struct PhoneRootView: View {
     @State private var reviewedSetup: PhoneHTTPReadSession.Bootstrap?
     @State private var setupStatus = "Review the local connection before loading a reading."
     @State private var connectionTask: Task<Void, Never>?
+    @State private var rememberConnection = false
+    @AppStorage("orion.rememberedLocalConnection.v1") private var rememberedConnectionData = Data()
+    private var rememberedConnection: RememberedLocalConnection? {
+        guard let fingerprint = identity.identifier else { return nil }
+        return try? RememberedLocalConnection.decode(rememberedConnectionData, expectedFingerprint: fingerprint)
+    }
     private var reviewsConnection: Bool { ProcessInfo.processInfo.arguments.contains("--review-http-session") }
     #endif
     @State private var sample: TodayPlan?
@@ -60,14 +66,29 @@ struct PhoneRootView: View {
                     .font(.caption.monospaced()).accessibilityIdentifier("setupAddress")
                 Text("Temporary test account · access lasts up to five minutes. No account is signed in. Disconnect from Control to clear the reading.")
                     .font(.footnote).foregroundStyle(.secondary)
+                Toggle("Remember this connection", isOn: $rememberConnection)
+                    .accessibilityIdentifier("rememberReadConnection")
+                Text("Saves connection details only. A fresh approval is still needed to connect again.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Button("Connect and read plan") {
+                    let shouldRemember = rememberConnection
                     reviewedSetup = nil
                     setupStatus = "Connecting to the local service…"
                     connectionTask = Task {
                         await PhoneHTTPReadSession.connect(identity: identity, reader: reader, reviewedSetup: setup)
                         if !Task.isCancelled {
                             await reader.refresh()
-                            if !Task.isCancelled { setupStatus = "Start a new preview on your Mac to connect again."; connectionTask = nil }
+                            if !Task.isCancelled {
+                                setupStatus = "Start a new preview on your Mac to connect again."
+                                if shouldRemember, reader.available, let fingerprint = identity.identifier {
+                                    do {
+                                        let value = try RememberedLocalConnection(port: setup.port, ownerID: setup.owner,
+                                            deviceID: setup.device, phoneFingerprint: fingerprint)
+                                        rememberedConnectionData = try JSONEncoder().encode(value)
+                                    } catch { setupStatus = "Reading loaded, but connection details could not be saved." }
+                                }
+                                connectionTask = nil
+                            }
                         }
                     }
                 }.accessibilityIdentifier("approveReadConnection")
@@ -190,6 +211,27 @@ struct PhoneRootView: View {
                     Button("Sign test pairing claim") { identity.writeTestPairingProof() }
                         .accessibilityIdentifier("signTestPairing")
                     Text(identity.pairingTestStatus).accessibilityIdentifier("pairingTestStatus")
+                }
+            }
+            #endif
+            #if targetEnvironment(simulator)
+            if !rememberedConnectionData.isEmpty {
+                Section("Remembered connection") {
+                    if let saved = rememberedConnection {
+                        Text("Local preview · 127.0.0.1:\(saved.port)")
+                            .accessibilityIdentifier("rememberedConnectionAddress")
+                        Text("Temporary test account. Remembered details do not grant access or reconnect automatically.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        Text("Saved connection details cannot be verified for this phone.")
+                    }
+                    Button("Forget connection", role: .destructive) {
+                        connectionTask?.cancel(); connectionTask = nil
+                        reader.disconnect()
+                        rememberedConnectionData = Data()
+                        reviewedSetup = nil; rememberConnection = false
+                        setupStatus = "Connection forgotten · start a new preview to connect again."
+                    }.accessibilityIdentifier("forgetReadConnection")
                 }
             }
             #endif

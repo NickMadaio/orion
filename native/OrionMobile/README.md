@@ -198,3 +198,10 @@ This is still a disposable local setup, not persistent enrollment or sign-in.
 
 Automated scenarios: `--http-session --setup-review-test` and
 `--http-session --setup-cancel-test`. Run them sequentially.
+
+The review screen optionally remembers connection details (off by default). It
+saves only the local port, fixture account/device identifiers and this phone's
+public-key fingerprint after a successful read. Control shows the remembered
+connection after relaunch, but does not reconnect or retain the plan or tokens.
+Forget connection clears these details and disconnects any current reading.
+This is display history, not persistent enrollment or reusable authorization.

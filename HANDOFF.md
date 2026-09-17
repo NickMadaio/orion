@@ -1,12 +1,37 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-16.** This is the only handoff. If you find another one
+**Last updated 2026-09-17.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-17 03:34 BST — Remember and forget local connection details
+
+Added an off-by-default Remember this connection choice to explicit review. Only
+successful approved reads save display metadata, bound to the phone fingerprint;
+no token, grant or plan is persisted. Control displays the record after normal
+relaunch without connecting. Forget cancels pending work, clears live reading
+and removes the saved record. Invalid metadata is not treated as verified.
+
+All15 Swift tests pass. Actual Simulator opt-in/read/disconnect/relaunch/forget/
+relaunch passes; cancellation with opt-in enabled saves nothing. Both scenarios
+retain exchange/fallback-refusal/durable-revocation checks. Physical iOS compiles
+unsigned only. Independent source review has no actionable findings. Report:
+docs/planning/v2/REMEMBERED_CONNECTION_2026-09-17.md. Evidence:
+.builds/phone-remember-2026-09-17/ plus phone-pairing-check xcresults.
+
+This is display history, not durable account enrollment or reusable read authority.
+No hands-on step required. Roadmap53% unchanged; Mac build232 and personal plan
+hash unchanged. No production install or remote push. Next: durable host-side
+read authorization tied to approved enrollment, retaining fresh phone-key proof
+and revocation on every read; then connect that to user-controlled phone setup.
+Rollback scoped checkpoint and use Forget for an opted-in record. Preserve
+capabilities.md and persistent device keys.
 
 ---
 

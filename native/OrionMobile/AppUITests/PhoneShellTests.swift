@@ -96,6 +96,7 @@ final class PhoneShellTests: XCTestCase {
         app.launchArguments = ["--review-http-session"]
         app.launch()
         XCTAssertTrue(app.buttons["approveReadConnection"].waitForExistence(timeout: 10))
+        app.switches["rememberReadConnection"].tap()
         app.buttons["approveReadConnection"].tap()
         XCTAssertTrue(app.buttons["cancelReadConnection"].waitForExistence(timeout: 5))
         // The harness delays the signed exchange and asserts it was actually
@@ -109,6 +110,8 @@ final class PhoneShellTests: XCTestCase {
             XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Reading disconnected")
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertFalse(app.buttons["forgetReadConnection"].exists)
     }
 
     func testHTTPConnectionReview() {
@@ -127,6 +130,7 @@ final class PhoneShellTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["readingRevision"].exists)
         // The same single-use grant must still work: reviewing/declining did
         // not consume a challenge or connect silently.
+        app.switches["rememberReadConnection"].tap()
         app.buttons["approveReadConnection"].tap()
         XCTAssertTrue(app.staticTexts["readingRevision"].waitForExistence(timeout: 15))
         app.tabBars.buttons["Control"].tap()
@@ -135,6 +139,19 @@ final class PhoneShellTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["readingRevision"].exists)
         XCTAssertFalse(app.buttons["approveReadConnection"].exists)
         XCTAssertEqual(app.staticTexts["connectionStatus"].label, "Reading disconnected")
+        app.terminate()
+        app.launchArguments = []
+        app.launch()
+        XCTAssertTrue(app.staticTexts["connectionStatus"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["readingRevision"].exists)
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertTrue(app.staticTexts["rememberedConnectionAddress"].exists)
+        app.buttons["forgetReadConnection"].tap()
+        XCTAssertFalse(app.staticTexts["rememberedConnectionAddress"].exists)
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Control"].tap()
+        XCTAssertFalse(app.buttons["forgetReadConnection"].exists)
     }
 
     func testHTTPDisconnectDuringRefresh() {

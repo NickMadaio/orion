@@ -10,6 +10,28 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-18 13:40 BST — Durable automation admission guard built, not connected
+
+Implemented scripts/lib/orion-automation-admission.mjs with explicit state
+initialization, installation-bound policy, zoned inclusive expiry, daily attempt
+limits, quiet/focus/effective-mode checks and fail-closed durable reservation.
+Independent review found inconsistent day/timestamp could replenish quota; fixed
+with stored-state invariants and regression tests.15 admission+8 removal tests
+pass independently, including competing child processes, persistence failures and
+process exits around atomic replacement. Full quick source CI passes348 plugin
+tests and23 automation checks; network dependency audit skipped.
+Report: docs/planning/v2/PHASE_57_ADMISSION_2026-09-18.md; evidence:
+.builds/phase-57-admission-2026-09-18/. No real schedules/actions/state initialized.
+
+This is admission-only. Installer/dispatcher/message limits/retry/trigger identity
+and actual action authority remain unconnected. Phase57 expiry remains blocked;
+46/85 (54%) unchanged. Next build bounded dispatcher, then fix install wiring and
+prove disposable end-to-end execution. Existing Trash ticket expired ungranted;
+no new hands-on step needed for this slice. Preserve capabilities.md and test
+copy fixtures. Rollback scoped source checkpoint, no live restoration required.
+
+---
+
 ## 2026-09-18 11:58 BST — Truthful automation removal; expired test approval
 
 User continued after the earlier Trash ticket expired. Read-only check showed

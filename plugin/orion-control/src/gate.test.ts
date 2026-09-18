@@ -961,7 +961,10 @@ describe("phase 62: what Nick is waiting on", () => {
   it("uses a local civil date, because toISOString rolls over mid-evening here", () => {
     // This has cost the program a day of memory filed under tomorrow once
     // already; the rule is written into orion-standing and applies here too.
-    expect(civilToday(new Date("2026-09-03T22:30:00-04:00"))).toBe("2026-09-03");
+    // Construct local civil times instead of assuming the machine is in New York.
+    // Late evening catches UTC conversion west of UTC; early morning catches it east.
+    expect(civilToday(new Date(2026, 8, 3, 22, 30))).toBe("2026-09-03");
+    expect(civilToday(new Date(2026, 8, 4, 0, 30))).toBe("2026-09-04");
   });
 });
 

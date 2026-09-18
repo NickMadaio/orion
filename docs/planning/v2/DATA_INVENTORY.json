@@ -107,7 +107,7 @@
       "data": "files on the Mac",
       "source": "the Desktop, the home directory (read-only), and two Orion-owned workspaces",
       "purpose": "reading, listing, and writing where Orion is allowed to",
-      "storage": "the filesystem: the Desktop, the home directory (read-only), and two Orion-owned roots \u2014 test-workspace and scratch-workspace under ~/.openclaw/orion-controlled/. Deletions go to ~/.Trash.",
+      "storage": "the filesystem: the Desktop, the home directory (read-only), and two Orion-owned roots \u2014 test-workspace and scratch-workspace under ~/.openclaw/orion-controlled/. Deletions go to ~/.Trash. Candidate file_copy creates a private temporary file in the destination directory, publishes without overwrite, then removes the temporary link. A cleanup failure leaves its name in the task result for recovery.",
       "tiers": [
         "desktop_read",
         "home_read",
@@ -121,7 +121,7 @@
       ],
       "encryption": "FileVault only",
       "retention": "the user's",
-      "modelExposure": "file contents reach the model when read; names and sizes when listed",
+      "modelExposure": "file contents reach the model when read; names and sizes when listed; file_copy returns paths, byte count and SHA256 verification, not file contents",
       "thirdPartyExposure": "Anthropic sees what reaches a turn",
       "deletion": "ordinary; delete goes to the Trash and is recorded with its inverse in the ledger",
       "sensitivity": "varies. Credential-shaped filenames are refused outright"

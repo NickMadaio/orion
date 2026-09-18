@@ -74,15 +74,15 @@ export interface MediaControlPolicy {
     targetWords: readonly string[];
 }
 /**
- * Move / rename / delete inside a mutable root. Delete means "move to Trash":
+ * Copy / move / rename / delete inside a mutable root. Delete means "move to Trash":
  * see `trashPath` in executors.ts. Nothing here unlinks.
  */
 export interface FileMutationPolicy {
     kind: "file_mutate";
-    operation: "move" | "rename" | "delete";
+    operation: "move" | "rename" | "delete" | "copy";
     rootArgument: string;
     relativePathArgument: string;
-    /** `destinationPath` for move, `newName` for rename, absent for delete. */
+    /** `destinationPath` for copy/move, `newName` for rename, absent for delete. */
     destinationArgument?: string;
 }
 export type ExecutionPolicy = {

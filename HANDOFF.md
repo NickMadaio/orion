@@ -1,12 +1,70 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-17.** This is the only handoff. If you find another one
+**Last updated 2026-09-18.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-18 03:17 BST — File-copy packaging and deployment prerequisites verified
+
+Final independent review cleared helper packaging and fingerprinting. The full
+candidate source preflight then caught file_copy missing from the capability
+registry; the generator now records source-preserving read/write effects and
+regeneration adds exactly one action (114 total), leaving all previous entries
+unchanged. Independent review verified that result and the generated JSON.
+
+After repair, the full quick source suite passes (348 plugin tests, typecheck,
+schema, policy/catalog contracts, source secret scan and document checks). All
+six other deployment suites pass: coverage, strictness (33 checks), authority,
+lock, remote and phase-gate consistency. These were invoked directly against
+the candidate; this was not an installation or a clean-tree deploy rehearsal.
+Dependency-network audit was skipped by --quick. Evidence: preflight-*.log in
+.builds/phase-47-76-2026-09-17/. Earlier source/history scan was clean with3671
+reviewed allowlisted findings. The saved personal-plan hash is unchanged.
+
+Formal progress remains46/85 (54%). File-copy installed-service proof remains
+open. No restart, install, authority change, remote push or hands-on user step.
+Save the scoped reviewed batch locally, preserving unrelated capabilities.md.
+Next: prepare a clean deployment candidate, compare all candidate/installed
+production differences, then controlled deployment and actual tool-route copy
+verification. Do not bypass the dirty-tree gate to sweep unrelated work into a
+release. Rollback this local checkpoint; production has not changed.
+
+---
+
+## 2026-09-17 09:07 BST — Phase76 closed; file-copy candidate built and reviewed
+
+User asked for substantial total-percent progress. Audited numbered phases rather
+than inflating phone sub-checkpoints. Fixed Phase76 checker ignoring deploy's
+ORION_CATALOG_DIST: four before-fix assertion failures now pass, unsafe/missing/
+malformed candidates refuse, installed+candidate audits pass. Independent review
+cleared closure as a smoke alarm only, retaining Phase75's prerequisite deviation.
+Formal roadmap is now46/85 complete (54%),25 in progress,14 not started.
+
+Built file_copy for Phase47 under existing file_mutate authority: regular files
+up to64MiB, same mutable root, no overwrites, descriptor-relative no-symlink I/O,
+verified hashes and manual hash-checked Trash inverse. Copied inputs do not become
+self-authored. Review found cleanup-result loss, misleading verification evidence
+and ancestor-swap exposure; repaired with failure/adversarial tests. Final review
+clear.348 plugin tests/8 Python tests/build/compiled controller proof pass. Candidate
+inventory passes17 entries/32 tiers. Source/history scan log in evidence folder.
+
+Installed catalog still lacks file_copy; Phase47 deliberately remains open pending
+controlled deployment and live route proof. No gateway restart, permission changes,
+physical-phone setup, Mac app install or remote push. No hands-on step yet. Report:
+docs/planning/v2/PHASE_47_76_PROGRESS_2026-09-17.md; logs:
+.builds/phase-47-76-2026-09-17/. Preserve capabilities.md. Revert scoped checkpoint
+for rollback; no production state restoration needed.
+
+Independent audit also exposed actual remaining Phase57/63/67/75 gaps; report
+lists them. Do not close those from historical passed requirement rows. Next:
+installed copy proof, then automation runtime enforcement defects. Persistent
+phone enrollment remains open; no total progress claim was based on saving labels.
 
 ---
 

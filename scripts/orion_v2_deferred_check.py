@@ -26,13 +26,14 @@ A signal that fires on the thing already shipped is a signal that gets muted.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-DIST = Path.home() / ".openclaw/extensions/orion-control/dist"
+DIST = Path(os.environ.get("ORION_CATALOG_DIST", str(Path.home() / ".openclaw/extensions/orion-control/dist"))).resolve()
 SCRIPTS = REPO / "scripts"
 APPROVALS = Path.home() / ".openclaw/exec-approvals.json"
 
@@ -152,8 +153,8 @@ def simulated_only(action: str) -> bool:
 
 def main() -> int:
     sources = capability_names()
-    if not sources:
-        print("deferred check: FAIL nothing to scan — is the plugin installed?")
+    if "the action catalog" not in sources:
+        print("deferred check: FAIL candidate catalog unavailable or malformed")
         return 1
 
     failures: list[str] = []

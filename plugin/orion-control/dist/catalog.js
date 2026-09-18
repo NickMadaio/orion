@@ -1305,6 +1305,13 @@ export const ACTION_CATALOG = {
         operation: "display_sleep",
         targetWords: ["display", "screen", "monitor", "displays", "screens"],
     }, { requiredArguments: [], verification: "display_sleep_command_accepted" }),
+    file_copy: fileMutation("copy", {
+        risk: "medium", approvalRequired: false,
+        requiredArguments: ["root", "relativePath", "destinationPath"],
+        verification: "file_copy_matches_source", destinationArgument: "destinationPath",
+        extraValidation: (args) => isSafeRelativePath(args.destinationPath)
+            ? [] : ["destinationPath must stay within the same configured root and contain no hidden or sensitive path segment"],
+    }),
     file_move: fileMutation("move", {
         risk: "medium",
         approvalRequired: false,

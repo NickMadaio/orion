@@ -114,3 +114,15 @@ Gateway working directory. Tier 1 defaults to
 plugin configuration. Set `enableTestWorkspaceActions` to `true` and opt in
 the two optional tools through `tools.alsoAllow` only after the test suite
 passes.
+
+## Bounded file copying
+
+`file_copy` uses the existing `file_mutate` tier with `root`, `relativePath` and
+`destinationPath`. It copies regular files up to64MiB within one configured
+mutable root. Directory trees, symlinks and existing destinations are refused.
+The Python3 standard-library helper pins directory descriptors and publishes
+only a fully written copy. Verification compares source and destination hashes.
+Copied input is not marked self-authored. The result records a manual Trash
+inverse and any temporary cleanup needed. No automatic retry overwrites a copy.
+This addition is built in the repository candidate; installed-route proof remains
+outstanding. The build copies the helper into dist alongside the executor.

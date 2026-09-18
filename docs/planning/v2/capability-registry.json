@@ -910,6 +910,41 @@
       "note": "catalog.ts also runs a hand-written validateArguments for this action"
     },
     {
+      "action": "file_copy",
+      "capability": "files.file.copy",
+      "domain": "files",
+      "risk": "medium",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_files",
+        "writes_files"
+      ],
+      "resource_scope": "file_mutate",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "destinationPath",
+          "relativePath",
+          "root"
+        ],
+        "properties": {
+          "destinationPath": {},
+          "relativePath": {},
+          "root": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
       "action": "file_delete",
       "capability": "files.file.delete",
       "domain": "files",

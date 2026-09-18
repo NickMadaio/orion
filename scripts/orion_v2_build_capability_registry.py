@@ -297,7 +297,10 @@ def build() -> dict:
         tier = row["tier"]
         if tier not in TIER_RULES:
             raise RuntimeError(f"{row['action']}: tier {tier!r} has no registry rule")
-        effects = EFFECTS_BY_KIND.get(row["kind"])
+        # Copy shares the file-mutation executor but preserves the source.
+        # Do not describe it as a move/delete merely because of that grouping.
+        effects = (["reads_files", "writes_files"] if row["action"] == "file_copy"
+                   else EFFECTS_BY_KIND.get(row["kind"]))
         if effects is None:
             raise RuntimeError(f"{row['action']}: execution kind {row['kind']!r} has no effect mapping")
         entry = {

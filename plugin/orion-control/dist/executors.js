@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { constants } from "node:fs";
 import { describeDuration, readClock, readReminders, readSystemStatus, readWeather, remindersPath, resolveAlarmTime, writeReminders, } from "./ambient.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -1106,6 +1107,16 @@ async function trashPath(trashRoot, name) {
     }
     throw new ActionExecutionError("Could not find a free name in the Trash.");
 }
+async function scopedCopy(mode, root, source, destination, hash) {
+    try {
+        const result = await execFileAsync("python3", [fileURLToPath(new URL("./file-copy-helper.py", import.meta.url)),
+            mode, root, source, destination, ...(hash ? [hash] : [])], { timeout: 15000, maxBuffer: 8192 });
+        return JSON.parse(result.stdout);
+    }
+    catch {
+        throw new ActionExecutionError("File copy refused: use stable regular files up to 64 MiB, visible paths within one root, and a destination that does not already exist.");
+    }
+}
 async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
     const root = step.arguments[policy.rootArgument];
     const relativePath = step.arguments[policy.relativePathArgument];
@@ -1127,6 +1138,9 @@ async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
     if (!stats.isFile() && !stats.isDirectory()) {
         throw new ActionExecutionError("Only regular files and directories can be moved, renamed, or deleted.");
     }
+    if (policy.operation === "copy" && !stats.isFile()) {
+        throw new ActionExecutionError("Copy supports regular files only, not directory trees.");
+    }
     const name = path.posix.basename(relativePath);
     if (stats.isDirectory()) {
         // A non-empty folder used to require the user's own words to name it. That
@@ -1136,7 +1150,7 @@ async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
         // "should have phrased it differently".
         await readdir(resolved.target);
     }
-    else {
+    else if (policy.operation !== "copy") {
         await assertNotOpenElsewhere(resolved.target);
     }
     let destination;
@@ -1181,6 +1195,17 @@ async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
             throw error;
         if (error.code !== "ENOENT")
             throw error;
+    }
+    if (policy.operation === "copy") {
+        const destinationPath = String(step.arguments[policy.destinationArgument ?? "destinationPath"]);
+        const result = await scopedCopy("copy", resolved.realRoot, relativePath, destinationPath);
+        return {
+            mode: "copied", idempotencyKey, target: destination,
+            output: { operation: "copy", from: resolved.target, to: destination, ...result },
+            undo: { operation: "trash_copy", from: destination, to: context.trashRoot ?? path.join(os.homedir(), ".Trash"), root,
+                relativePath: destinationPath,
+                description: `After verifying SHA-256 ${result.resultHash}, move the new copy ${destination} to Trash to undo; leave ${resolved.target} unchanged.` },
+        };
     }
     try {
         await rename(resolved.target, destination);
@@ -2143,6 +2168,24 @@ export async function verifyAction(definition, step, execution, context) {
         return verifyMedia(definition.execution, step, execution);
     }
     if (definition.execution.kind === "file_mutate") {
+        if (definition.execution.operation === "copy") {
+            const from = outputField(execution.output, "from");
+            const to = outputField(execution.output, "to");
+            const hash = outputField(execution.output, "resultHash");
+            if (typeof from !== "string" || typeof to !== "string" || typeof hash !== "string")
+                return { observed: false };
+            try {
+                const root = step.arguments[definition.execution.rootArgument];
+                if (!isMutableRoot(root))
+                    return { observed: false };
+                const result = await scopedCopy("verify", await assertRealDirectory(context.roots[root]), String(step.arguments[definition.execution.relativePathArgument]), String(step.arguments[definition.execution.destinationArgument ?? "destinationPath"]), hash);
+                return { observed: result.sourceMatches === true && result.destinationMatches === true,
+                    evidence: `copy_sha256:${hash}:source_matches=${result.sourceMatches}:destination_matches=${result.destinationMatches}` };
+            }
+            catch {
+                return { observed: false };
+            }
+        }
         return verifyFileMutation(execution);
     }
     if (definition.execution.kind === "create_only_text" && execution.target) {

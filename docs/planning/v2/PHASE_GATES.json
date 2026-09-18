@@ -4291,8 +4291,8 @@
         {
           "id": "adds_files_copy",
           "status": "blocked",
-          "reason": "Not built. Adding a catalogue action means a catalogue entry, an executor, a verification method and a plugin rebuild, and it should land with its own tests rather than be appended to a survey.",
-          "evidence": "No file_copy in the deployed catalogue. It is the one genuine gap in this phase and the only action of the four that does not exist in some form."
+          "reason": "Candidate implementation complete; deployment and installed normal-route proof still required before closing this requirement.",
+          "evidence": "2026-09-17: file_copy built in candidate catalog/executor. Same mutable root, regular files up to64MiB, descriptor-relative no-symlink I/O, exclusive complete-file publication, SHA256 source/destination verification and trash-copy inverse.348 plugin tests and8 Python checks pass; independent review clear after three repairs. Installed catalog still lacks file_copy; live route unproven."
         },
         {
           "id": "defines_path_scopes",
@@ -4321,7 +4321,7 @@
         }
       ],
       "limitations": [
-        "files.copy is the single missing action. Everything else in this phase was already built and is verified here, not written."
+        "file_copy is built and reviewed in the repository candidate, but not installed or proven through the live tool route."
       ],
       "nextPhaseAllowed": false
     },
@@ -5299,12 +5299,12 @@
     },
     "76": {
       "name": "Features Explicitly Deferred",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "75",
       "entrySatisfied": true,
       "openedOn": "2026-09-04",
       "openedAgainst": "Entered with entrySatisfied false. Phases 65 and 66 are open on the app bundle's designated requirement, which is deliberately parked until Nick is at the keyboard, and neither is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "docs/planning/v2 deferral list encoded in scripts/orion_v2_deferred_check.py, scanned across the installed action catalog, the wrapper script names and the exec allowlist.",
+      "evidence": "docs/planning/v2 deferral list encoded in scripts/orion_v2_deferred_check.py, scanned across the installed action catalog, the wrapper script names and the exec allowlist. Closure 2026-09-17: candidate selection repaired and independently verified; see PHASE_47_76_PROGRESS_2026-09-17.md.",
       "requirements": [
         {
           "id": "records_the_fifteen_deferred_features",
@@ -5328,8 +5328,15 @@
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
           "note": "The alarm scans the INSTALLED dist, so a deferred feature landing in src/ and not yet deployed is invisible to it. Recorded rather than fixed: scanning source instead would miss a hand-copied dist, and scanning both doubles the false-positive surface the structural rewrite was built to remove. The deploy gate runs the check, so nothing reaches the installed copy unscanned."
+        },
+        {
+          "on": "2026-09-17",
+          "review": "Independent candidate-scan closure review",
+          "note": "Corrected the earlier assertion that deploy already checked candidate capabilities: checker ignored ORION_CATALOG_DIST and scanned installed code instead. Now honors the explicit candidate directory and refuses unavailable/malformed catalogs. Four tests reproduced four failing assertions before repair and pass afterward; independent rerun confirms candidate and installed checks cover15 features/3 surfaces. Report: docs/planning/v2/PHASE_47_76_PROGRESS_2026-09-17.md."
         }
-      ]
+      ],
+      "closedOn": "2026-09-17",
+      "completionScope": "Deferral-policy implementation and deployment smoke alarm. Not comprehensive absence proof or connected-product recovery closure. Phase75 remains in_progress; existing out-of-order prerequisite deviation is retained. entrySatisfied remains the checker-derived requirement flag, not a claim that Phase75 is complete."
     },
     "77": {
       "name": "Future Apple Watch Expansion",

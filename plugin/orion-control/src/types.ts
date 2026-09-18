@@ -74,10 +74,11 @@ export interface ValidationResult {
  * The exact inverse of a mutation, recorded in the ledger so a move, rename, or
  * trash can be undone by hand from the audit trail alone. `from` is where the
  * thing is now (for a delete, its resulting Trash path); `to` is where it came
- * from. Both are absolute.
+ * from. Both are absolute. For trash_copy, `to` is the Trash directory and
+ * the description requires checking the recorded content hash before removal.
  */
 export interface UndoRecord {
-  operation: "move" | "rename" | "restore_from_trash";
+  operation: "move" | "rename" | "restore_from_trash" | "trash_copy";
   from: string;
   to: string;
   description: string;
@@ -106,6 +107,7 @@ export interface StepRecord {
       | "already_present"
       | "observed"
       | "controlled"
+      | "copied"
       | "moved"
       | "trashed"
       | "scheduled"

@@ -51,7 +51,7 @@ fingerprint() {
     # The installed package deliberately excludes compiled test fixtures, so
     # the status fingerprint must compare the same production file set. Hash
     # relative names as well as contents; absolute source/install roots differ.
-    (cd "$1" && find . -name '*.js' ! -name '*.test.js' -type f \
+    (cd "$1" && find . \( -name '*.js' -o -name 'file-copy-helper.py' \) ! -name '*.test.js' -type f \
         -exec shasum -a 256 {} + 2>/dev/null \
         | sort | shasum -a 256 | cut -c1-12)
 }
@@ -190,7 +190,7 @@ mkdir -p "$INSTALLED/dist"
 # finding, it was to stop shipping the files: the gateway never loads them,
 # they are a third of the installed bytes, and a scanner that has to be told
 # to ignore the shipped artefact is a scanner nobody will trust the next time.
-for file in "$PLUGIN"/dist/*.js "$PLUGIN"/dist/*.d.ts; do
+for file in "$PLUGIN"/dist/*.js "$PLUGIN"/dist/*.d.ts "$PLUGIN"/dist/file-copy-helper.py; do
     case "$(basename "$file")" in
         *.test.js|*.test.d.ts) continue ;;
     esac

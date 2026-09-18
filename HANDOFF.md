@@ -10,6 +10,30 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-18 04:02 BST — File copying deployed and proven; human Trash gate pending
+
+Protected clean-checkout deployment of d7d80e8 passed rehearsal and all live
+deployment suites. Installed/built fingerprint e0fbbeb7ab40. Gateway restarted,
+114 actions loaded and normal tool discovery passed. Real copy and overwrite
+refusal proven in ledger plus independent byte checks. Personal plan/config and
+authority files unchanged. Mac app unchanged. Rollback snapshot20260918-035928
+also saved under .builds/phase-47-76-2026-09-17/rollback/.
+
+Independent review corrected inaccurate Phase47 scope prose and reopened Trash
+recovery: previous passed row showed implementation, not actual recovered bytes.
+Copy requirement passes; Phase47 and predecessor deviation remain open. Overall
+46/85 (54%). Details: docs/planning/v2/PHASE_47_LIVE_COPY_2026-09-18.md.
+
+Hands-on step presented immediately: Nick runs scripts/orion-approve A-QZV3 in
+Terminal, for only disposable copy-proof-d7d80e8/copied.bin. Ticket expires04:16:47
+BST today. The assistant must not grant it. No deletion happened. Once approved,
+retry exact file_delete through gateway, inspect recorded Trash destination,
+recover fixture and compare bytes. If expired obtain a fresh ticket. Preserve
+unrelated capabilities.md; no remote push. The isolated deployment checkout's
+audit-generated JSON changes are ours, not release source changes.
+
+---
+
 ## 2026-09-18 03:17 BST — File-copy packaging and deployment prerequisites verified
 
 Final independent review cleared helper packaging and fingerprinting. The full

@@ -4268,7 +4268,7 @@
       "entrySatisfied": false,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
-      "evidence": "Verified against the deployed ACTION_CATALOG. Nothing was built; almost all of it already existed.",
+      "evidence": "File copying is now deployed and verified through the gateway. Earlier list/read/move rows cite catalog support, not newly repeated end-to-end execution. Trash recovery proof reopened after independent evidence review.",
       "decisions": [
         "Surveyed before designing. Nineteen file-shaped actions already exist across six capability tiers, so the phase is a verification, not a build -- the third time in this program that grepping first avoided rebuilding something."
       ],
@@ -4290,19 +4290,18 @@
         },
         {
           "id": "adds_files_copy",
-          "status": "blocked",
-          "reason": "Candidate implementation complete; deployment and installed normal-route proof still required before closing this requirement.",
-          "evidence": "2026-09-17: file_copy built in candidate catalog/executor. Same mutable root, regular files up to64MiB, descriptor-relative no-symlink I/O, exclusive complete-file publication, SHA256 source/destination verification and trash-copy inverse.348 plugin tests and8 Python checks pass; independent review clear after three repairs. Installed catalog still lacks file_copy; live route unproven."
+          "status": "passed",
+          "evidence": "2026-09-18: protected clean-checkout deployment d7d80e8, fingerprint e0fbbeb7ab40. Normal gateway task orion-c6541141318a7284 verified the292-byte binary copy; source and destination SHA256 match. Collision task orion-99ee465ff55d4497 refused existing.bin; independent byte checks preserve source and existing destination. Evidence: PHASE_47_LIVE_COPY_2026-09-18.md."
         },
         {
           "id": "defines_path_scopes",
           "status": "passed",
-          "evidence": "Scope is the capability tier, not a path check bolted on afterwards: desktop_read, home_read, desktop_modify, desktop_direct_write, scratch_workspace, scratch_direct_write and file_mutate are separate tiers, each independently switchable and independently allowed per permission profile. Every file action takes a `root` argument naming one of them rather than an absolute path."
+          "evidence": "File actions are separated into configured capability tiers. Mutation actions accept a root from the closed mutable-root set; read/list actions bind their configured root in execution definitions. Path validation and the copy helper enforce containment; not every action accepts a root argument."
         },
         {
           "id": "never_gives_default_access_to_the_entire_disk",
           "status": "passed",
-          "evidence": "There is no whole-disk tier to grant. The roots are a closed set and MUTABLE_ROOTS in catalog.ts names them; isMutableRoot gates writes. At restricted_read_only every one of these tiers is off, which is what LOCK ORION drops to."
+          "evidence": "There is no whole-disk tier. Configured roots, relative-path validation, sensitive-path exclusions and per-profile tiers restrict access. restricted_read_only retains desktop_read but disables file_mutate; it does not disable all file reads."
         },
         {
           "id": "respects_macos_privacy_controls",
@@ -4316,12 +4315,15 @@
         },
         {
           "id": "supports_trash_recoverable_deletion",
-          "status": "passed",
-          "evidence": "file_delete declares verification `file_in_trash` and reversible true, and the executor carries a trashRoot defaulting to ~/.Trash with a `trashed` outcome. Deletion moves rather than destroys, and the verification checks the file arrived there."
+          "status": "blocked",
+          "evidence": "Catalog and executor implement higher-risk file_delete as a move to Trash; source evidence retained. Actual recovery has not yet been demonstrated in this batch.",
+          "reason": "Independent review found previous evidence established code support but did not demonstrate byte-preserving recovery. Disposable installed-route Trash/recovery proof remains required under the explicit human approval gate."
         }
       ],
       "limitations": [
-        "file_copy is built and reviewed in the repository candidate, but not installed or proven through the live tool route."
+        "Phase46 prerequisite remains open; entrySatisfied false deviation retained.",
+        "Actual Trash recovery remains unproven; human approval is required for the disposable deletion test.",
+        "Earlier list/read/move evidence remains catalog-level unless separately attributed."
       ],
       "nextPhaseAllowed": false
     },

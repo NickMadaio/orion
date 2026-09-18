@@ -70,6 +70,12 @@ else
     bad "test suite failed"; tail -25 "$LOGS"/orion-ci-test.log
 fi
 
+if node --test "$REPO/tests/automation-removal.test.mjs" >"$LOGS"/orion-ci-automation-removal.log 2>&1; then
+    ok "automation removal failure and ambiguity checks"
+else
+    bad "automation removal checks failed"; tail -25 "$LOGS"/orion-ci-automation-removal.log
+fi
+
 step "3. static analysis"
 if (cd "$PLUGIN" && npx tsc --noEmit -p tsconfig.json >"$LOGS"/orion-ci-tsc.log 2>&1); then
     ok "typecheck clean"

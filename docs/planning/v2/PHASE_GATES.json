@@ -4723,16 +4723,22 @@
         },
         {
           "id": "an_automation_ends_on_its_own",
-          "status": "passed",
-          "evidence": "`expiresOn` is required and capped at 180 days. The failure mode of automation is not the job that misfires, it is the job that keeps working after it stopped being wanted -- the same argument that gave the strictness delegation an expiry in Phase 50."
+          "status": "blocked",
+          "evidence": "Source audit of scripts/orion-automation: scheduler receives a derived schedule and action command, without runtime expiry. Required proposal metadata is not proof of automatic stopping.",
+          "reason": "expiresOn is validated but not enforced by the scheduled command. A bounded runtime runner and expiry execution proof are still required."
         }
       ],
-      "nextPhaseAllowed": true,
+      "nextPhaseAllowed": false,
       "postReviewCorrections": [
         {
           "on": "2026-09-04",
           "review": "Phases 49-80, oblivious",
           "note": "validateProposal used `in`, which walks the prototype chain, so constructor, toString, valueOf and __proto__ passed a check whose whole job is to say the table is closed. Not exploitable into execution \u2014 the installer throws on argv[0] \u2014 but a validator accepting what it advertises as impossible turns a clear refusal into a crash elsewhere. FIXED with Object.hasOwn; mutation-tested."
+        },
+        {
+          "on": "2026-09-18",
+          "review": "Independent automation audit and removal repair",
+          "note": "Fixed swallowed scheduler errors and substring matching during removal. Require complete JSON listing, exact unique name, exact-ID removal and observed absence before changing local records. Eight failure/ambiguity tests run in CI. No real schedule modified. Expiration remains validation-only: installer does not enforce runtime expiry, conditions, risk limits or failure behavior. Phase remains open; PHASE_57_REMOVAL_2026-09-18.md."
         }
       ]
     },
@@ -4740,7 +4746,7 @@
       "name": "Automation Simulation",
       "status": "in_progress",
       "entryRequiresPhase": "57",
-      "entrySatisfied": true,
+      "entrySatisfied": false,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "The `simulate` function in automation.ts, `automation_simulate` in the catalog, and `orion-automation simulate`.",

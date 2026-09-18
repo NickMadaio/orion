@@ -10,6 +10,29 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-18 11:58 BST — Truthful automation removal; expired test approval
+
+User continued after the earlier Trash ticket expired. Read-only check showed
+A-QZV3 has no grant; no deletion occurred. Do not treat continue as granting the
+human-only action. File-copy deployment d7d80e8 remains verified. Installed proof
+and corrected Phase47 evidence saved in local checkpoint c07dc48.
+
+Fixed Phase57 remove falsely reporting success after scheduler errors: complete
+JSON list, exact unique name/ID, post-removal absence verification, no local
+transition on uncertainty. Warn active tasks may finish.8 isolated tests plus
+full quick CI (348 plugin tests) pass; independent code/CI reviews clear.
+No real scheduler mutation. Read-only automation list:0 proposed,0 installed.
+Report: docs/planning/v2/PHASE_57_REMOVAL_2026-09-18.md.
+
+Corrected expiry evidence: required expiresOn metadata is not runtime enforcement.
+Phase57 expiry is blocked; Phase58 dependency flag updated. Overall46/85 (54%).
+Next implement bounded automation runner enforcing expiry/conditions/limits before
+fixing install wiring. Trash recovery needs a fresh scoped human approval when
+Nick is ready. Rollback scoped checkpoint; no production schedule restoration.
+Preserve capabilities.md and disposable copy proof files. No remote push.
+
+---
+
 ## 2026-09-18 04:02 BST — File copying deployed and proven; human Trash gate pending
 
 Protected clean-checkout deployment of d7d80e8 passed rehearsal and all live

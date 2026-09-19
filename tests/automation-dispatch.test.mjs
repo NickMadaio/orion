@@ -210,7 +210,8 @@ test("receipt publication failures preserve execution truth and block unsafe rep
       })));`;
     const result = JSON.parse((await promisify(execFile)(process.execPath, ['--input-type=module','-e',source,
       JSON.stringify([f.root,p,start,failAt])])).stdout);
-    assert.equal(result.status, failAt === 1 ? 'refused' : 'outcome_unknown');
+    assert.equal(result.status, failAt === 1 ? 'refused' : 'succeeded');
+    if (failAt === 2) assert.equal(result.delivery.status, 'not_attempted');
     assert.equal(result.attempts, failAt - 1);
     assert.equal(await readFile(join(f.root,'effect.txt'),'utf8').catch(()=>null), failAt === 1 ? null : 'once');
     assert.equal((await dispatch(f.root,p,start,f.adapters)).reason, failAt === 1 ? 'daily_limit' : 'outcome_unknown');

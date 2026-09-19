@@ -10,6 +10,30 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-19 17:26 BST — Candidate delivery budgets and separate outcomes
+
+Extended admission with separately keyed message reservations (0..48/day) and
+candidate dispatcher with explicit installation-bound target plus exact-body
+outbound authorization. Fresh conditions/expiry checked after action, reservation
+and delivery-pending receipt persisted before fixture transport. Action completion
+is separate from delivery failure/uncertainty; no automatic message retries.
+
+Independent review reproduced cross-ledger clock regression permitting an extra
+message; fixed delivery time floor against successful action admission.52 tests
+pass independently (12 delivery+17 dispatch+15 admission+8 removal). Full quick
+CI passes348 plugin+52 automation checks; dependency network audit skipped. Tests include
+process contention and real exits before/after simulated delivery. No real sender,
+schedule, permission, installed plugin or personal state changed. Report:
+docs/planning/v2/PHASE_57_DELIVERY_2026-09-19.md; evidence:
+.builds/phase-57-delivery-2026-09-19/.
+
+Overall46/85 (54%) unchanged. Next production authority/context/execution/transport
+adapters, human installer wiring and disposable complete-route proof. Provider
+idempotency, approval consumption and power-loss recovery remain unproven. No new
+hands-on task for this slice. Preserve capabilities.md; rollback scoped checkpoint.
+
+---
+
 ## 2026-09-19 16:47 BST — Candidate automation dispatcher executes through guard
 
 Built scripts/lib/orion-automation-dispatch.mjs around the durable admission

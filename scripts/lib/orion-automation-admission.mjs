@@ -11,7 +11,7 @@ function validDay(value) {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
-function binding(record) {
+function binding(record, budget = "runs") {
   if (!record || typeof record.name !== "string" || !/^[a-z0-9][a-z0-9-]{1,47}$/.test(record.name) ||
       typeof record.installationId !== "string" || !/^[a-zA-Z0-9-]{8,80}$/.test(record.installationId) ||
       !validDay(record.expiresOn) || !integer(record.riskLimits?.maxRunsPerDay, 1, 1440) ||
@@ -32,10 +32,15 @@ function binding(record) {
     maxRunsPerDay: record.riskLimits.maxRunsPerDay,
     expectsMode: record.permissions.expectsMode,
     quietHours: quiet ?? null, skipDuringFocus: record.conditions.skipDuringFocus ?? false };
-  return { policy, hash: createHash("sha256").update(JSON.stringify(policy)).digest("hex") };
+  if (budget === "messages") {
+    if (!integer(record.riskLimits.maxMessagesPerDay, 0, 48)) throw new Error("invalid message limit");
+    policy.maxMessagesPerDay = record.riskLimits.maxMessagesPerDay;
+  }
+  return { policy, limit: budget === "messages" ? policy.maxMessagesPerDay : policy.maxRunsPerDay,
+    hash: createHash("sha256").update(JSON.stringify(policy)).digest("hex") };
 }
-function paths(root, installationId) {
-  const key = createHash("sha256").update(installationId).digest("hex");
+function paths(root, installationId, budget = "runs") {
+  const key = createHash("sha256").update(budget === "messages" ? `messages:${installationId}` : installationId).digest("hex");
   return { state: join(root, `${key}.json`), lock: join(root, `${key}.lock`) };
 }
 async function writeNew(file, value) {
@@ -56,18 +61,22 @@ function localClock(instant, timeZone) {
 }
 // Only the human installation path may initialize. Runtime never recreates a
 // missing file: doing so would turn deletion or storage loss into a quota reset.
-export async function initializeAutomationAdmission(root, record) {
-  const { hash } = binding(record);
+async function initializeBudget(root, record, budget) {
+  const { hash } = binding(record, budget);
   await mkdir(root, { recursive: true, mode: 0o700 });
-  await writeNew(paths(root, record.installationId).state,
+  await writeNew(paths(root, record.installationId, budget).state,
     { version: 1, binding: hash, day: null, runs: 0, lastAt: 0 });
   await syncDirectory(root);
 }
+export const initializeAutomationAdmission = (root, record) => initializeBudget(root, record, "runs");
+export const initializeAutomationMessages = (root, record) => initializeBudget(root, record, "messages");
+export const reserveAutomationRun = (root, record, context) => reserveBudget(root, record, context, "runs");
+export const reserveAutomationMessage = (root, record, context) => reserveBudget(root, record, context, "messages");
 
-export async function reserveAutomationRun(root, record, context) {
+async function reserveBudget(root, record, context, budget) {
   let bound;
-  try { bound = binding(record); } catch { return { admitted: false, reason: "invalid_policy" }; }
-  const { policy, hash } = bound;
+  try { bound = binding(record, budget); } catch { return { admitted: false, reason: "invalid_policy" }; }
+  const { policy, hash, limit } = bound;
   const now = context?.now;
   if (!Number.isSafeInteger(now) || now < 0 || !Number.isFinite(new Date(now).getTime())) {
     return { admitted: false, reason: "invalid_clock" };
@@ -88,14 +97,14 @@ export async function reserveAutomationRun(root, record, context) {
   if (policy.skipDuringFocus && context.focusActive !== false) {
     return { admitted: false, reason: context.focusActive === true ? "focus_active" : "focus_unknown" };
   }
-  const file = paths(root, record.installationId);
+  const file = paths(root, record.installationId, budget);
   try { await mkdir(file.lock, { mode: 0o700 }); }
   catch (error) { return { admitted: false, reason: error.code === "EEXIST" ? "busy" : "state_unavailable" }; }
   let temporary;
   try {
     const state = JSON.parse(await readFile(file.state, "utf8"));
     if (state.version !== 1 || state.binding !== hash ||
-        !integer(state.runs, 0, 1440) || !Number.isSafeInteger(state.lastAt) || state.lastAt < 0 ||
+        !integer(state.runs, 0, budget === "messages" ? 48 : 1440) || !Number.isSafeInteger(state.lastAt) || state.lastAt < 0 ||
         (state.day !== null && (!validDay(state.day) || state.runs < 1 ||
           !Number.isFinite(new Date(state.lastAt).getTime()) ||
           localClock(state.lastAt, policy.timeZone).day !== state.day)) ||
@@ -106,7 +115,7 @@ export async function reserveAutomationRun(root, record, context) {
       return { admitted: false, reason: "clock_regressed" };
     }
     const runs = state.day === day ? state.runs : 0;
-    if (runs >= policy.maxRunsPerDay) return { admitted: false, reason: "daily_limit" };
+    if (runs >= limit) return { admitted: false, reason: budget === "messages" ? "daily_message_limit" : "daily_limit" };
     temporary = `${file.state}.${randomUUID()}.tmp`;
     await writeNew(temporary, { version: 1, binding: hash, day, runs: runs + 1, lastAt: now });
     await rename(temporary, file.state);
@@ -114,7 +123,8 @@ export async function reserveAutomationRun(root, record, context) {
     await syncDirectory(root);
     // No refunds: failure or process death after this point still consumes an
     // attempt. A failed durable write never returns admission.
-    return { admitted: true, day, runNumber: runs + 1 };
+    return budget === "messages" ? { admitted: true, day, messageNumber: runs + 1 }
+      : { admitted: true, day, runNumber: runs + 1 };
   } catch { return { admitted: false, reason: "state_unavailable" }; }
   finally {
     if (temporary) await unlink(temporary).catch(() => {});

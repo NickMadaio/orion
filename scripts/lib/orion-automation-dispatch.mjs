@@ -1,10 +1,11 @@
 // Candidate dispatcher. Host adapters supply authority/context and execution;
-// there is deliberately no scheduler entry point or notification adapter yet.
+// there is deliberately no scheduler entry point or production transport yet.
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rmdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { AUTOMATION_ACTIONS } from "../../plugin/orion-control/dist/automation.js";
-import { initializeAutomationAdmission, reserveAutomationRun } from "./orion-automation-admission.mjs";
+import { initializeAutomationAdmission, reserveAutomationRun,
+  initializeAutomationMessages, reserveAutomationMessage } from "./orion-automation-admission.mjs";
 
 const integer = (n, min, max) => Number.isInteger(n) && n >= min && n <= max;
 const canonical = value => JSON.stringify(value, (_, item) => item && !Array.isArray(item) && typeof item === "object"
@@ -19,6 +20,9 @@ function installation(value) {
   if (!t || !["daily", "hourly", "weekly"].includes(t.kind) || !integer(t.atMinute, 0, 59) ||
       (t.kind !== "hourly" && !integer(t.atHour, 0, 23)) ||
       (t.kind === "weekly" && !integer(t.weekday, 0, 6))) throw new Error("invalid trigger");
+  if (record.delivery !== undefined && (!record.delivery || typeof record.delivery.targetId !== "string" ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(record.delivery.targetId) ||
+      !integer(record.riskLimits?.maxMessagesPerDay, 0, 48))) throw new Error("invalid delivery policy");
   return { record, binding: digest(canonical(record)), key: digest(record.installationId) };
 }
 function scheduledSlot(record, at) {
@@ -46,6 +50,7 @@ async function persist(root, file, value, initial = false) {
 export async function initializeAutomationDispatch(root, value) {
   const { record, binding, key } = installation(value);
   await initializeAutomationAdmission(join(root, "admission"), record);
+  if (record.delivery) await initializeAutomationMessages(join(root, "messages"), record);
   await persist(root, join(root, `${key}.dispatch.json`), {
     version: 1, binding, phase: "ready", lastAt: null, lastSlot: null,
   }, true);
@@ -61,14 +66,18 @@ export async function dispatchAutomation(root, value, scheduledAt, adapters) {
   try { await mkdir(lock, { mode: 0o700 }); }
   catch { return { status: "refused", reason: "busy_or_unavailable" }; }
   let executedAttempts = 0;
+  let actionCompleted = false, deliveryAttempted = false;
   try {
     const state = JSON.parse(await readFile(file, "utf8"));
-    if (state.version !== 1 || state.binding !== binding || !["ready", "pending", "stopped"].includes(state.phase) ||
+    if (state.version !== 1 || state.binding !== binding ||
+        !["ready", "pending", "stopped", "action_completed", "delivery_pending", "delivery_unknown"].includes(state.phase) ||
         (state.lastAt === null ? state.lastSlot !== null || state.phase !== "ready"
           : scheduledSlot(record, state.lastAt) !== state.lastSlot || !state.lastSlot)) {
       return { status: "refused", reason: "invalid_state" };
     }
-    if (state.phase !== "ready") return { status: "refused", reason: state.phase === "pending" ? "outcome_unknown" : "stopped" };
+    if (state.phase !== "ready") return { status: "refused",
+      reason: state.phase === "pending" ? "outcome_unknown" : state.phase,
+      actionCompleted: ["action_completed", "delivery_pending", "delivery_unknown"].includes(state.phase) };
     // Civil-slot comparison also suppresses the repeated hour at DST fall-back.
     if (state.lastAt !== null && (scheduledAt <= state.lastAt || slot <= state.lastSlot)) {
       return { status: "refused", reason: "duplicate_or_old_trigger" };
@@ -108,10 +117,46 @@ export async function dispatchAutomation(root, value, scheduledAt, adapters) {
         return { status: "outcome_unknown", attempts: attempt };
       }
       if (result.ok) {
-        state.phase = "ready"; await persist(root, file, state);
-        // Output is local data only, bounded and never delivered by this module.
-        return { status: "succeeded", attempts: attempt,
-          output: typeof result.output === "string" ? result.output.slice(0, 8192) : "" };
+        actionCompleted = true;
+        state.phase = "action_completed"; await persist(root, file, state);
+        const output = typeof result.output === "string" ? result.output.slice(0, 8192) : "";
+        let delivery = { status: "not_requested" };
+        if (record.delivery && output.trim()) {
+          const message = Object.freeze({ installationId: record.installationId,
+            targetId: record.delivery.targetId, body: output,
+            idempotencyKey: digest(`${record.installationId}:${slot}`) });
+          if (record.riskLimits.maxMessagesPerDay === 0) {
+            delivery = { status: "withheld", reason: "daily_message_limit" };
+          } else if (typeof adapters.authorizeDelivery !== "function" || typeof adapters.deliver !== "function") {
+            delivery = { status: "withheld", reason: "delivery_adapter_unavailable" };
+          } else if (await adapters.authorizeDelivery(message) !== true) {
+            delivery = { status: "withheld", reason: "delivery_not_authorized" };
+          } else {
+            // Execution may have crossed midnight, expiry or quiet hours. Read
+            // fresh conditions after checking authority for exact content+target.
+            const current = await adapters.readContext();
+            // Separate ledgers must share a clock floor: a fresh message ledger
+            // cannot charge yesterday after today's action was already admitted.
+            const budget = !Number.isSafeInteger(current?.now)
+              ? { admitted: false, reason: "invalid_clock" }
+              : current.now < context.now ? { admitted: false, reason: "clock_regressed" }
+              : await reserveAutomationMessage(join(root, "messages"), record, current);
+            if (!budget.admitted) delivery = { status: "withheld", reason: budget.reason };
+            else {
+              state.phase = "delivery_pending"; await persist(root, file, state);
+              deliveryAttempted = true;
+              let receipt;
+              try { receipt = await adapters.deliver(message); } catch { receipt = null; }
+              delivery = receipt?.delivered === true ? { status: "delivered" }
+                : receipt?.delivered === false ? { status: "not_delivered" } : { status: "unknown" };
+            }
+          }
+        } else if (record.delivery) delivery = { status: "withheld", reason: "empty_output" };
+        // Outbound uncertainty is never retried, even under retry_once. It also
+        // cannot turn a completed action into an action eligible for re-execution.
+        state.phase = delivery.status === "unknown" ? "delivery_unknown" : "ready";
+        state.lastDelivery = delivery.status; await persist(root, file, state);
+        return { status: "succeeded", attempts: attempt, output, delivery };
       }
       // Keep retry decisions non-ready: losing context/authority between attempts
       // must not silently re-enable the next scheduled event after an error.
@@ -119,7 +164,11 @@ export async function dispatchAutomation(root, value, scheduledAt, adapters) {
       await persist(root, file, state);
       if (attempt === attempts) return { status: "failed", attempts: attempt };
     }
-  } catch { return { status: executedAttempts > 0 ? "outcome_unknown" : "refused",
-    reason: "state_or_adapter_unavailable", attempts: executedAttempts }; }
+  } catch {
+    if (actionCompleted) return { status: "succeeded", attempts: executedAttempts,
+      delivery: { status: deliveryAttempted ? "unknown" : "not_attempted", reason: "state_or_adapter_unavailable" } };
+    return { status: executedAttempts > 0 ? "outcome_unknown" : "refused",
+      reason: "state_or_adapter_unavailable", attempts: executedAttempts };
+  }
   finally { await rmdir(lock); }
 }

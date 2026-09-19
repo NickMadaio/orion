@@ -1,12 +1,36 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-18.** This is the only handoff. If you find another one
+**Last updated 2026-09-19.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-19 16:47 BST — Candidate automation dispatcher executes through guard
+
+Built scripts/lib/orion-automation-dispatch.mjs around the durable admission
+guard: fixed action table, installation fingerprint, trigger timing/replay guard,
+exclusive execution lock, pending receipt, per-attempt authority/quota checks,
+bounded safe retry and durable stopped/unknown states. No production adapters,
+installer wiring or notifications enabled. Fixture proves actual disposable file
+effect and refusal to replay it. No live schedule, permission or plugin change.
+
+Review found ready state during retry could allow execution after adapter failure;
+fixed to remain pending. Independent40 tests pass (17 dispatcher,15 admission,
+8 removal), including real child exits and receipt publication faults. CI includes
+all three suites. Full quick CI passes348 plugin+40 automation checks; dependency
+network audit skipped. Report: docs/planning/v2/PHASE_57_DISPATCH_2026-09-19.md; logs:
+.builds/phase-57-dispatch-2026-09-19/.
+
+Overall46/85 (54%) unchanged; Phase57 remains open. Next production authority/
+context/execution adapters plus message budgets, then human installer wiring and
+disposable end-to-end proof. daily_rollup cannot be assumed retry-safe after an
+ordinary process failure. No new hands-on task; old Trash ticket remains expired.
+Preserve capabilities.md and personal state. Roll back scoped checkpoint only.
 
 ---
 

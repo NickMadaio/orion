@@ -1,12 +1,36 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-19.** This is the only handoff. If you find another one
+**Last updated 2026-09-20.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-20 01:08 BST — Live read-only automation host checks
+
+Added scripts/lib/orion-automation-host.mjs: fresh installed authority map,
+bounded native session status probe, conservative legacy focus handling and
+eligibility for exact agenda_today only. No executor, installation grant or sender.
+Unknown focus remains unknown; revoked/ambiguous authority refuses. Source-map
+AUTO alone never enables standing routines or daily rollup. Candidate catalog
+fallback and CLI mode/profile overrides refuse.
+
+Live read-only proof: guarded mode, focus inactive, agenda eligible, standing
+refused. No action, schedule, permission, installed plugin or personal-plan change.
+11 host tests plus existing52 pass (63 total). Full quick CI passes348 plugin
+tests and initial60 automation tests; final63 pass after extra review coverage.
+Independent review and evidence recorded in PHASE_57_HOST_2026-09-20.md and
+.builds/phase-57-host-2026-09-20/. Dependency network audit skipped by --quick.
+
+Overall46/85 (54%) unchanged. Next: installation-bound production executor with
+fresh authority at effect boundary, human installer wiring and disposable full
+route proof. These checks establish eligibility, not an execution grant. Outbound
+authority/transport remain absent. No new hands-on step. Preserve capabilities.md.
+Rollback scoped local source checkpoint; nothing deployed by this slice.
 
 ---
 

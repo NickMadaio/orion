@@ -70,7 +70,7 @@ else
     bad "test suite failed"; tail -25 "$LOGS"/orion-ci-test.log
 fi
 
-if node --test "$REPO/tests/automation-removal.test.mjs" "$REPO/tests/automation-admission.test.mjs" "$REPO/tests/automation-dispatch.test.mjs" "$REPO/tests/automation-delivery.test.mjs" >"$LOGS"/orion-ci-automation-removal.log 2>&1; then
+if node --test "$REPO/tests/automation-removal.test.mjs" "$REPO/tests/automation-admission.test.mjs" "$REPO/tests/automation-dispatch.test.mjs" "$REPO/tests/automation-delivery.test.mjs" "$REPO/tests/automation-host.test.mjs" >"$LOGS"/orion-ci-automation-removal.log 2>&1; then
     ok "automation admission, dispatch, delivery and removal checks"
 else
     bad "automation runtime checks failed"; tail -25 "$LOGS"/orion-ci-automation-removal.log

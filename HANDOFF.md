@@ -10,6 +10,32 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-20 01:44 BST — Candidate installed-policy executor
+
+Added scripts/lib/orion-automation-runtime.mjs: reads existing installed record,
+requires initialized runtime ledgers, dispatches exact agenda_today, rereads
+policy and conditions before launch, then checks current authority. Explicit
+installation timezone, bounded subprocess time/output, no inferred retry safety
+after launch. No scheduler entrypoint, installation initialization or sender.
+Extracted shared pure condition check from admission to prevent rule drift.
+
+Independent review reproduced revocation during a slow final context probe;
+fixed ordering so final authority is checked after context/record checks. All74
+automation tests pass independently, including real disposable subprocess success
+and write-then-fail/no-retry, policy changes, revocation, expiry/focus/mode and
+midnight/quiet boundaries. Source quick CI and secret scan recorded in
+.builds/phase-57-runtime-2026-09-20/. Report: PHASE_57_RUNTIME_2026-09-20.md.
+
+Overall46/85 (54%) unchanged. No real calendar command, schedule, permission,
+installed plugin or personal state changed. Next human installer migration and
+scheduler entrypoint, followed by disposable complete-route proof. Existing old
+installed records lack new ledger/identity fields and deliberately refuse. Policy
+checks and process spawn are not atomic; timeout does not prove descendant
+cancellation. No new hands-on task; preserve capabilities.md. Rollback scoped
+local source checkpoint, no live restoration needed.
+
+---
+
 ## 2026-09-20 01:08 BST — Live read-only automation host checks
 
 Added scripts/lib/orion-automation-host.mjs: fresh installed authority map,

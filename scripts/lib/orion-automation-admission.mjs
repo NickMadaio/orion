@@ -77,6 +77,20 @@ async function reserveBudget(root, record, context, budget) {
   let bound;
   try { bound = binding(record, budget); } catch { return { admitted: false, reason: "invalid_policy" }; }
   const { policy, hash, limit } = bound;
+  const conditions = checkConditions(policy, context);
+  if (!conditions.admitted) return conditions;
+  const { now, day } = conditions;
+  return reserveCheckedBudget(root, record, budget, policy, hash, limit, now, day);
+}
+
+// Recheck conditions immediately before a host effect without charging a second
+// reservation. This is a condition check only, never a quota or authority grant.
+export function checkAutomationConditions(record, context) {
+  try { return checkConditions(binding(record).policy, context); }
+  catch { return { admitted: false, reason: "invalid_policy" }; }
+}
+
+function checkConditions(policy, context) {
   const now = context?.now;
   if (!Number.isSafeInteger(now) || now < 0 || !Number.isFinite(new Date(now).getTime())) {
     return { admitted: false, reason: "invalid_clock" };
@@ -97,6 +111,10 @@ async function reserveBudget(root, record, context, budget) {
   if (policy.skipDuringFocus && context.focusActive !== false) {
     return { admitted: false, reason: context.focusActive === true ? "focus_active" : "focus_unknown" };
   }
+  return { admitted: true, now, day };
+}
+
+async function reserveCheckedBudget(root, record, budget, policy, hash, limit, now, day) {
   const file = paths(root, record.installationId, budget);
   try { await mkdir(file.lock, { mode: 0o700 }); }
   catch (error) { return { admitted: false, reason: error.code === "EEXIST" ? "busy" : "state_unavailable" }; }

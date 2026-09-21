@@ -19,6 +19,7 @@ struct ProjectTab: View {
     @State private var status = SelfDevelopmentStatus.read()
     @State private var work: [String] = SelfDevelopmentStatus.recentWork()
     @State private var agent = ProjectAgentStatus.read()
+    @State private var beat = ProjectAgentHeartbeat.read()
     @State private var steering = ""
     @State private var controlError: String?
     @State private var controlling = false
@@ -41,6 +42,7 @@ struct ProjectTab: View {
         }
         .onReceive(refresh) { _ in
             agent = ProjectAgentStatus.read()
+            beat = ProjectAgentHeartbeat.read()
             status = SelfDevelopmentStatus.read()
             work = SelfDevelopmentStatus.recentWork()
         }
@@ -51,7 +53,7 @@ struct ProjectTab: View {
             HStack {
                 Text("PROJECT AGENT").font(.headline)
                 Spacer()
-                Button("Refresh") { agent = ProjectAgentStatus.read() }
+                Button("Refresh") { agent = ProjectAgentStatus.read(); beat = ProjectAgentHeartbeat.read() }
             }
             switch agent {
             case .missing:
@@ -61,7 +63,30 @@ struct ProjectTab: View {
             case .available(let run):
                 Text(run.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
                     .font(.title2)
+                // Liveness is a separate fact from status. A crashed supervisor
+                // leaves "running" published forever; without this line the tab
+                // would show a spinner all night for a process that is gone.
+                Text(beat?.summary ?? "No heartbeat recorded")
+                    .font(.caption)
+                    .foregroundStyle((beat?.isLive ?? false) ? Color.secondary : Color.orange)
                 Text(run.progressLabel)
+                if let escalation = run.escalation {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("BLOCKED — \(escalation.kind.replacingOccurrences(of: "_", with: " "))")
+                            .font(.headline).foregroundStyle(.orange)
+                        Text(escalation.reason).font(.callout).textSelection(.enabled)
+                        if let question = escalation.question {
+                            Text(question).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        if escalation.recommendAstra {
+                            Text("An Astra review is recommended. Start it manually in ChatGPT/Codex; nothing here calls it.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text(escalation.notified ? "You were alerted on Discord." : "Discord alert not delivered.")
+                            .font(.caption).foregroundStyle(escalation.notified ? Color.secondary : Color.orange)
+                    }
+                    .padding(.vertical, 4)
+                }
                 HStack(spacing: 14) {
                     ZStack {
                         Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 5)
@@ -77,6 +102,12 @@ struct ProjectTab: View {
                 Text("Progress counts accepted task weights. A final review is required for completion.")
                     .font(.caption).foregroundStyle(.secondary)
                 if run.status == .interrupted { Text("Interrupted work needs verified recovery before resuming.").font(.caption).foregroundStyle(.orange) }
+                if run.reviewerAuthoredChanges > 0 {
+                    // Surfaced because it is work that was NOT independently
+                    // reviewed: the reviewer wrote it and then judged it.
+                    Text("\(run.reviewerAuthoredChanges) change(s) were authored by the review model, not the worker.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
                 if let active = run.active {
                     HStack {
                         if run.status == .running {
@@ -91,7 +122,14 @@ struct ProjectTab: View {
                 }
                 ForEach(run.tasks) { task in
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(task.title) · \(task.status.rawValue.replacingOccurrences(of: "_", with: " "))")
+                        HStack(spacing: 6) {
+                            if task.isCorrection {
+                                Image(systemName: "arrow.uturn.backward.circle")
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("Added by a review")
+                            }
+                            Text("\(task.title) · \(task.status.rawValue.replacingOccurrences(of: "_", with: " "))")
+                        }
                         if let blocker = task.blocker { Text(blocker).foregroundStyle(.orange) }
                     }.font(.callout)
                 }
@@ -99,7 +137,7 @@ struct ProjectTab: View {
                     Button("Pause") { control(.pause, run: run) }
                         .disabled(controlling || ![.running, .ready, .waiting_for_review].contains(run.status))
                     Button("Resume") { control(.resume, run: run) }
-                        .disabled(controlling || (![.paused, .budget_exhausted].contains(run.status) || run.activeTask != nil))
+                        .disabled(controlling || (![.paused, .budget_exhausted].contains(run.status) || run.activeTask != nil || run.escalation != nil))
                 }
                 TextField("Instruction for the next safe point", text: $steering)
                 Button("Send instruction") { control(.steer, run: run) }

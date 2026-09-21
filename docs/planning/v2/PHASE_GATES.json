@@ -5696,8 +5696,8 @@
         "id": "supervised_local_project_agent",
         "raisedBy": "Nick, 2026-09-21",
         "manifestCoverage": "Existing self-development and Projects scaffolding do not specify durable task dependencies, independent review receipts, steering or unattended recovery. No numbered phase is closed by this checkpoint.",
-        "alreadyLive": "Legacy scripts/orion-code and ProjectTab exist. New controller and Projects UI foundation are source-only, fixture-tested, uninstalled, and have no enabled worker/reviewer adapter.",
-        "layer": "Development controller foundation and Projects view; see docs/handoffs/ASTRA_TO_CLAUDE_AGENTIC_LOOP_HANDOFF.md for actual state and limits.",
+        "alreadyLive": "2026-09-21 (Claude): the controller is now schema v2 with full task contracts, PASS/PASS_WITH_TASKS/BLOCKED review gates, bounded reviewer repair recorded separately from reviews, escalation state, an append-only journal, and a deterministic supervisor with watchdog, lease proof and crash recovery. Real worker/reviewer adapters drive local Ollama models through a fixed tool vocabulary and a registry of fixed-argv checks. 54 Node tests and 8 Swift tests pass; the supervisor suite runs end to end against a real git repository. STILL NOT RUN against ORION code: execution is gated on ~/.openclaw/orion-controlled/agentic-config.json {\"enabled\": true}, which does not exist. Legacy scripts/orion-code and GOVERNED_SELF_DEVELOPMENT_ENABLED are untouched.",
+        "layer": "Local agentic development runtime (scripts/lib/agentic/, scripts/orion-agent) plus the durable controller and Projects view; see docs/agentic/ARCHITECTURE.md for the design and docs/handoffs/CLAUDE_TO_ASTRA_AGENTIC_RUNTIME_HANDOFF.md for state and open questions.",
         "wouldBelongNear": "Existing governed self-development capability and Projects UI; preserve numbered manifest ordering.",
         "status": "registered"
       }

@@ -192,6 +192,39 @@ export const FORBIDDEN_SELF_CHANGE_SURFACES: readonly ForbiddenSurface[] = [
     pattern: /^backend\/connectors\/broker\.py$/,
     reason: "the privileged broker that actually sends or writes to an external service",
   },
+  // Added 2026-09-21 with the local agentic runtime. Same argument as every
+  // entry above, applied to the newest thing that governs a model: the
+  // orchestrator owns the review gates, the escalation state and the write
+  // boundary, and its prompts are the operating instructions an unattended
+  // worker follows. A model that can edit either can remove its own
+  // constraints, and every other rule here becomes advisory.
+  //
+  // The runtime ALSO carries its own copy of these surfaces
+  // (scripts/lib/agentic/boundary.mjs, RUNTIME_PROTECTED_SURFACES) and checks
+  // both. That is deliberate rather than redundant: entries here are not in
+  // force until a human rebuilds and deploys the plugin, which is exactly the
+  // friction this file was built for, but it would have left the new surfaces
+  // unguarded until then.
+  {
+    pattern: /^scripts\/lib\/agentic\//,
+    reason: "the local agentic runtime: its write boundary, its review gates and the agent operating-system prompts",
+  },
+  {
+    pattern: /^scripts\/lib\/orion-project-agent\.mjs$/,
+    reason: "the durable controller that owns workflow state and enforces the review gates",
+  },
+  {
+    pattern: /^scripts\/orion-agent$/,
+    reason: "the supervisor entrypoint and its enablement gate",
+  },
+  {
+    pattern: /^scripts\/orion-project-agent$/,
+    reason: "the operator control CLI (pause, resume, steer, resolve)",
+  },
+  {
+    pattern: /^docs\/agentic\//,
+    reason: "the mission and architecture that define what the agentic runtime is for",
+  },
 ];
 
 export class SelfChangeForbiddenError extends Error {

@@ -76,10 +76,13 @@ else
     bad "automation runtime checks failed"; tail -25 "$LOGS"/orion-ci-automation-removal.log
 fi
 
-if node --test "$REPO/tests/project-agent.test.mjs" >"$LOGS"/orion-ci-project-agent.log 2>&1; then
-    ok "project-agent controller checks"
+if node --test --test-timeout=300000 "$REPO/tests/project-agent.test.mjs" \
+    "$REPO/tests/agentic-contract.test.mjs" "$REPO/tests/agentic-boundary.test.mjs" \
+    "$REPO/tests/agentic-orchestrator.test.mjs" "$REPO/tests/agentic-supervisor.test.mjs" \
+    >"$LOGS"/orion-ci-project-agent.log 2>&1; then
+    ok "project-agent controller and local agentic runtime checks"
 else
-    bad "project-agent controller checks failed"; tail -25 "$LOGS"/orion-ci-project-agent.log
+    bad "project-agent / agentic runtime checks failed"; tail -25 "$LOGS"/orion-ci-project-agent.log
 fi
 
 step "3. static analysis"

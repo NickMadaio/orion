@@ -7,13 +7,19 @@ import { initializeProjectAgent as init, readProjectAgent as read, runProjectAge
   steerProjectAgent as steer, reviewProjectTask as review, acceptProjectFinalReview as finalReview,
   projectAgentProgress as progress } from '../scripts/lib/orion-project-agent.mjs';
 const sha = 'a'.repeat(40);
+// Contracts carry scope and checks from v2 on: scope IS the write gate and
+// checks name registry entries, so a task without them is not a task.
 const tasks = () => [
-  { id: 'task-one', title: 'First task', objective: 'Implement a bounded fixture', weight: 2, dependencies: [], acceptance: ['Fixture passes'] },
-  { id: 'task-two', title: 'Dependent task', objective: 'Integrate the reviewed fixture', weight: 1, dependencies: ['task-one'], acceptance: ['Integration passes'] },
+  { id: 'task-one', title: 'First task', objective: 'Implement a bounded fixture', weight: 2, dependencies: [],
+    scope: ['tests/workspace/'], checks: ['node-syntax'], acceptance: ['Fixture passes'] },
+  { id: 'task-two', title: 'Dependent task', objective: 'Integrate the reviewed fixture', weight: 1, dependencies: ['task-one'],
+    scope: ['tests/workspace/'], checks: ['node-syntax'], acceptance: ['Integration passes'] },
 ];
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'orion-project-agent-'));
-  t.after(() => rm(root, { recursive: true, force: true })); await init(root, tasks()); return root;
+  // maxAttempts 2 explicitly: these tests assert behaviour AT the limit, and
+  // the runtime default is 3. The limit under test should be visible here.
+  t.after(() => rm(root, { recursive: true, force: true })); await init(root, tasks(), { maxAttempts: 2 }); return root;
 }
 const host = () => ({ durationMs: 10000, worker: async () => ({ commit: sha }), verify: async () => true });
 test('invalid graph rejects missing dependency, cycle, duplicate id and empty acceptance', async t => {

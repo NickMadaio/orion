@@ -10,6 +10,41 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-21 16:2x BST — Local agentic development runtime (Claude)
+
+Built the unattended local development loop Nick specified: a ~27B worker
+implements against explicit task contracts, a stronger local model reviews
+against those contracts, and a deterministic supervisor owns every gate. Mission
+recorded at docs/agentic/LOCAL_AGENTIC_DEVELOPMENT_MISSION.md; design and the
+eleven deviations at docs/agentic/ARCHITECTURE.md; transfer at
+docs/handoffs/CLAUDE_TO_ASTRA_AGENTIC_RUNTIME_HANDOFF.md.
+
+Controller moved v1 -> v2 in place: full contracts, PASS / PASS_WITH_TASKS /
+BLOCKED, bounded reviewer repair recorded SEPARATELY from reviews, escalation
+state the loop cannot clear itself, append-only journal, lease with PID+boot+
+start-time proof, crash recovery that discards partial writes to the last
+accepted commit. Astra's 12 tests still pass unchanged in substance.
+
+Worker gets a fixed tool vocabulary, never a shell; checks are registry names
+with fixed argv, never strings from a task. Writes pass four gates, the last of
+which loads ORION's INSTALLED self-change policy and fails closed. Reads are
+deny-listed for var/brain/, .env and key material. Discord escalation carries a
+phone-readable brief; Astra escalation stays MANUAL and pauses the run.
+
+54 Node tests, 8 Swift tests (247 in the full app suite), CI --quick OK, secret
+scan clean. Xcode license is now accepted, so the native build and XCTest run.
+Tests caught three real bugs, including a `git status --porcelain` trim that
+truncated the first changed file's path and would have wasted a whole night.
+
+NOT RUN against ORION code. Execution is gated on ~/.openclaw/orion-controlled/
+agentic-config.json {"enabled": true}, which does not exist. No 80B reviewer is
+installed, so that half of the hierarchy is untested. Legacy scripts/orion-code
+and GOVERNED_SELF_DEVELOPMENT_ENABLED untouched; do not launch the legacy loop.
+No push, deploy, install or config write. capabilities.md and all worktrees
+preserved. No numbered gate closed; scopeNotInManifest entry updated.
+
+---
+
 ## 2026-09-21 15:31 BST — Disabled project-agent foundation; handoff to Claude
 
 User requested stopping at a stable source checkpoint and a technical handoff,

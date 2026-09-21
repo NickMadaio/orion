@@ -8,6 +8,45 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 
 ---
 
+## Turning the unattended local agent on — 2026-09-21
+
+The local development loop is built and tested but **disabled**. Four steps, in
+order, and step 4 is the one that matters:
+
+1. **Rebuild and deploy the plugin.** Five new deny-list surfaces protecting the
+   agent runtime are in the TypeScript source but not in the installed build,
+   and the installed build is the one the boundary consults. The runtime carries
+   its own copy meanwhile, so this is belt-and-braces rather than a blocker.
+
+2. **Create `~/.openclaw/orion-controlled/agentic-config.json`** containing at
+   least `{"enabled": true}`. Nothing runs until this exists. It is outside the
+   repository on purpose: the agent cannot write it, so it cannot turn itself on.
+
+3. **Run the smoke plan** — it only touches a sandbox directory:
+   ```
+   scripts/orion-agent plan docs/agentic/plans/smoke-run.json
+   scripts/orion-agent init docs/agentic/plans/smoke-run.json
+   scripts/orion-agent run --hours 1
+   ```
+
+4. **Watch one full run before you leave it overnight.** Everything about this
+   system is designed for you being asleep, and none of it has been proven with
+   you asleep.
+
+### Decisions that are yours
+
+- **Which reviewer model.** No ~80B model is installed, so the ~27B/~80B
+  hierarchy has never been exercised; the interim reviewer is `gemma4:31b`.
+  Pulling an 80B-class model is a large download and a real decision:
+  measured, the 27B alone already holds 20.7 GiB at a 64k context, so an 80B
+  reviewer means the two can never be resident together and every review pass
+  pays an eviction and a reload. `scripts/orion-agent bench --candidates
+  "worker/reviewer,worker/reviewer"` measures whether that cost is worth paying.
+- **Whether an Astra review should come before or after the first real run.**
+  My recommendation is before: this system changes real code unattended.
+
+---
+
 ## Current v2 decisions — Phase 32.5, 2026-08-27
 
 The product charter and proposed implementation order now live in

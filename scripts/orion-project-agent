@@ -1,19 +1,68 @@
 #!/usr/bin/env node
-// Operator controls only. No model execution, review approval or initialization.
+/*
+ Operator controls. Pause, resume, steer, resolve an escalation — the four
+ things a human does to a running agent.
+
+ What is deliberately NOT here: starting a run, initializing one, approving a
+ review, or clearing a worker lease. Starting and planning belong to
+ `orion-agent`; approving belongs to the reviewer gate inside the controller;
+ clearing a lease belongs to the recovery path, which only acts on proof that
+ the holder is dead. A control surface that can approve work is a control
+ surface a confused operator can use to approve work they have not read.
+
+ Every mutating command carries `--revision N` from `status`. That is not
+ ceremony: the UI polls, the agent moves, and a control built on a stale
+ snapshot would pause a task that finished thirty seconds ago.
+*/
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { readProjectAgent, steerProjectAgent, projectAgentProgress } from './lib/orion-project-agent.mjs';
+import {
+  projectAgentProgress, readProjectAgent, resolveProjectEscalation, steerProjectAgent,
+} from './lib/orion-project-agent.mjs';
+import { inspectLease } from './lib/agentic/lease.mjs';
+
 const root = join(homedir(), '.openclaw/orion-controlled/project-agent');
+
+async function heartbeat() {
+  try {
+    const beat = JSON.parse(await readFile(join(root, 'heartbeat.json'), 'utf8'));
+    const ageMs = Date.now() - Date.parse(beat.at);
+    // "running" plus a stale heartbeat is a crashed supervisor, and the UI must
+    // be able to tell those apart rather than showing a spinner all night.
+    return { at: beat.at, phase: beat.phase ?? null, pid: beat.pid ?? null,
+      ageSeconds: Math.round(ageMs / 1000), live: Number.isFinite(ageMs) && ageMs < 60_000 };
+  } catch { return null; }
+}
+
 const [command, ...args] = process.argv.slice(2);
+
 try {
   let state;
-  if (command === 'status' && args.length === 0) state = await readProjectAgent(root);
-  else if (['pause', 'resume', 'steer'].includes(command) && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
-    (command === 'steer' ? args.length === 4 && args[2] === '--text' : args.length === 2)) {
+  if (command === 'status' && args.length === 0) {
+    state = await readProjectAgent(root);
+  } else if (['pause', 'resume', 'steer'].includes(command) && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
+      (command === 'steer' ? args.length === 4 && args[2] === '--text' : args.length === 2)) {
     state = await steerProjectAgent(root, command, Number(args[1]), args[3]);
-  } else throw new Error('usage: status | pause/resume --revision N | steer --revision N --text instruction');
-  console.log(JSON.stringify({ ...state, progress: projectAgentProgress(state) }));
+  } else if (command === 'resolve' && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
+      args[2] === '--note' && typeof args[3] === 'string' && args[3].trim()) {
+    state = await resolveProjectEscalation(root, Number(args[1]), args[3]);
+  } else {
+    throw new Error('usage: status | pause/resume --revision N | steer --revision N --text TEXT | resolve --revision N --note TEXT');
+  }
+  console.log(JSON.stringify({
+    ...state,
+    progress: projectAgentProgress(state),
+    heartbeat: await heartbeat(),
+    leases: {
+      supervisor: await inspectLease(join(root, 'supervisor.lock')),
+      worker: await inspectLease(join(root, 'worker.lock')),
+    },
+  }));
 } catch (error) {
-  console.error(error.code === 'ENOENT' ? 'No project-agent run exists.' : error.code === 'EEXIST' ? 'Controller is busy; refresh and retry.' : error.message);
+  console.error(
+    error.code === 'ENOENT' ? 'No project-agent run exists.'
+      : error.code === 'EEXIST' ? 'Controller is busy; refresh and retry.'
+        : error.message);
   process.exitCode = 1;
 }

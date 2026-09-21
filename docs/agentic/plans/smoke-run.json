@@ -1,0 +1,76 @@
+{
+  "project": "ORION — agentic smoke run",
+  "_why": [
+    "The FIRST thing to run on this machine, before the loop is pointed at real ORION code.",
+    "It exercises every part of the path that can fail on a specific Mac — model load and",
+    "eviction, the worktree, the boundary, the checks, the commit, the review gate, the",
+    "final review — against a sandbox directory where being wrong costs nothing.",
+    "",
+    "Task two exists to prove the review gate is real. Its non-scope says not to touch",
+    "task one's file, and a worker that ignores that should be caught by the reviewer",
+    "rather than by Nick in the morning.",
+    "",
+    "Run it with:",
+    "  scripts/orion-agent plan  docs/agentic/plans/smoke-run.json",
+    "  scripts/orion-agent init  docs/agentic/plans/smoke-run.json",
+    "  scripts/orion-agent run --hours 1"
+  ],
+  "options": { "maxAttempts": 3, "maxCorrectionDepth": 1 },
+  "tasks": [
+    {
+      "id": "smoke-greeting",
+      "title": "Create a greeting module in the sandbox workspace",
+      "objective": "tests/workspace/agentic-smoke/greeting.mjs exists and exports a greet(name) function returning the string \"Hello, <name>.\" — with a trailing full stop and no trailing newline.",
+      "context": "This is a smoke test for the unattended loop, not a feature. Keep it to one small file. tests/workspace/ is a disposable sandbox; nothing outside it may be touched.",
+      "weight": 1,
+      "dependencies": [],
+      "scope": ["tests/workspace/agentic-smoke/"],
+      "nonScope": [
+        "Do not modify anything outside tests/workspace/agentic-smoke/",
+        "Do not add dependencies, configuration, or build steps",
+        "Do not create more than two files"
+      ],
+      "constraints": [
+        "Plain ES modules, no imports beyond node: built-ins",
+        "No console output at import time"
+      ],
+      "acceptance": [
+        "greeting.mjs exports a function named greet",
+        "greet(\"Nick\") returns exactly \"Hello, Nick.\"",
+        "the file parses under node --check"
+      ],
+      "checks": ["node-syntax", "no-orphan-exports"],
+      "risk": "low",
+      "reviewDepth": "light",
+      "escalateWhen": [
+        "the sandbox directory cannot be created",
+        "the checks cannot run on this machine"
+      ]
+    },
+    {
+      "id": "smoke-greeting-test",
+      "title": "Add a self-contained test for the greeting module",
+      "objective": "tests/workspace/agentic-smoke/greeting.test.mjs uses node:test and node:assert to prove greet(\"Nick\") returns \"Hello, Nick.\", and imports the real module rather than reimplementing it.",
+      "context": "Proves the worker can read an existing file it did not write in this task and build against it. It also proves the orphan-export check sees a test as a real reference.",
+      "weight": 1,
+      "dependencies": ["smoke-greeting"],
+      "scope": ["tests/workspace/agentic-smoke/"],
+      "nonScope": [
+        "Do not modify greeting.mjs — it was accepted by a review already",
+        "Do not add a test framework; node:test is already available"
+      ],
+      "constraints": [
+        "Import greet from ./greeting.mjs; do not copy its implementation into the test"
+      ],
+      "acceptance": [
+        "the test file imports greet from ./greeting.mjs",
+        "it asserts greet(\"Nick\") === \"Hello, Nick.\"",
+        "the file parses under node --check"
+      ],
+      "checks": ["node-syntax"],
+      "risk": "low",
+      "reviewDepth": "standard",
+      "escalateWhen": ["greeting.mjs does not export what the previous task's contract promised"]
+    }
+  ]
+}

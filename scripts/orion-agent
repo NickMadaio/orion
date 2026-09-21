@@ -1,0 +1,265 @@
+#!/usr/bin/env node
+/*
+ orion-agent — the unattended local development loop.
+
+ USAGE
+
+   orion-agent doctor                     can this machine run a session at all?
+   orion-agent plan <plan.json>           validate a plan; changes nothing
+   orion-agent init <plan.json>           create a run from an approved plan
+   orion-agent run [--hours N]            supervise until done, blocked or spent
+   orion-agent status                     durable state + heartbeat + leases
+   orion-agent brief                      write the Astra review brief
+   orion-agent resolve --revision N --note "..."   clear an escalation (human)
+   orion-agent bench [--candidates a,b] [--hours N]  measure candidate models
+
+ THE ENABLEMENT GATE
+
+ `run` refuses unless `~/.openclaw/orion-controlled/agentic-config.json` says
+ `"enabled": true`. That file is outside the repository, so it is outside every
+ task scope by construction — the agent cannot write it, and cannot turn itself
+ on. Enabling is a deliberate human act in a single place, in the same spirit as
+ `GOVERNED_SELF_DEVELOPMENT_ENABLED` in the plugin: a switch the thing it
+ switches off cannot reach.
+*/
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  initializeProjectAgent, projectAgentProgress, readProjectAgent, resolveProjectEscalation,
+} from './lib/orion-project-agent.mjs';
+import { auditContractScope, loadInstalledPolicy } from './lib/agentic/boundary.mjs';
+import { normalizeTaskGraph } from './lib/agentic/contract.mjs';
+import { CHECK_REGISTRY, isRegisteredCheck } from './lib/agentic/checks.mjs';
+import { loadAgenticConfig, ModelRuntime, CONFIG_PATH } from './lib/agentic/models.mjs';
+import { inspectLease } from './lib/agentic/lease.mjs';
+import { auditJournal } from './lib/agentic/journal.mjs';
+import { writeAstraBrief } from './lib/agentic/escalation.mjs';
+import { ensureRunRoot, superviseRun } from './lib/agentic/supervisor.mjs';
+import { benchmarkCandidate, formatBenchmark, recordBenchmark } from './lib/agentic/bench.mjs';
+import { ensureWorkspace } from './lib/agentic/workspace.mjs';
+
+const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
+const ROOT = join(homedir(), '.openclaw/orion-controlled/project-agent');
+const WORKTREE = join(ROOT, 'worktree');
+
+const say = message => console.log(message);
+const out = value => console.log(JSON.stringify(value, null, 2));
+
+async function readPlan(file) {
+  const path = resolvePath(process.cwd(), file);
+  const plan = JSON.parse(await readFile(path, 'utf8'));
+  const tasks = normalizeTaskGraph(plan.tasks ?? plan);
+  const unregistered = [...new Set(tasks.flatMap(task => task.checks))].filter(name => !isRegisteredCheck(name));
+  if (unregistered.length) {
+    throw new Error(`plan names unregistered check(s): ${unregistered.join(', ')}. ` +
+      `Registered: ${Object.keys(CHECK_REGISTRY).join(', ')}. Adding one is a reviewed edit to scripts/lib/agentic/checks.mjs.`);
+  }
+  return { path, project: typeof plan.project === 'string' ? plan.project : 'ORION', tasks, options: plan.options ?? {} };
+}
+
+async function heartbeatOf(root) {
+  try {
+    const beat = JSON.parse(await readFile(join(root, 'heartbeat.json'), 'utf8'));
+    const ageMs = Date.now() - Date.parse(beat.at);
+    // A "running" status with a stale heartbeat is a crashed supervisor. The
+    // distinction is the whole point of writing one.
+    return { ...beat, ageSeconds: Math.round(ageMs / 1000), live: ageMs < 60_000 };
+  } catch { return null; }
+}
+
+async function commandDoctor() {
+  const config = await loadAgenticConfig();
+  const policy = loadInstalledPolicy();
+  const report = { configSource: config.source, endpoint: config.endpoint, enabled: config.enabled === true,
+    policy: { source: policy.source, loaded: Boolean(policy.module) }, roles: {}, limits: config.limits };
+  try { report.models = await new ModelRuntime(config).probe(); }
+  catch (error) { report.models = { error: String(error.message ?? error) }; }
+  for (const [role, spec] of Object.entries(config.roles)) {
+    report.roles[role] = { model: spec.model, approxResidentGiB: spec.approxResidentGiB, contextTokens: spec.contextTokens };
+  }
+  const total = Object.values(config.roles).reduce((sum, spec) => sum + spec.approxResidentGiB, 0);
+  report.residency = { budgetGiB: config.memoryBudgetGiB, sumOfRolesGiB: total,
+    note: total > config.memoryBudgetGiB
+      ? 'Roles cannot be resident together; the runtime enforces exclusive residency and evicts between handoffs.'
+      : 'Both roles would fit together, but residency is still exclusive by design.' };
+  report.heartbeat = await heartbeatOf(ROOT);
+  report.leases = { supervisor: await inspectLease(join(ROOT, 'supervisor.lock')), worker: await inspectLease(join(ROOT, 'worker.lock')) };
+  out(report);
+  if (!report.policy.loaded) {
+    console.error('\nREFUSING STATE: no compiled self-change policy. Build the plugin before any run.');
+    process.exitCode = 1;
+  }
+  if (report.models?.error) process.exitCode = 1;
+}
+
+async function commandPlan(file) {
+  const plan = await readPlan(file);
+  const findings = plan.tasks.flatMap(task => auditContractScope(task).findings.map(finding => ({ task: task.id, ...finding })));
+  out({
+    project: plan.project, tasks: plan.tasks.length,
+    totalWeight: plan.tasks.reduce((sum, task) => sum + task.weight, 0),
+    checks: [...new Set(plan.tasks.flatMap(task => task.checks))],
+    scopeFindings: findings,
+  });
+  if (findings.length) {
+    console.error('\nSome scope entries can never be written; the boundary would refuse them. Fix the plan.');
+    process.exitCode = 1;
+  }
+}
+
+async function commandInit(file) {
+  const plan = await readPlan(file);
+  const config = await loadAgenticConfig();
+  await ensureRunRoot(ROOT);
+  const state = await initializeProjectAgent(ROOT, plan.tasks, {
+    maxAttempts: plan.options.maxAttempts ?? config.limits.maxAttempts,
+    maxCorrectionDepth: plan.options.maxCorrectionDepth ?? config.limits.maxCorrectionDepth,
+  });
+  const branch = `orion-agent/${state.runId.slice(0, 8)}`;
+  const workspace = await ensureWorkspace(REPO, { worktree: WORKTREE, branch, baseRef: 'HEAD' });
+  await writeFile(join(ROOT, 'run.json'), JSON.stringify({
+    project: plan.project, runId: state.runId, branch, baseRef: workspace.head,
+    worktree: WORKTREE, repo: REPO, planPath: plan.path, createdAt: new Date().toISOString(),
+  }, null, 2), { mode: 0o600 });
+  say(`Run ${state.runId} initialized: ${plan.tasks.length} task(s) on branch ${branch}.`);
+  say(`Worktree: ${WORKTREE} (base ${workspace.head.slice(0, 10)})`);
+  say('Nothing has executed. Start it with: orion-agent run --hours 8');
+}
+
+async function loadRun() {
+  try { return JSON.parse(await readFile(join(ROOT, 'run.json'), 'utf8')); }
+  catch { throw new Error('no run exists; create one with: orion-agent init <plan.json>'); }
+}
+
+async function commandRun(hours) {
+  const config = await loadAgenticConfig();
+  if (config.enabled !== true) {
+    throw new Error(
+      `unattended execution is disabled. Set {"enabled": true} in ${CONFIG_PATH} to allow it. ` +
+      'That file is outside the repository on purpose: nothing this system runs can reach it.');
+  }
+  const run = await loadRun();
+  const runtime = new ModelRuntime(config);
+  const controller = new AbortController();
+  // SIGINT/SIGTERM stop the loop at its next boundary rather than killing it
+  // mid-transaction; the lease and the heartbeat are released in the `finally`.
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.once(signal, () => { say(`\n${signal}: stopping at the next task boundary…`); controller.abort(); });
+  }
+  const result = await superviseRun(ROOT, {
+    repoRoot: run.repo, worktree: run.worktree, baseRef: run.baseRef,
+    runtime, config, project: run.project,
+    durationMs: Math.round(hours * 3600_000), signal: controller.signal,
+  });
+  out({ iterations: result.iterations, tasksAccepted: result.tasksAccepted, reviews: result.reviews,
+    repairs: result.repairs, escalated: result.escalated, status: result.state.status,
+    progress: projectAgentProgress(result.state) });
+}
+
+/*
+ Benchmarking. A candidate is "worker/reviewer", so the two roles can be varied
+ independently — which matters, because the interesting question is not "is the
+ 80B better" but "does the 80B reviewer earn its eviction cost when paired with
+ the 27B worker".
+*/
+async function commandBench(candidates, hours) {
+  const base = await loadAgenticConfig();
+  const ledger = join(ROOT, 'benchmarks.jsonl');
+  const records = [];
+  for (const candidate of candidates) {
+    const [worker, reviewer] = candidate.split('/');
+    if (!worker || !reviewer) throw new Error(`candidate "${candidate}" must be "workerModel/reviewerModel"`);
+    const config = {
+      ...base,
+      roles: {
+        worker: { ...base.roles.worker, model: worker },
+        reviewer: { ...base.roles.reviewer, model: reviewer },
+      },
+    };
+    await new ModelRuntime(config).probe();
+    say(`\nBenchmarking ${candidate}…`);
+    const record = await benchmarkCandidate({
+      name: candidate, config, durationMs: Math.round(hours * 3600_000),
+      onProgress: event => { if (event.phase === 'done') say(`  ${candidate}: ${event.record.tasksAccepted}/${event.record.tasksPlanned} accepted in ${Math.round(event.record.wallClockMs / 60000)}m`); },
+    });
+    await recordBenchmark(ledger, record);
+    records.push(record);
+  }
+  say(`\n${formatBenchmark(records)}`);
+  say(`\nLedger: ${ledger}`);
+  say('The column that answers the question is wt/hr: accepted task WEIGHT per hour.');
+}
+
+async function commandStatus() {
+  const state = await readProjectAgent(ROOT);
+  const run = await loadRun().catch(() => null);
+  out({
+    project: run?.project ?? 'ORION', branch: run?.branch ?? null, baseRef: run?.baseRef ?? null,
+    runId: state.runId, revision: state.revision, status: state.status,
+    activeTask: state.activeTask, progress: projectAgentProgress(state),
+    escalation: state.escalation,
+    heartbeat: await heartbeatOf(ROOT),
+    leases: { supervisor: await inspectLease(join(ROOT, 'supervisor.lock')), worker: await inspectLease(join(ROOT, 'worker.lock')) },
+    journal: await auditJournal(ROOT),
+    reviewerAuthoredChanges: state.repairs.length,
+    tasks: state.tasks.map(task => ({ id: task.id, status: task.status, stage: task.stage, origin: task.origin,
+      attempts: task.attempts, corrections: task.corrections, repairsUsed: task.repairsUsed,
+      commit: task.commit?.slice(0, 10) ?? null, blocker: task.blocker })),
+    recentEvents: state.events.slice(-12),
+  });
+}
+
+async function commandBrief() {
+  const state = await readProjectAgent(ROOT);
+  const run = await loadRun();
+  const path = await writeAstraBrief(state, {
+    root: ROOT, worktree: run.worktree, baseRef: run.baseRef, project: run.project, escalation: state.escalation,
+  });
+  say(path);
+}
+
+async function commandResolve(revision, note) {
+  const state = await resolveProjectEscalation(ROOT, revision, note);
+  say(`Escalation resolved at revision ${state.revision}; status is now ${state.status}.`);
+}
+
+const [command, ...args] = process.argv.slice(2);
+const flag = name => { const index = args.indexOf(name); return index === -1 ? null : args[index + 1] ?? null; };
+
+try {
+  await mkdir(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 }).catch(() => {});
+  if (command === 'doctor') await commandDoctor();
+  else if (command === 'plan' && args[0]) await commandPlan(args[0]);
+  else if (command === 'init' && args[0]) await commandInit(args[0]);
+  else if (command === 'run') {
+    const hours = Number(flag('--hours') ?? 8);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 12) throw new Error('--hours must be between 0 and 12');
+    await commandRun(hours);
+  } else if (command === 'bench') {
+    const hours = Number(flag('--hours') ?? 2);
+    const candidates = (flag('--candidates') ?? 'qwen3.6:27b/gemma4:31b')
+      .split(',').map(item => item.trim()).filter(Boolean);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 12) throw new Error('--hours must be between 0 and 12');
+    // Not gated on `enabled`: a benchmark runs in a disposable repository and
+    // cannot reach ORION. The enablement gate is about changing real code.
+    await ensureRunRoot(ROOT);
+    await commandBench(candidates, hours);
+  } else if (command === 'status') await commandStatus();
+  else if (command === 'brief') await commandBrief();
+  else if (command === 'resolve') {
+    const revision = Number(flag('--revision'));
+    const note = flag('--note');
+    if (!Number.isSafeInteger(revision) || revision < 0) throw new Error('resolve needs --revision N from `status`');
+    if (!note) throw new Error('resolve needs --note "why this is now safe to continue"');
+    await commandResolve(revision, note);
+  } else {
+    console.error('usage: orion-agent doctor | plan <plan.json> | init <plan.json> | run [--hours N] | ' +
+      'status | brief | resolve --revision N --note "…" | bench [--candidates w/r,w/r] [--hours N]');
+    process.exitCode = 2;
+  }
+} catch (error) {
+  console.error(error?.code === 'ENOENT' ? `not found: ${error.path ?? error.message}` : String(error?.message ?? error));
+  process.exitCode = 1;
+}

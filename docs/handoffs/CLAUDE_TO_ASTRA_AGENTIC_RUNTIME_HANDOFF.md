@@ -51,20 +51,21 @@ decoder now **refuses** v1 rather than partially reading it.
 
 | Check | Result |
 |---|---|
-| `node --test` — 4 new agentic suites + the controller suite | **54 passed, 0 failed** |
+| `node --test` — 4 new agentic suites + the controller suite | **57 passed, 0 failed** |
 | `scripts/orion_v2_ci_check.sh --quick` | **OK** — 197 security invariants, 348 plugin tests, 82 automation, agentic suites registered and green |
 | `python3 scripts/orion_v2_secret_scan.py --allowlist …` | clean, 30 reviewed fixtures allowlisted |
 | `plugin/orion-control` `tsc --noEmit` | clean |
 | `vitest run src/self-development-authority.test.ts` | 29 passed (after adding 5 surfaces) |
 | Swift `swift build` + full `swift test` | **247 passed, 0 failed** (Xcode license is now accepted; the gate Astra hit is cleared) |
 | `ProjectAgentStatusTests` | 8 passed (was 3; 5 added) |
+| Live model run against qwen3.6:27b | see §6 |
 | Live model run | see §6 |
 
 The supervisor suite is **end-to-end against a real git repository with real
 `node --check` execution** — only the model is faked. That was deliberate: the
 failures this system must survive are filesystem and process failures.
 
-**It already earned its keep.** Three real bugs were caught by these tests, not
+**It already earned its keep.** Five real bugs were caught by these tests, not
 by reading:
 
 1. `git status --porcelain -z` output was being `.trim()`ed, which ate the
@@ -77,6 +78,18 @@ by reading:
 3. A `.foregroundStyle()` ternary mixing `HierarchicalShapeStyle` and `Color`
    broke the app build — caught only because I ran the real Swift build rather
    than the parse-only check.
+4. Steering from the UI during a review bumped the revision, so the verdict
+   failed to apply and **escalated** — waking Nick to report that he had touched
+   the UI. Review, repair, final review and escalation now re-read state first.
+5. An instruction arriving after the last task was handed to its worker made
+   closure refuse (correctly — Astra's third repaired defect), and that
+   exception propagated out of the loop and **killed the supervisor**. The run
+   stopped, nobody was told, and the morning would have shown a process that was
+   simply gone. It is now a `pending_steering` escalation, and the loop body can
+   no longer throw out of the process at all.
+
+Both of those are the exact failure mode this system exists to avoid, and
+neither was visible by reading the code.
 
 ---
 

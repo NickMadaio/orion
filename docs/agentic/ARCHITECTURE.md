@@ -98,7 +98,8 @@ constraining it can remove its own constraints.
 ## 4. Deviations from the mission
 
 Each of these is a case where the mission's suggested mechanism had a materially
-better implementation. **These are the things for Astra to argue with.**
+better implementation, or where reality forced a choice the mission did not
+anticipate. **These are the things for Astra to argue with.**
 
 ### 4.1 Checks are registry names, not commands
 
@@ -169,7 +170,15 @@ scope growth to keep the number monotonic — is the "72% complete" the mission
 explicitly rejects. `correctionTasks` and `scopeGrowth` are exposed beside the
 percentage, and the UI marks review-authored tasks with their own icon.
 
-### 4.11 Enablement is a file outside the repository
+### 4.11 Pending steering at closure escalates rather than crashing
+
+Astra's third repaired defect makes closure refuse when an instruction arrived
+after the last task was handed to its worker — correctly, because discarding it
+would be silent. That refusal threw out of the supervisor loop and killed the
+process: the run stopped and nobody was told. It is now an escalation that
+quotes the instruction and asks whether to turn it into a task or dismiss it.
+
+### 4.12 Enablement is a file outside the repository
 
 `~/.openclaw/orion-controlled/agentic-config.json` must say `"enabled": true`.
 Task scopes are repository-relative, so that file is outside every possible
@@ -188,6 +197,8 @@ separate legacy loop.
 | Git safety | run-scoped branch, never `-B`, never push, one commit per accepted task, **every exit code checked and the SHA verified against HEAD** |
 | Atomic transitions | single `state.lock`, expected-revision checks, validation on every read |
 | Watchdog | stall count, consecutive failures, repeated-blocker count — every loop branch routes through `trip()` |
+| Exception containment | the loop body cannot throw out of the process: a failed iteration is journalled and counted, and the watchdog escalates rather than letting an unattended run die silently |
+| Operator races | a review takes minutes; review, repair, final review and escalation re-read state and re-confirm the checkpoint before applying, so steering from the UI mid-review is not an escalation |
 | Bounded retries | `maxAttempts`, `maxCorrectionDepth`, `repairsUsed`, worker turn budget, in-worker repetition detection |
 | Timeouts | per task, per check, per inference call; checks run in their own process group so descendants die too |
 | Pause / resume | `pauseRequested` honoured at task boundaries; the supervisor holds the lease and polls |

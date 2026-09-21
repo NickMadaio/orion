@@ -48,8 +48,33 @@ build_module() {
     || { echo "failed to build module $name"; return 1; }
 }
 
+# MobileCore lives in the SIBLING package, OrionMobile, and SessionService began
+# importing it. Same failure as the Sparkle one described below, same fix: every
+# GUI harness in this directory stopped building with "no such module
+# 'MobileCore'" pointing at TodayPlanStore.swift, a file none of them care
+# about. Built first because SessionService compiles against it.
+_mobile_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../OrionMobile" && pwd)"
+build_external_module() {
+  local name="$1" root="$2"; shift 2
+  local sources=("$root/Sources/$name"/*.swift)
+  local newest
+  newest="$(ls -t "${sources[@]}" 2>/dev/null | head -1)"
+  if [ -f "$MODULE_BUILD/$name.swiftmodule" ] \
+     && [ "$MODULE_BUILD/$name.swiftmodule" -nt "$newest" ]; then
+    return 0
+  fi
+  swiftc -emit-module -emit-library \
+    -module-name "$name" \
+    -I "$MODULE_BUILD" -L "$MODULE_BUILD" "$@" \
+    -emit-module-path "$MODULE_BUILD/$name.swiftmodule" \
+    -o "$MODULE_BUILD/lib$name.dylib" \
+    "${sources[@]}" \
+    || { echo "failed to build module $name"; return 1; }
+}
+
+build_external_module MobileCore "$_mobile_root" || exit 1
 build_module SessionDomain || exit 1
-build_module SessionService -lSessionDomain || exit 1
+build_module SessionService -lSessionDomain -lMobileCore || exit 1
 
 # Sparkle, for the harnesses.
 #
@@ -72,5 +97,8 @@ else
   echo "  (no Sparkle artifact found — run: swift package resolve)" >&2
 fi
 
-MODULE_FLAGS="-I $MODULE_BUILD -L $MODULE_BUILD -lSessionDomain -lSessionService $SPARKLE_FLAGS"
+# -lMobileCore too: the app links it transitively through SessionService, and
+# without it every harness compiles and then fails at the linker on
+# "type metadata accessor for MobileCore.TodayPlan".
+MODULE_FLAGS="-I $MODULE_BUILD -L $MODULE_BUILD -lSessionDomain -lSessionService -lMobileCore $SPARKLE_FLAGS"
 export MODULE_BUILD MODULE_FLAGS

@@ -27,7 +27,7 @@
  do, and they are where the 27B/80B difference should show up.
 */
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -147,7 +147,8 @@ function summarize(journal) {
  * Run the benchmark once for one configuration. Returns a flat record suitable
  * for a ledger line and for a table.
  */
-export async function benchmarkCandidate({ name, config, durationMs = 2 * 3600_000, tasks = BENCH_TASKS, onProgress = () => {} }) {
+export async function benchmarkCandidate({ name, config, durationMs = 2 * 3600_000, tasks = BENCH_TASKS,
+  keepJournalIn = null, onProgress = () => {} }) {
   const { base, worktree, baseRef, root } = await disposableRepository();
   const started = Date.now();
   let result, failure = null;
@@ -195,6 +196,16 @@ export async function benchmarkCandidate({ name, config, durationMs = 2 * 3600_0
     acceptedWeightPerHour: Number(((acceptedWeight / (wallClockMs / 3600_000)) || 0).toFixed(2)),
     ...summarize(journal),
   };
+  // Keep the journal before the disposable repository goes. The summary says a
+  // task blocked; only the journal says WHY, and a benchmark that throws away
+  // the evidence cannot answer the question it exists to answer. The first real
+  // run of this harness blocked a task and the explanation had already been
+  // deleted.
+  if (keepJournalIn) {
+    const kept = join(keepJournalIn, `${name.replace(/[^a-z0-9.:-]/gi, '_')}-${record.at.replace(/[:.]/g, '-')}.jsonl`);
+    await mkdir(keepJournalIn, { recursive: true, mode: 0o700 });
+    await copyFile(join(root, 'journal.jsonl'), kept).then(() => { record.journal = kept; }).catch(() => {});
+  }
   await rm(base, { recursive: true, force: true });
   onProgress({ candidate: name, phase: 'done', record });
   return record;

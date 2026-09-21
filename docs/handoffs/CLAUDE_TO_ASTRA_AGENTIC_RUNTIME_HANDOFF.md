@@ -192,20 +192,41 @@ holding personal data would not be covered.
 
 ---
 
-## 6. The live run
+## 6. The live run — what a real 27B actually did
 
-`orion-agent bench --candidates "qwen3.6:27b/qwen3.6:27b"` was executed against
-a disposable git repository with the real local model, to prove the whole path
-— model load, eviction, worktree, boundary, checks, commit, review gate — works
-on this Mac rather than only against fakes. Result recorded in
-`~/.openclaw/orion-controlled/project-agent/benchmarks.jsonl`; see §6a below for
-what it showed.
+`orion-agent bench --candidates "qwen3.6:27b/qwen3.6:27b" --hours 0.4`, against a
+disposable git repository, with the real local model in both roles. Two
+ORION-shaped tasks: add `remove(id)` to a small store, then cover it with a test
+that imports the real module.
 
-Whatever it showed, treat one run of one configuration as a smoke test, not a
-benchmark. The benchmark harness exists so model selection can be measured; the
-measuring has not been done.
+```
+candidate                accepted  blocked  corr  repairs  wall  wt/hr
+qwen3.6:27b/qwen3.6:27b  1/2       1        0     0        17m   6.99
+```
 
----
+- **`bench-remove`: accepted.** The worker wrote a complete file, `### CHECK`
+  passed, the checkpoint committed, and the reviewer returned a valid `PASS`.
+  The whole gate ran on a real model with no human.
+- **`bench-cover`: blocked** (`worker_or_validation_failed`), and the run
+  escalated `repeated_failure` rather than spinning to the budget.
+- 3 worker turns (9.8 min of inference), 1 reviewer pass (2.3 min).
+- **0 unusable replies, 0 rejected reviews, 0 refused writes.** The marker
+  protocol, the JSON review schema and the boundary all held against a real
+  model on the first try — the part I was least sure of.
+
+So the path works end to end on this Mac. What it does not tell us is whether
+the 27B is good enough, and **one run of one configuration is a smoke test, not
+a benchmark**. Treat 6.99 weight/hour as a number to beat, not a result.
+
+### It also exposed a defect in the harness
+
+The disposable repository is deleted when a candidate finishes, and the journal
+went with it — so the summary said `bench-cover` blocked and the explanation had
+already been destroyed. A benchmark that throws away its evidence cannot answer
+the question it exists to answer. Journals are now retained under
+`~/.openclaw/orion-controlled/project-agent/bench-journals/` and the path is
+recorded on the ledger line. **The blocked task above therefore has no surviving
+diagnosis**; the next run will.
 
 ## 7. Astra's handoff claims I verified
 

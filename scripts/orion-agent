@@ -182,6 +182,7 @@ async function commandBench(candidates, hours) {
     say(`\nBenchmarking ${candidate}…`);
     const record = await benchmarkCandidate({
       name: candidate, config, durationMs: Math.round(hours * 3600_000),
+      keepJournalIn: join(ROOT, 'bench-journals'),
       onProgress: event => { if (event.phase === 'done') say(`  ${candidate}: ${event.record.tasksAccepted}/${event.record.tasksPlanned} accepted in ${Math.round(event.record.wallClockMs / 60000)}m`); },
     });
     await recordBenchmark(ledger, record);

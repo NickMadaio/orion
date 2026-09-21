@@ -106,6 +106,13 @@ export async function loadAgenticConfig({ path = CONFIG_PATH } = {}) {
     // remote host is an exfiltration channel with a config file for a key.
     throw new Error(`agentic endpoint must be loopback, got "${config.endpoint}"`);
   }
+  // A repair threshold above the attempt ceiling is a silent misconfiguration:
+  // `attempts` can never reach it, so the reviewer-repair rung of the ladder
+  // never fires and tasks escalate that the local loop could have unblocked.
+  if (config.limits.repairAfterAttempts > config.limits.maxAttempts) {
+    throw new Error(`repairAfterAttempts (${config.limits.repairAfterAttempts}) exceeds maxAttempts ` +
+      `(${config.limits.maxAttempts}); reviewer repair could never trigger`);
+  }
   for (const [role, spec] of Object.entries(config.roles)) {
     if (typeof spec.model !== 'string' || !spec.model.trim()) throw new Error(`role ${role} has no model`);
     if (!Number.isFinite(spec.approxResidentGiB) || spec.approxResidentGiB <= 0) throw new Error(`role ${role} has no memory estimate`);

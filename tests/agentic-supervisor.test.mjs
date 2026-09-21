@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initializeProjectAgent, readProjectAgent } from '../scripts/lib/orion-project-agent.mjs';
+import { initializeProjectAgent, readProjectAgent, steerProjectAgent } from '../scripts/lib/orion-project-agent.mjs';
 import { superviseRun, recoverRun } from '../scripts/lib/agentic/supervisor.mjs';
 import { acquireLease } from '../scripts/lib/agentic/lease.mjs';
 import { readJournal } from '../scripts/lib/agentic/journal.mjs';
@@ -58,7 +58,7 @@ class FakeRuntime {
     const next = queue.length > 1 ? queue.shift() : (queue[0] ?? '');
     return {
       role, model: `fake-${role}`, ms: 1, handoff: { evicted: [], resident: role },
-      text: typeof next === 'function' ? next(prompt) : next,
+      text: typeof next === 'function' ? await next(prompt) : next,
       meta: { thinkingChars: 0, doneReason: 'stop', evalCount: 1, promptEvalCount: 1 },
     };
   }
@@ -279,4 +279,68 @@ test('a heartbeat distinguishes a busy supervisor from a crashed one', async t =
   const beat = JSON.parse(await readFile(join(root, 'heartbeat.json'), 'utf8'));
   assert.equal(beat.phase, 'stopped', 'the final heartbeat says the supervisor is gone');
   assert.ok(beat.pid > 0 && beat.bootId, 'the heartbeat carries provable ownership');
+});
+
+test('an operator instruction during a review does not corrupt the review', async t => {
+  const { root, worktree, baseRef } = await repository(t);
+  await initializeProjectAgent(root, plan());
+  // A review takes minutes in production. Nick steering from the UI during one
+  // bumps the revision, and a verdict applied against the revision the loop
+  // started from would fail — escalating to tell him he touched the UI.
+  let steered = false;
+  const runtime = new FakeRuntime({
+    worker: writeThenDone('export const version = 2;'),
+    reviewer: [async () => {
+      if (!steered) {
+        steered = true;
+        const state = await readProjectAgent(root);
+        await steerProjectAgent(root, 'steer', state.revision, 'keep the public interface stable');
+      }
+      return passReview;
+    }, passReview],
+  });
+
+  const result = await superviseRun(root, {
+    worktree, baseRef, runtime, config: config(), durationMs: 90_000, notify: silentNotify,
+  });
+
+  assert.equal(steered, true, 'the race was actually exercised');
+  assert.equal(result.state.tasks[0].status, 'accepted', 'the review still applied to the right checkpoint');
+
+  // An instruction that arrives after the last task was handed to its worker is
+  // never applied, and closure refuses to discard it silently. That stop is
+  // CORRECT — but it must be the honest "your instruction arrived too late"
+  // one, not "the reviewer's verdict could not be applied", and it must not
+  // kill the supervisor.
+  if (result.state.escalation) {
+    assert.equal(result.state.escalation.kind, 'pending_steering');
+    assert.match(result.state.escalation.question, /keep the public interface stable/);
+    assert.equal(result.state.escalation.recommendAstra, false, 'this needs Nick, not Astra');
+  } else {
+    assert.equal(result.state.status, 'completed');
+  }
+  assert.ok(result.iterations > 0);
+});
+
+test('a throwing iteration does not kill an unattended supervisor', async t => {
+  const { root, worktree, baseRef } = await repository(t);
+  await initializeProjectAgent(root, plan());
+  // An unattended process that dies on an exception has told nobody. The loop
+  // must survive, count the failure, and let the watchdog end the run with an
+  // escalation Nick hears about.
+  const runtime = new FakeRuntime({ worker: writeThenDone('export const version = 2;'), reviewer: [passReview] });
+  const exploding = {
+    probe: () => runtime.probe(),
+    releaseAll: () => runtime.releaseAll(),
+    generate: async () => { throw new Error('inference runtime fell over'); },
+  };
+
+  const result = await superviseRun(root, {
+    worktree, baseRef, runtime: exploding, config: config(), durationMs: 60_000, notify: silentNotify,
+  });
+
+  assert.ok(result.state, 'the supervisor returned a summary instead of throwing');
+  assert.equal(result.state.status, 'escalated');
+  assert.match(result.state.escalation.reason, /failed 3 times in a row|worker_or_validation_failed|blocked/);
+  assert.ok(result.iterations <= 12, `should stop quickly, ran ${result.iterations}`);
 });

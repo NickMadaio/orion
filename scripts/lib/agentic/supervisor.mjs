@@ -176,11 +176,34 @@ export async function superviseRun(root, {
 
     while (!signal?.aborted && now() - started < durationMs) {
       summary.iterations += 1;
+      try {
+        if (await iterate()) break;
+      } catch (error) {
+        // An unattended process that dies on an exception has told nobody. A
+        // failed iteration is journalled and counted; the watchdog ends the run
+        // and escalates if they keep happening, which is a stop Nick hears
+        // about rather than a process that is simply gone in the morning.
+        emit({ kind: 'iteration_failed', data: { iteration: summary.iterations, error: String(error?.message ?? error) } });
+        const verdict = guard.failed();
+        if (verdict.trip) {
+          await escalate(root, await readProjectAgent(root).catch(() => null) ?? { revision: 0 }, {
+            kind: 'repeated_failure', recommendAstra: true,
+            reason: `the supervisor loop failed ${limits.maxConsecutiveFailures} times in a row; last error: ${String(error?.message ?? error)}`,
+            question: 'Read the last journal entries before restarting.',
+          }, emit).catch(() => {});
+          break;
+        }
+        await sleep(2_000, signal);
+      }
+    }
+
+    /** One pass. Returns true when the loop should stop. */
+    async function iterate() {
       let state = await readProjectAgent(root);
       const progress = projectAgentProgress(state);
       await heartbeat(root, { phase: state.status, iterations: summary.iterations, runId: state.runId, percent: progress.percent, activeTask: state.activeTask });
 
-      if (state.status === 'completed') { emit({ kind: 'run_completed', data: progress }); break; }
+      if (state.status === 'completed') { emit({ kind: 'run_completed', data: progress }); return true; }
 
       if (state.status === 'escalated') {
         const notification = await notify(state, { root, worktree, baseRef, project });
@@ -189,7 +212,7 @@ export async function superviseRun(root, {
         }
         emit({ kind: 'escalation_notified', data: { delivered: notification.delivered, reason: notification.reason, brief: notification.briefPath } });
         summary.escalated = { kind: state.escalation.kind, reason: state.escalation.reason, notified: notification.delivered, brief: notification.briefPath };
-        break;
+        return true;
       }
 
       if (state.status === 'paused') {
@@ -197,7 +220,7 @@ export async function superviseRun(root, {
         // thinks, resumes, and the run continues without needing a relaunch.
         await heartbeat(root, { phase: 'paused', iterations: summary.iterations, runId: state.runId });
         await sleep(PAUSE_POLL_MS, signal);
-        continue;
+        return false;
       }
 
       const awaiting = state.tasks.find(task => task.status === 'awaiting_review');
@@ -206,7 +229,7 @@ export async function superviseRun(root, {
         summary.reviews += 1;
         if (outcome.accepted) summary.tasksAccepted += 1;
         await trip(guard, outcome.progressed, root, emit);
-        continue;
+        return false;
       }
 
       const repairable = state.tasks.find(task =>
@@ -219,7 +242,7 @@ export async function superviseRun(root, {
           lastChecks: repairable.evidence?.checks ?? [] });
         summary.repairs += 1;
         await trip(guard, outcome.progressed, root, emit);
-        continue;
+        return false;
       }
 
       const claimable = state.tasks.some(task => task.status === 'queued' && task.attempts < state.maxAttempts &&
@@ -229,7 +252,7 @@ export async function superviseRun(root, {
         if (state.tasks.every(task => task.status === 'accepted') && !state.finalReview) {
           const outcome = await handleFinalReview({ root, state, runtime, worktree, baseRef, emit });
           await trip(guard, outcome.progressed, root, emit);
-          continue;
+          return false;
         }
         const blocked = state.tasks.filter(task => task.status === 'blocked');
         await escalate(root, state, {
@@ -241,7 +264,7 @@ export async function superviseRun(root, {
           recommendAstra: true,
           question: blocked.length ? 'Should these tasks be re-scoped, re-planned, or dropped?' : 'The task graph needs a human look.',
         }, emit);
-        continue;
+        return false;
       }
 
       const before = state.revision;
@@ -250,6 +273,7 @@ export async function superviseRun(root, {
         taskTimeoutMs: limits.taskTimeoutMs,
       });
       await trip(guard, state.revision > before, root, emit);
+      return false;
     }
 
     if (!signal?.aborted && now() - started >= durationMs) {
@@ -287,7 +311,12 @@ async function trip(guard, progressed, root, emit) {
 }
 
 async function escalate(root, state, details, emit) {
-  const escalated = await escalateProjectAgent(root, state.revision, details).catch(error => {
+  // `state` may be minutes old by the time an escalation is raised. The
+  // revision is re-read rather than trusted: an escalation that fails to land
+  // because the operator typed something is the worst possible escalation to
+  // lose.
+  const fresh = await readProjectAgent(root).catch(() => state);
+  const escalated = await escalateProjectAgent(root, fresh.revision, details).catch(error => {
     emit({ kind: 'escalation_failed', data: { reason: String(error.message ?? error) } });
     return null;
   });
@@ -320,9 +349,22 @@ async function handleReview({ root, state, task, runtime, worktree, baseRef, emi
   const { review } = outcome;
   const decision = review.verdict === 'PASS' ? 'accept'
     : review.verdict === 'PASS_WITH_TASKS' ? 'accept_with_tasks' : 'blocked';
+
+  // A review takes minutes. Nick can pause or steer from the UI while it runs,
+  // and that bumps the revision -- so applying the verdict against the revision
+  // we started from would fail and escalate, waking him to report that he
+  // touched the UI. Re-read, and confirm the checkpoint under review is still
+  // the one on disk before applying anything.
+  const fresh = await readProjectAgent(root);
+  const current = fresh.tasks.find(item => item.id === task.id);
+  if (!current || current.status !== 'awaiting_review' || current.commit !== task.commit) {
+    emit({ kind: 'review_discarded', taskId: task.id, data: {
+      reason: 'the checkpoint changed while the review was running', verdict: review.verdict } });
+    return { accepted: false, progressed: true };
+  }
   try {
     await reviewProjectTask(root, {
-      revision: state.revision, taskId: task.id, commit: task.commit, decision,
+      revision: fresh.revision, taskId: task.id, commit: task.commit, decision,
       review: { ...review, reviewer: outcome.model },
     });
   } catch (error) {
@@ -362,7 +404,10 @@ async function handleRepair({ root, state, task, runtime, worktree, baseRef, emi
   }
 
   const committed = await commitRepair(worktree, task, repair);
-  await recordReviewerRepair(root, state.revision, {
+  // Same reasoning as the review path: a repair takes minutes and the operator
+  // may have moved the revision underneath it.
+  const afterRepair = await readProjectAgent(root);
+  await recordReviewerRepair(root, afterRepair.revision, {
     taskId: task.id, model: repair.model, files: repair.files,
     summary: `${repair.diagnosis} — ${repair.rationale}${repair.improved ? '' : ' (checks still failing after the repair)'}`,
     commit: committed.commit,
@@ -399,9 +444,27 @@ async function handleFinalReview({ root, state, runtime, worktree, baseRef, emit
   }
 
   if (outcome.review.verdict === 'PASS') {
-    await acceptProjectFinalReview(root, state.revision, { reviewer: outcome.model, summary: outcome.review.summary });
-    emit({ kind: 'final_review_passed', data: { model: outcome.model, summary: outcome.review.summary } });
-    return { progressed: true };
+    const fresh = await readProjectAgent(root);
+    try {
+      await acceptProjectFinalReview(root, fresh.revision, { reviewer: outcome.model, summary: outcome.review.summary });
+      emit({ kind: 'final_review_passed', data: { model: outcome.model, summary: outcome.review.summary } });
+      return { progressed: true };
+    } catch (error) {
+      // The common case is an instruction that arrived after the last task was
+      // handed to its worker, so it was never applied and closure refuses it.
+      // That is a real question for a human -- apply it as new work, or dismiss
+      // it -- and the loop has no authority to answer it either way.
+      const unapplied = fresh.steering.filter(item => !item.applied).map(item => item.text);
+      await escalate(root, fresh, {
+        kind: 'pending_steering', recommendAstra: false,
+        reason: `the run passed final review but cannot be closed: ${error.message}`,
+        question: unapplied.length
+          ? `These instructions arrived too late to be applied and would be silently lost: ${unapplied.join(' | ')}. ` +
+            'Turn them into a task contract, or resolve the escalation to dismiss them.'
+          : 'Closure was refused; see the reason above.',
+      }, emit);
+      return { progressed: true };
+    }
   }
   // PASS_WITH_TASKS at the end is deliberately NOT turned into tasks. A
   // cross-cutting correction has no parent task to inherit scope from, and

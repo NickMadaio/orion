@@ -95,18 +95,31 @@ export function renderSteering(instructions) {
   return `\n## OPERATOR INSTRUCTIONS (from Nick, apply these)\n${bullets(instructions.map(item => item.text))}\n`;
 }
 
-/**
- * The worker's turn. `outcome` is the previous turn's result, so the loop is
- * observe -> act rather than a growing transcript.
- */
-export function workerTurn({ contract, files, checkResults, instructions, attempt, maxAttempts, notice, checkDescriptions }) {
+/*
+ The worker's turn: assembled from durable facts, so the loop is observe -> act
+ rather than a growing transcript.
+
+ TURNS and ATTEMPTS are different budgets and the worker must not confuse them.
+ A TURN is one exchange inside this attempt; an ATTEMPT is one whole run at the
+ task, spent when a review sends the work back. The system prompt's escalation
+ advice ("attempt 2 failed the same way → read a different file") keys off
+ ATTEMPTS, so labelling the turn counter "attempt" told the worker it had
+ fourteen tries at a task the controller would block after three.
+*/
+export function workerTurn({ contract, files, checkResults, instructions, turn, maxTurns,
+  attempt, maxAttempts, notice, checkDescriptions }) {
+  const budget = attempt && maxAttempts
+    ? `This is **attempt ${attempt} of ${maxAttempts}** at this task` +
+      `${attempt >= maxAttempts ? ' — your last. If you cannot finish it, ### BLOCKED honestly rather than guessing.' : '.'}` +
+      `\nWithin this attempt you have ${maxTurns - turn} exchange(s) left after this one.`
+    : `Exchange ${turn} of ${maxTurns}.`;
   return [
     renderContract(contract, { checkDescriptions }),
     renderSteering(instructions),
     renderFiles(files),
     renderCheckResults(checkResults),
     notice ? `## NOTICE\n${notice}` : '',
-    `## YOUR TURN\nAttempt ${attempt} of ${maxAttempts}. Reply using the markers from your instructions ` +
+    `## YOUR TURN\n${budget}\n\nReply using the markers from your instructions ` +
     '(### READ, ### SEARCH, ### FILE, ### CHECK, ### DONE, ### BLOCKED, ### PROPOSE).',
   ].filter(Boolean).join('\n\n');
 }

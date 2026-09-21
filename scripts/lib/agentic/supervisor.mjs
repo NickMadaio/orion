@@ -170,7 +170,7 @@ export async function superviseRun(root, {
     emit({ kind: 'supervisor_started', data: { project, probe, durationMs, baseRef, head: recovery.head, reclaimedLease: acquired.reclaimed } });
 
     const guard = watchdog({ limits });
-    const worker = createWorker({ runtime, worktree, emit });
+    const worker = createWorker({ runtime, worktree, emit, maxAttempts: limits.maxAttempts });
     const verify = createVerifier({ worktree });
     beat = setInterval(() => heartbeat(root, { phase: 'loop', iterations: summary.iterations, runId: recovery.state.runId }), HEARTBEAT_MS);
 

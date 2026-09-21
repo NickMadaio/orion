@@ -57,7 +57,7 @@ async function initialWorkingSet(worktree, contract) {
  * Build the worker adapter the controller calls. `emit` receives structured
  * progress for the journal and the UI; it is never given raw reasoning traces.
  */
-export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MAX_TURNS, now = () => Date.now() }) {
+export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MAX_TURNS, maxAttempts = 3 }) {
   return async function worker(task, { signal, instructions = [] } = {}) {
     const system = await systemPrompt('worker-system');
     const checkDescriptions = describeChecks(task.checks);
@@ -75,8 +75,10 @@ export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MA
       if (signal?.aborted) throw new WorkerBlocked('cancelled', { turn });
 
       const prompt = workerTurn({
-        contract: task, files: workingSet, checkResults, instructions,
-        attempt: turn, maxAttempts: maxTurns, notice, checkDescriptions,
+        contract: task, files: workingSet, checkResults, instructions, notice, checkDescriptions,
+        turn, maxTurns,
+        // The real attempt budget, from durable state — not the turn counter.
+        attempt: task.attempts, maxAttempts,
       });
       notice = null;
 

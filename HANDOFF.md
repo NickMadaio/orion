@@ -10,6 +10,28 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-21 15:31 BST — Disabled project-agent foundation; handoff to Claude
+
+User requested stopping at a stable source checkpoint and a technical handoff,
+not further agentic-workflow implementation. Authoritative transfer details:
+docs/handoffs/ASTRA_TO_CLAUDE_AGENTIC_LOOP_HANDOFF.md. This is a scoped transfer
+record; this file remains the live project handoff.
+
+Built fixture-only durable controller, revisioned operator CLI and source Projects
+view integration. No worker/model/reviewer transport enabled, no production run
+state initialized, no app deployment. Independent review's three defects fixed:
+lifecycle corruption, verification after timeout and pending steering at closure.
+12 controller tests pass independently. Native status typechecks; six standalone
+checks pass. Full native app build/XCTest blocked by unaccepted Xcode license.
+Do not treat syntax checks as UI build proof. Existing self-development enablement
+flag remains false. New scope registered without altering numbered gates.
+
+46/85 complete (54%),25 in progress,14 not started. Preserve capabilities.md,
+existing worktrees, personal state and installed configuration. Next work belongs
+to Claude after this checkpoint; do not launch the legacy coder as a substitute.
+
+---
+
 ## 2026-09-21 09:19 BST — Scheduler entry point and guarded preview
 
 Added scripts/orion-automation-run and a sanitized tick adapter: accepts only an

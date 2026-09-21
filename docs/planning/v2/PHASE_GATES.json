@@ -5691,6 +5691,15 @@
         "wouldBelongNear": "PHASE 65 App Intents and System Integration, while Atlas itself remains a separate product",
         "status": "registered",
         "residualRisk": "General-purpose notes may contain private material. Retrieved note text remains untrusted evidence, agent writes are constrained to create and conflict-safe update, and deletion is intentionally absent."
+      },
+      {
+        "id": "supervised_local_project_agent",
+        "raisedBy": "Nick, 2026-09-21",
+        "manifestCoverage": "Existing self-development and Projects scaffolding do not specify durable task dependencies, independent review receipts, steering or unattended recovery. No numbered phase is closed by this checkpoint.",
+        "alreadyLive": "Legacy scripts/orion-code and ProjectTab exist. New controller and Projects UI foundation are source-only, fixture-tested, uninstalled, and have no enabled worker/reviewer adapter.",
+        "layer": "Development controller foundation and Projects view; see docs/handoffs/ASTRA_TO_CLAUDE_AGENTIC_LOOP_HANDOFF.md for actual state and limits.",
+        "wouldBelongNear": "Existing governed self-development capability and Projects UI; preserve numbered manifest ordering.",
+        "status": "registered"
       }
     ]
   },

@@ -76,6 +76,12 @@ else
     bad "automation runtime checks failed"; tail -25 "$LOGS"/orion-ci-automation-removal.log
 fi
 
+if node --test "$REPO/tests/project-agent.test.mjs" >"$LOGS"/orion-ci-project-agent.log 2>&1; then
+    ok "project-agent controller checks"
+else
+    bad "project-agent controller checks failed"; tail -25 "$LOGS"/orion-ci-project-agent.log
+fi
+
 step "3. static analysis"
 if (cd "$PLUGIN" && npx tsc --noEmit -p tsconfig.json >"$LOGS"/orion-ci-tsc.log 2>&1); then
     ok "typecheck clean"

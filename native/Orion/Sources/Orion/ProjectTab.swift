@@ -18,6 +18,10 @@ import SwiftUI
 struct ProjectTab: View {
     @State private var status = SelfDevelopmentStatus.read()
     @State private var work: [String] = SelfDevelopmentStatus.recentWork()
+    @State private var agent = ProjectAgentStatus.read()
+    @State private var steering = ""
+    @State private var controlError: String?
+    @State private var controlling = false
     @State private var mode: ConversationMode = .main
 
     private let refresh = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
@@ -25,6 +29,7 @@ struct ProjectTab: View {
     var body: some View {
         HStack(alignment: .top, spacing: 54) {
             VStack(alignment: .leading, spacing: 34) {
+                OrionPanel(padding: 22) { projectAgent }
                 OrionPanel(padding: 22) { selfDevelopment }
                 OrionPanel(padding: 22) { recentWork }
             }
@@ -35,8 +40,93 @@ struct ProjectTab: View {
                 .padding(.top, 52)
         }
         .onReceive(refresh) { _ in
+            agent = ProjectAgentStatus.read()
             status = SelfDevelopmentStatus.read()
             work = SelfDevelopmentStatus.recentWork()
+        }
+    }
+
+    private var projectAgent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("PROJECT AGENT").font(.headline)
+                Spacer()
+                Button("Refresh") { agent = ProjectAgentStatus.read() }
+            }
+            switch agent {
+            case .missing:
+                Text("No project run configured.").foregroundStyle(.secondary)
+            case .unreadable(let message):
+                Text(message).foregroundStyle(.orange)
+            case .available(let run):
+                Text(run.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                    .font(.title2)
+                Text(run.progressLabel)
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 5)
+                        Circle().trim(from: 0, to: run.acceptedFraction)
+                            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                        Text("\(run.acceptedCount)/\(run.tasks.count)").font(.caption)
+                    }.frame(width: 56, height: 56)
+                        .accessibilityLabel("\(run.acceptedCount) of \(run.tasks.count) tasks accepted")
+                    Text(run.awaitingFinalReview ? "Tasks accepted; final review pending" : "Accepted work")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Progress counts accepted task weights. A final review is required for completion.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if run.status == .interrupted { Text("Interrupted work needs verified recovery before resuming.").font(.caption).foregroundStyle(.orange) }
+                if let active = run.active {
+                    HStack {
+                        if run.status == .running {
+                            ProgressView().progressViewStyle(.circular).controlSize(.small)
+                                .accessibilityLabel("Task in progress; duration unknown")
+                        } else {
+                            Image(systemName: active.status == .accepted ? "checkmark.circle" : "pause.circle")
+                        }
+                        Text(active.title).font(.headline)
+                    }
+                    Text("Recorded stage: \(active.stage.rawValue) · attempt \(active.attempts)").font(.caption)
+                }
+                ForEach(run.tasks) { task in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(task.title) · \(task.status.rawValue.replacingOccurrences(of: "_", with: " "))")
+                        if let blocker = task.blocker { Text(blocker).foregroundStyle(.orange) }
+                    }.font(.callout)
+                }
+                HStack {
+                    Button("Pause") { control(.pause, run: run) }
+                        .disabled(controlling || ![.running, .ready, .waiting_for_review].contains(run.status))
+                    Button("Resume") { control(.resume, run: run) }
+                        .disabled(controlling || (![.paused, .budget_exhausted].contains(run.status) || run.activeTask != nil))
+                }
+                TextField("Instruction for the next safe point", text: $steering)
+                Button("Send instruction") { control(.steer, run: run) }
+                    .disabled(controlling || steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.status == .completed)
+                ForEach(run.steering.suffix(3)) { item in
+                    Text("\(item.applied ? "Applied" : "Pending"): \(item.text)").font(.caption)
+                }
+                ForEach(Array(run.events.suffix(5).enumerated()), id: \.offset) { _, event in
+                    Text("\(event.at) · \(event.message)").font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Run \(run.runId) · revision \(run.revision). Changes are not installation or deployment.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if controlling { ProgressView("Contacting controller…") }
+            if let controlError { Text(controlError).foregroundStyle(.orange).textSelection(.enabled) }
+        }
+    }
+
+    private func control(_ command: ProjectAgentControl.Command, run: ProjectAgentStatus) {
+        controlling = true
+        controlError = nil
+        let submittedText = steering.trimmingCharacters(in: .whitespacesAndNewlines)
+        ProjectAgentControl.send(command, revision: run.revision, text: submittedText) { error in
+            controlling = false
+            controlError = error
+            if error == nil && command == .steer && steering.trimmingCharacters(in: .whitespacesAndNewlines) == submittedText { steering = "" }
+            agent = ProjectAgentStatus.read()
         }
     }
 
@@ -48,7 +138,7 @@ struct ProjectTab: View {
                 Circle()
                     .fill(activityColour)
                     .frame(width: 9, height: 9)
-                Text("SELF-DEVELOPMENT")
+                Text("LEGACY CODER")
                     .font(.system(size: 11, weight: .semibold))
                     .kerning(1.4)
                     .foregroundStyle(OrionTheme.textDim)
@@ -98,7 +188,7 @@ struct ProjectTab: View {
 
     private var recentWork: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("WHAT IT CHANGED")
+            Text("LEGACY CODER CHANGES")
                 .font(.system(size: 11, weight: .semibold))
                 .kerning(1.4)
                 .foregroundStyle(OrionTheme.textDim)

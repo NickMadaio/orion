@@ -1,0 +1,19 @@
+#!/usr/bin/env node
+// Operator controls only. No model execution, review approval or initialization.
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { readProjectAgent, steerProjectAgent, projectAgentProgress } from './lib/orion-project-agent.mjs';
+const root = join(homedir(), '.openclaw/orion-controlled/project-agent');
+const [command, ...args] = process.argv.slice(2);
+try {
+  let state;
+  if (command === 'status' && args.length === 0) state = await readProjectAgent(root);
+  else if (['pause', 'resume', 'steer'].includes(command) && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
+    (command === 'steer' ? args.length === 4 && args[2] === '--text' : args.length === 2)) {
+    state = await steerProjectAgent(root, command, Number(args[1]), args[3]);
+  } else throw new Error('usage: status | pause/resume --revision N | steer --revision N --text instruction');
+  console.log(JSON.stringify({ ...state, progress: projectAgentProgress(state) }));
+} catch (error) {
+  console.error(error.code === 'ENOENT' ? 'No project-agent run exists.' : error.code === 'EEXIST' ? 'Controller is busy; refresh and retry.' : error.message);
+  process.exitCode = 1;
+}

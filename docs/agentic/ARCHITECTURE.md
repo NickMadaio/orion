@@ -30,9 +30,12 @@ scripts/lib/agentic/
   escalation.mjs    Discord alerting, rate limiting, brief writing
   brief.mjs         the phone message and the Astra brief
   supervisor.mjs    the deterministic loop, watchdog, recovery
+  activity.mjs      the live thinking channel — one disposable snapshot, throttled
   bench.mjs         model benchmarking in a disposable repository
-native/Orion/Sources/Orion/ProjectAgentStatus.swift   the UI's read model (v2) + heartbeat
-native/Orion/Sources/Orion/ProjectTab.swift           the panel
+native/Orion/Sources/Orion/ProjectAgentStatus.swift        the UI's read model (v2) + heartbeat
+native/Orion/Sources/Orion/ProjectAgentInstructions.swift  activity, settings and prompt readers
+native/Orion/Sources/Orion/ProjectAgentPanel.swift         two clocks, live reasoning, controls
+native/Orion/Sources/Orion/ProjectTab.swift                hosts the panel
 docs/agentic/plans/smoke-run.json                     the first thing to run
 ```
 
@@ -178,7 +181,28 @@ would be silent. That refusal threw out of the supervisor loop and killed the
 process: the run stopped and nobody was told. It is now an escalation that
 quotes the instruction and asks whether to turn it into a task or dismiss it.
 
-### 4.12 Enablement is a file outside the repository
+### 4.12 Inference streams, and the thinking channel is a separate file
+
+A non-streaming request to a 27B is indistinguishable, from outside, from a dead
+inference runtime — for nine minutes at a time. Generation now streams, so
+"it is thinking" is an observed fact rather than an inference from elapsed time,
+and the reasoning is published live.
+
+It is published to `activity.json`, **not** the journal: the journal is the
+durable audit record and reasoning traces are enormous, are not evidence, and
+would bury it. `activity.json` is one snapshot, overwritten in place, throttled
+to ~400ms, never fsynced. Losing it costs nothing. Transitions (thinking starts,
+thinking stops) bypass the throttle, because the indicator's whole job is to
+distinguish working from hung and a lagging indicator cannot do that.
+
+### 4.13 The panel shows settings but does not edit them
+
+`enabled` decides whether a model may change real code while nobody is watching,
+and it lives outside the repository so that moving it takes a deliberate act. A
+toggle in a window is not that act. The panel shows every setting and the exact
+file path; changing them is a file edit.
+
+### 4.14 Enablement is a file outside the repository
 
 `~/.openclaw/orion-controlled/agentic-config.json` must say `"enabled": true`.
 Task scopes are repository-relative, so that file is outside every possible

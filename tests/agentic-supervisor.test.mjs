@@ -20,6 +20,7 @@ import { initializeProjectAgent, readProjectAgent, steerProjectAgent } from '../
 import { superviseRun, recoverRun } from '../scripts/lib/agentic/supervisor.mjs';
 import { acquireLease } from '../scripts/lib/agentic/lease.mjs';
 import { readJournal } from '../scripts/lib/agentic/journal.mjs';
+import { ActivityChannel, readActivity } from '../scripts/lib/agentic/activity.mjs';
 import { DEFAULT_CONFIG } from '../scripts/lib/agentic/models.mjs';
 import { changedFiles, currentHead } from '../scripts/lib/agentic/workspace.mjs';
 
@@ -343,4 +344,72 @@ test('a throwing iteration does not kill an unattended supervisor', async t => {
   assert.equal(result.state.status, 'escalated');
   assert.match(result.state.escalation.reason, /failed 3 times in a row|worker_or_validation_failed|blocked/);
   assert.ok(result.iterations <= 12, `should stop quickly, ran ${result.iterations}`);
+});
+
+test('the live channel always lands its final state, however fast tokens arrive', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'orion-activity-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const channel = new ActivityChannel(root);
+
+  channel.begin({ role: 'worker', model: 'test-model', phase: 'implement', taskId: 'task-one', note: 'working' });
+  // Faster than the throttle, which is the case that broke it: `end()` used to
+  // be dropped when it arrived during an in-flight write, leaving a finished
+  // generation whose panel said "thinking" forever.
+  for (let i = 0; i < 200; i++) channel.delta({ thinking: `step ${i} ` });
+  for (let i = 0; i < 40; i++) channel.delta({ response: `out${i} ` });
+  await channel.end('done');
+
+  const after = await readActivity(root);
+  assert.equal(after.thinking, false, 'a finished generation must never still read as thinking');
+  assert.equal(after.streaming, false);
+  assert.equal(after.note, 'done');
+  assert.ok(after.thinkingChars > 1000, 'the full trace length is counted');
+  assert.ok(after.outputChars > 0);
+  // The tail is kept, not the head: where the reasoning got to is what a reader
+  // wants, and the buffer is bounded so a long run cannot grow it without limit.
+  assert.ok(after.trace.length <= 6000);
+  assert.match(after.trace, /step 199/);
+
+  await channel.idle('stopped');
+  const idle = await readActivity(root);
+  assert.equal(idle.role, 'idle');
+  assert.equal(idle.trace, '', 'idle clears the trace rather than leaving a stale one on screen');
+  await channel.close();
+});
+
+test('a run publishes what the model is thinking while it thinks', async t => {
+  const { root, worktree, baseRef } = await repository(t);
+  await initializeProjectAgent(root, plan());
+  const seen = [];
+  const streaming = {
+    probe: async () => ({ endpoint: 'fake', installed: [], roles: {} }),
+    releaseAll: async () => {},
+    spec: role => ({ model: `fake-${role}` }),
+    async generate(role, { onDelta }) {
+      // Emit thinking, then read the channel back mid-generation: the panel has
+      // to be truthful DURING the call, not only after it.
+      await onDelta?.({ thinking: 'considering the contract ' });
+      seen.push(await readActivity(root));
+      const queue = role === 'worker' ? workerScript : [passReview];
+      const next = queue.length > 1 ? queue.shift() : queue[0];
+      onDelta?.({ response: next });
+      return { role, model: `fake-${role}`, ms: 1, text: next, thinking: 'considering the contract ',
+        handoff: { evicted: [], resident: role }, meta: { thinkingChars: 24, doneReason: 'stop' } };
+    },
+  };
+  const workerScript = [...writeThenDone('export const version = 2;')];
+
+  await superviseRun(root, {
+    worktree, baseRef, runtime: streaming, config: config(), durationMs: 60_000, notify: silentNotify,
+  });
+
+  const live = seen.find(entry => entry?.thinking);
+  assert.ok(live, 'the channel reported thinking while a generation was in flight');
+  assert.match(live.trace, /considering the contract/);
+  assert.ok(['worker', 'reviewer'].includes(live.role));
+  assert.equal(live.streaming, true);
+
+  const final = await readActivity(root);
+  assert.equal(final.thinking, false, 'a stopped supervisor never leaves a thinking indicator on');
+  assert.equal(final.role, 'idle');
 });

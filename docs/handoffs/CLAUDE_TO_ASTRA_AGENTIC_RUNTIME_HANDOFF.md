@@ -51,13 +51,13 @@ decoder now **refuses** v1 rather than partially reading it.
 
 | Check | Result |
 |---|---|
-| `node --test` — 4 new agentic suites + the controller suite | **57 passed, 0 failed** |
+| `node --test` — 4 new agentic suites + the controller suite | **59 passed, 0 failed** |
 | `scripts/orion_v2_ci_check.sh --quick` | **OK** — 197 security invariants, 348 plugin tests, 82 automation, agentic suites registered and green |
 | `python3 scripts/orion_v2_secret_scan.py --allowlist …` | clean, 30 reviewed fixtures allowlisted |
 | `plugin/orion-control` `tsc --noEmit` | clean |
 | `vitest run src/self-development-authority.test.ts` | 29 passed (after adding 5 surfaces) |
-| Swift `swift build` + full `swift test` | **247 passed, 0 failed** (Xcode license is now accepted; the gate Astra hit is cleared) |
-| `ProjectAgentStatusTests` | 8 passed (was 3; 5 added) |
+| Swift `swift build` + full `swift test` | **503 cases, 0 failures** across all three bundles (Xcode license is now accepted; the gate Astra hit is cleared) |
+| `ProjectAgentStatusTests` + `ProjectAgentPanelTests` | 13 passed (was 3) |
 | Live model run against qwen3.6:27b | see §6 |
 | Live model run | see §6 |
 
@@ -137,7 +137,18 @@ machine in one file because its invariants are cross-cutting and splitting them
 across modules would mean two places to look when a lifecycle assertion fires.
 Reasonable people could split validation out. Your call.
 
-### 4.5 The 48 GiB budget, with a measured correction
+### 4.5 Streaming, and what it exposed
+
+Generation now streams so the panel can show live reasoning. Building that found
+a real robustness gap: `probe()` checked a model was *installed* but not that it
+was *usable as configured*. `think: true` against a model that does not support
+thinking is an HTTP 400 on **every** generation — a run that would have started
+at 23:00 and done nothing all night, with no obvious cause. `probe()` now does a
+one-token generation per role and names the fix in the error. Worth checking I
+have not made startup too slow for a 48 GiB machine that has to load a model to
+answer.
+
+### 4.6 The 48 GiB budget, with a measured correction
 
 I estimated the 27B at ~17 GiB resident. **Measured on this machine at 64k
 context: 20.7 GiB** (`/api/ps` during the live run). The default in
@@ -257,9 +268,13 @@ can claim real Swift test results where Astra's could not.
 - Pull and benchmark an ~80B-class reviewer; the hierarchy is untested.
 - Benchmark properly: several candidates, several repetitions, real tasks.
 - Decide the read-scope question in §5.
-- The UI shows escalation, heartbeat, corrections and reviewer-authored changes,
-  but the circular/gradient progress treatment Nick described is still the
-  existing simple ring. Backend exposes everything the richer UI needs.
+- **The UI is built** (`ProjectAgentPanel.swift`): two gradient rings — plan
+  progress from accepted task weight, current-task progress from the recorded
+  stage — a live reasoning channel with a pulse driven by streamed tokens, the
+  plan ledger with review-authored tasks marked, pause/resume/steer/resolve, the
+  agent's own operating-system prompts read from the repository, and a settings
+  readout. What is deliberately NOT there is a settings editor; see
+  ARCHITECTURE §4.13.
 - `PHASE_GATES.json` — I did **not** close any gate or add an entry. The
   `scopeNotInManifest` entry `supervised_local_project_agent` that Astra added
   still describes this work; it may want updating, but that is a registration

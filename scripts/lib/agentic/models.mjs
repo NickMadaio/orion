@@ -123,6 +123,64 @@ export async function loadAgenticConfig({ path = CONFIG_PATH } = {}) {
   return config;
 }
 
+/*
+ Stream a generation, calling `onDelta` per chunk.
+
+ Streaming rather than waiting for the whole reply, for one reason that is not
+ about speed: a 27B thinking for nine minutes behind a non-streaming request is
+ indistinguishable, from outside, from a dead inference runtime. Streaming makes
+ "it is thinking" an observed fact rather than an inference from elapsed time,
+ and it is what feeds the live thinking channel.
+
+ Ollama streams newline-delimited JSON. Chunks can split across TCP reads, so
+ the tail of a read is carried into the next one; parsing a half object and
+ silently dropping it is how a trace quietly loses every other token.
+*/
+async function streamGenerate(endpoint, body, { signal, timeoutMs, onDelta }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('inference timeout')), timeoutMs);
+  const onAbort = () => controller.abort(signal.reason);
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    const response = await fetch(`${endpoint}/api/generate`, {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, stream: true }),
+    });
+    if (!response.ok) {
+      // The body carries the actual reason — "model does not support thinking",
+      // a bad option name, an unloadable model. A bare status code sends
+      // whoever reads it at 02:00 looking in the wrong place.
+      const detail = await response.text().catch(() => '');
+      throw new Error(`ollama /api/generate returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+    }
+
+    const decoder = new TextDecoder();
+    let carry = '', text = '', thinking = '', final = {};
+    for await (const chunk of response.body) {
+      carry += decoder.decode(chunk, { stream: true });
+      const lines = carry.split('\n');
+      carry = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let payload;
+        try { payload = JSON.parse(line); } catch { continue; }
+        if (payload.error) throw new Error(`ollama: ${String(payload.error).slice(0, 300)}`);
+        const deltaThinking = payload.thinking ?? '';
+        const deltaResponse = payload.response ?? '';
+        if (deltaThinking) thinking += deltaThinking;
+        if (deltaResponse) text += deltaResponse;
+        if (deltaThinking || deltaResponse) onDelta?.({ thinking: deltaThinking, response: deltaResponse });
+        if (payload.done) final = payload;
+      }
+    }
+    return { text, thinking, final };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
 async function request(endpoint, path, body, { signal, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('inference timeout')), timeoutMs);
@@ -203,7 +261,25 @@ export class ModelRuntime {
         `${missing.join('; ')}. Installed: ${installed.join(', ') || 'none'}. ` +
         'Pull the model or point agentic-config.json at one that exists.');
     }
-    return { endpoint: this.#config.endpoint, installed, roles: Object.fromEntries(
+    // Installed is not the same as usable. `think: true` against a model that
+    // does not support thinking is a 400 on EVERY generation — discovered at
+    // 02:00, as a run that does nothing, unless it is discovered here. One
+    // one-token generation per role is a cheap way to find out now.
+    const capability = {};
+    for (const [role, spec] of Object.entries(this.#config.roles)) {
+      try {
+        await streamGenerate(this.#config.endpoint, {
+          model: spec.model, prompt: 'ok', think: spec.think, keep_alive: '30s',
+          options: { num_predict: 1, num_ctx: 512 },
+        }, { timeoutMs: 120_000 });
+        capability[role] = { model: spec.model, think: spec.think, usable: true };
+      } catch (error) {
+        throw new ModelUnavailableError(
+          `the ${role} model "${spec.model}" is installed but not usable as configured: ${error.message}. ` +
+          `If it does not support thinking, set roles.${role}.think to false in the agentic config.`);
+      }
+    }
+    return { endpoint: this.#config.endpoint, installed, capability, roles: Object.fromEntries(
       Object.entries(this.#config.roles).map(([role, spec]) => [role, spec.model])) };
   }
 
@@ -238,7 +314,7 @@ export class ModelRuntime {
    * `doneReason` and the thinking length, "no usable output" is a symptom whose
    * three different causes need three different fixes.
    */
-  async generate(role, { system, prompt, signal, maxOutputTokens, temperature } = {}) {
+  async generate(role, { system, prompt, signal, maxOutputTokens, temperature, onDelta } = {}) {
     const spec = this.spec(role);
     const handoff = await this.ensureExclusive(role);
     const started = Date.now();
@@ -246,7 +322,6 @@ export class ModelRuntime {
       model: spec.model,
       prompt,
       system,
-      stream: false,
       think: spec.think,
       keep_alive: '5m',
       options: {
@@ -255,18 +330,20 @@ export class ModelRuntime {
         num_ctx: spec.contextTokens,
       },
     };
-    const payload = await request(this.#config.endpoint, '/api/generate', body, { signal, timeoutMs: spec.timeoutMs });
+    const { text, thinking, final } = await streamGenerate(this.#config.endpoint, body,
+      { signal, timeoutMs: spec.timeoutMs, onDelta });
     return {
       role,
       model: spec.model,
-      text: payload.response ?? '',
+      text,
+      thinking,
       ms: Date.now() - started,
       handoff,
       meta: {
-        thinkingChars: (payload.thinking ?? '').length,
-        doneReason: payload.done_reason ?? null,
-        evalCount: payload.eval_count ?? null,
-        promptEvalCount: payload.prompt_eval_count ?? null,
+        thinkingChars: thinking.length,
+        doneReason: final.done_reason ?? null,
+        evalCount: final.eval_count ?? null,
+        promptEvalCount: final.prompt_eval_count ?? null,
       },
     };
   }

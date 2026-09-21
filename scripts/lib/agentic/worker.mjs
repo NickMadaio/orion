@@ -57,7 +57,7 @@ async function initialWorkingSet(worktree, contract) {
  * Build the worker adapter the controller calls. `emit` receives structured
  * progress for the journal and the UI; it is never given raw reasoning traces.
  */
-export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MAX_TURNS, maxAttempts = 3 }) {
+export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MAX_TURNS, maxAttempts = 3, activity = null }) {
   return async function worker(task, { signal, instructions = [] } = {}) {
     const system = await systemPrompt('worker-system');
     const checkDescriptions = describeChecks(task.checks);
@@ -82,7 +82,12 @@ export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MA
       });
       notice = null;
 
-      const response = await runtime.generate('worker', { system, prompt, signal });
+      activity?.begin({ role: 'worker', model: runtime.spec?.('worker')?.model ?? null,
+        phase: 'implement', taskId: task.id, note: `${task.title} — attempt ${task.attempts}, exchange ${turn}` });
+      let response;
+      try {
+        response = await runtime.generate('worker', { system, prompt, signal, onDelta: delta => activity?.delta(delta) });
+      } finally { await activity?.end(); }
       const actions = parseWorkerReply(response.text);
       emit({ kind: 'worker_turn', taskId: task.id, data: {
         turn, ms: response.ms, model: response.model,

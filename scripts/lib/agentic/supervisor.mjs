@@ -34,6 +34,7 @@ import {
 } from '../orion-project-agent.mjs';
 import { appendJournal } from './journal.mjs';
 import { acquireLease, inspectLease, ownerRecord, releaseLease } from './lease.mjs';
+import { ActivityChannel } from './activity.mjs';
 import { notifyEscalation } from './escalation.mjs';
 import { commitRepair, repairCheckpoint, reviewCheckpoint, reviewRun, ReviewUnusable } from './reviewer.mjs';
 import { createVerifier, createWorker } from './worker.mjs';
@@ -158,6 +159,12 @@ export async function superviseRun(root, {
   const acquired = await acquireLease(supervisorLease, { extra: { role: 'supervisor', root } });
   const started = now();
   const summary = { iterations: 0, tasksAccepted: 0, reviews: 0, repairs: 0, escalated: null, reclaimed: acquired.reclaimed };
+  // Which model is working right now. The UI needs to name it: "running" with
+  // no actor is the least informative thing an overnight panel can say.
+  const active = { role: 'idle', model: null, since: null };
+  // The live thinking channel. Cosmetic by design: it is overwritten in place,
+  // never fsynced, and losing it costs nothing — the journal is the record.
+  const activity = new ActivityChannel(root);
   let beat;
 
   try {
@@ -170,9 +177,12 @@ export async function superviseRun(root, {
     emit({ kind: 'supervisor_started', data: { project, probe, durationMs, baseRef, head: recovery.head, reclaimedLease: acquired.reclaimed } });
 
     const guard = watchdog({ limits });
-    const worker = createWorker({ runtime, worktree, emit, maxAttempts: limits.maxAttempts });
+    const worker = createWorker({ runtime, worktree, emit, maxAttempts: limits.maxAttempts, activity });
     const verify = createVerifier({ worktree });
-    beat = setInterval(() => heartbeat(root, { phase: 'loop', iterations: summary.iterations, runId: recovery.state.runId }), HEARTBEAT_MS);
+    beat = setInterval(() => heartbeat(root, {
+      phase: 'loop', iterations: summary.iterations, runId: recovery.state.runId,
+      role: active.role, model: active.model, roleSince: active.since,
+    }), HEARTBEAT_MS);
 
     while (!signal?.aborted && now() - started < durationMs) {
       summary.iterations += 1;
@@ -197,11 +207,21 @@ export async function superviseRun(root, {
       }
     }
 
+    function mark(role, model) {
+      if (role === 'idle' && active.role !== 'idle') activity.idle();
+      if (active.role !== role) active.since = new Date().toISOString();
+      active.role = role;
+      active.model = model;
+    }
+
     /** One pass. Returns true when the loop should stop. */
     async function iterate() {
+      mark('idle', null);
       let state = await readProjectAgent(root);
       const progress = projectAgentProgress(state);
-      await heartbeat(root, { phase: state.status, iterations: summary.iterations, runId: state.runId, percent: progress.percent, activeTask: state.activeTask });
+      await heartbeat(root, { phase: state.status, iterations: summary.iterations, runId: state.runId,
+        percent: progress.percent, activeTask: state.activeTask,
+        role: active.role, model: active.model, roleSince: active.since });
 
       if (state.status === 'completed') { emit({ kind: 'run_completed', data: progress }); return true; }
 
@@ -225,7 +245,8 @@ export async function superviseRun(root, {
 
       const awaiting = state.tasks.find(task => task.status === 'awaiting_review');
       if (awaiting) {
-        const outcome = await handleReview({ root, state, task: awaiting, runtime, worktree, baseRef, emit });
+        mark('reviewer', runtime.spec?.('reviewer')?.model ?? null);
+        const outcome = await handleReview({ root, state, task: awaiting, runtime, worktree, baseRef, emit, activity });
         summary.reviews += 1;
         if (outcome.accepted) summary.tasksAccepted += 1;
         await trip(guard, outcome.progressed, root, emit);
@@ -238,7 +259,8 @@ export async function superviseRun(root, {
         task.attempts >= limits.repairAfterAttempts &&
         task.blocker !== 'worker_outcome_unknown');
       if (repairable) {
-        const outcome = await handleRepair({ root, state, task: repairable, runtime, worktree, baseRef, emit, limits,
+        mark('reviewer', runtime.spec?.('reviewer')?.model ?? null);
+        const outcome = await handleRepair({ root, state, task: repairable, runtime, worktree, baseRef, emit, limits, activity,
           lastChecks: repairable.evidence?.checks ?? [] });
         summary.repairs += 1;
         await trip(guard, outcome.progressed, root, emit);
@@ -250,7 +272,8 @@ export async function superviseRun(root, {
 
       if (!claimable) {
         if (state.tasks.every(task => task.status === 'accepted') && !state.finalReview) {
-          const outcome = await handleFinalReview({ root, state, runtime, worktree, baseRef, emit });
+          mark('reviewer', runtime.spec?.('reviewer')?.model ?? null);
+          const outcome = await handleFinalReview({ root, state, runtime, worktree, baseRef, emit, activity });
           await trip(guard, outcome.progressed, root, emit);
           return false;
         }
@@ -268,6 +291,7 @@ export async function superviseRun(root, {
       }
 
       const before = state.revision;
+      mark('worker', runtime.spec?.('worker')?.model ?? null);
       state = await runProjectAgent(root, {
         worker, verify, durationMs: Math.max(1, Math.min(durationMs - (now() - started), limits.taskTimeoutMs * 2)),
         taskTimeoutMs: limits.taskTimeoutMs,
@@ -285,7 +309,9 @@ export async function superviseRun(root, {
     return { ...summary, state: await readProjectAgent(root) };
   } finally {
     clearInterval(beat);
-    await heartbeat(root, { phase: 'stopped', iterations: summary.iterations }).catch(() => {});
+    activity.idle('The supervisor has stopped.');
+    await activity.close().catch(() => {});
+    await heartbeat(root, { phase: 'stopped', iterations: summary.iterations, role: 'idle', model: null }).catch(() => {});
     await runtime.releaseAll().catch(() => {});
     await releaseLease(supervisorLease).catch(() => {});
   }
@@ -324,13 +350,13 @@ async function escalate(root, state, details, emit) {
   return escalated;
 }
 
-async function handleReview({ root, state, task, runtime, worktree, baseRef, emit }) {
+async function handleReview({ root, state, task, runtime, worktree, baseRef, emit, activity }) {
   const priorFindings = state.reviews.filter(review => review.taskId === task.id).flatMap(review => review.failed ?? []);
   let outcome;
   try {
     outcome = await reviewCheckpoint({
       runtime, worktree, task, baseRef,
-      checkResults: task.evidence?.checks ?? [], workerSummary: task.evidence?.summary ?? '', priorFindings, emit,
+      checkResults: task.evidence?.checks ?? [], workerSummary: task.evidence?.summary ?? '', priorFindings, emit, activity,
     });
   } catch (error) {
     if (error instanceof ReviewUnusable) {
@@ -389,10 +415,10 @@ async function handleReview({ root, state, task, runtime, worktree, baseRef, emi
   return { accepted: decision !== 'blocked', progressed: true };
 }
 
-async function handleRepair({ root, state, task, runtime, worktree, baseRef, emit, limits, lastChecks = [] }) {
+async function handleRepair({ root, state, task, runtime, worktree, baseRef, emit, limits, activity, lastChecks = [] }) {
   const history = `The worker made ${task.attempts} attempt(s) and is blocked with "${task.blocker}". ` +
     `It has had ${task.corrections} correction cycle(s). The repair threshold is ${limits.repairAfterAttempts} attempts.`;
-  const repair = await repairCheckpoint({ runtime, worktree, task, baseRef, checkResults: lastChecks, history, emit });
+  const repair = await repairCheckpoint({ runtime, worktree, task, baseRef, checkResults: lastChecks, history, emit, activity });
 
   if (!repair.repaired) {
     await escalate(root, state, {
@@ -430,10 +456,10 @@ async function handleRepair({ root, state, task, runtime, worktree, baseRef, emi
   return { progressed: true };
 }
 
-async function handleFinalReview({ root, state, runtime, worktree, baseRef, emit }) {
+async function handleFinalReview({ root, state, runtime, worktree, baseRef, emit, activity }) {
   let outcome;
   try {
-    outcome = await reviewRun({ runtime, worktree, baseRef, tasks: state.tasks, reviews: state.reviews, emit });
+    outcome = await reviewRun({ runtime, worktree, baseRef, tasks: state.tasks, reviews: state.reviews, emit, activity });
   } catch (error) {
     await escalate(root, state, {
       kind: 'judgement', recommendAstra: true,

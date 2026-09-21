@@ -35,7 +35,7 @@ export class ReviewUnusable extends Error {
  * Review one checkpoint against its contract. Returns a normalized review
  * contract; throws `ReviewUnusable` when the model could not produce one.
  */
-export async function reviewCheckpoint({ runtime, worktree, task, baseRef, checkResults, workerSummary, priorFindings = [], emit = () => {}, signal }) {
+export async function reviewCheckpoint({ runtime, worktree, task, baseRef, checkResults, workerSummary, priorFindings = [], emit = () => {}, signal, activity = null }) {
   const system = await systemPrompt('reviewer-system');
   const diff = await diffSince(worktree, baseRef, { paths: [] });
   const prompt = reviewerTurn({
@@ -45,13 +45,19 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
 
   let lastError = null;
   for (let attempt = 1; attempt <= MAX_REVIEW_ATTEMPTS; attempt++) {
-    const response = await runtime.generate('reviewer', {
-      system,
-      prompt: lastError
-        ? `${prompt}\n\n## YOUR PREVIOUS REPLY WAS REJECTED\n${lastError}\nReturn one fenced JSON block that satisfies the rules exactly.`
-        : prompt,
-      signal,
-    });
+    activity?.begin({ role: 'reviewer', model: runtime.spec?.('reviewer')?.model ?? null,
+      phase: 'review', taskId: task.id, note: `Reviewing ${task.id} against its contract` });
+    let response;
+    try {
+      response = await runtime.generate('reviewer', {
+        system,
+        prompt: lastError
+          ? `${prompt}\n\n## YOUR PREVIOUS REPLY WAS REJECTED\n${lastError}\nReturn one fenced JSON block that satisfies the rules exactly.`
+          : prompt,
+        signal,
+        onDelta: delta => activity?.delta(delta),
+      });
+    } finally { await activity?.end(); }
     emit({ kind: 'reviewer_turn', taskId: task.id, data: {
       attempt, ms: response.ms, model: response.model, evicted: response.handoff.evicted,
       doneReason: response.meta.doneReason, thinkingChars: response.meta.thinkingChars,
@@ -81,7 +87,7 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
  * validate, hand back. Returns what it changed so the caller can record it
  * separately from the review.
  */
-export async function repairCheckpoint({ runtime, worktree, task, baseRef, checkResults, history, emit = () => {}, signal }) {
+export async function repairCheckpoint({ runtime, worktree, task, baseRef, checkResults, history, emit = () => {}, signal, activity = null }) {
   const system = await systemPrompt('reviewer-repair');
   const diff = await diffSince(worktree, baseRef);
   const files = [];
@@ -91,11 +97,17 @@ export async function repairCheckpoint({ runtime, worktree, task, baseRef, check
   }
   const baseline = await snapshotBaseline(worktree, task.scope.filter(entry => !entry.endsWith('/')));
 
-  const response = await runtime.generate('reviewer', {
-    system,
-    prompt: repairTurn({ contract: task, diff, checkResults, files, history, checkDescriptions: describeChecks(task.checks) }),
-    signal,
-  });
+  activity?.begin({ role: 'reviewer', model: runtime.spec?.('reviewer')?.model ?? null,
+    phase: 'repair', taskId: task.id, note: `Bounded repair of ${task.id}` });
+  let response;
+  try {
+    response = await runtime.generate('reviewer', {
+      system,
+      prompt: repairTurn({ contract: task, diff, checkResults, files, history, checkDescriptions: describeChecks(task.checks) }),
+      signal,
+      onDelta: delta => activity?.delta(delta),
+    });
+  } finally { await activity?.end(); }
   emit({ kind: 'repair_turn', taskId: task.id, data: { ms: response.ms, model: response.model, doneReason: response.meta.doneReason } });
 
   const verdict = parseJsonBlock(response.text) ?? {};
@@ -165,7 +177,7 @@ export async function commitRepair(worktree, task, repair) {
  * work coherent") and reuses the per-task verdicts as evidence rather than
  * re-deriving them.
  */
-export async function reviewRun({ runtime, worktree, baseRef, tasks, reviews, emit = () => {}, signal }) {
+export async function reviewRun({ runtime, worktree, baseRef, tasks, reviews, emit = () => {}, signal, activity = null }) {
   const system = await systemPrompt('reviewer-system');
   const diff = await diffSince(worktree, baseRef, { maxChars: 90_000 });
   const prompt = [
@@ -181,7 +193,12 @@ export async function reviewRun({ runtime, worktree, baseRef, tasks, reviews, em
     'Set "taskId" to "final-review".',
   ].join('\n');
 
-  const response = await runtime.generate('reviewer', { system, prompt, signal });
+  activity?.begin({ role: 'reviewer', model: runtime.spec?.('reviewer')?.model ?? null,
+    phase: 'final_review', taskId: null, note: 'Final review of the whole run' });
+  let response;
+  try {
+    response = await runtime.generate('reviewer', { system, prompt, signal, onDelta: delta => activity?.delta(delta) });
+  } finally { await activity?.end(); }
   emit({ kind: 'final_review_turn', data: { ms: response.ms, model: response.model } });
   const raw = parseJsonBlock(response.text);
   if (!raw) throw new ReviewUnusable('the final review produced no usable JSON', {});

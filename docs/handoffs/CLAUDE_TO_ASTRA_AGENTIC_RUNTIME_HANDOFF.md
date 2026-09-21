@@ -58,8 +58,8 @@ decoder now **refuses** v1 rather than partially reading it.
 | `vitest run src/self-development-authority.test.ts` | 29 passed (after adding 5 surfaces) |
 | Swift `swift build` + full `swift test` | **503 cases, 0 failures** across all three bundles (Xcode license is now accepted; the gate Astra hit is cleared) |
 | `ProjectAgentStatusTests` + `ProjectAgentPanelTests` | 13 passed (was 3) |
+| `Tests/run-project-agent-ui.sh` | **PASS** — the panel lays out in every state in a real NSHostingView |
 | Live model run against qwen3.6:27b | see §6 |
-| Live model run | see §6 |
 
 The supervisor suite is **end-to-end against a real git repository with real
 `node --check` execution** — only the model is faked. That was deliberate: the
@@ -87,6 +87,27 @@ by reading:
    stopped, nobody was told, and the morning would have shown a process that was
    simply gone. It is now a `pending_steering` escalation, and the loop body can
    no longer throw out of the process at all.
+6. `probe()` checked a model was *installed* but not *usable as configured*.
+   `think: true` against a model that does not support thinking is an HTTP 400
+   on every generation — a run that starts at 23:00 and does nothing all night
+   with no visible cause. Found by pointing the streaming path at `llama3.2:3b`.
+7. The live channel's flush returned early while another write was in flight and
+   returned no promise, so `end()` could be dropped. Symptom: a finished
+   generation whose panel said "thinking" forever — the exact lie the channel
+   exists to prevent.
+
+Items 4–7 are all the same failure mode: **something stops, and nobody is told.**
+That is what this system is for, and none of them were visible by reading.
+
+### One pre-existing breakage fixed in passing
+
+Every GUI harness in `native/Orion/Tests/` was failing to build with
+`no such module 'MobileCore'` — `SessionService` began importing it from the
+sibling `OrionMobile` package and `build-modules.sh` never built or linked it.
+Fixed, because I needed a harness to verify the panel. `LayoutHarness` has
+separate rot of its own (`BreakSurface.isFullBleed` no longer exists), which I
+left alone as someone else's design change — **worth knowing that harness is
+still red for an unrelated reason.**
 
 Both of those are the exact failure mode this system exists to avoid, and
 neither was visible by reading the code.
@@ -291,4 +312,6 @@ can claim real Swift test results where Astra's could not.
 5. `scripts/lib/agentic/prompts/*.md` — the agent operating system
 6. `scripts/lib/orion-project-agent.mjs` — the state machine (diff against v1)
 7. `scripts/lib/agentic/supervisor.mjs` — the loop
-8. `tests/agentic-*.test.mjs` — what I actually proved
+8. `scripts/lib/agentic/activity.mjs` — the live thinking channel
+9. `native/Orion/Sources/Orion/ProjectAgentPanel.swift` — the panel
+10. `tests/agentic-*.test.mjs` and `native/Orion/Tests/ProjectAgentHarness/` — what I actually proved

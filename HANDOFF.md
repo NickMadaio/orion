@@ -10,6 +10,47 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-21 20:1x BST — Project agent UI and the live reasoning channel (Claude)
+
+Two clocks, not one: plan progress from accepted task WEIGHT, current-task
+progress from the recorded stage. They answer different questions and one ring
+would answer neither. Neither number comes from a model.
+
+Inference now STREAMS, which is what makes a live reasoning channel possible and
+also makes "it is thinking" an observed fact — a non-streaming request to a 27B
+is indistinguishable from a dead runtime for nine minutes at a time. The trace
+goes to activity.json: one disposable snapshot, throttled to ~400ms, never
+fsynced, deliberately NOT the journal, which reasoning traces would bury.
+Thinking transitions bypass the throttle because a lagging indicator cannot do
+the one job it has.
+
+Panel also reads the agent's own operating-system prompts from the repository
+(never duplicated), marks review-authored tasks, surfaces reviewer-authored code
+as work that was not independently reviewed, and shows settings READ-ONLY —
+`enabled` lives outside the repo so moving it takes a deliberate act, and a
+toggle in a window is not that act.
+
+Streaming exposed that probe() checked a model was installed but not usable as
+configured: `think: true` against a model that does not support thinking is a
+400 on every generation, i.e. a run that does nothing all night. probe() now
+does a one-token generation per role.
+
+Verified by measurement, not by looking: Tests/run-project-agent-ui.sh lays the
+real panel out in a real NSHostingView and checks the reasoning channel keeps a
+viewport inside the dashboard's ScrollView (+133pt for a 6000-char trace). That
+is the nested-same-axis-ScrollView defect this repo already lost time to.
+
+Fixed a PRE-EXISTING breakage on the way: every GUI harness in native/Orion/Tests
+was failing with "no such module 'MobileCore'" because SessionService began
+importing it from OrionMobile and build-modules.sh never built or linked it.
+LayoutHarness is still red for an unrelated reason (BreakSurface.isFullBleed).
+
+59 Node tests, 503 Swift cases, CI --quick OK, secret scan clean. Still NOT run
+against ORION code; still gated on agentic-config.json {"enabled": true}, which
+does not exist.
+
+---
+
 ## 2026-09-21 16:2x BST — Local agentic development runtime (Claude)
 
 Built the unattended local development loop Nick specified: a ~27B worker

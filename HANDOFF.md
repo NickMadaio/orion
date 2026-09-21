@@ -1,12 +1,41 @@
 # HANDOFF — ORION
 
-**Last updated 2026-09-20.** This is the only handoff. If you find another one
+**Last updated 2026-09-21.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-21 09:19 BST — Scheduler entry point and guarded preview
+
+Added scripts/orion-automation-run and a sanitized tick adapter: accepts only an
+installed name, evaluates the current minute through the guarded runtime, emits
+status/reason only, and never prints calendar output into scheduler history.
+Added human CLI schedule-plan <name> --timezone <IANA> with explicit expiry,
+conditions, limits and derived argv. Installed OpenClaw help confirms --cron,
+--tz and --command-argv; the old --schedule/--timezone route was obsolete and
+bypassed runtime limits. Removed that route; install now explicitly refuses
+until guarded registration exists. Existing jobs and removal are untouched.
+
+Plan specifies disabled creation, exact timing and no fallback delivery. It is
+not an installation. No scheduler job, installed policy or ledger was created.
+Evidence: .builds/phase-57-schedule-2026-09-20/ (initial CI, installed CLI help,
+actual install refusal) and .builds/phase-57-schedule-2026-09-21/ (final tests and
+scan). Report: docs/planning/v2/PHASE_57_SCHEDULE_2026-09-21.md.
+Review caught host-local expiry in the preview; fixed selected-zone current-date
+and180-day validation plus invalid clock refusal.82 automation tests pass
+independently; quick source CI passes348 plugin tests and82 automation tests.
+Secret scan clean; dependency network audit skipped.
+
+Overall46/85 (54%) unchanged. Next: human-only transactional registration of
+policy/ledgers and a disabled job, exact read-back verification, then activation
+and disposable full-route proof. Missed trigger minutes are not caught up.
+No new hands-on task. Preserve capabilities.md. Rollback scoped source checkpoint;
+no production schedule restoration needed. Checkpoint local, not pushed.
 
 ---
 

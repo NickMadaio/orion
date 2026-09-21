@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+// Scheduler-only entry point. No policy creation, overrides or delivery.
+import { automationTick } from "./lib/orion-automation-tick.mjs";
+const { exitCode, summary } = await automationTick(process.argv.slice(2));
+console.log(JSON.stringify(summary));
+process.exitCode = exitCode;

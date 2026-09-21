@@ -37,7 +37,8 @@
    orion-automation                  what is proposed and what is running
    orion-automation show <name>      the whole proposal, every field
    orion-automation simulate <name>  how often it would fire, before deciding
-   orion-automation install <name>   make it real
+   orion-automation schedule-plan <name> --timezone <IANA>  preview guarded schedule
+   orion-automation install <name>   unavailable pending guarded registration
    orion-automation remove <name>    stop it and put it back in proposed
 */
 
@@ -48,6 +49,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { loadPlugin } from "./lib/orion-plugin.mjs";
+import { automationSchedulePlan } from "./lib/orion-automation-schedule.mjs";
 import { removeAutomationSchedule } from "./lib/orion-automation-removal.mjs";
 
 const run = promisify(execFile);
@@ -56,13 +58,12 @@ const ROOT = join(HOME, ".openclaw/orion-controlled/automations");
 const PROPOSED = join(ROOT, "proposed");
 const INSTALLED = join(ROOT, "installed");
 const OPENCLAW = join(HOME, ".openclaw/bin/openclaw");
-const DELIVER = join(HOME, "Desktop/ORION/scripts/orion-cron-deliver");
 
 const plugin = await loadPlugin().catch((error) => {
   console.error(`orion-automation: ${error.message}`);
   process.exit(1);
 });
-const { AUTOMATION_ACTIONS, cronExpression, describeTrigger, simulate, validateProposal } =
+const { describeTrigger, simulate } =
   plugin.automation;
 
 const fail = (message, code = 2) => {
@@ -84,7 +85,7 @@ const readDir = (dir) => {
     .filter(Boolean);
 };
 
-const [command = "list", name] = process.argv.slice(2);
+const [command = "list", name, ...options] = process.argv.slice(2);
 
 if (command === "list") {
   const waiting = readDir(PROPOSED);
@@ -103,7 +104,7 @@ if (command === "list") {
   console.log("");
   if (waiting.length) {
     console.log(`  look first:  orion-automation simulate ${waiting[0].name}`);
-    console.log(`  then:        orion-automation install ${waiting[0].name}`);
+    console.log(`  preview:     orion-automation schedule-plan ${waiting[0].name} --timezone <IANA timezone>`);
     console.log("");
   }
   process.exit(0);
@@ -138,52 +139,21 @@ if (command === "simulate") {
   process.exit(0);
 }
 
-if (command === "install") {
+if (command === "schedule-plan") {
+  if (options.length !== 2 || options[0] !== "--timezone") fail("schedule-plan needs --timezone <IANA timezone>");
   if (!existsSync(file)) fail(`no proposal called '${name}'`, 1);
-  const proposal = JSON.parse(readFileSync(file, "utf8"));
-  // Re-validated at install rather than trusted from the propose step. The
-  // proposal has been sitting on disk, and an expiry that was in the future
-  // when it was written may not be now.
-  const issues = validateProposal(proposal);
-  if (issues.length > 0) fail(`that proposal is no longer valid:\n  - ${issues.join("\n  - ")}`);
-
-  const action = AUTOMATION_ACTIONS[proposal.action];
-  if (!action) fail(`'${proposal.action}' is not an action I know how to run`);
-
-  const forecast = simulate(proposal);
-  console.log("");
-  console.log(`  ${proposal.name}: ${describeTrigger(proposal.trigger)} -> ${action.describe}`);
-  console.log(`  At most ${forecast.messageCount} message(s) over 30 days. Expires ${proposal.expiresOn}.`);
-  console.log("");
-
-  // The cron expression is DERIVED, never typed and never accepted as input.
-  const expression = cronExpression(proposal.trigger);
-  const script = join(HOME, "Desktop/ORION/scripts", action.argv[0]);
-  const result = await run(OPENCLAW, [
-    "cron", "add",
-    "--name", `orion-auto-${proposal.name}`,
-    "--schedule", expression,
-    "--timezone", "America/New_York",
-    "--command", `${DELIVER} ${script} ${action.argv.slice(1).join(" ")}`,
-  ]).catch((error) => ({ stderr: String(error?.stderr || error?.message) , failed: true }));
-
-  if (result.failed) {
-    console.error(`  could not schedule it: ${String(result.stderr).slice(0, 300)}`);
-    console.error("  nothing was installed.");
-    process.exit(1);
-  }
-
-  mkdirSync(INSTALLED, { recursive: true, mode: 0o700 });
-  writeFileSync(
-    liveFile,
-    JSON.stringify({ ...proposal, installedAt: new Date().toISOString(), cron: expression }, null, 2) + "\n",
-    { mode: 0o600 },
-  );
-  unlinkSync(file);
-  console.log(`  installed. schedule: ${expression} America/New_York`);
-  console.log(`  stop it with: orion-automation remove ${proposal.name}`);
-  console.log("");
+  try {
+    const proposal = JSON.parse(readFileSync(file, "utf8"));
+    if (proposal.name !== name) throw new Error("proposal name does not match its file");
+    console.log(JSON.stringify(automationSchedulePlan(proposal, options[1], join(HOME, "Desktop/ORION")), null, 2));
+  } catch (error) { fail(`cannot prepare schedule: ${error.message}`, 1); }
   process.exit(0);
+}
+
+if (command === "install") {
+  // The legacy path used unsupported cron flags and bypassed every runtime
+  // limit. Never fall back to it while the guarded installer is unfinished.
+  fail("installation is unavailable until guarded scheduler registration is connected. Preview with: orion-automation schedule-plan <name> --timezone <IANA timezone>. Nothing was scheduled.", 1);
 }
 
 if (command === "remove") {
@@ -209,4 +179,4 @@ if (command === "remove") {
   process.exit(0);
 }
 
-fail("usage: orion-automation [list | show <name> | simulate <name> | install <name> | remove <name>]");
+fail("usage: orion-automation [list | show <name> | simulate <name> | schedule-plan <name> --timezone <IANA> | install <name> | remove <name>]");

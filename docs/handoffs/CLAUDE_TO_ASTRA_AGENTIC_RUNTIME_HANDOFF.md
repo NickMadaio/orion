@@ -169,18 +169,32 @@ one-token generation per role and names the fix in the error. Worth checking I
 have not made startup too slow for a 48 GiB machine that has to load a model to
 answer.
 
-### 4.6 The 48 GiB budget, with a measured correction
+### 4.6 Model selection was measured, not argued
 
-I estimated the 27B at ~17 GiB resident. **Measured on this machine at 64k
-context: 20.7 GiB** (`/api/ps` during the live run). The default in
-`models.mjs` says 17 and should be corrected — it is a config value, not a
-hard-coded assumption, but a wrong estimate is how a reviewer handoff starts
-swapping.
+Eight models, two evals, 15 reviewer runs. The hard reviewer eval plants three
+real defects and two decoys and scores recall minus false positives, because an
+earlier recall-only version rewarded flagging everything.
 
-An ~80B reviewer at Q4 is 36–48 GiB. With the worker measured at 20.7, the two
-genuinely cannot coexist, which the exclusive-residency design already assumes.
-**No ~80B model is installed**, so the ~27B/~80B hierarchy the mission describes
-has never been exercised. The reviewer default is `gemma4:31b` as an interim.
+| reviewer | recall | false positives | consistency | source |
+|---|---|---|---|---|
+| **qwen3.6:27b** | **3.0/3** | **0.0** | 3/3 every run | dense 27B, 77.2% SWE-bench |
+| gemma4:31b | 3.0/3 | 0.0 | 3/3 every run | dense 31B |
+| devstral:24b | 3.0/3 | 0.0 | 3/3 every run | dense 24B, 46.8% SWE-bench |
+| qwen3:30b | 2.3/3 | 0.0 | one 1/3 run | MoE 30B-A3B |
+| qwen3-coder:30b | 2.3/3 | unmeasured | 2/3 typical | MoE 30B-A3B |
+| qwen2.5-coder:32b | 1.7/3 | 0.3 | one 1/3 run | dense 32B, older |
+| Qwen3-Next-80B IQ3_XXS | 1/2 judgment | — | failed 4/4 | MoE, heavily quantized |
+
+`qwen3.6:27b` for both roles: top on published benchmarks *and* on the eval, and
+one model means residency never changes — no eviction, no swap, `doctor` reports
+a 21 GiB peak rather than 42.
+
+Two findings worth carrying: the quantized 80B **codes well and reviews badly**,
+which matches published work on aggressive quantization degrading MoE expert
+routing and instruction-following while leaving generation intact. And the
+27B's apparent slowness is **token volume, not throughput** — 923 vs devstral's
+1,113 tok/min, but 11× the tokens, because it thinks. The thinking is the
+accuracy.
 
 ---
 
@@ -277,31 +291,34 @@ can claim real Swift test results where Astra's could not.
 
 **Before a first real run** (human decisions, none of which I made):
 
-1. Rebuild and deploy the plugin so the five new deny-list surfaces are in force.
+1. Rebuild and deploy the plugin so the five deny-list surfaces protecting the
+   agent runtime are in the installed build. The runtime carries its own copy
+   meanwhile, so this is belt-and-braces, not a blocker.
 2. Create `~/.openclaw/orion-controlled/agentic-config.json` with
-   `{"enabled": true}` and correct `approxResidentGiB` for the worker to ~21.
-3. Run the smoke plan: `orion-agent plan/init/run docs/agentic/plans/smoke-run.json`.
-   It operates only on `tests/workspace/agentic-smoke/`.
+   `{"enabled": true}`. Nothing runs until it exists. It is outside the
+   repository on purpose — the agent cannot write it, so it cannot turn itself
+   on. **Model choice is now settable from the UI, `enabled` deliberately is
+   not**; see ARCHITECTURE §4.13.
+3. Run the smoke plan — it only touches `tests/workspace/agentic-smoke/`.
 4. Watch one full run before leaving it overnight.
 
-**Open work:**
+**Open, and worth your judgement:**
 
-- Pull and benchmark an ~80B-class reviewer; the hierarchy is untested.
-- Benchmark properly: several candidates, several repetitions, real tasks.
-- Decide the read-scope question in §5.
-- **The UI is built** (`ProjectAgentPanel.swift`): two gradient rings — plan
-  progress from accepted task weight, current-task progress from the recorded
-  stage — a live reasoning channel with a pulse driven by streamed tokens, the
-  plan ledger with review-authored tasks marked, pause/resume/steer/resolve, the
-  agent's own operating-system prompts read from the repository, and a settings
-  readout. What is deliberately NOT there is a settings editor; see
-  ARCHITECTURE §4.13.
-- `PHASE_GATES.json` — I did **not** close any gate or add an entry. The
-  `scopeNotInManifest` entry `supervised_local_project_agent` that Astra added
-  still describes this work; it may want updating, but that is a registration
-  decision I left to you.
-
----
+- **The worker eval is weak.** Five models scored 6/6; it cannot rank coding
+  ability. The reviewer eval discriminates cleanly (15 runs, six models, clean
+  separation) and is what the model choice rests on. A harder worker eval would
+  need multi-turn support — the current one scores explore-first models as
+  failures, which is why `qwen3-coder:30b` is unranked as a worker.
+- **One diff, one coding task.** Both evals are narrow. They agreed with
+  published SWE-bench on five of six models, which is reassuring, not proof.
+- **Repair bound is now 2 files** (was 6). Still a guess, now a tighter one.
+- **`devstral:24b` is a genuine alternative** — tied on the hard reviewer eval
+  (3.0/3 ×3) at 4× the speed and 14 GB. I did not pick it because the version
+  Ollama ships is the 46.8% SWE-bench original, not the 68% Devstral Small 2,
+  and `qwen3.6:27b` is top-ranked on both published benchmarks and my eval.
+  Devstral Small 2 GGUF exists and is untested.
+- **PHASE_GATES.json** — no numbered gate closed. The `scopeNotInManifest`
+  entry `supervised_local_project_agent` is updated and still describes this.
 
 ## 9. Files to review, in order
 

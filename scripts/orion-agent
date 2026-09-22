@@ -80,11 +80,21 @@ async function commandDoctor() {
   for (const [role, spec] of Object.entries(config.roles)) {
     report.roles[role] = { model: spec.model, approxResidentGiB: spec.approxResidentGiB, contextTokens: spec.contextTokens };
   }
-  const total = Object.values(config.roles).reduce((sum, spec) => sum + spec.approxResidentGiB, 0);
-  report.residency = { budgetGiB: config.memoryBudgetGiB, sumOfRolesGiB: total,
-    note: total > config.memoryBudgetGiB
-      ? 'Roles cannot be resident together; the runtime enforces exclusive residency and evicts between handoffs.'
-      : 'Both roles would fit together, but residency is still exclusive by design.' };
+  // Distinct models, not roles: with one model in both roles nothing is ever
+  // evicted, and summing the two would report 42 GiB for a 21 GiB footprint.
+  const distinct = new Map(Object.values(config.roles).map(spec => [spec.model, spec.approxResidentGiB]));
+  const peak = Math.max(...distinct.values());
+  const total = [...distinct.values()].reduce((sum, size) => sum + size, 0);
+  report.residency = {
+    budgetGiB: config.memoryBudgetGiB,
+    distinctModels: distinct.size,
+    peakResidentGiB: peak,
+    note: distinct.size === 1
+      ? 'One model in both roles: it is loaded once and never evicted, so a handoff costs nothing.'
+      : total > config.memoryBudgetGiB
+        ? `${distinct.size} models cannot be resident together; each handoff evicts and reloads.`
+        : `${distinct.size} models would fit together, but residency is exclusive by design and each handoff still reloads.`,
+  };
   report.heartbeat = await heartbeatOf(ROOT);
   report.leases = { supervisor: await inspectLease(join(ROOT, 'supervisor.lock')), worker: await inspectLease(join(ROOT, 'worker.lock')) };
   out(report);

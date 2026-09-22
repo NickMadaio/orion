@@ -10,6 +10,44 @@ what Nick himself is waiting on.
 
 ---
 
+## 2026-09-22 — Task-level escalation, measured model choice (Claude)
+
+THE CONTINUITY FIX. Escalation was run-level: one BLOCKED review stopped
+everything, and independent tasks sat untouched until morning. That contradicted
+the stated intent directly. Schema v3 makes escalations a list, each naming a
+task or the run; a task-level one parks that task alone and the loop carries on.
+`escalated` now means "nothing claimable remains", not "an escalation exists" —
+and the panel tells those apart, because conflating them teaches you to ignore
+the alert. Proven end to end: a BLOCKED review parks one task while an
+independent one still runs, reviews and commits.
+
+Also fixed the defect three separate models tripped over: the reviewer was shown
+the cumulative run diff and asked whether THIS task violated its scope. It saw a
+forbidden file modified — by a task it had already accepted — and escalated.
+`diffForCheckpoint` shows one checkpoint. That bug killed 2 of 3 benchmark runs
+and read as model confusion.
+
+Reviewer now RE-RUNS the contract's checks rather than trusting the worker's
+report; a disagreement is a `contradiction` escalation. Subtasks exist durably
+(`### SUBTASK: 2/4 label`), owned by the runtime, shown in the panel, with no
+authority over acceptance. Informational Discord tier for reviewer repairs —
+one line, own rate limit, never asks for anything. Bare-minimum repair tightened
+6 files -> 2.
+
+MODELS, MEASURED. Eight candidates, two evals, 15 reviewer runs, cross-checked
+against published SWE-bench. qwen3.6:27b both roles: 3/3 planted defects with
+zero false positives every run, 77.2% SWE-bench, and one model means residency
+never changes. The quantized 80B codes well and reviews badly (1/2 judgment
+defects, 4/4 runs) which matches published work on MoE routing damage under
+aggressive quantization; it is retired. Model choice is settable from the UI;
+`enabled` stays a deliberate file edit.
+
+65 Node tests, 503 Swift cases, layout harness green, CI --quick OK, secret scan
+clean. Still NOT run against ORION code; still gated on agentic-config.json
+{"enabled": true}, which does not exist.
+
+---
+
 ## 2026-09-21 20:1x BST — Project agent UI and the live reasoning channel (Claude)
 
 Two clocks, not one: plan progress from accepted task WEIGHT, current-task

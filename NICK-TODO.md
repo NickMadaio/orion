@@ -35,15 +35,16 @@ order, and step 4 is the one that matters:
 
 ### Decisions that are yours
 
-- **Which reviewer model.** No ~80B model is installed, so the ~27B/~80B
-  hierarchy has never been exercised; the interim reviewer is `gemma4:31b`.
-  Pulling an 80B-class model is a large download and a real decision:
-  measured, the 27B alone already holds 20.7 GiB at a 64k context, so an 80B
-  reviewer means the two can never be resident together and every review pass
-  pays an eviction and a reload. `scripts/orion-agent bench --candidates
-  "worker/reviewer,worker/reviewer"` measures whether that cost is worth paying.
-- **Whether an Astra review should come before or after the first real run.**
-  My recommendation is before: this system changes real code unattended.
+- **Models are chosen and measured** — `qwen3.6:27b` in both roles, from eight
+  candidates across two evals (3/3 planted defects, zero false positives, every
+  run; 77.2% SWE-bench Verified). One model means it loads once and is never
+  evicted. Change either role from the Projects tab, or:
+  `scripts/orion-project-agent set-model reviewer <model>`.
+- **Whether an Astra review comes before or after the first real run.** My
+  recommendation is before: this changes real code while you are asleep.
+- **Disk.** `~/.ollama/models` is ~150 GB after the model comparison.
+  `orion-reviewer:80b` (31 GB) failed the reviewer eval four times out of four
+  and can go. `gpt-oss:20b` cannot drive the worker protocol at all.
 
 ---
 

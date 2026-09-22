@@ -243,7 +243,12 @@ export function normalizeReviewContract(raw, { taskId, contractDigest: digest } 
     failed,
     corrections,
     escalationReason: text(raw.escalationReason, 'escalationReason', { required: false, max: 1000 }),
-    escalationKind: raw.escalationKind === undefined || raw.escalationKind === null
-      ? null : text(raw.escalationKind, 'escalationKind', { max: 64 }),
+    // An EMPTY STRING means absent, not invalid. Models fill optional string
+    // fields with "" as a matter of course, and an earlier version threw on it
+    // -- so a correct PASS_WITH_TASKS review was discarded over a field that
+    // only matters for BLOCKED. In production that retries once, fails the same
+    // way, and escalates: Nick woken to be told about a review that was right.
+    // Observed on the very first live reviewer run.
+    escalationKind: raw.escalationKind ? text(raw.escalationKind, 'escalationKind', { max: 64 }) : null,
   });
 }

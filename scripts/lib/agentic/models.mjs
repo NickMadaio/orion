@@ -62,7 +62,17 @@ export const DEFAULT_CONFIG = Object.freeze({
       temperature: 0.2, think: true, timeoutMs: 30 * 60 * 1000,
     },
     reviewer: {
-      backend: 'ollama', model: 'gemma4:31b', approxResidentGiB: 19,
+      // The SAME model as the worker, deliberately. Measured 2026-09-21 across
+      // eight candidates on two evals: qwen3.6:27b caught 3/3 planted defects
+      // with zero false positives in every run, and is the only model that is
+      // top-ranked on BOTH published benchmarks (77.2% SWE-bench Verified) and
+      // the local eval. gemma4:31b matched its accuracy but is 44% slower.
+      //
+      // One model for both roles means residency never changes: no eviction,
+      // no reload, no swap. That is worth more than the marginal speed of a
+      // faster worker, because a plan of a dozen contracts finishes overnight
+      // either way and accuracy is what decides how much of it Astra accepts.
+      backend: 'ollama', model: 'qwen3.6:27b', approxResidentGiB: 21,
       contextTokens: 65536, maxOutputTokens: 12000,
       // Lower than the worker: a reviewer that improvises is a reviewer that
       // invents findings, and local time is cheap enough to afford determinism.
@@ -222,6 +232,12 @@ async function unload(endpoint, model) {
     { timeoutMs: 120_000 }).catch(() => {});
 }
 
+/** Tokens per minute from a count and a nanosecond duration. */
+function rate(count, nanoseconds) {
+  if (!Number.isFinite(count) || !Number.isFinite(nanoseconds) || nanoseconds <= 0) return null;
+  return Math.round((count / (nanoseconds / 1e9)) * 60);
+}
+
 export class ModelUnavailableError extends Error {
   constructor(message) { super(message); this.name = 'ModelUnavailableError'; }
 }
@@ -344,6 +360,20 @@ export class ModelRuntime {
         doneReason: final.done_reason ?? null,
         evalCount: final.eval_count ?? null,
         promptEvalCount: final.prompt_eval_count ?? null,
+        // Throughput, from Ollama's own nanosecond counters rather than wall
+        // clock, so model loading and our own parsing are not charged to the
+        // model. Recorded as a DIAGNOSTIC, never as the headline: the mission
+        // is explicit that accepted work per hour beats tokens per second, and
+        // a fast model that needs three correction cycles has lost. What this
+        // explains is WHY a candidate was slow — prefill or generation.
+        //
+        // For a thinking model `eval_count` includes the reasoning tokens, so
+        // this is total output throughput, not answer throughput.
+        outputTokens: final.eval_count ?? null,
+        promptTokens: final.prompt_eval_count ?? null,
+        outputTokensPerMinute: rate(final.eval_count, final.eval_duration),
+        promptTokensPerMinute: rate(final.prompt_eval_count, final.prompt_eval_duration),
+        loadMs: final.load_duration ? Math.round(final.load_duration / 1e6) : null,
       },
     };
   }

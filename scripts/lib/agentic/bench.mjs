@@ -125,6 +125,11 @@ async function disposableRepository() {
 function summarize(journal) {
   const byKind = kind => journal.filter(entry => entry.kind === kind);
   const msFor = kind => byKind(kind).reduce((sum, entry) => sum + (entry.ms ?? 0), 0);
+  const sumOf = field => journal.reduce((sum, entry) => sum + (entry[field] ?? 0), 0);
+  const meanOf = (kind, field) => {
+    const values = byKind(kind).map(entry => entry[field]).filter(Number.isFinite);
+    return values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null;
+  };
   const checkRuns = byKind('checks_run');
   const firstPass = checkRuns.length
     ? checkRuns.filter((entry, index) => index === 0 && (entry.results ?? []).every(result => result.ok)).length
@@ -140,6 +145,11 @@ function summarize(journal) {
     checkRuns: checkRuns.length,
     firstAttemptCheckPass: firstPass,
     contractChangeProposals: byKind('contract_change_proposed').length,
+    // Diagnostic, not the headline. It explains a slow candidate; it does not
+    // decide between candidates -- `acceptedWeightPerHour` does that.
+    outputTokens: sumOf('outputTokens'),
+    workerTokensPerMinute: meanOf('worker_turn', 'outputTokensPerMinute'),
+    reviewerTokensPerMinute: meanOf('reviewer_turn', 'outputTokensPerMinute'),
   };
 }
 
@@ -182,7 +192,8 @@ export async function benchmarkCandidate({ name, config, durationMs = 2 * 3600_0
     limits: config.limits,
     failure,
     completed: state?.status === 'completed',
-    escalated: state?.escalation ? { kind: state.escalation.kind, reason: state.escalation.reason.slice(0, 300) } : null,
+    escalations: (state?.escalations ?? []).filter(e => !e.resolvedAt)
+      .map(e => ({ kind: e.kind, taskId: e.taskId, reason: e.reason.slice(0, 200) })),
     tasksPlanned: tasks.length,
     tasksAccepted: progress?.acceptedTasks ?? 0,
     tasksBlocked: progress?.blockedTasks ?? 0,
@@ -230,6 +241,7 @@ export function formatBenchmark(records) {
     String(record.reviewerRepairs),
     `${Math.round(record.wallClockMs / 60000)}m`,
     String(record.acceptedWeightPerHour),
+    [record.workerTokensPerMinute, record.reviewerTokensPerMinute].filter(Boolean).join('/') || '—',
   ]);
   const widths = header.map((_, index) => Math.max(header[index].length, ...rows.map(row => row[index].length)));
   const line = cells => cells.map((cell, index) => cell.padEnd(widths[index])).join('  ');

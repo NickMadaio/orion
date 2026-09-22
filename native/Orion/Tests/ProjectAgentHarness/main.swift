@@ -66,7 +66,7 @@ private extension View {
 
 func run(escalated: Bool) -> ProjectAgentStatus {
     var payload: [String: Any] = [
-        "version": 2, "revision": 12, "runId": "harness", "status": escalated ? "escalated" : "running",
+        "version": 3, "revision": 12, "runId": "harness", "status": escalated ? "escalated" : "running",
         "activeTask": escalated ? (NSNull() as Any) : ("second" as Any),
         "tasks": [
             ["id": "first", "title": "Add the durable contract", "weight": 3,
@@ -84,14 +84,12 @@ func run(escalated: Bool) -> ProjectAgentStatus {
                      "model": "gemma4:31b", "files": ["a.mjs"], "summary": "fixed the interface"]],
         "finalReview": false,
     ]
-    if escalated {
-        payload["escalation"] = [
-            "id": "e1", "at": "2026-09-21T02:40:00.000Z", "kind": "architecture",
-            "reason": "two defensible designs and the contract picks neither",
-            "taskId": "second", "question": "Which shape do you want?",
-            "recommendAstra": true, "notified": true,
-        ]
-    }
+    payload["escalations"] = escalated ? [[
+        "id": "e1", "at": "2026-09-21T02:40:00.000Z", "kind": "architecture",
+        "reason": "two defensible designs and the contract picks neither",
+        "taskId": "second", "question": "Which shape do you want?",
+        "recommendAstra": true, "notified": true, "resolvedAt": NSNull(),
+    ]] : []
     let data = try! JSONSerialization.data(withJSONObject: payload)
     return try! ProjectAgentStatus.decode(data)
 }
@@ -119,7 +117,7 @@ func panel(_ status: ProjectAgentStatus, _ live: ProjectAgentActivity?) -> some 
         ProjectAgentPanel(
             run: status, beat: nil, activity: live, settings: nil,
             steering: .constant(""), controlling: false, controlError: nil,
-            onControl: { _ in }
+            onControl: { _ in }, onSettingsChanged: { _ in }
         )
         .reportHeight()
     }

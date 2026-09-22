@@ -213,6 +213,36 @@ export async function discardToHead(worktree) {
   return { discarded: dirty.map(item => item.path), head: await currentHead(worktree) };
 }
 
+/**
+ The diff for ONE checkpoint: `commit~1..commit`.
+
+ This exists because `diffSince(worktree, baseRef)` was being handed to the
+ reviewer, and `baseRef` is the RUN's base. So the reviewer saw every previously
+ accepted task's changes stacked on top of the one it was judging, and was then
+ asked "did THIS task violate its scope?". It correctly observed that a
+ forbidden file had been modified -- by an earlier task it had already accepted
+ -- and escalated.
+
+ Three different models produced that same false escalation, and it killed 2 of
+ 3 benchmark runs. It reads as "the model is confused" and is entirely the
+ harness handing it the wrong evidence.
+*/
+export async function diffForCheckpoint(worktree, commit, { maxChars = 60_000 } = {}) {
+  if (!SHA.test(commit ?? '')) throw new Error('a checkpoint diff needs a full commit sha');
+  // A first commit has no parent; `--root` makes git show it as an addition
+  // rather than failing, which is what a first task in a fresh worktree is.
+  const parent = await git(worktree, ['rev-parse', '--verify', `${commit}^`], { allowFailure: true });
+  const range = parent.ok ? [`${commit}^`, commit] : ['--root', commit];
+  const stat = await git(worktree, ['diff', '--no-color', '--stat=200', ...range], { allowFailure: true });
+  const body = await git(worktree, ['diff', '--no-color', '-U3', ...range], { allowFailure: true });
+  const text = body.ok ? body.stdout : '';
+  return {
+    stat: stat.ok ? stat.stdout : '',
+    patch: text.length > maxChars ? `${text.slice(0, maxChars)}\n…[diff truncated at ${maxChars} characters]` : text,
+    truncated: text.length > maxChars,
+  };
+}
+
 /** A compact diff for a review or a handoff — never the whole ten-hour history. */
 export async function diffSince(worktree, ref, { maxChars = 60_000, paths = [] } = {}) {
   const argv = ['diff', '--no-color', '--stat=200', ref, '--'];

@@ -153,31 +153,85 @@ test('a repair grants exactly one more attempt, not a fresh budget', async t => 
   await assert.rejects(grantRepairRetry(root, blocked.revision, 'task-one'), /already used its 1 repair/);
 });
 
-test('an escalation halts the run and the loop cannot clear it for itself', async t => {
+test('a task-level escalation parks ONE task and the run keeps going', async t => {
   const root = await fixture(t);
   let state = await readProjectAgent(root);
+  // task-one is escalated. task-two depends on it, so nothing else is claimable
+  // here — the continuity property is proven in the dedicated test below.
   state = await escalateProjectAgent(root, state.revision, {
     kind: 'architecture', reason: 'two defensible designs', taskId: 'task-one',
     question: 'Which shape do you want?', recommendAstra: true,
   });
-  assert.equal(state.status, 'escalated');
-  assert.equal(state.escalation.notified, false);
+  assert.equal(state.escalations.length, 1);
+  assert.equal(state.escalations[0].notified, false);
+  // Parked, not blocked: it never ran, so it has zero attempts, and a blocked
+  // task with zero attempts would violate the lifecycle invariant. Parking is
+  // enforced by the claim filter, not by the task's own status.
+  assert.equal(state.tasks[0].status, 'queued');
+  assert.equal(state.tasks[0].attempts, 0);
 
-  // The loop keeps its hands off: no task is claimed while escalated.
+  // Nothing else can run (task-two depends on task-one), so the run IS stuck.
   const after = await runProjectAgent(root, host());
   assert.equal(after.status, 'escalated');
-  assert.equal(after.tasks[0].status, 'queued');
   assert.equal(after.activeTask, null);
 
-  // Resuming is refused; only an explicit human resolution moves it.
-  await assert.rejects((await import('../scripts/lib/orion-project-agent.mjs'))
-    .steerProjectAgent(root, 'resume', after.revision), /resolve the escalation/);
+  state = await markEscalationNotified(root, after.revision, after.escalations[0].id);
+  assert.equal(state.escalations[0].notified, true);
 
-  state = await markEscalationNotified(root, after.revision, after.escalation.id);
-  assert.equal(state.escalation.notified, true);
-  state = await resolveProjectEscalation(root, state.revision, 'chose the second design');
-  assert.equal(state.escalation, null);
+  // Only an explicit human resolution moves it, and it names the escalation.
+  state = await resolveProjectEscalation(root, state.revision, state.escalations[0].id, 'chose the second design');
+  assert.equal(state.escalations[0].resolvedAt !== null, true);
+  assert.equal(state.tasks[0].status, 'queued', 'the task is claimable again');
   assert.equal(state.status, 'ready');
+});
+
+test('one blocked task does not stop work that is still possible', async t => {
+  // THE continuity property. An earlier design made escalation run-level, so a
+  // single hard problem ended the night even when independent tasks remained.
+  const root = await mkdtemp(join(tmpdir(), 'orion-agentic-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeProjectAgent(root, [
+    { id: 'hard-one', title: 'The ambiguous one', objective: 'x', weight: 1, dependencies: [],
+      scope: ['sandbox/a.mjs'], checks: ['node-syntax'], acceptance: ['a'] },
+    { id: 'easy-two', title: 'Independent work', objective: 'y', weight: 1, dependencies: [],
+      scope: ['sandbox/b.mjs'], checks: ['node-syntax'], acceptance: ['b'] },
+    { id: 'easy-three', title: 'More independent work', objective: 'z', weight: 1, dependencies: [],
+      scope: ['sandbox/c.mjs'], checks: ['node-syntax'], acceptance: ['c'] },
+  ]);
+
+  let state = await readProjectAgent(root);
+  state = await escalateProjectAgent(root, state.revision, {
+    kind: 'architecture', reason: 'needs a human', taskId: 'hard-one', recommendAstra: true,
+  });
+  assert.equal(state.status, 'ready', 'still ready — two independent tasks remain');
+
+  // The loop picks up the others and never touches the parked one.
+  for (const expected of ['easy-two', 'easy-three']) {
+    state = await runProjectAgent(root, host());
+    assert.equal(state.activeTask, null);
+    const running = state.tasks.find(task => task.id === expected);
+    assert.equal(running.status, 'awaiting_review', `${expected} ran`);
+    await reviewProjectTask(root, { revision: state.revision, taskId: expected, commit: sha('a'), decision: 'accept' });
+  }
+  state = await readProjectAgent(root);
+  const parked = state.tasks.find(task => task.id === 'hard-one');
+  assert.equal(parked.attempts, 0, 'the escalated task was never claimed');
+  assert.equal(parked.status, 'queued', 'parked by the escalation, not by having failed');
+  assert.equal(state.tasks.filter(task => task.status === 'accepted').length, 2);
+  // Only NOW, with nothing left to do, is the run genuinely stopped.
+  assert.equal(state.status, 'escalated');
+});
+
+test('a RUN-level escalation stops everything immediately', async t => {
+  const root = await fixture(t);
+  let state = await readProjectAgent(root);
+  state = await escalateProjectAgent(root, state.revision, {
+    kind: 'contradiction', reason: 'the whole plan is unsatisfiable', taskId: null,
+  });
+  assert.equal(state.status, 'escalated');
+  const after = await runProjectAgent(root, host());
+  assert.equal(after.status, 'escalated');
+  assert.equal(after.tasks.every(task => task.status === 'queued'), true, 'nothing was claimed');
 });
 
 test('a run cannot be closed while an escalation is open', async t => {
@@ -188,8 +242,8 @@ test('a run cannot be closed while an escalation is open', async t => {
   }
   let state = await readProjectAgent(root);
   state = await escalateProjectAgent(root, state.revision, { kind: 'judgement', reason: 'needs a look' });
-  await assert.rejects(acceptProjectFinalReview(root, state.revision), /resolve the escalation/);
-  state = await resolveProjectEscalation(root, state.revision, 'looked');
+  await assert.rejects(acceptProjectFinalReview(root, state.revision), /resolve every open escalation/);
+  state = await resolveProjectEscalation(root, state.revision, state.escalations[0].id, 'looked');
   state = await acceptProjectFinalReview(root, state.revision, { reviewer: 'test', summary: 'coherent' });
   assert.equal(state.status, 'completed');
   assert.equal(projectAgentProgress(state).percent, 100);
@@ -210,7 +264,10 @@ test('an interrupted run needs PROOF the worker is dead before it moves', async 
   const reconciled = await reconcileInterruptedRun(root, state.revision, {
     deadOwnerProof: { dead: true, reason: 'pid 999999 is not present on this boot' },
   });
-  assert.equal(reconciled.status, 'ready');
+  // Not 'ready': the reconciled task is blocked and task-two depends on it, so
+  // nothing is claimable. Reporting 'ready' with nothing to claim was the lie
+  // `settleStatus` exists to prevent.
+  assert.equal(reconciled.status, 'waiting_for_review');
   assert.equal(reconciled.tasks[0].status, 'blocked');
   assert.equal(reconciled.tasks[0].blocker, 'worker_outcome_unknown');
   // The proof is recorded, not merely checked.

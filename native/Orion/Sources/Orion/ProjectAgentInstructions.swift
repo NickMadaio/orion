@@ -91,6 +91,8 @@ struct ProjectAgentSettings: Decodable {
     let memoryBudgetGiB: Double?
     let roles: [String: Role]?
     let limits: Limits?
+    /// Every model this machine could be pointed at, from `orion-project-agent settings`.
+    let installed: [String]?
 
     static let url = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent(".openclaw/orion-controlled/agentic-config.json")
@@ -101,6 +103,17 @@ struct ProjectAgentSettings: Decodable {
     static func read(url: URL = url) -> ProjectAgentSettings? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(Self.self, from: data)
+    }
+
+    /// The richer view, via the CLI: it merges defaults, reports which models are
+    /// installed, and works when no config file exists yet. Reading the raw file
+    /// alone cannot do that, and showing "no models" before a first write would
+    /// be wrong.
+    static func load(completion: @escaping (ProjectAgentSettings?) -> Void) {
+        ProjectAgentControl.run(["settings"]) { output, _ in
+            guard let output, let data = output.data(using: .utf8) else { return completion(nil) }
+            completion(try? JSONDecoder().decode(Self.self, from: data))
+        }
     }
 
     var summaryRows: [(String, String)] {

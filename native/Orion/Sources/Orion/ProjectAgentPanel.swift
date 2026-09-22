@@ -55,16 +55,19 @@ struct ProjectAgentPanel: View {
     let controlling: Bool
     let controlError: String?
     let onControl: (ProjectAgentControl.Command) -> Void
+    /// Called after a settings write so the host can re-read and surface errors.
+    let onSettingsChanged: (String?) -> Void
 
     @State private var openDocument: String?
     @State private var showSettings = false
+    @State private var changingModel: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 30) {
             heading
             clocks
             thinkingChannel
-            if run.escalation != nil { escalationBanner }
+            if run.hasOpenEscalations { escalationBanner }
             taskLedger
             controls
             instructions
@@ -222,38 +225,73 @@ struct ProjectAgentPanel: View {
     // MARK: Escalation
 
     private var escalationBanner: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if let escalation = run.escalation {
-                Text("BLOCKED · \(escalation.kind.replacingOccurrences(of: "_", with: " ").uppercased())")
-                    .font(OrionTheme.mono(9, .semibold))
-                    .tracking(1.6)
-                    .foregroundStyle(OrionTheme.orange)
-                Text(escalation.reason)
-                    .font(OrionTheme.mono(11))
-                    .foregroundStyle(OrionTheme.text)
-                    .textSelection(.enabled)
-                if let question = escalation.question {
-                    Text(question)
+        VStack(alignment: .leading, spacing: 12) {
+            // Two different sentences, because they are two different situations.
+            // An escalation that parked one task while the rest of the plan keeps
+            // moving must not read like a stopped run — that is how an alert
+            // channel teaches someone to ignore it.
+            Text(run.isBlocked
+                 ? "RUN STOPPED · \(run.openEscalations.count) NEEDS YOU"
+                 : "STILL WORKING · \(run.openEscalations.count) TASK(S) PARKED")
+                .font(OrionTheme.mono(9, .semibold))
+                .tracking(1.6)
+                .foregroundStyle(run.isBlocked ? OrionTheme.orange : OrionTheme.violet)
+
+            if !run.isBlocked {
+                Text("These need you, but the loop is carrying on with the rest of the plan.")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+
+            ForEach(run.openEscalations) { escalation in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Text(escalation.isRunLevel ? "WHOLE RUN" : (escalation.taskId ?? "—"))
+                            .font(OrionTheme.mono(8, .semibold))
+                            .tracking(1.1)
+                            .foregroundStyle(OrionTheme.text)
+                        Text(escalation.kind.replacingOccurrences(of: "_", with: " "))
+                            .font(OrionTheme.mono(8))
+                            .foregroundStyle(OrionTheme.textDim)
+                        if escalation.recommendAstra {
+                            Text("ASTRA")
+                                .font(OrionTheme.mono(7, .semibold))
+                                .tracking(1.1)
+                                .foregroundStyle(OrionTheme.violet)
+                        }
+                        if !escalation.notified {
+                            Text("NOT DELIVERED")
+                                .font(OrionTheme.mono(7, .semibold))
+                                .tracking(1.1)
+                                .foregroundStyle(OrionTheme.orange)
+                        }
+                    }
+                    Text(escalation.reason)
                         .font(OrionTheme.mono(10))
-                        .foregroundStyle(OrionTheme.textSoft)
+                        .foregroundStyle(OrionTheme.text)
+                        .textSelection(.enabled)
+                    if let question = escalation.question {
+                        Text(question)
+                            .font(OrionTheme.mono(9))
+                            .foregroundStyle(OrionTheme.textSoft)
+                            .textSelection(.enabled)
+                    }
+                    Text("resolve: orion-project-agent resolve --revision \(run.revision) --id \(escalation.id) --note \"…\"")
+                        .font(OrionTheme.mono(8))
+                        .foregroundStyle(OrionTheme.textDim)
                         .textSelection(.enabled)
                 }
-                HStack(spacing: 14) {
-                    if escalation.recommendAstra {
-                        Text("ASTRA REVIEW RECOMMENDED — start it yourself; nothing here calls it")
-                            .font(OrionTheme.mono(8, .semibold))
-                            .tracking(1.2)
-                            .foregroundStyle(OrionTheme.violet)
-                    }
-                    Text(escalation.notified ? "alerted on Discord" : "Discord alert NOT delivered")
-                        .font(OrionTheme.mono(8))
-                        .foregroundStyle(escalation.notified ? OrionTheme.textDim : OrionTheme.orange)
-                }
+            }
+
+            if run.openEscalations.contains(where: { $0.recommendAstra }) {
+                Text("Astra review recommended — start it yourself in ChatGPT/Codex. Nothing here calls it.")
+                    .font(OrionTheme.mono(8))
+                    .foregroundStyle(OrionTheme.textDim)
             }
         }
         .padding(.leading, 13)
         .overlay(alignment: .leading) {
-            Rectangle().fill(OrionTheme.orange.opacity(0.5)).frame(width: 1)
+            Rectangle().fill((run.isBlocked ? OrionTheme.orange : OrionTheme.violet).opacity(0.5)).frame(width: 1)
         }
     }
 
@@ -280,6 +318,15 @@ struct ProjectAgentPanel: View {
                                     .font(OrionTheme.mono(7, .semibold))
                                     .tracking(1.1)
                                     .foregroundStyle(OrionTheme.violet)
+                            }
+                            if run.isParked(task) {
+                                // Parked by an escalation, which is not the same
+                                // as having failed — the loop chose not to touch
+                                // it, and will not until a human says so.
+                                Text("PARKED")
+                                    .font(OrionTheme.mono(7, .semibold))
+                                    .tracking(1.1)
+                                    .foregroundStyle(OrionTheme.orange)
                             }
                         }
                         if let blocker = task.blocker {
@@ -335,10 +382,10 @@ struct ProjectAgentPanel: View {
                 }
                 OutlineAction(title: "Resume", tint: OrionTheme.accent,
                               enabled: !controlling && [.paused, .budget_exhausted].contains(run.status)
-                                       && run.activeTask == nil && run.escalation == nil) {
+                                       && run.activeTask == nil && !run.hasOpenEscalations) {
                     onControl(.resume)
                 }
-                if run.escalation != nil {
+                if run.hasOpenEscalations {
                     // The controller requires a note, so the button must too.
                     // Offering an action the CLI will refuse teaches people the
                     // panel is lying to them, and this is the one moment they
@@ -362,9 +409,9 @@ struct ProjectAgentPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                TextField(run.escalation == nil
-                          ? "Instruction — delivered at the next task boundary"
-                          : "Note — why this escalation is now safe to continue",
+                TextField(run.hasOpenEscalations
+                          ? "Note — why this escalation is now safe to continue"
+                          : "Instruction — delivered at the next task boundary",
                           text: $steering, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(OrionTheme.mono(11))
@@ -440,9 +487,45 @@ struct ProjectAgentPanel: View {
     }
 
     private var settingsBody: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 9) {
             if let settings {
-                ForEach(settings.summaryRows, id: \.0) { row in
+                // Models ARE editable here — Nick asked to pick them without
+                // hand-editing JSON. The list comes from what Ollama actually
+                // has installed, so the picker cannot select a model that would
+                // 400 on the first generation at 2am.
+                ForEach(["worker", "reviewer"], id: \.self) { role in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(role.uppercased())
+                            .font(OrionTheme.mono(8, .semibold))
+                            .tracking(1.3)
+                            .foregroundStyle(OrionTheme.textDim)
+                            .frame(width: 74, alignment: .leading)
+                        if let installed = settings.installed, !installed.isEmpty {
+                            Picker("", selection: Binding(
+                                get: { settings.roles?[role]?.model ?? "" },
+                                set: { newModel in setModel(role: role, model: newModel) }
+                            )) {
+                                ForEach(installed, id: \.self) { name in
+                                    Text(name).font(OrionTheme.mono(10)).tag(name)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 320, alignment: .leading)
+                            .disabled(changingModel != nil || controlling)
+                        } else {
+                            Text(settings.roles?[role]?.model ?? "unset")
+                                .font(OrionTheme.mono(10))
+                                .foregroundStyle(OrionTheme.text)
+                        }
+                        if changingModel == role {
+                            Text("saving…").font(OrionTheme.mono(8)).foregroundStyle(OrionTheme.textDim)
+                        }
+                    }
+                }
+
+                Divider().background(OrionTheme.line).padding(.vertical, 2)
+
+                ForEach(settings.summaryRows.filter { $0.0 != "Worker model" && $0.0 != "Reviewer model" }, id: \.0) { row in
                     HStack(alignment: .firstTextBaseline) {
                         Text(row.0)
                             .font(OrionTheme.mono(9))
@@ -455,15 +538,16 @@ struct ProjectAgentPanel: View {
                     }
                 }
             } else {
-                Text("No agentic config exists, so unattended execution is OFF.")
+                Text("No agentic config yet, so unattended execution is OFF.")
                     .font(OrionTheme.mono(10))
                     .foregroundStyle(OrionTheme.orange)
             }
-            // Read-only on purpose. `enabled` is the switch that decides whether
-            // a model may change real code while nobody is watching, and it
-            // lives outside the repository precisely so moving it takes a
-            // deliberate act. A toggle in a window is not that act.
-            Text("Settings are edited in \(ProjectAgentSettings.url.path) — deliberately a file, not a switch in this window.")
+
+            // `enabled` stays a file edit even though models are editable here.
+            // It is the switch that decides whether a model may change real code
+            // while nobody is watching, and its whole value is that moving it
+            // takes intent. A toggle in a window is not that.
+            Text("Unattended execution is enabled only by editing \(ProjectAgentSettings.url.path) — deliberately not a switch in this window.")
                 .font(OrionTheme.mono(8))
                 .foregroundStyle(OrionTheme.textDim)
                 .textSelection(.enabled)
@@ -472,6 +556,15 @@ struct ProjectAgentPanel: View {
         .padding(.leading, 13)
         .overlay(alignment: .leading) { fadingRule }
         .padding(.bottom, 6)
+    }
+
+    private func setModel(role: String, model: String) {
+        guard settings?.roles?[role]?.model != model else { return }
+        changingModel = role
+        ProjectAgentControl.setModel(role: role, model: model) { error in
+            changingModel = nil
+            onSettingsChanged(error)
+        }
     }
 
     private func documentBody(_ text: String) -> some View {

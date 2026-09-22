@@ -40,6 +40,47 @@ const clone = value => structuredClone(value);
 const stamp = () => new Date().toISOString();
 const isSha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 
+/** Escalations still waiting on a human. */
+const openEscalations = state => state.escalations.filter(item => !item.resolvedAt);
+
+/**
+ * Tasks the loop may still pick up.
+ *
+ * A task under an open escalation is excluded, and so is anything depending on
+ * a task that is not accepted. Everything else remains fair game -- which is
+ * the whole point of task-level escalation: one hard problem parks ONE task,
+ * and the night continues on the rest.
+ */
+function claimableTasks(state) {
+  const accepted = new Set(state.tasks.filter(item => item.status === 'accepted').map(item => item.id));
+  const parked = new Set(openEscalations(state).map(item => item.taskId).filter(Boolean));
+  return state.tasks.filter(item => item.status === 'queued' && item.attempts < state.maxAttempts &&
+    !parked.has(item.id) && item.dependencies.every(id => accepted.has(id)));
+}
+
+/**
+ * What the loop can do next, given the escalations that are open.
+ *
+ * `escalated` now means "stopped because nothing else can be done", NOT "an
+ * escalation exists". A run-level escalation (taskId null) stops everything; a
+ * task-level one only stops the run once no claimable work is left.
+ */
+function settleStatus(state) {
+  if (state.finalReview) return 'completed';
+  if (state.activeTask) return 'running';
+  if (state.pauseRequested) return 'paused';
+  const open = openEscalations(state);
+  if (open.some(item => item.taskId === null)) return 'escalated';
+  if (state.tasks.some(item => item.status === 'awaiting_review')) return 'waiting_for_review';
+  if (claimableTasks(state).length) return 'ready';
+  // `escalated` requires an actual escalation record. A run where every task is
+  // merely blocked has not escalated yet -- the supervisor raises one on its
+  // next pass, and until then the honest status is "the loop cannot proceed",
+  // which is what waiting_for_review has always meant here.
+  if (open.length) return 'escalated';
+  return 'waiting_for_review';
+}
+
 /** Records queued during a transaction and flushed to the journal after publish. */
 function pending(state) {
   if (!Object.hasOwn(state, '_pending')) {
@@ -67,7 +108,7 @@ async function publish(root, state, initial = false) {
 
 function validateRuntimeFields(state) {
   const fail = message => { throw new Error(`invalid controller state: ${message}`); };
-  if (state.version !== 2) fail('unsupported schema version');
+  if (state.version !== 3) fail('unsupported schema version');
   if (!Number.isSafeInteger(state.revision) || state.revision < 0) fail('revision');
   if (!Number.isSafeInteger(state.journalSeq) || state.journalSeq < 0) fail('journalSeq');
   if (typeof state.runId !== 'string' || !state.runId) fail('runId');
@@ -75,7 +116,7 @@ function validateRuntimeFields(state) {
   if (!Number.isInteger(state.maxAttempts) || state.maxAttempts < 1 || state.maxAttempts > 10) fail('maxAttempts must be 1-10');
   if (!Number.isInteger(state.maxCorrectionDepth) || state.maxCorrectionDepth < 0 || state.maxCorrectionDepth > 3) fail('maxCorrectionDepth must be 0-3');
   if (!RUN_STATES.includes(state.status)) fail('status');
-  for (const field of ['tasks', 'events', 'steering', 'reviews', 'repairs']) {
+  for (const field of ['tasks', 'events', 'steering', 'reviews', 'repairs', 'escalations']) {
     if (!Array.isArray(state[field])) fail(field);
   }
 }
@@ -119,14 +160,18 @@ export async function readProjectAgent(root) {
   if (state.status === 'running' && running.length !== 1) fail('running with no running task');
   if (state.finalReview && (state.status !== 'completed' || !state.tasks.every(task => task.status === 'accepted'))) fail('final review without a completed, fully accepted run');
   if (!state.finalReview && state.status === 'completed') fail('completed without final review');
-  if ((state.status === 'escalated') !== (state.escalation !== null && state.escalation !== undefined)) fail('escalated status and escalation record must agree');
+  // `escalated` must mean the loop is genuinely stuck, not merely that an
+  // escalation exists somewhere. Otherwise one parked task would stop a night
+  // of work that could have continued.
+  if (state.status === 'escalated' && !openEscalations(state).length) fail('escalated with no open escalation');
+  if (state.status === 'ready' && !claimableTasks(state).length) fail('ready with nothing claimable');
 
-  if (state.escalation) {
-    const escalation = state.escalation;
+  for (const escalation of state.escalations) {
     if (typeof escalation.id !== 'string' || !escalation.id || typeof escalation.reason !== 'string' || !escalation.reason ||
         typeof escalation.kind !== 'string' || typeof escalation.notified !== 'boolean' ||
         (escalation.taskId !== null && !state.tasks.some(task => task.id === escalation.taskId))) fail('escalation record');
   }
+  if (new Set(state.escalations.map(item => item.id)).size !== state.escalations.length) fail('duplicate escalation id');
   for (const item of state.steering) {
     if (typeof item.id !== 'string' || typeof item.text !== 'string' || typeof item.applied !== 'boolean') fail('steering');
   }
@@ -178,9 +223,9 @@ export async function initializeProjectAgent(root, tasks, { maxAttempts = 3, max
   if (!Number.isInteger(maxCorrectionDepth) || maxCorrectionDepth < 0 || maxCorrectionDepth > 3) throw new Error('invalid correction depth');
   await mkdir(root, { recursive: true, mode: 0o700 });
   const state = {
-    version: 2, revision: 0, runId: randomUUID(), status: 'ready', activeTask: null,
+    version: 3, revision: 0, runId: randomUUID(), status: 'ready', activeTask: null,
     pauseRequested: false, maxAttempts, maxCorrectionDepth, finalReview: false, journalSeq: 0,
-    escalation: null, steering: [], reviews: [], repairs: [], events: [],
+    escalations: [], steering: [], reviews: [], repairs: [], events: [],
     tasks: contracts.map(contract => ({ ...clone(contract), status: 'queued', stage: 'queued', attempts: 0, corrections: 0, correctionDepth: 0, repairsUsed: 0, commit: null, blocker: null, evidence: null })),
   };
   event(state, 'initialized', `Approved task graph loaded: ${contracts.length} task(s). Execution adapters are not enabled by initialization.`,
@@ -203,7 +248,7 @@ export async function steerProjectAgent(root, command, revision, text) {
       if (state.activeTask || state.status === 'interrupted') throw new Error('reconcile interrupted work before resuming');
       if (state.status === 'escalated') throw new Error('resolve the escalation before resuming');
       state.pauseRequested = false;
-      state.status = state.tasks.some(task => task.status === 'awaiting_review') ? 'waiting_for_review' : 'ready';
+      state.status = settleStatus(state);
       event(state, 'resume', 'Resume requested; review gates remain enforced.', { actor: 'operator' });
     } else if (command === 'steer') {
       if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('invalid steering');
@@ -219,38 +264,91 @@ export async function steerProjectAgent(root, command, revision, text) {
  * is the point: the system that decided it needs a human must not also be the
  * system that decides it no longer does.
  */
+/**
+ * Raise an escalation.
+ *
+ * `taskId` set  -> TASK-LEVEL. That task is parked and the loop carries on with
+ *                  everything else. This is the normal case: one contract turned
+ *                  out to be ambiguous; the other nine are unaffected.
+ * `taskId` null -> RUN-LEVEL. Something is wrong with the run as a whole and
+ *                  nothing may proceed.
+ *
+ * Nothing inside the loop may resolve either. That asymmetry is the point: the
+ * system that decided it needs a human must not also decide it no longer does.
+ */
 export async function escalateProjectAgent(root, revision, { kind, reason, taskId = null, question = null, recommendAstra = false, detail = {} }) {
   return transaction(root, revision, state => {
     if (state.status === 'completed') throw new Error('run completed');
     if (typeof kind !== 'string' || !kind.trim() || typeof reason !== 'string' || !reason.trim()) throw new Error('escalation needs a kind and a reason');
     if (taskId !== null && !state.tasks.some(task => task.id === taskId)) throw new Error('escalation names no task in this run');
     if (state.activeTask) throw new Error('escalate at a task boundary, not mid-task');
-    if (state.escalation) return;
-    state.escalation = { id: randomUUID(), at: stamp(), kind: kind.trim().slice(0, 64), reason: reason.trim().slice(0, 2000),
-      taskId, question: question ? String(question).slice(0, 1000) : null, recommendAstra: Boolean(recommendAstra),
-      notified: false, notifiedAt: null };
-    state.status = 'escalated';
-    event(state, 'escalated', `${kind}: ${reason}`, { taskId, detail, actor: 'controller' });
+    // One open escalation per task; a second for the same task would alert twice
+    // for one problem.
+    if (openEscalations(state).some(item => item.taskId === taskId)) return;
+
+    state.escalations.push({ id: randomUUID(), at: stamp(), kind: kind.trim().slice(0, 64),
+      reason: reason.trim().slice(0, 2000), taskId,
+      question: question ? String(question).slice(0, 1000) : null,
+      recommendAstra: Boolean(recommendAstra), notified: false, notifiedAt: null, resolvedAt: null, note: null });
+
+    if (taskId) {
+      const task = state.tasks.find(item => item.id === taskId);
+      // A task that HAS run is blocked; one escalated before it ever ran stays
+      // queued and is parked by `claimableTasks` instead. Marking the latter
+      // `blocked` would mean a blocked task with zero attempts, which the
+      // lifecycle validator correctly refuses.
+      if (task.status !== 'accepted' && task.attempts > 0) {
+        task.status = 'blocked';
+        task.stage = 'queued';
+        task.commit = null;
+        task.evidence = null;
+        task.blocker = task.blocker ?? `escalated: ${kind}`;
+      }
+    }
+    state.status = settleStatus(state);
+    event(state, 'escalated', `${taskId ? `${taskId}: ` : 'run: '}${kind}: ${reason}`,
+      { taskId, detail, actor: 'controller', scope: taskId ? 'task' : 'run', remaining: claimableTasks(state).length });
   });
 }
 
-/** Record that the owner was told; separates "needs a human" from "a human knows". */
 export async function markEscalationNotified(root, revision, escalationId) {
   return transaction(root, revision, state => {
-    if (!state.escalation || state.escalation.id !== escalationId) throw new Error('no such escalation');
-    state.escalation.notified = true;
-    state.escalation.notifiedAt = stamp();
-    event(state, 'escalation_notified', 'Owner alerted.', { actor: 'controller' });
+    const escalation = state.escalations.find(item => item.id === escalationId);
+    if (!escalation) throw new Error('no such escalation');
+    escalation.notified = true;
+    escalation.notifiedAt = stamp();
+    event(state, 'escalation_notified', `Owner alerted about ${escalation.taskId ?? 'the run'}.`, { actor: 'controller', escalationId });
   });
 }
 
-export async function resolveProjectEscalation(root, revision, note) {
+/**
+ * Clear one escalation. Operator-only.
+ *
+ * `requeue` returns the parked task to the queue with its attempts reset to one
+ * below the limit -- the same single-further-attempt rule a reviewer repair
+ * gets, so resolving an escalation cannot silently refill a task's budget.
+ */
+export async function resolveProjectEscalation(root, revision, escalationId, note, { requeue = true } = {}) {
   return transaction(root, revision, state => {
-    if (!state.escalation) throw new Error('no escalation to resolve');
-    const resolved = state.escalation;
-    state.escalation = null;
-    state.status = state.pauseRequested ? 'paused' : state.tasks.some(task => task.status === 'awaiting_review') ? 'waiting_for_review' : 'ready';
-    event(state, 'escalation_resolved', `${resolved.kind} resolved: ${String(note ?? 'no note').slice(0, 500)}`, { actor: 'operator', escalationId: resolved.id });
+    const escalation = state.escalations.find(item => item.id === escalationId && !item.resolvedAt);
+    if (!escalation) throw new Error('no such open escalation');
+    escalation.resolvedAt = stamp();
+    escalation.note = String(note ?? '').slice(0, 1000) || null;
+
+    if (escalation.taskId && requeue) {
+      const task = state.tasks.find(item => item.id === escalation.taskId);
+      if (task && task.status === 'blocked') {
+        task.status = 'queued';
+        task.stage = 'queued';
+        task.blocker = null;
+        task.commit = null;
+        task.evidence = null;
+        task.attempts = Math.min(task.attempts, Math.max(0, state.maxAttempts - 1));
+      }
+    }
+    state.status = settleStatus(state);
+    event(state, 'escalation_resolved', `${escalation.kind} resolved: ${String(note ?? 'no note').slice(0, 500)}`,
+      { actor: 'operator', escalationId, taskId: escalation.taskId });
   });
 }
 
@@ -283,7 +381,7 @@ export async function reconcileInterruptedRun(root, revision, { deadOwnerProof }
       task.blocker = 'worker_outcome_unknown';
       state.activeTask = null;
     }
-    state.status = state.pauseRequested ? 'paused' : state.tasks.some(item => item.status === 'awaiting_review') ? 'waiting_for_review' : 'ready';
+    state.status = settleStatus(state);
     event(state, 'reconciled', `Interrupted run reconciled: ${deadOwnerProof.reason}`,
       { actor: 'supervisor', proof: deadOwnerProof });
   });
@@ -375,7 +473,7 @@ export async function reviewProjectTask(root, { revision, taskId, commit, decisi
       summary: String(review.summary ?? '').slice(0, 1500),
       failed: Array.isArray(review.failed) ? review.failed.slice(0, 30) : [],
       correctionIds: added.map(item => item.id) });
-    state.status = state.pauseRequested ? 'paused' : 'ready';
+    state.status = settleStatus(state);
     event(state, 'review', `${taskId}: ${decision}${added.length ? ` (+${added.length} correction task(s))` : ''}`,
       { taskId, actor: 'reviewer', decision, reviewId, reviewer: review.reviewer ?? null, summary: review.summary ?? null });
   });
@@ -424,7 +522,7 @@ export async function grantRepairRetry(root, revision, taskId, { maxRepairs = 1 
     task.evidence = null;
     task.blocker = null;
     task.attempts = Math.max(0, state.maxAttempts - 1);
-    state.status = state.pauseRequested ? 'paused' : 'ready';
+    state.status = settleStatus(state);
     event(state, 'repair_retry_granted', `${taskId}: one further attempt after reviewer repair`,
       { taskId, actor: 'controller', repairsUsed: task.repairsUsed });
   });
@@ -433,7 +531,7 @@ export async function grantRepairRetry(root, revision, taskId, { maxRepairs = 1 
 export async function acceptProjectFinalReview(root, revision, { reviewer = 'unknown', summary = '' } = {}) {
   return transaction(root, revision, state => {
     if (!Number.isSafeInteger(revision) || state.activeTask || !state.tasks.every(task => task.status === 'accepted')) throw new Error('final review not ready');
-    if (state.escalation) throw new Error('resolve the escalation before closing the run');
+    if (openEscalations(state).length) throw new Error('resolve every open escalation before closing the run');
     if (state.steering.some(item => !item.applied)) throw new Error('pending steering requires review before completion');
     state.finalReview = true;
     state.status = 'completed';
@@ -478,20 +576,22 @@ export async function runProjectAgent(root, { worker, verify, durationMs, taskTi
     let task, instructions;
     const claimed = await transaction(root, undefined, state => {
       if (state.activeTask) { state.status = 'interrupted'; throw new Error('unfinished operation needs reconciliation'); }
-      if (['completed', 'interrupted', 'escalated'].includes(state.status)) return;
+      if (['completed', 'interrupted'].includes(state.status)) return;
+      // A RUN-level escalation stops everything. A task-level one does not:
+      // `claimableTasks` already excludes the parked task, so the loop keeps
+      // working through whatever else the plan contains.
+      if (openEscalations(state).some(item => item.taskId === null)) { state.status = 'escalated'; return; }
       if (state.pauseRequested) { state.status = 'paused'; return; }
       if (state.tasks.some(item => item.status === 'awaiting_review') || state.tasks.every(item => item.status === 'accepted')) {
         state.status = 'waiting_for_review'; return;
       }
-      const accepted = new Set(state.tasks.filter(item => item.status === 'accepted').map(item => item.id));
-      const claimable = state.tasks.filter(item => item.status === 'queued' && item.attempts < state.maxAttempts &&
-        item.dependencies.every(id => accepted.has(id)));
+      const claimable = claimableTasks(state);
       // Corrections first. A review found something wrong with work that was
       // just accepted; letting NEW planned work start on top of it means the
       // next task builds on the thing being corrected, and the correction then
       // has to be applied twice. Within each group, plan order is preserved.
       task = claimable.find(item => item.origin !== 'plan') ?? claimable[0];
-      if (!task) { state.status = 'waiting_for_review'; return; }
+      if (!task) { state.status = settleStatus(state); return; }
       instructions = state.steering.filter(item => !item.applied).map(item => ({ ...item }));
       for (const item of state.steering) item.applied = true;
       task.status = 'running'; task.stage = 'inspect'; task.attempts++;
@@ -523,7 +623,7 @@ export async function runProjectAgent(root, { worker, verify, durationMs, taskTi
         current.evidence = null;
         current.blocker = uncertain ? 'worker_outcome_unknown' : 'worker_or_validation_failed';
         state.activeTask = null;
-        state.status = uncertain ? 'interrupted' : state.pauseRequested ? 'paused' : 'waiting_for_review';
+        state.status = uncertain ? 'interrupted' : settleStatus(state);
         event(state, 'blocked', `${task.id}: ${current.blocker}`, { taskId: task.id, actor: 'worker', error: String(error?.message ?? error) });
       });
       return await readProjectAgent(root);
@@ -543,7 +643,7 @@ export async function runProjectAgent(root, { worker, verify, durationMs, taskTi
           ms: Number.isFinite(check.ms) ? check.ms : null, exitCode: check.exitCode ?? null })).slice(0, 20),
       };
       state.activeTask = null;
-      state.status = state.pauseRequested ? 'paused' : 'waiting_for_review';
+      state.status = settleStatus(state);
       event(state, 'review_requested', `${task.id}: verified checkpoint awaits independent review.`,
         { taskId: task.id, actor: 'worker', commit: result.commit, files: result.files ?? [], checks: result.checks ?? [] });
     });

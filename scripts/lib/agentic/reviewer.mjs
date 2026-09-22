@@ -22,10 +22,19 @@
 import { normalizeReviewContract, contractDigest, normalizeTaskContract } from './contract.mjs';
 import { runChecks, describeChecks } from './checks.mjs';
 import { parseJsonBlock, parseWorkerReply, repairTurn, reviewerTurn, systemPrompt } from './prompts.mjs';
-import { changedFiles, commitCheckpoint, diffSince, readScoped, snapshotBaseline, writeScoped } from './workspace.mjs';
+import { changedFiles, commitCheckpoint, diffForCheckpoint, diffSince, readScoped, snapshotBaseline, writeScoped } from './workspace.mjs';
 
 const MAX_REVIEW_ATTEMPTS = 2;
-const MAX_REPAIR_FILES = 6;
+/*
+ "Bare minimum" has to be a number, not an adjective.
+
+ This was 6, which is not a bare minimum -- it is most of a refactor, and a
+ reviewer changing six files has made a design decision rather than unblocking
+ a worker. The brief is: diagnose, correct the smallest thing, hand back. Two
+ files covers the realistic cases (an interface and its one caller); anything
+ wider is an architecture question, which escalates.
+*/
+const MAX_REPAIR_FILES = 2;
 
 export class ReviewUnusable extends Error {
   constructor(message, detail) { super(message); this.name = 'ReviewUnusable'; this.detail = detail; }
@@ -37,7 +46,10 @@ export class ReviewUnusable extends Error {
  */
 export async function reviewCheckpoint({ runtime, worktree, task, baseRef, checkResults, workerSummary, priorFindings = [], emit = () => {}, signal, activity = null }) {
   const system = await systemPrompt('reviewer-system');
-  const diff = await diffSince(worktree, baseRef, { paths: [] });
+  // ONLY this checkpoint. Handing the reviewer the cumulative run diff made it
+  // blame this task for a previous one's accepted changes -- see
+  // diffForCheckpoint's comment for the three models that fell into it.
+  const diff = await diffForCheckpoint(worktree, task.commit);
   const prompt = reviewerTurn({
     contract: task, diff, checkResults, workerSummary,
     attempts: task.attempts, priorFindings, checkDescriptions: describeChecks(task.checks),
@@ -89,7 +101,7 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
  */
 export async function repairCheckpoint({ runtime, worktree, task, baseRef, checkResults, history, emit = () => {}, signal, activity = null }) {
   const system = await systemPrompt('reviewer-repair');
-  const diff = await diffSince(worktree, baseRef);
+  const diff = task.commit ? await diffForCheckpoint(worktree, task.commit) : await diffSince(worktree, baseRef);
   const files = [];
   for (const entry of task.scope) {
     if (entry.endsWith('/') || files.length >= 6) continue;

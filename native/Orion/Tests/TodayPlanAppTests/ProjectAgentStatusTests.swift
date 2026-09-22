@@ -11,7 +11,7 @@ final class ProjectAgentStatusTests: XCTestCase {
         extraTaskFields: [String: Any] = [:]
     ) throws -> Data {
         var payload: [String: Any] = [
-            "version": 2, "revision": 4, "runId": "example", "status": status,
+            "version": 3, "revision": 4, "runId": "example", "status": status,
             "activeTask": "task",
             "tasks": [
                 ["id": "task", "title": "First", "weight": weight, "status": "accepted", "stage": "accepted",
@@ -22,8 +22,7 @@ final class ProjectAgentStatusTests: XCTestCase {
             ],
             "events": [], "steering": [], "repairs": [], "finalReview": finalReview,
         ]
-        payload["escalation"] = escalation as Any?
-        if escalation == nil { payload.removeValue(forKey: "escalation") }
+        payload["escalations"] = escalation.map { [$0] } ?? []
         return try JSONSerialization.data(withJSONObject: payload)
     }
 
@@ -72,20 +71,26 @@ final class ProjectAgentStatusTests: XCTestCase {
     func testEscalationAndStatusMustAgree() throws {
         XCTAssertThrowsError(try ProjectAgentStatus.decode(fixture(status: "escalated")),
                              "escalated with no record must refuse")
-        XCTAssertThrowsError(try ProjectAgentStatus.decode(fixture(status: "paused", escalation: [
+        // An open escalation while the run keeps going is now the NORMAL case:
+        // one task is parked, the rest of the plan continues. It must decode.
+        let parked = try ProjectAgentStatus.decode(fixture(status: "running", escalation: [
             "id": "e1", "at": "2026-09-21T00:00:00.000Z", "kind": "architecture",
             "reason": "ambiguous", "taskId": "task", "question": "which?",
-            "recommendAstra": true, "notified": false,
-        ])), "an escalation record with a non-escalated status must refuse")
+            "recommendAstra": true, "notified": false, "resolvedAt": NSNull(),
+        ]))
+        XCTAssertFalse(parked.isBlocked, "the run has not stopped")
+        XCTAssertTrue(parked.hasOpenEscalations, "but something still needs Nick")
+        XCTAssertEqual(parked.parkedTaskIds, ["task"])
 
         let blocked = try ProjectAgentStatus.decode(fixture(status: "escalated", escalation: [
             "id": "e1", "at": "2026-09-21T00:00:00.000Z", "kind": "architecture",
             "reason": "two defensible designs", "taskId": "task", "question": "which shape?",
-            "recommendAstra": true, "notified": false,
+            "recommendAstra": true, "notified": false, "resolvedAt": NSNull(),
         ]))
         XCTAssertTrue(blocked.isBlocked)
-        XCTAssertEqual(blocked.escalation?.kind, "architecture")
-        XCTAssertTrue(blocked.escalation?.recommendAstra ?? false)
+        XCTAssertEqual(blocked.openEscalations.first?.kind, "architecture")
+        XCTAssertTrue(blocked.openEscalations.first?.recommendAstra ?? false)
+        XCTAssertTrue(blocked.openEscalations.first?.isRunLevel == false, "this one names a task")
     }
 
     /// Tasks a review invented are marked, because progress that fell because
@@ -98,11 +103,12 @@ final class ProjectAgentStatusTests: XCTestCase {
         XCTAssertTrue(value.progressLabel.contains("added by review"))
     }
 
-    /// v1 snapshots are not decoded as if they were v2: the fields the UI needs
-    /// do not exist there, and a partial read would show a confidently wrong run.
-    func testVersionOneIsRefusedRatherThanPartiallyRead() throws {
+    /// Older snapshots are not decoded as if they were current: the fields the
+    /// UI needs do not exist there, and a partial read would show a confidently
+    /// wrong run.
+    func testOlderSchemaIsRefusedRatherThanPartiallyRead() throws {
         var payload = try JSONSerialization.jsonObject(with: fixture()) as! [String: Any]
-        payload["version"] = 1
+        payload["version"] = 2
         XCTAssertThrowsError(try ProjectAgentStatus.decode(try JSONSerialization.data(withJSONObject: payload)))
     }
 

@@ -35,7 +35,7 @@ import {
 import { appendJournal } from './journal.mjs';
 import { acquireLease, inspectLease, ownerRecord, releaseLease } from './lease.mjs';
 import { ActivityChannel } from './activity.mjs';
-import { notifyEscalation } from './escalation.mjs';
+import { notifyEscalation, notifyReviewerRepair } from './escalation.mjs';
 import { commitRepair, repairCheckpoint, reviewCheckpoint, reviewRun, ReviewUnusable } from './reviewer.mjs';
 import { createVerifier, createWorker } from './worker.mjs';
 import { changedFiles, currentHead, discardToHead } from './workspace.mjs';
@@ -153,6 +153,8 @@ export async function superviseRun(root, {
   // this machine are live; a suite that sent one would wake Nick to tell him a
   // test passed.
   notify = notifyEscalation,
+  // Injectable for the same reason as `notify`: Discord is live on this machine.
+  notifyRepair = notifyReviewerRepair,
 } = {}) {
   const limits = config.limits;
   const supervisorLease = join(root, 'supervisor.lock');
@@ -225,13 +227,30 @@ export async function superviseRun(root, {
 
       if (state.status === 'completed') { emit({ kind: 'run_completed', data: progress }); return true; }
 
-      if (state.status === 'escalated') {
+      // Alert on anything newly escalated, whether or not the loop can carry on.
+      // A parked task still needs Nick told about it -- he just does not need to
+      // get up, because the rest of the plan is still moving.
+      const open = (state.escalations ?? []).filter(item => !item.resolvedAt);
+      const unreported = open.filter(item => !item.notified);
+      if (unreported.length) {
         const notification = await notify(state, { root, worktree, baseRef, project });
-        if (notification.delivered && !state.escalation.notified) {
-          await markEscalationNotified(root, state.revision, state.escalation.id).catch(() => {});
+        for (const result of notification.results ?? []) {
+          if (result.delivered) {
+            const fresh = await readProjectAgent(root);
+            await markEscalationNotified(root, fresh.revision, result.id).catch(() => {});
+          }
         }
-        emit({ kind: 'escalation_notified', data: { delivered: notification.delivered, reason: notification.reason, brief: notification.briefPath } });
-        summary.escalated = { kind: state.escalation.kind, reason: state.escalation.reason, notified: notification.delivered, brief: notification.briefPath };
+        emit({ kind: 'escalation_notified', data: {
+          count: unreported.length, delivered: notification.delivered, reason: notification.reason } });
+        state = await readProjectAgent(root);
+      }
+
+      if (state.status === 'escalated') {
+        // Only now is the run actually stuck: either a run-level escalation, or
+        // nothing claimable remains. Task-level escalations do NOT reach here
+        // while other work is available.
+        summary.escalated = open.map(item => ({ kind: item.kind, taskId: item.taskId, reason: item.reason, notified: item.notified }));
+        emit({ kind: 'run_stopped', data: { open: open.length, reason: 'no claimable work remains' } });
         return true;
       }
 
@@ -260,7 +279,7 @@ export async function superviseRun(root, {
         task.blocker !== 'worker_outcome_unknown');
       if (repairable) {
         mark('reviewer', runtime.spec?.('reviewer')?.model ?? null);
-        const outcome = await handleRepair({ root, state, task: repairable, runtime, worktree, baseRef, emit, limits, activity,
+        const outcome = await handleRepair({ root, state, task: repairable, runtime, worktree, baseRef, emit, limits, activity, project, notifyRepair,
           lastChecks: repairable.evidence?.checks ?? [] });
         summary.repairs += 1;
         await trip(guard, outcome.progressed, root, emit);
@@ -415,7 +434,7 @@ async function handleReview({ root, state, task, runtime, worktree, baseRef, emi
   return { accepted: decision !== 'blocked', progressed: true };
 }
 
-async function handleRepair({ root, state, task, runtime, worktree, baseRef, emit, limits, activity, lastChecks = [] }) {
+async function handleRepair({ root, state, task, runtime, worktree, baseRef, emit, limits, activity, project = 'ORION', notifyRepair = notifyReviewerRepair, lastChecks = [] }) {
   const history = `The worker made ${task.attempts} attempt(s) and is blocked with "${task.blocker}". ` +
     `It has had ${task.corrections} correction cycle(s). The repair threshold is ${limits.repairAfterAttempts} attempts.`;
   const repair = await repairCheckpoint({ runtime, worktree, task, baseRef, checkResults: lastChecks, history, emit, activity });
@@ -439,6 +458,13 @@ async function handleRepair({ root, state, task, runtime, worktree, baseRef, emi
     commit: committed.commit,
   });
   emit({ kind: 'reviewer_repair_committed', taskId: task.id, data: { files: repair.files, commit: committed.commit, improved: repair.improved } });
+  // Informational, not an escalation: nothing is blocked and nothing is being
+  // asked of Nick. He asked to be told when the reviewer crosses into writing
+  // code, and this is that -- one line, its own rate limit, no brief.
+  await notifyRepair(root, { project, taskId: task.id, model: repair.model, files: repair.files,
+    diagnosis: repair.diagnosis, improved: repair.improved, commit: committed.commit })
+    .then(result => emit({ kind: 'repair_notified', taskId: task.id, data: { delivered: result.delivered, reason: result.reason } }))
+    .catch(() => {});
 
   if (!repair.improved) {
     // A repair that did not help is not a reason to spend another worker

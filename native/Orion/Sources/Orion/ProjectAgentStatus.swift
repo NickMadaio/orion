@@ -2,8 +2,8 @@ import Foundation
 
 /// Read the controller's durable snapshot; the UI never invents a second progress clock.
 ///
-/// Schema v2. Two things changed in how this decodes, and both are about an
-/// unattended run being readable at 08:00 rather than at the moment it broke:
+/// Schema v3. Three things matter in how this decodes, all about an unattended
+/// run being readable at 08:00 rather than at the moment it broke:
 ///
 ///  * **Enums degrade instead of failing.** A raw value this build has not seen
 ///    becomes `.unknown` rather than throwing. The runtime and the app ship
@@ -14,6 +14,11 @@ import Foundation
 ///    published; `heartbeat` is whether anything is still driving it. A crashed
 ///    supervisor leaves `status: running` behind forever, and before there was a
 ///    heartbeat those two cases looked identical.
+///  * **An escalation no longer means the run stopped.** v3 made escalations
+///    task-level: one parks a single task and the loop carries on with the rest
+///    of the plan. So `hasOpenEscalations` ("something needs you") and
+///    `isBlocked` ("the run has halted") are different questions, and a panel
+///    that conflates them will either cry wolf or hide a stopped run.
 struct ProjectAgentStatus: Decodable {
     /// A string enum that tolerates values from a newer controller.
     enum RunStatus: String, Decodable {
@@ -55,8 +60,12 @@ struct ProjectAgentStatus: Decodable {
     struct Event: Decodable { let at: String; let kind: String; let message: String }
     struct Steering: Decodable, Identifiable { let id: String; let text: String; let applied: Bool }
 
-    /// Why the run stopped and what it needs. Present only while `status` is `.escalated`.
-    struct Escalation: Decodable {
+    /// Something that needs Nick. Escalations are now TASK-LEVEL by default: one
+    /// names a task, parks it, and the loop keeps working on everything else.
+    /// Only a `taskId == nil` escalation, or having nothing left to claim, stops
+    /// the run — so "an escalation exists" and "the run has stopped" are
+    /// different facts and the panel must not conflate them.
+    struct Escalation: Decodable, Identifiable {
         let id: String
         let at: String
         let kind: String
@@ -65,6 +74,10 @@ struct ProjectAgentStatus: Decodable {
         let question: String?
         let recommendAstra: Bool
         let notified: Bool
+        let resolvedAt: String?
+
+        var isOpen: Bool { resolvedAt == nil }
+        var isRunLevel: Bool { taskId == nil }
     }
 
     /// A reviewer-authored code change. Surfaced separately because it is work
@@ -87,7 +100,7 @@ struct ProjectAgentStatus: Decodable {
     let events: [Event]
     let steering: [Steering]
     let finalReview: Bool
-    let escalation: Escalation?
+    let escalations: [Escalation]?
     let repairs: [Repair]?
 
     var acceptedCount: Int { tasks.filter { $0.status == .accepted }.count }
@@ -95,7 +108,13 @@ struct ProjectAgentStatus: Decodable {
     var correctionCount: Int { tasks.filter(\.isCorrection).count }
     var reviewerAuthoredChanges: Int { repairs?.count ?? 0 }
     var awaitingFinalReview: Bool { !tasks.isEmpty && acceptedCount == tasks.count && !finalReview }
+    /// The run itself has stopped. Distinct from `hasOpenEscalations`.
     var isBlocked: Bool { status == .escalated }
+    var openEscalations: [Escalation] { (escalations ?? []).filter(\.isOpen) }
+    var hasOpenEscalations: Bool { !openEscalations.isEmpty }
+    /// Tasks parked by an escalation while the rest of the plan continues.
+    var parkedTaskIds: Set<String> { Set(openEscalations.compactMap(\.taskId)) }
+    func isParked(_ task: WorkItem) -> Bool { parkedTaskIds.contains(task.id) }
 
     var acceptedFraction: Double {
         let total = tasks.reduce(0) { $0 + $1.weight }
@@ -124,7 +143,7 @@ struct ProjectAgentStatus: Decodable {
 
     static func decode(_ data: Data) throws -> ProjectAgentStatus {
         let value = try JSONDecoder().decode(Self.self, from: data)
-        guard value.version == 2, value.revision >= 0, !value.runId.isEmpty,
+        guard value.version == 3, value.revision >= 0, !value.runId.isEmpty,
               !value.tasks.isEmpty, value.tasks.count <= 1000,
               Set(value.tasks.map(\.id)).count == value.tasks.count,
               value.tasks.allSatisfy({ !$0.id.isEmpty && $0.weight.isFinite && $0.weight >= 1 && $0.weight <= 100 && $0.weight.rounded() == $0.weight && !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.attempts >= 0 }),
@@ -132,9 +151,10 @@ struct ProjectAgentStatus: Decodable {
               value.activeTask == nil || value.active != nil,
               !value.finalReview || value.acceptedCount == value.tasks.count,
               value.status != .completed || (value.finalReview && value.acceptedCount == value.tasks.count),
-              // The escalation record and the escalated status must agree. A UI
-              // showing "blocked" with nothing to explain it is worse than an error.
-              (value.status == .escalated) == (value.escalation != nil)
+              // A stopped run must have something open explaining why. The
+              // converse no longer holds: open escalations with the run still
+              // moving is the normal, intended state.
+              value.status != .escalated || value.hasOpenEscalations
         else { throw CocoaError(.fileReadCorruptFile) }
         return value
     }
@@ -198,8 +218,24 @@ enum ProjectAgentControl {
         return result
     }
 
+    /// Run the operator CLI with an arbitrary fixed argv and hand back stdout.
+    /// Used for the read-only and settings commands, which have no revision.
+    static func run(_ arguments: [String], completion: @escaping (String?, String?) -> Void) {
+        execute(arguments) { output, error in completion(error == nil ? output : nil, error) }
+    }
+
+    /// Point a role at a different model. Model choice is a preference, not run
+    /// state, so it does not carry a revision and cannot disturb a review that
+    /// is already in flight.
+    static func setModel(role: String, model: String, completion: @escaping (String?) -> Void) {
+        execute(["set-model", role, model]) { _, error in completion(error) }
+    }
+
     static func send(_ command: Command, revision: Int, text: String = "", completion: @escaping (String?) -> Void) {
-        let arguments = arguments(command, revision: revision, text: text)
+        execute(arguments(command, revision: revision, text: text)) { _, error in completion(error) }
+    }
+
+    private static func execute(_ arguments: [String], completion: @escaping (String?, String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
@@ -211,6 +247,7 @@ enum ProjectAgentControl {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe
+            var capturedOutput: String?
             let error: String?
             do {
                 try process.run()
@@ -220,9 +257,10 @@ enum ProjectAgentControl {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
                 let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                capturedOutput = output
                 error = process.terminationStatus == 0 ? nil : (output.isEmpty ? "Controller refused the change (exit \(process.terminationStatus))." : String(output.prefix(2000)))
             } catch let failure { error = "Could not contact the project controller: \(failure.localizedDescription)" }
-            DispatchQueue.main.async { completion(error) }
+            DispatchQueue.main.async { completion(capturedOutput, error) }
         }
     }
 }

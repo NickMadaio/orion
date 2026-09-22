@@ -76,7 +76,11 @@ struct ProjectTab: View {
                 ProjectAgentPanel(
                     run: run, beat: beat, activity: activity, settings: settings,
                     steering: $steering, controlling: controlling, controlError: controlError,
-                    onControl: { command in control(command, run: run) }
+                    onControl: { command in control(command, run: run) },
+                    onSettingsChanged: { error in
+                        controlError = error
+                        refreshAgent()
+                    }
                 )
                 Text("Run \(run.runId) · revision \(run.revision). Changes are never installation or deployment.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -88,7 +92,9 @@ struct ProjectTab: View {
         agent = ProjectAgentStatus.read()
         beat = ProjectAgentHeartbeat.read()
         activity = ProjectAgentActivity.read()
-        settings = ProjectAgentSettings.read()
+        // Via the CLI, so defaults and the installed-model list are included
+        // even before a config file exists.
+        ProjectAgentSettings.load { loaded in if let loaded { settings = loaded } }
     }
 
     private func control(_ command: ProjectAgentControl.Command, run: ProjectAgentStatus) {

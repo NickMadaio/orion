@@ -108,3 +108,27 @@ test('oversized and NUL-bearing text is refused, not truncated into something pl
   assert.throws(() => normalizeTaskContract({ ...base(), id: 'Not-Kebab' }), /kebab-case/);
   assert.throws(() => normalizeTaskContract({ ...base(), checks: ['rm -rf /'] }), /is not a registry name/);
 });
+
+test('an empty optional field is absent, not invalid', () => {
+  // Found on the FIRST live reviewer run. Models fill optional string fields
+  // with "" as a matter of course, and rejecting that threw away a correct
+  // PASS_WITH_TASKS review — which in production retries once, fails the same
+  // way, and escalates: Nick woken to be told about a review that was right.
+  const sound = {
+    verdict: 'PASS_WITH_TASKS', summary: 'sound, one fix remains',
+    passed: ['criterion 1'], failed: [{ criterion: 'c', severity: 'minor', evidence: 'e' }],
+    corrections: [{ title: 'Fix it', objective: 'o', acceptance: ['a'] }],
+  };
+  for (const empty of ['', null, undefined]) {
+    const review = normalizeReviewContract({ ...sound, escalationKind: empty, escalationReason: empty },
+      { taskId: 'add-widget', contractDigest: 'abc' });
+    assert.equal(review.escalationKind, null);
+    assert.equal(review.verdict, 'PASS_WITH_TASKS');
+  }
+  // A real value still survives, and BLOCKED still demands a reason — the
+  // leniency must not reach the field that actually gates an escalation.
+  assert.equal(normalizeReviewContract({ ...sound, escalationKind: 'architecture' },
+    { taskId: 'a', contractDigest: 'b' }).escalationKind, 'architecture');
+  assert.throws(() => normalizeReviewContract({ verdict: 'BLOCKED', summary: 's', escalationReason: '' },
+    { taskId: 'a', contractDigest: 'b' }), /requires escalationReason/);
+});

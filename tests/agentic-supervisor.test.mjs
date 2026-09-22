@@ -73,7 +73,8 @@ const writeThenDone = contents => [
 const passReview = '```json\n{"verdict":"PASS","summary":"meets the contract","examined":["sandbox/widget.mjs"],"passed":["version is 2"],"failed":[]}\n```';
 
 const config = () => ({ ...DEFAULT_CONFIG, limits: { ...DEFAULT_CONFIG.limits, taskTimeoutMs: 20_000, iterationStallLimit: 3 } });
-const silentNotify = async () => ({ attempted: false, delivered: false, reason: 'test', briefPath: null, message: null });
+const silentNotify = async () => ({ attempted: false, delivered: false, reason: 'test', results: [] });
+const silentRepairNotify = async () => ({ attempted: false, delivered: false, reason: 'test' });
 
 test('a task is implemented, checked, committed, reviewed and closed without a human', async t => {
   const { root, worktree, baseRef } = await repository(t);
@@ -84,7 +85,7 @@ test('a task is implemented, checked, committed, reviewed and closed without a h
   });
 
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime, config: config(), durationMs: 60_000, notify: silentNotify,
+    worktree, baseRef, runtime, config: config(), durationMs: 60_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   assert.equal(result.state.status, 'completed');
@@ -114,7 +115,7 @@ test('a worker cannot report done while a check fails', async t => {
   });
 
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime, config: config(), durationMs: 30_000, notify: silentNotify,
+    worktree, baseRef, runtime, config: config(), durationMs: 30_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   const task = result.state.tasks[0];
@@ -140,7 +141,7 @@ test('a write outside the task scope is refused and the run continues', async t 
   });
 
   const result = await superviseRun(root, {
-    worktree, baseRef: base, runtime, config: config(), durationMs: 60_000, notify: silentNotify,
+    worktree, baseRef: base, runtime, config: config(), durationMs: 60_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   assert.equal(result.state.tasks[0].status, 'accepted');
@@ -161,13 +162,21 @@ test('a BLOCKED review halts the run, escalates once, and alerts exactly one tim
 
   const result = await superviseRun(root, {
     worktree, baseRef, runtime, config: config(), durationMs: 60_000,
-    notify: async state => { alerts.push(state.escalation); return { attempted: true, delivered: true, reason: null, briefPath: '/tmp/brief.md', message: 'x' }; },
+    notify: async state => {
+      const open = state.escalations.filter(item => !item.resolvedAt);
+      alerts.push(open);
+      return { attempted: true, delivered: true, reason: null,
+        results: open.map(item => ({ id: item.id, delivered: true, reason: null, briefPath: '/tmp/brief.md' })) };
+    },
   });
 
   assert.equal(result.state.status, 'escalated');
-  assert.equal(result.state.escalation.kind, 'architecture');
-  assert.equal(result.state.escalation.recommendAstra, true, 'an architecture block is an Astra question');
-  assert.equal(result.state.escalation.notified, true);
+  const open = result.state.escalations.filter(item => !item.resolvedAt);
+  assert.equal(open.length, 1);
+  assert.equal(open[0].kind, 'architecture');
+  assert.equal(open[0].recommendAstra, true, 'an architecture block is an Astra question');
+  assert.equal(open[0].notified, true);
+  assert.equal(open[0].taskId, 'bump-version', 'task-level, so a bigger plan would carry on');
   assert.equal(alerts.length, 1, 'exactly one alert per escalation, not one per loop iteration');
   assert.equal(result.state.tasks[0].status, 'blocked');
 });
@@ -182,13 +191,13 @@ test('a malformed review is never resolved as an accept', async t => {
   });
 
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime, config: config(), durationMs: 60_000, notify: silentNotify,
+    worktree, baseRef, runtime, config: config(), durationMs: 60_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   assert.equal(result.state.status, 'escalated');
-  assert.equal(result.state.tasks[0].status, 'awaiting_review', 'the gate failed closed');
-  assert.notEqual(result.state.tasks[0].status, 'accepted');
-  assert.match(result.state.escalation.reason, /could not produce a valid review/);
+  assert.notEqual(result.state.tasks[0].status, 'accepted', 'the gate failed closed');
+  const open = result.state.escalations.filter(item => !item.resolvedAt);
+  assert.match(open[0].reason, /could not produce a valid review/);
 });
 
 test('PASS_WITH_TASKS turns into real work the worker then does', async t => {
@@ -207,7 +216,7 @@ test('PASS_WITH_TASKS turns into real work the worker then does', async t => {
   });
 
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime, config: config(), durationMs: 90_000, notify: silentNotify,
+    worktree, baseRef, runtime, config: config(), durationMs: 90_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   const correction = result.state.tasks.find(task => task.origin === 'review_correction');
@@ -249,7 +258,7 @@ test('two supervisors cannot run against one project', async t => {
   await initializeProjectAgent(root, plan());
   await acquireLease(join(root, 'supervisor.lock'), { extra: { role: 'supervisor' } });
   await assert.rejects(superviseRun(root, {
-    worktree, baseRef, runtime: new FakeRuntime({}), config: config(), durationMs: 5_000, notify: silentNotify,
+    worktree, baseRef, runtime: new FakeRuntime({}), config: config(), durationMs: 5_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   }), /lease .* is held/);
 });
 
@@ -264,7 +273,7 @@ test('the watchdog stops a loop that is not making progress', async t => {
     reviewer: [passReview],
   });
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime, config: config(), durationMs: 120_000, notify: silentNotify,
+    worktree, baseRef, runtime, config: config(), durationMs: 120_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
   assert.equal(result.state.status, 'escalated');
   assert.ok(result.iterations < 20, `the loop should stop quickly, ran ${result.iterations} iterations`);
@@ -275,7 +284,7 @@ test('a heartbeat distinguishes a busy supervisor from a crashed one', async t =
   await initializeProjectAgent(root, plan());
   await superviseRun(root, {
     worktree, baseRef, runtime: new FakeRuntime({ worker: writeThenDone('export const version = 2;'), reviewer: [passReview, passReview] }),
-    config: config(), durationMs: 60_000, notify: silentNotify,
+    config: config(), durationMs: 60_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
   const beat = JSON.parse(await readFile(join(root, 'heartbeat.json'), 'utf8'));
   assert.equal(beat.phase, 'stopped', 'the final heartbeat says the supervisor is gone');
@@ -302,7 +311,7 @@ test('an operator instruction during a review does not corrupt the review', asyn
   });
 
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime, config: config(), durationMs: 90_000, notify: silentNotify,
+    worktree, baseRef, runtime, config: config(), durationMs: 90_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   assert.equal(steered, true, 'the race was actually exercised');
@@ -313,10 +322,11 @@ test('an operator instruction during a review does not corrupt the review', asyn
   // CORRECT — but it must be the honest "your instruction arrived too late"
   // one, not "the reviewer's verdict could not be applied", and it must not
   // kill the supervisor.
-  if (result.state.escalation) {
-    assert.equal(result.state.escalation.kind, 'pending_steering');
-    assert.match(result.state.escalation.question, /keep the public interface stable/);
-    assert.equal(result.state.escalation.recommendAstra, false, 'this needs Nick, not Astra');
+  const open = result.state.escalations.filter(item => !item.resolvedAt);
+  if (open.length) {
+    assert.equal(open[0].kind, 'pending_steering');
+    assert.match(open[0].question, /keep the public interface stable/);
+    assert.equal(open[0].recommendAstra, false, 'this needs Nick, not Astra');
   } else {
     assert.equal(result.state.status, 'completed');
   }
@@ -337,12 +347,13 @@ test('a throwing iteration does not kill an unattended supervisor', async t => {
   };
 
   const result = await superviseRun(root, {
-    worktree, baseRef, runtime: exploding, config: config(), durationMs: 60_000, notify: silentNotify,
+    worktree, baseRef, runtime: exploding, config: config(), durationMs: 60_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   assert.ok(result.state, 'the supervisor returned a summary instead of throwing');
   assert.equal(result.state.status, 'escalated');
-  assert.match(result.state.escalation.reason, /failed 3 times in a row|worker_or_validation_failed|blocked/);
+  const open = result.state.escalations.filter(item => !item.resolvedAt);
+  assert.match(open[0].reason, /failed 3 times in a row|worker_or_validation_failed|blocked|no remaining move/);
   assert.ok(result.iterations <= 12, `should stop quickly, ran ${result.iterations}`);
 });
 
@@ -400,7 +411,7 @@ test('a run publishes what the model is thinking while it thinks', async t => {
   const workerScript = [...writeThenDone('export const version = 2;')];
 
   await superviseRun(root, {
-    worktree, baseRef, runtime: streaming, config: config(), durationMs: 60_000, notify: silentNotify,
+    worktree, baseRef, runtime: streaming, config: config(), durationMs: 60_000, notify: silentNotify, notifyRepair: silentRepairNotify,
   });
 
   const live = seen.find(entry => entry?.thinking);
@@ -412,4 +423,61 @@ test('a run publishes what the model is thinking while it thinks', async t => {
   const final = await readActivity(root);
   assert.equal(final.thinking, false, 'a stopped supervisor never leaves a thinking indicator on');
   assert.equal(final.role, 'idle');
+});
+
+test('a BLOCKED review parks one task and the supervisor keeps working', async t => {
+  // THE continuity property, end to end. Nick: "make sure this loop is able to
+  // be continuous. If one part is stopped see what else can be done." An
+  // earlier design stopped the entire run at the first BLOCKED review, so a
+  // single ambiguous contract ended the night with hours of capacity unused.
+  const { root, worktree, baseRef } = await repository(t);
+  await mkdir(join(worktree, 'sandbox'), { recursive: true });
+  await writeFile(join(worktree, 'sandbox/second.mjs'), 'export const second = 1;\n');
+  git(worktree, 'add', '.');
+  git(worktree, '-c', 'user.name=T', '-c', 'user.email=t@t', 'commit', '-qm', 'second');
+  const base = git(worktree, 'rev-parse', 'HEAD').trim();
+
+  await initializeProjectAgent(root, [
+    { id: 'ambiguous-one', title: 'The hard one', objective: 'version is 2', weight: 1, dependencies: [],
+      scope: ['sandbox/widget.mjs'], checks: ['node-syntax'], acceptance: ['widget version 2'] },
+    { id: 'independent-two', title: 'Unrelated work', objective: 'second is 2', weight: 1, dependencies: [],
+      scope: ['sandbox/second.mjs'], checks: ['node-syntax'], acceptance: ['second is 2'] },
+  ]);
+
+  const blocked = '```json\n{"verdict":"BLOCKED","summary":"ambiguous","escalationReason":"two defensible designs","escalationKind":"architecture"}\n```';
+  const runtime = new FakeRuntime({
+    worker: [
+      'Reasoning.\n### FILE: sandbox/widget.mjs\n```javascript\nexport const version = 2;\n```\n### CHECK',
+      '### DONE\nBumped the widget.',
+      'Reasoning.\n### FILE: sandbox/second.mjs\n```javascript\nexport const second = 2;\n```\n### CHECK',
+      '### DONE\nBumped second.',
+    ],
+    // First review blocks; every later one passes.
+    reviewer: [blocked, passReview, passReview, passReview],
+  });
+
+  const alerts = [];
+  const result = await superviseRun(root, {
+    worktree, baseRef: base, runtime, config: config(), durationMs: 120_000,
+    notifyRepair: silentRepairNotify,
+    notify: async state => {
+      const open = state.escalations.filter(item => !item.resolvedAt);
+      alerts.push(open.map(item => item.taskId));
+      return { attempted: true, delivered: true, reason: null,
+        results: open.map(item => ({ id: item.id, delivered: true, reason: null, briefPath: null })) };
+    },
+  });
+
+  const byId = Object.fromEntries(result.state.tasks.map(task => [task.id, task]));
+  assert.equal(byId['ambiguous-one'].status, 'blocked', 'the hard task is parked');
+  assert.equal(byId['independent-two'].status, 'accepted',
+    'the INDEPENDENT task still ran — the night did not end at the first hard problem');
+
+  const open = result.state.escalations.filter(item => !item.resolvedAt);
+  assert.equal(open.length, 1);
+  assert.equal(open[0].taskId, 'ambiguous-one', 'the escalation names the task, not the run');
+  assert.equal(open[0].notified, true, 'Nick was told, even though the loop carried on');
+  assert.ok(alerts.length >= 1);
+  // Only once everything else is done does the run actually stop.
+  assert.equal(result.state.status, 'escalated');
 });

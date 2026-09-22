@@ -90,12 +90,12 @@ final class ProjectAgentPanelTests: XCTestCase {
         // recorded stage. A run mid-task must show movement on one and not the
         // other, which is why there are two.
         let data = try JSONSerialization.data(withJSONObject: [
-            "version": 2, "revision": 9, "runId": "r", "status": "running", "activeTask": "b",
+            "version": 3, "revision": 9, "runId": "r", "status": "running", "activeTask": "b",
             "tasks": [
                 ["id": "a", "title": "Done", "weight": 3, "status": "accepted", "stage": "accepted", "attempts": 1, "origin": "plan"],
                 ["id": "b", "title": "In flight", "weight": 1, "status": "running", "stage": "implement", "attempts": 2, "origin": "plan"],
             ],
-            "events": [], "steering": [], "repairs": [], "finalReview": false,
+            "events": [], "steering": [], "repairs": [], "escalations": [], "finalReview": false,
         ])
         let run = try ProjectAgentStatus.decode(data)
         XCTAssertEqual(run.acceptedFraction, 0.75, accuracy: 0.001)

@@ -21,6 +21,7 @@ import {
   projectAgentProgress, readProjectAgent, resolveProjectEscalation, steerProjectAgent,
 } from './lib/orion-project-agent.mjs';
 import { inspectLease } from './lib/agentic/lease.mjs';
+import { setRoleModel, readSettings } from './lib/agentic/settings.mjs';
 
 const root = join(homedir(), '.openclaw/orion-controlled/project-agent');
 
@@ -45,10 +46,26 @@ try {
       (command === 'steer' ? args.length === 4 && args[2] === '--text' : args.length === 2)) {
     state = await steerProjectAgent(root, command, Number(args[1]), args[3]);
   } else if (command === 'resolve' && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
-      args[2] === '--note' && typeof args[3] === 'string' && args[3].trim()) {
-    state = await resolveProjectEscalation(root, Number(args[1]), args[3]);
+      args[2] === '--id' && typeof args[3] === 'string' && args[3].trim() &&
+      args[4] === '--note' && typeof args[5] === 'string' && args[5].trim()) {
+    // `--id` is required: escalations are task-level now, so "resolve the
+    // escalation" is ambiguous the moment two tasks are parked, and resolving
+    // the wrong one silently unparks work a human has not looked at.
+    state = await resolveProjectEscalation(root, Number(args[1]), args[3], args[5]);
+  } else if (command === 'set-model' && ['worker', 'reviewer'].includes(args[0]) && args[1]) {
+    // Model choice is settings, not run state, so it is deliberately NOT a
+    // controller transaction: changing it mid-run affects the next generation,
+    // never the checkpoint already under review.
+    const saved = await setRoleModel(args[0], args[1]);
+    console.log(JSON.stringify(saved, null, 2));
+    process.exit(0);
+  } else if (command === 'settings' && args.length === 0) {
+    console.log(JSON.stringify(await readSettings(), null, 2));
+    process.exit(0);
   } else {
-    throw new Error('usage: status | pause/resume --revision N | steer --revision N --text TEXT | resolve --revision N --note TEXT');
+    throw new Error('usage: status | settings | set-model worker|reviewer MODEL | ' +
+      'pause/resume --revision N | steer --revision N --text TEXT | ' +
+      'resolve --revision N --id ESCALATION_ID --note TEXT');
   }
   console.log(JSON.stringify({
     ...state,

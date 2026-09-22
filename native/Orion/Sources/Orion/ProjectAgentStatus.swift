@@ -53,8 +53,19 @@ struct ProjectAgentStatus: Decodable {
         let origin: String?
         let corrections: Int?
         let repairsUsed: Int?
+        /// Where the worker says it has got to inside this task. Declared by the
+        /// worker, recorded by the runtime, and never allowed to influence
+        /// acceptance — `stage` and the checks decide that.
+        let subtask: Subtask?
 
         var isCorrection: Bool { (origin ?? "plan") != "plan" }
+    }
+
+    struct Subtask: Decodable {
+        let label: String
+        let index: Int
+        let total: Int
+        var caption: String { total > 1 ? "\(index)/\(total) · \(label)" : label }
     }
 
     struct Event: Decodable { let at: String; let kind: String; let message: String }

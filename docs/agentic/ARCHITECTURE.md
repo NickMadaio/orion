@@ -31,7 +31,9 @@ scripts/lib/agentic/
   brief.mjs         the phone message and the Astra brief
   supervisor.mjs    the deterministic loop, watchdog, recovery
   activity.mjs      the live thinking channel — one disposable snapshot, throttled
+  settings.mjs      operator settings; models editable, `enabled` deliberately not
   bench.mjs         model benchmarking in a disposable repository
+  evals/            reviewer-hard.mjs, worker-eval.mjs — how models are chosen
 native/Orion/Sources/Orion/ProjectAgentStatus.swift        the UI's read model (v2) + heartbeat
 native/Orion/Sources/Orion/ProjectAgentInstructions.swift  activity, settings and prompt readers
 native/Orion/Sources/Orion/ProjectAgentPanel.swift         two clocks, live reasoning, controls
@@ -202,7 +204,51 @@ and it lives outside the repository so that moving it takes a deliberate act. A
 toggle in a window is not that act. The panel shows every setting and the exact
 file path; changing them is a file edit.
 
-### 4.14 Enablement is a file outside the repository
+### 4.14 Escalation is TASK-level, and `escalated` means "stuck"
+
+The first design made escalation run-level: one BLOCKED review halted everything.
+That contradicted the mission's continuity requirement directly — independent
+tasks sat untouched while the night went by. Now an escalation names a task,
+parks that task alone, and the loop carries on; `escalated` means *nothing
+claimable remains*, not *an escalation exists*. Only a run-level escalation
+(taskId null) stops work immediately.
+
+Three consequences worth knowing: `settleStatus` became the single answer to
+"what can the loop do now" and several hard-coded `'ready'` assignments were
+lies once the queue emptied; a task escalated before it ever ran stays `queued`
+and is parked by the claim filter rather than marked `blocked`, because a blocked
+task with zero attempts violates the lifecycle invariant; and the UI must tell
+"something needs you" apart from "the run stopped", or it teaches you to ignore
+the first.
+
+### 4.15 The reviewer re-runs the checks
+
+The gate used to judge a diff plus the worker's own report of its check results.
+`verify` validated the shape of that report but never re-executed anything, so
+evidence and subject came from the same process. The reviewer now re-runs the
+contract's checks itself, and a disagreement is a `contradiction` escalation
+rather than a finding to argue about — either the check is flaky or the worker
+reported a result it did not get, and those need different responses.
+
+### 4.16 Subtasks are declared by the worker and owned by the runtime
+
+The mission names "current subtask" four times and the code had none. The worker
+now emits `### SUBTASK: 2/4 label`, the controller records it durably, and it is
+cleared whenever the task leaves the worker's hands. It is a progress label with
+no authority: `stage` and the checks decide acceptance, and a subtask claiming
+"4/4 finished" finishes nothing.
+
+### 4.17 Context is bounded, not compacted
+
+The mission asks for "periodic context compaction". This does not summarise
+prior turns; it bounds them — a stable system prompt, the contract rendered
+identically each turn, a working set capped at 8 files, and tail-biased check
+output. Summarisation was rejected because a summary of a failed check is a
+lossy copy of the one thing the next turn needs to read exactly, and because a
+summariser is another model call that can be wrong. Recorded as a deviation
+rather than silently skipped.
+
+### 4.18 Enablement is a file outside the repository
 
 `~/.openclaw/orion-controlled/agentic-config.json` must say `"enabled": true`.
 Task scopes are repository-relative, so that file is outside every possible

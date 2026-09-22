@@ -120,7 +120,7 @@ export function workerTurn({ contract, files, checkResults, instructions, turn, 
     renderCheckResults(checkResults),
     notice ? `## NOTICE\n${notice}` : '',
     `## YOUR TURN\n${budget}\n\nReply using the markers from your instructions ` +
-    '(### READ, ### SEARCH, ### FILE, ### CHECK, ### DONE, ### BLOCKED, ### PROPOSE).',
+    '(### SUBTASK, ### READ, ### SEARCH, ### FILE, ### CHECK, ### DONE, ### BLOCKED, ### PROPOSE).',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -153,7 +153,7 @@ export function repairTurn({ contract, diff, checkResults, files, history, check
 // Parsing
 // ---------------------------------------------------------------------------
 
-const MARKER = /^###[ \t]+(READ|SEARCH|FILE|CHECK|DONE|BLOCKED|PROPOSE)\b[ \t]*:?[ \t]*(.*)$/gm;
+const MARKER = /^###[ \t]+(READ|SEARCH|FILE|CHECK|DONE|BLOCKED|PROPOSE|SUBTASK)\b[ \t]*:?[ \t]*(.*)$/gm;
 
 /**
  * Parse a worker reply into actions.
@@ -182,6 +182,16 @@ export function parseWorkerReply(reply) {
       if (argument) actions.push({ kind, target: argument });
     } else if (kind === 'CHECK') {
       actions.push({ kind: 'CHECK' });
+    } else if (kind === 'SUBTASK') {
+      // "2/4 wire the reviewer gate" — the position is optional and defaults to
+      // a single step, because a model that forgets the numbers should still
+      // get its label recorded rather than losing the whole declaration.
+      const match = argument.match(/^\s*(\d+)\s*\/\s*(\d+)\s*[:.\-]?\s*(.*)$/);
+      const label = (match ? match[3] : argument).trim();
+      if (label) {
+        actions.push({ kind: 'SUBTASK', label,
+          index: match ? Number(match[1]) : 1, total: match ? Number(match[2]) : 1 });
+      }
     } else {
       actions.push({ kind, text: `${argument}\n${body}`.trim().slice(0, 4000) });
     }

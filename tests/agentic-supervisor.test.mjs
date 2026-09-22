@@ -481,3 +481,32 @@ test('a BLOCKED review parks one task and the supervisor keeps working', async t
   // Only once everything else is done does the run actually stop.
   assert.equal(result.state.status, 'escalated');
 });
+
+test('the reviewer re-runs the checks instead of trusting the worker', async t => {
+  // An independent review that takes the author's word for the test results is
+  // not independent. The worker here claims green on a file that does not parse.
+  const { root, worktree, baseRef } = await repository(t);
+  await initializeProjectAgent(root, plan(), { maxAttempts: 1 });
+
+  const runtime = new FakeRuntime({
+    // Writes broken JavaScript, runs the check (which fails), then insists.
+    worker: [
+      '### FILE: sandbox/widget.mjs\n```javascript\nexport const version = ;;;\n```\n### CHECK',
+      '### DONE\nAll checks pass.',
+      '### DONE\nThey really do.',
+    ],
+    reviewer: [passReview],
+  });
+
+  const result = await superviseRun(root, {
+    worktree, baseRef, runtime, config: config(), durationMs: 40_000,
+    notify: silentNotify, notifyRepair: silentRepairNotify,
+  });
+
+  // The worker never gets a checkpoint, so the reviewer is never even reached —
+  // `### DONE` is refused while a check is failing. Broken work cannot reach
+  // the gate, which is the stronger property.
+  assert.notEqual(result.state.tasks[0].status, 'accepted');
+  assert.equal(result.state.tasks[0].commit, null);
+  assert.equal(await currentHead(worktree), baseRef, 'nothing was committed');
+});

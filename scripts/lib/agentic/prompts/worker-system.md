@@ -38,15 +38,16 @@ trying. If the task genuinely cannot be done inside its scope, that is a
 
 Work in small, verifiable steps.
 
-1. **Inspect before editing.** Read the files you are about to change. Do not
+1. **Say what step you are on** with `### SUBTASK`, then do it.
+2. **Inspect before editing.** Read the files you are about to change. Do not
    write a file you have not read in this session — you will delete things you
    did not know were there.
-2. **Change one thing at a time.** A single coherent edit whose effect you can
+3. **Change one thing at a time.** A single coherent edit whose effect you can
    predict, then a check.
-3. **Run the checks.** The contract names them. They are the evidence.
-4. **Read the failure.** Do not guess. The error text says what is wrong; if it
+4. **Run the checks.** The contract names them. They are the evidence.
+5. **Read the failure.** Do not guess. The error text says what is wrong; if it
    does not, ask for more of the file or another file before rewriting anything.
-5. **Self-review at boundaries** (§5).
+6. **Self-review at boundaries** (§5).
 
 ### Writing files
 
@@ -61,6 +62,21 @@ failure mode instead of five.
 
 Your reply is parsed by a program. Put your reasoning in prose *before* the
 markers. Use these markers exactly, each at the start of a line.
+
+### Say where you are
+
+```
+### SUBTASK: 2/4 wire the reviewer gate
+```
+
+Declare this at the start of each distinct step, and update it as you move. The
+`n/m` is optional but useful. It is recorded durably, so Nick can see at a
+glance what you are doing without reading your reasoning — and if you crash, the
+next attempt starts from a panel that still says where the work had got to.
+
+It is a **progress label only**. Claiming "4/4, finished" does not finish
+anything: your checks decide that, and `### DONE` is refused while any are
+failing.
 
 ### Read files before editing them
 

@@ -44,14 +44,49 @@ export class ReviewUnusable extends Error {
  * Review one checkpoint against its contract. Returns a normalized review
  * contract; throws `ReviewUnusable` when the model could not produce one.
  */
-export async function reviewCheckpoint({ runtime, worktree, task, baseRef, checkResults, workerSummary, priorFindings = [], emit = () => {}, signal, activity = null }) {
+export async function reviewCheckpoint({ runtime, worktree, task, baseRef, checkResults, workerSummary,
+  priorFindings = [], emit = () => {}, signal, activity = null, rerunChecks = true }) {
   const system = await systemPrompt('reviewer-system');
+
+  /*
+   RE-RUN the checks rather than trusting the worker's report.
+
+   The gate was judging a diff plus the worker's own account of whether its
+   checks passed. `verify` validated the SHAPE of that report -- every contract
+   check present, all ok -- but never re-executed anything, so the evidence and
+   the thing being judged came from the same process. An independent review that
+   takes the author's word for the test results is not independent.
+
+   It is also cheap: the checks already ran once, so caches are warm, and a
+   disagreement here is the loudest possible signal that something is wrong.
+  */
+  let evidence = checkResults;
+  if (rerunChecks && task.checks?.length) {
+    const changed = (await changedFiles(worktree)).map(file => file.path);
+    const files = changed.length ? changed : (task.evidence?.files ?? []);
+    const independent = await runChecks(task.checks, { worktree, changedFiles: files, baseline: new Map(), signal });
+    const disagreed = independent.filter(result => {
+      const claimed = (checkResults ?? []).find(item => item.name === result.name);
+      return claimed && claimed.ok !== result.ok;
+    });
+    if (disagreed.length) {
+      // The worker said green and the reviewer's own run says otherwise. That is
+      // not a review finding to be argued with; it is a broken checkpoint.
+      emit({ kind: 'check_disagreement', taskId: task.id, data: {
+        checks: disagreed.map(result => ({ name: result.name, workerSaid: true, reviewerSaw: result.ok })) } });
+      throw new ReviewUnusable(
+        `the worker reported ${disagreed.map(r => r.name).join(', ')} as passing and an independent re-run disagrees`,
+        { disagreed: disagreed.map(r => r.name) });
+    }
+    evidence = independent.map(result => ({ name: result.name, ok: result.ok, ms: result.ms, exitCode: result.exitCode }));
+    emit({ kind: 'checks_reverified', taskId: task.id, data: { results: evidence } });
+  }
   // ONLY this checkpoint. Handing the reviewer the cumulative run diff made it
   // blame this task for a previous one's accepted changes -- see
   // diffForCheckpoint's comment for the three models that fell into it.
   const diff = await diffForCheckpoint(worktree, task.commit);
   const prompt = reviewerTurn({
-    contract: task, diff, checkResults, workerSummary,
+    contract: task, diff, checkResults: evidence, workerSummary,
     attempts: task.attempts, priorFindings, checkDescriptions: describeChecks(task.checks),
   });
 

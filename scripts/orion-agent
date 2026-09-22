@@ -11,7 +11,8 @@
    orion-agent status                     durable state + heartbeat + leases
    orion-agent brief                      write the Astra review brief
    orion-agent resolve --revision N --note "..."   clear an escalation (human)
-   orion-agent bench [--candidates a,b] [--hours N]  measure candidate models
+   orion-agent bench [--candidates M,M+M,M!] [--hours N]   measure candidate models
+                                          M = both roles · M+M = worker+reviewer · M! = no thinking
 
  THE ENABLEMENT GATE
 
@@ -169,13 +170,22 @@ async function commandBench(candidates, hours) {
   const ledger = join(ROOT, 'benchmarks.jsonl');
   const records = [];
   for (const candidate of candidates) {
-    const [worker, reviewer] = candidate.split('/');
-    if (!worker || !reviewer) throw new Error(`candidate "${candidate}" must be "workerModel/reviewerModel"`);
+    // Separator is `+`, not `/`: HuggingFace model names contain slashes
+    // (`hf.co/bartowski/…`), so splitting on `/` parsed the reviewer as
+    // literally "hf.co". A single name means the same model in both roles,
+    // which is the configuration that avoids eviction entirely.
+    const parts = candidate.split('+').map(part => part.trim()).filter(Boolean);
+    const [worker, reviewer = worker] = parts;
+    if (!worker) throw new Error(`candidate "${candidate}" must be "model" or "workerModel+reviewerModel"`);
+    // A trailing `!` means the model does not support thinking. Without this the
+    // bench could not test such a model at all: `think: true` against one is an
+    // HTTP 400 on every generation.
+    const spec = name => ({ model: name.replace(/!$/, ''), think: !name.endsWith('!') });
     const config = {
       ...base,
       roles: {
-        worker: { ...base.roles.worker, model: worker },
-        reviewer: { ...base.roles.reviewer, model: reviewer },
+        worker: { ...base.roles.worker, ...spec(worker) },
+        reviewer: { ...base.roles.reviewer, ...spec(reviewer) },
       },
     };
     await new ModelRuntime(config).probe();
@@ -240,7 +250,7 @@ try {
     await commandRun(hours);
   } else if (command === 'bench') {
     const hours = Number(flag('--hours') ?? 2);
-    const candidates = (flag('--candidates') ?? 'qwen3.6:27b/gemma4:31b')
+    const candidates = (flag('--candidates') ?? 'qwen3.6:27b')
       .split(',').map(item => item.trim()).filter(Boolean);
     if (!Number.isFinite(hours) || hours <= 0 || hours > 12) throw new Error('--hours must be between 0 and 12');
     // Not gated on `enabled`: a benchmark runs in a disposable repository and

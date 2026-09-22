@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   acceptProjectFinalReview, escalateProjectAgent, grantRepairRetry, initializeProjectAgent,
   markEscalationNotified, projectAgentProgress, readProjectAgent, reconcileInterruptedRun,
-  recordReviewerRepair, resolveProjectEscalation, reviewProjectTask, runProjectAgent,
+  recordReviewerRepair, resolveProjectEscalation, reviewProjectTask, runProjectAgent, setTaskSubtask,
 } from '../scripts/lib/orion-project-agent.mjs';
 import { auditJournal, readJournal } from '../scripts/lib/agentic/journal.mjs';
 import { acquireLease, inspectLease, LeaseHeldError, ownerIsProvablyDead } from '../scripts/lib/agentic/lease.mjs';
@@ -323,4 +323,38 @@ test('a lease directory with no owner record is never cleared automatically', as
     assert.match(error.message, /carries no owner record/);
     return true;
   });
+});
+
+test('the runtime owns the current subtask, and it never survives the task', async t => {
+  const root = await fixture(t);
+  // Recorded mid-task, from inside the worker, so the panel shows where the
+  // work is rather than a model having to remember it.
+  const adapter = host({
+    worker: async task => {
+      await setTaskSubtask(root, task.id, { label: 'reading the store', index: 1, total: 3 });
+      let live = await readProjectAgent(root);
+      assert.equal(live.tasks[0].subtask.label, 'reading the store');
+      assert.equal(live.tasks[0].subtask.total, 3);
+
+      await setTaskSubtask(root, task.id, { label: 'writing the change', index: 2, total: 3 });
+      live = await readProjectAgent(root);
+      assert.equal(live.tasks[0].subtask.index, 2);
+      return { commit: sha('a'), summary: 'done', files: ['sandbox/one.mjs'], checks: [{ name: 'node-syntax', ok: true, ms: 1 }] };
+    },
+  });
+
+  let state = await runProjectAgent(root, adapter);
+  assert.equal(state.tasks[0].status, 'awaiting_review');
+
+  // Cleared when the task leaves the worker's hands: a stale "2/3 writing the
+  // change" next to an accepted task is a panel lying about the present.
+  state = await reviewProjectTask(root, { revision: state.revision, taskId: 'task-one', commit: sha('a'), decision: 'accept' });
+  assert.equal(state.tasks[0].subtask, null);
+
+  // It is a label, not authority: a subtask claiming completion changes nothing.
+  const other = await readProjectAgent(root);
+  await setTaskSubtask(root, 'task-two', { label: '3/3 finished', index: 3, total: 3 });
+  assert.equal((await readProjectAgent(root)).tasks[1].subtask, null,
+    'a task that is not running has no subtask to set');
+  assert.equal(other.tasks[1].status, 'queued');
 });

@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import {
   acceptProjectFinalReview, escalateProjectAgent, grantRepairRetry, markEscalationNotified,
   projectAgentProgress, readProjectAgent, reconcileInterruptedRun, recordReviewerRepair,
-  reviewProjectTask, runProjectAgent,
+  reviewProjectTask, runProjectAgent, setTaskSubtask,
 } from '../orion-project-agent.mjs';
 import { appendJournal } from './journal.mjs';
 import { acquireLease, inspectLease, ownerRecord, releaseLease } from './lease.mjs';
@@ -179,7 +179,8 @@ export async function superviseRun(root, {
     emit({ kind: 'supervisor_started', data: { project, probe, durationMs, baseRef, head: recovery.head, reclaimedLease: acquired.reclaimed } });
 
     const guard = watchdog({ limits });
-    const worker = createWorker({ runtime, worktree, emit, maxAttempts: limits.maxAttempts, activity });
+    const worker = createWorker({ runtime, worktree, emit, maxAttempts: limits.maxAttempts, activity,
+      onSubtask: (taskId, subtask) => setTaskSubtask(root, taskId, subtask) });
     const verify = createVerifier({ worktree });
     beat = setInterval(() => heartbeat(root, {
       phase: 'loop', iterations: summary.iterations, runId: recovery.state.runId,
@@ -381,10 +382,21 @@ async function handleReview({ root, state, task, runtime, worktree, baseRef, emi
     if (error instanceof ReviewUnusable) {
       // A reviewer that cannot produce a usable review is never resolved as an
       // accept. It escalates — the gate failing closed is the gate working.
+      //
+      // A CHECK DISAGREEMENT is the sharper case: the worker reported green and
+      // the reviewer's own re-run disagrees. That is a broken checkpoint rather
+      // than a reviewer problem, so it says so, and it recommends Astra because
+      // the two possibilities — a flaky check or a worker reporting results it
+      // did not get — need very different responses.
+      const disagreed = error.detail?.disagreed;
       await escalate(root, state, {
-        kind: 'judgement', taskId: task.id, recommendAstra: true,
-        reason: `the review model could not produce a valid review for ${task.id}: ${error.detail?.lastError ?? error.message}`,
-        question: 'Review this checkpoint yourself, or swap the reviewer model.',
+        kind: disagreed ? 'contradiction' : 'judgement', taskId: task.id, recommendAstra: true,
+        reason: disagreed
+          ? `the worker reported ${disagreed.join(', ')} passing for ${task.id}; an independent re-run disagrees`
+          : `the review model could not produce a valid review for ${task.id}: ${error.detail?.lastError ?? error.message}`,
+        question: disagreed
+          ? 'Either the check is flaky or the worker reported a result it did not get. Both need looking at.'
+          : 'Review this checkpoint yourself, or swap the reviewer model.',
       }, emit);
       return { accepted: false, progressed: true };
     }

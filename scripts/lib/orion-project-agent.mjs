@@ -143,6 +143,15 @@ export async function readProjectAgent(root) {
     if (task.status === 'awaiting_review' && task.stage !== 'review') bad('awaiting-review stage');
     if (task.blocker !== null && typeof task.blocker !== 'string') bad('blocker');
     if (task.origin !== 'plan' && task.correctionDepth < 1) bad('a review-authored task must record its correction depth');
+    // The mission asks the RUNTIME to own "current subtask" rather than a model
+    // remembering it. It is the worker's own declaration, recorded durably, so
+    // a crash or a UI refresh does not lose where the work had got to.
+    if (task.subtask !== null) {
+      if (typeof task.subtask !== 'object' || typeof task.subtask.label !== 'string' || !task.subtask.label.trim() ||
+          !Number.isInteger(task.subtask.index) || task.subtask.index < 1 ||
+          !Number.isInteger(task.subtask.total) || task.subtask.total < task.subtask.index ||
+          task.subtask.total > 40) bad('subtask');
+    }
     // Evidence exists only while a checkpoint is awaiting review. Keeping it
     // out of every other state stops the snapshot growing without bound, and
     // stops a stale check result from being read as this attempt's.
@@ -226,7 +235,7 @@ export async function initializeProjectAgent(root, tasks, { maxAttempts = 3, max
     version: 3, revision: 0, runId: randomUUID(), status: 'ready', activeTask: null,
     pauseRequested: false, maxAttempts, maxCorrectionDepth, finalReview: false, journalSeq: 0,
     escalations: [], steering: [], reviews: [], repairs: [], events: [],
-    tasks: contracts.map(contract => ({ ...clone(contract), status: 'queued', stage: 'queued', attempts: 0, corrections: 0, correctionDepth: 0, repairsUsed: 0, commit: null, blocker: null, evidence: null })),
+    tasks: contracts.map(contract => ({ ...clone(contract), status: 'queued', stage: 'queued', attempts: 0, corrections: 0, correctionDepth: 0, repairsUsed: 0, commit: null, blocker: null, evidence: null, subtask: null })),
   };
   event(state, 'initialized', `Approved task graph loaded: ${contracts.length} task(s). Execution adapters are not enabled by initialization.`,
     { actor: 'operator', tasks: contracts.map(contract => ({ id: contract.id, digest: contractDigest(contract) })) });
@@ -378,6 +387,7 @@ export async function reconcileInterruptedRun(root, revision, { deadOwnerProof }
       task.stage = 'queued';
       task.commit = null;
       task.evidence = null;
+      task.subtask = null;
       task.blocker = 'worker_outcome_unknown';
       state.activeTask = null;
     }
@@ -423,9 +433,35 @@ function appendCorrections(state, task, corrections, reviewId) {
       originReview: reviewId,
     });
     existing.add(id);
-    added.push({ ...clone(contract), status: 'queued', stage: 'queued', attempts: 0, corrections: 0, correctionDepth: depth, repairsUsed: 0, commit: null, blocker: null, evidence: null });
+    added.push({ ...clone(contract), status: 'queued', stage: 'queued', attempts: 0, corrections: 0, correctionDepth: depth, repairsUsed: 0, commit: null, blocker: null, evidence: null, subtask: null });
   }
   return added;
+}
+
+/**
+ * Record where the worker says it has got to inside a task.
+ *
+ * Deliberately durable rather than kept in the activity channel: the mission is
+ * explicit that the runtime owns "current subtask", and a model that has to
+ * remember its own position has been handed the runtime's job. A handful of
+ * writes per task is a cost worth paying for a panel that survives a refresh
+ * and a crash that does not lose the thread.
+ *
+ * The worker DECLARES this; nothing verifies it. It is a progress label, and it
+ * is never allowed to influence acceptance -- `stage` and the checks decide
+ * that. A model that claims "3 of 3, done" has still not passed its checks.
+ */
+export async function setTaskSubtask(root, taskId, { label, index, total }) {
+  return transaction(root, undefined, state => {
+    const task = state.tasks.find(item => item.id === taskId);
+    if (!task || task.status !== 'running') return;
+    const clean = String(label ?? '').trim().slice(0, 200);
+    if (!clean) return;
+    const count = Math.min(40, Math.max(1, Number.isInteger(total) ? total : 1));
+    task.subtask = { label: clean, index: Math.min(count, Math.max(1, Number.isInteger(index) ? index : 1)), total: count, at: stamp() };
+    event(state, 'subtask', `${taskId}: ${task.subtask.index}/${count} ${clean}`,
+      { taskId, actor: 'worker', subtask: task.subtask });
+  });
 }
 
 /**
@@ -448,7 +484,7 @@ export async function reviewProjectTask(root, { revision, taskId, commit, decisi
     let added = [];
     if (decision === 'accept' || decision === 'accept_with_tasks') {
       if (decision === 'accept_with_tasks') added = appendCorrections(state, task, review.corrections ?? [], reviewId);
-      task.status = 'accepted'; task.stage = 'accepted'; task.blocker = null; task.evidence = null;
+      task.status = 'accepted'; task.stage = 'accepted'; task.blocker = null; task.evidence = null; task.subtask = null;
     } else if (decision === 'changes_requested') {
       task.corrections += 1;
       const exhausted = task.attempts >= state.maxAttempts;
@@ -458,7 +494,7 @@ export async function reviewProjectTask(root, { revision, taskId, commit, decisi
       task.evidence = null;
       task.blocker = exhausted ? 'repair_budget_exhausted' : null;
     } else {
-      task.status = 'blocked'; task.stage = 'queued'; task.commit = null; task.evidence = null;
+      task.status = 'blocked'; task.stage = 'queued'; task.commit = null; task.evidence = null; task.subtask = null;
       task.blocker = review.escalationReason ? `review_blocked: ${String(review.escalationReason).slice(0, 300)}` : 'review_blocked';
     }
 

@@ -57,7 +57,7 @@ async function initialWorkingSet(worktree, contract) {
  * Build the worker adapter the controller calls. `emit` receives structured
  * progress for the journal and the UI; it is never given raw reasoning traces.
  */
-export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MAX_TURNS, maxAttempts = 3, activity = null }) {
+export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MAX_TURNS, maxAttempts = 3, activity = null, onSubtask = null }) {
   return async function worker(task, { signal, instructions = [] } = {}) {
     const system = await systemPrompt('worker-system');
     const checkDescriptions = describeChecks(task.checks);
@@ -119,6 +119,14 @@ export function createWorker({ runtime, worktree, emit = () => {}, maxTurns = MA
         // A proposal changes nothing by itself. It is recorded for review, and
         // the worker keeps working to the contract as written.
         emit({ kind: 'contract_change_proposed', taskId: task.id, data: { turn, proposal: proposal.text } });
+      }
+
+      // Recorded before anything else this turn, so the panel shows where the
+      // work is even if the rest of the turn then fails.
+      const declared = actions.find(action => action.kind === 'SUBTASK');
+      if (declared && onSubtask) {
+        await onSubtask(task.id, { label: declared.label, index: declared.index, total: declared.total }).catch(() => {});
+        emit({ kind: 'subtask_declared', taskId: task.id, data: { turn, label: declared.label, index: declared.index, total: declared.total } });
       }
 
       for (const malformed of actions.filter(action => action.kind === 'MALFORMED')) {

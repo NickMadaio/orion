@@ -149,10 +149,21 @@ struct ProjectAgentPanel: View {
                     tint: run.isBlocked ? OrionTheme.orange : OrionTheme.violet,
                     diameter: 104
                 )
-                Text(run.active?.stage.label ?? "Nothing in flight")
-                    .font(OrionTheme.mono(8))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .frame(width: 120, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(run.active?.stage.label ?? "Nothing in flight")
+                        .font(OrionTheme.mono(8))
+                        .foregroundStyle(OrionTheme.textDim)
+                    // The subtask is what the worker says it is doing right now.
+                    // Shown under the stage rather than instead of it: stage is
+                    // the runtime's fact, subtask is the worker's claim.
+                    if let subtask = run.active?.subtask {
+                        Text(subtask.caption)
+                            .font(OrionTheme.mono(8))
+                            .foregroundStyle(OrionTheme.textSoft)
+                            .lineLimit(2)
+                    }
+                }
+                .frame(width: 140, alignment: .leading)
             }
             .padding(.top, 26)
 

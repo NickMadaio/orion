@@ -164,4 +164,3 @@ test("verifyDisabledSchedule handles malformed input without throwing", () => {
   assert.strictEqual(verifyDisabledSchedule({}, "string"), false);
   assert.strictEqual(verifyDisabledSchedule({ schedulerArgs: [] }, {}), false);
 });
-

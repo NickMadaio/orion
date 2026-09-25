@@ -99,6 +99,8 @@ TIER_REACH = {
     # unbounded blast radius by construction, not a filesystem operation, and
     # must not arrive as a side effect of widening a filesystem tier.
     "computer_control": RiskLevel.R5,
+    # Phase 52: a shell command Nick approved. R5 like computer_control.
+    "raw_terminal": RiskLevel.R5,
 }
 
 #: The catalog's severity word as a floor. Severity and reach are different
@@ -137,6 +139,7 @@ NEVER_DEMOTED_TIERS = frozenset(
         # far belongs on the list on its own terms, not on the strength of
         # a second field happening to protect it today.
         "computer_control",
+        "raw_terminal",
     }
 )
 

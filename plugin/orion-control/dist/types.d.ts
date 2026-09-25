@@ -87,7 +87,7 @@ export interface StepRecord {
         sourceRefs: string[];
     };
     execution: {
-        mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "copied" | "moved" | "trashed" | "scheduled" | "cancelled" | "rebuilt" | "sent" | "failed";
+        mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "observed" | "controlled" | "ran" | "copied" | "moved" | "trashed" | "scheduled" | "cancelled" | "rebuilt" | "sent" | "failed";
         target?: string;
         output?: unknown;
     };
@@ -115,5 +115,15 @@ export interface TaskRunRecord {
     audit?: {
         appended: boolean;
         error?: string;
+    };
+    /**
+     * Stopped by Nick before these steps began (Phase 46). Steps already done
+     * stay done; the one in flight was allowed to finish. Status is `failed`,
+     * because what was asked for did not all happen.
+     */
+    cancelled?: {
+        at: string;
+        completedSteps: number;
+        notStarted: string[];
     };
 }

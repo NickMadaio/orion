@@ -47,6 +47,10 @@ enum OrionMacBridge {
             print("SELFTEST FAILED (\(failures.count) of the checks)")
             exit(1)
         }
+        // Argv mode, not the JSON protocol: a yes/no the caller acts on by exit code.
+        if CommandLine.arguments.dropFirst().first == "authenticate" {
+            exit(await OwnerAuthentication.run(arguments: CommandLine.arguments))
+        }
         while let line = readLine() {
             let response: Response
             do {

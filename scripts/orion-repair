@@ -341,7 +341,12 @@ restore_verified() {  # restore_verified <backup> <destination>
 
 backup_installed_dist() {
   rm -rf "$BACKUPS/dist.previous"
-  [[ -d "$INSTALLED_DIST" ]] && cp -R "$INSTALLED_DIST" "$BACKUPS/dist.previous"
+  # Only a copy that is as it was installed may become the thing a failed
+  # repair restores (and re-records as trusted).
+  local gate="${ORION_REPAIR_SELFTEST:+$ORION_REPAIR_SELFTEST/orion-gate}"
+  if [[ -d "$INSTALLED_DIST" ]] && ORION_GATE_DIR="${gate:-$HOME/.openclaw/orion-gate}" "$NODE" "$LIB/orion-integrity.mjs" verify orion-control "$INSTALLED_ROOT" >/dev/null 2>&1; then
+    cp -R "$INSTALLED_DIST" "$BACKUPS/dist.previous"
+  fi
   return 0
 }
 
@@ -349,12 +354,22 @@ deploy_dist() {
   mkdir -p "$INSTALLED_ROOT"
   rm -rf "$INSTALLED_DIST"
   cp -R "$PLUGIN/dist" "$INSTALLED_DIST"
+  record_integrity
 }
 
 restore_installed_dist() {
   [[ -d "$BACKUPS/dist.previous" ]] || return 1
   rm -rf "$INSTALLED_DIST"
   cp -R "$BACKUPS/dist.previous" "$INSTALLED_DIST"
+  record_integrity
+}
+
+# Phase 48: this engine is one of the two sanctioned writers of the installed
+# plugin (orion-deploy is the other), so it re-records the integrity manifest
+# the plugin checks at load. In selftest the gate is sandboxed with the rest.
+record_integrity() {
+  local gate="${ORION_REPAIR_SELFTEST:+$ORION_REPAIR_SELFTEST/orion-gate}"
+  ORION_GATE_DIR="${gate:-$HOME/.openclaw/orion-gate}" "$NODE" "$LIB/orion-integrity.mjs" record orion-control "$INSTALLED_ROOT" >/dev/null
 }
 
 # --- plugin -----------------------------------------------------------------

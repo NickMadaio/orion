@@ -66,6 +66,18 @@ for script in orion-approve orion-mode orion-automation; do
     check "orion-authority reports $script as NEVER" "$level" "NEVER"
 done
 
+# Phase 51: the bare `git` entry was ORION's last raw-shell route into a
+# repository; the structured git operations replaced it, and Nick retired it on
+# 2026-09-25. Only ORION's agent (main) is asserted -- crestodian is not ORION.
+bare_git="$(python3 - <<'PY'
+import json, os
+data = json.load(open(os.path.expanduser("~/.openclaw/exec-approvals.json")))
+allow = ((data.get("agents") or {}).get("main") or {}).get("allowlist") or []
+print("present" if any(str(entry.get("pattern", "")) == "git" for entry in allow) else "retired")
+PY
+)"
+check "ORION's allowlist has no bare git entry (Phase 51)" "$bare_git" "retired"
+
 echo ""
 echo "== 2. the self-repair engine refuses to edit them =="
 

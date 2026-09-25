@@ -154,6 +154,7 @@ async function lock() {
    three. Found by an independent review, 2026-09-02.
   */
   await stopTheChannel();
+  await stopActionsAndGrants();
 
   let failed = false;
   const { readPermissionState, changePermissionProfile } = permissions();
@@ -229,6 +230,37 @@ async function lock() {
 }
 
 /*
+ A lock also stops what is already running and withdraws standing yeses
+ (review, 2026-09-26, M4 and H3): a terminal command kept going for up to two
+ minutes after the lock, and an "allow for this chat" outlived it by hours.
+ Each step is guarded on its own, like the rest of the lockdown.
+*/
+async function stopActionsAndGrants() {
+  const { readdir } = await import("node:fs/promises");
+  const actions = join(homedir(), ".openclaw/orion-controlled/actions");
+  const approvals = join(homedir(), ".openclaw/orion-gate/approvals");
+  const TASK = /^orion-[a-f0-9]{16}$/;
+  try {
+    const running = (await readdir(join(actions, "running")).catch(() => []))
+      .map((name) => name.replace(/\.json$/, "")).filter((id) => TASK.test(id));
+    await mkdir(join(actions, "cancel"), { recursive: true });
+    for (const id of running) await writeFile(join(actions, "cancel", id), new Date().toISOString());
+    console.log(`  running   ${running.length ? `${grn}asked ${running.length} to stop${off}` : `${dim}nothing running${off}`}`);
+  } catch (error) {
+    console.log(`  running   ${red}could not ask running actions to stop${off} - ${String(error?.message).slice(0, 60)}`);
+  }
+  for (const [label, folder] of [["chat yes", "chat"], ["grants", "grants"]]) {
+    try {
+      const names = (await readdir(join(approvals, folder)).catch(() => [])).filter((name) => name.endsWith(".json"));
+      for (const name of names) await rm(join(approvals, folder, name), { force: true });
+      console.log(`  ${label.padEnd(9)} ${names.length ? `${grn}withdrew ${names.length}${off}` : `${dim}none standing${off}`}`);
+    } catch (error) {
+      console.log(`  ${label.padEnd(9)} ${red}could not withdraw${off} - ${String(error?.message).slice(0, 60)}`);
+    }
+  }
+}
+
+/*
  Phase 43's transport-dependent requirements. Every step is guarded on its own.
 */
 async function stopTheChannel() {
@@ -283,6 +315,13 @@ else if (command === "release") {
    emergency was. This only makes Orion willing to listen again.
   */
   if (!readJSON(LOCK)?.locked) { console.log("  not locked"); process.exit(0); }
+  // Phase 43: the owner confirms in person before the guard comes down.
+  const { reauthenticate } = await import("./lib/orion-reauth.mjs");
+  const owner = await reauthenticate("release ORION's emergency lock");
+  if (!owner.confirmed) {
+    console.error(`  ${red}still locked${off} -- releasing needs the Mac's owner (Touch ID or password): ${owner.reason}`);
+    process.exit(1);
+  }
   await rm(LOCK, { force: true });
   console.log("");
   console.log(`  remote    ${grn}accepting commands again${off}`);

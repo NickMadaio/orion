@@ -37,6 +37,9 @@
    orion-approve A-7F3K          say yes to exactly that one
    orion-approve deny A-7F3K     say no, and clear it away
    orion-approve --json          the same list, for a script
+   orion-approve revoke-chat     withdraw every "allow for this chat"
+   orion-approve A-7F3K --chat   yes, and to every terminal command for the rest
+                                 of the chat that asked (Phase 52; terminal only)
 
  The id is case-insensitive and the `A-` is optional, because Phase 49 asks for
  an authorization check "satisfiable by the name a person would actually type".
@@ -48,17 +51,19 @@ const plugin = await loadPlugin().catch((error) => {
   console.error(`orion-approve: ${error.message}`);
   process.exit(1);
 });
-const { approvalPaths, grant, deny, readTickets, normalizeTicketId } = plugin.approvals;
+const { approvalPaths, grant, grantForChat, deny, readTickets, normalizeTicketId, revokeChatGrants } = plugin.approvals;
 const gate = approvalPaths(PATHS.gateApprovals);
 
 const argv = process.argv.slice(2);
 const wantsJson = argv.includes("--json");
-const rest = argv.filter((argument) => argument !== "--json");
+const forChat = argv.includes("--chat");
+const rest = argv.filter((argument) => argument !== "--json" && argument !== "--chat");
 
 // Who is answering, recorded on the grant. Never "local" and never "orion" --
 // `grant()` refuses both, because "local" is precisely what an exec call from
 // Orion himself would present.
-const who = `${process.env.USER || "someone"}@terminal`;
+// The Mac app runs this same tool for its Allow buttons, and says so.
+const who = `${process.env.USER || "someone"}@${process.env.ORION_APPROVE_VIA === "app" ? "app" : "terminal"}`;
 
 const minutesLeft = (ticket) =>
   Math.max(0, Math.round((Date.parse(ticket.expiresAt) - Date.now()) / 60000));
@@ -86,6 +91,17 @@ function list() {
 
 if (rest.length === 0) process.exit(list());
 
+if (rest[0] === "revoke-chat") {
+  // Withdraw every "allow for this chat" at once. orion-lock does this too.
+  if (typeof revokeChatGrants !== "function") {
+    console.error("orion-approve: the installed plugin predates chat revocation; deploy it first");
+    process.exit(1);
+  }
+  const count = await revokeChatGrants(gate);
+  console.log(count ? `withdrew ${count} chat approval(s). Orion will ask again before every command.` : "No chat approvals were standing.");
+  process.exit(0);
+}
+
 if (rest[0] === "deny" || rest[0] === "no") {
   const id = normalizeTicketId(rest[1] ?? "");
   if (!id) {
@@ -107,10 +123,16 @@ if (rest.length > 1) {
   process.exit(2);
 }
 
-const result = await grant(gate, rest[0], who);
+if (forChat && typeof grantForChat !== "function") {
+  console.error("orion-approve: the installed plugin predates chat approvals; deploy it first");
+  process.exit(1);
+}
+const result = forChat ? await grantForChat(gate, rest[0], who) : await grant(gate, rest[0], who);
 if (!result.ok) {
   console.error(`orion-approve: ${result.reason}`);
   process.exit(1);
 }
 console.log(`approved ${result.ticket.id} — ${result.ticket.summary}`);
-console.log("Orion may now do that once. Tell him to go ahead.");
+console.log(forChat
+  ? "Orion may run terminal commands for the rest of this chat without asking again (up to 8 hours).\nThe chat is ORION's one conversation -- the app, voice and Discord share it. Withdraw with: orion-approve revoke-chat (orion-lock also withdraws it)."
+  : "Orion may now do that once. Tell him to go ahead.");

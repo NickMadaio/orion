@@ -73,6 +73,8 @@
  favourites that bypass the floor.
 */
 
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { loadPlugin, PATHS } from "./lib/orion-plugin.mjs";
 
 const plugin = await loadPlugin().catch((error) => {
@@ -100,7 +102,7 @@ const fail = (message, code = 2) => {
 /* ---------------------------------------------------------------- arguments */
 
 const KNOWN = new Set([
-  "--yes", "--explain", "--json", "--for", "--reason", "--until-changed", "--never", "--clear-never",
+  "--yes", "--explain", "--json", "--for", "--reason", "--until-changed", "--never", "--clear-never", "--within",
 ]);
 const argv = process.argv.slice(2);
 const flags = { yes: false, explain: false, json: false, untilChanged: false, clearNever: false };
@@ -114,6 +116,12 @@ const flags = { yes: false, explain: false, json: false, untilChanged: false, cl
  person says.
 */
 const never = [];
+/*
+ Phase 50's resources: `--within ~/Projects` (repeatable) scopes the delegation
+ to those folders. A file action outside them needs approval; nothing else
+ changes. Resolved to absolute paths here so the plugin never guesses a base.
+*/
+const within = [];
 let requested = null;
 let duration = null;
 let reason = "";
@@ -131,6 +139,7 @@ for (let index = 0; index < argv.length; index += 1) {
       if (value === undefined) fail(`${argument} needs a value`);
       if (argument === "--for") duration = value;
       else if (argument === "--never") never.push(value);
+      else if (argument === "--within") within.push(resolve(value.replace(/^~(?=$|\/)/, homedir())));
       else reason = value;
       index += 1;
     }
@@ -198,6 +207,7 @@ function show() {
     console.log(`  note      the ${current.state.mode} delegation expired; this fell back to guarded`);
   }
   if (current.degraded) console.log(`  DEGRADED  ${current.degraded}`);
+  if (current.state.resources?.length) console.log(`  within    ${current.state.resources.join(", ")} (file actions elsewhere ask first)`);
   if (current.state.expiresAt && !current.expired) {
     const left = Math.round((Date.parse(current.state.expiresAt) - Date.now()) / 60000);
     console.log(`  expires   ${current.state.expiresAt}  (${left} min)`);
@@ -242,12 +252,29 @@ if (flags.explain) {
   process.exit(0);
 }
 
-if (requested === current.mode && !current.expired) {
+/*
+ Scope counts, not just the mode (review, 2026-09-26, M3). Dropping or growing
+ --within, or clearing the --never list, widens what ORION may do without
+ asking even when the mode name gets stricter, so it needs the owner too. And
+ a change of scope at the same mode is a change, not "Already".
+*/
+const inside = (outer, inner) => inner === outer || inner.startsWith(`${outer}/`);
+const before = current.state.resources ?? [];
+// `contained` asks before everything, so its scope is moot and the panic
+// direction stays one step.
+const widening = requested !== "contained" && (
+  (before.length > 0 && (within.length === 0 || within.some((root) => !before.some((old) => inside(old, root))))) ||
+  (flags.clearNever && Object.keys(current.state.except ?? {}).length > 0));
+const scopeChanged =
+  flags.clearNever || never.length > 0 ||
+  within.length !== before.length || within.some((root) => !before.includes(root));
+
+if (requested === current.mode && !current.expired && !scopeChanged) {
   console.log(`Already ${describe(requested)}`);
   process.exit(0);
 }
 
-const relaxing = isRelaxation(current.mode, requested);
+const relaxing = isRelaxation(current.mode, requested) || widening;
 if (relaxing && !flags.yes) {
   const change = difference(current.mode, requested);
   console.error("");
@@ -267,7 +294,7 @@ if (duration) {
     fail(`"${duration.slice(0, 20)}" is not a duration I will accept. Use e.g. 90m, 8h, 1d — at most 24h.`);
   }
   expiresAt = new Date(Date.now() + ms).toISOString();
-} else if (relaxing && requested !== DEFAULT_MODE && !flags.untilChanged) {
+} else if (isRelaxation(current.mode, requested) && requested !== DEFAULT_MODE && !flags.untilChanged) {
   /*
    A relaxation PAST the default with no end has to be asked for in those words.
 
@@ -288,6 +315,18 @@ if (duration) {
   );
 }
 
+/*
+ Phase 43: loosening the guard is a sensitive operation, so the Mac's owner
+ confirms in person (Touch ID or password; see lib/orion-reauth.mjs). That
+ includes lifting containment back to the default. Tightening never asks: the
+ panic direction must stay one step.
+*/
+if (relaxing) {
+  const { reauthenticate } = await import("./lib/orion-reauth.mjs");
+  const owner = await reauthenticate(`relax ORION's mode from ${current.mode} to ${requested}`);
+  if (!owner.confirmed) fail(`not changed -- relaxing needs the Mac's owner (Touch ID or password): ${owner.reason}`);
+}
+
 await writeStrictness(PATHS.strictness, {
   ...GUARDED_STATE,
   mode: requested,
@@ -296,6 +335,7 @@ await writeStrictness(PATHS.strictness, {
   setBy: `${process.env.USER || "someone"}@terminal`,
   reason: reason || (relaxing ? "relaxed by hand" : "tightened by hand"),
   expiresAt,
+  resources: within,
   except: flags.clearNever
     ? {}
     : {

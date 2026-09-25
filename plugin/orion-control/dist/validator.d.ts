@@ -50,6 +50,9 @@ export interface ValidationOptions {
     strictness?: {
         mode: StrictnessMode;
         except?: Readonly<Record<string, GateLevel>>;
+        /** Phase 50: folders the delegation covers, and the roots to place targets with. */
+        resources?: readonly string[];
+        roots?: Readonly<Partial<Record<string, string>>>;
     };
 }
 /** Hard structural caps so a malformed graph fails validation, not the runtime. */

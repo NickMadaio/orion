@@ -69,6 +69,62 @@ export const TUNABLE_SETTINGS = {
         description: "Seconds of no audio before a speaking phase is presumed wedged and force-ended. This is the guard against Orion believing he is still talking when he is not.",
     },
 };
+/*
+ Actions the host may repeat once after a timeout, whatever the plan's own
+ retry budget says (Phase 46: "a timed-out action is retried at least once").
+
+ A timeout is not a failure; it is an unknown outcome. Repeating is only safe
+ where doing it twice is the same as doing it once: reads, and actions that SET
+ a state rather than flip one. Toggles (play/pause, next, previous) and anything
+ that creates, sends or moves are absent on purpose -- a toggle that did run
+ before the timeout would be undone by the retry, and a send would go twice.
+ Membership is a name list rather than a flag inferred from risk, so adding an
+ action here is a reviewed decision about that action.
+*/
+export const TIMEOUT_RETRY_SAFE = new Set([
+    "browser_list_tabs",
+    "browser_read_page",
+    "browser_switch_tab",
+    "volume_set",
+    "volume_mute",
+    "volume_unmute",
+    "display_sleep",
+    "atlas_collections_list",
+    "atlas_notes_search",
+    "atlas_note_read",
+]);
+/**
+ * One line per optional argument, naming the actions that accept it -- the
+ * form the tool description carries. Generated, so it cannot drift from the
+ * validator.
+ */
+export function optionalArgumentsSummary(catalog) {
+    const byArgument = new Map();
+    for (const [name, definition] of Object.entries(catalog)) {
+        for (const [argument, what] of Object.entries(definition.optionalArguments ?? {})) {
+            const key = `${argument}\u0000${what}`;
+            const entry = byArgument.get(key) ?? { what, actions: [] };
+            entry.actions.push(name);
+            byArgument.set(key, entry);
+        }
+    }
+    // A whole family (every browser_* action) collapses to `browser_*`: the
+    // description has a length budget, and the family name is also clearer.
+    const family = (name) => name.slice(0, name.indexOf("_") + 1);
+    const collapse = (actions) => {
+        const out = new Set();
+        for (const name of actions) {
+            const prefix = family(name);
+            const members = Object.keys(catalog).filter((other) => family(other) === prefix);
+            out.add(prefix && members.every((member) => actions.includes(member)) ? `${prefix}*` : name);
+        }
+        return [...out].sort();
+    };
+    return [...byArgument.entries()]
+        .map(([key, entry]) => `${key.split("\u0000")[0]} (${entry.what}) on ${collapse(entry.actions).join(", ")}`)
+        .sort()
+        .join("; ");
+}
 /**
  * Words that make a sentence an instruction about permission rather than a
  * sentence that merely mentions one.
@@ -499,6 +555,7 @@ function browserAction(policy, definition) {
         reversible: definition.reversible,
         capabilityTier: "browser_control",
         execution: policy,
+        optionalArguments: { browser: `${SUPPORTED_BROWSERS.join("|")}; default: system browser` },
         validateArguments(arguments_) {
             return [
                 ...browserArgumentIssues(arguments_),
@@ -516,6 +573,10 @@ function mediaAction(policy, definition) {
         reversible: true,
         capabilityTier: "media_control",
         execution: policy,
+        // Only where the executor targets a player: volume and display ignore it.
+        ...(policy.playerArgument
+            ? { optionalArguments: { [policy.playerArgument]: `${SUPPORTED_PLAYERS.join("|")}; Music=Apple Music; default: the one playing` } }
+            : {}),
         validateArguments(arguments_) {
             const issues = arguments_.player === undefined ||
                 resolvePlayerName(arguments_.player) !== undefined
@@ -2402,6 +2463,43 @@ export const ACTION_CATALOG = {
                 : [`keyName must be one of: ${SCREEN_KEY_NAMES.join(", ")}`];
         },
     }),
+    /*
+     PHASE 52. Raw terminal access, the way Nick asked for it on 2026-09-25:
+     "UI confirmation or in app confirmation just like chat gpt and claude use
+     (allow this once, allow for this chat, etc)".
+  
+     Critical, irreversible, approval-required: the floor holds it at APPROVAL in
+     every mode. What Nick approves is the exact command and folder (the
+     canonical hash), once -- or every terminal_run for the rest of THIS chat,
+     which is a chat grant (approvals.ts) he gives from the Mac app. While it
+     runs the Mac app shows it with a Stop that kills it; output is capped; the
+     ledger keeps every run.
+    */
+    terminal_run: {
+        risk: "critical",
+        requiredArguments: ["command"],
+        optionalArguments: { cwd: "absolute folder; default home" },
+        approvalRequired: true,
+        verification: "command_exited",
+        reversible: false,
+        capabilityTier: "raw_terminal",
+        execution: { kind: "raw_terminal" },
+        validateArguments(arguments_) {
+            const issues = [];
+            const command = arguments_.command;
+            if (typeof command !== "string" || !command.trim())
+                issues.push("command must be the shell command to run");
+            else if (command.length > 2000)
+                issues.push("command is longer than 2000 characters");
+            else if (/[\u0000]/.test(command))
+                issues.push("command contains a NUL byte");
+            const cwd = arguments_.cwd;
+            if (cwd !== undefined && (typeof cwd !== "string" || !cwd.startsWith("/") || cwd.split("/").includes(".."))) {
+                issues.push("cwd must be an absolute folder with no ..");
+            }
+            return issues;
+        },
+    },
     messages_send: {
         risk: "high",
         requiredArguments: ["recipient", "body"],

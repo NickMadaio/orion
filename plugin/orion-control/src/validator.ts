@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import {
   modeRequiresApproval,
+  targetOutsideResources,
   type GateLevel,
   type StrictnessMode,
 } from "./strictness.js";
 import path from "node:path";
+import { stripMachineContext } from "./approvals.js";
 import {
   ACTION_CATALOG,
   AUTHORITY_INSTRUCTION,
@@ -165,6 +167,9 @@ export interface ValidationOptions {
   strictness?: {
     mode: StrictnessMode;
     except?: Readonly<Record<string, GateLevel>>;
+    /** Phase 50: folders the delegation covers, and the roots to place targets with. */
+    resources?: readonly string[];
+    roots?: Readonly<Partial<Record<string, string>>>;
   };
 }
 
@@ -345,6 +350,11 @@ const TAINTED_ARGUMENTS = [
   // cannot collide with `messages_search`'s unrelated `text` (a read-only
   // query argument, not a target, and not meant to be tainted by it).
   "typedText",
+  // PHASE 52. A command, or the folder it runs in, copied out of a page or a
+  // message is the textbook injection; under "allow for this chat" no person
+  // would see it before it ran (review 2026-09-26, H2).
+  "command",
+  "cwd",
 ];
 
 export function argumentsCarryUntrustedData(
@@ -538,14 +548,25 @@ export function validateTaskGraph(
     .join("\n");
 
   // The user's own words across this call, for the taint comparison above.
-  const userText = graph.inputs
+  // Harness-minted, oldest first, so the last one is the turn making the request.
+  const userTurns = graph.inputs
     .filter(
       (input) =>
         input.kind === "instruction" &&
         input.trust === "trusted_user" &&
         typeof input.content === "string",
     )
-    .map((input) => input.content as string)
+    .map((input) => input.content as string);
+  const userText = userTurns.join("\n");
+  // The request and its confirmation: "text Gia and ask…" then "yeah go ahead"
+  // is ONE request (a live refusal of exactly that was fixed earlier). Anything
+  // older is a different request, and its target does not carry.
+  // Briefings and app state arrive as trusted_user too; they are not a person
+  // asking, so they cannot be the requesting turn (review 2026-09-26, M1).
+  const requestingTurns = userTurns
+    .map((turn) => stripMachineContext(turn))
+    .filter((turn) => turn.trim().length > 0)
+    .slice(-2)
     .join("\n");
 
   for (const step of graph.steps) {
@@ -670,11 +691,30 @@ export function validateTaskGraph(
 
     // The positive form, for the recipient of an outbound message. Absence
     // from untrusted content is not enough there: it has to be present in his.
-    const unnamed = argumentNotFromUser(definition, step.arguments, userText);
+    /*
+     Phase 48: destructive authorization is bound to the REQUESTING turn.
+
+     The recent-turn window (eight turns, ten minutes) lets an ordinary target
+     named a while ago carry into "ok, do that" -- right for adding an event,
+     wrong for removing one or sending a message. For an irreversible or
+     critical action the target must be named in the request itself: the turn
+     that asks, or the one just before it when that turn is the confirmation
+     ("text Gia…" / "yeah go ahead"). A name from an older, different request
+     can never be spliced onto a fresh "do it". The one exception is a person's
+     approval grant for this exact action: he saw the target in the approval
+     summary and said yes to exactly that.
+    */
+    const destructive = !definition.reversible || definition.risk === "critical";
+    const granted = destructive &&
+      (options.approvalGrants?.(canonicalActionHash(step, graph.workingContext)) ?? false);
+    const originText = destructive && !granted ? requestingTurns : userText;
+    const unnamed = argumentNotFromUser(definition, step.arguments, originText);
     if (unnamed !== undefined) {
       issues.push({
         code: "argument_not_from_user",
-        message: `Action '${step.action}' requires that you name '${unnamed.key}' yourself. '${unnamed.value}' does not appear in anything you said, so it cannot be used as the ${unnamed.key} — say it in your own words if you meant it.`,
+        message: destructive && !granted && argumentNotFromUser(definition, step.arguments, userText) === undefined
+          ? `Action '${step.action}' cannot be undone, so its ${unnamed.key} has to be named in the request itself. '${unnamed.value}' was said in an earlier conversation, not in this request — say it again if you mean it.`
+          : `Action '${step.action}' requires that you name '${unnamed.key}' yourself. '${unnamed.value}' does not appear in anything you said, so it cannot be used as the ${unnamed.key} — say it in your own words if you meant it.`,
         stepId: step.id,
       });
     }
@@ -717,14 +757,18 @@ export function validateTaskGraph(
      second adds nothing at all -- which is the compatibility property the
      baseline check has asserted since the mode was introduced.
     */
+    const outsideScope = options.strictness?.resources?.length
+      ? targetOutsideResources(step.arguments, options.strictness.resources, options.strictness.roots ?? {})
+      : null;
     const modeDemands =
       options.strictness !== undefined &&
-      modeRequiresApproval(
-        step.action,
-        definition,
-        options.strictness.mode,
-        options.strictness.except ?? {},
-      );
+      (outsideScope !== null ||
+        modeRequiresApproval(
+          step.action,
+          definition,
+          options.strictness.mode,
+          options.strictness.except ?? {},
+        ));
     if (definition.approvalRequired || modeDemands) {
       const canonicalHash = canonicalActionHash(step, graph.workingContext);
       // The hash still binds the approval to these exact arguments -- change a
@@ -738,7 +782,9 @@ export function validateTaskGraph(
           code: "approval_required",
           message: definition.approvalRequired
             ? `Action '${step.action}' requires approval from Nick, bound to its canonical arguments and context. Supplying the hash is not approval; a person has to grant it.`
-            : `Action '${step.action}' requires approval because Orion is in '${options.strictness?.mode}' mode, which asks before anything that is not a read. Nick can lift it with orion-mode, or approve this one.`,
+            : outsideScope !== null
+              ? `Action '${step.action}' touches ${outsideScope}, outside the folders the current delegation covers, so it needs Nick's approval.`
+              : `Action '${step.action}' requires approval because Orion is in '${options.strictness?.mode}' mode, which asks before anything that is not a read. Nick can lift it with orion-mode, or approve this one.`,
           stepId: step.id,
           canonicalHash,
         });

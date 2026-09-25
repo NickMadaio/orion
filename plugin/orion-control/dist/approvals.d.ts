@@ -27,6 +27,8 @@ export interface ApprovalTicket {
      * an approval for an action nobody there asked for.
      */
     deviceId: string;
+    /** Phase 52: the conversation that asked, so "allow for this chat" can name it. */
+    sessionKey?: string;
 }
 export interface ApprovalGrant {
     id: string;
@@ -75,6 +77,7 @@ export declare function mintTicket(paths: ApprovalPaths, request: {
     action: string;
     summary: string;
     context: string;
+    sessionKey?: string;
 }, now?: Date): Promise<ApprovalTicket>;
 /**
  * Spend a grant. Called once the gate has been satisfied and BEFORE the action
@@ -95,6 +98,19 @@ export declare function grant(paths: ApprovalPaths, ticketId: string, grantedBy:
     ok: false;
     reason: string;
 }>;
+export declare const CHAT_GRANTABLE: ReadonlySet<string>;
+export declare const CHAT_GRANT_TTL_MS: number;
+export declare function grantForChat(paths: ApprovalPaths, ticketId: string, grantedBy: string, now?: Date): Promise<{
+    ok: true;
+    ticket: ApprovalTicket;
+} | {
+    ok: false;
+    reason: string;
+}>;
+/** Whether Nick allowed `action` for the rest of this chat, and it has not run out. */
+export declare function chatGrantCovers(paths: ApprovalPaths, sessionKey: string | undefined, action: string, now?: Date): boolean;
+/** Withdraw every chat grant: `orion-approve revoke-chat`, and the panic lock. */
+export declare function revokeChatGrants(paths: ApprovalPaths): Promise<number>;
 /** Withdraw a waiting request without approving it. */
 export declare function deny(paths: ApprovalPaths, ticketId: string, now?: Date): Promise<boolean>;
 /**

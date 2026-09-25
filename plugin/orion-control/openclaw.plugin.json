@@ -217,6 +217,10 @@
       "enableComputerControlActions": {
         "type": "boolean",
         "description": "PHASE 53/55. Let Orion click, type, and press keys — everything a person at the keyboard could do. R5-class: every action is approvalRequired and floored at APPROVAL in every strictness mode including sovereign, and cannot act on an app other than the one it just observed. screen_type refuses credential/OTP-shaped text the same way messages_send refuses it in a message. Also requires the external_connected permission profile. Default off."
+      },
+      "enableRawTerminalActions": {
+        "type": "boolean",
+        "description": "PHASE 52. Let Orion run one shell command as Nick (terminal_run). Every command needs Nick's approval -- once, or for the rest of the chat -- and shows in the Mac app while it runs, with a Stop that kills it. Output is capped and every run is in the ledger. Also requires the external_connected permission profile. Default off."
       }
     }
   },

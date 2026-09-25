@@ -1,3 +1,40 @@
+## 2026-09-26 00:48 BST — Phases 40–52 batch: reviewed, repaired, deployed, checkpointed (Claude)
+
+Report: `docs/planning/v2/PHASES_40_52_BATCH_REPORT_2026-09-26.md`.
+
+**Phase state:**
+
+- **Closed:** 40, 43, 44, 46 and 47.
+- **Requirements pass, not closed:** 50 and 51. Both wait on 49 in sequence.
+- **Open:**
+  - 48: the broker split and signing are blocked on Nick, and plugin tamper protection is marked blocked because a self-check can't catch its own replacement.
+  - 49: not started.
+  - 52: built with its flag off, waiting on a gate amendment.
+
+**Independent review:** 3 CRITICAL, 6 HIGH, 7 MEDIUM and 5 LOW findings. Everything fixable here was repaired, redeployed and re-verified. The main ones:
+
+- **C1 (live before this batch):** ORION could rewrite `scripts/orion-remote` or `scripts/orion-approve` through an unapproved Desktop write. Now no file action may change `~/Desktop/ORION`, `~/.openclaw` or `~/Library/LaunchAgents`.
+- **C2:** the approval card never named the command or the file. It now shows them in full.
+- **C3:** `terminal_run` now runs under a `sandbox-exec` profile that denies writes to those paths, with a minimal environment and redacted output.
+- **H1:** Stop no longer re-runs the command.
+- **H2:** commands copied from pages are refused.
+- **H4:** a grant is spent atomically.
+- **H5:** integrity covers the whole extension and fails closed.
+- **M3:** changing `orion-mode` scope needs the owner.
+- **M4:** `orion-lock` stops running actions and withdraws chat grants.
+- **M6:** `orion-undo` bounds its paths.
+
+**Proofs:** plugin 374/374; `orion-deploy` all 7 suites OK; lock, reauth (12), strictness (34), remote, integrity and trash (`--live` through the installed plugin) all OK; Mac app rebuilt and installed; secret scan clean.
+
+**Local commit:** this batch's files only. The remote-channel files (`orion-remote`, the bridge, `orion_v2_remote_check.sh`, `orion_v2_ci_check.sh`) are held back, because the `action` verb shares hunks with uncommitted Discord and agent work. Not pushed.
+
+**Nick decides:**
+
+1. whether to turn on `enableRawTerminalActions`;
+2. whether to accept the Phase 52 amendment (in-app confirmation instead of Face ID);
+3. whether to remove bare `env` and `find` from the main allowlist;
+4. which Phase 48 broker isolation to use: a second macOS user, or `sandbox-exec` around the gateway.
+
 # HANDOFF — ORION
 
 **Last updated 2026-09-21.** This is the only handoff. If you find another one

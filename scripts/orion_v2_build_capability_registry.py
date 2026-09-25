@@ -73,6 +73,7 @@ TIER_RULES = {
     # see a password manager, the other can type into one.
     "computer_observe":       ("screen",   "computer"),
     "computer_control":       ("screen",   "computer"),
+    "raw_terminal":           ("terminal", "computer"),
     # Proposing an automation is a scheduling concern; there is deliberately no
     # install operation in this tier, so nothing here reaches a scheduler.
     "automation":             ("automation", "general"),
@@ -118,6 +119,7 @@ EFFECTS_BY_KIND = {
     "selfdev": ["reads_files", "writes_files"],
     "computer_observe": ["reads_device_state"],
     "computer_control": ["reads_device_state", "controls_input", "launches_process"],
+    "raw_terminal": ["launches_process", "writes_files", "network_request"],
     "media_control":   ["controls_media"],
     "reminder":        ["writes_files"],
     "calendar":        ["reads_user_data"],

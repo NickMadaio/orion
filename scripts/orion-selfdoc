@@ -89,7 +89,10 @@ const off = [];
 for (const [name, definition] of Object.entries(ACTION_CATALOG)) {
   const tier = definition.capabilityTier;
   const status = availability.get(tier);
-  const args = (definition.requiredArguments ?? []).join(", ");
+  // Optional arguments in brackets (Phase 46): one the model cannot see is one
+  // it cannot use -- media_play_pause's `player` was invisible here.
+  const args = [...(definition.requiredArguments ?? []),
+    ...Object.keys(definition.optionalArguments ?? {}).map((name) => `[${name}]`)].join(", ");
   const entry = {
     name,
     tier,

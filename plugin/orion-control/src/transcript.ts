@@ -194,8 +194,10 @@ async function newestSessionFile(
  *
  * Eight turns is enough for that to work while still being a window: an
  * instruction from far enough back has scrolled out, and destructive actions
- * ignore this window entirely (see `perTurnOnly` in the validator) so a stale
- * turn can never be spliced onto a fresh "do it".
+ * ignore most of it: an irreversible or critical action's target must be named
+ * in the request itself -- the asking turn or the one before it -- unless Nick
+ * approved that exact action (validator.ts, the Phase 48 requesting-turn rule),
+ * so a stale turn can never be spliced onto a fresh "do it".
  */
 const RECENT_TURN_LIMIT = 8;
 

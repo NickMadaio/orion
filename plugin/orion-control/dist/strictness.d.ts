@@ -77,6 +77,14 @@ export interface StrictnessState {
     except: Readonly<Record<string, GateLevel>>;
     /** Which Mac this delegation is for. */
     deviceId: string | null;
+    /**
+     * Phase 50's RESOURCES: the folders this delegation covers, as absolute
+     * prefixes. Empty means everywhere the mode reaches. Raise-only like
+     * `except`: a file action whose target lies outside every prefix needs
+     * approval, so "sovereign, but only under ~/Projects" is expressible and
+     * cannot be widened by it.
+     */
+    resources?: readonly string[];
 }
 export declare const GUARDED_STATE: StrictnessState;
 /**
@@ -117,4 +125,11 @@ export declare function writeStrictness(statePath: string, state: StrictnessStat
 export declare function levelMap(bases: ReadonlyMap<string, GateLevel>, mode: StrictnessMode, except?: Readonly<Record<string, GateLevel>>): Map<string, LeveledCapability>;
 /** Kept out of the module's happy path so a caller must ask for it explicitly. */
 export declare function seedIfAbsent(statePath: string): Promise<void>;
+/**
+ * The first file target of a step that lies outside the delegation's
+ * resources, or null. Targets are an absolute `path`, or a named root plus
+ * `relativePath` / `destinationPath`. No resources, or no file target, is null:
+ * the scope limits where files may be touched, not what else may happen.
+ */
+export declare function targetOutsideResources(arguments_: Record<string, unknown>, resources: readonly string[], roots: Readonly<Partial<Record<string, string>>>): string | null;
 export {};

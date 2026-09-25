@@ -216,6 +216,8 @@ struct DashboardView: View {
         .onChange(of: reminders.access) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.lastError) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.tasks) { _, _ in refreshPlanSources(); loadBrief() }
+        // Phase 52: what ORION is waiting on you for, and what it is running.
+        .overlay(alignment: .topTrailing) { ApprovalsOverlay().padding(.top, 96).padding(.trailing, 22) }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         .preferredColorScheme(.dark)
         .onAppear(perform: start)

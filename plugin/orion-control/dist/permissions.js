@@ -135,6 +135,11 @@ const PROFILE_TIERS = {
         // in catalog.ts.
         "computer_observe",
         "computer_control",
+        // PHASE 52. Its own flag (`enableRawTerminalActions`, default OFF) AND
+        // this profile, and a person's approval for every command -- or for this
+        // chat, which Nick asked for on 2026-09-25: "allow this once, allow for
+        // this chat, etc".
+        "raw_terminal",
     ]),
 };
 export const PROFILE_MATRIX = {

@@ -110,7 +110,8 @@ PROFILE_TIERS: Mapping[Profile, frozenset[str]] = MappingProxyType(
         Profile.BROAD_LOCAL_FILESYSTEM: EDIT_TIERS,
         Profile.CONSEQUENTIAL_LOCAL: frozenset(CONSEQUENTIAL_TIERS),
         Profile.EXTERNAL_CONNECTED: frozenset(
-            CONSEQUENTIAL_TIERS | {"messages_send"} | COMPUTER_USE_TIERS
+            # Phase 52: raw_terminal, R5, only at the top profile, like screen control.
+            CONSEQUENTIAL_TIERS | {"messages_send"} | COMPUTER_USE_TIERS | {"raw_terminal"}
         ),
     }
 )

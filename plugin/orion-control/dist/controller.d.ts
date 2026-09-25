@@ -57,5 +57,11 @@ export interface RunOptions {
     execute?: typeof executeAction;
     verify?: typeof verifyAction;
 }
+/**
+ * How many times a step may be retried after an attempt, by why it failed.
+ * The plan's budget applies to both; a timeout on an action that is safe to
+ * repeat gets at least one retry from the host (see TIMEOUT_RETRY_SAFE).
+ */
+export declare function retriesAllowed(action: string, budget: number, cause: "timeout" | "unverified"): number;
 export declare function runTaskGraph(graph: TaskGraph, options: RunOptions): Promise<TaskRunRecord>;
 export declare function defaultLedgerPath(configured?: string): string;

@@ -1,7 +1,7 @@
-import { randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { hostname } from "node:os";
-import { readFileSync, readdirSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /*
@@ -108,6 +108,8 @@ export interface ApprovalTicket {
    * an approval for an action nobody there asked for.
    */
   deviceId: string;
+  /** Phase 52: the conversation that asked, so "allow for this chat" can name it. */
+  sessionKey?: string;
 }
 
 export interface ApprovalGrant {
@@ -208,7 +210,7 @@ export function grantedHashes(
  */
 export async function mintTicket(
   paths: ApprovalPaths,
-  request: { canonicalHash: string; action: string; summary: string; context: string },
+  request: { canonicalHash: string; action: string; summary: string; context: string; sessionKey?: string },
   now: Date = new Date(),
 ): Promise<ApprovalTicket> {
   const existing = readTickets(paths, now).find(
@@ -230,6 +232,7 @@ export async function mintTicket(
     mintedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + TICKET_TTL_MS).toISOString(),
     deviceId: hostname(),
+    ...(request.sessionKey ? { sessionKey: request.sessionKey } : {}),
   };
   // `wx`: a collision on the four-character id must fail rather than overwrite
   // a ticket somebody is about to approve.
@@ -255,10 +258,13 @@ export async function consumeGrant(
   if (!match) return false;
   await mkdir(paths.used, { recursive: true, mode: 0o700 });
   const stamp = now.toISOString().replace(/[:.]/g, "-");
-  await rename(
+  // The rename is the spend. Two calls racing for one grant both read it as
+  // present; only one rename can succeed, and the loser must not run.
+  const spent = await rename(
     path.join(paths.grants, `${match.grant.id}.json`),
     path.join(paths.used, `${match.grant.id}-${stamp}.json`),
-  ).catch(() => undefined);
+  ).then(() => true, () => false);
+  if (!spent) return false;
   await rename(
     path.join(paths.tickets, `${match.ticket.id}.json`),
     path.join(paths.used, `${match.ticket.id}-${stamp}.ticket.json`),
@@ -296,12 +302,97 @@ export async function grant(
     grantedAt: now.toISOString(),
     grantedBy,
   };
-  await writeFile(
+  const written = await writeFile(
     path.join(paths.grants, `${ticket.id}.json`),
     `${JSON.stringify(record, null, 2)}\n`,
     { flag: "wx", mode: 0o600 },
-  ).catch(() => undefined);
+  ).then(() => null, (error: NodeJS.ErrnoException) => error);
+  if (written) {
+    // Already granted is fine only if it is the same grant; anything else is a
+    // stale or foreign file, and saying "ok" would make a real yes a no-op.
+    const existing = readJsonFile<ApprovalGrant>(path.join(paths.grants, `${ticket.id}.json`));
+    if (!(written.code === "EEXIST" && existing?.canonicalHash === ticket.canonicalHash && existing?.nonce === ticket.nonce)) {
+      return { ok: false, reason: `the approval could not be recorded (${written.code ?? "unknown"})` };
+    }
+  }
   return { ok: true, ticket };
+}
+
+/*
+ PHASE 52: "allow for this chat".
+
+ Nick asked for the choice the chat apps give: allow this once, or allow it for
+ the rest of this conversation. A chat grant covers ONE action (only those in
+ CHAT_GRANTABLE -- today, terminal_run) in ONE conversation (the ticket's
+ session), for at most CHAT_GRANT_TTL_MS, and is written by the same human-only
+ writers as any grant. It never reaches another chat, another action, or the
+ floor's other R5 actions (messages, screen control), which stay once-each.
+*/
+export const CHAT_GRANTABLE: ReadonlySet<string> = new Set(["terminal_run"]);
+export const CHAT_GRANT_TTL_MS = 8 * 60 * 60 * 1000;
+
+const chatFile = (paths: ApprovalPaths, sessionKey: string) =>
+  path.join(path.dirname(paths.grants), "chat", `${createHash("sha256").update(sessionKey).digest("hex").slice(0, 32)}.json`);
+
+export async function grantForChat(
+  paths: ApprovalPaths,
+  ticketId: string,
+  grantedBy: string,
+  now: Date = new Date(),
+): Promise<{ ok: true; ticket: ApprovalTicket } | { ok: false; reason: string }> {
+  const id = normalizeTicketId(ticketId);
+  const ticket = id ? readTickets(paths, now).find((candidate) => candidate.id === id) : undefined;
+  if (!ticket) return { ok: false, reason: `no approval ${String(ticketId).slice(0, 20)} is waiting (it may have expired)` };
+  if (!CHAT_GRANTABLE.has(ticket.action)) return { ok: false, reason: `${ticket.action} can only be allowed once at a time` };
+  if (!ticket.sessionKey) return { ok: false, reason: "this request did not come from a chat, so there is no chat to allow it for" };
+  const once = await grant(paths, ticket.id, grantedBy, now);
+  if (!once.ok) return once;
+  const file = chatFile(paths, ticket.sessionKey);
+  const existing = readJsonFile<{ actions?: string[] }>(file);
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  await writeFile(file, `${JSON.stringify({
+    sessionKey: ticket.sessionKey,
+    actions: [...new Set([...(existing?.actions ?? []), ticket.action])],
+    grantedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + CHAT_GRANT_TTL_MS).toISOString(),
+    grantedBy,
+    fromTicket: ticket.id,
+    deviceId: hostname(),
+  }, null, 2)}\n`, { mode: 0o600 });
+  return { ok: true, ticket };
+}
+
+/** Whether Nick allowed `action` for the rest of this chat, and it has not run out. */
+export function chatGrantCovers(paths: ApprovalPaths, sessionKey: string | undefined, action: string, now: Date = new Date()): boolean {
+  if (!sessionKey || !CHAT_GRANTABLE.has(action)) return false;
+  const record = readJsonFile<{ sessionKey?: string; actions?: string[]; expiresAt?: string; grantedAt?: string; fromTicket?: string; deviceId?: string; grantedBy?: string }>(chatFile(paths, sessionKey));
+  if (!record || record.sessionKey !== sessionKey || record.deviceId !== hostname()) return false;
+  if (!record.grantedBy || ["local", "orion"].includes(record.grantedBy.toLowerCase())) return false;
+  // Never longer than the TTL from when it was given, whatever the file says,
+  // and only if the one-shot grant it came from really exists.
+  const granted = Date.parse(record.grantedAt ?? "");
+  const ends = Math.min(Date.parse(record.expiresAt ?? ""), granted + CHAT_GRANT_TTL_MS);
+  if (!Number.isFinite(ends) || ends <= now.getTime() || !(record.actions ?? []).includes(action)) return false;
+  return typeof record.fromTicket === "string" && grantRecordExists(paths, record.fromTicket);
+}
+
+function grantRecordExists(paths: ApprovalPaths, ticketId: string): boolean {
+  if (!normalizeTicketId(ticketId)) return false;
+  if (existsSync(path.join(paths.grants, `${ticketId}.json`))) return true;
+  try {
+    return readdirSync(paths.used).some((name) => name.startsWith(`${ticketId}-`) && !name.endsWith(".ticket.json"));
+  } catch {
+    return false;
+  }
+}
+
+/** Withdraw every chat grant: `orion-approve revoke-chat`, and the panic lock. */
+export async function revokeChatGrants(paths: ApprovalPaths): Promise<number> {
+  const directory = path.join(path.dirname(paths.grants), "chat");
+  let names: string[] = [];
+  try { names = readdirSync(directory).filter((name) => name.endsWith(".json")); } catch { return 0; }
+  await Promise.all(names.map((name) => unlink(path.join(directory, name)).catch(() => undefined)));
+  return names.length;
 }
 
 /** Withdraw a waiting request without approving it. */

@@ -52,11 +52,18 @@ echo "   $(cat "$SCRATCH/profiles.json")"
 echo "== building MobileCore =="
 ( cd "$MOBILE" && swift build 2>&1 | tail -1 ) || { echo "authority contract: MobileCore does not build"; exit 1; }
 
-MODULES="$MOBILE/.build/debug/Modules"
-[ -f "$MODULES/MobileCore.swiftmodule" ] || { echo "authority contract: no MobileCore.swiftmodule under $MODULES"; exit 1; }
+# Ask swift where it put the build rather than assuming .build/debug. The build
+# system Xcode's toolchain defaults to (.build/out/Products/Debug) puts the
+# module and one MobileCore.o straight in the bin folder; the older one used
+# Modules/ and MobileCore.build/*.o. Both are handled, and only the CURRENT bin
+# folder is searched, so a stale build elsewhere can never be linked (2026-09-25).
+BIN="$(cd "$MOBILE" && swift build --show-bin-path 2>/dev/null)"
+if [ -e "$BIN/Modules/MobileCore.swiftmodule" ]; then MODULES="$BIN/Modules"; else MODULES="$BIN"; fi
+[ -e "$MODULES/MobileCore.swiftmodule" ] || { echo "authority contract: no MobileCore.swiftmodule under $MODULES"; exit 1; }
 # Scope the object glob to the debug tree; a bare glob pulls in every
 # architecture's copy and the link fails with duplicate symbols.
-OBJECTS=$(find "$MOBILE/.build" -path '*/debug/MobileCore.build/*.o' -print0 | xargs -0 echo)
+if [ -f "$BIN/MobileCore.o" ]; then OBJECTS="$BIN/MobileCore.o"
+else OBJECTS=$(find "$BIN/MobileCore.build" -name '*.o' -print0 | xargs -0 echo); fi
 [ -n "$OBJECTS" ] || { echo "authority contract: no MobileCore objects built"; exit 1; }
 
 cat > "$SCRATCH/contract.swift" <<'SWIFT'

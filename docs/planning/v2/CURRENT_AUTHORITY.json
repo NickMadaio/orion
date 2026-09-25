@@ -7,18 +7,18 @@
     "source": "strictness.json",
     "expiresAt": null
   },
-  "installedPluginParity": false,
+  "installedPluginParity": true,
   "execPolicy": {
     "security": "allowlist",
     "ask": "off",
     "askFallback": "deny"
   },
   "counts": {
-    "total": 214,
-    "AUTO": 140,
-    "NOTIFY": 21,
+    "total": 220,
+    "AUTO": 139,
+    "NOTIFY": 22,
     "APPROVAL": 15,
-    "NEVER": 38
+    "NEVER": 44
   },
   "availability": [
     {
@@ -179,6 +179,14 @@
       "configOn": true,
       "profileOn": true,
       "available": true,
+      "unresolved": false
+    },
+    {
+      "tier": "raw_terminal",
+      "flag": "enableRawTerminalActions",
+      "configOn": false,
+      "profileOn": true,
+      "available": false,
       "unresolved": false
     },
     {
@@ -1327,15 +1335,6 @@
     },
     {
       "kind": "command",
-      "name": "git",
-      "level": "AUTO",
-      "rule": "R3 default, escape hatch",
-      "because": "reads at AUTO, but this entry can also launch other work (env CMD, find -exec, git push) — when used that way it takes the level of the effect, not of the command",
-      "enforcedBy": "exec allowlist (allow/deny only)",
-      "escapeHatch": true
-    },
-    {
-      "kind": "command",
       "name": "grep",
       "level": "AUTO",
       "rule": "R3 default",
@@ -1759,6 +1758,17 @@
     },
     {
       "kind": "action",
+      "name": "file_copy",
+      "level": "NOTIFY",
+      "rule": "R2 Nick's space",
+      "because": "the root is chosen at call time (root), so this can land in Nick's own files",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "file_mutate",
+      "risk": "medium",
+      "reversible": true
+    },
+    {
+      "kind": "action",
       "name": "file_move",
       "level": "NOTIFY",
       "rule": "R2 Nick's space",
@@ -2089,8 +2099,27 @@
       "reversible": false
     },
     {
+      "kind": "action",
+      "name": "terminal_run",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "config flag enableRawTerminalActions is not true in openclaw.json",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "raw_terminal",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
       "kind": "command",
       "name": "orion-agenda-change",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-agent",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2107,6 +2136,14 @@
     {
       "kind": "command",
       "name": "orion-automation",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-automation-run",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2282,6 +2319,22 @@
     },
     {
       "kind": "command",
+      "name": "orion-project-agent",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-projects",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-python",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2355,6 +2408,14 @@
     {
       "kind": "command",
       "name": "orion-tools",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-undo",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

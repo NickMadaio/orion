@@ -41,6 +41,19 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN="$REPO/plugin/orion-control"
 INSTALLED="$HOME/.openclaw/extensions/orion-control"
+INTEGRITY="$(cd "$(dirname "$0")" && pwd)/lib/orion-integrity.mjs"
+record_integrity() {
+    node "$INTEGRITY" record orion-control "$INSTALLED" | sed 's/^/  integrity: /'
+}
+# A backup taken from a copy that did not verify is restored as it is but never
+# re-recorded as trusted: the plugin then refuses to act until a clean deploy.
+record_integrity_for_backup() {
+    if [ -f "$1/UNVERIFIED" ]; then
+        say "integrity: NOT re-recorded -- that backup was taken from a copy that had been changed"
+    else
+        record_integrity
+    fi
+}
 BACKUPS="$HOME/.openclaw/backups/orion-control"
 
 say()  { printf '  %s\n' "$1"; }
@@ -81,6 +94,7 @@ case "${1:-deploy}" in
     [ -f "$BACKUPS/$previous/openclaw.plugin.json" ] \
         && cp "$BACKUPS/$previous/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
     say "installed  $(fingerprint "$INSTALLED/dist")"
+    record_integrity_for_backup "$BACKUPS/$previous"
     say "The gateway picks this up on its next turn. Check with: orion-probe-plugin"
     echo ""
     exit 0
@@ -164,6 +178,10 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUPS/$stamp"
 if [ -d "$INSTALLED/dist" ]; then
     cp -R "$INSTALLED/dist" "$BACKUPS/$stamp/dist"
+    if ! node "$INTEGRITY" verify orion-control "$INSTALLED" >/dev/null 2>&1; then
+        touch "$BACKUPS/$stamp/UNVERIFIED"
+        say "note       the installed copy did not match its integrity manifest; its backup is marked UNVERIFIED"
+    fi
     [ -f "$INSTALLED/openclaw.plugin.json" ] \
         && cp "$INSTALLED/openclaw.plugin.json" "$BACKUPS/$stamp/openclaw.plugin.json"
     say "kept       $BACKUPS/$stamp  [$(fingerprint "$BACKUPS/$stamp/dist")]"
@@ -176,6 +194,9 @@ ls -1t "$BACKUPS" 2>/dev/null | tail -n +6 | while read -r old; do rm -rf "${BAC
 
 echo ""
 echo "== 5. install =="
+# Start from an empty dist: copying over the old one would keep any file that
+# should not be there, and the manifest recorded below would then bless it.
+rm -rf "$INSTALLED/dist"
 mkdir -p "$INSTALLED/dist"
 # TEST FILES ARE NOT SHIPPED, and the reason is a real finding rather than
 # tidiness: `orion_v2_rules_check.py` flagged the installed extension for
@@ -190,16 +211,18 @@ mkdir -p "$INSTALLED/dist"
 # finding, it was to stop shipping the files: the gateway never loads them,
 # they are a third of the installed bytes, and a scanner that has to be told
 # to ignore the shipped artefact is a scanner nobody will trust the next time.
-for file in "$PLUGIN"/dist/*.js "$PLUGIN"/dist/*.d.ts "$PLUGIN"/dist/file-copy-helper.py; do
-    case "$(basename "$file")" in
-        *.test.js|*.test.d.ts) continue ;;
-    esac
-    cp "$file" "$INSTALLED/dist/"
+# Every folder under dist, not just the top level: dist/v2 was never
+# redeployed, and dist is now emptied first, so skipping it would delete it.
+(cd "$PLUGIN/dist" && find . -type f \( -name '*.js' -o -name '*.d.ts' -o -name 'file-copy-helper.py' \) \
+    ! -name '*.test.js' ! -name '*.test.d.ts') | while read -r file; do
+    mkdir -p "$INSTALLED/dist/$(dirname "$file")"
+    cp "$PLUGIN/dist/$file" "$INSTALLED/dist/$file"
 done
-# And remove any that a previous hand-copy left behind.
-rm -f "$INSTALLED"/dist/*.test.js "$INSTALLED"/dist/*.test.d.ts
 cp "$PLUGIN/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
 say "installed  $(fingerprint "$INSTALLED/dist")  (tests excluded)"
+# Phase 48: the plugin checks itself against this at load and refuses to act
+# if it was changed by anything other than a deploy or ORION's gated repair.
+record_integrity
 
 echo ""
 echo "== 6. does it still load =="
@@ -266,6 +289,7 @@ if [ "${rollback_now:-no}" = "yes" ]; then
     cp -R "$BACKUPS/$stamp/dist" "$INSTALLED/dist"
     [ -f "$BACKUPS/$stamp/openclaw.plugin.json" ] \
         && cp "$BACKUPS/$stamp/openclaw.plugin.json" "$INSTALLED/openclaw.plugin.json"
+    record_integrity_for_backup "$BACKUPS/$stamp"
     "$HOME/.openclaw/bin/openclaw" gateway restart >/tmp/orion-deploy-rollback-restart.log 2>&1 || true
     say "restored   $(fingerprint "$INSTALLED/dist")"
     die "the new version was rejected and the old one is back."

@@ -1,6 +1,6 @@
 import { type DevOperation } from "./devops.js";
 export type Risk = "low" | "medium" | "high" | "critical";
-export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep" | "atlas_notes" | "travel" | "computer_observe" | "computer_control";
+export type CapabilityTier = "simulation" | "app_control" | "browser_control" | "media_control" | "test_workspace" | "scratch_workspace" | "desktop_read" | "home_read" | "desktop_test_workspace" | "desktop_modify" | "desktop_direct_write" | "scratch_direct_write" | "file_mutate" | "self_modification" | "self_plugin" | "self_scripts" | "self_config" | "ambient_info" | "reminders" | "self_tuning" | "health_tracking" | "calendar" | "messages_read" | "messages_send" | "dev_operations" | "automation" | "waiting_on" | "prep" | "atlas_notes" | "travel" | "computer_observe" | "computer_control" | "raw_terminal";
 /**
  * Roots Orion may write to. `home` is deliberately absent: home is a READ root
  * only, and every write policy below is typed against `MutableRoot` so a
@@ -260,6 +260,10 @@ export type ExecutionPolicy = {
     kind: "computer_observe";
     operation: "screen_observe" | "screen_capture";
 }
+/** PHASE 52. One shell command, run by zsh as Nick. See `terminal_run`. */
+ | {
+    kind: "raw_terminal";
+}
 /**
  * PHASE 53/55. Act on the screen. Every operation requires
  * `expectedBundleIdArgument` — the model must name the app it observed,
@@ -324,6 +328,13 @@ export interface TunableSetting {
     description: string;
 }
 export declare const TUNABLE_SETTINGS: Record<string, TunableSetting>;
+export declare const TIMEOUT_RETRY_SAFE: ReadonlySet<string>;
+/**
+ * One line per optional argument, naming the actions that accept it -- the
+ * form the tool description carries. Generated, so it cannot drift from the
+ * validator.
+ */
+export declare function optionalArgumentsSummary(catalog: Record<string, ActionDefinition>): string;
 export interface ActionDefinition {
     risk: Risk;
     requiredArguments: string[];
@@ -333,6 +344,17 @@ export interface ActionDefinition {
     capabilityTier: CapabilityTier;
     execution: ExecutionPolicy;
     validateArguments?: (arguments_: Record<string, unknown>) => string[];
+    /**
+     * Arguments the action ACCEPTS but does not require, with what each does.
+     *
+     * Phase 46: an argument the model cannot see is an argument it cannot use.
+     * media_play_pause took an optional `player` that would have targeted Apple
+     * Music; ORION called it bare, Spotify answered first, and he told Nick he had
+     * no way to target Apple Music -- true of everything he could read. Declared
+     * here so the tool description and TOOLS.md (orion-selfdoc) generate from the
+     * same source the validator enforces.
+     */
+    optionalArguments?: Readonly<Record<string, string>>;
     /**
      * Arguments that must have come out of Nick's own mouth, not merely out of
      * something Orion read.

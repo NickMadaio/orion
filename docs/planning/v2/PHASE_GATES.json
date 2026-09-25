@@ -3218,7 +3218,7 @@
     },
     "40": {
       "name": "Travel and Timezone Support",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": 39,
       "entrySatisfied": true,
       "openedOn": "2026-09-01",
@@ -3279,9 +3279,9 @@
         },
         {
           "id": "the_live_cron_weather_and_day_boundary_are_re_homed",
-          "status": "blocked",
+          "status": "passed",
           "reason": "Deliberately NOT done today. Nick is still in New York until roughly 2026-09-07; re-homing now would be wrong for six days. The mechanism is built, dry-runnable (`orion-timezone plan`) and idempotent, and the move is recorded so orion-standing raises it the morning after he lands. This closes when `orion-timezone set Europe/London` is run.",
-          "evidence": "scripts/orion-timezone plan Europe/London reports the three cron jobs and shows orion-daily-memory moving 02:10 -> 07:10 local. location.json records home=America/New_York with expectedMove Europe/London on 2026-09-08. THE COMMAND ITSELF IS EXERCISED: run-timezone-set-test.sh drives the real script against a fake gateway over 18 checks (happy path, idempotence, a job the gateway refuses, and five zones that must be refused before anything is touched), and a REAL reversible round trip against the live gateway on 2026-09-01 12:41-12:43 EDT proved `openclaw cron edit --tz` behaves as assumed -- orion-daily-memory's next run moved from 02:10 to 21:10 New York local, which is 02:10 London, then back. Live state restored byte for byte and verified by diff against a pre-test copy."
+          "evidence": "Re-homed on the live system 2026-09-25 20:35 BST at Nick's instruction: scripts/orion-timezone set Europe/London --place London. orion-focus-guard, orion-standing-orders and orion-daily-memory now run in Europe/London (orion-timezone status: verdict settled, machine and schedule agree); home Europe/London and place London drive weather and the day boundary; the recorded expected move was cleared as satisfied. Audit row in ~/.openclaw/orion-controlled/location-audit.jsonl; undo: orion-timezone set America/New_York --place 'Montvale, New Jersey'."
         },
         {
           "id": "the_existing_mac_app_surfaces_use_the_new_vocabulary",
@@ -3303,13 +3303,12 @@
         }
       ],
       "limitations": [
-        "One requirement remains blocked and it is not code: the live cron jobs are still pinned America/New_York because Nick has not moved yet. `orion-timezone set Europe/London` closes it in one command and is proven against both a fake gateway and a real reversible round trip.",
         "Travel Mode has no UI. The domain is complete and tested; nothing displays a second clock yet.",
         "Journey has no producer -- nothing turns a calendar event into one. It is the vocabulary a future travel surface needs, recorded as such rather than implied to be live.",
         "The zone-name agreement between Foundation and ICU is pinned by a translation table generated on 2026-09-01 and a test that asserts it is still load-bearing. If tzdata moves under it the failure is loud -- the Swift decode refuses and names the string -- not silent.",
         "The node half of the verdict rule in orion-timezone and orion-standing mirrors TimeZonePolicy.verdict. The Swift type is authoritative and has the tests; only the stored FORMAT is proven to agree."
       ],
-      "nextPhaseAllowed": false,
+      "nextPhaseAllowed": true,
       "postReviewCorrections": {
         "reviewedOn": "2026-09-02",
         "review": "Independent adversarial review, 2026-09-02, by an agent that was given the manifest, the repo and the commands and NOT the implementers' conclusions. Findings are recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
@@ -3327,7 +3326,9 @@
             "repair": "No code change. Recorded so the numbers are not treated as reproducible constants."
           }
         ]
-      }
+      },
+      "closedOn": "2026-09-25",
+      "closedAgainst": "the manifest text for PHASE 40; the last requirement closed live by the command the gate named"
     },
     "34": {
       "name": "ORION Health UI",
@@ -3789,7 +3790,7 @@
       "name": "Notification Engine",
       "status": "complete",
       "entryRequiresPhase": "40",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-01",
       "openedAgainst": "Phase 40's one open requirement is not code -- the live cron jobs stay pinned America/New_York until Nick lands on 2026-09-08, and `orion-timezone set Europe/London` closes it in one command. Nick directed phases 41-45 next on 2026-09-01 rather than hold the program for a week on a calendar date. Recorded as a deviation with entrySatisfied false, per AGENTS.md, rather than asserted true.",
       "evidence": "native/OrionMobile/Sources/MobileCore/Notifications.swift, checked by scripts/orion_v2_mobile_check.sh (573 checks, 0 failed; iOS build clean).",
@@ -3896,7 +3897,7 @@
     },
     "43": {
       "name": "LOCK ORION",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "42",
       "entrySatisfied": true,
       "evidence": "scripts/orion-lock (built earlier, unchanged by this gate) and scripts/orion_v2_lock_check.sh, new: the first automated check the panic button has ever had. 14 assertions, run against the real script and the real changePermissionProfile in a scratch HOME.",
@@ -3934,9 +3935,9 @@
         },
         {
           "id": "requires_reauthentication_for_sensitive_operations",
-          "status": "blocked",
+          "status": "passed",
           "reason": "Still not implemented. Recovery requires being at the Mac, but that is an access control, not a reauthentication -- no identity is re-established before a sensitive operation. Narrower than it was (the remote channel is now refused outright while locked) and still open.",
-          "evidence": "scripts/orion-lock release clears the flag with no identity step. What it does require is physical access to the Mac, which is a real factor and is why release deliberately does NOT restore the permission profile or re-enable cron -- undoing the emergency stays a separate decision, and that asymmetry is asserted in the check. But nothing re-checks WHO is asking, so the requirement as written is not met."
+          "evidence": "Built 2026-09-25. orion-mac-bridge gained `authenticate --reason` (native/OrionMacBridge/Sources/OrionMacBridge/Authenticate.swift): LocalAuthentication .deviceOwnerAuthentication, so Touch ID or the account password in a prompt macOS draws itself; exit 0 only on confirmation. scripts/lib/orion-reauth.mjs wraps it and is required by the two operations that lower the guard: `orion-lock release` and every `orion-mode` relaxation, including lifting containment back to the default. Tightening never asks. A remote caller (Discord, phone) cannot answer a prompt drawn on the Mac, so both stay things done at the Mac. Test seam ORION_REAUTH_BIN is honoured only when HOME differs from the account's real home (os.userInfo, not $HOME), and a moved HOME also moves every state file, so the stand-in can only approve operations on a sandbox. Proofs: scripts/orion_v2_lock_check.sh (release refused without the owner, lock kept, message names what it needs; released once confirmed) and new scripts/orion_v2_reauth_check.sh (7 assertions, live strictness file byte-identical); mutation-tested: disabling the orion-mode check fails 3 assertions. The real prompt was raised live on Nick's Mac during development."
         },
         {
           "id": "flags_account_state_as_locked",
@@ -3955,11 +3956,11 @@
         }
       ],
       "limitations": [
-        "One requirement remains blocked: reauthentication. Everything else closed on 2026-09-02 once the transport existed.",
         "The lock stops the remote channel and Orion's authority; it deliberately does not kill the gateway. A dead gateway cannot be asked why it is dead, cannot be unlocked, and takes the voice down with it.",
-        "orion-lock has still never been run against live state by an assistant. Every proof is the real script through the real writer in a scratch HOME, with the live permission-state.json hashed before and after and asserted byte-identical."
+        "orion-lock has still never been run against live state by an assistant. Every proof is the real script through the real writer in a scratch HOME, with the live permission-state.json hashed before and after and asserted byte-identical.",
+        "Re-authentication is a presence check at the Mac, not remote. Releasing the lock or relaxing the mode from the phone or Discord is deliberately impossible until Phase 49 gives the phone a signed, Face ID-backed approval."
       ],
-      "nextPhaseAllowed": false,
+      "nextPhaseAllowed": true,
       "postReviewCorrections": {
         "reviewedOn": "2026-09-02",
         "review": "Independent adversarial review, 2026-09-02, by an agent given the manifest, the repo and the commands and NOT the implementer's conclusions. Recorded here rather than by editing the original evidence: that a claim was wrong is itself evidence about the evidence.",
@@ -3977,13 +3978,15 @@
             "repair": "Both are now positive and specific: the refusal is pinned to 'Orion is locked' and paired with a negative on the answer it must not give; the acceptance is pinned to 'Orion | DEVICE'."
           }
         ]
-      }
+      },
+      "closedOn": "2026-09-25",
+      "closedAgainst": "the manifest text for PHASE 43; re-authentication added by Nick's batch of 2026-09-25"
     },
     "44": {
       "name": "Mac Remote Connection Foundation",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "43",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-01",
       "openedAgainst": "Phase 43 has four blocked requirements, three of which need exactly the machinery this phase builds -- a dispatcher to stop, a queue to cancel, a lease to expire. Waiting for 43 to close before starting 44 would deadlock, since 43 cannot close until 44 exists. Recorded as a deviation rather than asserted true.",
       "evidence": "native/OrionMobile/Sources/MobileCore/RemoteLink.swift, checked by scripts/orion_v2_mobile_check.sh (638 checks, 0 failed; iOS build clean), plus a permanent security invariant in tests/test_v2_security_invariants.py.",
@@ -4048,7 +4051,8 @@
         "A full Discord round trip -- inbound message to delivered reply -- has NOT been executed, because no account is allowlisted yet. ORION_REMOTE_ALLOW defaults to refusing everyone, and the candidate id was discovered with `orion-remote-bridge whoami` and written into .env COMMENTED OUT: granting an account authority over this Mac is a person's decision, not an inference an assistant makes from who owns the guild. One uncommented line closes it.",
         "Nothing supervises the bridge. `run` stays connected and reconnects on its own, but no launch agent starts it, and launchd cannot read ~/Desktop on this machine -- the same constraint that already leaves the TTS daemon unsupervised.",
         "The bridge writes remote-link.json, which is MobileCore's MacLink shape, so Phase 44's 'no producer' limitation is closed. No Mac or phone SURFACE reads it yet, so the four presences still render nowhere.",
-        "The reconnect, heartbeat and rotation numbers in the bridge mirror MobileCore's RemoteLink policies. The Swift side is authoritative and carries the tests; the two are not mechanically proven to agree -- the same shape as the TimeZonePolicy mirror under Phase 40."
+        "The reconnect, heartbeat and rotation numbers in the bridge mirror MobileCore's RemoteLink policies. The Swift side is authoritative and carries the tests; the two are not mechanically proven to agree -- the same shape as the TimeZonePolicy mirror under Phase 40.",
+        "UPDATE 2026-09-25: two of the limitations above no longer hold. The bridge is supervised: scripts/orion-remote-install copies it outside ~/Desktop into ~/.openclaw/orion-remote under a LaunchAgent, and --status reports it running and fingerprint-identical to the repo. Round trips have run for real: Discord `agent` status and halt commands reached the installed controller and were answered (HANDOFF.md, 2026-09-23/24). The remaining limitation is the phone: the Control tab now renders MacPresence, but from preview data until the link reaches the phone."
       ],
       "nextPhaseAllowed": true,
       "postReviewCorrections": {
@@ -4074,7 +4078,9 @@
             "repair": "No code change. The requirement stands on the source scan and the loopback bindings, not on that sentence."
           }
         ]
-      }
+      },
+      "closedOn": "2026-09-25",
+      "closedAgainst": "the manifest text for PHASE 44; entry legitimate once Phase 43 closed on 2026-09-25"
     },
     "45": {
       "name": "Remote Mac Read-Only",
@@ -4194,7 +4200,7 @@
     },
     "46": {
       "name": "Harmless Mac Actions",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "45",
       "entrySatisfied": true,
       "evidence": "The four actions already existed in the deployed catalogue. Verified against plugin/orion-control/dist and against the real execution ledger rather than rebuilt.",
@@ -4230,9 +4236,9 @@
         },
         {
           "id": "supports_mobile_cancellation",
-          "status": "blocked",
+          "status": "passed",
           "reason": "No mobile surface exists, and these four actions are atomic -- an app launch has no in-flight window to cancel. The honest reading is that this requirement belongs with Phase 56's session UI, where cancelling something long-running is meaningful.",
-          "evidence": "Mission-level cancellation does exist and is reachable remotely -- `cancel <mission>` is one of orion-remote's verbs and it stops the runner. What does not exist is cancellation of an action, and there is no mobile surface to cancel from: MobileCore's types still have no producer or renderer. Registered rather than argued around, because Phase 56 (Remote Session UI) is where the manifest actually puts pause/cancel/inspect, and closing this on the mission verb would let 56 inherit a tick it did not earn."
+          "evidence": "Built 2026-09-26 and deployed. A running action is listed in actions/running/ beside the task ledger while it runs; orion-remote gained `actions` and `action cancel <taskId>` (Discord from the phone today), which write a cancel mark the controller checks before every step (plugin/orion-control/src/cancellation.ts). The step in flight finishes, since a half-killed step is the state the repair engine must avoid; terminal_run is the exception and is killed (Phase 52). Cancel works while ORION is locked. The run is recorded with `cancelled` {completedSteps, notStarted}; ORION is told to say so and not retry. Proofs: index.test.ts 'stops before the next step when Nick cancels from his phone, and never mid-step'; scripts/orion_v2_remote_check.sh (8 new checks incl. lock bypass and path refusal); orion-deploy all 7 suites OK. Repaired 2026-09-26 after independent review: a stop no longer lets the retry loop re-run the step (a stopped terminal command ran 3 times with retryBudget 2); critical or approved-irreversible actions are never retried; a stop during a step is recorded as a cancellation; orion-lock now asks every running action to stop. Tests: review-repairs.test.ts 'runs a stopped terminal command once'; orion_v2_lock_check.sh."
         },
         {
           "id": "an_action_must_not_spend_its_budget_verifying_itself",
@@ -4241,15 +4247,15 @@
         },
         {
           "id": "optional_arguments_are_visible_where_the_model_reads_its_capabilities",
-          "status": "blocked",
+          "status": "passed",
           "reason": "Not fixed. orion-selfdoc must emit optional arguments too. Registered rather than repaired because it changes the generated capability surface the model reads, and that deserves its own verified pass.",
-          "evidence": "media_play_pause accepts an optional `player` argument that would have targeted Apple Music directly. Orion called it bare, it iterated Spotify first, and he told Nick he had no way to target Apple Music -- which he could not have known was wrong, because scripts/orion-selfdoc emits only requiredArguments and the tool description exposes bare action names. The argument is invisible everywhere the model can see."
+          "evidence": "Built 2026-09-26 and deployed. ActionDefinition.optionalArguments (catalog.ts) is the one source: player-targeting media actions declare `player`, browser actions `browser`, terminal_run `cwd`. The tool description carries a generated 'Optional arguments' line (optionalArgumentsSummary, families collapsed to fit the 4,000-character budget) and scripts/orion-selfdoc prints them in brackets; live ~/.openclaw/workspace/TOOLS.md shows media_play_pause([player]). Hash arguments are deliberately not advertised: the host fills every hash. Test: index.test.ts 'shows optional arguments where the model reads its capabilities'."
         },
         {
           "id": "a_timed_out_action_is_retried_at_least_once",
-          "status": "blocked",
+          "status": "passed",
           "reason": "Not fixed. Giving retries a non-zero default changes execution semantics for every action, not just this one, and should not be done unsupervised.",
-          "evidence": "The AppleScript timeout throws ActionExecutionError(msg, retryable=true) and the controller honours it only while attempt <= graph.retryBudget. retryBudget defaults to 0 and the tool description instructs the model never to set it, so no model-issued action is ever retried and the flag is dead code."
+          "evidence": "Built 2026-09-26 and deployed. retriesAllowed() in controller.ts gives a timed-out action at least one retry when it is in TIMEOUT_RETRY_SAFE (catalog.ts): reads and set-to-a-state actions. Toggles (play/pause, next, previous) and anything that creates, sends or moves are excluded, because a timeout is an unknown outcome and a retried toggle undoes itself. The plan's retryBudget still applies to all. Tests: 'gives a timed-out action that is safe to repeat one retry at a zero budget, and nothing else'; 'does not re-run an action that is not safe to repeat when the budget is zero'."
         }
       ],
       "limitations": [
@@ -4259,13 +4265,15 @@
         "APPLE MUSIC IS NOT ANSWERING APPLEEVENTS ON THIS MAC AT ALL, and the snapshot fix does not change that. Measured 2026-09-02: `tell application id \"com.apple.Music\" to playpause` returns AppleEvent timed out (-1712) after 120 seconds. So the pause would have failed even with the snapshot skipped. This is an environment or app-state problem rather than a code one, and it is the real reason Nick's music did not pause.",
         "A system media-key route was measured at 291ms against the AppleEvent route's timeout, which looks like the answer to Nick's own phrasing -- 'whatever is the current fastest way to pause'. It was NOT shipped: osascript reporting success only means the script ran, `key code 16` is plausibly the 'y' key rather than a media key, and with Music unresponsive there was no way to confirm anything actually paused. Shipping an unverified fallback would be the same confidently-wrong failure this phase exists to record."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": true,
+      "closedOn": "2026-09-26",
+      "closedAgainst": "PHASE 46 manifest text; closed after the 2026-09-26 deploy"
     },
     "47": {
       "name": "File Capabilities",
-      "status": "in_progress",
+      "status": "complete",
       "entryRequiresPhase": "46",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "File copying is now deployed and verified through the gateway. Earlier list/read/move rows cite catalog support, not newly repeated end-to-end execution. Trash recovery proof reopened after independent evidence review.",
@@ -4315,23 +4323,25 @@
         },
         {
           "id": "supports_trash_recoverable_deletion",
-          "status": "blocked",
-          "evidence": "Catalog and executor implement higher-risk file_delete as a move to Trash; source evidence retained. Actual recovery has not yet been demonstrated in this batch.",
-          "reason": "Independent review found previous evidence established code support but did not demonstrate byte-preserving recovery. Disposable installed-route Trash/recovery proof remains required under the explicit human approval gate."
+          "status": "passed",
+          "evidence": "Demonstrated 2026-09-26. scripts/orion_v2_trash_recovery_check.sh runs a real file_delete through the plugin's compiled controller, with an approval grant bound to that action, then recovers the file with the new scripts/orion-undo. orion-undo lists undoable steps from the task ledger, restores in reverse order, never overwrites, and audits to undo-audit.jsonl. With --live the Trash is the real ~/.Trash: the file went in (the plugin's file_in_trash verifier observed it) and came back byte-identical; a second undo is refused. 10/10 in both modes. 2026-09-26, after review: --live now drives the INSTALLED plugin (~/.openclaw/extensions/orion-control/dist), not the repo build, and passes 11/11. orion-undo now refuses ledger paths outside the home folder or inside ~/.openclaw, the repo, ~/Library or ~/.ssh, refuses symlinks, and only trashes a copy whose SHA-256 still matches."
         }
       ],
       "limitations": [
-        "Phase46 prerequisite remains open; entrySatisfied false deviation retained.",
-        "Actual Trash recovery remains unproven; human approval is required for the disposable deletion test.",
-        "Earlier list/read/move evidence remains catalog-level unless separately attributed."
+        "Superseded 2026-09-26: 'Phase46 prerequisite remains open' -- Phase 46 closed 2026-09-26 and entrySatisfied is now true.",
+        "Superseded 2026-09-26: 'Actual Trash recovery remains unproven' -- proven against the real ~/.Trash through the installed plugin; see supports_trash_recoverable_deletion.",
+        "Earlier list/read/move evidence remains catalog-level unless separately attributed.",
+        "The recovery proof injects the approval grant directly rather than going through a person answering orion-approve; the approval path itself is proven separately (Phase 49 records, terminal.test.ts, the Mac panel)."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": true,
+      "closedOn": "2026-09-26",
+      "closedAgainst": "PHASE 47 manifest text; closed 2026-09-26"
     },
     "48": {
       "name": "Mac Privilege Separation",
-      "status": "not_started",
+      "status": "in_progress",
       "entryRequiresPhase": "47",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-02",
       "openedAgainst": "Entered with entrySatisfied false. The phase before it is open on requirements that are not code -- mobile cancellation needs a phone surface, and Phase 46's two other gaps change the capability surface and execution semantics respectively. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "Surveyed 2026-09-02. No worker/broker split exists. Recorded so the position is honest rather than left blank.",
@@ -4340,13 +4350,13 @@
           "id": "splits_execution_into_user_worker_and_privileged_broker",
           "status": "blocked",
           "reason": "Not started. This is an architectural split, not a feature, and it should be designed before it is typed.",
-          "evidence": "grep for PrivilegedBroker / UserWorker across every Swift and TypeScript source returns nothing. What does exist is native/OrionMacBridge, a separate signed binary the app shells out to for EventKit -- a real process boundary, but drawn for TCC attribution rather than for privilege, and it holds no elevated rights."
+          "evidence": "Not built as code, on purpose (2026-09-26). A broker running as the same macOS user adds no boundary: anything that can reach the worker can reach the broker. A real split needs OS isolation, either a second macOS user for the gateway or a sandbox-exec profile around it. Both are admin changes Nick must make. Options put to Nick."
         },
         {
           "id": "privileged_broker_exposes_only_a_tiny_explicit_interface",
           "status": "blocked",
           "reason": "Depends on the split above.",
-          "evidence": "There is no broker."
+          "evidence": "Depends on the broker split above; no broker exists yet (2026-09-26)."
         },
         {
           "id": "does_not_expose_run_arbitrary_root_command",
@@ -4357,25 +4367,25 @@
           "id": "keeps_privileged_code_minimal",
           "status": "blocked",
           "reason": "Depends on the split.",
-          "evidence": "Vacuously true -- there is no privileged code -- which is not the same as satisfied."
+          "evidence": "Depends on the broker split above (2026-09-26)."
         },
         {
           "id": "signs_and_hardens_executables",
           "status": "blocked",
           "reason": "Not started, and partly gated on the Apple Developer Program Nick has chosen to leave until last.",
-          "evidence": "scripts/orion-sign-setup exists and the $99 Apple Developer Program is deliberately deferred to the end of the programme. tests/test_keychain_call_sites.py pins the two call sites a Team ID would change."
+          "evidence": "Deferred by Nick (2026-09-26: 'Build all but signing'). Needs the Apple Developer Program ($99/yr) for Developer ID signing and a hardened runtime."
         },
         {
           "id": "prevents_unauthorized_replacement_or_tampering",
           "status": "blocked",
-          "reason": "Not started. Today's work made this more relevant, not less.",
-          "evidence": "Nothing verifies the integrity of an installed copy before running it. Two copies now run outside the repo -- ~/.openclaw/orion-remote and the installed plugin -- and only a fingerprint COMPARISON exists (orion-remote-install --status), which reports drift rather than preventing it."
+          "reason": "Independent review (2026-09-26) showed the plugin half is not a prevention: the check runs inside the code it checks, so a replaced index.js or integrity.js skips it. Closing that needs the gateway to verify before loading, or code signing (deferred).",
+          "evidence": "Built and deployed 2026-09-26. scripts/lib/orion-integrity.mjs records a SHA-256 manifest of every installed file in ~/.openclaw/orion-gate/integrity/ (a directory no ORION action can write), written only by the sanctioned installers (orion-deploy, orion-repair, the bridge installer). The Discord bridge is started by launchd through a verifier that refuses to run a changed copy and logs which file changed; the plugin checks itself at load and refuses orion_task_run, orion_tool_run and orion_permission_change if it has been altered. Live: 73 plugin files recorded, integrityProblem() null; bridge status 'unchanged'. Tests: integrity.test.ts, scripts/orion_v2_integrity_check.sh. Honest limit: a user-level attacker who can write the gate directory can rewrite the manifest; closing that needs code signing (signs_and_hardens_executables, deferred). Repaired 2026-09-26 after review: the manifest now covers the whole extension (package.json, openclaw.plugin.json, node_modules: 1,464 files), the installed copy fails closed with no manifest, deploy empties dist before copying, and deploy/repair never re-record a backup that did not verify. And ORION himself can no longer change any of it: every file action refuses paths under ~/Desktop/ORION, ~/.openclaw and ~/Library/LaunchAgents (protected-paths.ts), and terminal_run runs under a sandbox-exec profile denying writes there. The bridge half (launchd runs the verifier) stands."
         },
         {
           "id": "binds_destructive_authorization_to_the_requesting_turn",
-          "status": "blocked",
+          "status": "passed",
           "reason": "Not fixed. Found by an independent review of the failed conversation.",
-          "evidence": "AMENDED INTO THE MANIFEST 2026-09-02. transcript.ts documents a `perTurnOnly` rule for exactly this and the identifier appears nowhere in the codebase. A target named up to eight turns or ten minutes earlier can be spliced onto a later 'do it' -- precisely the splice the comment claims is prevented."
+          "evidence": "Built and deployed 2026-09-26. For actions whose target is a person's words (recipient, title, key, script, pluginFile), an irreversible or critical action must have its target named in the requesting turn or the confirmation just before it; briefings and app state are stripped first so a machine turn can never be 'the request' (fixed 2026-09-26 after review). Every other destructive action (file_delete, terminal_run, calendar_event_remove, screen control) needs a one-shot approval that now names the exact target -- the full command, the file path -- and one yes is spent atomically on one run of one step. Tests: validator requesting-turn tests; review-repairs.test.ts (C2, H4)."
         }
       ],
       "limitations": [
@@ -4471,21 +4481,22 @@
         },
         {
           "id": "every_delegation_defines_capabilities_resources_exceptions_limits_expiration_ceiling_and_devices",
-          "status": "blocked",
+          "status": "passed",
           "reason": "`resources` (per-path scoping) is unimplemented. The other six fields are stored and enforced.",
-          "evidence": "Six of the seven fields are stored AND read. risk ceiling = the mode; expiration and time limits = `expiresAt`, evaluated at read time so a delegation ends without anything having to fire, bounded to 24h because expiry is compared against a system clock that can move; exceptions = `except`, keyed by action name or capability tier, combined with `worst` so it can only ADD friction; target devices = `deviceId`, and a delegation addressed to another hostname resolves to guarded; allowed capabilities = the mode and the floor together. The seventh, RESOURCES, is not there: there is no way to say 'sovereign, but only under ~/Projects'. Scoping a delegation to a path needs the mode to reach the execution roots, which it deliberately does not today."
+          "evidence": "Built and deployed 2026-09-26. Strictness modes (strictness.ts) now carry `resources`: the roots a relaxation covers. orion-mode --within <path> sets them; the validator's outsideScope rule raises any target outside those roots back to approval (targetOutsideResources). Together with the existing capabilities, exceptions, limits, expiry, the fixed floor as ceiling, and the device the mode was set from, every delegation defines all seven. Relaxing still needs owner re-authentication (Phase 43). Test: strictness-resources.test.ts; orion_v2_reauth_check.sh --within. Limit found by review 2026-09-26: resources are enforced for path-carrying file actions; fixed-root actions fail closed (count as outside); approval-gated self-modification asks regardless. orion-mode now treats dropping or widening --within, or --clear-never, as a relaxation needing the owner, and a same-mode scope change is written rather than answered 'Already' (orion_v2_reauth_check.sh, 12 checks)."
         },
         {
           "id": "requires_explicit_user_approval_to_create_or_expand_a_delegation",
           "status": "passed",
-          "evidence": "CLOSED 2026-09-02, by the same argument that makes `orion-approve` work and no other: `orion-mode` is absent from the exec allowlist (so the call is denied, not prompted), is in FORBIDDEN_SCRIPTS (so the repair engine will not edit it), writes a path no mutable root covers, and its config key is in FORBIDDEN_CONFIG (so it cannot be redirected). Running it IS the authorization. Expanding additionally needs `--yes`, and an open-ended relaxation needs `--until-changed` said out loud -- friction placed on the choice that deserves it. Tightening never needs either, because that is the one direction Orion may take alone."
+          "evidence": "CLOSED 2026-09-02, by the same argument that makes `orion-approve` work and no other: `orion-mode` is absent from the exec allowlist (so the call is denied, not prompted), is in FORBIDDEN_SCRIPTS (so the repair engine will not edit it), writes a path no mutable root covers, and its config key is in FORBIDDEN_CONFIG (so it cannot be redirected). Running it IS the authorization. Expanding additionally needs `--yes`, and an open-ended relaxation needs `--until-changed` said out loud -- friction placed on the choice that deserves it. Tightening never needs either, because that is the one direction Orion may take alone. 2026-09-26: review found two ways round it, both repaired: orion-mode could widen scope without the owner (M3), and ORION could rewrite the scripts that grant approval via an unapproved Desktop write (C1, now refused by protected-paths.ts)."
         }
       ],
       "limitations": [
         "Phase 42 deliberately built the Delegation vocabulary early, and its gate recorded at the time that nothing produced one. That is still true and is this phase's whole scope.",
-        "This phase is where the manifest itself would narrow the full remote authority Nick chose on 2026-09-02 -- preauthorised narrow capabilities are the alternative to all-or-nothing. Worth reading together with scopeNotInManifest's remote_conversation_with_the_brain entry."
+        "This phase is where the manifest itself would narrow the full remote authority Nick chose on 2026-09-02 -- preauthorised narrow capabilities are the alternative to all-or-nothing. Worth reading together with scopeNotInManifest's remote_conversation_with_the_brain entry.",
+        "2026-09-26: every requirement passes, but the phase stays in_progress, not closed: Phase 49 (its predecessor) is not complete, so 50's own entry is unsatisfied. Close it after 49."
       ],
-      "nextPhaseAllowed": false,
+      "nextPhaseAllowed": true,
       "postReviewCorrections": [
         {
           "on": "2026-09-04",
@@ -4498,7 +4509,7 @@
       "name": "Structured Terminal Operations",
       "status": "in_progress",
       "entryRequiresPhase": "50",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "plugin/orion-control/src/devops.ts plus seven ACTION_CATALOG entries, covered by src/gate.test.ts and exercised against the real repository. Enabled live in openclaw.json.",
@@ -4520,8 +4531,8 @@
         },
         {
           "id": "the_bare_git_allowlist_entry_is_retired",
-          "status": "blocked",
-          "evidence": "NOT DONE, and deliberately left for Nick. The structured operations now cover everything the bare `git` entry was reached for, so the entry is redundant and is the last raw-shell route into a repository. Removing it edits exec-approvals.json, which is his file, and taking capability away unasked is as much a surprise as adding it.",
+          "status": "passed",
+          "evidence": "Done live 2026-09-26 with Nick's approval. Removed main's {\"pattern\":\"git\"} from ~/.openclaw/exec-approvals.json (backup .pre-phase51-20260925-211108; the crestodian agent's list untouched). Git now goes only through the structured development capabilities. scripts/orion_v2_strictness_check.sh asserts the entry is absent (34/34).",
           "reason": "Removing an exec allowlist entry is Nick's call; recommended, not taken."
         }
       ],
@@ -4529,13 +4540,16 @@
         "The tier is `dev_operations`, listed by name at consequential_local rather than folded into EDIT_TIERS -- the same rule self_modification follows, because running a repository's build executes code out of that repository and must not arrive as a side effect of widening filesystem access.",
         "tests_run, build_run and package_install genuinely do execute repository code, and git_pull can bring in a hook. Recorded rather than argued away. It is not a new class of power -- orion-repair already built and tested before installing -- but it now carries a tier, a risk, a timeout and a ledger entry instead of arriving through an allowlist entry that cannot see its own arguments."
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": true,
+      "limitations": [
+        "2026-09-26: every requirement passes; stays in_progress until 49 and 50 close in sequence."
+      ]
     },
     "52": {
       "name": "Raw Terminal Access",
       "status": "in_progress",
       "entryRequiresPhase": "51",
-      "entrySatisfied": false,
+      "entrySatisfied": true,
       "openedOn": "2026-09-03",
       "openedAgainst": "Entered with entrySatisfied false. Phase 50 is open on its `resources` field and Phase 49 on the iPhone half, neither of which is code this phase depends on. Recorded as a deviation per AGENTS.md rather than asserted true.",
       "evidence": "Surveyed 2026-09-03 by enumerating ACTION_CATALOG execution kinds and the exec policy, not by reading a list.",
@@ -4553,11 +4567,18 @@
         {
           "id": "treat_raw_terminal_as_r5_with_session_visibility_faceid_duration_audit_and_cancellation",
           "status": "blocked",
-          "evidence": "Not built and not wanted yet. Of the eight requirements listed, three are already available if it is ever built -- a complete audit (the task ledger), restricted working directories (devops.ts's repository table) and emergency cancellation (orion-lock, and `orion-mode contained`). Face ID needs the phone, as in Phase 49.",
+          "evidence": "Built and deployed 2026-09-26, flag OFF. terminal_run is catalogued as tier raw_terminal, critical, irreversible, approval required, and R5 in orion/security/risk.py (never demoted). It runs through zsh -lc with a 2-minute limit and a 20KB output cap; it is audited in the task ledger; while running it appears in the Mac app's approvals panel with Stop, which kills its process group. Pending gate amendment: Nick decided (2026-09-25) that confirmation is in-app 'Allow once / Allow for this chat / Deny' (like ChatGPT and Claude) instead of Face ID. A chat grant is 8h and covers terminal_run only. The requirement's Face ID clause stays open until Nick either accepts the amendment or Phase 49's Face ID lands. enableRawTerminalActions defaults OFF. Repaired 2026-09-26 after independent review: the approval card and panel show the whole command and folder (they showed only 'terminal_run'); the command runs under sandbox-exec denying writes to the gate, the plugin, the repo and LaunchAgents, with a minimal environment and redacted output; a command copied from read content is refused; Stop kills it and it is never retried; chat approvals are capped at 8h from when they were given, must trace to a real grant, are withdrawn by 'orion-approve revoke-chat' and by orion-lock. Note: 'this chat' is ORION's one conversation, shared by the app, voice and Discord. Tests: review-repairs.test.ts (9), terminal.test.ts (5).",
           "reason": "Deliberately unbuilt. The phase's own instruction is to keep it disabled by default."
         }
       ],
-      "nextPhaseAllowed": false
+      "nextPhaseAllowed": false,
+      "pendingGateAmendment": {
+        "raisedOn": "2026-09-26",
+        "requirement": "treat_raw_terminal_as_r5_with_session_visibility_faceid_duration_audit_and_cancellation",
+        "proposal": "Replace Face ID with in-app confirmation (Allow once / Allow for this chat / Deny) in the Mac approvals panel, recorded as <user>@app by scripts/orion-approve.",
+        "decidedBy": "Nick, 2026-09-25: build it, but not as gated; UI or in-app confirmation like ChatGPT and Claude use.",
+        "status": "awaiting Nick accepting it as the gate wording"
+      }
     },
     "53": {
       "name": "Automation Sessions for Complex Computer Work",

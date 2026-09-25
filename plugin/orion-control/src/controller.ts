@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { ACTION_CATALOG, type CapabilityTier } from "./catalog.js";
+import { ACTION_CATALOG, TIMEOUT_RETRY_SAFE, type CapabilityTier } from "./catalog.js";
 import {
   ActionExecutionError,
   executeAction,
   verifyAction,
 } from "./executors.js";
 import { TaskLedger } from "./ledger.js";
+import { cancelRequested, clearRun, markRunning } from "./cancellation.js";
 import type {
   StepRecord,
   TaskGraph,
@@ -87,6 +88,24 @@ const AUTHORING_MODES = new Set([
   "moved",
 ]);
 
+/**
+ * How many times a step may be retried after an attempt, by why it failed.
+ * The plan's budget applies to both; a timeout on an action that is safe to
+ * repeat gets at least one retry from the host (see TIMEOUT_RETRY_SAFE).
+ */
+export function retriesAllowed(action: string, budget: number, cause: "timeout" | "unverified"): number {
+  if (cause === "timeout" && TIMEOUT_RETRY_SAFE.has(action)) return Math.max(1, budget);
+  // A critical action, or an irreversible one a person had to approve (a
+  // send, a removal), is never repeated whatever the plan's budget: "did not
+  // verify" there is an unknown outcome, and a second run is a second send
+  // (review, 2026-09-26: a stopped terminal_run with retryBudget 2 ran three
+  // times). Irreversible writes that need no approval stay retryable: they are
+  // hash-guarded, and a retry finds "already_present" rather than writing twice.
+  const definition = ACTION_CATALOG[action];
+  if (!definition || definition.risk === "critical" || (!definition.reversible && definition.approvalRequired)) return 0;
+  return budget;
+}
+
 export async function runTaskGraph(
   graph: TaskGraph,
   options: RunOptions,
@@ -125,6 +144,7 @@ export async function runTaskGraph(
   const ledger = new TaskLedger(options.ledgerPath);
   const finish = async (): Promise<TaskRunRecord> => {
     record.completedAt = now().toISOString();
+    await clearRun(options.ledgerPath, taskId).catch(() => {});
     const audit = await ledger.appendReporting(record);
     // Surface a failed audit write instead of throwing it over the run result.
     if (!audit.appended) record.audit = audit;
@@ -148,10 +168,28 @@ export async function runTaskGraph(
     .map((input) => input.content)
     .join("\n");
   const stepById = new Map(graph.steps.map((step) => [step.id, step]));
-  for (const stepId of validation.executionOrder) {
+  // Listed while it runs, so a phone can see it and ask for it to stop.
+  await markRunning(options.ledgerPath, {
+    taskId, goal: graph.goal, startedAt: createdAt,
+    actions: validation.executionOrder.map((id) => stepById.get(id)!.action),
+    // Phase 52: what a terminal step will run, so the Mac app can show it while it does.
+    commands: validation.executionOrder.map((id) => stepById.get(id)!)
+      .filter((step) => step.action === "terminal_run").map((step) => String(step.arguments.command).slice(0, 300)),
+  }).catch(() => {});
+  for (const [index, stepId] of validation.executionOrder.entries()) {
     const step = stepById.get(stepId)!;
+    if (cancelRequested(options.ledgerPath, taskId)) {
+      record.cancelled = {
+        at: now().toISOString(),
+        completedSteps: index,
+        notStarted: validation.executionOrder.slice(index).map((id) => stepById.get(id)!.action),
+      };
+      record.status = "failed";
+      return finish();
+    }
     const definition = ACTION_CATALOG[step.action]!;
     const executionContext = {
+      cancelRequested: () => cancelRequested(options.ledgerPath, taskId),
       roots: {
         test_workspace:
           options.testWorkspaceRoot ??
@@ -186,7 +224,11 @@ export async function runTaskGraph(
     };
     let lastError = "Action failed without a diagnostic.";
     let stepStatus: StepRecord["status"] | undefined;
-    for (let attempt = 1; attempt <= graph.retryBudget + 1; attempt += 1) {
+    const maxAttempts = retriesAllowed(step.action, graph.retryBudget, "timeout") + 1;
+    // A retry never starts once Nick has asked the run to stop.
+    const mayRetry = (attempt: number, allowed: number): boolean =>
+      attempt <= allowed && !cancelRequested(options.ledgerPath, taskId);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const execution = await execute(
           definition,
@@ -201,7 +243,7 @@ export async function runTaskGraph(
         );
         if (!verification.observed) {
           lastError = "Independent verification did not observe the expected state.";
-          if (attempt <= graph.retryBudget) continue;
+          if (mayRetry(attempt, retriesAllowed(step.action, graph.retryBudget, "unverified"))) continue;
         }
         const stepRecord: StepRecord = {
           stepId,
@@ -244,14 +286,16 @@ export async function runTaskGraph(
         ) {
           options.onArtifact?.(execution.target);
         }
-        if (verification.observed) break;
+        // Recorded means final, verified or not: the loop can run past the
+        // plan's budget for a timeout retry, and must not re-execute here.
+        break;
       } catch (error) {
         const controlled =
           error instanceof ActionExecutionError
             ? error
             : new ActionExecutionError("Unexpected executor failure.");
         lastError = controlled.message;
-        if (controlled.retryable && attempt <= graph.retryBudget) continue;
+        if (controlled.retryable && mayRetry(attempt, retriesAllowed(step.action, graph.retryBudget, "timeout"))) continue;
         record.steps.push({
           stepId,
           status: "failed_permanent",
@@ -276,6 +320,19 @@ export async function runTaskGraph(
         stepStatus = "failed_permanent";
         break;
       }
+    }
+    // A stop that arrived during this step (a killed terminal command, say)
+    // is recorded as a cancellation, not as an ordinary failure.
+    const moreToDo = stepStatus !== "verified" || index + 1 < validation.executionOrder.length;
+    if (moreToDo && cancelRequested(options.ledgerPath, taskId)) {
+      const done = stepStatus === "verified" ? index + 1 : index;
+      record.cancelled = {
+        at: now().toISOString(),
+        completedSteps: done,
+        notStarted: validation.executionOrder.slice(index + 1).map((id) => stepById.get(id)!.action),
+      };
+      record.status = "failed";
+      return finish();
     }
     // Judge this step, not whatever record happens to be last in the array.
     if (stepStatus !== "verified") {

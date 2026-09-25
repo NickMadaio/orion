@@ -84,6 +84,12 @@ cat > "$SANDBOX/.openclaw/orion-controlled/remote-link.json" <<'JSON'
 {"state":"online","connectionId":"session-abc","lastSeen":"2026-09-02T00:00:00.000Z"}
 JSON
 
+# Something running, and standing yeses, that the lock must stop and withdraw.
+mkdir -p "$SANDBOX/.openclaw/orion-controlled/actions/running" "$SANDBOX/.openclaw/orion-gate/approvals/chat" "$SANDBOX/.openclaw/orion-gate/approvals/grants"
+echo '{"taskId":"orion-00112233aabbccdd"}' > "$SANDBOX/.openclaw/orion-controlled/actions/running/orion-00112233aabbccdd.json"
+echo '{}' > "$SANDBOX/.openclaw/orion-gate/approvals/chat/0123abcd.json"
+echo '{}' > "$SANDBOX/.openclaw/orion-gate/approvals/grants/A-TEST.json"
+
 failures=0
 check() {
     if [ "$1" = "0" ]; then printf 'ok   %s\n' "$2"; else printf 'FAIL %s\n' "$2"; failures=$((failures + 1)); fi
@@ -97,6 +103,10 @@ lock_status=$?
 sed 's/^/   | /' "$SANDBOX/lock.out"
 
 check "$lock_status" "orion-lock exits 0"
+[ -f "$SANDBOX/.openclaw/orion-controlled/actions/cancel/orion-00112233aabbccdd" ]
+check $? "a running action is asked to stop (review 2026-09-26, M4)"
+[ -z "$(ls "$SANDBOX/.openclaw/orion-gate/approvals/chat")" ] && [ -z "$(ls "$SANDBOX/.openclaw/orion-gate/approvals/grants")" ]
+check $? "every chat approval and unspent grant is withdrawn (H3)"
 [ "$(profile_now)" = "restricted_read_only" ]
 check $? "the profile is dropped to the floor (was external_connected, now $(profile_now))"
 [ "$(version_now)" = "4" ]
@@ -208,9 +218,26 @@ process.stdout.write(String(l.connectionId) + '/' + String(l.lockedOut));" 2>/de
 check $? "the link's session is dropped so it cannot be resumed (connectionId/lockedOut=$RESUMED)"
 
 echo ""
+# Phase 43: release needs the owner. The real authenticator raises a Touch ID
+# prompt, so the check hands the script a stand-in -- honoured only because HOME
+# is a sandbox (lib/orion-reauth.mjs) -- and never prompts the person running it.
+printf '#!/bin/sh\nexit 1\n' > "$SANDBOX/deny-owner"; chmod +x "$SANDBOX/deny-owner"
+printf '#!/bin/sh\n[ "$1" = authenticate ] && [ "$2" = --reason ] && [ -n "$3" ] || exit 2\nexit 0\n' > "$SANDBOX/confirm-owner"; chmod +x "$SANDBOX/confirm-owner"
+
+echo "== release without the owner is refused =="
+HOME="$SANDBOX" ORION_REAUTH_BIN="$SANDBOX/deny-owner" "$NODE" "$REPO/scripts/orion-lock" release > "$SANDBOX/denied.out" 2>&1
+denied_status=$?
+[ "$denied_status" != "0" ]
+check $? "release exits non-zero when the owner does not confirm (exit $denied_status)"
+[ -f "$LOCKFILE" ]
+check $? "and the lock is still in place"
+grep -q "Touch ID or password" "$SANDBOX/denied.out"
+check $? "and it says what it needs"
+
+echo ""
 echo "== release lets him back in without restoring authority =="
-HOME="$SANDBOX" "$NODE" "$REPO/scripts/orion-lock" release > "$SANDBOX/release.out" 2>&1
-check $? "release exits 0"
+HOME="$SANDBOX" ORION_REAUTH_BIN="$SANDBOX/confirm-owner" "$NODE" "$REPO/scripts/orion-lock" release > "$SANDBOX/release.out" 2>&1
+check $? "release exits 0 once the owner confirms"
 [ ! -f "$LOCKFILE" ]
 check $? "the flag is gone"
 # Asserted POSITIVELY. The first spelling only checked that the output did not

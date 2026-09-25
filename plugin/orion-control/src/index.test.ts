@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   symlink,
   writeFile,
@@ -13,10 +14,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { getToolPluginMetadata } from "openclaw/plugin-sdk/tool-plugin";
 import entry from "./index.js";
-import { runTaskGraph } from "./controller.js";
+import { retriesAllowed, runTaskGraph } from "./controller.js";
 import { approvalPaths, grant } from "./approvals.js";
 import {
   ACTION_CATALOG,
+  TIMEOUT_RETRY_SAFE,
+  optionalArgumentsSummary,
   ORION_APP_DOMAIN,
   TUNABLE_SETTINGS,
   type CapabilityTier,
@@ -250,6 +253,22 @@ describe("orion-control plugin", () => {
     const taskRun = tools?.find((tool) => tool.name === "orion_task_run");
     expect(taskRun?.description).toContain("ONE graph/call");
     expect(taskRun?.description.length).toBeLessThan(4_000);
+  });
+
+  // Phase 46: an optional argument the model cannot see is one it cannot use.
+  it("shows optional arguments where the model reads its capabilities", () => {
+    const taskRun = getToolPluginMetadata(entry)?.tools?.find((tool) => tool.name === "orion_task_run");
+    expect(taskRun?.description).toMatch(/player \(Spotify\|Music[^)]*\) on [^;]*(media_play_pause|media_\*)/);
+    expect(taskRun?.description).toMatch(/browser \([^)]*Safari[^)]*\) on [^;]*(browser_read_page|browser_\*)/);
+    // Volume and display take no player; advertising one would be a lie too.
+    expect(ACTION_CATALOG.volume_set?.optionalArguments?.player).toBeUndefined();
+    const summary = optionalArgumentsSummary(ACTION_CATALOG);
+    for (const [name, definition] of Object.entries(ACTION_CATALOG)) {
+      for (const argument of Object.keys(definition.optionalArguments ?? {})) {
+        expect(summary, `${name}.${argument}`).toMatch(new RegExp(`${argument} \\(.*\\) on [^;]*(${name}|${name.slice(0, name.indexOf("_") + 1)}\\*)`));
+        expect(definition.requiredArguments, `${name}.${argument} is not also required`).not.toContain(argument);
+      }
+    }
   });
 
   it("raises and lowers permission profiles with approval, version, and audit guards", async () => {
@@ -593,6 +612,63 @@ describe("orion-control plugin", () => {
     expect(attempts).toBe(2);
   });
 
+  // Phase 46: "a timed-out action is retried at least once". retryBudget
+  // defaults to 0 and the model is told not to set it, so without a host rule
+  // no model-issued action was ever retried and the retryable flag was dead.
+  it("gives a timed-out action that is safe to repeat one retry at a zero budget, and nothing else", () => {
+    expect(retriesAllowed("volume_set", 0, "timeout")).toBe(1);
+    expect(retriesAllowed("browser_read_page", 0, "timeout")).toBe(1);
+    expect(retriesAllowed("atlas_note_read", 2, "timeout")).toBe(2);
+    // A toggle that did run before the timeout would be undone by a retry.
+    expect(retriesAllowed("media_play_pause", 0, "timeout")).toBe(0);
+    expect(retriesAllowed("messages_send", 0, "timeout")).toBe(0);
+    // Only timeouts: an action that ran and was not observed is not re-run by the host.
+    expect(retriesAllowed("volume_set", 0, "unverified")).toBe(0);
+    for (const name of TIMEOUT_RETRY_SAFE) expect(ACTION_CATALOG[name], name).toBeDefined();
+  });
+
+  it("does not re-run an action that is not safe to repeat when the budget is zero", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "orion-control-"));
+    let attempts = 0;
+    const result = await runTaskGraph(graph([step()], { retryBudget: 0 }), {
+      ledgerPath: path.join(directory, "ledger.jsonl"),
+      execute: async () => { attempts += 1; throw new ActionExecutionError("did not respond in time", true); },
+    });
+    expect(result.status).toBe("failed");
+    expect(attempts).toBe(1);
+    expect(result.steps[0]?.attempts).toBe(1);
+  });
+
+  it("stops before the next step when Nick cancels from his phone, and never mid-step", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "orion-control-"));
+    const ledgerPath = path.join(directory, "ledger.jsonl");
+    const actions = path.join(directory, "actions");
+    let sawRunning = false;
+    let executed = 0;
+    const two = graph([step({ id: "first" }), step({ id: "second", arguments: { path: "/tmp/orion-simulated-folder-2" } })], { retryBudget: 0 });
+    const result = await runTaskGraph(two, {
+      ledgerPath,
+      execute: async (definition, taskStep, context) => {
+        executed += 1;
+        const running = (await readdir(path.join(actions, "running"))).filter((name) => name.endsWith(".json"));
+        sawRunning = running.length === 1;
+        // What orion-remote writes on `action cancel <taskId>`, arriving while step one runs.
+        await mkdir(path.join(actions, "cancel"), { recursive: true });
+        await writeFile(path.join(actions, "cancel", running[0]!.replace(/\.json$/, "")), "");
+        return executeAction(definition, taskStep, context);
+      },
+    });
+    expect(sawRunning).toBe(true);
+    expect(executed).toBe(1);
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]?.status).toBe("verified");
+    expect(result.status).toBe("failed");
+    expect(result.cancelled?.completedSteps).toBe(1);
+    expect(result.cancelled?.notStarted).toEqual(["folder_create"]);
+    expect(await readdir(path.join(actions, "running"))).toEqual([]);
+    expect(await readdir(path.join(actions, "cancel"))).toEqual([]);
+  });
+
   it("preserves an ambiguous request as clarification without actions", () => {
     const task = graph([], {
       goal: "Clean Downloads",
@@ -646,6 +722,41 @@ describe("orion-control plugin", () => {
     // given. Change the target after the fact and the approval stops counting.
     deletion.arguments.relativePath = "different.txt";
     expect(validateTaskGraph(task, withGrant).status).toBe("needs_approval");
+  });
+
+  // Phase 48: "binds destructive authorization to the requesting turn".
+  it("binds a destructive target to the turn that asks, unless Nick approved that exact action", () => {
+    const enabledTiers = new Set(["simulation", "calendar"] as const);
+    const turns = (...contents: string[]) => contents.map((content, index) => ({
+      id: `turn-${index}`, kind: "instruction" as const, trust: "trusted_user" as const, content,
+    }));
+    const remove = step({ action: "calendar_event_remove", arguments: { title: "Dentist appointment" },
+      risk: "high", reversible: false, expectedEffect: "Event removed", verify: "calendar_event_absent",
+      sourceRefs: ["turn-0"] });
+    const codes = (task: TaskGraph, options = {}) => validateTaskGraph(task, { enabledTiers, ...options }).issues.map((issue) => issue.code);
+
+    // Named three turns back, in a different request, then "ok do it".
+    const spliced = graph([remove], { inputs: turns("the Dentist appointment on Friday is off", "what is the weather tomorrow", "ok do it") });
+    expect(codes(spliced)).toContain("argument_not_from_user");
+    expect(validateTaskGraph(spliced, { enabledTiers }).issues.find((issue) => issue.code === "argument_not_from_user")?.message)
+      .toContain("named in the request itself");
+
+    const named = graph([remove], { inputs: turns("what is on Friday", "remove the Dentist appointment") });
+    // A request and its confirmation are one request.
+    const confirmed = graph([remove], { inputs: turns("what is the weather", "remove the Dentist appointment", "yes go ahead") });
+    expect(codes(confirmed)).not.toContain("argument_not_from_user");
+    expect(codes(named)).not.toContain("argument_not_from_user");
+    expect(validateTaskGraph(named, { enabledTiers }).status).toBe("needs_approval");
+
+    const hash = canonicalActionHash(remove, spliced.workingContext);
+    expect(codes(spliced, { approvalGrants: (h: string) => h === hash })).not.toContain("argument_not_from_user");
+
+    // A reversible action keeps the window: "add it" can refer back.
+    const add = step({ action: "calendar_event_add", arguments: { title: "Dentist appointment", start: "2026-10-02T09:00:00Z" },
+      risk: "medium", reversible: true, expectedEffect: "Event added", verify: "calendar_event_exists",
+      sourceRefs: ["turn-0", "turn-1"] });
+    expect(codes(graph([add], { inputs: turns("book the Dentist appointment on Friday at 9", "yes add it") })))
+      .not.toContain("argument_not_from_user");
   });
 
   it("rejects an action sourced only from quoted untrusted content", () => {

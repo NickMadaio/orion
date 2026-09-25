@@ -107,6 +107,7 @@ export interface StepRecord {
       | "already_present"
       | "observed"
       | "controlled"
+      | "ran"
       | "copied"
       | "moved"
       | "trashed"
@@ -147,4 +148,10 @@ export interface TaskRunRecord {
   steps: StepRecord[];
   /** Durability of the append-only ledger write for this record. */
   audit?: { appended: boolean; error?: string };
+  /**
+   * Stopped by Nick before these steps began (Phase 46). Steps already done
+   * stay done; the one in flight was allowed to finish. Status is `failed`,
+   * because what was asked for did not all happen.
+   */
+  cancelled?: { at: string; completedSteps: number; notStarted: string[] };
 }

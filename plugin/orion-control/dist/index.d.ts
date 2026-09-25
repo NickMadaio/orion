@@ -53,9 +53,18 @@ export declare const ConfigSchema: Type.TObject<{
     enableAtlasNotesActions: Type.TOptional<Type.TBoolean>;
     enableComputerObserveActions: Type.TOptional<Type.TBoolean>;
     enableComputerControlActions: Type.TOptional<Type.TBoolean>;
+    enableRawTerminalActions: Type.TOptional<Type.TBoolean>;
     enableStrictArguments: Type.TOptional<Type.TBoolean>;
     enableV2SystemStatusAdapter: Type.TOptional<Type.TBoolean>;
 }>;
+/**
+ * One sentence naming what is being approved, for a person who is not looking
+ * at a screen. Arguments are rendered rather than dumped: a ticket that says
+ * `{"recipient":"+1555…","body":"…"}` is a ticket nobody reads before saying
+ * yes, and an unread approval is the failure this whole mechanism exists to
+ * prevent.
+ */
+export declare function describeForApproval(action: string, args: Record<string, unknown>): string;
 declare const entry: import("openclaw/plugin-sdk/tool-plugin").DefinedToolPluginEntry;
 /**
  * Minimal surface of the host plugin API this plugin depends on for provenance.

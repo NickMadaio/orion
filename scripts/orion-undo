@@ -1,0 +1,119 @@
+#!/usr/bin/env node
+/*
+ orion-undo — put back what ORION moved, renamed, copied or sent to the Trash.
+
+ Phase 47: "supports trash-recoverable deletion". Deleting has always been a
+ move to the Trash with the exact inverse written into the task ledger, but the
+ only way back was reading JSON and dragging the file yourself. This is the way
+ back.
+
+   orion-undo                   list recent steps that can be undone
+   orion-undo <taskId> [--yes]  show, then (with --yes) undo that task's steps
+
+ Never clobbers: a step is undone only if the thing is still where the ledger
+ put it, and nothing is at the place it goes back to. Steps are undone in
+ reverse order. Every undo is appended to undo-audit.jsonl beside the ledger.
+ It changes nothing ORION can call: this is a person's tool, not in the
+ allowlist, and it only ever reverses what the ledger records.
+*/
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { appendFile, lstat, mkdir, rename } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, join, relative, isAbsolute, resolve } from "node:path";
+
+const LEDGER = process.env.ORION_LEDGER ?? join(homedir(), ".openclaw/orion-controlled/task-ledger.jsonl");
+const AUDIT = join(dirname(LEDGER), "undo-audit.jsonl");
+const TASK_ID = /^orion-[a-f0-9]{16}$/;
+const [first, ...rest] = process.argv.slice(2);
+const confirmed = rest.includes("--yes");
+
+function records() {
+  if (!existsSync(LEDGER)) return [];
+  return readFileSync(LEDGER, "utf8").split("\n").filter(Boolean).flatMap((line) => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  });
+}
+
+const undoable = (record) => (record.steps ?? []).filter((step) => step.status === "verified" && step.undo);
+
+async function exists(path) {
+  try { await lstat(path); return true; } catch { return false; }
+}
+
+/*
+ The ledger lives in ORION's own state directory, so its paths are checked, not
+ trusted (review, 2026-09-26, M6): both ends must be inside the home folder and
+ outside everything ORION's safety rests on, and nothing may be a symlink.
+*/
+const HOME = homedir();
+const PROTECTED = [join(HOME, ".openclaw"), join(HOME, "Desktop/ORION"), join(HOME, "Library"), join(HOME, ".ssh")];
+const inside = (outer, inner) => { const r = relative(outer, inner); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
+const real = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
+function outOfBounds(path) {
+  if (typeof path !== "string" || !isAbsolute(path)) return "is not an absolute path";
+  const resolved = resolve(path);
+  if (!inside(HOME, resolved)) return "is outside your home folder";
+  if (PROTECTED.some((guarded) => inside(guarded, resolved) || inside(guarded, real(dirname(resolved))))) return "is somewhere ORION may never change";
+  return null;
+}
+
+/** Where the step goes back to, and a reason it cannot, if it cannot. */
+async function plan(undo, step) {
+  const back = undo.operation === "trash_copy"
+    ? join(undo.to, basename(undo.from))
+    : undo.to;
+  for (const [label, path] of [["from", undo.from], ["to", back]]) {
+    const why = outOfBounds(path);
+    if (why) return { back, problem: `the recorded ${label} path ${String(path)} ${why}` };
+  }
+  if (!(await exists(undo.from))) return { back, problem: `${undo.from} is no longer there` };
+  if ((await lstat(undo.from)).isSymbolicLink()) return { back, problem: `${undo.from} is a symlink` };
+  if (undo.operation === "trash_copy") {
+    // Only the copy ORION made goes to the Trash: same bytes, or it stays.
+    const expected = step.execution?.output?.resultHash;
+    const actual = createHash("sha256").update(readFileSync(undo.from)).digest("hex");
+    if (!expected || actual !== expected) return { back, problem: `${undo.from} is no longer the copy ORION made` };
+  }
+  if (await exists(back)) return { back, problem: `something is already at ${back}` };
+  if (!(await exists(dirname(back)))) return { back, problem: `${dirname(back)} no longer exists` };
+  return { back, problem: null };
+}
+
+if (!first) {
+  const recent = records().filter((record) => undoable(record).length).slice(-15).reverse();
+  if (!recent.length) { console.log("Nothing ORION did can be undone from the ledger."); process.exit(0); }
+  for (const record of recent) {
+    console.log(`${record.taskId}  ${String(record.completedAt ?? record.createdAt).slice(0, 16)}  ${String(record.goal).slice(0, 70)}`);
+    for (const step of undoable(record)) console.log(`    ${step.request.action}: ${step.undo.description}`);
+  }
+  console.log("\nUndo one: orion-undo <taskId> --yes");
+  process.exit(0);
+}
+
+if (!TASK_ID.test(first)) { console.error("orion-undo: a task id looks like orion-1a2b3c4d5e6f7a8b"); process.exit(2); }
+const record = records().reverse().find((item) => item.taskId === first);
+if (!record) { console.error(`orion-undo: no task ${first} in the ledger`); process.exit(1); }
+const steps = undoable(record).reverse();
+if (!steps.length) { console.error(`orion-undo: ${first} has nothing that can be undone`); process.exit(1); }
+
+let failed = 0;
+for (const step of steps) {
+  const { back, problem } = await plan(step.undo, step);
+  const line = `${step.request.action}: ${step.undo.from} -> ${back}`;
+  if (problem) { console.log(`  cannot  ${line}\n          (${problem})`); failed += 1; continue; }
+  if (!confirmed) { console.log(`  would   ${line}`); continue; }
+  try {
+    await rename(step.undo.from, back);
+  } catch (error) {
+    console.log(`  failed  ${line}\n          (${error.code ?? error.message})`);
+    failed += 1;
+    continue;
+  }
+  await mkdir(dirname(AUDIT), { recursive: true });
+  await appendFile(AUDIT, JSON.stringify({ at: new Date().toISOString(), taskId: first, stepId: step.stepId,
+    action: step.request.action, operation: step.undo.operation, from: step.undo.from, to: back }) + "\n", { mode: 0o600 });
+  console.log(`  undone  ${line}`);
+}
+if (!confirmed) console.log(`\nNothing changed. Run: orion-undo ${first} --yes`);
+process.exit(failed ? 1 : 0);

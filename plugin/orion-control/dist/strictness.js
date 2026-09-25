@@ -343,6 +343,11 @@ export function resolveStrictness(statePath, now = new Date()) {
         ...parsed,
         mode: parsed.mode,
         except: parsed.except && typeof parsed.except === "object" ? parsed.except : {},
+        // Only absolute, dot-free prefixes survive: a malformed entry is dropped,
+        // and dropping one can only make the scope smaller.
+        resources: Array.isArray(parsed.resources)
+            ? parsed.resources.filter((entry) => typeof entry === "string" && entry.startsWith("/") && !entry.split("/").includes(".."))
+            : [],
     };
     /*
      Phase 50's "target devices", enforced rather than recorded.
@@ -402,4 +407,30 @@ export async function seedIfAbsent(statePath) {
         flag: "wx",
         mode: 0o600,
     }).catch(() => undefined);
+}
+/**
+ * The first file target of a step that lies outside the delegation's
+ * resources, or null. Targets are an absolute `path`, or a named root plus
+ * `relativePath` / `destinationPath`. No resources, or no file target, is null:
+ * the scope limits where files may be touched, not what else may happen.
+ */
+export function targetOutsideResources(arguments_, resources, roots) {
+    if (!resources.length)
+        return null;
+    const targets = [];
+    if (typeof arguments_.path === "string" && arguments_.path.startsWith("/"))
+        targets.push(arguments_.path);
+    const base = typeof arguments_.root === "string" ? roots[arguments_.root] : undefined;
+    for (const key of ["relativePath", "destinationPath"]) {
+        const value = arguments_[key];
+        // A root the caller cannot resolve is a target it cannot place inside the
+        // scope, so it counts as outside rather than being skipped.
+        if (typeof value === "string")
+            targets.push(base ? `${base.replace(/\/+$/, "")}/${value}` : `(${String(arguments_.root)})/${value}`);
+    }
+    const inside = (target) => resources.some((prefix) => {
+        const clean = prefix.replace(/\/+$/, "");
+        return target === clean || target.startsWith(`${clean}/`);
+    });
+    return targets.find((target) => target.split("/").includes("..") || !inside(target)) ?? null;
 }

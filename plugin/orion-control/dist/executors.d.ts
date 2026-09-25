@@ -2,6 +2,8 @@ import type { ActionDefinition, ControlledRoot, SupportedBrowser } from "./catal
 import type { TaskStep, UndoRecord } from "./types.js";
 export interface ExecutionContext {
     roots: Record<ControlledRoot, string>;
+    /** Phase 46/52: whether Nick has asked for this run to stop. */
+    cancelRequested?: () => boolean;
     /** Shared supplement/workout store, also read by the Orion dashboard. */
     healthLogPath?: string;
     workingContext?: string;
@@ -31,7 +33,7 @@ export interface ExecutionContext {
     defaultLocation?: string;
 }
 export interface ExecutionResult {
-    mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "rebuilt" | "observed" | "controlled" | "copied" | "moved" | "trashed" | "scheduled" | "cancelled" | "sent";
+    mode: "simulated" | "created" | "appended" | "replaced" | "opened" | "quit" | "already_present" | "rebuilt" | "observed" | "controlled" | "copied" | "moved" | "trashed" | "scheduled" | "cancelled" | "sent" | "ran";
     idempotencyKey: string;
     target?: string;
     output?: unknown;

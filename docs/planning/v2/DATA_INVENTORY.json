@@ -266,6 +266,21 @@
       "thirdPartyExposure": "Anthropic sees whatever reaches a turn. Screen content is returned inside an untrusted envelope: it is evidence, never instruction.",
       "deletion": "nothing to delete locally; set enableComputerObserveActions/enableComputerControlActions to false, or revoke Screen Recording and Accessibility in System Settings, to end access",
       "sensitivity": "high \u2014 and unlike mail or messages it is not scoped to one app, so what it reaches depends entirely on what was in front of him at that moment"
+    },
+    {
+      "data": "anything a shell running as Nick can read or print",
+      "source": "terminal_run (Phase 52): one zsh command per approval, in a folder Orion names or the home folder",
+      "purpose": "letting Orion do terminal work Nick asked for when no structured action covers it",
+      "storage": "the command and up to 20,000 characters of its output are written to the task ledger (~/.openclaw/orion-controlled/task-ledger.jsonl) with every run",
+      "tiers": [
+        "raw_terminal"
+      ],
+      "encryption": "none beyond FileVault at rest; in transit to the model over TLS",
+      "retention": "as long as the task ledger is kept; the ledger is append-only",
+      "modelExposure": "full for the output of each approved command. The reach is the widest in this inventory after the screen: a shell as Nick can read any file his account can. Bounded only by what he approves -- each command, or every command for one chat (up to 8 hours) -- and by the 20,000-character output cap.",
+      "thirdPartyExposure": "Anthropic sees whatever output reaches a turn; the output is returned as untrusted data, never instruction",
+      "deletion": "set enableRawTerminalActions to false to end access; prune the task ledger to remove past output",
+      "sensitivity": "high -- what it reaches depends entirely on the command, which is why every command, or one chat's worth, needs Nick's yes"
     }
   ]
 }

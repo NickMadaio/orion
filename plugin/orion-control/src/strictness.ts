@@ -371,6 +371,14 @@ export interface StrictnessState {
   except: Readonly<Record<string, GateLevel>>;
   /** Which Mac this delegation is for. */
   deviceId: string | null;
+  /**
+   * Phase 50's RESOURCES: the folders this delegation covers, as absolute
+   * prefixes. Empty means everywhere the mode reaches. Raise-only like
+   * `except`: a file action whose target lies outside every prefix needs
+   * approval, so "sovereign, but only under ~/Projects" is expressible and
+   * cannot be widened by it.
+   */
+  resources?: readonly string[];
 }
 
 export const GUARDED_STATE: StrictnessState = {
@@ -450,6 +458,12 @@ export function resolveStrictness(
     ...parsed,
     mode: parsed.mode,
     except: parsed.except && typeof parsed.except === "object" ? parsed.except : {},
+    // Only absolute, dot-free prefixes survive: a malformed entry is dropped,
+    // and dropping one can only make the scope smaller.
+    resources: Array.isArray(parsed.resources)
+      ? parsed.resources.filter((entry): entry is string =>
+          typeof entry === "string" && entry.startsWith("/") && !entry.split("/").includes(".."))
+      : [],
   };
   /*
    Phase 50's "target devices", enforced rather than recorded.
@@ -525,4 +539,32 @@ export async function seedIfAbsent(statePath: string): Promise<void> {
     flag: "wx",
     mode: 0o600,
   }).catch(() => undefined);
+}
+
+/**
+ * The first file target of a step that lies outside the delegation's
+ * resources, or null. Targets are an absolute `path`, or a named root plus
+ * `relativePath` / `destinationPath`. No resources, or no file target, is null:
+ * the scope limits where files may be touched, not what else may happen.
+ */
+export function targetOutsideResources(
+  arguments_: Record<string, unknown>,
+  resources: readonly string[],
+  roots: Readonly<Partial<Record<string, string>>>,
+): string | null {
+  if (!resources.length) return null;
+  const targets: string[] = [];
+  if (typeof arguments_.path === "string" && arguments_.path.startsWith("/")) targets.push(arguments_.path);
+  const base = typeof arguments_.root === "string" ? roots[arguments_.root] : undefined;
+  for (const key of ["relativePath", "destinationPath"]) {
+    const value = arguments_[key];
+    // A root the caller cannot resolve is a target it cannot place inside the
+    // scope, so it counts as outside rather than being skipped.
+    if (typeof value === "string") targets.push(base ? `${base.replace(/\/+$/, "")}/${value}` : `(${String(arguments_.root)})/${value}`);
+  }
+  const inside = (target: string) => resources.some((prefix) => {
+    const clean = prefix.replace(/\/+$/, "");
+    return target === clean || target.startsWith(`${clean}/`);
+  });
+  return targets.find((target) => target.split("/").includes("..") || !inside(target)) ?? null;
 }

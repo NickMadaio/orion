@@ -70,6 +70,7 @@ if [ "$action" = "status" ]; then
         echo ""
         echo "  DRIFTED — the running copy is not the repo copy. Re-run this script."
     fi
+    printf '  integrity  '; "$NODE" "$REPO/scripts/lib/orion-integrity.mjs" verify orion-remote "$INSTALL" 2>&1 | sed 's/^orion-remote: //'
     echo "  log        $LOGDIR/remote-bridge.log"
     echo ""
     exit 0
@@ -120,6 +121,15 @@ printf 'ORION_DISCORD_BOT_TOKEN=%s\n' "$TOKEN" > "$INSTALL/.env"
 [ -n "$ALLOW" ] && printf 'ORION_REMOTE_ALLOW=%s\n' "$ALLOW" >> "$INSTALL/.env"
 chmod 600 "$INSTALL/.env"
 echo "   $INSTALL  [$(fingerprint "$INSTALL")]"
+
+# Phase 48: the copy is checked BEFORE it runs. The verifier lives in the gate
+# directory, outside the copy it guards, so changing the copy cannot change the
+# check; launchd starts the verifier, which starts the bridge only if every file
+# (the .env included) is what was installed here.
+GATE_INTEGRITY="$HOME/.openclaw/orion-gate/integrity"
+mkdir -p "$GATE_INTEGRITY" && chmod 700 "$GATE_INTEGRITY"
+cp "$REPO/scripts/lib/orion-integrity.mjs" "$GATE_INTEGRITY/verifier.mjs"
+"$NODE" "$GATE_INTEGRITY/verifier.mjs" record orion-remote "$INSTALL" | sed 's/^/   integrity: /'
 echo "   .env carries 2 value(s), not the repo's $(grep -cE '^[A-Z0-9_]+=' "$REPO/.env")"
 
 cat > "$PLIST" <<PLIST
@@ -130,6 +140,12 @@ cat > "$PLIST" <<PLIST
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
+    <string>$NODE</string>
+    <string>$GATE_INTEGRITY/verifier.mjs</string>
+    <string>run</string>
+    <string>orion-remote</string>
+    <string>$INSTALL</string>
+    <string>--</string>
     <string>$NODE</string>
     <string>$INSTALL/scripts/orion-remote-bridge</string>
     <string>run</string>

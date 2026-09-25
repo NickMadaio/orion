@@ -15,6 +15,8 @@ import { promisify } from "node:util";
 import { clampVolume, browserUrlIssues, isMutableRoot, isObservationPolicy, isSafeRelativePath, isSafeSegment, isVisibleNonSensitiveName, ORION_APP_DOMAIN, resolveBrowserName, resolvePlayerName, SUPPORTED_BROWSERS, SUPPORTED_PLAYERS, TUNABLE_SETTINGS, } from "./catalog.js";
 import { addSupplement, defaultHealthLogPath, logExercise, readHealthLog, supplementStatus, takeSupplement, today as todayKey, workoutStatus, } from "./health.js";
 import { canonicalActionHash, hash } from "./validator.js";
+import { protectedConflict } from "./protected-paths.js";
+import { redactOutput, SANDBOX_EXEC, sandboxProfile, terminalEnvironment } from "./terminal-sandbox.js";
 import { AtlasBridgeError, requestAtlas } from "./atlas.js";
 export class ActionExecutionError extends Error {
     retryable;
@@ -628,6 +630,13 @@ async function prepareControlledDirectory(root, subdirectory) {
     }
     return current;
 }
+/** Refuse to change anything ORION's own safety rests on (see protected-paths.ts). */
+function assertNotProtected(target) {
+    const conflict = protectedConflict(target);
+    if (conflict) {
+        throw new ActionExecutionError(`That path is protected and cannot be changed by ORION: ${conflict}`);
+    }
+}
 async function resolveExistingPath(root, relativePath) {
     const resolvedRoot = path.resolve(root);
     const realRoot = await assertRealDirectory(resolvedRoot);
@@ -706,6 +715,7 @@ async function createOnlyText(policy, step, context) {
     const requested = createRequest(policy, step);
     const directory = await prepareControlledDirectory(context.roots[policy.root], policy.subdirectory);
     const target = path.join(directory, `${requested.name}.${requested.extension}`);
+    assertNotProtected(target);
     const idempotencyKey = canonicalActionHash(step, context.workingContext);
     let handle;
     let created = false;
@@ -824,6 +834,7 @@ async function mutateFile(policy, step, context) {
     if (!(await lstat(parent.target)).isDirectory()) {
         throw new ActionExecutionError("Desktop file parent is not a directory.");
     }
+    assertNotProtected(path.join(parent.target, path.posix.basename(request.relativePath)));
     const target = path.join(parent.target, path.posix.basename(request.relativePath));
     if (!isWithin(parent.realRoot, target)) {
         throw new ActionExecutionError("Desktop file target escaped its root.");
@@ -936,6 +947,7 @@ async function createDirectory(root, relativePath, context, step) {
     if (!isWithin(parent.realRoot, target)) {
         throw new ActionExecutionError("Desktop folder escaped its root.");
     }
+    assertNotProtected(target);
     const idempotencyKey = canonicalActionHash(step, context.workingContext);
     try {
         await mkdir(target, { mode: 0o700 });
@@ -960,6 +972,7 @@ async function mutateText(policy, step, context) {
     if (!parentStats.isDirectory()) {
         throw new ActionExecutionError("Desktop mutation parent is not a directory.");
     }
+    assertNotProtected(path.join(parent.target, path.posix.basename(request.relativePath)));
     const target = path.join(parent.target, path.posix.basename(request.relativePath));
     if (!isWithin(parent.realRoot, target)) {
         throw new ActionExecutionError("Desktop mutation escaped its configured root.");
@@ -1131,6 +1144,8 @@ async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
     if (resolved.target === resolved.realRoot) {
         throw new ActionExecutionError("The configured root itself cannot be moved, renamed, or deleted.");
     }
+    if (policy.operation !== "copy")
+        assertNotProtected(resolved.target);
     const stats = await lstat(resolved.target);
     if (stats.isSymbolicLink()) {
         throw new ActionExecutionError("Symlink access is forbidden.");
@@ -1185,6 +1200,8 @@ async function mutateFilesystemEntry(policy, step, context, idempotencyKey) {
     if (destination === resolved.target) {
         throw new ActionExecutionError("Destination is the same as the source.");
     }
+    if (policy.operation !== "delete")
+        assertNotProtected(destination);
     // Never clobber: a move or rename onto an existing path is refused outright.
     try {
         await lstat(destination);
@@ -1391,6 +1408,9 @@ export async function executeAction(definition, step, context) {
     }
     if (definition.execution.kind === "computer_control") {
         return controlScreen(definition.execution, step, idempotencyKey);
+    }
+    if (definition.execution.kind === "raw_terminal") {
+        return runTerminal(step, idempotencyKey, context);
     }
     if (definition.execution.kind === "media_control") {
         return controlMedia(definition.execution, step, idempotencyKey);
@@ -2149,6 +2169,15 @@ export async function verifyAction(definition, step, execution, context) {
         return {
             observed: present,
             evidence: present ? `computer_observe:${definition.execution.operation}` : undefined,
+        };
+    }
+    if (definition.execution.kind === "raw_terminal") {
+        // It ran to its end. The exit code is in the output for Orion to report;
+        // a non-zero exit is a result, not a failure to run.
+        const output = execution.output;
+        return {
+            observed: typeof output?.exitCode === "number" && !output.stopped,
+            evidence: `raw_terminal:exit=${String(output?.exitCode)}${output?.stopped ? `:${output.stopped}` : ""}`,
         };
     }
     if (definition.execution.kind === "computer_control") {
@@ -3082,6 +3111,80 @@ async function observeScreen(operation, idempotencyKey) {
  * arguments. What is left here is the call, and the wrapper script's own
  * best-effort re-observation afterward.
  */
+/*
+ PHASE 52. One command, zsh -lc, as Nick, in `cwd` (default home).
+
+ Its own process group, so Stop and the time limit kill everything it started,
+ not just the shell. Unlike every other step, a running command IS killed when
+ Nick cancels: a runaway shell command is exactly what cancellation is for,
+ and nothing about it is half-applied state the plugin owns.
+*/
+const TERMINAL_TIMEOUT_MS = 2 * 60 * 1000;
+const TERMINAL_OUTPUT_LIMIT = 20_000;
+async function runTerminal(step, idempotencyKey, context) {
+    const command = String(step.arguments.command);
+    const cwd = typeof step.arguments.cwd === "string" ? step.arguments.cwd : os.homedir();
+    try {
+        if (!(await lstat(cwd)).isDirectory())
+            throw new Error("not a folder");
+    }
+    catch {
+        throw new ActionExecutionError(`The folder ${cwd} does not exist.`);
+    }
+    const started = Date.now();
+    return await new Promise((resolve) => {
+        const child = spawn(SANDBOX_EXEC, ["-p", sandboxProfile(), "/bin/zsh", "-lc", command], {
+            cwd, detached: true, stdio: ["ignore", "pipe", "pipe"], env: terminalEnvironment(),
+        });
+        let output = "";
+        let truncated = false;
+        let stopped;
+        const absorb = (chunk) => {
+            if (output.length >= TERMINAL_OUTPUT_LIMIT) {
+                truncated = true;
+                return;
+            }
+            output += chunk.toString("utf8");
+            if (output.length > TERMINAL_OUTPUT_LIMIT) {
+                output = output.slice(0, TERMINAL_OUTPUT_LIMIT);
+                truncated = true;
+            }
+        };
+        child.stdout?.on("data", absorb);
+        child.stderr?.on("data", absorb);
+        const kill = (why) => {
+            stopped ??= why;
+            // Never kill(0): without a pid that would be the gateway's own group.
+            if (child.pid) {
+                try {
+                    process.kill(-child.pid, "SIGKILL");
+                }
+                catch {
+                    child.kill("SIGKILL");
+                }
+            }
+            else
+                child.kill("SIGKILL");
+        };
+        const limit = setTimeout(() => kill("timed out after 2 minutes"), TERMINAL_TIMEOUT_MS);
+        const watch = setInterval(() => { if (context.cancelRequested?.())
+            kill("stopped by Nick"); }, 500);
+        const finish = (exitCode) => {
+            clearTimeout(limit);
+            clearInterval(watch);
+            resolve({
+                mode: "ran",
+                idempotencyKey,
+                target: cwd,
+                output: { command, cwd, exitCode: stopped ? null : exitCode, ...(stopped ? { stopped } : {}),
+                    seconds: Math.round((Date.now() - started) / 100) / 10,
+                    output: redactOutput(truncated ? `${output}\n[output truncated at ${TERMINAL_OUTPUT_LIMIT} characters]` : output) },
+            });
+        };
+        child.on("error", () => finish(null));
+        child.on("close", (code) => finish(code));
+    });
+}
 async function controlScreen(policy, step, idempotencyKey) {
     const expectedBundleId = String(step.arguments[policy.expectedBundleIdArgument] ?? "");
     const arguments_ = policy.operation === "screen_click"

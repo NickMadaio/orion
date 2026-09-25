@@ -433,8 +433,7 @@ export async function reconcileDisabledAutomation({ root, name, scheduler }) {
         return { status: "intervention_required", reason: "mismatch" };
       }
 
-      // All checks pass: verified, write nothing so second call gives identical bytes
-      await appendEvidence({ status: "complete_verified", detail: "all checks passed" });
+      // All checks pass: verified — write nothing so a second call gives identical bytes
       return { status: "complete_verified" };
     }
 

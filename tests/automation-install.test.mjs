@@ -676,6 +676,9 @@ test("reconcileDisabledAutomation: complete phase verification", async (t) => {
   // Clear calls for reconcile test
   scheduler.calls.length = 0;
 
+  // Read transaction file bytes before reconciliation
+  const txBytesBefore = await readFile(join(root, "transactions", "calendar-check.json"));
+
   // Reconcile should verify the complete installation
   const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
   assert.strictEqual(result.status, "complete_verified");
@@ -685,10 +688,13 @@ test("reconcileDisabledAutomation: complete phase verification", async (t) => {
   assert.strictEqual(scheduler.calls.filter(c => c === "remove").length, 0);
   assert.strictEqual(scheduler.calls.filter(c => c === "createDisabled").length, 0);
 
-  // Read transaction file to verify evidence was appended
+  // complete_verified must write nothing: transaction file bytes unchanged, evidence not grown
+  const txBytesAfter = await readFile(join(root, "transactions", "calendar-check.json"));
+  assert.strictEqual(Buffer.compare(txBytesBefore, txBytesAfter), 0, "transaction file must be unchanged for complete_verified");
+  
   const txData = JSON.parse(await readFile(join(root, "transactions", "calendar-check.json"), "utf8"));
-  assert.ok(Array.isArray(txData.evidence.reconcile));
-  assert.ok(txData.evidence.reconcile.length > 0);
+  // evidence.reconcile should not exist or be empty — no write happened
+  assert.ok(!txData.evidence.reconcile || txData.evidence.reconcile.length === 0);
 });
 
 test("reconcileDisabledAutomation: repeated reconciliation idempotency", async (t) => {
@@ -711,16 +717,16 @@ test("reconcileDisabledAutomation: repeated reconciliation idempotency", async (
   const result1 = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
   assert.strictEqual(result1.status, "complete_verified");
 
-  // Read transaction file bytes before second call
+  // Read transaction file bytes after first call
   const txBytes1 = await readFile(join(root, "transactions", "calendar-check.json"));
 
   // Second reconciliation should give same status
   const result2 = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
   assert.strictEqual(result2.status, "complete_verified");
 
-  // Evidence array should have grown (appended, not replaced)
-  const txData2 = JSON.parse(await readFile(join(root, "transactions", "calendar-check.json"), "utf8"));
-  assert.strictEqual(txData2.evidence.reconcile.length, 2);
+  // Transaction file bytes must be identical — complete_verified writes nothing
+  const txBytes2 = await readFile(join(root, "transactions", "calendar-check.json"));
+  assert.strictEqual(Buffer.compare(txBytes1, txBytes2), 0);
 });
 
 test("reconcileDisabledAutomation: scheduler read failure", async (t) => {

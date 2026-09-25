@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { automationSchedulePlan } from "../scripts/lib/orion-automation-schedule.mjs";
-import { verifyDisabledSchedule, installDisabledAutomation } from "../scripts/lib/orion-automation-install.mjs";
+import { verifyDisabledSchedule, installDisabledAutomation, reconcileDisabledAutomation } from "../scripts/lib/orion-automation-install.mjs";
 
 // --- Task 1 tests: verifyDisabledSchedule (unchanged) ---
 
@@ -457,5 +459,494 @@ test("installDisabledAutomation: publication failure", async (t) => {
   } catch {
     // expected
   }
+});
+
+// --- Task 3 tests: reconcileDisabledAutomation ---
+
+function makeFileBackedScheduler(root) {
+  const jobsPath = join(root, "fake-jobs.json");
+  const calls = [];
+  
+  async function loadJobs() {
+    try {
+      return JSON.parse(await readFile(jobsPath, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+  
+  async function saveJobs(jobs) {
+    await writeFile(jobsPath, JSON.stringify(jobs, null, 2));
+  }
+  
+  return {
+    calls,
+    createDisabled: async (plan) => {
+      calls.push("createDisabled");
+      const jobs = await loadJobs();
+      const id = "job-" + Math.random().toString(36).slice(2, 8);
+      jobs[id] = {
+        id,
+        name: plan.name,
+        timeZone: plan.timeZone,
+        cron: plan.cron,
+        commandArgv: plan.commandArgv,
+        cwd: plan.schedulerArgs[plan.schedulerArgs.indexOf("--command-cwd") + 1],
+        enabled: false,
+        exact: true,
+        noDeliver: true,
+      };
+      await saveJobs(jobs);
+      return { id };
+    },
+    read: async (id) => {
+      calls.push("read");
+      const jobs = await loadJobs();
+      if (jobs[id]) {
+        return jobs[id];
+      }
+      return null;
+    },
+    remove: async (id) => {
+      calls.push("remove");
+      const jobs = await loadJobs();
+      delete jobs[id];
+      await saveJobs(jobs);
+    },
+  };
+}
+
+test("reconcileDisabledAutomation: child process exit at transaction seam", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // Initialize empty jobs file for the file-backed scheduler
+  await writeFile(join(root, "fake-jobs.json"), "{}");
+
+  const moduleURL = new URL('../scripts/lib/orion-automation-install.mjs', import.meta.url).href;
+  const source = `import {installDisabledAutomation} from ${JSON.stringify(moduleURL)};
+    import {readFile, writeFile} from 'node:fs/promises';
+    const [root, proposal, timeZone, repoRoot, now] = JSON.parse(process.argv[1]);
+    
+    // File-backed scheduler that persists jobs to disk
+    const jobsPath = root + '/fake-jobs.json';
+    async function loadJobs() {
+      try { return JSON.parse(await readFile(jobsPath, 'utf8')); } catch { return {}; }
+    }
+    async function saveJobs(jobs) { await writeFile(jobsPath, JSON.stringify(jobs, null, 2)); }
+    
+    const scheduler = {
+      createDisabled: async (plan) => {
+        const jobs = await loadJobs();
+        const id = 'job-crash-1';
+        jobs[id] = {
+          id, name: plan.name, timeZone: plan.timeZone, cron: plan.cron,
+          commandArgv: plan.commandArgv,
+          cwd: plan.schedulerArgs[plan.schedulerArgs.indexOf('--command-cwd') + 1],
+          enabled: false, exact: true, noDeliver: true,
+        };
+        await saveJobs(jobs);
+        // Crash BEFORE returning the id — installer never records it,
+        // leaving transaction in create_pending with lock still held.
+        process.exit(73);
+      },
+      read: async (id) => {
+        const jobs = await loadJobs();
+        return jobs[id] || null;
+      },
+      remove: async () => {},
+    };
+    
+    await installDisabledAutomation({ root, proposal, timeZone, repoRoot, scheduler, now });
+    process.exit(73);`;
+
+  await assert.rejects(
+    promisify(execFile)(process.execPath, ['--input-type=module', '-e', source, JSON.stringify([root, makeProposal(), "Europe/London", REPO_ROOT, NOW])]),
+    (error) => error.code === 73
+  );
+
+  // The child exited with code 73, leaving a lock behind
+  // Reconcile should return busy because the lock exists
+  const scheduler = makeFileBackedScheduler(root);
+  let result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result.status, "busy");
+
+  // Test removes the lock (child positively exited)
+  const lockPath = join(root, "transactions", "calendar-check.lock");
+  await rm(lockPath, { recursive: true, force: true });
+
+  // Now reconcile should find the transaction in create_pending phase with no scheduler id recorded properly
+  result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result.status, "blocked_unknown_create");
+  
+  // Verify no createDisabled was called by reconcile
+  assert.strictEqual(scheduler.calls.filter(c => c === "createDisabled").length, 0);
+});
+
+test("reconcileDisabledAutomation: child process exit after id persisted", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  await writeFile(join(root, "fake-jobs.json"), "{}");
+
+  const moduleURL = new URL('../scripts/lib/orion-automation-install.mjs', import.meta.url).href;
+  const source = `import {installDisabledAutomation} from ${JSON.stringify(moduleURL)};
+    import {readFile, writeFile} from 'node:fs/promises';
+    const [root, proposal, timeZone, repoRoot, now] = JSON.parse(process.argv[1]);
+    
+    const jobsPath = root + '/fake-jobs.json';
+    async function loadJobs() {
+      try { return JSON.parse(await readFile(jobsPath, 'utf8')); } catch { return {}; }
+    }
+    async function saveJobs(jobs) { await writeFile(jobsPath, JSON.stringify(jobs, null, 2)); }
+    
+    let readCount = 0;
+    const scheduler = {
+      createDisabled: async (plan) => {
+        const jobs = await loadJobs();
+        const id = 'job-crash-2';
+        jobs[id] = {
+          id, name: plan.name, timeZone: plan.timeZone, cron: plan.cron,
+          commandArgv: plan.commandArgv,
+          cwd: plan.schedulerArgs[plan.schedulerArgs.indexOf('--command-cwd') + 1],
+          enabled: false, exact: true, noDeliver: true,
+        };
+        await saveJobs(jobs);
+        return { id };
+      },
+      read: async (id) => {
+        readCount++;
+        if (readCount === 1) {
+          process.exit(73);
+        }
+        const jobs = await loadJobs();
+        return jobs[id] || null;
+      },
+      remove: async () => {},
+    };
+    
+    await installDisabledAutomation({ root, proposal, timeZone, repoRoot, scheduler, now });`;
+
+  await assert.rejects(
+    promisify(execFile)(process.execPath, ['--input-type=module', '-e', source, JSON.stringify([root, makeProposal(), "Europe/London", REPO_ROOT, NOW])]),
+    (error) => error.code === 73
+  );
+
+  // Remove lock left by dead child
+  await rm(join(root, "transactions", "calendar-check.lock"), { recursive: true, force: true });
+
+  // Reconcile should find job_known phase with scheduler id, exact match, remove and verify absence
+  const scheduler = makeFileBackedScheduler(root);
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  
+  // Should have removed the job and verified absence
+  assert.strictEqual(result.status, "cleaned_up");
+  assert.ok(scheduler.calls.includes("read"));
+  assert.ok(scheduler.calls.includes("remove"));
+});
+
+test("reconcileDisabledAutomation: no transaction file", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const scheduler = makeFileBackedScheduler(root);
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  
+  assert.strictEqual(result.status, "no_transaction");
+  assert.deepEqual(scheduler.calls, []);
+});
+
+test("reconcileDisabledAutomation: complete phase verification", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // First do a successful installation
+  const scheduler = makeFileBackedScheduler(root);
+  const installResult = await installDisabledAutomation({
+    root,
+    proposal: makeProposal(),
+    timeZone: "Europe/London",
+    repoRoot: REPO_ROOT,
+    scheduler,
+    now: NOW,
+  });
+  
+  assert.strictEqual(installResult.status, "disabled_verified");
+
+  // Clear calls for reconcile test
+  scheduler.calls.length = 0;
+
+  // Reconcile should verify the complete installation
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result.status, "complete_verified");
+  
+  // Verify read was called but not remove or createDisabled
+  assert.ok(scheduler.calls.includes("read"));
+  assert.strictEqual(scheduler.calls.filter(c => c === "remove").length, 0);
+  assert.strictEqual(scheduler.calls.filter(c => c === "createDisabled").length, 0);
+
+  // Read transaction file to verify evidence was appended
+  const txData = JSON.parse(await readFile(join(root, "transactions", "calendar-check.json"), "utf8"));
+  assert.ok(Array.isArray(txData.evidence.reconcile));
+  assert.ok(txData.evidence.reconcile.length > 0);
+});
+
+test("reconcileDisabledAutomation: repeated reconciliation idempotency", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const scheduler = makeFileBackedScheduler(root);
+  
+  // Install successfully
+  await installDisabledAutomation({
+    root,
+    proposal: makeProposal(),
+    timeZone: "Europe/London",
+    repoRoot: REPO_ROOT,
+    scheduler,
+    now: NOW,
+  });
+
+  // First reconciliation
+  const result1 = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result1.status, "complete_verified");
+
+  // Read transaction file bytes before second call
+  const txBytes1 = await readFile(join(root, "transactions", "calendar-check.json"));
+
+  // Second reconciliation should give same status
+  const result2 = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result2.status, "complete_verified");
+
+  // Evidence array should have grown (appended, not replaced)
+  const txData2 = JSON.parse(await readFile(join(root, "transactions", "calendar-check.json"), "utf8"));
+  assert.strictEqual(txData2.evidence.reconcile.length, 2);
+});
+
+test("reconcileDisabledAutomation: scheduler read failure", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // Create a transaction in job_known phase manually
+  const txDir = join(root, "transactions");
+  await mkdir(txDir, { recursive: true });
+  
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const txData = {
+    version: 1,
+    name: "calendar-check",
+    phase: "job_known",
+    installationId: "test-install-id",
+    installedAt: new Date(NOW).toISOString(),
+    timeZone: "Europe/London",
+    schedulerId: "job-fail-read",
+    plan,
+    record: { name: "calendar-check", installationId: "test-install-id" },
+    evidence: {},
+  };
+  
+  await writeFile(join(txDir, "calendar-check.json"), JSON.stringify(txData, null, 2));
+
+  // Scheduler that always rejects read
+  const scheduler = {
+    calls: [],
+    read: async () => {
+      scheduler.calls.push("read");
+      throw new Error("scheduler unavailable");
+    },
+    remove: async () => {
+      scheduler.calls.push("remove");
+    },
+  };
+
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  
+  assert.strictEqual(result.status, "unknown_outcome");
+  assert.ok(scheduler.calls.includes("read"));
+  assert.strictEqual(scheduler.calls.filter(c => c === "remove").length, 0);
+
+  // Verify evidence was recorded
+  const updatedTx = JSON.parse(await readFile(join(txDir, "calendar-check.json"), "utf8"));
+  assert.ok(Array.isArray(updatedTx.evidence.reconcile));
+  assert.ok(updatedTx.evidence.reconcile[0].status === "unknown_outcome");
+});
+
+test("reconcileDisabledAutomation: mismatched id and content", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // Create transaction with known scheduler id
+  const txDir = join(root, "transactions");
+  await mkdir(txDir, { recursive: true });
+  
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const txData = {
+    version: 1,
+    name: "calendar-check",
+    phase: "job_known",
+    installationId: "test-install-id",
+    installedAt: new Date(NOW).toISOString(),
+    timeZone: "Europe/London",
+    schedulerId: "job-original",
+    plan,
+    record: { name: "calendar-check", installationId: "test-install-id" },
+    evidence: {},
+  };
+  
+  await writeFile(join(txDir, "calendar-check.json"), JSON.stringify(txData, null, 2));
+
+  // Scheduler returns job with different id
+  const scheduler = {
+    calls: [],
+    read: async (id) => {
+      scheduler.calls.push("read");
+      return {
+        id: "job-different", // Different id!
+        name: "orion-auto-calendar-check",
+        timeZone: "Europe/London",
+        cron: "5 9 * * *",
+        commandArgv: [REPO_ROOT + "/scripts/orion-automation-run", "calendar-check"],
+        cwd: REPO_ROOT,
+        enabled: false,
+        exact: true,
+        noDeliver: true,
+      };
+    },
+    remove: async () => {
+      scheduler.calls.push("remove");
+    },
+  };
+
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  
+  assert.strictEqual(result.status, "intervention_required");
+  assert.ok(scheduler.calls.includes("read"));
+  assert.strictEqual(scheduler.calls.filter(c => c === "remove").length, 0);
+});
+
+test("reconcileDisabledAutomation: cleanup failure scenarios", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // Create transaction in job_known phase with exact matching job
+  const txDir = join(root, "transactions");
+  await mkdir(txDir, { recursive: true });
+  
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const txData = {
+    version: 1,
+    name: "calendar-check",
+    phase: "job_known",
+    installationId: "test-install-id",
+    installedAt: new Date(NOW).toISOString(),
+    timeZone: "Europe/London",
+    schedulerId: "job-cleanup-fail",
+    plan,
+    record: { name: "calendar-check", installationId: "test-install-id" },
+    evidence: {},
+  };
+  
+  await writeFile(join(txDir, "calendar-check.json"), JSON.stringify(txData, null, 2));
+
+  // Scheduler where remove rejects
+  const schedulerReject = {
+    calls: [],
+    read: async (id) => {
+      schedulerReject.calls.push("read");
+      return {
+        id,
+        name: "orion-auto-calendar-check",
+        timeZone: "Europe/London",
+        cron: "5 9 * * *",
+        commandArgv: [REPO_ROOT + "/scripts/orion-automation-run", "calendar-check"],
+        cwd: REPO_ROOT,
+        enabled: false,
+        exact: true,
+        noDeliver: true,
+      };
+    },
+    remove: async () => {
+      schedulerReject.calls.push("remove");
+      throw new Error("remove failed");
+    },
+  };
+
+  let result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler: schedulerReject });
+  assert.strictEqual(result.status, "cleanup_unknown");
+  assert.ok(schedulerReject.calls.includes("remove"));
+
+  // Verify evidence preserved
+  const txAfter = JSON.parse(await readFile(join(txDir, "calendar-check.json"), "utf8"));
+  assert.ok(Array.isArray(txAfter.evidence.reconcile));
+});
+
+test("reconcileDisabledAutomation: cleanup failure - job still present after remove", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const txDir = join(root, "transactions");
+  await mkdir(txDir, { recursive: true });
+  
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const txData = {
+    version: 1,
+    name: "calendar-check",
+    phase: "job_known",
+    installationId: "test-install-id",
+    installedAt: new Date(NOW).toISOString(),
+    timeZone: "Europe/London",
+    schedulerId: "job-still-there",
+    plan,
+    record: { name: "calendar-check", installationId: "test-install-id" },
+    evidence: {},
+  };
+  
+  await writeFile(join(txDir, "calendar-check.json"), JSON.stringify(txData, null, 2));
+
+  // Scheduler where remove succeeds but job still exists
+  const scheduler = {
+    calls: [],
+    read: async (id) => {
+      scheduler.calls.push("read");
+      return {
+        id,
+        name: "orion-auto-calendar-check",
+        timeZone: "Europe/London",
+        cron: "5 9 * * *",
+        commandArgv: [REPO_ROOT + "/scripts/orion-automation-run", "calendar-check"],
+        cwd: REPO_ROOT,
+        enabled: false,
+        exact: true,
+        noDeliver: true,
+      };
+    },
+    remove: async () => {
+      scheduler.calls.push("remove");
+      // Doesn't actually remove - job still there
+    },
+  };
+
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result.status, "cleanup_failed");
+});
+
+test("reconcileDisabledAutomation: never calls createDisabled", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const scheduler = {
+    calls: [],
+    read: async () => null,
+    remove: async () => {},
+    createDisabled: async () => {
+      scheduler.calls.push("createDisabled");
+      throw new Error("createDisabled should never be called by reconcile");
+    },
+  };
+
+  // No transaction file - should return no_transaction without calling anything
+  const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
+  assert.strictEqual(result.status, "no_transaction");
+  assert.strictEqual(scheduler.calls.filter(c => c === "createDisabled").length, 0);
 });
 

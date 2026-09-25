@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, writeFile, rename, stat, constants, open, unlink, link, rmdir } from "node:fs/promises";
+import { mkdir, writeFile, rename, stat, constants, open, unlink, link, rmdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // Pure disabled-schedule read-back verifier. No filesystem, network or scheduler effects.
@@ -157,7 +157,6 @@ export async function installDisabledAutomation({ root, proposal, timeZone, repo
 
     // Check for active/uncertain transaction
     try {
-      const { readFile } = await import("node:fs/promises");
       const existing = JSON.parse(await readFile(txFile, "utf8"));
       if (existing.phase && !["complete", "publication_failed"].includes(existing.phase)) {
         return { status: "transaction_active", reason: `uncertain transaction in phase ${existing.phase}`, phase };
@@ -291,3 +290,223 @@ export async function installDisabledAutomation({ root, proposal, timeZone, repo
   }
 }
 
+/**
+ * Reconcile an incomplete disabled installation transaction.
+ *
+ * Conservative: never creates or enables jobs, never resets consumed quotas,
+ * never guesses that a live lock owner is dead. Only inspects and optionally
+ * removes known disabled jobs when exact identity matches.
+ *
+ * @param {{
+ *   root: string,
+ *   name: string,
+ *   scheduler: { read(id): Promise<object|null>, remove(id): Promise<void> }
+ * }} params
+ * @returns {Promise<object>} reconciliation status
+ */
+export async function reconcileDisabledAutomation({ root, name, scheduler }) {
+  // --- validate inputs ---
+  if (!root || typeof root !== "string") throw new TypeError("root must be a non-empty string");
+  if (!name || typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{1,47}$/.test(name)) {
+    throw new TypeError("name must match /^[a-z0-9][a-z0-9-]{1,47}$/");
+  }
+  if (!scheduler || typeof scheduler.read !== "function" || typeof scheduler.remove !== "function") {
+    throw new TypeError("scheduler adapter must expose read and remove functions");
+  }
+
+  const txDir = join(root, "transactions");
+  const txFile = join(txDir, `${name}.json`);
+  const lockDir = join(txDir, `${name}.lock`);
+  const installedPath = join(root, "installed", `${name}.json`);
+
+  // --- ensure transactions directory exists before lock attempt ---
+  await mkdir(txDir, { recursive: true });
+
+  // --- acquire per-name lock; on EEXIST return busy, never break a lock ---
+  // NOTE: must NOT use { recursive: true } here — that suppresses EEXIST
+  // and would silently succeed even when another process holds the lock.
+  let createdLock = false;
+  try {
+    await mkdir(lockDir);
+    createdLock = true;
+  } catch (err) {
+    if (err.code === "EEXIST") {
+      return { status: "busy" };
+    }
+    throw err;
+  }
+
+  try {
+    // --- read transaction file ---
+    let tx;
+    try {
+      const raw = await readFile(txFile, "utf8");
+      tx = JSON.parse(raw);
+    } catch {
+      return { status: "no_transaction" };
+    }
+
+    // --- helper: append evidence and persist transaction atomically ---
+    async function appendEvidence(entry) {
+      if (!tx.evidence) tx.evidence = {};
+      if (!Array.isArray(tx.evidence.reconcile)) tx.evidence.reconcile = [];
+      tx.evidence.reconcile.push(entry);
+
+      await mkdir(txDir, { recursive: true });
+      const data = JSON.stringify(tx, null, 2);
+      const tmpFile = join(txDir, `${name}.${randomBytes(8).toString("hex")}.tmp`);
+      const handle = await open(tmpFile, "wx", 0o600);
+      try {
+        await handle.writeFile(data);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await rename(tmpFile, txFile);
+      // fsync directory for durability
+      const dirFd = await open(txDir, constants.O_RDONLY);
+      try { await dirFd.fdatasync(); } catch { /* best effort */ }
+      finally { await dirFd.close(); }
+    }
+
+    const phase = tx.phase;
+    const schedulerId = tx.schedulerId;
+    const storedPlan = tx.plan;
+
+    // --- no plan stored: cannot reconcile safely ---
+    if (!storedPlan) {
+      await appendEvidence({ status: "intervention_required", reason: "missing_plan" });
+      return { status: "intervention_required", reason: "transaction lacks stored plan" };
+    }
+
+    // --- create_pending with no schedulerId: blocked, never create a replacement ---
+    if (phase === "create_pending" && !schedulerId) {
+      await appendEvidence({ status: "blocked_unknown_create", detail: "no scheduler id recorded" });
+      return { status: "blocked_unknown_create" };
+    }
+
+    // --- complete phase: inspect only, never mutate ---
+    if (phase === "complete") {
+      let observed;
+      try {
+        observed = await scheduler.read(schedulerId);
+      } catch {
+        await appendEvidence({ status: "intervention_required", reason: "read_failed" });
+        return { status: "intervention_required", reason: "read_failed" };
+      }
+
+      // Must be positively present (not null) for verification
+      if (!observed) {
+        await appendEvidence({ status: "intervention_required", reason: "missing_job" });
+        return { status: "intervention_required", reason: "missing_job" };
+      }
+
+      // Verify id matches exactly
+      if (observed.id !== schedulerId) {
+        await appendEvidence({ status: "intervention_required", reason: "mismatch" });
+        return { status: "intervention_required", reason: "mismatch" };
+      }
+
+      // Verify disabled schedule content
+      if (!verifyDisabledSchedule(storedPlan, observed)) {
+        // Check if it's enabled specifically
+        if (observed.enabled === true) {
+          await appendEvidence({ status: "intervention_required", reason: "enabled" });
+          return { status: "intervention_required", reason: "enabled" };
+        }
+        await appendEvidence({ status: "intervention_required", reason: "mismatch" });
+        return { status: "intervention_required", reason: "mismatch" };
+      }
+
+      // Check installed record's installationId matches transaction's
+      let installedRecord;
+      try {
+        const raw = await readFile(installedPath, "utf8");
+        installedRecord = JSON.parse(raw);
+      } catch {
+        await appendEvidence({ status: "intervention_required", reason: "missing_installed_record" });
+        return { status: "intervention_required", reason: "missing_installed_record" };
+      }
+
+      if (installedRecord.installationId !== tx.installationId) {
+        await appendEvidence({ status: "intervention_required", reason: "mismatch" });
+        return { status: "intervention_required", reason: "mismatch" };
+      }
+
+      // All checks pass: verified, write nothing so second call gives identical bytes
+      await appendEvidence({ status: "complete_verified", detail: "all checks passed" });
+      return { status: "complete_verified" };
+    }
+
+    // --- incomplete phases with schedulerId: job_known, disabled_verified, publication_failed ---
+    if (!schedulerId) {
+      // Should not reach here given create_pending handling above, but be safe
+      await appendEvidence({ status: "blocked_unknown_create", detail: `phase ${phase} without scheduler id` });
+      return { status: "blocked_unknown_create" };
+    }
+
+    // Read the job from scheduler
+    let observed;
+    try {
+      observed = await scheduler.read(schedulerId);
+    } catch {
+      // Read rejected: unknown outcome, do not remove
+      await appendEvidence({ status: "unknown_outcome", reason: "read_failed" });
+      return { status: "unknown_outcome", reason: "scheduler read failed" };
+    }
+
+    // Resolved null: job is gone
+    if (observed === null) {
+      await appendEvidence({ status: "verified_absent", detail: "scheduler reports no such job" });
+      return { status: "verified_absent" };
+    }
+
+    // Check id match first
+    if (observed.id !== schedulerId) {
+      await appendEvidence({ status: "intervention_required", reason: "mismatch" });
+      return { status: "intervention_required", reason: "id mismatch" };
+    }
+
+    // Check disabled schedule content
+    if (!verifyDisabledSchedule(storedPlan, observed)) {
+      if (observed.enabled === true) {
+        await appendEvidence({ status: "intervention_required", reason: "enabled" });
+        return { status: "intervention_required", reason: "enabled" };
+      }
+      await appendEvidence({ status: "intervention_required", reason: "mismatch" });
+      return { status: "intervention_required", reason: "content mismatch" };
+    }
+
+    // Exact match: safe to remove
+    try {
+      await scheduler.remove(schedulerId);
+    } catch {
+      // Remove rejected: unknown cleanup outcome
+      await appendEvidence({ status: "cleanup_unknown", reason: "remove_failed" });
+      return { status: "cleanup_unknown", reason: "scheduler remove failed" };
+    }
+
+    // Read back to prove removal: only null proves it
+    let postRemove;
+    try {
+      postRemove = await scheduler.read(schedulerId);
+    } catch {
+      await appendEvidence({ status: "cleanup_unknown", reason: "post_remove_read_failed" });
+      return { status: "cleanup_unknown", reason: "cannot verify removal" };
+    }
+
+    if (postRemove === null) {
+      await appendEvidence({ status: "cleaned_up", detail: "job removed and verified absent" });
+      return { status: "cleaned_up" };
+    }
+
+    // Still present after remove
+    await appendEvidence({ status: "cleanup_failed", reason: "job still present after remove" });
+    return { status: "cleanup_failed" };
+  } finally {
+    // Release the lock only if this call created it
+    if (createdLock) {
+      try { await rmdir(lockDir); } catch { /* best effort */ }
+    }
+  }
+}

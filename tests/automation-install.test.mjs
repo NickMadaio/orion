@@ -934,6 +934,11 @@ test("reconcileDisabledAutomation: cleanup failure - job still present after rem
 
   const result = await reconcileDisabledAutomation({ root, name: "calendar-check", scheduler });
   assert.strictEqual(result.status, "cleanup_failed");
+
+  // Verify evidence was appended to the transaction file
+  const txAfter = JSON.parse(await readFile(join(txDir, "calendar-check.json"), "utf8"));
+  assert.ok(Array.isArray(txAfter.evidence.reconcile));
+  assert.ok(txAfter.evidence.reconcile.length > 0);
 });
 
 test("reconcileDisabledAutomation: never calls createDisabled", async (t) => {

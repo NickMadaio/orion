@@ -190,7 +190,8 @@ function makeProposal() {
   };
 }
 
-function makeFakeScheduler() {
+function makeFakeScheduler(repoRootOverride) {
+  const repo = repoRootOverride || REPO_ROOT;
   const calls = [];
   return {
     calls,
@@ -206,8 +207,8 @@ function makeFakeScheduler() {
         name: "orion-auto-calendar-check",
         timeZone: "Europe/London",
         cron: "5 9 * * *",
-        commandArgv: [REPO_ROOT + "/scripts/orion-automation-run", "calendar-check"],
-        cwd: REPO_ROOT,
+        commandArgv: [repo + "/scripts/orion-automation-run", "calendar-check"],
+        cwd: repo,
         enabled: false,
         exact: true,
         noDeliver: true,
@@ -965,9 +966,9 @@ test("reconcileDisabledAutomation: never calls createDisabled", async (t) => {
 
 const { runInstalledAutomation } = await import("../scripts/lib/orion-automation-runtime.mjs");
 
-async function installFixture(root, scheduler, proposalOverride) {
+async function installFixture(root, scheduler, proposalOverride, repoRootOverride) {
   const proposal = proposalOverride || makeProposal();
-  return installDisabledAutomation({ root, proposal, timeZone: "Europe/London", repoRoot: REPO_ROOT, scheduler, now: NOW });
+  return installDisabledAutomation({ root, proposal, timeZone: "Europe/London", repoRoot: repoRootOverride || REPO_ROOT, scheduler, now: NOW });
 }
 
 function makeChecks(nowVal, mode, focusActive, authorized) {
@@ -979,15 +980,16 @@ function makeChecks(nowVal, mode, focusActive, authorized) {
 
 // Acceptance 2: due trigger produces exactly one execution; repeat refused
 test("task4: due trigger succeeds once, repeat refused", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "orion-install-")));
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
   const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
 
   // Create the script file the runtime will call
+  await mkdir(join(repoRoot, "scripts"), { recursive: true });
   await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
 
-  const scheduler = makeFakeScheduler();
-  await installFixture(root, scheduler);
+  const scheduler = makeFakeScheduler(repoRoot);
+  await installFixture(root, scheduler, undefined, repoRoot);
 
   // First run at DUE — should succeed
   const runs1 = [];
@@ -1034,9 +1036,10 @@ for (const tc of refusalCases) {
     const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
     t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
 
+    await mkdir(join(repoRoot, "scripts"), { recursive: true });
     await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
-    const scheduler = makeFakeScheduler();
-    await installFixture(root, scheduler, tc.proposal?.());
+    const scheduler = makeFakeScheduler(repoRoot);
+    await installFixture(root, scheduler, tc.proposal?.(), repoRoot);
 
     const runs = [];
     const result = await runInstalledAutomation("calendar-check", tc.scheduledAt || DUE, {
@@ -1057,9 +1060,10 @@ test("task4: refused before execution — changed installation (invalid_state)",
   const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
 
+  await mkdir(join(repoRoot, "scripts"), { recursive: true });
   await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
-  const scheduler = makeFakeScheduler();
-  await installFixture(root, scheduler);
+  const scheduler = makeFakeScheduler(repoRoot);
+  await installFixture(root, scheduler, undefined, repoRoot);
 
   // Tamper: read installed record, change intent, write back
   const instPath = join(root, "installed", "calendar-check.json");
@@ -1085,10 +1089,11 @@ test("task4: throwing executor yields outcome_unknown, next day refused stopped"
   const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
 
+  await mkdir(join(repoRoot, "scripts"), { recursive: true });
   await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
-  const scheduler = makeFakeScheduler();
+  const scheduler = makeFakeScheduler(repoRoot);
   const proposal = { ...makeProposal(), failureBehavior: "retry_once" };
-  await installFixture(root, scheduler, proposal);
+  await installFixture(root, scheduler, proposal, repoRoot);
 
   const runs = [];
   const effects = [];
@@ -1126,9 +1131,10 @@ test("task4: child process death yields busy_or_unavailable after lock removal",
   const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
 
+  await mkdir(join(repoRoot, "scripts"), { recursive: true });
   await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
-  const scheduler = makeFakeScheduler();
-  await installFixture(root, scheduler);
+  const scheduler = makeFakeScheduler(repoRoot);
+  await installFixture(root, scheduler, undefined, repoRoot);
 
   // Spawn child that calls runInstalledAutomation and exits 73
   const runtimeModuleURL = new URL("../scripts/lib/orion-automation-runtime.mjs", import.meta.url).href;
@@ -1190,9 +1196,10 @@ test("task4: fixtures prove no real scheduler/calendar/webhook/production root",
   const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
 
+  await mkdir(join(repoRoot, "scripts"), { recursive: true });
   await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
-  const scheduler = makeFakeScheduler();
-  await installFixture(root, scheduler);
+  const scheduler = makeFakeScheduler(repoRoot);
+  await installFixture(root, scheduler, undefined, repoRoot);
 
   let checksCalled = false;
   const runs = [];

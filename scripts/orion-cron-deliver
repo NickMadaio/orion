@@ -49,13 +49,14 @@
 */
 
 import { spawn } from "node:child_process";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const ROOT = join(homedir(), "Desktop/ORION");
 const ALERT = join(ROOT, "scripts/orion-discord-alert");
 const STATE = join(homedir(), ".openclaw/orion-controlled/cron-delivery.json");
+const HISTORY = join(homedir(), ".openclaw/orion-controlled/cron-delivery-history.jsonl");
 
 /** Discord's own ceiling is 1500 bytes in orion-discord-alert. Leave headroom. */
 const MAX_BODY = 1200;
@@ -167,6 +168,18 @@ function deliver(text) {
   });
 }
 
+/* ----------------------------------------------------------- history */
+
+async function recordOutcome(outcome, code) {
+  try {
+    await mkdir(dirname(HISTORY), { recursive: true });
+    const line = JSON.stringify({ v: 1, at: Date.now(), label, outcome, exitCode: code }) + "\n";
+    await appendFile(HISTORY, line, { mode: 0o600 });
+  } catch (error) {
+    console.error(`orion-cron-deliver: could not record history — ${error.message}`);
+  }
+}
+
 /* ----------------------------------------------------------------- main */
 
 const result = await runCommand(command);
@@ -175,8 +188,12 @@ const spoken = `${result.out}\n${result.err}`.trim();
 // Nothing said, nothing to deliver. For orion-standing and orion-focus this is
 // the common case and it is CORRECT: they are built to stay quiet unless
 // something genuinely changed.
+await recordOutcome("silent", result.code);
 if (spoken.length === 0) process.exit(result.code);
-if (match && !match.test(spoken)) process.exit(result.code);
+if (match && !match.test(spoken)) {
+  await recordOutcome("no_match", result.code);
+  process.exit(result.code);
+}
 
 const body = spoken.length > MAX_BODY ? `${spoken.slice(0, MAX_BODY)}\n…(truncated)` : spoken;
 const message = `[${label}] ${body}`;
@@ -187,6 +204,7 @@ const now = Date.now();
 const sinceLast = now - (previous.at ?? 0);
 
 if (previous.message === message && sinceLast < 6 * 60 * 60 * 1000) {
+  await recordOutcome("duplicate", result.code);
   process.exit(result.code);
 }
 if (sinceLast < minIntervalMinutes * 60 * 1000) {
@@ -194,6 +212,7 @@ if (sinceLast < minIntervalMinutes * 60 * 1000) {
     `orion-cron-deliver: [${label}] held back — last delivery was ` +
       `${Math.round(sinceLast / 60000)} min ago (limit ${minIntervalMinutes}).`,
   );
+  await recordOutcome("held_back", result.code);
   process.exit(result.code);
 }
 
@@ -205,10 +224,12 @@ if (!sent.ok) {
   console.error(
     `orion-cron-deliver: [${label}] the message was NOT delivered${sent.err ? ` — ${sent.err}` : "."}`,
   );
+  await recordOutcome("delivery_failed", result.code);
   process.exit(result.code);
 }
 
 // Immutable update: a new state object, never a mutation of the one read.
 await writeState({ ...state, [label]: { at: now, message } });
 console.error(`orion-cron-deliver: [${label}] delivered.`);
+await recordOutcome("delivered", result.code);
 process.exit(result.code);

@@ -961,3 +961,267 @@ test("reconcileDisabledAutomation: never calls createDisabled", async (t) => {
   assert.strictEqual(scheduler.calls.filter(c => c === "createDisabled").length, 0);
 });
 
+// --- Task 4 tests: auto-install-fixture-route (prove installation output reaches guarded execution) ---
+
+const { runInstalledAutomation } = await import("../scripts/lib/orion-automation-runtime.mjs");
+
+async function installFixture(root, scheduler, proposalOverride) {
+  const proposal = proposalOverride || makeProposal();
+  return installDisabledAutomation({ root, proposal, timeZone: "Europe/London", repoRoot: REPO_ROOT, scheduler, now: NOW });
+}
+
+function makeChecks(nowVal, mode, focusActive, authorized) {
+  return {
+    readContext: async () => ({ now: nowVal, effectiveMode: mode, focusActive }),
+    authorize: async () => authorized,
+  };
+}
+
+// Acceptance 2: due trigger produces exactly one execution; repeat refused
+test("task4: due trigger succeeds once, repeat refused", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-")));
+  const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
+
+  // Create the script file the runtime will call
+  await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
+
+  const scheduler = makeFakeScheduler();
+  await installFixture(root, scheduler);
+
+  // First run at DUE — should succeed
+  const runs1 = [];
+  const result1 = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(DUE, "guarded", false, true),
+    run: async (file, args) => { runs1.push({ file, args }); return { stdout: "agenda" }; },
+  });
+  assert.strictEqual(result1.status, "succeeded");
+  assert.strictEqual(runs1.length, 1);
+  assert.strictEqual(runs1[0].file, join(repoRoot, "scripts/orion-agenda"));
+  assert.deepEqual(runs1[0].args, ["today"]);
+
+  // Repeat at DUE with fresh adapters — should refuse
+  const runs2 = [];
+  const result2 = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(DUE, "guarded", false, true),
+    run: async () => { runs2.push(1); return { stdout: "agenda" }; },
+  });
+  assert.strictEqual(result2.status, "refused");
+  assert.strictEqual(result2.reason, "duplicate_or_old_trigger");
+  assert.strictEqual(runs2.length, 0);
+
+  // Acceptance 5: no real systems
+  assert.deepEqual(scheduler.calls.filter(c => c === "createDisabled").length, 1);
+  assert.ok(root.startsWith(tmpdir()));
+  assert.ok(repoRoot.startsWith(tmpdir()));
+});
+
+// Acceptance 3: refused before execution — table-driven
+const refusalCases = [
+  { label: "not_authorized", checks: () => makeChecks(DUE, "guarded", false, false), reason: "not_authorized" },
+  { label: "mode_mismatch", checks: () => makeChecks(DUE, "open", false, true), reason: "mode_mismatch" },
+  { label: "expired", proposal: () => ({ ...makeProposal(), expiresOn: "2026-09-21" }), scheduledAt: Date.parse("2026-09-22T08:05:00Z"), checks: () => makeChecks(Date.parse("2026-09-22T08:05:00Z"), "guarded", false, true), reason: "expired" },
+  { label: "focus_unknown", proposal: () => ({ ...makeProposal(), conditions: { skipDuringFocus: true } }), checks: () => makeChecks(DUE, "guarded", null, true), reason: "focus_unknown" },
+];
+
+for (const tc of refusalCases) {
+  test(`task4: refused before execution — ${tc.label}`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
+    t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
+
+    await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
+    const scheduler = makeFakeScheduler();
+    await installFixture(root, scheduler, tc.proposal?.());
+
+    const runs = [];
+    const result = await runInstalledAutomation("calendar-check", tc.scheduledAt || DUE, {
+      automationRoot: root,
+      repoRoot,
+      checks: tc.checks(),
+      run: async () => { runs.push(1); return { stdout: "agenda" }; },
+    });
+    assert.strictEqual(result.status, "refused", `expected refused for ${tc.label}`);
+    assert.strictEqual(result.reason, tc.reason, `reason mismatch for ${tc.label}`);
+    assert.strictEqual(runs.length, 0, `run should not be called for ${tc.label}`);
+  });
+}
+
+// Changed installation — tamper the installed record
+test("task4: refused before execution — changed installation (invalid_state)", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
+
+  await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
+  const scheduler = makeFakeScheduler();
+  await installFixture(root, scheduler);
+
+  // Tamper: read installed record, change intent, write back
+  const instPath = join(root, "installed", "calendar-check.json");
+  const instData = JSON.parse(await readFile(instPath, "utf8"));
+  instData.intent = "tampered-intent";
+  await writeFile(instPath, JSON.stringify(instData, null, 2));
+
+  const runs = [];
+  const result = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(DUE, "guarded", false, true),
+    run: async () => { runs.push(1); return { stdout: "agenda" }; },
+  });
+  assert.strictEqual(result.status, "refused");
+  assert.strictEqual(result.reason, "invalid_state");
+  assert.strictEqual(runs.length, 0);
+});
+
+// Acceptance 4a: executor throws after effect — not blindly retried
+test("task4: throwing executor yields outcome_unknown, next day refused stopped", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
+
+  await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
+  const scheduler = makeFakeScheduler();
+  const proposal = { ...makeProposal(), failureBehavior: "retry_once" };
+  await installFixture(root, scheduler, proposal);
+
+  const runs = [];
+  const effects = [];
+  const result1 = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(DUE, "guarded", false, true),
+    run: async (file, args) => {
+      runs.push({ file, args });
+      effects.push("effect");
+      throw new Error("disposable failure");
+    },
+  });
+  assert.strictEqual(result1.status, "outcome_unknown");
+  assert.strictEqual(runs.length, 1);
+  assert.strictEqual(effects.length, 1);
+
+  // Next day — should refuse with stopped
+  const runs2 = [];
+  const nextDay = Date.parse("2026-09-21T08:05:00Z");
+  const result2 = await runInstalledAutomation("calendar-check", nextDay, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(nextDay, "guarded", false, true),
+    run: async () => { runs2.push(1); return { stdout: "agenda" }; },
+  });
+  assert.strictEqual(result2.status, "refused");
+  assert.strictEqual(result2.reason, "stopped");
+  assert.strictEqual(runs2.length, 0);
+});
+
+// Acceptance 4b: child process death — lock removal then outcome_unknown
+test("task4: child process death yields busy_or_unavailable after lock removal", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
+
+  await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
+  const scheduler = makeFakeScheduler();
+  await installFixture(root, scheduler);
+
+  // Spawn child that calls runInstalledAutomation and exits 73
+  const runtimeModuleURL = new URL("../scripts/lib/orion-automation-runtime.mjs", import.meta.url).href;
+  const source = `import { runInstalledAutomation } from ${JSON.stringify(runtimeModuleURL)};
+    import { writeFile } from 'node:fs/promises';
+    const [root, repoRoot, scheduledAt] = JSON.parse(process.argv[1]);
+    await runInstalledAutomation("calendar-check", scheduledAt, {
+      automationRoot: root,
+      repoRoot,
+      checks: {
+        readContext: async () => ({ now: scheduledAt, effectiveMode: "guarded", focusActive: false }),
+        authorize: async () => true,
+      },
+      run: async (file, args) => {
+        await writeFile(root + "/effect.txt", "child-effect\\n", { flag: "a" });
+        process.exit(73);
+      },
+    });`;
+
+  await assert.rejects(
+    promisify(execFile)(process.execPath, ["--input-type=module", "-e", source, JSON.stringify([root, repoRoot, DUE])]),
+    (error) => error.code === 73
+  );
+
+  // Next call with lock still present — busy_or_unavailable
+  const result1 = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(DUE, "guarded", false, true),
+    run: async () => ({ stdout: "agenda" }),
+  });
+  assert.strictEqual(result1.status, "refused");
+  assert.strictEqual(result1.reason, "busy_or_unavailable");
+
+  // Remove lock directory under root/runtime
+  const entries = await readdir(join(root, "runtime"));
+  for (const entry of entries) {
+    if (entry.endsWith(".lock")) {
+      await rm(join(root, "runtime", entry), { recursive: true, force: true });
+    }
+  }
+
+  // After lock removal — outcome_unknown, still no new run
+  const runs = [];
+  const result2 = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: makeChecks(DUE, "guarded", false, true),
+    run: async () => { runs.push(1); return { stdout: "agenda" }; },
+  });
+  assert.strictEqual(result2.status, "refused");
+  assert.strictEqual(result2.reason, "outcome_unknown");
+  assert.strictEqual(runs.length, 0);
+});
+
+// Acceptance 5: positive evidence no real systems used
+test("task4: fixtures prove no real scheduler/calendar/webhook/production root", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "orion-install-"));
+  const repoRoot = await mkdtemp(join(tmpdir(), "orion-repo-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(repoRoot, { recursive: true, force: true }); });
+
+  await writeFile(join(repoRoot, "scripts", "orion-agenda"), "#!/usr/bin/env node\nconsole.log('ok');", { mode: 0o755 });
+  const scheduler = makeFakeScheduler();
+  await installFixture(root, scheduler);
+
+  let checksCalled = false;
+  const runs = [];
+  const result = await runInstalledAutomation("calendar-check", DUE, {
+    automationRoot: root,
+    repoRoot,
+    checks: {
+      readContext: async () => { checksCalled = true; return { now: DUE, effectiveMode: "guarded", focusActive: false }; },
+      authorize: async () => { checksCalled = true; return true; },
+    },
+    run: async (file, args) => { runs.push({ file, args }); return { stdout: "agenda" }; },
+  });
+
+  assert.strictEqual(result.status, "succeeded");
+  // Fake scheduler only saw createDisabled and read
+  assert.deepEqual(scheduler.calls, ["createDisabled", "read"]);
+  // Every run used temporary repoRoot
+  for (const r of runs) {
+    assert.ok(r.file.startsWith(tmpdir()));
+  }
+  // Checks were called
+  assert.ok(checksCalled);
+  // Delivery not requested
+  assert.strictEqual(result.delivery?.status, "not_requested");
+  // No messages in runtime
+  const runtimeEntries = await readdir(join(root, "runtime"));
+  assert.ok(!runtimeEntries.some(e => e.startsWith("messages")), "no messages entry in runtime");
+  // Roots are temporary
+  assert.ok(root.startsWith(tmpdir()));
+  assert.ok(repoRoot.startsWith(tmpdir()));
+});
+

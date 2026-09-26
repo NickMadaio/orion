@@ -23,10 +23,13 @@
 - **Reconnaissance needed**: None further. The absence of an iOS app is confirmed by SEARCH and manifest review.
 
 ## Test scenarios
-- **Positive case**: N/A — no implementation to test.
-- **Failure case**: N/A — no implementation to test.
-- **Injectable seam**: N/A.
-- **Expected outcome**: N/A.
+
+| Scenario | Existing Suite / Command | Injectable Failure | Expected Durable State | Consumer-Visible Outcome |
+|---|---|---|---|---|
+| **Positive: Focus session starts and persists** | `scripts/orion-focus` (Node.js). Run `node scripts/orion-focus start "test task" 10 Zed` then `cat ~/.openclaw/orion-controlled/focus.json`. The file must contain a valid JSON object with `session.task`, `session.until`, and `session.strikes === 0`. | N/A (positive path) | `focus.json` contains a complete session object with `startedAt`, `until`, `allowedApps`, `strikes: 0`, and `grants: []`. | Console output shows "locked on: test task for 10 min" and "allowed: Zed, Orion, Finder...". The file on disk is valid JSON. |
+| **Failure: Stale or corrupt focus.json** | `scripts/orion-focus` handles this in `readState()`. Inject by writing invalid JSON (e.g., `{bad`) to `~/.openclaw/orion-controlled/focus.json`, then run `node scripts/orion-focus status`. | Write malformed JSON to `focus.json` before invoking any command. | `readState()` catches the parse error and returns `{}`. No crash; no partial state. Subsequent commands behave as if no session exists. | `status` prints "no active focus session". The script does not exit with an unhandled exception. |
+| **Failure: Ledger append failure** | `plugin/orion-control/src/ledger.ts`. The `appendReporting` method is designed to fail gracefully. Inject by making the ledger directory read-only or the file unwritable. | Set permissions on the ledger file/directory to deny write access, then call `ledger.appendReporting(...)`. | The record is NOT appended to the file. The method returns `{ appended: false, error: "Ledger append failed: ..." }`. | The caller receives the error object and can surface it; the primary task result is not destroyed by the audit failure. |
+| **Injectable seam** | `~/.openclaw/orion-controlled/focus.json` (data path). Read/written by `scripts/orion-focus` via `readState()`/`writeState()`. Can be manually edited, truncated, or permission-changed to test resilience. Also: `plugin/orion-control/src/ledger.ts` — the ledger file path can be made unwritable to test `appendReporting` graceful failure. | — | — | — |
 
 ## Gates and handoff
 - **Entry gate**: Phase 65 (entryRequiresPhase: 65). Entry satisfied is false per brief; phases behind this one are open on surfaces that do not exist.

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { dispatchAutomation } from "./orion-automation-dispatch.mjs";
 import { checkAutomationConditions } from "./orion-automation-admission.mjs";
 import { createAutomationHostChecks } from "./orion-automation-host.mjs";
+import { appendAutomationHistory } from "./orion-automation-history.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const executeFile = promisify(execFile);
@@ -74,5 +75,17 @@ export async function runInstalledAutomation(name, scheduledAt, {
       }
     },
   };
-  return dispatchAutomation(join(automationRoot, "runtime"), record, scheduledAt, adapters);
+  const result = await dispatchAutomation(join(automationRoot, "runtime"), record, scheduledAt, adapters);
+  if (result.reason !== "not_due") {
+    try {
+      await appendAutomationHistory(join(automationRoot, "history", `${name}.jsonl`), {
+        at: scheduledAt,
+        name,
+        status: result.status,
+        reason: typeof result.reason === "string" ? result.reason : null,
+        delivery: typeof result.delivery?.status === "string" ? result.delivery.status : null,
+      });
+    } catch { /* recording failure must not change the result */ }
+  }
+  return result;
 }

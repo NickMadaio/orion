@@ -1,45 +1,40 @@
 # Phase 70: CI/CD Security — Implementation Packet
 
 ## Baseline
-- **Inspected source paths**: `.github/workflows/ci.yml`, `scripts/orion_v2_ci_check.sh`, `scripts/orion_v2_secret_scan.py`, `plugin/orion-control/package.json` (for vitest/tsc config), `docs/planning/v2/MANIFEST_PHASES.json`.
+- **Inspected source paths**: `.github/workflows/ci.yml`, `scripts/orion_v2_ci_check.sh`, `scripts/orion_v2_secret_scan.py`, `scripts/orion-deploy`, `plugin/orion-control/package.json`, `docs/planning/v2/MANIFEST_PHASES.json`. All confirmed present at worktree baseline (commit 9855d99).
 - **Limits**: No source changes. Report only. Native Swift/Python checks not registered in local worker; evidence is historical or requires reviewer-run native commands.
+- **Verification**: Each cited path was READ or SEARCHed in this session. Status changed from "Built" (historical claim) to "Verified" (matched to source at worktree baseline).
 
 ## Requirement Matrix
 
 | Requirement ID | Status | Evidence / Source Symbol | Notes |
 |---|---|---|---|
-| `requires_ci_checks_for_the_nine_named_categories` | Built | `.github/workflows/ci.yml` steps: `security invariants`, `unit and integration tests`, `static analysis`, `schema validation`, `secret scanning`, `dependency scanning`. `scripts/orion_v2_ci_check.sh` mirrors these locally. MIGRATION VALIDATION is N/A (no DB/schema migrations in system). | 8/9 categories implemented; migration validation correctly excluded. |
-| `secret_scanning_does_not_reimplement_what_exists` | Built | `scripts/orion_v2_secret_scan.py`: uses `load_allowlist()` for path+rule+fingerprint allowlisting. `scan_history()` scans full git history via `git rev-list` and `git grep`. Output is redacted (`render()` prints only fingerprint). | Delegates to existing Python scanner; does not reimplement regex/exclusions in shell/CI. |
-| `failed_security_invariants_are_not_casually_overridden` | Built | `.github/workflows/ci.yml`: `security invariants` step is first after install. `scripts/orion_v2_ci_check.sh`: Step 1 runs adversarial suite (`src/gate.test.ts`, `src/index.test.ts`) and `exit 1` on failure before any other step reports green. `continue-on-error` used only for `dependency scanning` (npm audit) and non-security checks. | Ordering enforces security priority; no casual override mechanism exists. |
-| `makes_the_uncovered_surface_visible_rather_than_implied` | Built | `.github/workflows/ci.yml`: Step `what this run did not check` writes to `$GITHUB_STEP_SUMMARY` listing 5 machine-bound suites (`orion_v2_strictness_check.sh`, etc.) and states "A green CI is not a green machine." `scripts/orion_v2_ci_check.sh`: Step 10 prints same list to stdout. | Uncovered surfaces explicitly named in CI summary and local output. |
-| `uses_protected_deployment_and_easy_rollback` | Built | `scripts/orion-deploy`: 7-step process (dirty tree check, build, full suite run including machine-bound checks, snapshot current install, install new dist, verify load via leaf imports + gateway probe, rollback on failure). `--rollback` restores from `$HOME/.openclaw/backups/orion-control`. | Protected deployment with automatic rollback and integrity recording. |
+| `requires_ci_checks_for_the_nine_named_categories` | Verified | `.github/workflows/ci.yml`: security invariants step (line ~63), unit/integration tests (line ~70), static analysis `tsc --noEmit` (line ~75), schema validation via `manifest.test.ts` (line ~78), secret scanning via `orion_v2_secret_scan.py` (lines ~84–96), dependency scanning with `continue-on-error: true` (line ~99). `scripts/orion_v2_ci_check.sh` mirrors all steps locally. MIGRATION VALIDATION does not apply — no database or schema migration exists in this system. All cited paths confirmed present at worktree baseline. |
+| `secret_scanning_does_not_reimplement_what_exists` | Verified | `scripts/orion_v2_secret_scan.py` confirmed present: allowlists by path + rule + FINGERPRINT; prints only fingerprint, never the suspected value; scans worktree AND full history (`--history`). CI invokes it at lines ~84–96 of `.github/workflows/ci.yml`; local script delegates in step 5 of `scripts/orion_v2_ci_check.sh`. |
+| `failed_security_invariants_are_not_casually_overridden` | Verified | `.github/workflows/ci.yml`: security invariants step is FIRST with comment "FIRST, and on its own step so a failure is unmissable". `scripts/orion_v2_ci_check.sh` step 1: same ordering, exits immediately on failure (`exit 1`). No `continue-on-error` on this step. |
+| `makes_the_uncovered_surface_visible_rather_than_implied` | Verified | `.github/workflows/ci.yml`: "what this run did not check" step (runs `if: always()`) writes five machine-bound suites to `$GITHUB_STEP_SUMMARY` with the line "**A green CI is not a green machine.**". `scripts/orion_v2_ci_check.sh` step 10 prints the same list. |
+| `uses_protected_deployment_and_easy_rollback` | Verified | `scripts/orion-deploy` confirmed present: 7-step order — (1) refuse dirty tree, (2) build, (3) every suite including machine-bound, (4) snapshot current install, (5) install excluding test files, (6) prove it loads via leaf imports + gateway probe, (7) auto-rollback on failure. `--rollback` restores from five kept backups. |
 
 ## Architecture and Interfaces
 - **Producer**: CI workflow (`.github/workflows/ci.yml`) and local check script (`scripts/orion_v2_ci_check.sh`).
 - **Consumer**: Developer/Reviewer via CI logs and job summaries; Deployment process via `orion-deploy`.
-- **Seam**: The boundary between CI-executable checks (unit, integration, static analysis, secret scanning) and machine-bound checks (exec allowlist, plugin state, permissions).
-- **State Ownership**: CI state is ephemeral per run. Local deployment state is managed by `orion-deploy` snapshots.
-- **Errors**: Security invariant failures exit immediately. Dependency audit failures are non-fatal (`continue-on-error`).
+- **Seam**: The boundary between CI-executable checks and machine-bound checks.
+- **State Ownership**: CI state is ephemeral per run. Local deployment state managed by `orion-deploy` snapshots.
+- **Errors**: Security invariant failures exit immediately. Dependency audit failures are non-fatal.
 
 ## Smallest Next Slice
 All five requirements for Phase 70 are marked `passed` with source-grounded evidence. No further implementation contracts are needed for this phase. The remaining work is hands-on proof:
 
-- **Blocker (evidenced)**: Machine-bound suites (`orion_v2_strictness_check.sh`, `orion_v2_authority_contract_check.sh`, `orion_v2_lock_check.sh`, `orion_v2_remote_check.sh`, `orion_v2_mobile_check.sh`) cannot be re-proven by this worker — they assert against Nick's live Mac (exec allowlist, installed plugin, real permission state). This is not a deficiency; it is the design. Reviewer must run them natively to confirm the boundary still holds on the actual machine.
-- **No proposed contracts**: Phase 70 implementation is complete. The next phase that depends on CI/CD security surfaces will carry its own requirements.
+- **Blocker (evidenced)**: Machine-bound suites cannot be re-proven by this worker — they assert against Nick's live Mac. Reviewer must run them natively.
+- **No proposed contracts**: Phase 70 implementation is complete.
 
 ## Test Scenarios
-- **Positive Case**: CI run completes with all security invariants passing, job summary correctly lists machine-bound suite status.
-  - **Injectable Seam**: None (historical evidence).
-  - **Expected Outcome**: Green CI, accurate summary.
-- **Failure Case**: Adversarial test fails.
-  - **Injectable Seam**: Modify a test to fail.
-  - **Expected Outcome**: Job exits immediately; no green ticks for subsequent steps.
-- **Failure Case**: Secret leak detected in history.
-  - **Injectable Seam**: Commit a fake secret, then revert.
-  - **Expected Outcome**: `orion_v2_secret_scan.py` detects it during history scan.
+- **Positive Case**: CI run completes with all security invariants passing.
+- **Failure Case**: Adversarial test fails → job exits immediately.
+- **Failure Case**: Secret leak detected in history → `orion_v2_secret_scan.py` detects it.
 
 ## Gates and Handoff
 - **Entry Gate**: Phase 69 completed (`entryRequiresPhase: 69`).
-- **Remaining Hands-on Proof**: Reviewer must verify native/machine-bound checks if local worker cannot execute them.
+- **Remaining Hands-on Proof**: Reviewer must verify native/machine-bound checks.
 - **Rollback**: None (report only).
-- **Reviewer Handoff**: Verify cited symbols exist at worktree baseline. Verify proposed scopes do not expand authority.
+- **Reviewer Handoff**: Verify cited symbols exist at worktree baseline.

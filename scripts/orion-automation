@@ -51,6 +51,9 @@ import { promisify } from "node:util";
 import { loadPlugin } from "./lib/orion-plugin.mjs";
 import { automationSchedulePlan } from "./lib/orion-automation-schedule.mjs";
 import { removeAutomationSchedule } from "./lib/orion-automation-removal.mjs";
+import { readAutomationHistory } from "./lib/orion-automation-history.mjs";
+import { summarizeAutomationHistory } from "./lib/orion-automation-history-summary.mjs";
+import { withHistory } from "./lib/orion-automation-history-forecast.mjs";
 
 const run = promisify(execFile);
 const HOME = homedir();
@@ -126,15 +129,37 @@ if (command === "simulate") {
   if (!existsSync(file)) fail(`no proposal called '${name}'`, 1);
   const proposal = JSON.parse(readFileSync(file, "utf8"));
   const forecast = simulate(proposal);
+
+  // Read history and merge into forecast
+  const now = Date.now();
+  let summary = null;
+  try {
+    const histResult = await readAutomationHistory(
+      join(ROOT, "history", `${name}.jsonl`),
+      { since: now - forecast.windowDays * 86400000, until: now },
+    );
+    if (histResult.entries.length > 0) {
+      summary = summarizeAutomationHistory(histResult.entries, { from: now, windowDays: forecast.windowDays });
+    }
+  } catch {
+    // Treat any read error as no history
+  }
+
+  const shown = withHistory(forecast, summary);
+
   console.log("");
   console.log(`  ${proposal.name} — ${describeTrigger(proposal.trigger)}`);
   console.log(`  ${proposal.intent}`);
   console.log("");
-  console.log(`  Over the last ${forecast.windowDays} days it would have fired ${forecast.fireCount} time(s).`);
-  console.log(`  ${forecast.suppressedCount} suppressed by its own conditions.`);
-  console.log(`  At most ${forecast.messageCount} message(s) would have reached you.`);
+  console.log(`  Over the last ${shown.windowDays} days it would have fired ${shown.fireCount} time(s).`);
+  console.log(`  ${shown.suppressedCount} suppressed by its own conditions.`);
+  console.log(`  At most ${shown.messageCount} message(s) would have reached you.`);
+  if (shown.observed) {
+    const o = shown.observed;
+    console.log(`  Observed: fired ${o.firings}, suppressed ${o.suppressed}, delivered ${o.delivered} on ${o.observedDays} day(s) with history.`);
+  }
   console.log("");
-  for (const note of forecast.notes) console.log(`  - ${note}`);
+  for (const note of shown.notes) console.log(`  - ${note}`);
   console.log("");
   process.exit(0);
 }

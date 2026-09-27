@@ -2,14 +2,23 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadAttentionQueue, openItems } from "./lib/attention/store.mjs";
+import {
+  loadAttentionQueue,
+  openItems,
+  saveAttentionQueue,
+  addToQueue,
+  ackQueueItem,
+  snoozeQueueItem,
+  pruneQueue,
+} from "./lib/attention/store.mjs";
 import { scoreAttentionItem } from "./lib/attention/score.mjs";
+import { parseManualAttention } from "./lib/attention/sources/manual.mjs";
 
 const DEFAULT_FILE = join(homedir(), ".openclaw", "orion-controlled", "attention.json");
 
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const result = { command: null, json: false, file: null, id: null };
+  const result = { command: null, json: false, file: null, id: null, until: null };
 
   let i = 0;
   while (i < args.length) {
@@ -23,10 +32,19 @@ function parseArgs(argv) {
         process.exit(2);
       }
       result.file = args[i];
+    } else if (arg === "--until") {
+      i++;
+      if (i >= args.length) {
+        process.stderr.write("--until requires a value\n");
+        process.exit(2);
+      }
+      result.until = args[i];
     } else if (!result.command) {
       result.command = arg;
-    } else if (result.command === "show" && !result.id) {
+    } else if ((result.command === "show" || result.command === "ack" || result.command === "snooze") && !result.id) {
       result.id = arg;
+    } else if (result.command === "add") {
+      // pass through — parseManualAttention handles these
     } else {
       process.stderr.write(`unknown argument: ${arg}\n`);
       process.exit(2);
@@ -38,7 +56,14 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return "Usage: orion-attention list [--json] [--file PATH]\n       orion-attention show <id> [--file PATH]";
+  return [
+    "Usage: orion-attention list [--json] [--file PATH]",
+    "       orion-attention show <id> [--file PATH]",
+    '       orion-attention add "title" [--due ISO] [--expires ISO] [--urgency n] [--importance n] [--file PATH]',
+    "       orion-attention ack <id> [--file PATH]",
+    "       orion-attention snooze <id> --until ISO [--file PATH]",
+    "       orion-attention prune [--file PATH]",
+  ].join("\n");
 }
 
 async function runList(file, jsonFlag) {
@@ -115,6 +140,99 @@ async function runShow(id, file) {
   process.exit(0);
 }
 
+async function runAdd(args, file) {
+  const now = Date.now();
+  let item;
+  try {
+    item = parseManualAttention(args, { now });
+  } catch (err) {
+    if (err instanceof TypeError) {
+      process.stderr.write(`${err.message}\n`);
+      process.exit(2);
+    }
+    throw err;
+  }
+
+  let queue;
+  try {
+    queue = await loadAttentionQueue(file);
+  } catch (err) {
+    process.stderr.write(`cannot read attention queue: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  queue = addToQueue(queue, [item], now);
+  await saveAttentionQueue(file, queue);
+  process.stdout.write(`added ${item.id}\n`);
+  process.exit(0);
+}
+
+async function runAck(id, file) {
+  let queue;
+  try {
+    queue = await loadAttentionQueue(file);
+  } catch (err) {
+    process.stderr.write(`cannot read attention queue: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  try {
+    queue = ackQueueItem(queue, id, Date.now());
+  } catch (err) {
+    process.stderr.write(`${err.message}\n`);
+    process.exit(1);
+  }
+
+  await saveAttentionQueue(file, queue);
+  process.stdout.write(`acknowledged ${id}\n`);
+  process.exit(0);
+}
+
+async function runSnooze(id, untilArg, file) {
+  const until = Date.parse(untilArg);
+  if (Number.isNaN(until)) {
+    process.stderr.write("--until must be a valid date\n");
+    process.exit(2);
+  }
+
+  let queue;
+  try {
+    queue = await loadAttentionQueue(file);
+  } catch (err) {
+    process.stderr.write(`cannot read attention queue: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  try {
+    queue = snoozeQueueItem(queue, id, until);
+  } catch (err) {
+    process.stderr.write(`${err.message}\n`);
+    process.exit(1);
+  }
+
+  await saveAttentionQueue(file, queue);
+  process.stdout.write(`snoozed ${id} until ${new Date(until).toISOString()}\n`);
+  process.exit(0);
+}
+
+async function runPrune(file) {
+  let queue;
+  try {
+    queue = await loadAttentionQueue(file);
+  } catch (err) {
+    process.stderr.write(`cannot read attention queue: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  const before = queue.items.length;
+  queue = pruneQueue(queue, Date.now());
+  const removed = before - queue.items.length;
+
+  await saveAttentionQueue(file, queue);
+  process.stdout.write(`pruned ${removed} item(s)\n`);
+  process.exit(0);
+}
+
 async function main() {
   const parsed = parseArgs(process.argv);
   const file = parsed.file || DEFAULT_FILE;
@@ -128,6 +246,30 @@ async function main() {
     await runList(file, parsed.json);
   } else if (parsed.command === "show") {
     await runShow(parsed.id, file);
+  } else if (parsed.command === "add") {
+    // Strip "add" command and --file flag from argv for parseManualAttention
+    const raw = process.argv.slice(2);
+    const filtered = [];
+    let j = 0;
+    while (j < raw.length) {
+      if (raw[j] === "add") {
+        j++; // skip the command word itself
+        continue;
+      }
+      if (raw[j] === "--file") {
+        j += 2; // skip flag and value
+        continue;
+      }
+      filtered.push(raw[j]);
+      j++;
+    }
+    await runAdd(filtered, file);
+  } else if (parsed.command === "ack") {
+    await runAck(parsed.id, file);
+  } else if (parsed.command === "snooze") {
+    await runSnooze(parsed.id, parsed.until, file);
+  } else if (parsed.command === "prune") {
+    await runPrune(file);
   } else {
     process.stderr.write(`unknown command: ${parsed.command}\n`);
     process.stderr.write(usage() + "\n");

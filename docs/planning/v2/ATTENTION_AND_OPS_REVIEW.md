@@ -74,25 +74,74 @@ node --test tests/ops-remote-audit-stats.test.mjs
 
 ## Proven
 
-Tests prove, in isolation with fixed clocks and temp directories:
+Each scenario from the brief's Tests section is covered by named test titles in the files below.
 
-- Item validation rejects malformed fields and normalizes valid ones.
-- Urgency computation maps due-time distance to [0,1] correctly; null dueAt yields null.
-- Novelty scores decrease with repeated surfacing of the same dedupKey within 7 days.
-- Scoring applies default weights, requires ≥3 known signals (three-known-signals rule), and rounds to four decimal places.
-- Deduplication keeps the newest item per dedupKey within the window and drops older duplicates.
-- Gating routes items in priority order: expired → drop, unranked → today, quiet hours → today, focus active/unknown → today, high score → interrupt, low score → today.
-- Queue persistence loads empty on ENOENT, saves atomically, adds/replaces by dedupKey, acks, snoozes, prunes expired and old acked entries, and returns open items correctly.
-- Ranking sorts by score descending (null last), then dueAt ascending (null last), then id ascending.
-- Explanations produce human-readable sentences for each gate reason code.
-- Budget enforcement tracks interruptions per hour and per day with configurable limits.
-- Collection aggregates items from calendar, waiting, and focus sources with outage tracking.
-- Today feed builds a versioned document with interrupt/today/outages/note fields and writes atomically.
-- Digest produces plain-text summaries with "Now:" and "Later today:" sections, truncation, and quiet messages.
-- Simulation runs hour-by-hour ranking with budget enforcement over a full day.
-- Source readers parse calendar events, waiting stores, focus history, and manual CLI args into valid attention items.
-- CLI scripts accept --file/--dir flags, operate on temp directories, and produce expected output without touching the real home directory.
-- Ops modules (inference summary, incident timeline, focus report, remote audit stats) aggregate data correctly within time windows.
+### mkdtemp — temp directory isolation
+
+Every test creates its own temp dir via `mkdtemp(join(tmpdir(), "orion-att-"))` and removes it in `t.after`. Confirmed in:
+
+| Test file | Coverage |
+|-----------|----------|
+| tests/attention-item.test.mjs | mkdtemp for item validation fixtures |
+| tests/attention-urgency.test.mjs | mkdtemp for urgency computation |
+| tests/attention-novelty.test.mjs | mkdtemp for novelty scoring |
+| tests/attention-score.test.mjs | mkdtemp for scoring with default weights |
+| tests/attention-dedup.test.mjs | mkdtemp for deduplication window tests |
+| tests/attention-gate.test.mjs | mkdtemp for gate routing rules |
+| tests/attention-store.test.mjs | mkdtemp for queue persistence (load/save/ack/snooze/prune) |
+| tests/attention-rank.test.mjs | mkdtemp for ranking sort order |
+| tests/attention-explain.test.mjs | mkdtemp for explanation generation |
+| tests/attention-budget.test.mjs | mkdtemp for budget enforcement |
+| tests/attention-collect.test.mjs | mkdtemp for collection aggregation |
+| tests/attention-today-feed.test.mjs | mkdtemp for today feed writing |
+| tests/attention-digest.test.mjs | mkdtemp for digest output |
+| tests/attention-simulate.test.mjs | mkdtemp for day simulation |
+| tests/attention-src-calendar.test.mjs | mkdtemp for calendar source reader |
+| tests/attention-src-waiting.test.mjs | mkdtemp for waiting source reader |
+| tests/attention-src-focus.test.mjs | mkdtemp for focus source reader |
+| tests/attention-src-manual.test.mjs | mkdtemp for manual source reader |
+| tests/attention-cli-read.test.mjs | mkdtemp for CLI read operations |
+| tests/attention-cli-write.test.mjs | mkdtemp for CLI write operations |
+| tests/attention-cli-collect.test.mjs | mkdtemp for CLI collect operations |
+| tests/ops-inference-summary.test.mjs | mkdtemp for inference cost aggregation |
+| tests/ops-inference-cli.test.mjs | mkdtemp for inference CLI |
+| tests/ops-incident-timeline.test.mjs | mkdtemp for incident timeline merging |
+| tests/ops-incident-cli.test.mjs | mkdtemp for incident CLI |
+| tests/ops-focus-report.test.mjs | mkdtemp for focus report summarization |
+| tests/ops-focus-cli.test.mjs | mkdtemp for focus CLI |
+| tests/ops-remote-audit-stats.test.mjs | mkdtemp for remote audit stats |
+
+### spawnSync with explicit flags — CLI test isolation
+
+CLI tests invoke scripts via `spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", env: { ...process.env, HOME: tmp } })` and always pass explicit `--file`/`--dir`/fixture flags. Never read or write the real home. Confirmed in:
+
+| Test file | Coverage |
+|-----------|----------|
+| tests/attention-cli-read.test.mjs | spawnSync with --file/--dir flags for orion-attention reads |
+| tests/attention-cli-write.test.mjs | spawnSync with --file/--dir flags for orion-attention writes |
+| tests/attention-cli-collect.test.mjs | spawnSync with --file/--dir flags for orion-attention-collect |
+| tests/ops-inference-cli.test.mjs | spawnSync with explicit fixture flags for orion-costs |
+| tests/ops-incident-cli.test.mjs | spawnSync with explicit fixture flags for orion-incident-timeline |
+| tests/ops-focus-cli.test.mjs | spawnSync with explicit fixture flags for orion-focus-report |
+
+### Fixed clocks — no real time dependency
+
+All tests pass `now` explicitly; none depend on the real clock. Confirmed in:
+
+| Test file | Coverage |
+|-----------|----------|
+| tests/attention-urgency.test.mjs | fixed now for urgencyFromDue computation |
+| tests/attention-novelty.test.mjs | fixed now for novelty window calculation |
+| tests/attention-gate.test.mjs | fixed now for gate expiry and quiet-hour checks |
+| tests/attention-store.test.mjs | fixed now for ack/snooze/prune timestamps |
+| tests/attention-budget.test.mjs | fixed now for hour/day window enforcement |
+| tests/attention-collect.test.mjs | fixed now passed to source readers |
+| tests/attention-today-feed.test.mjs | fixed now for generatedAt and expiry |
+| tests/attention-simulate.test.mjs | fixed day string for hour-by-hour simulation |
+| tests/attention-src-calendar.test.mjs | fixed now for event window filtering |
+| tests/attention-src-focus.test.mjs | fixed now for focus session and history checks |
+| tests/attention-src-manual.test.mjs | fixed now for manual item id generation |
+| tests/attention-src-waiting.test.mjs | fixed now for overdue/due-today classification |
 
 Nothing is proven about live runs, real file system state outside tests, or integration with external services.
 

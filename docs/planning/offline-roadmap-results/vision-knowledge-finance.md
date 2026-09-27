@@ -39,7 +39,7 @@
 
 | Role | Module / path | Evidence |
 |---|---|---|
-| Producer | `native/Orion/Sources/Orion/PlaidClient.swift` (assumed) | Plaid integration client; not inspected but referenced by vision doc as existing reader |
+| Producer | Not yet proven — needs inspection of `native/Orion/Sources/Orion/PlaidClient.swift` | Vision doc references Plaid integration client; file not inspected in this worktree. Must READ to confirm existence, role, and freshness-timestamp exposure before marking Built. |
 | Consumer | `native/Orion/Sources/Orion/PlaidModels.swift` (`Money` analytics) | Pure functions over `PlaidAccount` and `PlaidTransaction` arrays |
 | Serialized fields | `itemID`, `accessToken`, `institutionName`, `available`, `current`, `currency`, `amount`, `date`, `category` | Defined in `PlaidItem`, `PlaidAccount`, `PlaidTransaction` structs |
 | State ownership | Mac app local state; no backend persistence for finance data per vision doc | Vision doc states "Built UI and recurring-charge summaries"; no cloud sync mentioned for finance |

@@ -139,19 +139,9 @@ async function main() {
   try {
     queue = await loadAttentionQueue(queueFile);
   } catch {
-    // If the queue file is unreadable for reasons other than ENOENT, treat as outage
-    // Actually per contract: missing/unreadable INPUT files are outages. Queue is an input too.
-    // But loadAttentionQueue throws on invalid content. Let's handle it gracefully.
-    // Per brief: "Missing --queue or --feed -> exit 2 with usage" — that's about the flag being absent.
-    // The file itself missing → ENOENT → empty queue (that's what loadAttentionQueue does).
-    // Invalid content → throw. Let's catch and treat as outage for robustness, but actually
-    // the contract says "A missing or unreadable input file is reported as an outage in the digest".
-    // So let me re-think: calendar-json, waiting-json, focus-history are the "input files" for collection.
-    // The queue file is loaded separately. If it's missing, loadAttentionQueue returns empty.
-    // If it's invalid JSON, it throws. Let's just let that propagate as an error for now — 
-    // actually no, let me re-read: "A missing or unreadable input file" refers to the source fixtures.
-    // The queue is state, not a source fixture. So ENOENT on queue → empty queue is correct behavior.
-    // But if it throws for other reasons... let's just re-throw. Actually, let me handle it:
+    // A missing queue loads as empty inside loadAttentionQueue; anything that
+    // reaches here is corrupt state, which must stop the pass rather than be
+    // overwritten by a fresh queue.
     throw new Error("attention queue unreadable");
   }
 
@@ -166,18 +156,10 @@ async function main() {
     focusActive: null,
   });
 
-  // Build feed — outages are { source, message } objects from collectAttention
-  // buildTodayFeed expects outages as string[] or similar. Let me check the signature again.
-  // buildTodayFeed(ranked, { now, outages }) — and in today-feed.mjs it does:
-  //   hasOutages = outages.length > 0
-  //   note = `Could not read: ${outages.join(", ")}. ...`
-  // So it joins them with ", ". If they're objects, we need to convert.
-  // Looking at collect.mjs: outages are { source, message } objects.
-  // But buildTodayFeed expects strings (it calls .join(", ")).
-  // Let me map them to strings like "calendar: error message"
-  const outageStrings = outages.map((o) => `${o.source}: ${o.message}`);
-
-  const feed = buildTodayFeed(ranked, { now, outages: outageStrings });
+  // The feed names the sources it could not read, never their error text:
+  // messages carry local file paths, and the digest can be read aloud or sent.
+  const outageSources = [...new Set(outages.map((o) => o.source))];
+  const feed = buildTodayFeed(ranked, { now, outages: outageSources });
 
   // Print digest
   process.stdout.write(attentionDigest(feed) + "\n");

@@ -14,7 +14,10 @@ export const TODAY_FEED = join(homedir(), ".openclaw/orion-controlled/attention-
  * @param {{ now: number, outages?: string[] }} options — fixed clock and any unreadable sources
  * @returns {{ version: number, generatedAt: string, interrupt: object[], today: object[], outages: string[], note: string | null }}
  */
-export function buildTodayFeed(ranked, { now, outages = [] }) {
+export function buildTodayFeed(ranked, { now, outages: given = [] }) {
+  // Source names only: collectAttention's { source, message } objects are
+  // reduced to their source, so no error text or path reaches the feed.
+  const outages = [...new Set(given.map((o) => (typeof o === "string" ? o : o?.source)).filter(Boolean))];
   const hasOutages = outages.length > 0;
   const interrupt = ranked.now;
   const today = ranked.later;

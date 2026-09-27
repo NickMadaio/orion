@@ -1,0 +1,195 @@
+#!/usr/bin/env node
+/**
+ * orion-attention-collect — one-pass collection CLI.
+ *
+ * Reads fixture files, collects attention items, adds them to the queue,
+ * ranks open items, writes the Today feed and prints the digest.
+ * --dry-run prints the digest but writes nothing.
+ */
+
+import { spawnSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Parse arguments manually — no external deps
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  const flags = {};
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg === "--dry-run") {
+      flags.dryRun = true;
+      i++;
+    } else if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        flags[key] = next;
+        i += 2;
+      } else {
+        flags[key] = true;
+        i++;
+      }
+    } else {
+      i++;
+    }
+  }
+  return flags;
+}
+
+async function main() {
+  const flags = parseArgs(process.argv);
+
+  // Required flags
+  if (!flags.queue || !flags.feed) {
+    process.stderr.write(
+      "Usage: orion-attention-collect --queue FILE --feed FILE [--calendar-json FILE] [--waiting-json FILE] [--focus-history FILE] [--now ISO] [--hour N] [--quiet S-E] [--dry-run]\n"
+    );
+    process.exit(2);
+  }
+
+  const queueFile = resolve(flags.queue);
+  const feedFile = resolve(flags.feed);
+  const dryRun = flags.dryRun === true;
+
+  // Time
+  let now;
+  if (flags.now) {
+    now = Date.parse(flags.now);
+    if (Number.isNaN(now)) {
+      process.stderr.write(`Invalid --now: ${flags.now}\n`);
+      process.exit(1);
+    }
+  } else {
+    now = Date.now();
+  }
+
+  let hourOfDay;
+  if (flags.hour !== undefined) {
+    hourOfDay = Number(flags.hour);
+    if (Number.isNaN(hourOfDay)) {
+      process.stderr.write(`Invalid --hour: ${flags.hour}\n`);
+      process.exit(1);
+    }
+  } else {
+    hourOfDay = new Date(now).getUTCHours();
+  }
+
+  let quietHours = null;
+  if (flags.quiet) {
+    const parts = flags.quiet.split("-");
+    if (parts.length === 2) {
+      const start = Number(parts[0]);
+      const end = Number(parts[1]);
+      if (!Number.isNaN(start) && !Number.isNaN(end)) {
+        quietHours = [start, end];
+      }
+    }
+  }
+
+  // Build readers from flags
+  const readers = {};
+
+  if (flags["calendar-json"]) {
+    const calFile = resolve(flags["calendar-json"]);
+    readers.calendar = async () => {
+      const raw = readFileSync(calFile, "utf8");
+      return JSON.parse(raw);
+    };
+  }
+
+  if (flags["waiting-json"]) {
+    const waitFile = resolve(flags["waiting-json"]);
+    readers.waiting = async () => {
+      const raw = readFileSync(waitFile, "utf8");
+      return JSON.parse(raw);
+    };
+  }
+
+  if (flags["focus-history"]) {
+    const focusFile = resolve(flags["focus-history"]);
+    readers.focusHistory = async () => {
+      const raw = readFileSync(focusFile, "utf8");
+      const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+      const rows = [];
+      for (const line of lines) {
+        try {
+          rows.push(JSON.parse(line));
+        } catch {
+          // skip bad lines
+        }
+      }
+      return rows;
+    };
+  }
+
+  // Import library modules
+  const { collectAttention } = await import("./lib/attention/collect.mjs");
+  const { loadAttentionQueue, addToQueue, saveAttentionQueue, openItems } = await import("./lib/attention/store.mjs");
+  const { rankAttention } = await import("./lib/attention/rank.mjs");
+  const { buildTodayFeed, writeTodayFeed } = await import("./lib/attention/today-feed.mjs");
+  const { attentionDigest } = await import("./lib/attention/digest.mjs");
+
+  // Collect
+  const { items, outages } = await collectAttention({ now, readers });
+
+  // Load queue (ENOENT → empty queue)
+  let queue;
+  try {
+    queue = await loadAttentionQueue(queueFile);
+  } catch {
+    // If the queue file is unreadable for reasons other than ENOENT, treat as outage
+    // Actually per contract: missing/unreadable INPUT files are outages. Queue is an input too.
+    // But loadAttentionQueue throws on invalid content. Let's handle it gracefully.
+    // Per brief: "Missing --queue or --feed -> exit 2 with usage" — that's about the flag being absent.
+    // The file itself missing → ENOENT → empty queue (that's what loadAttentionQueue does).
+    // Invalid content → throw. Let's catch and treat as outage for robustness, but actually
+    // the contract says "A missing or unreadable input file is reported as an outage in the digest".
+    // So let me re-think: calendar-json, waiting-json, focus-history are the "input files" for collection.
+    // The queue file is loaded separately. If it's missing, loadAttentionQueue returns empty.
+    // If it's invalid JSON, it throws. Let's just let that propagate as an error for now — 
+    // actually no, let me re-read: "A missing or unreadable input file" refers to the source fixtures.
+    // The queue is state, not a source fixture. So ENOENT on queue → empty queue is correct behavior.
+    // But if it throws for other reasons... let's just re-throw. Actually, let me handle it:
+    throw new Error("attention queue unreadable");
+  }
+
+  // Add items to queue
+  queue = addToQueue(queue, items, now);
+
+  // Rank open items
+  const ranked = rankAttention(openItems(queue, now), {
+    now,
+    hourOfDay,
+    quietHours,
+    focusActive: null,
+  });
+
+  // Build feed — outages are { source, message } objects from collectAttention
+  // buildTodayFeed expects outages as string[] or similar. Let me check the signature again.
+  // buildTodayFeed(ranked, { now, outages }) — and in today-feed.mjs it does:
+  //   hasOutages = outages.length > 0
+  //   note = `Could not read: ${outages.join(", ")}. ...`
+  // So it joins them with ", ". If they're objects, we need to convert.
+  // Looking at collect.mjs: outages are { source, message } objects.
+  // But buildTodayFeed expects strings (it calls .join(", ")).
+  // Let me map them to strings like "calendar: error message"
+  const outageStrings = outages.map((o) => `${o.source}: ${o.message}`);
+
+  const feed = buildTodayFeed(ranked, { now, outages: outageStrings });
+
+  // Print digest
+  process.stdout.write(attentionDigest(feed) + "\n");
+
+  // Write files unless dry-run
+  if (!dryRun) {
+    await saveAttentionQueue(queueFile, queue);
+    await writeTodayFeed(feedFile, feed);
+  }
+}
+
+main().catch((err) => {
+  process.stderr.write(`${err.message}\n`);
+  process.exit(1);
+});

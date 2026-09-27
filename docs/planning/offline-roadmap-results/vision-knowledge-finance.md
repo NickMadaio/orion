@@ -32,7 +32,7 @@
 | Producer | `plugin/orion-control/src/atlas.ts` (`requestAtlas`) | Sends note operations to Atlas app via file-based bridge |
 | Consumer | `backend/memory/store.py` (`MemoryStore`) | In-memory store with domain firewall; persists `MemoryItem` records |
 | Serialized fields | `memory_id`, `source`, `provenance`, `confidence`, `sensitivity`, `created_at`, `updated_at`, `expires_at`, `user_editable` | Defined in `backend/memory/records.py` `FIELDS` constant and `MemoryItem` dataclass |
-| State ownership | `backend/memory/store.py` owns durable local state; `SessionDomain` owns session effects per brief | Brief states SessionDomain owns durable local state; memory store is backend component |
+| State ownership | `SessionDomain` owns durable local state and session effects per brief; `backend/memory/store.py` is a backend component providing in-memory storage, not the deployed durable service | Brief states SessionService (in SessionDomain) owns durable local state; memory store is an existing backend contract retained behind a narrow service boundary but is not the durable owner |
 | Errors | `PromotionRefused`, `KeyError`, `PermissionError` | Enforced by durability rules, missing IDs, and editability constraints |
 
 ### Finance freshness seam

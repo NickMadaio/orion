@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { summarizeInference, parseJsonl } from "./lib/orion-inference-summary.mjs";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  let file = null;
+  let days = 7;
+  let now = Date.now();
+  let json = false;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--file" && i + 1 < args.length) {
+      file = args[i + 1];
+      i++;
+    } else if (args[i] === "--days" && i + 1 < args.length) {
+      days = args[i + 1];
+      i++;
+    } else if (args[i] === "--now" && i + 1 < args.length) {
+      now = args[i + 1];
+      i++;
+    } else if (args[i] === "--json") {
+      json = true;
+    }
+  }
+
+  // Validate --days: must be a positive integer
+  const daysNum = Number(days);
+  if (!Number.isInteger(daysNum) || daysNum <= 0) {
+    process.stderr.write("Error: --days must be a positive integer\n");
+    process.exit(2);
+  }
+
+  // Validate --now: must be a valid ISO string or timestamp
+  let nowMs;
+  if (typeof now === "string") {
+    nowMs = Date.parse(now);
+    if (Number.isNaN(nowMs)) {
+      process.stderr.write("Error: --now must be a valid ISO date\n");
+      process.exit(2);
+    }
+  } else {
+    nowMs = now;
+  }
+
+  // Default file path
+  if (file === null) {
+    file = join(homedir(), ".openclaw/orion-controlled/inference-ledger.jsonl");
+  }
+
+  return { file, days: daysNum, now: nowMs, json };
+}
+
+function formatText(summary, days, skipped) {
+  const lines = [];
+  lines.push(`Inference, last ${days} day(s)`);
+
+  // Sort models by costUsd descending
+  const modelEntries = Object.entries(summary.byModel).sort(
+    (a, b) => b[1].costUsd - a[1].costUsd
+  );
+
+  for (const [model, stats] of modelEntries) {
+    const p50 = stats.p50LatencyMs !== null ? `${stats.p50LatencyMs}` : "null";
+    const p95 = stats.p95LatencyMs !== null ? `${stats.p95LatencyMs}` : "null";
+    lines.push(
+      `  ${model}  ${stats.calls} calls  ${stats.failures} failed  $${stats.costUsd.toFixed(4)}  p50 ${p50}ms  p95 ${p95}ms`
+    );
+  }
+
+  // Total line
+  const t = summary.totals;
+  const tp50 = t.p50LatencyMs !== null ? `${t.p50LatencyMs}` : "null";
+  const tp95 = t.p95LatencyMs !== null ? `${t.p95LatencyMs}` : "null";
+  lines.push(
+    `  Total  ${t.calls} calls  ${t.failures} failed  $${t.costUsd.toFixed(4)}  p50 ${tp50}ms  p95 ${tp95}ms`
+  );
+
+  if (skipped > 0) {
+    lines.push(`(${skipped} unreadable line(s) skipped)`);
+  }
+
+  return lines.join("\n");
+}
+
+function main() {
+  const { file, days, now, json } = parseArgs(process.argv);
+
+  // Compute window
+  const from = now - days * 86_400_000;
+  const to = now + 1;
+
+  // Try to read the ledger file
+  let text;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      process.stdout.write("No inference recorded.\n");
+      process.exit(0);
+    }
+    throw err;
+  }
+
+  const { rows, skipped: parseSkipped } = parseJsonl(text);
+  const summary = summarizeInference(rows, { from, to });
+
+  // Combine parse-level skips with summarize-level skips
+  const totalSkipped = parseSkipped + summary.skipped;
+
+  if (json) {
+    process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+  } else {
+    process.stdout.write(formatText(summary, days, totalSkipped) + "\n");
+  }
+}
+
+main();

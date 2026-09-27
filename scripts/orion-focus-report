@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+/**
+ * orion-focus-report — print the last N days of focus history.
+ *
+ * Usage: orion-focus-report [--file PATH] [--days N] [--now ISO] [--json]
+ */
+
+import { parseArgs } from "node:util";
+import { readFileSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { focusReport } from "./lib/orion-focus-report.mjs";
+
+const DEFAULT_FILE = join(homedir(), ".openclaw", "orion-controlled", "focus-history.jsonl");
+
+function main(argv) {
+  const { values, positionals } = parseArgs({
+    options: {
+      file: { type: "string" },
+      days: { type: "string" },
+      now: { type: "string" },
+      json: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+    strict: false,
+  });
+
+  const filePath = values.file ?? DEFAULT_FILE;
+  const days = values.days !== undefined ? Number(values.days) : 7;
+  const nowMs = values.now ? Date.parse(values.now) : Date.now();
+
+  // Validate --days
+  if (!Number.isFinite(days) || days < 1) {
+    process.stderr.write(`Bad --days: ${values.days}\n`);
+    process.exit(2);
+  }
+
+  const from = nowMs - days * 86_400_000;
+  const to = nowMs + 1; // exclusive end, so now+1ms
+
+  // Read and parse JSONL
+  let rows = [];
+  if (existsSync(filePath)) {
+    const content = readFileSync(filePath, "utf8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        rows.push(JSON.parse(trimmed));
+      } catch {
+        // bad line — focusReport counts it as skipped internally
+        rows.push(null);
+      }
+    }
+  }
+
+  const report = focusReport(rows, { from, to });
+
+  if (report.totals.sessions === 0) {
+    process.stdout.write("No focus sessions recorded.\n");
+    process.exit(0);
+  }
+
+  if (values.json) {
+    // Output the report structure without internal fields
+    const output = {
+      totals: report.totals,
+      byDay: report.byDay,
+      longest: report.longest,
+      skipped: report.skipped,
+    };
+    process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+    process.exit(0);
+  }
+
+  // Text output
+  const { totals, byDay, longest } = report;
+  const lines = [];
+
+  lines.push(`Focus, last ${days} day(s): ${totals.sessions} session(s), ${totals.focusMinutes} min`);
+
+  // Per-day ascending
+  const sortedDays = Object.keys(byDay).sort();
+  for (const day of sortedDays) {
+    const d = byDay[day];
+    lines.push(`  ${day}  ${d.sessions} session(s)  ${d.focusMinutes} min  ${d.earlyEnds} ended early`);
+  }
+
+  // Longest session
+  if (longest) {
+    const dayKey = new Date(longest.startedAt).toISOString().slice(0, 10);
+    lines.push(`Longest: ${longest.minutes} min (${longest.task}) on ${dayKey}`);
+  }
+
+  process.stdout.write(lines.join("\n") + "\n");
+  process.exit(0);
+}
+
+main();
+

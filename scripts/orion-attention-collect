@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+/**
+ * orion-attention-collect — one-pass collection CLI.
+ *
+ * Reads fixture files, collects attention items, adds them to the queue,
+ * ranks open items, writes the Today feed and prints the digest.
+ * --dry-run prints the digest but writes nothing.
+ */
+
+import { spawnSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Parse arguments manually — no external deps
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  const flags = {};
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg === "--dry-run") {
+      flags.dryRun = true;
+      i++;
+    } else if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        flags[key] = next;
+        i += 2;
+      } else {
+        flags[key] = true;
+        i++;
+      }
+    } else {
+      i++;
+    }
+  }
+  return flags;
+}
+
+async function main() {
+  const flags = parseArgs(process.argv);
+
+  // Required flags
+  if (!flags.queue || !flags.feed) {
+    process.stderr.write(
+      "Usage: orion-attention-collect --queue FILE --feed FILE [--calendar-json FILE] [--waiting-json FILE] [--focus-history FILE] [--now ISO] [--hour N] [--quiet S-E] [--dry-run]\n"
+    );
+    process.exit(2);
+  }
+
+  const queueFile = resolve(flags.queue);
+  const feedFile = resolve(flags.feed);
+  const dryRun = flags.dryRun === true;
+
+  // Time
+  let now;
+  if (flags.now) {
+    now = Date.parse(flags.now);
+    if (Number.isNaN(now)) {
+      process.stderr.write(`Invalid --now: ${flags.now}\n`);
+      process.exit(1);
+    }
+  } else {
+    now = Date.now();
+  }
+
+  let hourOfDay;
+  if (flags.hour !== undefined) {
+    hourOfDay = Number(flags.hour);
+    if (Number.isNaN(hourOfDay)) {
+      process.stderr.write(`Invalid --hour: ${flags.hour}\n`);
+      process.exit(1);
+    }
+  } else {
+    hourOfDay = new Date(now).getUTCHours();
+  }
+
+  let quietHours = null;
+  if (flags.quiet) {
+    const parts = flags.quiet.split("-");
+    if (parts.length === 2) {
+      const start = Number(parts[0]);
+      const end = Number(parts[1]);
+      if (!Number.isNaN(start) && !Number.isNaN(end)) {
+        quietHours = [start, end];
+      }
+    }
+  }
+
+  // Build readers from flags
+  const readers = {};
+
+  if (flags["calendar-json"]) {
+    const calFile = resolve(flags["calendar-json"]);
+    readers.calendar = async () => {
+      const raw = readFileSync(calFile, "utf8");
+      return JSON.parse(raw);
+    };
+  }
+
+  if (flags["waiting-json"]) {
+    const waitFile = resolve(flags["waiting-json"]);
+    readers.waiting = async () => {
+      const raw = readFileSync(waitFile, "utf8");
+      return JSON.parse(raw);
+    };
+  }
+
+  if (flags["focus-history"]) {
+    const focusFile = resolve(flags["focus-history"]);
+    readers.focusHistory = async () => {
+      const raw = readFileSync(focusFile, "utf8");
+      const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+      const rows = [];
+      for (const line of lines) {
+        try {
+          rows.push(JSON.parse(line));
+        } catch {
+          // skip bad lines
+        }
+      }
+      return rows;
+    };
+  }
+
+  // Import library modules
+  const { collectAttention } = await import("./lib/attention/collect.mjs");
+  const { loadAttentionQueue, addToQueue, saveAttentionQueue, openItems } = await import("./lib/attention/store.mjs");
+  const { rankAttention } = await import("./lib/attention/rank.mjs");
+  const { buildTodayFeed, writeTodayFeed } = await import("./lib/attention/today-feed.mjs");
+  const { attentionDigest } = await import("./lib/attention/digest.mjs");
+
+  // Collect
+  const { items, outages } = await collectAttention({ now, readers });
+
+  // Load queue (ENOENT → empty queue)
+  let queue;
+  try {
+    queue = await loadAttentionQueue(queueFile);
+  } catch {
+    // A missing queue loads as empty inside loadAttentionQueue; anything that
+    // reaches here is corrupt state, which must stop the pass rather than be
+    // overwritten by a fresh queue.
+    throw new Error("attention queue unreadable");
+  }
+
+  // Add items to queue
+  queue = addToQueue(queue, items, now);
+
+  // Rank open items
+  const ranked = rankAttention(openItems(queue, now), {
+    now,
+    hourOfDay,
+    quietHours,
+    focusActive: null,
+  });
+
+  // The feed names the sources it could not read, never their error text:
+  // messages carry local file paths, and the digest can be read aloud or sent.
+  const outageSources = [...new Set(outages.map((o) => o.source))];
+  const feed = buildTodayFeed(ranked, { now, outages: outageSources });
+
+  // Print digest
+  process.stdout.write(attentionDigest(feed) + "\n");
+
+  // Write files unless dry-run
+  if (!dryRun) {
+    await saveAttentionQueue(queueFile, queue);
+    await writeTodayFeed(feedFile, feed);
+  }
+}
+
+main().catch((err) => {
+  process.stderr.write(`${err.message}\n`);
+  process.exit(1);
+});

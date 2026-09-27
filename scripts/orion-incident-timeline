@@ -1,0 +1,117 @@
+#!/usr/bin/env node
+// scripts/orion-incident-timeline — CLI for merged incident timeline
+// Reads four audit log JSONL files from a directory and prints the merged timeline.
+
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { buildIncidentTimeline } from "./lib/orion-incident-timeline.mjs";
+
+const SEVERITY_ORDER = { low: 0, medium: 1, high: 2 };
+
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  let dir = null;
+  let since = null;
+  let severity = null;
+  let json = false;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--dir" && i + 1 < args.length) {
+      dir = args[++i];
+    } else if (args[i] === "--since" && i + 1 < args.length) {
+      since = args[++i];
+    } else if (args[i] === "--severity" && i + 1 < args.length) {
+      severity = args[++i];
+    } else if (args[i] === "--json") {
+      json = true;
+    } else {
+      process.stderr.write(`Unknown flag: ${args[i]}\n`);
+      process.exit(2);
+    }
+  }
+
+  // Validate --severity
+  if (severity !== null && !(severity in SEVERITY_ORDER)) {
+    process.stderr.write(`Bad severity: ${severity}\n`);
+    process.exit(2);
+  }
+
+  // Validate --since
+  let sinceMs = null;
+  if (since !== null) {
+    const d = new Date(since);
+    if (isNaN(d.getTime())) {
+      process.stderr.write(`Bad --since: ${since}\n`);
+      process.exit(2);
+    }
+    sinceMs = d.getTime();
+  }
+
+  return { dir, sinceMs, severity, json };
+}
+
+function readJsonl(filePath) {
+  if (!existsSync(filePath)) return [];
+  const content = readFileSync(filePath, "utf8");
+  const lines = content.split("\n");
+  const records = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    try {
+      records.push(JSON.parse(trimmed));
+    } catch {
+      // bad JSON — counted as skipped by caller via the library's skip counting
+      // We push a sentinel that will cause parseMs to return null
+      records.push({ __bad__: true });
+    }
+  }
+  return records;
+}
+
+function main() {
+  const { dir, sinceMs, severity, json: asJson } = parseArgs(process.argv);
+
+  const logDir = dir ?? join(process.env.HOME || "", ".openclaw", "orion-controlled");
+
+  // Read the four audit logs
+  const permission = readJsonl(join(logDir, "permission-audit.jsonl"));
+  const remote = readJsonl(join(logDir, "remote-audit.jsonl"));
+  const repair = readJsonl(join(logDir, "repair-audit.jsonl"));
+  const location = readJsonl(join(logDir, "location-audit.jsonl"));
+
+  // Default since: 7 days ago
+  const since = sinceMs ?? Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  const { events, skipped } = buildIncidentTimeline(
+    { permission, remote, repair, location },
+    { since }
+  );
+
+  // Filter by severity if requested
+  let filtered = events;
+  if (severity !== null) {
+    const minLevel = SEVERITY_ORDER[severity];
+    filtered = events.filter((e) => SEVERITY_ORDER[e.severity] >= minLevel);
+  }
+
+  if (asJson) {
+    console.log(JSON.stringify({ events: filtered, skipped }, null, 2));
+  } else {
+    if (filtered.length === 0) {
+      console.log("Nothing recorded in that window.");
+    } else {
+      for (const e of filtered) {
+        const sev = e.severity.padEnd(6);
+        const src = e.source.padEnd(10);
+        console.log(`${e.iso}  ${sev} ${src} ${e.summary}`);
+      }
+    }
+    if (skipped > 0) {
+      console.log(`(${skipped} unreadable line(s) skipped)`);
+    }
+  }
+}
+
+main();
+

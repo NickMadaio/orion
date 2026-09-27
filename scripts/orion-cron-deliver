@@ -188,8 +188,10 @@ const spoken = `${result.out}\n${result.err}`.trim();
 // Nothing said, nothing to deliver. For orion-standing and orion-focus this is
 // the common case and it is CORRECT: they are built to stay quiet unless
 // something genuinely changed.
-await recordOutcome("silent", result.code);
-if (spoken.length === 0) process.exit(result.code);
+if (spoken.length === 0) {
+  await recordOutcome("silent", result.code);
+  process.exit(result.code);
+}
 if (match && !match.test(spoken)) {
   await recordOutcome("no_match", result.code);
   process.exit(result.code);

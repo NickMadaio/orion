@@ -124,3 +124,13 @@ test("an unwritable history file does not change the exit code", async (t) => {
   assert.equal(r.status, 5);
   assert.ok(r.stderr.includes("could not record history"));
 });
+
+test("each run records exactly one outcome", async (t) => {
+  // Review, 2026-09-27: "silent" was recorded before the silence check, so a
+  // delivered run wrote two lines and the history over-counted quiet runs.
+  const tmp = await home(t);
+  run(tmp, ["--", "/bin/sh", "-c", "echo hi"]);
+  run(tmp, ["--", "/bin/sh", "-c", "exit 0"]);
+  const outcomes = (await readHistory(tmp)).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line).outcome);
+  assert.deepEqual(outcomes, ["delivered", "silent"]);
+});

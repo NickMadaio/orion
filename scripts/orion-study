@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+// orion-study — fit a study request into a day file.
+//   orion-study --day FILE --now HH:MM --window HH:MM-HH:MM [--json] -- "<request>"
+import { readFileSync } from "node:fs";
+import { parseStudyRequest } from "./lib/life/study-request.mjs";
+import { fitStudy } from "./lib/life/fit-study.mjs";
+
+const all = process.argv.slice(2);
+const split = all.indexOf("--");
+const args = split >= 0 ? all.slice(0, split) : all;
+const text = split >= 0 ? all.slice(split + 1).join(" ") : "";
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const usage = () => { console.error('usage: orion-study --day FILE --now HH:MM --window HH:MM-HH:MM [--json] -- "<request>"'); process.exit(2); };
+const minute = (t) => { const m = /^([01]?\d|2[0-4]):([0-5]\d)$/.exec(t ?? ""); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+const file = flag("--day"); const now = minute(flag("--now"));
+const [ws, we] = (flag("--window") ?? "").split("-").map(minute);
+if (!file || now === null || ws == null || we == null || !text.trim()) usage();
+let day;
+try { day = JSON.parse(readFileSync(file, "utf8")); } catch { console.error(`orion-study: cannot read ${file}`); process.exit(1); }
+if (!Array.isArray(day?.blocks) || typeof day.date !== "string") { console.error("orion-study: the day file needs date and blocks"); process.exit(1); }
+const request = parseStudyRequest(text, day.date);
+if (request.error) { console.error(`orion-study: ${request.error}`); process.exit(1); }
+const result = fitStudy(day.blocks, request.splitMinutes, { start: ws, end: we }, now, day.date);
+const out = { request, placed: result.placed, moved: result.moved, unplaced: result.unplaced };
+if (args.includes("--json")) { console.log(JSON.stringify(out)); process.exit(0); }
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+for (const p of result.placed) console.log(`placed: study ${hhmm(p.start)}–${hhmm(p.end)}${request.subject ? ` (${request.subject})` : ""}`);
+for (const m of result.moved) console.log(`moved: ${m.id} ${hhmm(m.from)} → ${hhmm(m.to)}`);
+for (const u of result.unplaced) console.log(`unplaced: ${u} min did not fit`);

@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+// orion-next — what should Nick do next, for a day file.
+//   orion-next --day FILE --now HH:MM [--state STATE] [--json]
+// FILE: { "date": "YYYY-MM-DD", "blocks": [...], "done": [...] }. Reads only FILE.
+import { readFileSync } from "node:fs";
+import { nextAction } from "./lib/life/next-action.mjs";
+
+const args = process.argv.slice(2);
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const usage = () => { console.error("usage: orion-next --day FILE --now HH:MM [--state STATE] [--json]"); process.exit(2); };
+const file = flag("--day"); const nowText = flag("--now");
+if (!file || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(nowText ?? "")) usage();
+let day;
+try { day = JSON.parse(readFileSync(file, "utf8")); } catch { console.error(`orion-next: cannot read ${file}`); process.exit(1); }
+if (!Array.isArray(day?.blocks)) { console.error("orion-next: the day file has no blocks"); process.exit(1); }
+const [h, m] = nowText.split(":").map(Number);
+const result = nextAction({ blocks: day.blocks, now: h * 60 + m, done: day.done ?? [], state: flag("--state") ?? "day" });
+console.log(args.includes("--json") ? JSON.stringify(result) : `${result.action}: ${result.reason}`);

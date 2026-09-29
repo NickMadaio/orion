@@ -32,8 +32,8 @@ export function parseStudyRequest(text, today) {
     return { error: 'minutes out of range' };
   }
 
-  // 2. Parse subject
-  const subject = parseSubject(lowerText);
+  // 2. Parse subject (pass original text to preserve casing)
+  const subject = parseSubject(text);
 
   // 3. Parse byDate
   let byDate = parseByDate(lowerText, today);
@@ -97,12 +97,13 @@ function parseSubject(text) {
  * @returns {string | null}
  */
 function normalizeSubject(raw) {
-  const lower = raw.toLowerCase().trim();
+  const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
   if (SUBJECT_ALIASES[lower]) {
     return SUBJECT_ALIASES[lower];
   }
-  // Unknown subject is kept as typed (but we lowercased it for alias check, do we keep original case? Brief says "lowercased and trimmed")
-  return lower || null;
+  // Unknown subject is kept as typed (original case preserved)
+  return trimmed || null;
 }
 
 /**

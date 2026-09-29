@@ -56,3 +56,13 @@ test('out of range is an error', () => {
   const result = parseStudyRequest('10 minutes', TODAY);
   assert.equal(result.error, 'minutes out of range');
 });
+
+test('unknown subject preserves original casing — for', () => {
+  const result = parseStudyRequest('study for MySubject', TODAY);
+  assert.equal(result.subject, 'MySubject');
+});
+
+test('unknown subject preserves original casing — on', () => {
+  const result = parseStudyRequest('study on MixedCaseTopic', TODAY);
+  assert.equal(result.subject, 'MixedCaseTopic');
+});

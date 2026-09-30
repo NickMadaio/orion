@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+/*
+ orion-finance — Nick's money, read-only, from the summary the ORION app writes
+ after each bank refresh (native/Orion/.../FinanceExport.swift).
+
+   orion-finance            balances, spent this week / month, top categories, subscriptions
+   orion-finance recent     the last 25 transactions
+   orion-finance --json     the whole summary
+*/
+import { readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+const FILE = process.env.ORION_FINANCE_FILE || join(homedir(), ".openclaw/orion-controlled/finance-summary.json");
+let summary;
+try { summary = JSON.parse(readFileSync(FILE, "utf8")); }
+catch { console.log("No bank summary yet: open ORION ▸ Finances once (the app writes it after each refresh). If no bank is linked, Nick links one there."); process.exit(1); }
+const ageHours = (Date.now() - statSync(FILE).mtimeMs) / 3600000;
+const arg = process.argv[2];
+if (arg === "--json") { console.log(JSON.stringify(summary, null, 1)); process.exit(0); }
+const money = (n, cur = "USD") => (typeof n === "number" ? n.toLocaleString("en-US", { style: "currency", currency: cur }) : "?");
+const currency = summary.accounts?.[0]?.currency || "USD";
+if (arg === "recent") {
+  for (const t of summary.recent ?? []) console.log(`${t.date}  ${money(t.amount, currency).padStart(11)}  ${t.name}${t.pending ? " (pending)" : ""}  [${t.category}]`);
+  process.exit(0);
+}
+console.log(`As of ${summary.writtenAt}${ageHours > 24 ? ` (${Math.round(ageHours / 24)} days old — the app refreshes it when Finances loads)` : ""}`);
+for (const a of summary.accounts ?? []) console.log(`  ${a.name} ····${a.mask}: ${money(a.current, a.currency)}${typeof a.available === "number" ? ` (available ${money(a.available, a.currency)})` : ""}`);
+console.log(`Spent this week ${money(summary.spentThisWeek, currency)}, this month ${money(summary.spentThisMonth, currency)}; income this month ${money(summary.incomeThisMonth, currency)}.`);
+if (summary.topCategoriesThisMonth?.length) console.log(`Top this month: ${summary.topCategoriesThisMonth.map((c) => `${c.category} ${money(c.total, currency)}`).join(", ")}.`);
+if (summary.recurring?.length) console.log(`Recurring: ${summary.recurring.map((r) => `${r.name} ${money(r.amount, currency)}`).join(", ")}.`);

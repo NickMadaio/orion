@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+/*
+ orion-eval-run <scenarios.json> <out.json> [--session <name>] [--expect <expectations.json>]
+
+ Runs scenarios through the real phone route (orion-remote handle, chat mode) in
+ an isolated brain session, with evaluation mode on so nothing is sent to anyone
+ (lib/eval-mode.mjs), then grades the run (orion-eval-grade). Scenario rows:
+ { "id", "say", "sender"?: "phone" | "discord" }. Session names must contain
+ "eval", which also keeps them out of ORION's memory journal.
+
+ Calendar, reminders and health changes DO happen: they are what is being tested.
+ Snapshot and undo them yourself.
+*/
+import { readFileSync, writeFileSync, mkdirSync, rmSync, utimesSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { EVAL_MARKER } from "./lib/eval-mode.mjs";
+
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const [scenarioFile, outFile] = args.filter((a, i) => !a.startsWith("--") && !["--session", "--expect"].includes(args[i - 1]));
+if (!scenarioFile || !outFile) { console.error("usage: orion-eval-run <scenarios.json> <out.json> [--session <name>] [--expect <file>]"); process.exit(2); }
+const session = flag("--session") ?? `orion-eval-${new Date().toISOString().slice(0, 16).replace(/[:T-]/g, "")}`;
+if (!/eval/.test(session)) { console.error("the session name must contain \"eval\""); process.exit(2); }
+const here = dirname(fileURLToPath(import.meta.url));
+const node = process.execPath;
+const scenarios = JSON.parse(readFileSync(scenarioFile, "utf8"));
+
+mkdirSync(dirname(EVAL_MARKER), { recursive: true });
+writeFileSync(EVAL_MARKER, `${session}\n`);
+const results = [];
+try {
+  for (const [i, s] of scenarios.entries()) {
+    utimesSync(EVAL_MARKER, new Date(), new Date());   // keep it fresh through long runs
+    const sender = s.sender ?? "phone";
+    const started = Date.now();
+    const run = spawnSync(node, [join(here, "orion-remote"), "handle", "--from", sender, "--mode", "chat",
+      "--id", `eval-${session}-${i}-${started}`, "--at", String(started), "--", s.say],
+      { encoding: "utf8", env: { ...process.env, ORION_REMOTE_ALLOW: sender, ORION_BRAIN_SESSION: session }, timeout: 240_000 });
+    const row = { id: s.id, say: s.say, reply: (run.stdout ?? "").trim(), exit: run.status ?? 1, secs: Math.round((Date.now() - started) / 100) / 10 };
+    results.push(row);
+    writeFileSync(outFile, JSON.stringify(results, null, 1));
+    console.log(`[${row.id}] ${row.secs}s  ${row.reply.slice(0, 160).replace(/\n/g, " ")}`);
+  }
+} finally {
+  rmSync(EVAL_MARKER, { force: true });
+}
+const grade = spawnSync(node, [join(here, "orion-eval-grade"), outFile, ...(flag("--expect") ? [flag("--expect")] : [])], { encoding: "utf8" });
+process.stdout.write(grade.stdout);
+process.exit(grade.status ?? 1);

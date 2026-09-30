@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+/*
+ orion-shortcut — run Nick's Shortcuts that he has marked for ORION (2026-09-30).
+
+   orion-shortcut list                 the shortcuts ORION may run
+   orion-shortcut run "<name>" [text]  run one, optionally with text input; prints its output
+
+ Only shortcuts whose names start with "ORION " (e.g. "ORION Focus Toggle").
+ Shortcuts can do almost anything — lights, playlists, Focus, messages — so the
+ name prefix is Nick's opt-in: he names a shortcut "ORION …" to hand it over.
+ (The --folder-name filter lists everything when the folder is missing, so it
+ cannot be the boundary.)
+*/
+import { spawnSync } from "node:child_process";
+import { writeFileSync, readFileSync, rmSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const [command, name, ...input] = process.argv.slice(2);
+const list = () => (spawnSync("/usr/bin/shortcuts", ["list"], { encoding: "utf8", timeout: 20000 }).stdout ?? "")
+  .split("\n").map((s) => s.trim()).filter((s) => s.startsWith("ORION "));
+if (command === "list") {
+  const mine = list();
+  console.log(mine.length ? mine.join("\n") : "None yet. Nick hands a shortcut to ORION by naming it \"ORION …\" in the Shortcuts app.");
+  process.exit(0);
+}
+if (command === "run") {
+  if (!name || !list().includes(name)) {
+    console.log(`Not run: "${name ?? ""}" is not one of the shortcuts named "ORION …" (${list().join(", ") || "none yet"}). Nick can make one and name it "ORION <what it does>".`);
+    process.exit(1);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "orion-shortcut-"));
+  const args = ["run", name, "--output-path", join(dir, "out.txt")];
+  if (input.length) { writeFileSync(join(dir, "in.txt"), input.join(" ")); args.push("--input-path", join(dir, "in.txt")); }
+  const run = spawnSync("/usr/bin/shortcuts", args, { encoding: "utf8", timeout: 60000 });
+  let output = "";
+  try { output = readFileSync(join(dir, "out.txt"), "utf8").trim(); } catch {}
+  rmSync(dir, { recursive: true, force: true });
+  if (run.status !== 0) { console.log(`"${name}" failed: ${(run.stderr || run.stdout || "no reason given").trim().slice(0, 200)}`); process.exit(1); }
+  console.log(output ? `Ran "${name}". Output: ${output.slice(0, 2000)}` : `Ran "${name}".`);
+  process.exit(0);
+}
+console.log('usage: orion-shortcut list | run "<ORION …>" [text]');
+process.exit(2);

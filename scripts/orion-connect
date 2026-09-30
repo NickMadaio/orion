@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+/*
+ orion-connect — every connection ORION has, live, and new ones he builds himself.
+
+   orion-connect list                         every connection and whether it works RIGHT NOW
+   orion-connect show <name>                  a connector's operations and what it still needs
+   orion-connect run <name> <op> [k=v …]      call a read operation; prints the kept fields as JSON
+   orion-connect create <name> --json '<spec>' | --file <path>   add a connector (see "how" below)
+   orion-connect set <name> <setting>=<value> a non-secret setting (e.g. canvas domain=…)
+   orion-connect how                          how to write a connector
+
+ A connector is a JSON spec (lib/connect/spec.mjs), not code: one https host,
+ GET operations, fields to keep. Secrets live in the login Keychain (account
+ "openclaw", item "ORION <Name>") and are read only here, only for that host;
+ ORION never sees them. Writes need Nick: orion-connect-admin allow-writes <name>.
+*/
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, statSync, openSync, closeSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { validateSpec, buildRequest, keepFields } from "./lib/connect/spec.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const HOME = homedir();
+const DIR = process.env.ORION_CONNECTORS_DIR || join(HOME, ".openclaw/orion-connectors");
+const BUILTIN = join(HERE, "connectors");
+const SETTINGS = join(DIR, "settings.json");
+const WRITES = join(DIR, "writes-allowed.json");
+const CONTROLLED = join(HOME, ".openclaw/orion-controlled");
+const [command, ...rest] = process.argv.slice(2);
+const readJSON = (file, fallback) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return fallback; } };
+const fail = (message, code = 1) => { console.log(message); process.exit(code); };
+
+function specs() {
+  const out = new Map();
+  for (const dir of [BUILTIN, DIR]) {
+    if (!existsSync(dir)) continue;
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".json") && !["settings.json", "writes-allowed.json"].includes(f))) {
+      const spec = readJSON(join(dir, file), null);
+      if (spec?.name) out.set(spec.name, { ...spec, builtin: dir === BUILTIN });
+    }
+  }
+  return out;
+}
+
+function secret(item) {
+  try { return execFileSync("/usr/bin/security", ["find-generic-password", "-a", "openclaw", "-s", item, "-w"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null; }
+  catch { return null; }
+}
+
+function needs(spec) {
+  const settings = readJSON(SETTINGS, {})[spec.name] ?? {};
+  const missing = Object.entries(spec.settings ?? {}).filter(([k, s]) => s.required !== false && !settings[k]).map(([k, s]) => `setting ${k} (${s.description})`);
+  if (spec.auth && spec.auth.type !== "none" && !secret(spec.auth.keychain)) {
+    missing.push(`a key in the Keychain — Nick runs: security add-generic-password -a openclaw -s "${spec.auth.keychain}" -w  (then pastes it)${spec.auth.howToGet ? ` · get it: ${spec.auth.howToGet}` : ""}`);
+  }
+  return missing;
+}
+
+const age = (file) => { try { return (Date.now() - statSync(file).mtimeMs) / 3600000; } catch { return null; } };
+const hours = (h) => (h === null ? "never" : h < 1 ? `${Math.round(h * 60)} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`);
+
+function systemStatus() {
+  const rows = [];
+  const node = process.execPath;
+  const run = (args, timeout = 15000) => spawnSync(args[0], args.slice(1), { encoding: "utf8", timeout });
+  const bridge = [join(HOME, ".openclaw/orion-remote/bin/orion-mac-bridge"), join(HOME, "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find(existsSync);
+  const ask = (action) => bridge ? spawnSync(bridge, [], { input: `${JSON.stringify({ id: "c", action, payload: {} })}\n`, encoding: "utf8", timeout: 20000 }).stdout ?? "" : "";
+  rows.push(["Apple Calendar", /"ok":true/.test(ask("list_deadlines")) ? "working" : "NOT readable (Calendar permission for the bridge)"]);
+  rows.push(["Apple Reminders", /"ok":true/.test(ask("list_incomplete_reminders")) ? "working" : "NOT readable (Reminders permission)"]);
+  let messages = "NOT readable (Full Disk Access for the gateway)";
+  try { closeSync(openSync(join(HOME, "Library/Messages/chat.db"), "r")); messages = "working (sending needs Nick's OK each time)"; } catch {}
+  rows.push(["iMessage", messages]);
+  const gmail = run([node, join(HERE, "orion-gmail-latest")], 20000);
+  const gtext = `${gmail.stdout}${gmail.stderr}`;
+  rows.push(["Gmail", gmail.status === 0 && !/error|invalid_grant/i.test(gtext) ? "working (read-only)" : /invalid_grant|revoked|expired/i.test(gtext) ? "DISCONNECTED — Google revoked the token; Nick re-grants with `gog auth manage`" : `NOT working: ${gtext.trim().split("\n").at(-1)?.slice(0, 120) ?? "no answer"}`]);
+  const log = readJSON(join(CONTROLLED, "health-log.json"), {});
+  const lastWhoop = Object.entries(log.days ?? {}).filter(([, d]) => d.recovery != null).map(([k]) => k).sort().at(-1);
+  rows.push(["WHOOP (sleep, recovery)", lastWhoop ? `working — latest ${lastWhoop}` : "no WHOOP data yet (connect it in the ORION app ▸ Health)"]);
+  const fin = age(join(CONTROLLED, "finance-summary.json"));
+  rows.push(["Bank (Plaid)", fin === null ? "no summary yet — opens when the ORION app refreshes Finances" : `summary ${hours(fin)} (orion-finance)`]);
+  const link = readJSON(join(HOME, "Library/Application Support/ORION Link/status.json"), null);
+  rows.push(["iPhone link (iCloud)", link ? `${link.status}${link.problem ? ` — ${link.problem}` : ""}` : "ORION Link not running"]);
+  const lastSignal = (log.phoneSignals ?? []).at(-1)?.at;
+  rows.push(["iPhone signals (motion, place)", lastSignal ? `last ${hours((Date.now() - Date.parse(lastSignal)) / 3600000)}` : "off (Signals in the phone app's Control tab)"]);
+  const discord = run(["/bin/launchctl", "list"]).stdout?.split("\n").find((l) => l.includes("com.nickmadaio.orion.remote")) ?? "";
+  rows.push(["Discord", /^\d+/.test(discord.trim()) ? "working (DMs with Nick)" : "bridge NOT running (orion-remote-install)"]);
+  rows.push(["Voice out (ElevenLabs)", existsSync(join(HOME, ".openclaw/orion-tts.sock")) ? "working" : "daemon down (orion-tts-install)"]);
+  rows.push(["Voice ID", existsSync(join(HOME, ".openclaw/orion-voiceid.sock")) ? "running" : "down (orion-voiceid-install)"]);
+  rows.push(["Weather, web search, web pages", "working (no account needed)"]);
+  return rows;
+}
+
+if (!command || command === "help") fail(readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0].replace(/^[\s\S]*?\/\*/, "").trim(), 0);
+
+if (command === "list") {
+  console.log("Built-in connections:");
+  for (const [name, status] of systemStatus()) console.log(`  ${name.padEnd(32)} ${status}`);
+  console.log("Connectors (orion-connect run <name> <op>):");
+  const all = specs();
+  if (!all.size) console.log("  none yet — build one with orion-connect how");
+  for (const spec of all.values()) {
+    const missing = needs(spec);
+    console.log(`  ${spec.name.padEnd(14)} ${spec.title}${spec.builtin ? "" : " (built by ORION)"} — ${missing.length ? `NEEDS: ${missing.join("; ")}` : `ready: ${Object.keys(spec.operations).join(", ")}`}`);
+  }
+  process.exit(0);
+}
+
+if (command === "how") {
+  console.log(`A connector is JSON, written with: orion-connect create <name> --json '<spec>'
+{
+  "name": "tfl", "title": "London transport",
+  "baseUrl": "https://api.tfl.gov.uk",                 // https only; may use a setting: "https://{{domain}}"
+  "auth": { "type": "none" },                          // or bearer|header|query with "keychain": "ORION <Name>" (+ "header"/"param"), optional "howToGet"
+  "settings": { "domain": { "description": "…" } },    // optional, non-secret, set with orion-connect set
+  "operations": {
+    "line_status": { "description": "Is a tube line running?", "path": "/Line/{{line}}/Status",
+                     "query": { "detail": "{{detail?}}" }, "keep": ["name", "lineStatuses.statusSeverityDescription"], "limit": 5 }
+  }
+}
+Read the API's docs first (web_search, web_fetch). GET only. {{x}} is a required parameter, {{x?}} optional.
+Then test it: orion-connect run <name> <op> k=v. If it needs a key, tell Nick the exact Keychain command that orion-connect list prints.`);
+  process.exit(0);
+}
+
+if (command === "show") {
+  const spec = specs().get(rest[0]);
+  if (!spec) fail(`No connector called ${rest[0]}. orion-connect list shows them all; orion-connect how explains building one.`);
+  const missing = needs(spec);
+  console.log(`${spec.name} — ${spec.title}\n${missing.length ? `Needs: ${missing.join("; ")}\n` : ""}Operations:`);
+  for (const [name, op] of Object.entries(spec.operations)) {
+    const params = [...new Set([...`${op.path} ${JSON.stringify(op.query ?? {})}`.matchAll(/\{\{\s*([a-zA-Z0-9_]+)(\?)?/g)].map((m) => `${m[1]}${m[2] ?? ""}`))]
+      .filter((p) => !Object.keys(spec.settings ?? {}).includes(p.replace("?", "")));
+    console.log(`  ${name}(${params.join(", ")}) — ${op.description}${op.write ? " [WRITE]" : ""}`);
+  }
+  process.exit(0);
+}
+
+if (command === "set") {
+  const [name, pair] = rest;
+  const spec = specs().get(name);
+  if (!spec) fail(`No connector called ${name}.`);
+  const [key, ...value] = String(pair ?? "").split("=");
+  if (!spec.settings?.[key]) fail(`${name} has no setting ${key} (it has: ${Object.keys(spec.settings ?? {}).join(", ") || "none"})`);
+  if (/token|secret|key|password/i.test(key)) fail("Secrets go in the Keychain, not settings.");
+  const all = readJSON(SETTINGS, {});
+  mkdirSync(DIR, { recursive: true });
+  writeFileSync(SETTINGS, JSON.stringify({ ...all, [name]: { ...(all[name] ?? {}), [key]: value.join("=") } }, null, 2), { mode: 0o600 });
+  console.log(`${name}: ${key} set.`);
+  process.exit(0);
+}
+
+if (command === "create") {
+  const name = rest[0];
+  const jsonAt = rest.indexOf("--json"), fileAt = rest.indexOf("--file");
+  let spec;
+  try { spec = JSON.parse(jsonAt >= 0 ? rest[jsonAt + 1] : readFileSync(rest[fileAt + 1], "utf8")); }
+  catch { fail("Give the spec with --json '<spec>' or --file <path> (valid JSON). orion-connect how shows the shape."); }
+  if (spec.name !== name) fail(`The spec's name must be "${name}".`);
+  const existing = specs().get(name);
+  if (existing?.builtin) fail(`${name} is built in; choose another name.`);
+  const issues = validateSpec(spec);
+  if (issues.length) fail(`Not created:\n  - ${issues.join("\n  - ")}`);
+  mkdirSync(DIR, { recursive: true });
+  writeFileSync(join(DIR, `${name}.json`), JSON.stringify({ ...spec, createdAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  const missing = needs(spec);
+  console.log(`Created ${name} (${Object.keys(spec.operations).length} operation(s)).${missing.length ? ` Still needs: ${missing.join("; ")}.` : ""} Test it: orion-connect run ${name} ${Object.keys(spec.operations)[0]} …`);
+  process.exit(0);
+}
+
+if (command === "run") {
+  const [name, opName, ...pairs] = rest;
+  const spec = specs().get(name);
+  if (!spec) fail(`No connector called ${name}. orion-connect list shows them; orion-connect how explains building one.`);
+  const issues = validateSpec(spec);
+  if (issues.length) fail(`${name} is not a valid connector: ${issues.join("; ")}`);
+  const missing = needs(spec);
+  if (missing.length) fail(`${name} is not set up yet. Needs: ${missing.join("; ")}`);
+  const params = Object.fromEntries(pairs.map((p) => { const [k, ...v] = p.split("="); return [k, v.join("=")]; }));
+  const request = buildRequest(spec, opName, params, readJSON(SETTINGS, {})[name] ?? {});
+  if (request.error) fail(`Not run: ${request.error}`);
+  if (request.write && !(readJSON(WRITES, {})[name] === true)) fail(`${opName} changes data at ${spec.title}. Nick has to allow writes for ${name} first (orion-connect-admin allow-writes ${name}).`);
+  const headers = { accept: "application/json", "user-agent": "ORION/1 (personal assistant)" };
+  let url = request.url;
+  if (spec.auth?.type && spec.auth.type !== "none") {
+    const key = secret(spec.auth.keychain);
+    if (spec.auth.type === "bearer") headers.authorization = `Bearer ${key}`;
+    if (spec.auth.type === "header") headers[spec.auth.header.toLowerCase()] = key;
+    if (spec.auth.type === "query") { const u = new URL(url); u.searchParams.set(spec.auth.param, key); url = u.toString(); }
+  }
+  const op = spec.operations[opName];
+  let response;
+  try { response = await fetch(url, { method: request.method, headers, signal: AbortSignal.timeout(20000), redirect: "error" }); }
+  catch (error) { fail(`${spec.title} did not answer: ${String(error?.message ?? error).slice(0, 160)}`); }
+  const text = await response.text();
+  if (!response.ok) fail(`${spec.title} said ${response.status}: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
+  let body;
+  try { body = keepFields(JSON.parse(text), op.keep, op.limit ?? 8); } catch { body = text.replace(/\s+/g, " ").slice(0, 3000); }
+  const out = JSON.stringify(body, null, 1);
+  console.log(out.length > 7000 ? `${out.slice(0, 7000)}\n… (cut; add "keep" fields to the operation to trim it)` : out);
+  process.exit(0);
+}
+
+fail("usage: orion-connect list | show <name> | run <name> <op> [k=v …] | create <name> --json '<spec>' | set <name> k=v | how", 2);

@@ -1,0 +1,49 @@
+{
+  "name": "canvas",
+  "title": "Canvas (Northeastern courses)",
+  "baseUrl": "https://{{domain}}",
+  "settings": { "domain": { "description": "the Canvas address he logs into, e.g. northeastern.instructure.com" } },
+  "auth": { "type": "bearer", "keychain": "ORION Canvas", "howToGet": "Canvas ▸ Account ▸ Settings ▸ + New Access Token" },
+  "operations": {
+    "courses": {
+      "description": "His current courses (ids for the other operations)",
+      "path": "/api/v1/courses",
+      "query": { "enrollment_state": "active", "per_page": "30" },
+      "keep": ["id", "name", "course_code"],
+      "limit": 30
+    },
+    "upcoming": {
+      "description": "Upcoming assignments and events across all courses",
+      "path": "/api/v1/users/self/upcoming_events",
+      "keep": ["title", "start_at", "assignment.due_at", "assignment.points_possible", "context_name", "html_url"],
+      "limit": 15
+    },
+    "todo": {
+      "description": "Canvas's to-do list: assignments he still needs to submit",
+      "path": "/api/v1/users/self/todo",
+      "keep": ["assignment.name", "assignment.due_at", "context_name", "html_url"],
+      "limit": 15
+    },
+    "assignments": {
+      "description": "A course's upcoming assignments (course_id from courses)",
+      "path": "/api/v1/courses/{{course_id}}/assignments",
+      "query": { "bucket": "upcoming", "order_by": "due_at", "per_page": "20" },
+      "keep": ["name", "due_at", "points_possible", "submission_types", "html_url"],
+      "limit": 20
+    },
+    "grades": {
+      "description": "Current grade in each course",
+      "path": "/api/v1/users/self/enrollments",
+      "query": { "type[]": "StudentEnrollment", "state[]": "active" },
+      "keep": ["course_id", "grades.current_score", "grades.current_grade"],
+      "limit": 20
+    },
+    "announcements": {
+      "description": "Recent announcements in a course (course_id from courses)",
+      "path": "/api/v1/announcements",
+      "query": { "context_codes[]": "course_{{course_id}}", "per_page": "10" },
+      "keep": ["title", "posted_at", "message"],
+      "limit": 5
+    }
+  }
+}

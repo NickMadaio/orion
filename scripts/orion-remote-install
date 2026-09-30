@@ -51,9 +51,14 @@ case "${1:-}" in
   *) echo "unknown option: $1"; exit 64 ;;
 esac
 
-fingerprint() {  # a stable hash of the two files that actually matter
+fingerprint() {  # a stable hash of the files the bridge actually runs
     [ -f "$1/scripts/orion-remote-bridge" ] || { echo "absent"; return; }
-    cat "$1/scripts/orion-remote-bridge" "$1/scripts/orion-remote" 2>/dev/null \
+    # The bridge, plus the development-run controller it falls back to when
+    # launchd cannot reach ~/Desktop: a Discord `agent stop` runs THAT copy, so a
+    # stale controller has to show as DRIFTED too.
+    cat "$1/scripts/orion-remote-bridge" "$1/scripts/orion-remote" \
+        "$1/scripts/orion-project-agent" "$1/scripts/lib/orion-project-agent.mjs" \
+        $(ls "$1"/scripts/lib/agentic/*.mjs 2>/dev/null | LC_ALL=C sort) 2>/dev/null \
         | shasum -a 256 | cut -c1-12
 }
 
@@ -115,6 +120,10 @@ rm -rf "$INSTALL/scripts"
 cp -R "$REPO/scripts" "$INSTALL/scripts"
 # Nothing in here needs the venv, and a stale copy of it would be confusing.
 rm -rf "$INSTALL/scripts/__pycache__" "$INSTALL/scripts/lib/__pycache__"
+# The calendar bridge, for the life-loop scripts the ORION app and the phone link
+# run from this copy (neither may read ~/Desktop). Built by swift build -c release.
+BRIDGE_BIN="$REPO/native/OrionMacBridge/.build/release/orion-mac-bridge"
+if [ -x "$BRIDGE_BIN" ]; then mkdir -p "$INSTALL/bin" && cp "$BRIDGE_BIN" "$INSTALL/bin/orion-mac-bridge"; fi
 
 umask 077
 printf 'ORION_DISCORD_BOT_TOKEN=%s\n' "$TOKEN" > "$INSTALL/.env"
@@ -167,8 +176,26 @@ chmod 644 "$PLIST"
 echo "   $PLIST"
 
 echo "== starting =="
+# bootout returns before launchd has finished removing the job, and a
+# bootstrap in that window fails ("Input/output error") -- which the old
+# `2>/dev/null ||` swallowed, leaving the bridge OFF after a reinstall while
+# this script printed success. So: wait for the old job to be gone, retry the
+# bootstrap, and fail loudly if it never loads.
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
-launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null
+for _ in $(seq 1 50); do
+  launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.2
+done
+LOADED=no
+for _ in 1 2 3 4 5; do
+  if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; then LOADED=yes; break; fi
+  launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 && { LOADED=yes; break; }
+  sleep 1
+done
+if [ "$LOADED" != yes ]; then
+  echo "  FAILED: launchd would not load $PLIST — the bridge is NOT running." >&2
+  exit 1
+fi
 launchctl kickstart -k "gui/$(id -u)/$LABEL" 2>/dev/null
 
 echo ""

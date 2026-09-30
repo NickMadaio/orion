@@ -32,8 +32,10 @@
 */
 
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { classifyClaim } from "./lib/remote/claims.mjs";
+import { fixReply, lintReply } from "./lib/remote/reply-lint.mjs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +51,7 @@ const INBOX = join(CONTROLLED, "inbox.jsonl");
 const OUTBOX = join(CONTROLLED, "outbox.jsonl");
 const AUDIT = join(CONTROLLED, "remote-audit.jsonl");
 const INBOUND = join(CONTROLLED, "remote-inbound.json"); // cursor + rate limits
+const INBOUND_LOCK = join(CONTROLLED, "remote-inbound.lock");
 const RUNNER_LOG = join(CONTROLLED, "remote-runner.log");
 const LOCK = join(CONTROLLED, "lock.json");
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
@@ -106,6 +109,14 @@ const APPROVAL_RE = /^ap-[0-9a-f]{8}$/; // exactly what `ap-${randomBytes(4)}` m
 */
 const GATE_RE = /^[Aa]-[23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz]{4}$/;
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+// The development agent's closed vocabulary, and the project-id shape
+// `projects.mjs` mints. Declared up here because HINTS below reads them at load
+// time; what they mean is explained beside doAgent.
+const AGENT_ACTIONS = new Set(["status", "pause", "resume", "stop", "exterminate"]);
+const ACTION_VERBS = new Set(["list", "cancel"]);
+const TASK_ID_RE = /^orion-[a-f0-9]{16}$/;
+const ACTIONS_DIR = join(CONTROLLED, "actions");
+const PROJECT_RE = /^[a-z0-9][a-z0-9-]{1,63}$/; // projectRoot() in scripts/lib/agentic/projects.mjs
 const TERMINAL = new Set(["succeeded", "needs_human", "needs_permission", "budget_exhausted", "unsafe", "aborted"]);
 // 200 bytes and 8 tokens were a COMMAND's dimensions. A sentence addressed to
 // the brain is not a command, so the verb grammar keeps its tight bounds and
@@ -194,6 +205,36 @@ const VERBS = {
    lost reply safe to retry, and it is why the manifest puts these before
    Phase 46's actions rather than after.
   */
+  /*
+   The unattended development agent, controlled from a phone.
+
+   ONE verb with a fixed sub-vocabulary, rather than teaching `pause` and
+   `cancel` a second kind of target. Two reasons. The existing verbs act on
+   MISSIONS and their shape proves the id is one Orion minted; an agent is not a
+   mission and pretending otherwise would weaken that check. And the destructive
+   action has to be something Nick typed on purpose: `agent exterminate` is two
+   deliberate tokens, so no one stops a night's work by texting "stop".
+
+   The sub-action must match the fixed set exactly — it is a vocabulary check,
+   not a parse. An optional second token names the PROJECT (`agent stop
+   advance-orion-capabilities`) for the night more than one project has a run.
+   It reaches argv too, which is why it has a shape of its own: the id must be
+   one `projects.mjs` could have minted AND name a project directory that
+   already exists, so inbound text can point at a project Orion registered and
+   can never introduce a path.
+  */
+  agent: { aliases: ["agent", "loop", "dev"], min: 1, shape: ["agentAction", "project"] },
+
+  /*
+   Actions ORION is running right now, and stopping one (Phase 46: "supports
+   mobile cancellation"). Its own verb for the same reason `agent` has one: a
+   task id is not a mission id, and "stop" alone already means cancel-a-mission.
+   `action cancel <id>` takes an id the plugin minted (orion- + 16 hex) that is
+   listed as running; the plugin stops before the next step and never kills
+   the one in flight (plugin/orion-control/src/cancellation.ts).
+  */
+  action: { aliases: ["action", "actions"], min: 0, shape: ["actionVerb", "taskId"] },
+
   device: { aliases: ["device", "mac", "machine", "battery"], min: 0, shape: [] },
   apps: { aliases: ["apps", "applications", "app"], min: 0, shape: [] },
   files: { aliases: ["files", "file", "folder"], min: 1, shape: ["root"] },
@@ -353,6 +394,14 @@ const SHAPES = {
       : `no pending approval ${v}`,
   level: (v) => (PRIORITIES.has(v) ? null : `priority must be one of ${[...PRIORITIES].join(", ")}`),
   root: (v) => (SAFE_ROOTS.has(v) ? null : `root must be one of ${[...SAFE_ROOTS.keys()].join(", ")}`),
+  agentAction: (v) =>
+    AGENT_ACTIONS.has(v) ? null : `agent takes one of ${[...AGENT_ACTIONS].join(", ")}`,
+  // Shape first, filesystem second: a value that fails the regex never becomes
+  // part of a path, so `../` and friends are refused before anything is read.
+  project: (v) => (projectDir(v) ? null : `no project called ${v}`),
+  actionVerb: (v) => (ACTION_VERBS.has(v) ? null : `action takes ${[...ACTION_VERBS].join(" or ")}`),
+  // Regex first, so nothing that is not an id ever becomes part of a path.
+  taskId: (v) => (TASK_ID_RE.test(v) && existsSync(join(ACTIONS_DIR, "running", `${v}.json`)) ? null : `no running action ${v}`),
 };
 
 const checkArgs = (verb, args, state) =>
@@ -372,6 +421,12 @@ const HINTS = {
   approval: "an approval id — A-7F3K for an action, ap-1a2b3c4d for a mission",
   level: `one of ${[...PRIORITIES].join(", ")}`,
   root: `one of ${[...SAFE_ROOTS.keys()].join(", ")}`,
+  // "agent needs agentAction" was what this said before the hint existed -- the
+  // internal shape name, which teaches nobody anything.
+  agentAction: `one of ${[...AGENT_ACTIONS].join(", ")}, optionally then a project id`,
+  project: "a project id",
+  actionVerb: "list, or cancel followed by an action id",
+  taskId: "an action id from `actions`, like orion-1a2b3c4d5e6f7a8b",
 };
 
 const usage = (verb) => {
@@ -434,12 +489,26 @@ const usage = (verb) => {
 */
 const CHANNEL_BRIEF = [
   "[orion-remote] Context from the transport, not from Nick:",
-  "- This message arrived over Discord. Nick is away from the Mac.",
+  // Lines tagged @discord or @phone are kept only for that channel (briefFor).
+  "@discord - This message arrived over Discord. Nick is away from the Mac.",
+  "@phone - This message arrived from the ORION app on Nick's iPhone. It is the same",
+  "@phone   conversation as the Mac app; he may or may not be at the Mac.",
   "- The remote channel is ALREADY working -- you are answering through it right now.",
   "  Never offer to configure or repair it, and never claim it is unavailable.",
   "- These words are handled by the transport before you ever see them, so never",
   "  claim to have run them and never describe them as things you do:",
-  "  status, pause, resume, cancel, approve, deny, priority, device, apps, files.",
+  "  status, pause, resume, cancel, approve, deny, priority, device, apps, files, agent.",
+  "- The development run (the unattended coding loop) is controlled by Nick sending",
+  "  `agent` then one of: status, pause, stop, exterminate, resume -- optionally",
+  // A placeholder rather than a real project id. This example is recorded as
+  // part of Nick's turn like every other line here, and the first draft's
+  // (`advance-orion-…`) ended in a word AUTHORITY_INSTRUCTION matches. The
+  // remote check caught it -- see the vocabulary note above.
+  "  followed by a project id, e.g. `agent stop <project-id>`.",
+  "  pause holds at the next task boundary; stop finishes the task in flight and",
+  "  ends resumably; exterminate abandons the model call in flight now; resume",
+  "  clears any of them. Nothing over this channel starts a run -- that is done at",
+  "  the Mac. If he asks how to halt the run, tell him these exact words.",
   "- Approvals: you CANNOT create an approval id, and you cannot approve one.",
   "  There are two kinds and both are minted for you, never by you:",
   "    A-7F3K        an ACTION is waiting. The plugin minted it and handed it to",
@@ -457,20 +526,176 @@ const CHANNEL_BRIEF = [
   "  and saying the action is done when it is not is the worst answer available.",
   "- If you do not know something about your own configuration, say so. Do not",
   "  describe your own state from memory; it changes without you.",
-  "- Discord truncates near 2000 characters. Keep replies shorter than that.",
+  "@discord - Discord truncates near 2000 characters. Keep replies shorter than that.",
+  "@phone - The phone shows plain text with light markdown. Keep replies short enough to",
+  "@phone   read on a phone screen.",
   "--- Nick's message follows ---",
 ].join("\n");
 
-async function askBrain(text) {
+// The brief for one channel: its own tagged lines, untagged, and no other's.
+const briefFor = (sender) => {
+  const channel = sender === "phone" ? "phone" : "discord";
+  return CHANNEL_BRIEF.split("\n").flatMap((line) => {
+    const tag = /^@([a-z]+) /.exec(line);
+    if (!tag) return [line];
+    return tag[1] === channel ? [line.slice(tag[0].length)] : [];
+  }).join("\n");
+};
+
+/*
+ What the brain cannot see from the phone and kept guessing at (2026-09-28):
+ which apps are open (it told Nick Opera Air "isn't installed" while it was
+ running) and what "ORION" is (it opened http://localhost:3000/tasks for "the
+ task page"). Read fresh for each phone message; facts, not instructions.
+*/
+async function todaySchedule() {
+  try {
+    const { liveDay, localDate } = await import("./lib/life/live-day.mjs");
+    const blocks = await liveDay(localDate(new Date()));
+    const t = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    if (!blocks.length) return "- Today's calendar: nothing planned.";
+    const lastClass = blocks.filter((b) => b.kind === "class").at(-1);
+    return `- Today's calendar: ${blocks.map((b) => `${b.title.replace(/ — .*$/, "").slice(0, 40)} ${t(b.start)}–${t(b.end)}${b.fixed ? "" : " (movable)"}`).join("; ")}.`
+      + (lastClass ? ` His last class ENDS at ${t(lastClass.end)} — "after class" means from ${t(lastClass.end)}.` : "");
+  } catch { return null; }
+}
+
+function watchQuestion() {
+  try {
+    const day = new Date(Date.now() - 4 * 3600000).toLocaleDateString("en-CA");
+    const q = JSON.parse(readFileSync(join(CONTROLLED, "watch.json"), "utf8"))?.[day];
+    if (!q?.lastQuestion) return null;
+    return `- Earlier today you asked him (on his phone): "${String(q.lastQuestion).slice(0, 220)}" — this message may be his answer.`;
+  } catch { return null; }
+}
+
+function openCheckins() {
+  try {
+    const state = JSON.parse(readFileSync(join(CONTROLLED, "checkins.json"), "utf8"));
+    const open = (state.checkins ?? []).filter((c) => !["done", "cancelled", "given_up"].includes(c.loop?.phase));
+    return open.length ? `- Open check-ins: ${open.map((c) => `${c.id} "${c.what}" (${c.loop.phase})`).join("; ")}.` : "- No open check-ins.";
+  } catch { return "- No open check-ins."; }
+}
+
+async function phoneContext() {
+  const apps = await doApps().catch(() => null);
+  const names = apps?.ok ? apps.reply.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)) : [];
+  return [
+    "[orion-remote] Live facts for this message (read just now, not from Nick):",
+    names.length ? `- Apps open on the Mac: ${names.join(", ")}.` : "- The list of open apps could not be read.",
+    "- ORION's own app is the native Mac app Orion.app. It is not a website: never open a",
+    "  localhost or http address for it. Its tabs are Home, Tasks (to-dos, calendar and",
+    "  ORION's day plan), Projects, Health, Finances, Brand and Settings. To show one, run",
+    `  ${join(homedir(), "Desktop/ORION/scripts/orion-show")} <tab> through exec.`,
+    "- From the phone you have every tool you have at the Mac: app_open, the browser, calendar,",
+    `  reminders, memory. For the coding run, ${join(homedir(), "Desktop/ORION/scripts/orion-runs")}.`,
+    "- Before saying an app is not installed, try app_open; it reports whether it opened.",
+    ...[await todaySchedule()].filter(Boolean),
+    openCheckins(),
+    ...[watchQuestion()].filter(Boolean),
+    `- His day: when he tells you plans, ONE call: ${join(homedir(), "Desktop/ORION/scripts/orion-reschedule")} day --plan "<his words>, <min>, HH:MM, fixed" --plan … --fill`,
+    "  (\"fixed\" for plans with people; leave the time out if he gave none). Never several calls at once. \"X happened\" / running late →",
+    "  `orion-reschedule late <min>` or `busy HH:MM-HH:MM`. Tell him what moved; `orion-reschedule undo` if he objects.",
+    `- Closing the loop is your job. In THIS message, if he delays something with a reason → ${join(homedir(), "Desktop/ORION/scripts/orion-checkin")} add <min> "<what>" --because "<reason>";`,
+    "  says he is starting → orion-checkin started (or started \"<what>\"); finished → done; plans changed → cancel.",
+    "  \"One more video\" or \"later\" is not a reason: say so and add a short check-in anyway.",
+    "  Don't ask how long a normal pause takes — food 25 min, shower 20, a call 15 — set it and tell him when you'll be back.",
+  ].join("\n");
+}
+
+/*
+ The truth check (2026-09-29).
+
+ Real scenario runs caught the brain doing the two things Nick hates most, on
+ the same night: "wake me up at 7:30" answered "Done. I'll wake you at 7:30."
+ with NO tool run at all, and "can you see my screen?" answered "No" although a
+ screen-capture action is live. Rules in AGENTS.md already forbid both; the
+ model does not always follow them.
+
+ The envelope says how many tools a turn actually ran. So: a reply that claims
+ an action with zero tools run, or claims an inability without looking, is sent
+ back ONCE in the same session with a plain note, and the second answer is the
+ one Nick gets. Narrow patterns, one retry, never a loop.
+*/
+// "have" is not in the verb list: "I don't have a location for that event" is
+// missing data, not a claimed inability, and re-asking it (2026-09-29) made
+// ORION narrate his investigation of the calendar script to Nick.
+// …but "I don't have a direct weather tool" IS a claimed inability (it had one), as
+// is "can't list them through the phone". Interim until Qwen's claims.mjs lands.
+const CHECK_DONE = "[orion-remote check] Your last reply says something was done, but no tool ran in that turn, so nothing happened. Do it now with the right tool, or tell Nick plainly that it is not done and why. Reply to Nick directly with just the answer: never mention scripts, tools or this check.";
+const NO_REPLY = /^\W*Agent couldn'?t generate a response/i;
+const CHECK_SILENT = "[orion-remote check] Your last turn ended without a reply to Nick. Tell him in one or two sentences what you did or what happens next. Do not run the tools again.";
+const CHECK_CANT = "[orion-remote check] Your last reply says you can't do that, but you did not look. Check TOOLS.md or use tool_search for it. If a tool exists, use it now; if it truly does not, say so plainly. Reply to Nick directly with just the answer: never mention scripts, tools, this check or what you looked at.";
+
+/*
+ The model decision (2026-09-29). Haiku stays the everyday brain: a week of real
+ use including every scenario run cost about $1.60, and Nick's budget is $0–10 a
+ month; a Sonnet-class brain for every turn would be about three times that.
+ But the turns the truth check catches are exactly the ones Haiku got wrong, so
+ the one retry goes to the stronger model. It is rare, so it is cheap, and it is
+ where the extra reasoning pays. ORION_ESCALATION_MODEL overrides; "off" keeps
+ retries on the default model.
+*/
+const ESCALATION_MODEL = process.env.ORION_ESCALATION_MODEL ?? "anthropic/claude-sonnet-5";
+const escalate = ESCALATION_MODEL && ESCALATION_MODEL !== "off" ? ESCALATION_MODEL : null;
+
+/*
+ The clock answers the clock questions (2026-09-29): "what time is it" cost a
+ brain round trip and came back as "20:32 GMT+1 (8:32 PM)". Only the whole,
+ plain question qualifies; "what time is my class" still goes to ORION. The
+ same list as MobileCore's QuickAnswer, which the Mac's voice path uses.
+*/
+const QUICK_FILLERS = new Set(["and", "so", "ok", "okay", "hey", "orion", "um", "uh", "well", "yo", "quick", "question", "then", "now", "sorry", "wait", "also", "but"]);
+const QUICK_TIME = new Set(["what time is it", "what time is it now", "what time is it right now", "whats the time", "what is the time",
+  "whats the time now", "time", "the time", "do you know what time it is", "tell me the time", "what time is it currently"]);
+const QUICK_DAY = new Set(["what day is it", "what day is it today", "whats today", "what is today", "what day is today", "whats the date",
+  "what is the date", "whats todays date", "what is todays date", "whats the date today", "what is the date today", "todays date"]);
+export function quickAnswer(text, now = new Date()) {
+  let words = String(text).toLowerCase().replace(/[’']/g, "").replace(/[^a-z ]+/g, " ").split(/\s+/).filter(Boolean);
+  while (words.length > 2 && QUICK_FILLERS.has(words[0])) words = words.slice(1);
+  const said = words.join(" ");
+  if (QUICK_TIME.has(said)) return `It's ${now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.`;
+  if (QUICK_DAY.has(said)) return `It's ${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.`;
+  return null;
+}
+
+async function askBrain(text, sender) {
+  const quick = quickAnswer(text);
+  if (quick) return { ok: true, reply: quick, tools: 0, runId: null, checked: "quick" };
+  const first = await askBrainOnce(text, sender);
+  // The runtime's own "couldn't generate a response" after tools ran: ask for the words, once.
+  if (first.ok && NO_REPLY.test(first.reply)) {
+    const words = await askBrainOnce(CHECK_SILENT, sender, { raw: true, model: escalate });
+    return words.ok && words.reply.trim() && !NO_REPLY.test(words.reply) ? { ...words, checked: "no-reply" } : first;
+  }
+  if (!first.ok || first.tools !== 0) return first;
+  // A refusal leads with it; a limit mentioned in passing ("…and I can't buy
+  // things") is not one. 2026-09-29: a good "who are you" answer was re-asked for
+  // that, and the unanchored re-ask made ORION answer the previous question.
+  const opening = first.reply.split(/(?<=[.!?])\s/)[0] ?? first.reply;
+  // Qwen's tested classifier (tighten-orion/claims), 2026-09-30: data absence is
+  // not an inability, and edits ("combined", "renamed") are claims too.
+  const claimed = classifyClaim(first.reply, { toolsRun: 0 });
+  const refused = classifyClaim(opening, { toolsRun: 0 });
+  const check = claimed.kind === "done" ? CHECK_DONE : refused.kind === "cant" ? CHECK_CANT : null;
+  if (!check) return first;
+  const asked = String(text).split("--- Nick's message follows ---").pop().trim().slice(0, 300);
+  const second = await askBrainOnce(`${check}\nHis message was: "${asked}"`, sender, { raw: true, model: escalate });
+  return second.ok && second.reply.trim() ? { ...second, checked: check === CHECK_DONE ? "claimed-done" : "claimed-cant" } : first;
+}
+
+async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
   await mkdir(CONTROLLED, { recursive: true });
   // Via a FILE, never argv. The message is untrusted text and this is the one
   // property from the original design that costs nothing to keep.
   const file = join(CONTROLLED, `brain-${randomBytes(6).toString("hex")}.txt`);
-  await writeFile(file, `${CHANNEL_BRIEF}\n${text}`, { mode: 0o600 });
+  const live = sender === "phone" && !raw ? `${await phoneContext()}\n` : "";
+  await writeFile(file, raw ? text : `${live}${briefFor(sender)}\n${text}`, { mode: 0o600 });
   try {
     const { stdout } = await run(
       BRAIN_BIN,
       ["agent", "--session-key", BRAIN_SESSION, "--timeout", String(BRAIN_TIMEOUT_S),
+       ...(model ? ["--model", model] : []),
        "--json", "--message-file", file],
       { timeout: (BRAIN_TIMEOUT_S + 30) * 1000, maxBuffer: 32 * 1024 * 1024 },
     );
@@ -486,10 +711,25 @@ async function askBrain(text) {
      Joined rather than [0], because a turn may legitimately emit several.
     */
     const payloads = Array.isArray(envelope?.result?.payloads) ? envelope.result.payloads : [];
-    const reply = payloads.map((p) => p?.text ?? "").filter(Boolean).join("\n\n");
+    // The gateway appends "⚠️ 🛠️ Exec failed: …" when any tool attempt failed on
+    // the way to an answer. That is plumbing, not something Nick should read
+    // (2026-09-29: it trailed a perfectly good desktop listing). Kept in the audit.
+    const joined = payloads.map((p) => p?.text ?? "").filter(Boolean).join("\n\n");
+    const toolNoise = joined.split("\n").filter((line) => /^\s*⚠️\s*🛠️/u.test(line));
+    // Mixed or 24-hour times and repeated sentences are fixed here, the same way
+    // every time (tighten-orion/reply-lint); what cannot be fixed is recorded.
+    const fixed = fixReply(joined.split("\n").filter((line) => !/^\s*⚠️\s*🛠️/u.test(line)).join("\n").trim());
+    const reply = fixed.text;
+    const lint = lintReply(reply).map((finding) => finding.rule);
     // runId is TOP level, not under result.meta. It is the handle for
     // `openclaw tasks show <runId>`, so the audit is worth nothing without it.
     const runId = envelope?.runId ?? envelope?.result?.meta?.agentMeta?.runId ?? null;
+    // A turn that ran no tool has NO toolSummary at all (not calls: 0) -- found
+    // when the truth check never fired in real runs. Missing means zero, as long
+    // as the run reported its meta at all.
+    const meta = envelope?.result?.meta;
+    const calls = meta?.toolSummary?.calls;
+    const tools = Number.isInteger(calls) ? calls : meta ? 0 : null;
     if (envelope?.status && envelope.status !== "ok") {
       return { ok: false, reply: `Orion did not finish: ${String(envelope.summary ?? envelope.status).slice(0, 140)}`, runId };
     }
@@ -509,7 +749,8 @@ async function askBrain(text) {
         runId,
       };
     }
-    return { ok: true, reply: reply.trim(), runId };
+    return { ok: true, reply: reply.trim(), runId, tools, ...(toolNoise.length ? { toolNoise } : {}),
+             ...(fixed.changed.length ? { fixedReply: fixed.changed } : {}), ...(lint.length ? { lint } : {}) };
   } catch (error) {
     const detail = String(error?.stderr || error?.message || error).slice(0, 300);
     // The gateway refuses a second turn in a session that is already running
@@ -548,6 +789,29 @@ async function askBrain(text) {
  only thing a message can influence is which of three directory names is read,
  and that is checked against a closed Map before any handler runs.
 */
+
+async function doAction(args) {
+  const [verb = "list", id] = args;
+  if (verb === "cancel") {
+    if (!id) return { ok: false, reply: "cancel which one? Send `actions` to see what is running." };
+    await mkdir(join(ACTIONS_DIR, "cancel"), { recursive: true, mode: 0o700 });
+    await writeFile(join(ACTIONS_DIR, "cancel", id), new Date().toISOString(), { mode: 0o600 });
+    return { ok: true, reply: `Orion | cancel requested for ${id}. The step in flight finishes; nothing after it starts.` };
+  }
+  let names = [];
+  try { names = (await readdir(join(ACTIONS_DIR, "running"))).filter((name) => TASK_ID_RE.test(name.replace(/\.json$/, ""))); }
+  catch { /* nothing has ever run */ }
+  const rows = [];
+  for (const name of names) {
+    try {
+      const entry = JSON.parse(await readFile(join(ACTIONS_DIR, "running", name), "utf8"));
+      rows.push(`- ${entry.taskId}: ${String(entry.goal).slice(0, 80)} (${(entry.actions ?? []).join(", ").slice(0, 80)}) since ${String(entry.startedAt).slice(11, 16)} UTC`);
+    } catch { /* finished while listing */ }
+  }
+  return { ok: true, reply: rows.length
+    ? ["Orion | ACTIONS RUNNING", ...rows, "Stop one with: action cancel <id>"].join("\n")
+    : "Orion | nothing is running" };
+}
 
 async function doDevice() {
   const read = async (bin, args) => {
@@ -780,6 +1044,342 @@ async function doPriority([id, level], state) {
   return { ok: true, reply: `${id} priority is now ${level}` };
 }
 
+/*
+ What may be asked of the development agent from a phone.
+
+ `status` reads. `pause` holds. `stop` ends the run at a safe boundary, leaving
+ it resumable. `exterminate` abandons the generation in flight. `resume` clears
+ a pause or a stop. Nothing here can START a run: beginning unattended work on
+ real code is a decision made at the machine, and the enablement gate lives in a
+ file outside the repository for the same reason.
+
+ (AGENT_ACTIONS and PROJECT_RE are declared with the other shapes near the top.)
+*/
+const AGENT_HOME = join(CONTROLLED, "project-agent");
+const AGENT_PROJECTS = join(AGENT_HOME, "projects");
+// Held by `orion-agent run` for exactly as long as a project's supervisor runs.
+// Its owner.json is lease.mjs's ownerRecord, which carries `projectID`.
+const FLEET_LOCK = join(AGENT_HOME, "active-project.lock");
+const MAX_PROJECTS_LISTED = 15; // each line is ~80 characters; Discord stops near 2000
+// Under withStateLock's fifteen seconds on purpose: the dispatcher runs every
+// handler inside remote.json's lock, and a halt still waiting on the controller
+// when that lock turns stale would let a second message break it mid-command.
+const OPERATOR_TIMEOUT_MS = 12_000;
+
+/*
+ WHICH RUN THE VERB IS ABOUT.
+
+ Runs are per project now: each lives in project-agent/projects/<id>/. This verb
+ was written when there was one run at project-agent/state.json, and it kept
+ reading only that file -- so while a project was running, `agent status`
+ answered "no development run exists" and every halt was refused before it
+ reached the controller. A stop button that silently addresses the wrong place
+ is worse than none, because Nick stops looking for another way to stop it.
+
+ The order, most specific first:
+
+   named     `agent stop <id>` -- already validated by the dispatcher's shape
+   running   the fleet lock names the project `orion-agent run` holds it for
+   only      exactly one project has a run
+   legacy    the pre-project single root, when no project has a run at all
+
+ Several candidates and nothing running is AMBIGUOUS, and the answer is the
+ list rather than a guess. Picking one would be a coin toss about which night's
+ work gets stopped.
+
+ The lock is believed even when its holder has died: the only process that
+ releases it is the supervisor's own `finally`, so a lock left behind names the
+ project that was running when something crashed -- which is precisely the run
+ Nick is asking about. The reply says whether a supervisor is actually alive,
+ so a dead one is never reported as working.
+*/
+function projectDir(id) {
+  if (typeof id !== "string" || !PROJECT_RE.test(id)) return null;
+  const dir = join(AGENT_PROJECTS, id);
+  // lstat, not stat: a symlinked project directory is refused here exactly as
+  // projects.mjs refuses it, rather than followed somewhere else on disk.
+  try { return lstatSync(dir).isDirectory() ? dir : null; } catch { return null; }
+}
+
+// Orion's own files, but read defensively anyway: an unreadable file must
+// produce a sentence, never an exception whose message carries a path.
+const readQuiet = (path) => { try { return readJson(path); } catch { return null; } };
+const hasRun = (root) => existsSync(join(root, "state.json"));
+
+function projectsWithRuns() {
+  let names;
+  try { names = readdirSync(AGENT_PROJECTS); } catch { return []; }
+  return names.filter((id) => projectDir(id) && hasRun(join(AGENT_PROJECTS, id))).sort();
+}
+
+function agentTarget(named) {
+  const project = (id, how) => ({ id, root: join(AGENT_PROJECTS, id), how });
+  if (named) return project(named, "named");
+  const owner = readQuiet(join(FLEET_LOCK, "owner.json"));
+  // Validated like inbound text even though Orion wrote it: this id is about to
+  // become an argv entry, and "Orion wrote it" is a claim about a file on disk.
+  if (owner && typeof owner.projectID === "string" && projectDir(owner.projectID)) {
+    return project(owner.projectID, "running");
+  }
+  // `orion-agent run` without --project records a null projectID: the legacy root.
+  if (owner && owner.projectID == null && hasRun(AGENT_HOME)) return { id: null, root: AGENT_HOME, how: "running" };
+  const runs = projectsWithRuns();
+  if (runs.length === 1) return project(runs[0], "only");
+  if (runs.length > 1) return { ambiguous: runs };
+  if (hasRun(AGENT_HOME)) return { id: null, root: AGENT_HOME, how: "legacy" };
+  return { none: true };
+}
+
+// The CLI's own rule, so the phone and the panel never disagree about "live":
+// a heartbeat under a minute old that is not the supervisor's farewell beat.
+function supervisorLive(root) {
+  const beat = readQuiet(join(root, "heartbeat.json"));
+  const age = Date.now() - Date.parse(beat?.at);
+  return Boolean(beat) && beat.phase !== "stopped" && Number.isFinite(age) && age >= 0 && age < 60_000;
+}
+
+const oneLine = (value, max) => String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max);
+
+function agentHeader(state, target) {
+  const status = state ? ` ${oneLine(state.status ?? "unknown", 24).toUpperCase()}` : "";
+  return `Orion | AGENT${status}${target.id ? ` · ${target.id}` : ""}`;
+}
+
+/*
+ The summary is rebuilt from state read AFTER the action, not before it.
+
+ Reporting the pre-command state is how a phone reply ends up saying "READY"
+ in answer to `agent pause` — which reads as the command not having landed,
+ at exactly the moment Nick is away from the machine and cannot check. For the
+ same reason a standing request is spelled out: `stop` leaves the status at
+ RUNNING until the task in flight finishes, and "RUNNING" alone would read as
+ the stop having been ignored.
+*/
+function describeRun(state, target) {
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  const task = tasks.find((item) => item.id === state.activeTask);
+  const accepted = tasks.filter((item) => item.status === "accepted").length;
+  const open = (Array.isArray(state.escalations) ? state.escalations : []).filter((item) => !item.resolvedAt).length;
+  const name = oneLine(readQuiet(join(target.root, "project.json"))?.name, 80);
+  const standing = state.exterminateRequested ? "exterminate requested"
+    : state.stopRequested ? "stop requested"
+      : state.pauseRequested && state.status !== "paused" ? "pause requested, waiting for the task boundary" : null;
+  return [
+    ...(name && name !== target.id ? [`- ${name}`] : []),
+    `- ${accepted}/${tasks.length} tasks accepted${open ? `, ${open} need you` : ""}`,
+    task ? `- on ${oneLine(task.id, 40)}: ${oneLine(task.title, 80)}` : "- no task running",
+    ...(standing ? [`- ${standing}`] : []),
+    `- supervisor ${supervisorLive(target.root) ? "live" : "not running"}`,
+  ];
+}
+
+function listRuns(ids, action) {
+  const shown = ids.slice(0, MAX_PROJECTS_LISTED).map((id) => {
+    const status = readQuiet(join(AGENT_PROJECTS, id, "state.json"))?.status ?? "unreadable";
+    return `- ${id}: ${oneLine(status, 24).toUpperCase()}`;
+  });
+  return [
+    `Orion | AGENT · ${ids.length} projects have runs, none is running`,
+    ...shown,
+    ...(ids.length > shown.length ? [`- and ${ids.length - shown.length} more`] : []),
+    action === "status"
+      ? "Name one for detail: agent status <project id>"
+      : `Nothing was changed. Name one: agent ${action} <project id>`,
+  ].join("\n");
+}
+
+/*
+ WHERE THE CONTROLLER LIVES, and why it is not beside this file.
+
+ The Discord bridge does not run this file from the repository. launchd cannot
+ read ~/Desktop, so `orion-remote-install` copies scripts/ to
+ ~/.openclaw/orion-remote and THAT copy answers Discord. It records no path back
+ to the repository, and the copy is a snapshot from whenever the installer last
+ ran -- so resolving the operator CLI relative to this file would, at best, find
+ nothing (the copy predates it) and at worst run a stale controller's state
+ transaction against a state file a newer supervisor owns.
+
+ So the halt goes through the REPOSITORY's controller, found the way this repo
+ already finds itself from outside (orion-forge, orion-identity-check):
+ ORION_REPO when it is set, otherwise $HOME/Desktop/ORION. Before that, the
+ checkout this file lives in is preferred, so a run from a worktree drives its
+ own controller -- and "checkout" means it has a .git, which the installer never
+ copies. That is what keeps the installed copy from qualifying even once it
+ carries a snapshot of the CLI.
+
+ ORION_REPO is also the test seam, like MISSION_BIN: whoever sets it already
+ owns the process, and the audit line records which controller ran.
+
+ AND THEN THE FALLBACK THAT MAKES IT WORK ON THE LIVE BRIDGE (2026-09-23).
+ Under launchd the repository is not merely inconvenient but unreachable —
+ macOS privacy blocks ~/Desktop, which is the whole reason the installer copies
+ scripts/ out. So on the live bridge both repository candidates are "blocked",
+ and without a fallback every halt sent from a phone would fail: the one control
+ Nick said he must always have. The installer copies ALL of scripts/ (`cp -R`),
+ so the operator CLI and controller are right beside this file, readable by
+ launchd. When no repository is reachable, that copy is used.
+
+ The stale-copy concern above is real but bounded. A re-install re-syncs it and
+ `orion-remote-install --status` names any drift; a halt only sets a flag, the
+ most stable transition the controller has; and a controller that does not
+ recognise the state file's schema version refuses to touch it rather than
+ guessing. A halt refused with a reason beats a halt that cannot be sent.
+*/
+const OPERATOR_BLOCKED = "macOS privacy is keeping the remote bridge out of ~/Desktop, where the ORION repository lives. "
+  + "Stop it at the Mac, or give the node under ~/.openclaw/tools Desktop access "
+  + "(System Settings › Privacy & Security › Files and Folders, or Full Disk Access)";
+
+function probe(path) {
+  try { statSync(path); return "ok"; }
+  catch (error) { return error?.code === "EPERM" || error?.code === "EACCES" ? "blocked" : "missing"; }
+}
+
+function locateOperator() {
+  const explicit = process.env.ORION_REPO;
+  const candidates = explicit ? [explicit] : [ROOT, join(homedir(), "Desktop/ORION")];
+  let blocked = false;
+  for (const repo of candidates) {
+    const cli = join(repo, "scripts/orion-project-agent");
+    const needed = [cli, join(repo, "scripts/lib/orion-project-agent.mjs"), ...(explicit ? [] : [join(repo, ".git")])];
+    const found = needed.map(probe);
+    if (found.every((result) => result === "ok")) return { cli, source: "repository" };
+    if (found.includes("blocked")) blocked = true;
+  }
+  // The installed copy beside this file — the only one launchd can read.
+  if (!explicit) {
+    const installed = join(ROOT, "scripts/orion-project-agent");
+    if ([installed, join(ROOT, "scripts/lib/orion-project-agent.mjs")].map(probe).every((result) => result === "ok")) {
+      return { cli: installed, source: "installed" };
+    }
+  }
+  return {
+    error: blocked ? OPERATOR_BLOCKED
+      : "the ORION repository was not found (no checkout with scripts/orion-project-agent; set ORION_REPO for the bridge)",
+  };
+}
+
+/*
+ What the controller said, made safe for a phone.
+
+ The CLI's own refusals are one plain line ("run completed", "Controller is
+ busy; refresh and retry.") and are worth relaying verbatim. Anything else --
+ an uncaught throw prints a stack, a timeout rejects with Node's "Command
+ failed: <node> <script> ..." -- carries this Mac's absolute paths, which is the
+ leak askBrain() was fixed for on 2026-09-05. So: the thrown message if there is
+ one, else the first line, with any absolute path cut out.
+*/
+const ABSOLUTE_PATH = /(?:file:\/\/)?\/(?:Users|private|var|tmp|Volumes|opt|System|Library|Applications)\/[^\s'"`:]*/g;
+
+function operatorRefusal(error) {
+  if (error?.killed) return `the controller did not answer within ${OPERATOR_TIMEOUT_MS / 1000} seconds; check it at the Mac`;
+  const stderr = String(error?.stderr ?? "");
+  if (/\bEPERM\b|operation not permitted/i.test(stderr)) return OPERATOR_BLOCKED;
+  const thrown = stderr.match(/^\s*\w*Error(?: \[\w+\])?: (.+)$/m)?.[1];
+  const first = stderr.split("\n").map((line) => line.trim()).find(Boolean);
+  const said = oneLine(thrown ?? first ?? "", 400).replace(ABSOLUTE_PATH, "…").slice(0, 160);
+  return said || "the controller refused it";
+}
+
+/*
+ Resume must come from a person; the halts need not.
+
+ The same hole resolveApproval() closes: `orion-remote` is on Orion's exec
+ allowlist, and a direct `handle` call arrives as "local". Pause, stop and
+ exterminate are the safe direction -- anything allowed to talk here may make
+ the run stop. But `resume` UNDOES Nick's halt, and the process he halted must
+ not be able to undo it through the channel that exists for him to halt it.
+*/
+const fromPerson = (sender) => {
+  const who = String(sender ?? "").toLowerCase().trim();
+  return Boolean(who) && who !== "local" && who !== "orion";
+};
+
+function haltSentence(action, target, live) {
+  if (action === "pause") {
+    return live ? "pause recorded; it holds at the next task boundary" : "pause recorded; no supervisor is running, so it simply stays held";
+  }
+  if (action === "stop") {
+    return live
+      ? "stop recorded; the task in flight finishes, then the run ends where it can be resumed"
+      : "stop recorded; no supervisor is running, and the run will not continue until it is resumed";
+  }
+  if (action === "exterminate") {
+    return live
+      ? "exterminate recorded; the supervisor abandons the model call in flight within seconds. "
+        + "Uncertain worker files stay untouched until recovery proves the worker has stopped"
+      : "exterminate recorded; no supervisor is running, so nothing was in flight. The run will not continue until it is resumed";
+  }
+  const restart = target.id ? `scripts/orion-projects launch ${target.id} --until-stopped` : "scripts/orion-agent run --until-stopped";
+  return live
+    ? "resume recorded; the live supervisor carries on at its next boundary"
+    : `halt cleared, but no supervisor is running. Continue it at the Mac (Projects view, or ${restart})`;
+}
+
+async function doAgent([action, named], _state, sender) {
+  const target = agentTarget(named);
+  // Only `status` can succeed without acting, so everything else that finds
+  // nothing to act on is recorded as refused -- the audit should not say
+  // "accepted" about a stop that stopped nothing.
+  const answered = action === "status";
+  if (target.ambiguous) return { ok: answered, reply: listRuns(target.ambiguous, action) };
+  if (target.none) return { ok: answered, reply: "Orion | AGENT\n- no development run exists" };
+  const forensics = { project: target.id ?? "legacy", resolvedBy: target.how };
+  const before = readQuiet(join(target.root, "state.json"));
+  if (!before) {
+    const why = hasRun(target.root) ? "its run state could not be read; check it at the Mac"
+      : "no run yet; it begins when the project is launched at the Mac";
+    return { ok: answered, reply: `${agentHeader(null, target)}\n- ${why}`, audit: forensics };
+  }
+  if (action === "status") {
+    return { ok: true, reply: [agentHeader(before, target), ...describeRun(before, target)].join("\n"), audit: forensics };
+  }
+  if (action === "resume" && !fromPerson(sender)) {
+    return {
+      ok: false,
+      reply: `${agentHeader(before, target)}\n- a resume has to come from a person. This one came from the local process.`,
+      audit: forensics,
+    };
+  }
+
+  const operator = locateOperator();
+  if (operator.error) return { ok: false, reply: `${agentHeader(before, target)}\n- could not ${action}: ${operator.error}`, audit: forensics };
+  /*
+   Fixed argv: the action survived the vocabulary check, the project id survived
+   its shape check (or came from the fleet lock, validated the same way), and
+   nothing else from the message crosses.
+
+   No --revision. A halt that can lose a race with the thing it is halting is
+   not a halt: the supervisor bumps the revision at every stage change, so a
+   revision read here can be stale by the time the CLI checks it, and the stop
+   would bounce at exactly the moment it was needed.
+
+   process.execPath, not the script's `#!/usr/bin/env node`. Under launchd PATH
+   is /usr/bin:/bin:/usr/sbin:/sbin, where there is no node, so the shebang
+   would fail on the live bridge and only there. The bridge invokes this file
+   the same way for the same reason.
+  */
+  const argv = [operator.cli, ...(target.id ? ["--project", target.id] : []), action];
+  try {
+    await run(process.execPath, argv, { timeout: OPERATOR_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024 });
+  } catch (error) {
+    return {
+      ok: false,
+      reply: `${agentHeader(before, target)}\n- could not ${action}: ${operatorRefusal(error)}`,
+      audit: { ...forensics, operator: operator.cli },
+    };
+  }
+  const after = readQuiet(join(target.root, "state.json")) ?? before;
+  return {
+    ok: true,
+    reply: [
+      agentHeader(after, target),
+      `- ${haltSentence(action, target, supervisorLive(target.root))}`,
+      ...describeRun(after, target),
+    ].join("\n"),
+    audit: { ...forensics, operator: operator.cli },
+  };
+}
+
 const HANDLERS = {
   status: doStatus,
   pause: doPause,
@@ -788,6 +1388,8 @@ const HANDLERS = {
   approve: (args, state, sender) => resolveApproval(args, state, "approved", sender),
   deny: (args, state, sender) => resolveApproval(args, state, "denied", sender),
   priority: doPriority,
+  agent: doAgent,
+  action: doAction,
   device: doDevice,
   apps: doApps,
   files: doFiles,
@@ -795,7 +1397,7 @@ const HANDLERS = {
 
 /* ---------- the one path every inbound message takes ---------- */
 
-async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
+async function handleUnlocked({ text, from, envelopeId, at: sentAt, to: target, mode = "command" }) {
   const sender = String(from ?? "").toLowerCase().trim();
   // The raw text is kept for forensics, but only ever as a JSON string field:
   // control characters out, length capped, and nothing downstream re-reads it.
@@ -833,12 +1435,23 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
    gets silence rather than "he is locked", which would confirm both that the
    address works and that now is an interesting time to try again.
   */
-  if (isLocked()) {
+  /*
+   Chat mode (2026-09-28): the phone's ORION tab is a conversation, not a
+   command line. "No, I mean the task page" parsed as `deny` and died as a
+   usage error, because half the verb aliases are ordinary English (no, yes,
+   ok, stop, pause). In chat mode nothing is a verb: every message goes to the
+   brain, after every guard below has run. Commands have their own buttons.
+  */
+  const parsed = mode === "chat" ? { error: "conversation", verb: null, args: [] } : parse(text);
+  const lockedAgentHalt = (parsed.verb === "agent" &&
+    ["status", "pause", "stop", "exterminate"].includes(parsed.args?.[0])) ||
+    // Stopping an action is a halt too; a lock must never prevent one.
+    (parsed.verb === "action" && ["list", "cancel", undefined].includes(parsed.args?.[0]));
+  if (isLocked() && !lockedAgentHalt) {
     await audit({ ...record, decision: "rejected", reason: "ORION is locked" });
     return { ok: false, reply: "Orion is locked. Nothing will run until it is released at the Mac." };
   }
 
-  const inbound = await readInbound();
   /*
    Freshness. A stale envelope is not a repeated one, so the replay guard above
    cannot catch it: until this existed, an envelope that had sat in a queue for
@@ -879,24 +1492,8 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
    saying they were "not mechanically proven to agree" was describing an active
    disagreement rather than an unproven agreement. Independent review, 2026-09-02.
   */
-  if (envelopeId && inbound.seen.includes(envelopeId)) {
-    await audit({ ...record, decision: "rejected", reason: "replayed envelope" });
-    return { ok: false, reply: null };
-  }
-
-  const recent = inbound.hits.filter((hit) => now - hit.at < RATE_WINDOW_MS);
-  if (recent.filter((hit) => hit.from === sender).length >= RATE_CAP) {
-    await audit({ ...record, decision: "rejected", reason: "rate limited" });
-    return { ok: false, reply: "too many commands in the last ten minutes — try again shortly" };
-  }
-  // The budget is spent BEFORE the command runs, so a message that fails to
-  // parse still costs its sender a slot. Otherwise garbage would be free.
-  await writeInbound({
-    ...inbound,
-    hits: [...recent, { from: sender, at: now }],
-    seen: envelopeId ? [...inbound.seen, envelopeId].slice(-SEEN_KEPT) : inbound.seen,
-  });
-  const parsed = parse(text);
+  const admission = await admitInbound({ sender, envelopeId, now, record });
+  if (!admission.ok) return admission.result;
   if (parsed.error) {
     /*
      A bare verb word is CONVERSATION, not a command. This is the fix for the
@@ -927,7 +1524,7 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
       await audit({ ...record, decision: "rejected", reason: "message too long for one turn" });
       return { ok: false, reply: `that is longer than ${MAX_BRAIN_BYTES} bytes — send it in pieces` };
     }
-    const answer = await askBrain(text);
+    const answer = await askBrain(text, sender);
     await audit({
       ...record,
       decision: answer.ok ? "accepted" : "error",
@@ -935,6 +1532,7 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
       session: BRAIN_SESSION,
       runId: answer.runId,
       reply: answer.reply.slice(0, 200),
+      ...(answer.checked ? { checked: answer.checked } : {}),
     });
     return answer;
   }
@@ -956,10 +1554,10 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
     const preState = await readState();
     const preInvalid = checkArgs(parsed.verb, parsed.args, preState);
     if (preInvalid && VERBS[parsed.verb].shape[0] === "mission") {
-      const answer = await askBrain(text);
+      const answer = await askBrain(text, sender);
       await audit({ ...record, decision: answer.ok ? "accepted" : "error", verb: "brain",
                     reason: `"${parsed.verb}" named no mission; treated as conversation`,
-                    session: BRAIN_SESSION, runId: answer.runId, reply: answer.reply.slice(0, 200) });
+                    session: BRAIN_SESSION, runId: answer.runId, reply: answer.reply.slice(0, 200), ...(answer.checked ? { checked: answer.checked } : {}) });
       return answer;
     }
 
@@ -970,7 +1568,10 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
     });
     const decision = result.ok ? "accepted" : "refused";
     const seam = MISSION_BIN.endsWith("/orion-mission") ? {} : { runner: MISSION_BIN };
-    await audit({ ...record, decision, verb: parsed.verb, args: parsed.args, reply: result.reply, ...seam });
+    // A handler may add forensic fields -- `agent` records which project it
+    // resolved and which controller ran, because the bridge runs an installed
+    // copy and "which code acted" is otherwise unanswerable after the fact.
+    await audit({ ...record, decision, verb: parsed.verb, args: parsed.args, reply: result.reply, ...seam, ...(result.audit ?? {}) });
     return result;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -978,6 +1579,53 @@ async function handle({ text, from, envelopeId, at: sentAt, to: target }) {
     return { ok: false, reply: `that failed: ${reason.slice(0, 120)}` };
   }
 }
+
+// Serialize only the replay/rate-limit read-modify-write. A brain response may
+// take two minutes; holding this lock across dispatch would make a phone
+// Exterminate wait behind conversation, exactly when it must remain immediate.
+async function admitInbound({ sender, envelopeId, now, record }) {
+  await mkdir(CONTROLLED, { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try {
+      await mkdir(INBOUND_LOCK, { mode: 0o700 });
+      await writeFile(join(INBOUND_LOCK, 'owner.json'), JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+      break;
+    }
+    catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const owner = await readFile(join(INBOUND_LOCK, 'owner.json'), 'utf8').then(JSON.parse, () => null);
+      let live = false;
+      if (Number.isInteger(owner?.pid) && owner.pid > 1) {
+        try { process.kill(owner.pid, 0); live = true; } catch {}
+      }
+      const age = await stat(INBOUND_LOCK).then(info => Date.now() - info.mtimeMs, () => 0);
+      if (!live && age > 5_000) { await rm(INBOUND_LOCK, { recursive: true, force: true }); continue; }
+      if (Date.now() >= deadline) throw new Error("remote controller is busy; retry the message");
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  }
+  try {
+    const inbound = await readInbound();
+    if (envelopeId && inbound.seen.includes(envelopeId)) {
+      await audit({ ...record, decision: "rejected", reason: "replayed envelope" });
+      return { ok: false, result: { ok: false, reply: null } };
+    }
+    const recent = inbound.hits.filter((hit) => now - hit.at < RATE_WINDOW_MS);
+    if (recent.filter((hit) => hit.from === sender).length >= RATE_CAP) {
+      await audit({ ...record, decision: "rejected", reason: "rate limited" });
+      return { ok: false, result: { ok: false, reply: "too many commands in the last ten minutes — try again shortly" } };
+    }
+    // Spend the budget before dispatch, so invalid messages are not free.
+    await writeInbound({ ...inbound,
+      hits: [...recent, { from: sender, at: now }],
+      seen: envelopeId ? [...inbound.seen, envelopeId].slice(-SEEN_KEPT) : inbound.seen });
+    return { ok: true };
+  }
+  finally { await rm(INBOUND_LOCK, { recursive: true, force: true }); }
+}
+
+async function handle(input) { return handleUnlocked(input); }
 
 async function reply(envelope, text) {
   if (!text) return;
@@ -1026,7 +1674,7 @@ const [command, ...rest] = process.argv.slice(2);
  and separates them with `--`, so the text cannot reach this loop as a flag at
  all. Defence in depth: any one of the four stops it.
 */
-const KNOWN_FLAGS = new Set(["from", "to"]);
+const KNOWN_FLAGS = new Set(["from", "to", "id", "at", "mode"]);
 const flags = {};
 const positional = [];
 let terminated = false;
@@ -1047,6 +1695,9 @@ const sender = flags.from ?? "local";
 
 if (command === "inject") {
   if (!positional.join(" ").trim()) fail('inject needs a message, e.g. inject "status"');
+  if (!["local", "orion"].includes(String(sender).toLowerCase())) {
+    fail("inject cannot impersonate a remote sender; the authenticated bridge uses handle directly");
+  }
   const envelope = {
     id: randomBytes(6).toString("hex"),
     from: sender,
@@ -1060,7 +1711,12 @@ if (command === "inject") {
   await appendFile(INBOX, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
   console.log(`queued ${envelope.id}`);
 } else if (command === "handle") {
-  const result = await handle({ text: positional.join(" "), from: sender, envelopeId: null });
+  // `--mode chat`: the phone's conversation tab. Never parsed as a verb -- see
+  // handleUnlocked. Anything else is refused rather than guessed at.
+  if (flags.mode !== undefined && !["chat", "command"].includes(flags.mode)) fail("--mode must be chat or command");
+  const result = await handle({ text: positional.join(" "), from: sender, mode: flags.mode ?? "command",
+    envelopeId: flags.id ?? null,
+    ...(flags.at !== undefined ? { at: Number(flags.at) } : {}) });
   if (result.reply) console.log(result.reply);
   process.exit(result.ok ? 0 : 1);
 } else if (command === "poll") {

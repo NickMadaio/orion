@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+/*
+ orion-connect-admin — Nick's switches for connectors. NOT on ORION's exec
+ allowlist on purpose: letting a connector change data somewhere is Nick's call.
+
+   orion-connect-admin allow-writes <name>    let <name>'s "write" operations run
+   orion-connect-admin revoke-writes <name>
+   orion-connect-admin remove <name>          delete a connector ORION built
+*/
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+const DIR = process.env.ORION_CONNECTORS_DIR || join(homedir(), ".openclaw/orion-connectors");
+const WRITES = join(DIR, "writes-allowed.json");
+const [command, name] = process.argv.slice(2);
+const read = () => { try { return JSON.parse(readFileSync(WRITES, "utf8")); } catch { return {}; } };
+mkdirSync(DIR, { recursive: true });
+if (command === "allow-writes" || command === "revoke-writes") {
+  writeFileSync(WRITES, JSON.stringify({ ...read(), [name]: command === "allow-writes" }, null, 2), { mode: 0o600 });
+  console.log(`${name}: writes ${command === "allow-writes" ? "allowed" : "off"}.`);
+} else if (command === "remove") {
+  const file = join(DIR, `${name}.json`);
+  if (!existsSync(file)) { console.log(`No connector ${name} built by ORION.`); process.exit(1); }
+  rmSync(file); console.log(`${name} removed.`);
+} else {
+  console.log("usage: orion-connect-admin allow-writes|revoke-writes|remove <name>"); process.exit(2);
+}

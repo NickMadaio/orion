@@ -1,0 +1,38 @@
+{
+  "name": "tfl",
+  "title": "London transport (TfL)",
+  "baseUrl": "https://api.tfl.gov.uk",
+  "auth": { "type": "none" },
+  "operations": {
+    "status": {
+      "description": "Whether tube, DLR, Overground and Elizabeth lines are running (all of them)",
+      "path": "/Line/Mode/tube,dlr,overground,elizabeth-line/Status",
+      "keep": ["name", "lineStatuses.statusSeverityDescription", "lineStatuses.reason"],
+      "limit": 20
+    },
+    "line": {
+      "description": "One line's status, e.g. line=central or line=victoria",
+      "path": "/Line/{{line}}/Status",
+      "keep": ["name", "lineStatuses.statusSeverityDescription", "lineStatuses.reason"]
+    },
+    "journey": {
+      "description": "Journey options between two places: postcodes (\"EC3N 1AF\"), \"lat,lon\", or station ids; arrive=HHmm makes 'time' an arrival time",
+      "path": "/Journey/JourneyResults/{{from}}/to/{{to}}",
+      "query": { "time": "{{time?}}", "timeIs": "{{timeIs?}}", "date": "{{date?}}" },
+      "keep": ["journeys.duration", "journeys.startDateTime", "journeys.arrivalDateTime", "journeys.legs.instruction.summary"],
+      "limit": 3
+    },
+    "stop_search": {
+      "description": "Find a station or stop id by name, e.g. query=Tower Hill",
+      "path": "/StopPoint/Search/{{query}}",
+      "keep": ["matches.id", "matches.name", "matches.modes"],
+      "limit": 5
+    },
+    "arrivals": {
+      "description": "Next arrivals at a stop id (from stop_search)",
+      "path": "/StopPoint/{{id}}/Arrivals",
+      "keep": ["lineName", "destinationName", "timeToStation", "platformName"],
+      "limit": 8
+    }
+  }
+}

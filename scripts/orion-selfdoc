@@ -306,6 +306,11 @@ if (unresolved.length > 0) {
  removed from the allowlist it disappears from here on the next run.
 */
 const WRAPPER_BLURB = {
+  "orion-shortcut": "run Nick's Shortcuts named \"ORION …\" (lights, playlists, Focus, anything he builds) — `list`, `run \"ORION <name>\" [text]`; if what he wants needs a Shortcut, tell him to make one and name it \"ORION …\"",
+  "orion-connect": "EVERY CONNECTION, live, and new ones you build — `list` (what works right now: calendar, gmail, whoop, bank, phone, discord, voice, and connectors); `run <name> <op> k=v` (built in: `tfl` line/status/journey/stop_search/arrivals, `canvas` courses/upcoming/todo/assignments/grades/announcements); `show <name>`; `how`; `create <name> --json '<spec>'` to add a service yourself; `set <name> key=value`",
+  "orion-finance": "his bank balances, spending this week/month, top categories, subscriptions — read-only; `recent` for the last 25 transactions",
+  // 2026-09-29: listed bare, it read as "the weather tool"; asked "umbrella tomorrow?", ORION ran it and messaged Nick on Discord.
+  "orion-weather-alert": "SENDS Nick a Discord message — only when he asks for a weather alert to be sent. Never to answer a weather question: that is `weather_now(location, days)` via orion_task_run",
   "orion-remember": 'write something to memory — `orion-remember "…"`, or `--user "…"` for a durable fact about Nick',
   "orion-focus": "lockdown mode — `start \"<task>\" <minutes> [apps]`, `status`, `plead \"<his reason>\"`, `end`; a judge decides whether he gets let off",
   "orion-mission": "long autonomous jobs — `start \"<outcome>\"`, `run <id>`, `status <id>`; sandboxed, tests its own work, survives a restart",
@@ -314,10 +319,23 @@ const WRAPPER_BLURB = {
   "orion-standing": "your proactive checks — `morning|evening|check|auto`; says nothing unless something genuinely changed",
   "orion-learn": "read your own failures back — writes proposals only, applies nothing",
   "orion-recall": 'search everything you know by meaning — `orion-recall "…"`; see "What orion-recall can see" below for what is in the index',
-  "orion-agenda": "read-only Apple Calendar/Reminders — `today`, `upcoming`, `tasks`; use typed catalog actions for changes",
+  "orion-agenda": "read-only Apple Calendar/Reminders — `today`, `upcoming` (7 days), `deadlines` (next 90 days: quizzes, due dates, trips), `tasks`, `day <date|weekday>`; use typed catalog actions for changes",
+  "orion-health": "Nick's sleep, recovery, HRV, strain (WHOOP), water, food and supplements today, plus the last 7 days — read-only; use it for ANY question about sleep or health",
+  "orion-waiting": "approvals waiting for Nick — read-only; check it before saying nothing is waiting",
+  "orion-log": "log what Nick drank or ate — `orion-log water [1-3]`, `orion-log food \"<what>\" <kcal> [protein_g] [breakfast|lunch|dinner|snack]` (estimate if he didn't say; pass the meal he named); writes his real health log",
+  "orion-now": "what Nick should do RIGHT NOW from his real calendar, phone activity and tonight's sleep plan — use it for \"what should I do\", \"what now\", and before nudging him",
+  "orion-plan-study": "find real free time for study and book it — `orion-plan-study \"two one-hour sessions for macro this week\" --book` (drop --book to only look); one session a day where possible",
+  "orion-patterns": "his real history: typical bedtime and wake, late-night phone use, 14-day WHOOP sleep and recovery — use it when planning or when he's short on sleep",
+  "orion-checkin": "come BACK to him: `add <min> \"<what>\" [--because \"<reason>\"]`, `started`, `done`, `defer <min> --because \"<reason>\"`, `cancel --because \"<reason>\"`, `list`; each check-in reaches his iPhone and escalates if ignored",
+  "orion-reschedule": "MOVE HIS DAY: `day --say \"<his words>\" --fill` (everything he told you, one call; it reads days and times itself), `fill --date YYYY-MM-DD`, `add \"<title>\" <min> [--at HH:MM] [--fixed] [--before HH:MM]`, `late <min>`, `busy HH:MM-HH:MM`, `fill` (plan the blanks once his real plans are in), `undo`; only movable things move (study, gym, games, rest, errands, chores, side projects), never classes or plans with people",
+  "orion-life": "the day PLANNER's settings only (side-project hour, gym days, bedtime, wake, study length) — never supplements, food or to-dos; `orion-life` shows them; `orion-life set sideProjectLabel \"Edit the London vlog\"`, `set gymDays 1,3,5`, `set bedtime 00:30`, `set usualWake 09:00`",
+  "orion-watch": "`orion-watch status` — what ORION already asked him today about an empty day, and whether it reshaped the morning after a short night",
+  "orion-wake": "set Nick's wake-up alarm on his iPhone — `orion-wake 07:30`, `orion-wake clear`, no argument shows it; the ONLY way to wake him (alarm_set rings on the Mac)",
   "orion-gmail-latest": "the newest inbox thread (read-only)",
   "orion-gmail-search": "search mail with a Gmail query (read-only)",
   "orion-discord-alert": "send Nick a short Discord alert (he must have approved the alert policy)",
+  "orion-show": "show a tab of YOUR Mac app (Orion.app is a native app, never a website or localhost) — `home|tasks|projects|health|finances|brand|settings`; plan and calendar live on tasks",
+  "orion-runs": "what the development loop (coding agent) is doing right now — read-only; use it before saying you can't see a run",
 };
 
 /*

@@ -19,16 +19,10 @@
 
  ## What this file does NOT do
 
- It does not parse commands, decide anything, or hold authority. It moves bytes
- between a socket and `orion-remote`, which is the only thing allowed to have an
- opinion about them. Every inbound message goes through `orion-remote inject`
- and `poll`, so the allowlist, the replay guard, the rate limit, the shape
- checks and the audit log are the same ones that have always been there -- not
- a second copy that can drift from them.
-
- That is also why the reply path reads `outbox.jsonl` rather than answering
- directly: if this file could compose a reply, it could compose one that
- `orion-remote` never authorised.
+ It does not parse commands, decide anything, or hold authority. It moves the
+ authenticated Discord author, message id, timestamp and text into
+ `orion-remote handle`, which alone applies the allowlist, replay guard, rate
+ limit, shape checks and audit. The reply is the controller's stdout unchanged.
 
  ## The token
 
@@ -202,7 +196,7 @@ function presenceOf(link, now = Date.now()) {
  `inject` would. Anything this file believed about the message would be a second
  opinion competing with the one that has the tests.
 */
-async function dispatch({ text, authorID, channelID }) {
+async function dispatch({ text, authorID, channelID, messageID, sentAt }) {
   const childEnv = { ...process.env, ORION_REMOTE_ALLOW: currentAllow() };
   /*
    `--from` FIRST, then `--`, then the text.
@@ -214,12 +208,6 @@ async function dispatch({ text, authorID, channelID }) {
    order means the text cannot reach the flag loop at all. Either alone would
    close it; both is cheap.
   */
-  const injected = await run(
-    process.execPath,
-    [REMOTE, "inject", "--from", authorID, "--", text],
-    { timeout: 30_000, env: childEnv },
-  );
-  const envelopeID = (injected.stdout.match(/queued\s+([0-9a-f]+)/) || [])[1];
   /*
    Three minutes, not two.
 
@@ -229,19 +217,22 @@ async function dispatch({ text, authorID, channelID }) {
    what was actually a long answer -- the kind of bug that only appears on the
    interesting questions.
   */
-  await run(process.execPath, [REMOTE, "poll"], { timeout: 180_000, env: childEnv });
-  if (!envelopeID) return null;
-
-  // The reply is whatever orion-remote decided, read back out of its own
-  // outbox. This file cannot compose one.
-  const lines = existsSync(OUTBOX) ? (await readFile(OUTBOX, "utf8")).split("\n").filter(Boolean) : [];
-  for (const line of lines.reverse()) {
-    try {
-      const entry = JSON.parse(line);
-      if (entry.envelopeId === envelopeID) return { text: entry.text, channelID };
-    } catch { /* a malformed outbox line is not a reason to stop */ }
+  let handled;
+  try {
+    handled = await run(process.execPath,
+      [REMOTE, "handle", "--from", authorID, "--id", messageID,
+        "--at", String(sentAt), "--", text],
+      { timeout: 180_000, env: childEnv });
+  } catch (error) {
+    // Refusals deliberately exit 1, but stdout is still the controller's useful
+    // answer (locked, stale, bad project, controller refusal). Forward it.
+    // Spawn failures and timeouts have no authorised reply and stay transport
+    // errors for the bridge to log/reconnect around.
+    if (error.code === 1 && String(error.stdout ?? '').trim()) handled = error;
+    else throw error;
   }
-  return null;
+  const reply = handled.stdout.trim();
+  return reply ? { text: reply, channelID } : null;
 }
 
 async function send(channelID, text) {
@@ -484,7 +475,8 @@ function connectOnce({ session, resumeURL, sequence, onReady, once }) {
 
         say(`<- [${authorID}] ${text.slice(0, 160)}`);
         try {
-          const reply = await dispatch({ text, authorID, channelID: message.channel_id });
+          const reply = await dispatch({ text, authorID, channelID: message.channel_id,
+            messageID: message.id, sentAt: Date.parse(message.timestamp) });
           if (reply?.text) {
             await send(reply.channelID, reply.text);
             say(`-> ${reply.text.slice(0, 160)}`);

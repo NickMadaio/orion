@@ -1,0 +1,54 @@
+#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { gradeRun } from "./lib/eval/grade.mjs";
+
+const args = process.argv.slice(2);
+if (args.length < 1) {
+  process.stderr.write("Usage: orion-eval-grade <run.json> [expectations.json] [--json]\n");
+  process.exit(2);
+}
+
+let jsonMode = false;
+const positional = [];
+for (const a of args) {
+  if (a === "--json") jsonMode = true;
+  else positional.push(a);
+}
+
+if (positional.length < 1) {
+  process.stderr.write("Usage: orion-eval-grade <run.json> [expectations.json] [--json]\n");
+  process.exit(2);
+}
+
+let runData, expectData = {};
+try {
+  runData = JSON.parse(readFileSync(resolve(positional[0]), "utf8"));
+} catch (e) {
+  process.stderr.write(`Cannot read run file: ${e.message}\n`);
+  process.exit(2);
+}
+
+if (positional.length >= 2) {
+  try {
+    expectData = JSON.parse(readFileSync(resolve(positional[1]), "utf8"));
+  } catch (e) {
+    process.stderr.write(`Cannot read expectations file: ${e.message}\n`);
+    process.exit(2);
+  }
+}
+
+const result = gradeRun(runData, expectData);
+
+if (jsonMode) {
+  process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+} else {
+  for (const row of result.rows) {
+    if (!row.pass) {
+      process.stdout.write(`FAIL ${row.id}: ${row.failures.join("; ")}\n`);
+    }
+  }
+  process.stdout.write(`${result.passed}/${result.total} passed\n`);
+}
+
+process.exit(result.failed > 0 ? 1 : 0);

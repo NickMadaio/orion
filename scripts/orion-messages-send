@@ -36,12 +36,14 @@
 */
 
 import { existsSync } from "node:fs";
+import { refuseDuringEval } from "./lib/eval-mode.mjs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
+refuseDuringEval("the message");
 const DB = join(homedir(), "Library/Messages/chat.db");
 const MAX_LENGTH = 2000;
 

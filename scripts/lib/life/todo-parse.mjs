@@ -20,7 +20,7 @@ const OPTIONAL_PHRASES = [
   'probably', 'try to', 'ideally',
 ];
 
-const DURATION_RE = /\b(\d+)\s*(?:min|mins?|m)\b|\b(\d+)\s*h\b|\ban?\s*hour\b|\bhalf\s+an?\s*hour\b|\bfor\s+(\d+)\b/i;
+const DURATION_RE = /\b(\d+)\s*(?:min|mins?|m)\b|\b(\d+)\s*(?:h|hours?)\b|\ban?\s*hour\b|\bhalf\s+an?\s*hour\b|\bfor\s+(\d+)\b/i;
 
 const KEYWORD_MINUTES = [
   { re: /\b(?:application|applications|resume|cv|cover letter)\b/i, mins: 90 },
@@ -193,8 +193,8 @@ export function parseTodos(text, opts = {}) {
   }
 
   // 2. Split on delimiters
-  // Handle final " and ", "&", " then " by replacing with comma first
-  let splitText = cleaned.replace(/\s+and\s*$/, ',').replace(/\s*&\s*$/, ',').replace(/\s+then\s*$/, ',');
+  // Replace " and ", " & ", " then " with comma so they act as item separators
+  let splitText = cleaned.replace(/\s+and\s+/g, ',').replace(/\s*&\s+/g, ',').replace(/\s+then\s+/g, ',');
   const pieces = splitText.split(/[,\n;•*-]+/).map(p => p.trim()).filter(Boolean);
 
   // 3-7. Process each piece

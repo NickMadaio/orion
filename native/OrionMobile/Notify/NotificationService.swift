@@ -1,0 +1,46 @@
+import CloudKit
+import UserNotifications
+import WidgetKit
+
+/*
+ Makes ORION's urgent pushes time-sensitive (2026-09-29).
+
+ CloudKit's push options have no interruption level, so every check-in used to
+ arrive as an ordinary notification that a Focus silences. This extension sees
+ each one first (the subscription asks for mutable content) and marks as
+ time-sensitive exactly two kinds: a check-in he has already ignored at least
+ once (level 2+), and an approval ORION is blocked on. Everything else passes
+ through unchanged. Sleep Focus still wins for bedtime nudges: those are the
+ phone's own notifications and never come through here.
+*/
+final class NotificationService: UNNotificationServiceExtension {
+    private var deliver: ((UNNotificationContent) -> Void)?
+    private var content: UNMutableNotificationContent?
+
+    override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        deliver = contentHandler
+        guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
+            contentHandler(request.content); return
+        }
+        self.content = content
+        let fields = (CKNotification(fromRemoteNotificationDictionary: request.content.userInfo) as? CKQueryNotification)?.recordFields
+        let kind = fields?["kind"] as? String
+        let level = fields?["level"] as? Int ?? 0
+        if Self.isUrgent(kind: kind, level: level) {
+            content.interruptionLevel = .timeSensitive
+            content.relevanceScore = min(1, 0.5 + Double(level) * 0.15)
+        }
+        if kind == "checkin" { content.threadIdentifier = "orion.checkin" }
+        // The check-in widgets and lock screen redraw from the app's next glance.
+        WidgetCenter.shared.reloadAllTimelines()
+        contentHandler(content)
+    }
+
+    override func serviceExtensionTimeWillExpire() {
+        if let deliver, let content { deliver(content) }
+    }
+
+    static func isUrgent(kind: String?, level: Int) -> Bool {
+        (kind == "checkin" && level >= 2) || kind == "approval"
+    }
+}

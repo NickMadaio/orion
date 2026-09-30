@@ -1,16 +1,119 @@
 import SwiftUI
+import UserNotifications
+import CloudKit
 import Security
 import CryptoKit
 import MobileCore
 
 @main
 struct OrionMobileApp: App {
+    @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var delegate
     var body: some Scene { WindowGroup { PhoneRootView() } }
+}
+
+/// Push for the Mac link: CloudKit delivers a silent push when the Mac changes
+/// the link zone, and a visible one when ORION asks for an approval.
+final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        registerCheckinActions()
+        MainActor.assumeIsolated {
+            BackgroundRefresh.register()
+            FocusLock.shared.mirror()   // the Screen Time extension reads the same choices
+            // A tap on the lock-screen card or a widget runs here, in the app: redraw
+            // the card at once, and let the apps go when he starts or finishes.
+            IntentHooks.afterTap = { action in
+                switch action {
+                case .water: break
+                case .started: GlanceWriter.applyCheckinAnswer("started"); FocusLock.shared.release()
+                case .snooze: GlanceWriter.applyCheckinAnswer("snooze")
+                case .done: GlanceWriter.applyCheckinAnswer("done"); FocusLock.shared.release()
+                }
+            }
+        }
+        // Every launch, foreground or background, brings the widgets and lock screen up to date.
+        Task { @MainActor in await BackgroundRefresh.run(force: true) }
+        // Relaunched in the background by a significant location change: resume listening.
+        if launchOptions?[.location] != nil, PhoneSignals.shared.enabled { PhoneSignals.shared.start() }
+        #if !targetEnvironment(simulator)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        application.registerForRemoteNotifications()
+        #endif
+        return true
+    }
+
+    static let checkinCategory = "orion.checkin"
+
+    /// Bedtime nudges show even while ORION is open: that is exactly when he is on the phone.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
+        -> UNNotificationPresentationOptions { [.banner, .sound, .list] }
+
+    /// "Going to bed" and "15 more min" on a nudge; "Started", "10 more min", "Done" on a check-in.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let action = response.actionIdentifier
+        await MainActor.run {
+            if action == NightRoutine.bedAction { NightRoutine.shared.goingToBed() }
+            else if action == NightRoutine.snoozeAction { NightRoutine.shared.snooze() }
+        }
+        switch action {
+        case "orion.checkin.started": await CloudLink.sendNow(.checkin(action: "started")); await MainActor.run { FocusLock.shared.release() }
+        case "orion.checkin.snooze": await CloudLink.sendNow(.checkin(action: "snooze"))
+        case "orion.checkin.done": await CloudLink.sendNow(.checkin(action: "done")); await MainActor.run { FocusLock.shared.release() }
+        default: break
+        }
+        if action.hasPrefix("orion.checkin.") {
+            await MainActor.run { GlanceWriter.applyCheckinAnswer(String(action.dropFirst("orion.checkin.".count))) }
+        }
+    }
+
+    /// The buttons on check-in notifications. Registered alongside the bedtime ones.
+    private func registerCheckinActions() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationCategories { existing in
+            let started = UNNotificationAction(identifier: "orion.checkin.started", title: "Started", options: [])
+            let snooze = UNNotificationAction(identifier: "orion.checkin.snooze", title: "10 more min", options: [])
+            let done = UNNotificationAction(identifier: "orion.checkin.done", title: "Done", options: [])
+            let checkin = UNNotificationCategory(identifier: Self.checkinCategory, actions: [started, snooze, done], intentIdentifiers: [], options: [])
+            center.setNotificationCategories(existing.filter { $0.identifier != Self.checkinCategory }.union([checkin]))
+        }
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("[link] push registration failed: \(error.localizedDescription)")
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        NotificationCenter.default.post(name: .orionLinkChanged, object: nil)
+        // An ignored check-in at level 3+: lock the apps he chose, if he turned that on.
+        if let note = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+           note.recordFields?[LinkSchema.alertKind] as? String == "checkin",
+           let level = note.recordFields?["level"] as? Int, level >= 3 {
+            Task { @MainActor in FocusLock.shared.engage(minutes: 45) }
+        }
+        // Keep the widgets, the lock screen and the night check current with the app closed.
+        Task { @MainActor in
+            await BackgroundRefresh.run()
+            completionHandler(.newData)
+        }
+    }
+}
+
+extension Notification.Name {
+    static let orionLinkChanged = Notification.Name("orionLinkChanged")
 }
 
 struct PhoneRootView: View {
     @StateObject private var reader = PhoneTodayReader()
     @StateObject private var identity = PhoneDeviceIdentity()
+    @StateObject private var planner = PlannerStore()
+    @StateObject private var remote = RemoteStore()
+    @ObservedObject private var routine = NightRoutine.shared
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var planMode = "schedule"
+    @State private var selectedItem: PlannerStore.Item?
+    @State private var creatingEvent = false
     #if targetEnvironment(simulator)
     @StateObject private var pairingApproval = PairingApprovalTestBridge()
     @State private var reviewedSetup: PhoneHTTPReadSession.Bootstrap?
@@ -28,23 +131,29 @@ struct PhoneRootView: View {
     @State private var sampleError: String?
     private let sampleNow = Date(timeIntervalSince1970: 1_788_948_000) // 2026-09-09 10:00 UTC
 
+    /// Which tab opens. `--tab plan` (Simulator only) opens another, so a
+    /// screenshot check can reach every screen without taps.
+    @State private var tab: String = {
+        #if targetEnvironment(simulator)
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--tab"), index + 1 < arguments.count { return arguments[index + 1] }
+        #endif
+        return "today"
+    }()
+
     var body: some View {
-        TabView {
-            NavigationStack { today }.tabItem { Label("Today", systemImage: "sun.max") }
-            NavigationStack { plan }.tabItem { Label("Plan", systemImage: "calendar") }
-            NavigationStack {
-                unavailable("Your conversation", icon: "waveform", detail: "Connect your Mac before starting a conversation. Messaging is not available in this build.")
-                    .navigationTitle("ORION")
-            }.tabItem { Label("ORION", systemImage: "waveform") }
-            NavigationStack {
-                unavailable("No health sources connected", icon: "heart", detail: "This phone has not read any health records. Your Mac’s readings are not synced here yet.")
-                    .navigationTitle("Health")
-            }.tabItem { Label("Health", systemImage: "heart") }
-            NavigationStack { control }.tabItem { Label("Control", systemImage: "slider.horizontal.3") }
+        TabView(selection: $tab) {
+            NavigationStack { today }.tabItem { Label("Today", systemImage: "sun.max") }.tag("today")
+            NavigationStack { plan }.tabItem { Label("Plan", systemImage: "calendar") }.tag("plan")
+            NavigationStack { ConversationView(remote: remote) }.tabItem { Label("ORION", systemImage: "waveform") }.tag("orion")
+            NavigationStack { HealthView(remote: remote) }.tabItem { Label("Health", systemImage: "heart") }.tag("health")
+            NavigationStack { control }.tabItem { Label("Control", systemImage: "slider.horizontal.3") }.tag("control")
         }
-        .tint(.indigo)
+        .tint(Phone.accent)
+        .preferredColorScheme(.dark)
         .task {
             #if targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--sample") { loadSample() }
             if reviewsConnection {
                 do { reviewedSetup = try PhoneHTTPReadSession.loadSetup() }
                 catch { setupStatus = "Connection setup is unavailable. Start a new preview on your Mac." }
@@ -54,22 +163,98 @@ struct PhoneRootView: View {
             #endif
             await reader.refresh()
         }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            #if targetEnvironment(simulator)
+            if RemoteStore.fixture {
+                routine.preview(pastBedtime: ProcessInfo.processInfo.arguments.contains("--late") ? 190 : -150)
+                return
+            }
+            #endif
+            routine.log = { [weak remote] entry in remote?.log(entry) }
+            PhoneSignals.shared.log = { [weak remote] entry in remote?.logQuietly(entry) }
+            PhoneSignals.shared.start()
+            let planner = self.planner, routine = self.routine, remote = self.remote
+            remote.offlineContext = OfflineContext(
+                schedule: { tomorrow in
+                    planner.summary(of: tomorrow ? Calendar.current.date(byAdding: .day, value: 1, to: Date())! : Date())
+                },
+                addReminder: { title, due in planner.addTodo(title: title, due: due) },
+                log: { entry in remote.log(entry) },
+                next: {
+                    let now = Date()
+                    if let plan = routine.plan, plan.isPastBedtime(now), !routine.inBed {
+                        return "Sleep. It's \(NightPlan.clock(now)) and you get \(NightPlan.duration(plan.sleepLeft(at: now))) if you go now\(plan.reason.map { " — \($0)" } ?? "")."
+                    }
+                    let event = planner.nextEvent(after: now)
+                    let todo = planner.todos.first { !$0.done }
+                    var parts: [String] = []
+                    if let todo { parts.append("Work on \(todo.title)") }
+                    if let event {
+                        let minutes = Int(event.start.timeIntervalSince(now) / 60)
+                        parts.append("\(event.title) is at \(NightPlan.clock(event.start))" + (minutes < 90 ? " (in \(minutes) min)" : ""))
+                    }
+                    return parts.isEmpty ? "Nothing's planned and your list is clear — it's yours." : parts.joined(separator: ". ") + "."
+                },
+                tonight: {
+                    guard let plan = routine.plan else { return "No plan for tonight yet." }
+                    return "Bed by \(NightPlan.clock(plan.bed)), alarm \(NightPlan.clock(plan.wake))"
+                        + (plan.reason.map { " for \($0)" } ?? "")
+                        + ". Going to sleep now gives \(NightPlan.duration(plan.sleepLeft(at: Date())))."
+                })
+            await routine.refresh(planner: planner, wakeRequest: remote.snapshot?.wakeRequest)
+            FocusLock.shared.releaseIfExpired()
+            // Opening the phone after bedtime is being awake: it can move the alarm later.
+            await routine.noteAwake(planner: planner)
+            await routine.checkNightSignals(planner: planner, macLastInput: remote.snapshot?.lastInputAt)
+            publishGlance()
+        }
+        .onChange(of: remote.snapshot?.wakeRequest) { _, request in
+            Task { await routine.refresh(planner: planner, wakeRequest: request) }
+        }
+        // The widgets, lock screen and Dynamic Island follow every change to the day.
+        .onChange(of: remote.snapshot) { _, _ in publishGlance() }
+        .onChange(of: planner.events) { _, _ in publishGlance() }
+        .onChange(of: planner.todos) { _, _ in publishGlance() }
+        .onChange(of: routine.plan) { _, _ in publishGlance() }
+        .onOpenURL { url in
+            // orion://show/<tab> from a widget or the lock screen.
+            guard url.scheme == "orion" else { return }
+            if url.host == "listen" { tab = "orion"; return }
+            switch url.lastPathComponent {
+            case "tasks", "calendar", "plan": tab = "plan"
+            case "health": tab = "health"
+            case "projects", "control": tab = "control"
+            case "orion", "chat": tab = "orion"
+            default: tab = "today"
+            }
+        }
+    }
+
+    private func publishGlance() {
+        #if targetEnvironment(simulator)
+        if RemoteStore.fixture { return }
+        #endif
+        GlanceWriter.publish(planner: planner, snapshot: remote.snapshot, night: routine.plan)
     }
 
     #if targetEnvironment(simulator)
     private var connectionSetup: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             if let setup = reviewedSetup {
-                Text("Review local connection").font(.headline)
+                SectionLabel("Connect to your Mac", tint: Phone.accent)
+                Text("Review local connection").font(Phone.display(22)).foregroundStyle(Phone.text)
                 Text("This Simulator can read the saved plan shared by the local service on this Mac. It cannot change your plan.")
+                    .font(.system(size: 15)).foregroundStyle(Phone.soft)
                 Text("Local address: 127.0.0.1:\(setup.port)")
-                    .font(.caption.monospaced()).accessibilityIdentifier("setupAddress")
+                    .font(Phone.mono(12, .medium)).foregroundStyle(Phone.accent).accessibilityIdentifier("setupAddress")
                 Text("Temporary test account · access lasts up to five minutes. No account is signed in. Disconnect from Control to clear the reading.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(Phone.dim)
                 Toggle("Remember this connection", isOn: $rememberConnection)
+                    .tint(Phone.accent)
                     .accessibilityIdentifier("rememberReadConnection")
                 Text("Saves connection details only. A fresh approval is still needed to connect again.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(Phone.dim)
                 Button("Connect and read plan") {
                     let shouldRemember = rememberConnection
                     reviewedSetup = nil
@@ -91,19 +276,25 @@ struct PhoneRootView: View {
                             }
                         }
                     }
-                }.accessibilityIdentifier("approveReadConnection")
+                }
+                .buttonStyle(PhoneButtonStyle(prominent: true))
+                .accessibilityIdentifier("approveReadConnection")
                 Button("Not now", role: .cancel) {
                     reviewedSetup = nil
                     setupStatus = "Connection declined · no reading loaded"
-                }.accessibilityIdentifier("declineReadConnection")
+                }
+                .buttonStyle(PhoneButtonStyle(tint: Phone.soft))
+                .accessibilityIdentifier("declineReadConnection")
             } else {
-                Text(setupStatus).accessibilityIdentifier("setupStatus")
+                Text(setupStatus).font(.system(size: 14)).foregroundStyle(Phone.soft).accessibilityIdentifier("setupStatus")
                 if connectionTask != nil {
                     Button("Cancel connection", role: .cancel) {
                         connectionTask?.cancel(); connectionTask = nil
                         reader.disconnect()
                         setupStatus = "Connection cancelled · no reading loaded"
-                    }.accessibilityIdentifier("cancelReadConnection")
+                    }
+                    .buttonStyle(PhoneButtonStyle(tint: Phone.soft))
+                    .accessibilityIdentifier("cancelReadConnection")
                 }
             }
         }
@@ -112,81 +303,254 @@ struct PhoneRootView: View {
 
     private var today: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 28) {
+                PhoneHeader(eyebrow: Date().formatted(.dateTime.weekday(.wide).day().month(.wide)), title: Phone.greeting())
+                #if targetEnvironment(simulator)
+                if RemoteStore.fixture { realToday }
+                #else
+                realToday
+                #endif
+                #if targetEnvironment(simulator)
+                if !RemoteStore.fixture {
                 connectionNotice
+                if planner.access == .granted { todayFromPlanner }
                 #if targetEnvironment(simulator)
                 if reviewsConnection && (!reader.configured || connectionTask != nil) { connectionSetup }
                 #endif
                 if reader.configured {
                     connectedReading
+                } else if planner.access == .granted {
+                    // Real day shown above; the sample has nothing to add.
                 } else if let sample {
                     sampleNotice
+                    let now = sample.current(at: sampleNow)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Room for what matters").font(.title2.bold())
-                        Text("A sample day with focused work, a fixed commitment and time left open.").foregroundStyle(.secondary)
+                        SectionLabel("Now", tint: Phone.accent)
+                        Text(now?.title ?? "Open time").font(Phone.display(30, .bold)).foregroundStyle(Phone.text)
+                        if let now {
+                            Text("Until \(time(now.start.addingTimeInterval(TimeInterval(now.minutes * 60)))) · \(now.minutes) min")
+                                .font(Phone.mono(13, .medium)).foregroundStyle(Phone.soft)
+                        }
                     }
-                    summary("NOW · SAMPLE", value: sample.current(at: sampleNow)?.title ?? "Open time")
-                    summary("NEXT COMMITMENT · SAMPLE", value: sample.nextCommitment(at: sampleNow)?.title ?? "None in this example")
-                    summary("FREE TIME · SAMPLE", value: "\(sample.freeMinutes(after: sampleNow)) minutes in this example")
-                    Button("Close sample", role: .cancel) { self.sample = nil }.accessibilityIdentifier("closeSample")
+                    HStack(alignment: .top, spacing: 18) {
+                        let next = sample.nextCommitment(at: sampleNow)
+                        PhoneStat(label: "Next commitment", value: next?.title ?? "None",
+                                  detail: next.map { "at \(time($0.start))" }, tint: Phone.violet)
+                        PhoneStat(label: "Free today", value: "\(sample.freeMinutes(after: sampleNow))",
+                                  detail: "minutes left open", tint: Phone.green)
+                    }
+                    Button("Close sample", role: .cancel) { self.sample = nil }
+                        .buttonStyle(PhoneButtonStyle(tint: Phone.soft))
+                        .accessibilityIdentifier("closeSample")
                 } else {
-                    unavailable("Your day will appear here", icon: "sun.max", detail: "Your Mac’s calendar, tasks and saved plan are not connected to this phone yet.")
-                    Button("Explore a sample day", action: loadSample)
-                        .buttonStyle(.borderedProminent).accessibilityIdentifier("openSample")
-                    Text("Example data only. No account or permissions needed.").font(.footnote).foregroundStyle(.secondary)
+                    PhoneEmptyState(symbol: "sun.max", title: "Your day will appear here",
+                                    detail: "Once this phone is connected to your Mac, today’s calendar, tasks and plan show up here.")
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button { loadSample() } label: { Label("Explore a sample day", systemImage: "sparkles") }
+                            .buttonStyle(PhoneButtonStyle(prominent: true))
+                            .accessibilityIdentifier("openSample")
+                        Text("Example data only. No account or permissions needed.").font(.footnote).foregroundStyle(Phone.dim)
+                    }
                 }
-                if let sampleError { Text(sampleError).foregroundStyle(.red) }
-            }.padding()
-        }.navigationTitle("Today")
+                if let sampleError { Text(sampleError).foregroundStyle(Phone.red) }
+                }
+                #endif
+            }
+            .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 30)
+        }
+        .phoneScreen()
+        .navigationTitle("Today")
     }
 
     private var plan: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                connectionNotice
-                if reader.configured {
-                    connectedReading
-                } else if let sample {
-                    sampleNotice
-                    Text("Wednesday, 9 September · London time").font(.headline)
-                    ForEach(sample.blocks) { block in
-                        HStack(alignment: .top, spacing: 16) {
-                            Text(time(block.start)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(block.title).font(.headline)
-                                Text("\(block.minutes) min · \(block.kind.rawValue)").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }.accessibilityElement(children: .combine)
-                        Divider()
+        let items = planItems
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    PhoneHeader(eyebrow: planEyebrow, title: "Plan")
+                    connectionNotice
+                    if planner.access == .granted {
+                        dayBar
+                        Picker("View", selection: $planMode) {
+                            Text("Schedule").tag("schedule")
+                            Text("To-dos").tag("todos")
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("planMode")
+                        if planMode == "schedule" { planControls }
+                    } else {
+                        connectPlanner
                     }
-                    ForEach(sample.warnings, id: \.self) { Text($0).font(.footnote) }
-                } else {
-                    unavailable("No plan loaded", icon: "calendar", detail: "Connect a source in a future build, or explore the sample day from Today.")
+                    if planMode == "todos" && planner.access == .granted {
+                        TodoListView(planner: planner)
+                    } else if planner.access == .granted {
+                        DayScheduleView(items: items, day: planner.day) { selectedItem = $0 }
+                    } else if let sample {
+                        sampleNotice
+                        DayScheduleView(items: items, day: Calendar.current.startOfDay(for: sampleNow),
+                                        timeZone: TimeZone(identifier: "Europe/London") ?? .current)
+                        ForEach(sample.warnings, id: \.self) {
+                            Label($0, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Phone.orange)
+                        }
+                    } else if reader.configured {
+                        connectedReading
+                    } else {
+                        PhoneEmptyState(symbol: "calendar", title: "Your day, like a calendar",
+                                        detail: "Connect Calendar and Reminders above to see today laid out hour by hour, with your to-dos beside it. Or try the sample day from Today.",
+                                        tint: Phone.violet)
+                    }
+                    if let problem = planner.problem { Text(problem).font(.footnote).foregroundStyle(Phone.orange) }
                 }
-            }.padding()
-        }.navigationTitle("Plan")
+                .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 30)
+            }
+            // Re-aimed whenever what is drawn changes: on first show, after access
+            // is granted, and on each day change -- not only once at launch.
+            .task(id: "\(planner.access)-\(planner.day.timeIntervalSince1970)-\(planMode)") {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                withAnimation(.easeOut(duration: 0.35)) {
+                    proxy.scrollTo(DayScheduleView.anchor(for: items, day: planner.day), anchor: .top)
+                }
+            }
+        }
+        .phoneScreen()
+        .navigationTitle("Plan")
+        .sheet(item: $selectedItem) { item in
+            if item.editable { EventEditor(planner: planner, existing: item) } else { OrionBlockSheet(item: item) }
+        }
+        .sheet(isPresented: $creatingEvent) { EventEditor(planner: planner) }
+    }
+
+    /// Today, from Calendar, Reminders and ORION's plan together.
+    @ViewBuilder private var todayFromPlanner: some View {
+        let now = Date()
+        let today = planner.schedule(orion: macPlan).filter { Calendar.current.isDateInToday($0.start) && !$0.allDay }
+        let current = today.first { $0.start <= now && now < $0.end }
+        let next = today.first { $0.start > now }
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(current == nil ? "Next" : "Now", tint: Phone.accent)
+            if let item = current ?? next {
+                Text(item.title).font(Phone.display(30, .bold)).foregroundStyle(Phone.text)
+                Text(current != nil
+                     ? "Until \(item.end.formatted(date: .omitted, time: .shortened)) · \(item.isOrion ? "ORION plan" : item.detail)"
+                     : "At \(item.start.formatted(date: .omitted, time: .shortened)) · \(item.isOrion ? "ORION plan" : item.detail)")
+                    .font(Phone.mono(13, .medium)).foregroundStyle(Phone.soft)
+            } else {
+                Text("Nothing else scheduled today").font(Phone.display(24)).foregroundStyle(Phone.text)
+            }
+        }
+        let open = planner.todos.filter { !$0.done }
+        VStack(alignment: .leading, spacing: 10) {
+            SectionLabel("To-dos · \(open.count)", tint: Phone.green)
+            ForEach(open.prefix(4)) { todo in
+                Button { withAnimation(.spring(response: 0.3)) { planner.toggle(todo) } } label: {
+                    HStack(spacing: 12) {
+                        Circle().stroke(Phone.soft, lineWidth: 1.4).frame(width: 20, height: 20)
+                        Text(todo.title).font(.system(size: 16)).foregroundStyle(Phone.text)
+                        Spacer()
+                        if let due = todo.due, Calendar.current.isDateInToday(due) {
+                            Text(due.formatted(date: .omitted, time: .shortened)).font(Phone.mono(11, .medium))
+                                .foregroundStyle(due < now ? Phone.orange : Phone.dim)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Complete \(todo.title)")
+            }
+            if open.isEmpty { Text("All clear.").foregroundStyle(Phone.soft) }
+            Button { planMode = "todos"; tab = "plan" } label: { Label("All to-dos", systemImage: "arrow.right") }
+                .buttonStyle(PhoneButtonStyle())
+        }
+    }
+
+    /// ORION's accepted plan from the Mac, through the link (the Simulator's
+    /// local reading remains for the old development harness).
+    private var macPlan: TodayPlan? { remote.snapshot?.plan ?? reader.snapshot?.plan }
+
+    private var planItems: [PlannerStore.Item] {
+        if planner.access == .granted { return planner.schedule(orion: macPlan) }
+        if let sample { return PlannerStore.Item.sample(sample) }
+        return []
+    }
+
+    private var planEyebrow: String {
+        if planner.access == .granted { return planner.day.formatted(.dateTime.weekday(.wide).day().month(.wide)) }
+        return sample == nil ? "Your plan" : "Wednesday, 9 September · London time"
+    }
+
+    /// Previous day, today, next day, and a new event.
+    private var dayBar: some View {
+        HStack(spacing: 14) {
+            Button { planner.show(Calendar.current.date(byAdding: .day, value: -1, to: planner.day) ?? planner.day) } label: {
+                Image(systemName: "chevron.left")
+            }.accessibilityLabel("Previous day")
+            Button("Today") { planner.show(Date()) }
+                .font(.system(size: 14, weight: .semibold))
+                .disabled(Calendar.current.isDateInToday(planner.day))
+            Button { planner.show(Calendar.current.date(byAdding: .day, value: 1, to: planner.day) ?? planner.day) } label: {
+                Image(systemName: "chevron.right")
+            }.accessibilityLabel("Next day")
+            Spacer()
+            Button { creatingEvent = true } label: { Label("Event", systemImage: "plus") }
+                .buttonStyle(PhoneButtonStyle())
+                .accessibilityIdentifier("newEvent")
+        }
+        .foregroundStyle(Phone.accent)
+    }
+
+    @ViewBuilder private var connectPlanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionLabel("Calendar & Reminders", tint: Phone.accent)
+            Text(planner.access == .denied
+                 ? "ORION doesn’t have access to Calendar and Reminders. Turn it on in Settings › Privacy & Security."
+                 : "See today hour by hour and keep your to-dos here. ORION reads and edits Apple Calendar and your \(PlannerStore.orionList) Reminders list directly, so every change also appears in Apple’s apps and on your Mac.")
+                .font(.system(size: 14)).foregroundStyle(Phone.soft).fixedSize(horizontal: false, vertical: true)
+            if planner.access == .notAsked {
+                Button { Task { await planner.connect() } } label: { Label("Connect Calendar & Reminders", systemImage: "calendar.badge.plus") }
+                    .buttonStyle(PhoneButtonStyle(prominent: true))
+                    .accessibilityIdentifier("connectPlanner")
+            }
+        }
     }
 
     private var control: some View {
-        List {
-            Section("Device identity") {
+        ScrollView { controlContent.padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 30) }
+            // Sections on the backdrop under fading labels, no row chrome: grouped
+            // cards are the bubble-behind-everything look the Mac app moved away from.
+            .font(.system(size: 15))
+            .foregroundStyle(Phone.text)
+            .phoneScreen()
+            .navigationTitle("Control")
+    }
+
+    private var controlContent: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            PhoneHeader(eyebrow: "Your Mac, from anywhere", title: "Control")
+            RemoteSections(remote: remote)
+            SignalsSection(signals: PhoneSignals.shared)
+            PresenceSection(presence: LivePresence.shared)
+            FocusLockSection(lock: FocusLock.shared)
+            #if targetEnvironment(simulator)
+            if RemoteStore.fixture { PhoneConnectionSection(remote: remote) } else {
+            SectionLabel("This phone", tint: Phone.soft).padding(.top, 10)
+            controlSection("This phone’s identity") {
                 Text(identity.status).accessibilityIdentifier("deviceIdentityStatus")
                 if let identifier = identity.identifier {
-                    Text(identifier).font(.caption.monospaced()).textSelection(.enabled)
+                    Text(identifier).font(Phone.mono(11, .medium)).foregroundStyle(Phone.soft).textSelection(.enabled)
                         .accessibilityIdentifier("deviceIdentityID")
                     Button("Verify local key") { identity.verifyLocalKey() }
+                        .foregroundStyle(Phone.accent)
                         .accessibilityIdentifier("verifyDeviceKey")
                     if identity.verified {
-                        Text("Local key verified · no account paired")
+                        Label("Local key verified · no account paired", systemImage: "checkmark.seal")
+                            .foregroundStyle(Phone.green)
                             .accessibilityIdentifier("deviceKeyVerified")
                     }
                 } else {
-                    Button("Retry identity") { identity.load() }
+                    Button("Retry identity") { identity.load() }.foregroundStyle(Phone.accent)
                 }
             }
-            #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--read-session-test") {
-                Section("Device session test") {
+                controlSection("Device session test") {
                     Text("Disposable account · local read access only")
                     Button("Sign read-session challenge") { identity.writeTestReadSessionProof() }
                         .accessibilityIdentifier("signReadSession")
@@ -194,7 +558,7 @@ struct PhoneRootView: View {
                 }
             }
             if ProcessInfo.processInfo.arguments.contains("--pairing-approval-test") {
-                Section("Pairing test") {
+                controlSection("Pairing test") {
                     if let request = pairingApproval.request {
                         NavigationLink("Review pairing request") {
                             PairingApprovalView(request: request,
@@ -203,25 +567,24 @@ struct PhoneRootView: View {
                                 finished: pairingApproval.finished, status: pairingApproval.status)
                         }.accessibilityIdentifier("reviewPairing")
                     } else { Text(pairingApproval.status).accessibilityIdentifier("approvalLoadStatus") }
-                }.onAppear { pairingApproval.load(identity: identity) }
+                }
+                .onAppear { pairingApproval.load(identity: identity) }
             }
             if ProcessInfo.processInfo.arguments.contains("--pairing-proof-test") {
-                Section("Disposable pairing test") {
+                controlSection("Disposable pairing test") {
                     Text("Test account only · no real account will be paired")
                     Button("Sign test pairing claim") { identity.writeTestPairingProof() }
                         .accessibilityIdentifier("signTestPairing")
                     Text(identity.pairingTestStatus).accessibilityIdentifier("pairingTestStatus")
                 }
             }
-            #endif
-            #if targetEnvironment(simulator)
             if !rememberedConnectionData.isEmpty {
-                Section("Remembered connection") {
+                controlSection("Remembered connection") {
                     if let saved = rememberedConnection {
                         Text("Local preview · 127.0.0.1:\(saved.port)")
                             .accessibilityIdentifier("rememberedConnectionAddress")
                         Text("Temporary test account. Remembered details do not grant access or reconnect automatically.")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.footnote).foregroundStyle(Phone.dim)
                     } else {
                         Text("Saved connection details cannot be verified for this phone.")
                     }
@@ -234,9 +597,8 @@ struct PhoneRootView: View {
                     }.accessibilityIdentifier("forgetReadConnection")
                 }
             }
-            #endif
-            Section("Connection") {
-                Text(reader.message)
+            controlSection("Connection to your Mac") {
+                StatusDot(text: reader.message, tint: reader.available ? Phone.green : Phone.dim)
                 if reader.cancelledPendingRead {
                     Text("Pending refresh cancelled").accessibilityIdentifier("cancelledPendingRead")
                 }
@@ -244,73 +606,174 @@ struct PhoneRootView: View {
                     Button("Disconnect this reading", role: .destructive) { reader.disconnect() }
                         .accessibilityIdentifier("disconnectReading")
                     Text("Clears this phone’s reading and local access token. It does not remove the device from an account.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(Phone.dim)
                 }
-                Text("Mac availability is unknown. A Simulator-only local read connection can be configured for development; physical-device pairing is not available.").foregroundStyle(.secondary)
+                Text("Pairing with a physical iPhone is not available yet. In the Simulator, a local read-only connection can be set up for development.")
+                    .font(.footnote).foregroundStyle(Phone.dim)
             }
-            Section("On this phone") {
-                Text("No account signed in")
-                Text(reader.configured ? "Local development snapshot · memory only" : "No personal records loaded")
-                Text("Sample data is temporary and clears when the app closes.").foregroundStyle(.secondary)
+            controlSection("Privacy") {
+                Label("No account signed in", systemImage: "person.crop.circle.badge.xmark")
+                Label(reader.configured ? "Local development snapshot · memory only" : "No personal records loaded", systemImage: "lock")
+                Text("Sample data is temporary and clears when the app closes.").font(.footnote).foregroundStyle(Phone.dim)
             }
-            Section("Build scope") {
-                Text("Simulator foundation · read-only sample")
-                Text("Pairing, sync, chat, notifications and remote actions are not available yet.").foregroundStyle(.secondary)
+            controlSection("In this build") {
+                Text("Today and Plan can show a sample day, or a read-only plan from your Mac in the Simulator.")
+                Text("Pairing, sync, conversation, notifications and remote actions are still to come.").font(.footnote).foregroundStyle(Phone.dim)
             }
-        }.navigationTitle("Control")
+            }
+            #else
+            PhoneConnectionSection(remote: remote)
+            #endif
+        }
+    }
+
+    /// Today: what is now and next, the to-dos, and the two things logged most.
+    /// The Mac's own state lives on Control; only an approval is worth interrupting for.
+    @ViewBuilder private var realToday: some View {
+        if let waiting = remote.snapshot?.approvals, !waiting.isEmpty {
+            Button { tab = "control" } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "hand.raised.fill").foregroundStyle(Phone.orange)
+                    Text(waiting.count == 1 ? "ORION is waiting for your approval" : "\(waiting.count) approvals waiting")
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(Phone.text)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Phone.dim)
+                }
+                .padding(14)
+                .background(Phone.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        TonightCard(routine: routine)
+        if planner.access == .granted { todayFromPlanner } else { connectPlanner }
+        TodayTracking(remote: remote, openHealth: { tab = "health" })
+    }
+
+    private func controlSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionLabel(title)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var connectionNotice: some View {
-        Label(reader.message, systemImage: "link.badge.plus")
-            .font(.subheadline).foregroundStyle(.secondary).accessibilityIdentifier("connectionStatus")
+        HStack(spacing: 8) {
+            Circle().fill(linkOnline ? Phone.green : Phone.dim).frame(width: 6, height: 6)
+            Label(linkMessage, systemImage: "link")
+                .labelStyle(.titleOnly)
+                .font(.system(size: 13, weight: .medium)).foregroundStyle(Phone.soft)
+                .accessibilityIdentifier("connectionStatus")
+        }
     }
+    private var linkOnline: Bool { remote.presence == .online || reader.available }
+    private var linkMessage: String {
+        if reader.configured { return reader.message }
+        switch remote.presence {
+        case .online: return "Connected to your Mac"
+        case .stale: return "Your Mac is slow to respond"
+        case .offline: return "Your Mac is offline · showing the last plan it sent"
+        case .unknown: return remote.iCloudReady ? "Waiting to hear from your Mac" : "Connecting through iCloud…"
+        }
+    }
+
+    /// Ask the ORION app on the Mac to plan, replan or undo; its answer comes back with the plan.
+    @ViewBuilder private var planControls: some View {
+        let today = Calendar.current.isDateInToday(planner.day)
+        if today {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    let hasPlan = macPlan.map { Calendar.current.isDateInToday($0.day) } ?? false
+                    Button { remote.plan(hasPlan ? .replan : .plan) } label: {
+                        Label(hasPlan ? "Replan from now" : "Plan my day", systemImage: hasPlan ? "arrow.clockwise" : "sparkles")
+                    }
+                    .buttonStyle(PhoneButtonStyle(prominent: !hasPlan))
+                    .disabled(remote.planStatus?.working == true)
+                    .accessibilityIdentifier("planMyDay")
+                    if hasPlan {
+                        Button { remote.plan(.undo) } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                            .buttonStyle(PhoneButtonStyle(tint: Phone.soft))
+                            .disabled(remote.planStatus?.working == true)
+                    }
+                }
+                if let status = remote.planStatus {
+                    HStack(spacing: 8) {
+                        if status.working { PhoneThinkingDots() }
+                        Text(status.text).font(.system(size: 13))
+                            .foregroundStyle(status.failed ? Phone.orange : status.working ? Phone.soft : Phone.green)
+                    }
+                } else if macPlan == nil {
+                    Text("ORION fits your to-dos into the gaps between events, keeps free time free, and never moves your calendar.")
+                        .font(.system(size: 13)).foregroundStyle(Phone.dim).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     private var connectedReading: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("LOCAL DEVELOPMENT CONNECTION").font(.caption.bold())
-            Button(reader.loading ? "Refreshing…" : "Refresh reading") { Task { await reader.refresh() } }
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                SectionLabel("From your Mac", tint: Phone.accent)
+                Button { Task { await reader.refresh() } } label: {
+                    Label(reader.loading ? "Refreshing…" : "Refresh reading", systemImage: "arrow.clockwise")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(PhoneButtonStyle())
                 .disabled(reader.loading).accessibilityIdentifier("refreshReading")
+            }
             TimelineView(.periodic(from: .now, by: 10)) { context in
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
                     if let snapshot = reader.snapshot {
                         let current = reader.available && snapshot.isCurrent(at: context.date)
-                        Text(current ? "Recent plan reading" : "Stale plan reading · refresh sources on your Mac")
-                            .accessibilityIdentifier("readingFreshness")
-                        Text("Revision \(snapshot.revision)").accessibilityIdentifier("readingRevision")
+                        StatusDot(text: current ? "Recent plan reading" : "Stale plan reading · refresh sources on your Mac",
+                                  tint: current ? Phone.green : Phone.orange, identifier: "readingFreshness")
+                        Text("Revision \(snapshot.revision)").font(Phone.mono(11, .medium)).foregroundStyle(Phone.dim)
+                            .accessibilityIdentifier("readingRevision")
                         if let plan = snapshot.plan {
-                            Text(plan.reason).accessibilityIdentifier("readingReason")
+                            Text(plan.reason).font(Phone.display(20)).foregroundStyle(Phone.text)
+                                .accessibilityIdentifier("readingReason")
                             Text("Plan created \(plan.generatedAt.formatted(date: .abbreviated, time: .shortened))")
-                                .font(.footnote).foregroundStyle(.secondary)
-                            ForEach(plan.blocks) { block in
-                                VStack(alignment: .leading) {
-                                    Text(block.title)
-                                    Text("\(block.minutes) minutes").font(.caption).foregroundStyle(.secondary)
+                                .font(.footnote).foregroundStyle(Phone.dim)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(plan.blocks.enumerated()), id: \.element.id) { index, block in
+                                    TimelineRow(time: time(block.start, zone: plan.timeZone), title: block.title,
+                                                detail: "\(block.minutes) minutes · \(kindName(block.kind))", tint: tint(block.kind),
+                                                isLast: index == plan.blocks.count - 1)
                                 }
                             }
-                        } else { Text("No accepted plan in this snapshot") }
-                    } else { Text("No verified reading loaded") }
+                        } else { Text("No accepted plan in this snapshot").foregroundStyle(Phone.soft) }
+                    } else { Text("No verified reading loaded").foregroundStyle(Phone.soft) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
     private var sampleNotice: some View {
-        Label("SAMPLE DATA · Not your real day", systemImage: "info.circle")
-            .font(.subheadline.bold()).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        Label("SAMPLE DATA · Not your real day", systemImage: "sparkles")
+            .font(Phone.mono(10)).tracking(1.2).foregroundStyle(Phone.orange)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .overlay(Capsule().stroke(Phone.orange.opacity(0.5), lineWidth: 1))
             .accessibilityIdentifier("sampleNotice")
     }
-    private func summary(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title3.weight(.semibold))
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    private func tint(_ kind: TodayPlanBlock.Kind) -> Color {
+        switch kind {
+        case .commitment: return Phone.violet
+        case .task: return Phone.accent
+        case .transition: return Phone.dim
+        case .free: return Phone.green
+        }
     }
-    private func unavailable(_ title: String, icon: String, detail: String) -> some View {
-        ContentUnavailableView(title, systemImage: icon, description: Text(detail))
+    private func kindName(_ kind: TodayPlanBlock.Kind) -> String {
+        switch kind {
+        case .commitment: return "commitment"
+        case .task: return "focus"
+        case .transition: return "transition"
+        case .free: return "open time"
+        }
     }
-    private func time(_ date: Date) -> String {
+    private func time(_ date: Date, zone: String = "Europe/London") -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_GB")
-        formatter.timeZone = TimeZone(identifier: "Europe/London")
+        formatter.timeZone = TimeZone(identifier: zone) ?? TimeZone(identifier: "Europe/London")
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
     }
@@ -326,112 +789,3 @@ struct PhoneRootView: View {
         } catch { sampleError = "The sample could not be loaded." }
     }
 }
-
-/// Explicit Simulator development connection. No bootstrap reader exists on physical iOS.
-@MainActor
-final class PhoneTodayReader: ObservableObject {
-    struct Bootstrap: Decodable { let port: Int; let owner: String; let token: String }
-    @Published private(set) var snapshot: TodayReadSnapshot?
-    @Published private(set) var message = "Not connected to your Mac"
-    @Published private(set) var loading = false
-    @Published private(set) var available = false
-    @Published private(set) var cancelledPendingRead = false
-    private var bootstrap: Bootstrap?
-    private var history = TodayReadHistory()
-    private var connectionGeneration = UUID()
-    private var activeRead: URLSession?
-    var configured: Bool { bootstrap != nil }
-
-    init() {
-        #if targetEnvironment(simulator)
-        if ProcessInfo.processInfo.arguments.contains("--local-today"),
-           !ProcessInfo.processInfo.arguments.contains("--http-session-test"),
-           !ProcessInfo.processInfo.arguments.contains("--review-http-session"),
-           let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
-           let data = try? Data(contentsOf: directory.appendingPathComponent("local-today.json")), data.count < 4096,
-           let value = try? JSONDecoder().decode(Bootstrap.self, from: data),
-           (1...65535).contains(value.port), !value.owner.isEmpty,
-           value.token.count >= 32, value.token.count <= 128,
-           value.token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) {
-            bootstrap = value
-            message = "Local development source · not checked"
-        } else { bootstrap = nil }
-        #else
-        bootstrap = nil
-        #endif
-    }
-    #if targetEnvironment(simulator)
-    func useDeviceSession(port: Int, owner: String, token: String) throws {
-        guard (1...65535).contains(port), !owner.isEmpty, (32...128).contains(token.count),
-              token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { throw TodayPlanError.invalidInput }
-        disconnect()
-        cancelledPendingRead = false
-        bootstrap = Bootstrap(port: port, owner: owner, token: token)
-        message = "Local device session · not checked"
-    }
-    func refuseDeviceSession() {
-        disconnect()
-        cancelledPendingRead = false
-        message = "Device session could not be verified"
-    }
-    #endif
-
-    func disconnect() {
-        // Invalidates already-delivered bytes as well as cancelling transport.
-        cancelledPendingRead = loading
-        connectionGeneration = UUID()
-        activeRead?.invalidateAndCancel(); activeRead = nil
-        bootstrap = nil; history.clear(); snapshot = nil
-        available = false; loading = false
-        message = "Reading disconnected"
-    }
-
-    func refresh() async {
-        guard let bootstrap, !loading else { return }
-        let generation = connectionGeneration
-        loading = true
-        defer { if generation == connectionGeneration { loading = false; activeRead = nil } }
-        let config = URLSessionConfiguration.ephemeral
-        config.urlCache = nil; config.httpCookieStorage = nil; config.urlCredentialStorage = nil
-        config.timeoutIntervalForRequest = 5; config.timeoutIntervalForResource = 8
-        let session = URLSession(configuration: config, delegate: NoReadRedirect(), delegateQueue: nil)
-        activeRead = session
-        defer { session.invalidateAndCancel() }
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(bootstrap.port)/plan")!)
-        request.setValue("Bearer \(bootstrap.token)", forHTTPHeaderField: "Authorization")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        do {
-            let (bytes, response) = try await session.bytes(for: request)
-            guard generation == connectionGeneration else { return }
-            guard let http = response as? HTTPURLResponse else { throw TodayPlanError.invalidInput }
-            if http.statusCode == 401 { history.clear(); snapshot = nil; available = false; message = "Access expired or revoked"; return }
-            if http.statusCode == 404 { snapshot = nil; available = false; message = "No published plan"; return }
-            guard http.statusCode == 200 else { throw URLError(.badServerResponse) }
-            guard http.mimeType == "application/json", response.expectedContentLength <= 1_100_000 else { throw TodayPlanError.invalidInput }
-            var data = Data()
-            for try await byte in bytes {
-                guard data.count < 1_100_000 else { throw TodayPlanError.invalidInput }
-                data.append(byte)
-            }
-            guard generation == connectionGeneration else { return }
-            let incoming = try TodayReadSnapshot.decodeResponse(data, expectedOwner: bootstrap.owner)
-            try history.receive(incoming)
-            snapshot = incoming; available = true; message = "Read from local development service"
-        } catch is URLError {
-            guard generation == connectionGeneration else { return }
-            available = false; message = "Source unavailable · last reading may be out of date"
-        } catch {
-            guard generation == connectionGeneration else { return }
-            snapshot = nil; available = false; message = "Plan response could not be verified"
-        }
-    }
-}
-
-final class NoReadRedirect: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
-// Platform adapter kept outside MobileCore. No private-key bytes are exported.

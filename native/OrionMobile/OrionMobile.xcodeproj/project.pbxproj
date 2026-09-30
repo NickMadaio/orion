@@ -1,37 +1,816 @@
 // !$*UTF8*$!
-{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
-000000000000000000000001 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; TargetAttributes = { 000000000000000000000003 = { TestTargetID = 000000000000000000000002; }; }; }; buildConfigurationList = 000000000000000000000014; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = 000000000000000000000004; productRefGroup = 000000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000002, 000000000000000000000003); packageReferences = (00000000000000000000001E); };
-000000000000000000000002 = { isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000015; buildPhases = (00000000000000000000000A, 00000000000000000000000C); buildRules = (); dependencies = (); name = OrionPhone; packageProductDependencies = (00000000000000000000001F); productName = OrionPhone; productReference = 000000000000000000000008; productType = "com.apple.product-type.application"; };
-000000000000000000000003 = { isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000016; buildPhases = (00000000000000000000000B,); buildRules = (); dependencies = (000000000000000000000022); name = OrionPhoneUITests; productName = OrionPhoneUITests; productReference = 000000000000000000000009; productType = "com.apple.product-type.bundle.ui-testing"; };
-000000000000000000000004 = { isa = PBXGroup; children = (000000000000000000000027, 000000000000000000000025, 000000000000000000000023, 000000000000000000000006, 000000000000000000000007, 000000000000000000000005); sourceTree = "<group>"; };
-000000000000000000000005 = { isa = PBXGroup; children = (000000000000000000000008, 000000000000000000000009); name = Products; sourceTree = "<group>"; };
-000000000000000000000006 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/OrionMobileApp.swift"; sourceTree = "<group>"; };
-000000000000000000000007 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppUITests/PhoneShellTests.swift"; sourceTree = "<group>"; };
-000000000000000000000008 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = OrionPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
-000000000000000000000009 = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OrionPhoneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-00000000000000000000000A = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000D, 000000000000000000000024, 000000000000000000000026, 000000000000000000000028); runOnlyForDeploymentPostprocessing = 0; };
-00000000000000000000000B = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000E); runOnlyForDeploymentPostprocessing = 0; };
-00000000000000000000000C = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000020); runOnlyForDeploymentPostprocessing = 0; };
-00000000000000000000000D = { isa = PBXBuildFile; fileRef = 000000000000000000000006; };
-00000000000000000000000E = { isa = PBXBuildFile; fileRef = 000000000000000000000007; };
-000000000000000000000014 = { isa = XCConfigurationList; buildConfigurations = (000000000000000000000017, 000000000000000000000018); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-000000000000000000000015 = { isa = XCConfigurationList; buildConfigurations = (000000000000000000000019, 00000000000000000000001A); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-000000000000000000000016 = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000001B, 00000000000000000000001C); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-000000000000000000000017 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; ONLY_ACTIVE_ARCH = YES; DEBUG_INFORMATION_FORMAT = dwarf; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
-000000000000000000000018 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Release; };
-000000000000000000000019 = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = Orion; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0; CODE_SIGN_STYLE = Automatic; }; name = Debug; };
-00000000000000000000001A = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = Orion; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0; CODE_SIGN_STYLE = Automatic; }; name = Release; };
-00000000000000000000001B = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; TEST_TARGET_NAME = OrionPhone; TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic; }; name = Debug; };
-00000000000000000000001C = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; TEST_TARGET_NAME = OrionPhone; TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic; }; name = Release; };
-00000000000000000000001E = { isa = XCLocalSwiftPackageReference; relativePath = .; };
-00000000000000000000001F = { isa = XCSwiftPackageProductDependency; package = 00000000000000000000001E; productName = MobileCore; };
-000000000000000000000020 = { isa = PBXBuildFile; productRef = 00000000000000000000001F; };
-000000000000000000000021 = { isa = PBXContainerItemProxy; containerPortal = 000000000000000000000001; proxyType = 1; remoteGlobalIDString = 000000000000000000000002; remoteInfo = OrionPhone; };
-000000000000000000000022 = { isa = PBXTargetDependency; target = 000000000000000000000002; targetProxy = 000000000000000000000021; };
-000000000000000000000023 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/PhoneDeviceIdentity.swift"; sourceTree = "<group>"; };
-000000000000000000000024 = { isa = PBXBuildFile; fileRef = 000000000000000000000023; };
-000000000000000000000025 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/PairingApprovalView.swift"; sourceTree = "<group>"; };
-000000000000000000000026 = { isa = PBXBuildFile; fileRef = 000000000000000000000025; };
-000000000000000000000027 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/PhoneHTTPReadSession.swift"; sourceTree = "<group>"; };
-000000000000000000000028 = { isa = PBXBuildFile; fileRef = 000000000000000000000027; };
-}; rootObject = 000000000000000000000001; }
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00000000000000000000000D /* App/OrionMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* App/OrionMobileApp.swift */; };
+		00000000000000000000000E /* AppUITests/PhoneShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* AppUITests/PhoneShellTests.swift */; };
+		000000000000000000000020 /* MobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 00000000000000000000001F /* MobileCore */; };
+		000000000000000000000024 /* App/PhoneDeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000023 /* App/PhoneDeviceIdentity.swift */; };
+		000000000000000000000026 /* App/PairingApprovalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000025 /* App/PairingApprovalView.swift */; };
+		000000000000000000000028 /* App/PhoneHTTPReadSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000027 /* App/PhoneHTTPReadSession.swift */; };
+		00000000000000000000002A /* App/PhoneTodayReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000029 /* App/PhoneTodayReader.swift */; };
+		00000000000000000000002C /* App/PhoneTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000002B /* App/PhoneTheme.swift */; };
+		00000000000000000000002E /* App/PlannerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000002D /* App/PlannerStore.swift */; };
+		000000000000000000000030 /* App/PlanViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000002F /* App/PlanViews.swift */; };
+		000000000000000000000032 /* App/RemoteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000031 /* App/RemoteViews.swift */; };
+		000000000000000000000034 /* App/CloudLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000033 /* App/CloudLink.swift */; };
+		000000000000000000000036 /* App/ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000035 /* App/ConversationView.swift */; };
+		000000000000000000000038 /* App/PhoneSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000037 /* App/PhoneSections.swift */; };
+		00000000000000000000003A /* App/HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000039 /* App/HealthView.swift */; };
+		00000000000000000000003C /* App/TrackingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003B /* App/TrackingViews.swift */; };
+		00000000000000000000003E /* App/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003D /* App/Assets.xcassets */; };
+		000000000000000000000041 /* App/PhoneVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000040 /* App/PhoneVoice.swift */; };
+		000000000000000000000043 /* App/NightRoutine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000042 /* App/NightRoutine.swift */; };
+		000000000000000000000045 /* App/OfflineBrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000044 /* App/OfflineBrain.swift */; };
+		000000000000000000000047 /* App/PhoneSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000046 /* App/PhoneSignals.swift */; };
+		000000000000000000000049 /* App/FocusLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000048 /* App/FocusLock.swift */; };
+		0000000000000000000A0011 /* app */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000B; };
+		0000000000000000000A0012 /* app */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000C; };
+		0000000000000000000A0013 /* app */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000D; };
+		0000000000000000000A0014 /* app activity */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0008; };
+		0000000000000000000A0015 /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0001; };
+		0000000000000000000A0016 /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0002; };
+		0000000000000000000A0017 /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0003; };
+		0000000000000000000A0018 /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0004; };
+		0000000000000000000A0019 /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0005; };
+		0000000000000000000A001A /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0006; };
+		0000000000000000000A001B /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0007; };
+		0000000000000000000A001C /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0008; };
+		0000000000000000000A001D /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0009; };
+		0000000000000000000A001F /* assets */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000A; };
+		0000000000000000000A0022 /* MobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000A0021; };
+		0000000000000000000A0024 /* nse */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000E; };
+		0000000000000000000A002F /* appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000F; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0000000000000000000A0030 /* appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0010; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0000000000000000000B0001 /* app intents */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0003; };
+		0000000000000000000B0002 /* app intents */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0002; };
+		0000000000000000000C0003 /* app */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C0001; };
+		0000000000000000000C0005 /* monitor */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C0002; };
+		0000000000000000000C000C /* ScreenMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C0004; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		000000000000000000000021 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000002;
+			remoteInfo = OrionPhone;
+		};
+		0000000000000000000A0032 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001;
+			proxyType = 1;
+			remoteGlobalIDString = 0000000000000000000A002D;
+			remoteInfo = OrionWidgets;
+		};
+		0000000000000000000A0034 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001;
+			proxyType = 1;
+			remoteGlobalIDString = 0000000000000000000A002E;
+			remoteInfo = OrionNotify;
+		};
+		0000000000000000000C000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001;
+			proxyType = 1;
+			remoteGlobalIDString = 0000000000000000000C000B;
+			remoteInfo = ScreenMonitor;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000006 /* App/OrionMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/OrionMobileApp.swift; sourceTree = "<group>"; };
+		000000000000000000000007 /* AppUITests/PhoneShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUITests/PhoneShellTests.swift; sourceTree = "<group>"; };
+		000000000000000000000008 /* OrionPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = OrionPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000009 /* OrionPhoneUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OrionPhoneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000023 /* App/PhoneDeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDeviceIdentity.swift; sourceTree = "<group>"; };
+		000000000000000000000025 /* App/PairingApprovalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PairingApprovalView.swift; sourceTree = "<group>"; };
+		000000000000000000000027 /* App/PhoneHTTPReadSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneHTTPReadSession.swift; sourceTree = "<group>"; };
+		000000000000000000000029 /* App/PhoneTodayReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneTodayReader.swift; sourceTree = "<group>"; };
+		00000000000000000000002B /* App/PhoneTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneTheme.swift; sourceTree = "<group>"; };
+		00000000000000000000002D /* App/PlannerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PlannerStore.swift; sourceTree = "<group>"; };
+		00000000000000000000002F /* App/PlanViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PlanViews.swift; sourceTree = "<group>"; };
+		000000000000000000000031 /* App/RemoteViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RemoteViews.swift; sourceTree = "<group>"; };
+		000000000000000000000033 /* App/CloudLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CloudLink.swift; sourceTree = "<group>"; };
+		000000000000000000000035 /* App/ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ConversationView.swift; sourceTree = "<group>"; };
+		000000000000000000000037 /* App/PhoneSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneSections.swift; sourceTree = "<group>"; };
+		000000000000000000000039 /* App/HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HealthView.swift; sourceTree = "<group>"; };
+		00000000000000000000003B /* App/TrackingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TrackingViews.swift; sourceTree = "<group>"; };
+		00000000000000000000003D /* App/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = App/Assets.xcassets; sourceTree = "<group>"; };
+		000000000000000000000040 /* App/PhoneVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneVoice.swift; sourceTree = "<group>"; };
+		000000000000000000000042 /* App/NightRoutine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NightRoutine.swift; sourceTree = "<group>"; };
+		000000000000000000000044 /* App/OfflineBrain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/OfflineBrain.swift; sourceTree = "<group>"; };
+		000000000000000000000046 /* App/PhoneSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneSignals.swift; sourceTree = "<group>"; };
+		000000000000000000000048 /* App/FocusLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FocusLock.swift; sourceTree = "<group>"; };
+		0000000000000000000A0001 /* ../OrionWidgets/Shared/WidgetStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/WidgetStyle.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0002 /* ../OrionWidgets/Shared/GlanceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/GlanceProvider.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0003 /* ../OrionWidgets/Shared/WidgetIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/WidgetIntents.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0004 /* ../OrionWidgets/Shared/HologramWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/HologramWidgets.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0005 /* ../OrionWidgets/Shared/ScheduleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/ScheduleWidgets.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0006 /* ../OrionWidgets/Shared/ListWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/ListWidgets.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0007 /* ../OrionWidgets/Shared/OrionWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/OrionWidgetBundle.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0008 /* ../OrionWidgets/iOS/OrionActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/iOS/OrionActivity.swift"; sourceTree = "<group>"; };
+		0000000000000000000A0009 /* ../OrionWidgets/iOS/LiveActivityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/iOS/LiveActivityViews.swift"; sourceTree = "<group>"; };
+		0000000000000000000A000A /* ../OrionWidgets/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "../OrionWidgets/Assets.xcassets"; sourceTree = "<group>"; };
+		0000000000000000000A000B /* App/GlanceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/GlanceWriter.swift"; sourceTree = "<group>"; };
+		0000000000000000000A000C /* App/LivePresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/LivePresence.swift"; sourceTree = "<group>"; };
+		0000000000000000000A000D /* App/BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/BackgroundRefresh.swift"; sourceTree = "<group>"; };
+		0000000000000000000A000E /* Notify/NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notify/NotificationService.swift"; sourceTree = "<group>"; };
+		0000000000000000000A000F /* OrionWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OrionWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0000000000000000000A0010 /* OrionNotify.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OrionNotify.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0000000000000000000C0001 /* App/ScreenWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/ScreenWatch.swift"; sourceTree = "<group>"; };
+		0000000000000000000C0002 /* ScreenMonitor/ScreenMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ScreenMonitor/ScreenMonitor.swift"; sourceTree = "<group>"; };
+		0000000000000000000C0004 /* ScreenMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScreenMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		00000000000000000000000C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000020 /* MobileCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000A0023 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000A0022,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000A0026 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000C0007 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000004 = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000003D /* App/Assets.xcassets */,
+				000000000000000000000040 /* App/PhoneVoice.swift */,
+				000000000000000000000042 /* App/NightRoutine.swift */,
+				000000000000000000000044 /* App/OfflineBrain.swift */,
+				000000000000000000000046 /* App/PhoneSignals.swift */,
+				000000000000000000000048 /* App/FocusLock.swift */,
+				00000000000000000000003B /* App/TrackingViews.swift */,
+				000000000000000000000039 /* App/HealthView.swift */,
+				000000000000000000000037 /* App/PhoneSections.swift */,
+				000000000000000000000035 /* App/ConversationView.swift */,
+				000000000000000000000033 /* App/CloudLink.swift */,
+				000000000000000000000031 /* App/RemoteViews.swift */,
+				00000000000000000000002F /* App/PlanViews.swift */,
+				00000000000000000000002D /* App/PlannerStore.swift */,
+				00000000000000000000002B /* App/PhoneTheme.swift */,
+				000000000000000000000029 /* App/PhoneTodayReader.swift */,
+				000000000000000000000027 /* App/PhoneHTTPReadSession.swift */,
+				000000000000000000000025 /* App/PairingApprovalView.swift */,
+				000000000000000000000023 /* App/PhoneDeviceIdentity.swift */,
+				000000000000000000000006 /* App/OrionMobileApp.swift */,
+				000000000000000000000007 /* AppUITests/PhoneShellTests.swift */,
+				000000000000000000000005 /* Products */,
+				0000000000000000000A0001,
+				0000000000000000000A0002,
+				0000000000000000000A0003,
+				0000000000000000000A0004,
+				0000000000000000000A0005,
+				0000000000000000000A0006,
+				0000000000000000000A0007,
+				0000000000000000000A0008,
+				0000000000000000000A0009,
+				0000000000000000000A000A,
+				0000000000000000000A000B,
+				0000000000000000000A000C,
+				0000000000000000000A000D,
+				0000000000000000000A000E,
+				0000000000000000000C0001,
+				0000000000000000000C0002,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000008 /* OrionPhone.app */,
+				000000000000000000000009 /* OrionPhoneUITests.xctest */,
+				0000000000000000000A000F,
+				0000000000000000000A0010,
+				0000000000000000000C0004,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000002 /* OrionPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000015 /* Build configuration list for PBXNativeTarget "OrionPhone" */;
+			buildPhases = (
+				00000000000000000000000A /* Sources */,
+				00000000000000000000000C /* Frameworks */,
+				00000000000000000000003F /* Resources */,
+				0000000000000000000A0031,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0000000000000000000A0033,
+				0000000000000000000A0035,
+				0000000000000000000C000E,
+			);
+			name = OrionPhone;
+			packageProductDependencies = (
+				00000000000000000000001F /* MobileCore */,
+			);
+			productName = OrionPhone;
+			productReference = 000000000000000000000008 /* OrionPhone.app */;
+			productType = "com.apple.product-type.application";
+		};
+		000000000000000000000003 /* OrionPhoneUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000016 /* Build configuration list for PBXNativeTarget "OrionPhoneUITests" */;
+			buildPhases = (
+				00000000000000000000000B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000022 /* PBXTargetDependency */,
+			);
+			name = OrionPhoneUITests;
+			productName = OrionPhoneUITests;
+			productReference = 000000000000000000000009 /* OrionPhoneUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		0000000000000000000A002D /* OrionWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0000000000000000000A0029;
+			buildPhases = (
+				0000000000000000000A001E,
+				0000000000000000000A0023,
+				0000000000000000000A0020,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OrionWidgets;
+			packageProductDependencies = (
+				0000000000000000000A0021,
+			);
+			productName = OrionWidgets;
+			productReference = 0000000000000000000A000F;
+			productType = "com.apple.product-type.app-extension";
+		};
+		0000000000000000000A002E /* OrionNotify */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0000000000000000000A002C;
+			buildPhases = (
+				0000000000000000000A0025,
+				0000000000000000000A0026,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OrionNotify;
+			packageProductDependencies = (
+			);
+			productName = OrionNotify;
+			productReference = 0000000000000000000A0010;
+			productType = "com.apple.product-type.app-extension";
+		};
+		0000000000000000000C000B /* ScreenMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0000000000000000000C000A;
+			buildPhases = (
+				0000000000000000000C0006,
+				0000000000000000000C0007,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScreenMonitor;
+			productName = ScreenMonitor;
+			productReference = 0000000000000000000C0004;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					000000000000000000000003 = {
+						TestTargetID = 000000000000000000000002;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000014 /* Build configuration list for PBXProject "OrionMobile" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000004;
+			packageReferences = (
+				00000000000000000000001E /* XCLocalSwiftPackageReference "." */,
+			);
+			productRefGroup = 000000000000000000000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000002 /* OrionPhone */,
+				000000000000000000000003 /* OrionPhoneUITests */,
+				0000000000000000000A002D,
+				0000000000000000000A002E,
+				0000000000000000000C000B,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		00000000000000000000003F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000003E /* App/Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000A0020 = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000A001F,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		00000000000000000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000000D /* App/OrionMobileApp.swift in Sources */,
+				000000000000000000000024 /* App/PhoneDeviceIdentity.swift in Sources */,
+				000000000000000000000026 /* App/PairingApprovalView.swift in Sources */,
+				000000000000000000000028 /* App/PhoneHTTPReadSession.swift in Sources */,
+				00000000000000000000002A /* App/PhoneTodayReader.swift in Sources */,
+				00000000000000000000002C /* App/PhoneTheme.swift in Sources */,
+				00000000000000000000002E /* App/PlannerStore.swift in Sources */,
+				000000000000000000000030 /* App/PlanViews.swift in Sources */,
+				000000000000000000000032 /* App/RemoteViews.swift in Sources */,
+				000000000000000000000034 /* App/CloudLink.swift in Sources */,
+				000000000000000000000036 /* App/ConversationView.swift in Sources */,
+				000000000000000000000038 /* App/PhoneSections.swift in Sources */,
+				00000000000000000000003A /* App/HealthView.swift in Sources */,
+				00000000000000000000003C /* App/TrackingViews.swift in Sources */,
+				000000000000000000000041 /* App/PhoneVoice.swift in Sources */,
+				000000000000000000000043 /* App/NightRoutine.swift in Sources */,
+				000000000000000000000045 /* App/OfflineBrain.swift in Sources */,
+				000000000000000000000047 /* App/PhoneSignals.swift in Sources */,
+				000000000000000000000049 /* App/FocusLock.swift in Sources */,
+				0000000000000000000A0011,
+				0000000000000000000A0012,
+				0000000000000000000A0013,
+				0000000000000000000A0014,
+				0000000000000000000B0001,
+				0000000000000000000B0002,
+				0000000000000000000C0003,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		00000000000000000000000B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000000E /* AppUITests/PhoneShellTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000A001E = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000A0015,
+				0000000000000000000A0016,
+				0000000000000000000A0017,
+				0000000000000000000A0018,
+				0000000000000000000A0019,
+				0000000000000000000A001A,
+				0000000000000000000A001B,
+				0000000000000000000A001C,
+				0000000000000000000A001D,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000A0025 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000A0024,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000C0006 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000C0005,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		000000000000000000000022 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000002 /* OrionPhone */;
+			targetProxy = 000000000000000000000021 /* PBXContainerItemProxy */;
+		};
+		0000000000000000000A0033 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0000000000000000000A002D;
+			targetProxy = 0000000000000000000A0032;
+		};
+		0000000000000000000A0035 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0000000000000000000A002E;
+			targetProxy = 0000000000000000000A0034;
+		};
+		0000000000000000000C000E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0000000000000000000C000B;
+			targetProxy = 0000000000000000000C000D;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0000000000000000000A0031 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0000000000000000000A002F,
+				0000000000000000000A0030,
+				0000000000000000000C000C,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000017 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000018 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		000000000000000000000019 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/OrionPhone.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "App/OrionPhone-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Orion;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "ORION shows your day hour by hour and adds or edits events in Apple Calendar when you ask.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "ORION shows and edits your to-dos in Apple Reminders, so they stay in sync on every device.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ORION listens when you tap the mic so you can talk to him instead of typing.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ORION turns what you say into a message on this iPhone, so you can talk to him by voice.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "When you turn on Signals, ORION notes whether you're still, walking or travelling, to learn your real routine.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "When you turn on Signals, ORION notes roughly where you are (to about 100 m) to learn your routine.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "With Signals on, ORION notices when you get somewhere — like home late at night — so it can move your alarm and plan tomorrow around it. Location is rounded to about 100 m.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		00000000000000000000001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/OrionPhone.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "App/OrionPhone-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Orion;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "ORION shows your day hour by hour and adds or edits events in Apple Calendar when you ask.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "ORION shows and edits your to-dos in Apple Reminders, so they stay in sync on every device.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ORION listens when you tap the mic so you can talk to him instead of typing.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ORION turns what you say into a message on this iPhone, so you can talk to him by voice.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "When you turn on Signals, ORION notes whether you're still, walking or travelling, to learn your real routine.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "When you turn on Signals, ORION notes roughly where you are (to about 100 m) to learn your routine.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "With Signals on, ORION notices when you get somewhere — like home late at night — so it can move your alarm and plan tomorrow around it. Location is rounded to about 100 m.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		00000000000000000000001B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = OrionPhone;
+			};
+			name = Debug;
+		};
+		00000000000000000000001C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = OrionPhone;
+			};
+			name = Release;
+		};
+		0000000000000000000A0027 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "../OrionWidgets/iOS/OrionWidgets.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "../OrionWidgets/iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = ORION;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		0000000000000000000A0028 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "../OrionWidgets/iOS/OrionWidgets.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "../OrionWidgets/iOS/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = ORION;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		0000000000000000000A002A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Notify/OrionNotify.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Notify/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ORION;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.notify;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		0000000000000000000A002B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Notify/OrionNotify.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Notify/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ORION;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.notify;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		0000000000000000000C0008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ScreenMonitor/ScreenMonitor.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScreenMonitor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ORION;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.screenmonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		0000000000000000000C0009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ScreenMonitor/ScreenMonitor.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JQNK3T6ACY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScreenMonitor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ORION;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nickmadaio.orion.phone.screenmonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000014 /* Build configuration list for PBXProject "OrionMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000017 /* Debug */,
+				000000000000000000000018 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000015 /* Build configuration list for PBXNativeTarget "OrionPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000019 /* Debug */,
+				00000000000000000000001A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000016 /* Build configuration list for PBXNativeTarget "OrionPhoneUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00000000000000000000001B /* Debug */,
+				00000000000000000000001C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0000000000000000000A0029 /* Build configuration list for PBXNativeTarget "OrionWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0000000000000000000A0027,
+				0000000000000000000A0028,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0000000000000000000A002C /* Build configuration list for PBXNativeTarget "OrionNotify" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0000000000000000000A002A,
+				0000000000000000000A002B,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0000000000000000000C000A /* Build configuration list for PBXNativeTarget "ScreenMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0000000000000000000C0008,
+				0000000000000000000C0009,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		00000000000000000000001E /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		00000000000000000000001F /* MobileCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 00000000000000000000001E /* XCLocalSwiftPackageReference "." */;
+			productName = MobileCore;
+		};
+		0000000000000000000A0021 /* MobileCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 00000000000000000000001E;
+			productName = MobileCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}

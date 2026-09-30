@@ -2738,6 +2738,39 @@ expect(!JournalExtractor.containsPhrase("a runny nose", "run"), "and 'runny' is 
 expect(!JournalExtractor.containsPhrase("the team meeting", "tea"), "'team' is not 'tea'")
 expect(!JournalExtractor.containsPhrase("went through it", "rough"), "'through' is not 'rough'")
 
+// -- day layout ------------------------------------------------------------
+
+section("day layout")
+do {
+    var london = Calendar(identifier: .gregorian)
+    london.timeZone = TimeZone(identifier: "Europe/London")!
+    let day = london.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 0))!
+    let at = { (hour: Double) in day.addingTimeInterval(hour * 3600) }
+    let slots = [
+        DaySlot(id: "a", start: at(9), end: at(10)),
+        DaySlot(id: "b", start: at(9.5), end: at(11)),     // overlaps a
+        DaySlot(id: "c", start: at(10), end: at(10.5)),    // fits under a, beside b
+        DaySlot(id: "d", start: at(12), end: at(13)),      // alone
+    ]
+    let placed = DayLayout.place(slots, rangeStart: at(8), hours: 14)
+    let byId = Dictionary(uniqueKeysWithValues: placed.map { ($0.id, $0) })
+    expect(byId["a"]?.top == 60 && byId["a"]?.height == 60, "an item sits at its minutes from the top of the range")
+    expect(byId["a"]?.columns == 2 && byId["b"]?.columns == 2 && byId["c"]?.columns == 2,
+           "a cluster of overlapping items shares one column count")
+    expect(byId["a"]?.column != byId["b"]?.column, "overlapping items never share a column")
+    expect(byId["c"]?.column == byId["a"]?.column, "a later item reuses a column that has freed up")
+    expect(byId["d"]?.columns == 1, "an item on its own takes the full width")
+    let clipped = DayLayout.place([DaySlot(id: "e", start: at(7), end: at(9))], rangeStart: at(8), hours: 14)
+    expect(clipped.first?.top == 0 && clipped.first?.height == 60, "an item starting before the range is clipped to it")
+    expect(DayLayout.place([DaySlot(id: "f", start: at(1), end: at(2))], rangeStart: at(8), hours: 14).isEmpty,
+           "an item wholly outside the range is not drawn")
+    expect(DaySlot(id: "g", start: at(9), end: at(9)).end == at(9.25), "a zero-length item still gets a visible sliver")
+    let range = DayLayout.visibleHours(for: slots, on: day, calendar: london)
+    expect(range.start == at(7) && range.hours == 15, "the default 07:00–22:00 range widens only when items fall outside it")
+    let late = DayLayout.visibleHours(for: [DaySlot(id: "h", start: at(22.5), end: at(23.5))], on: day, calendar: london)
+    expect(late.start == at(7) && late.hours == 17, "a late item extends the range to an hour past it")
+}
+
 // -- result ----------------------------------------------------------------
 
 print("\n\(checked) checks, \(failures.count) failed")

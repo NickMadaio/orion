@@ -9,6 +9,14 @@
 - Voice ID floor 0.45 lets synthetic voices through (0.49/0.58); Nick's short wake scores ~0.50 → needs re-enrollment with short "Orion" phrases before the bar can rise.
 - Nick to do: Canvas (domain + token), Gmail re-grant, voice re-enroll, choose Focus-lock apps if not done, turn Focus lock on for locking.
 
+## 2026-09-30 10:24 BST — Backlog committed and pushed; commute buffer; Nick's day planned; ORION truthful project
+
+- **GitHub is current.** The mixed dirty tree was secret-scanned: no keys; the only hits were refusal-test fixtures. It was then committed in ten grouped commits (agentic runtime, plans, life loop, chat path, voice, plugin, Mac, phone, docs, README). `orion-v2/backlog-checkpoint` was pushed and `main` fast-forwarded to it. README rewritten around the live stack; repo description updated. New standing rule in AGENTS.md: commit and push finished work, including `main`.
+- **Commute buffer.** `scripts/lib/life/commute.mjs` walls off 30 min (`commuteMinutes` in config) before the first class and after the last. Used by `orion-reschedule` and by the short-night nap in `orion-watch`. Tests: `tests/life-commute.test.mjs`.
+- **Nick's 09:34 to-do request, done by hand.** Movable blocks: fix Orion stuff 14:00, finish resume 15:00, internship applications 16:30, study (optional) 21:00, plus gym, dinner and side project. Four reminders were created. The nap was moved to 13:00, after the commute.
+- **Qwen project "ORION truthful"** (`docs/agentic/plans/orion-truthful.md`, 5 tasks, lint clean, imported as project-37a62c0e): to-do parser, session-trace + expectTools grader, reply-time checker, notification triage/digest, 150-scenario catalog.
+- **Claude next:** wire those in; to-do path (reminders + movable blocks + SAY line); Claude API for the phone's offline brain instead of the local model; run the 150 scenarios; notification gate (ORION Focus + Mac reader of mirrored notifications); AppleScript runner with an app allowlist; ignore the wake word during classes.
+
 ## 2026-09-29 21:12 BST — Tighten list; Qwen project "Tighten ORION" imported; last fixes (Claude)
 
 - Full list: `docs/planning/v2/TIGHTEN_LIST_2026-09-29.md` (fixed today / Qwen / Claude next / Nick).

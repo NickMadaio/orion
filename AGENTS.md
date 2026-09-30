@@ -137,12 +137,17 @@ The reviewer sees code and source requirements, but should not be primed with
 the implementer's conclusion. Full procedure and the existing mixed-backlog
 recovery plan are in the Phase 32.5 charter, section 6.
 
-This is standing authorization for local checkpoints of future implementation
-batches Nick asks to run after their review gates pass; do not ask again for the
-same checkpoint. It is not permission to sweep the existing mixed dirty tree
-into a commit or push to a remote. Separate unrelated work and record local
-commit versus verified remote backup explicitly. Record remaining user decisions
-and refresh the handoff before yielding; do not commit after every response.
+**Commit and push every finished piece of work (Nick, 2026-09-30).** ORION's
+GitHub repo is on Nick's resume, so `main` must always reflect the real state.
+When a unit of work is finished and its tests pass: scan the staged diff for
+secrets, commit it in logical groups with conventional messages (`feat(life):`,
+`fix(remote):`, `docs:` …) whose body says what changed and why, then push the
+working branch AND fast-forward `main` (`git push origin HEAD:main`; never
+force). Update README.md when the architecture or capabilities change, and add
+a HANDOFF.md entry. No Co-Authored-By lines. Do not commit half-finished work
+or after every response; do not leave finished work sitting uncommitted.
+(On 2026-09-30 the whole backlog was committed in ten grouped commits and
+`main` fast-forwarded to faf8d4e, so the tree starts clean.)
 
 **Check the date, do not infer it.** A long session can span days, and file
 mtimes tell you when something was last touched, not when today is. Run `date`

@@ -63,7 +63,10 @@ def _first_group(path: Path, pattern: str, label: str) -> str:
 
 def probe_openclaw(contract: ModelRoleContract) -> list[Finding]:
     if not OPENCLAW_CONFIG.exists():
-        return [Finding("reasoning", str(OPENCLAW_CONFIG), "-", "<config not found>")]
+        # A CI runner has no OpenClaw install. That is "not checked here", not
+        # drift; the binding is checked on the Mac by orion_v2_ci_check.sh.
+        print(f"  SKIP  reasoning  {OPENCLAW_CONFIG} absent on this machine — checked on the Mac")
+        return []
     config = json.loads(OPENCLAW_CONFIG.read_text(encoding="utf-8"))
     defaults = config.get("agents", {}).get("defaults", {})
     model = defaults.get("model", {})

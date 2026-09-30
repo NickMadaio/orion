@@ -5,6 +5,20 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-09-30 20:37 BST — Repository cleanup for readers; CI green again
+
+- **Why:** Nick is putting the repo on his resume. An interviewer's first two impressions were clutter and a red CI badge (red since 3 September).
+- **Moved out of the repo** to `~/Desktop/ORION-archive/2026-09-30/` (nothing deleted; all still in git history): `native/health-log-race`, `docs/handoffs/briefs-research-2026-09-23`, `tests/workspace/artifacts`, `docs/planning/_archive`. `var/brain` (personal Obsidian vault) is untracked and gitignored; it stays on disk where `orion-note` writes. `capabilities.md` → `docs/vision/original-wishlist.md`. Added `docs/README.md` index and a repository map in `README.md`.
+- **Kept on purpose:** `orion/` (the Python policy engine and capability registry: the deploy's registry builder and the CI contract checks import it) and `backend/` (v1 phone backend; the schema and sync checks and its tests import it). README describes both honestly.
+- **CI fixes:**
+  - four sandbox-exec terminal tests are macOS-only (`it.skipIf`);
+  - remote-agent fixtures now copy `scripts/lib`;
+  - automation-install passes its fixed `NOW` instead of a 2026-09-27 expiry against the real clock;
+  - inventory and deferred checks read the committed build via `ORION_CATALOG_DIST`;
+  - the model-contract check SKIPs (not DRIFT) when there is no OpenClaw config;
+  - rule 20 no longer flags `supplement_remove` (a health-log edit, not a calendar cancellation).
+- **Proof:** all Node tests pass (746/746). Every CI step passes locally with `HOME` pointing at an empty directory to mimic a runner. Rule 5 (`raw_terminal` exists) is still reported, as before; CI marks that step continue-on-error.
+
 ## 2026-09-30 12:36 BST — Schedule replacement repaired and live day recovered (Codex)
 
 - **Observed failure, from the real phone session:** repeated `orion-reschedule day` calls added new requests on top of the existing movable plan. Untouched blocks stayed by design, so the requested replacement could not fit; repeated fixed additions created two Soccer practice events. `day --say` then crashed on a bare hour (`Assignment to constant variable`). The model finally fell back to generic `calendar_event_remove`, whose irreversible delete correctly required per-event approval, and then fabricated `A-XXXXX` ids instead of completing the schedule rewrite.

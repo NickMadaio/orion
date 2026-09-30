@@ -268,7 +268,11 @@ def no_whole_gmail_copy() -> tuple[bool, str]:
 def no_health_cancelling_commitments() -> tuple[bool, str]:
     code, actions = catalog_query(
         "Object.entries(ACTION_CATALOG).filter(([n, d]) => "
-        "d.capabilityTier === 'health_tracking' && /calendar|remove|delete|cancel/i.test(n + JSON.stringify(d.execution)))"
+        # Editing his own health log (supplement_remove) is not cancelling a commitment;
+        # anything naming the calendar, an event or a cancel still fails, and so does
+        # any remove/delete that leaves the health log (2026-09-30).
+        "d.capabilityTier === 'health_tracking' && (/calendar|event|cancel/i.test(n + JSON.stringify(d.execution)) "
+        "|| (d.execution.kind !== 'health_log' && /remove|delete/i.test(n + JSON.stringify(d.execution)))))"
         ".map(([n]) => n).join(',')"
     )
     if code != 0:

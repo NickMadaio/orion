@@ -391,13 +391,26 @@ export class ModelRuntime {
     for (const stranger of strangers) await unload(this.#config.endpoint, stranger.model);
     if (strangers.length) {
       // Verify rather than assume. An unload that did not take is how two large
-      // models end up resident and the machine starts swapping.
-      const after = await residentModels(this.#config.endpoint);
-      const remaining = after.filter(entry => entry.model !== spec.model);
+      // models end up resident and the machine starts swapping. But give it
+      // time: Ollama unloads asynchronously, and the ORION app reloads its own
+      // gpt-oss:20b now and then. Checking once, instantly, blocked a whole
+      // project on 2026-09-30 (three attempts spent in three seconds).
+      let remaining = strangers;
+      const deadline = Date.now() + (this.#config.evictWaitMs ?? 20_000);
+      for (;;) {
+        remaining = (await residentModels(this.#config.endpoint)).filter(entry => entry.model !== spec.model);
+        if (!remaining.length || Date.now() >= deadline) break;
+        for (const entry of remaining) await unload(this.#config.endpoint, entry.model);
+        await new Promise(resolve => setTimeout(resolve, this.#config.evictPollMs ?? 1_000));
+      }
       if (remaining.length) {
-        throw new ModelUnavailableError(
+        const error = new ModelUnavailableError(
           `could not evict ${remaining.map(entry => entry.model).join(', ')} before loading ${spec.model}; ` +
           'refusing to hold two large models on a 48 GiB machine');
+        // A machine problem, not the task failing: refund the attempt and let
+        // runtime recovery wait and retry instead of spending the task's tries.
+        error.recoverableRuntime = true;
+        throw error;
       }
     }
     this.#resident = spec.model;

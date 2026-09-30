@@ -36,20 +36,53 @@ export const clean = (title) => String(title).replace(/[\u0000-\u001f\u007f]/g, 
  Now `group` merges calls from one command into one entry, and empty changes
  are never recorded.
 */
-export async function applyPlan({ date, moves, created, blocksById, group = null }) {
-  const undo = [];
-  for (const m of moves) {
-    const block = blocksById.get(m.id);
-    if (!block?.calendarId) continue;
-    const length = block.end - block.start;
-    await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, m.to + length) });
-    undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
+async function reverseSteps(steps) {
+  const done = [];
+  for (const step of [...steps].reverse()) {
+    if (step.op === "move") {
+      await bridge("move_calendar_event", { identifier: step.identifier, start: step.start, end: step.end });
+      done.push(`put ${step.title} back`);
+    }
+    if (step.op === "create") {
+      await bridge("delete_calendar_event", { identifier: step.identifier }).catch(() => null);
+      done.push(`removed ${step.title}`);
+    }
+    if (step.op === "delete") {
+      const payload = { title: step.title, start: step.start, end: step.end };
+      if (step.orionKind) payload.orionKind = step.orionKind;
+      await bridge("create_calendar_event", payload);
+      done.push(`restored ${step.title}`);
+    }
   }
-  for (const c of created) {
-    const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end) };
-    if (!c.fixed) payload.orionKind = c.kind;   // Nick's own plans stay unmarked, so they never move
-    const result = await bridge("create_calendar_event", payload);
-    undo.push({ op: "create", identifier: result.identifier, title: payload.title });
+  return done;
+}
+
+export async function applyPlan({ date, moves, created, removed = [], blocksById, group = null }) {
+  const undo = [];
+  try {
+    for (const block of removed) {
+      if (!block?.calendarId) continue;
+      await bridge("delete_calendar_event", { identifier: block.calendarId });
+      undo.push({ op: "delete", title: block.title, start: iso(date, block.start), end: iso(date, block.end),
+        ...(block.source === "orion" ? { orionKind: block.kind } : {}) });
+    }
+    for (const m of moves) {
+      const block = blocksById.get(m.id);
+      if (!block?.calendarId) continue;
+      const length = block.end - block.start;
+      await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, m.to + length) });
+      undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
+    }
+    for (const c of created) {
+      const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end) };
+      if (!c.fixed) payload.orionKind = c.kind;   // Nick's own plans stay unmarked, so they never move
+      const result = await bridge("create_calendar_event", payload);
+      undo.push({ op: "create", identifier: result.identifier, title: payload.title });
+    }
+  } catch (error) {
+    try { await reverseSteps(undo); }
+    catch (rollbackError) { throw new Error(`${error.message}; rollback also failed: ${rollbackError.message}`); }
+    throw error;
   }
   if (!undo.length) return;
   mkdirSync(dirname(UNDO_FILE), { recursive: true });
@@ -68,11 +101,7 @@ export async function undoLast() {
   while (history.length && !(history.at(-1).steps ?? []).length) history.pop();
   const last = history.pop();
   if (!last) return [];
-  const done = [];
-  for (const step of [...last.steps].reverse()) {
-    if (step.op === "move") { await bridge("move_calendar_event", { identifier: step.identifier, start: step.start, end: step.end }); done.push(`put ${step.title} back`); }
-    if (step.op === "create") { await bridge("delete_calendar_event", { identifier: step.identifier }).catch(() => null); done.push(`removed ${step.title}`); }
-  }
+  const done = await reverseSteps(last.steps);
   writeFileSync(UNDO_FILE, JSON.stringify(history, null, 2));
   return done;
 }

@@ -31,7 +31,7 @@ export function classify(title) {
 
 /** Plans that involve someone else, or a place and a time: never moved by ORION. */
 export function isSocial(title) {
-  return /\bwith\b|\bfriends?\b|\bclub|party|bar\b|pub\b|date\b|meet(ing)?\b|appointment|doctor|dentist|interview|shift\b|flight|train\b|concert|gig\b|ministry of sound/i.test(title);
+  return /\bwith\b|\bfriends?\b|\bclub|party|bar\b|pub\b|date\b|meet(ing)?\b|appointment|doctor|dentist|interview|shift\b|flight|train\b|concert|gig\b|ministry of sound|\b(?:soccer|football|rugby|basketball|volleyball|team) practice\b/i.test(title);
 }
 
 /** Things he does alone that ORION may move when the day changes. */

@@ -7,6 +7,9 @@
 //   orion-reschedule day --plan "<title>, <min>, HH:MM, fixed" [--plan …] [--fill]
 //        everything he just told you, in ONE call: his plans go in first, then the blanks are filled
 //        around them (use this instead of several adds + fill — run in parallel they collide)
+//        add --replace when he explicitly says to redo/rebuild the whole schedule: every
+//        future non-class/deadline block is replaced in the same reversible transaction
+//   orion-reschedule clear [--date YYYY-MM-DD]                        clear future movable blocks
 //   orion-reschedule undo                                             put the last change back
 //   add --dry-run to any of them to see the plan without touching the calendar.
 // Only movable things move (study, gym, games, rest, groceries, chores, side
@@ -104,7 +107,7 @@ if (command === "late") {
   if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
   add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(before !== null ? { before } : {}), fixed });
 } else if (command === "day") {
-  if (!planArgs.length && !said.length && !args.includes("--fill")) fail('usage: orion-reschedule day --say "<his words>" [--fill]  (or --plan "<title>, <min>, HH:MM, fixed" …)');
+  if (!planArgs.length && !said.length && !args.includes("--fill")) fail('usage: orion-reschedule day --say "<his words>" [--fill] [--replace]  (or --plan "<title>, <min>, HH:MM, fixed" …)');
   for (const p of said.filter((item) => item.date === date)) {
     const title = clean(p.title);
     const fixed = p.fixed && p.start !== null;
@@ -125,6 +128,10 @@ if (command === "late") {
     if (fixed && when === null) fail(`"${title}" is a fixed plan and needs a time`);
     add.push({ title, kind: classify(title), minutes: n, ...(when !== null ? { at: when } : {}), fixed });
   }
+} else if (command === "clear") {
+  // The generic calendar-delete action is deliberately approval-gated. This is
+  // different: it only removes the day's future movable planning blocks, records
+  // every event for undo, and never touches classes, deadlines or plans with people.
 } else if (command === "fill") {
   const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => []);
   const dayMs = 86400000; const base = new Date(`${date}T00:00:00`).getTime();
@@ -134,17 +141,27 @@ if (command === "late") {
   add.push(...fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) }));
   if (!add.length) { console.log("Nothing to add: the day already has what it needs, and the rest stays free."); process.exit(0); }
 } else {
-  fail("usage: orion-reschedule late|busy|add|day|fill|undo  (see the header)");
+  fail("usage: orion-reschedule late|busy|add|day|clear|fill|undo  (see the header)");
 }
+
+const replaceDay = command === "day" && args.includes("--replace");
+const clearMovable = command === "clear";
+const removed = replaceDay || clearMovable
+  ? blocks.filter((block) => block.end > nowMinute
+      && block.kind !== "class" && block.kind !== "deadline"
+      && (replaceDay || !block.fixed))
+  : [];
+const removedIds = new Set(removed.map((block) => block.id));
+const planningBlocks = blocks.filter((block) => !removedIds.has(block.id));
 
 // Two fixed plans at the same time is his call, not ours: say so.
 const fixedNew = add.filter((a) => a.fixed && Number.isInteger(a.at));
-const clashes = fixedNew.flatMap((a, i) => [...fixedNew.slice(i + 1), ...blocks.filter((b) => b.fixed)]
+const clashes = fixedNew.flatMap((a, i) => [...fixedNew.slice(i + 1), ...planningBlocks.filter((b) => b.fixed)]
   .filter((b) => (b.at ?? b.start) < a.at + a.minutes && a.at < (b.at ?? b.start) + (b.minutes ?? (b.end - b.start)))
   .map((b) => `${a.title} overlaps ${b.title}`));
 // Travel to and from campus is not free time (a nap landed at 12:30, the minute class ended).
-blocked.push(...commuteWalls(blocks, config));
-let result = replan(blocks, { now: nowMinute, window, blocked, add });
+blocked.push(...commuteWalls(planningBlocks, config));
+let result = replan(planningBlocks, { now: nowMinute, window, blocked, add });
 if (command === "day" && args.includes("--fill")) {
   // His plans are now in place; fill around them without moving any of them.
   const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => []);
@@ -159,18 +176,19 @@ if (command === "day" && args.includes("--fill")) {
 }
 const byId = new Map(blocks.map((b) => [b.id, b]));
 const lines = [
+  ...(removed.length ? [`cleared ${removed.length} prior schedule block${removed.length === 1 ? "" : "s"}: ${removed.map((b) => b.title).join(", ")}`] : []),
   ...result.moves.map((m) => `moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`),
   ...result.created.map((c) => `${c.fixed ? "added (fixed)" : "planned"} ${c.title}: ${hhmm(c.start)}–${hhmm(c.end)}`),
   ...result.unplaced.map((u) => `NOT BOOKED: ${u.title} (${u.minutes} min) did not fit on ${dayName} — ask whether to drop it or put it on another day (--date YYYY-MM-DD)`),
   ...clashes.map((c) => `CLASH: ${c} — ask him which one is right`),
 ];
 if (!lines.length) { console.log("Nothing needed to move."); process.exit(0); }
-if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, removed, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 // 2026-09-29: "could not fit side project today" came back and ORION told Nick
 // it was booked for Wednesday. The headline now says what was and was not written.
 for (const p of otherDays) lines.push(`NOT BOOKED: ${p.title} is on ${p.date} — run again with --date ${p.date} --say "${p.title}${p.start !== null ? ` at ${hhmm(p.start)}` : ""}"`);
 if (said.length) lines.push(`(read from his words: ${said.map((p) => `${p.title} ${p.date}${p.start !== null ? ` ${hhmm(p.start)}` : ""} ${p.minutes} min${p.assumed.length ? ` [assumed ${p.assumed.join(", ")}]` : ""}`).join("; ")})`);
-const written = result.moves.length + result.created.length;
+const written = removed.length + result.moves.length + result.created.length;
 if (!written) console.log(`NOTHING WAS BOOKED on ${dayName} (${date}). Do not tell him anything was added or moved.`);
 console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
 for (const l of lines) console.log(`  ${l}`);

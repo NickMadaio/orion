@@ -15,7 +15,9 @@ access.
   and deadlines, then replans when something runs late. It fills empty time
   according to priorities: classes, then sleep, gym, study, side projects, rest.
   It ramps study time before exams, leaves a commute buffer around classes, and
-  adds a nap after a short night. Every change is journaled so it can be undone.
+  adds a nap after a short night. A complete replacement request clears stale
+  non-class/deadline blocks before writing the new day as one transaction.
+  Every change is journaled so it can be undone.
 - **Talks naturally.** Voice uses a wake word, speaker verification and
   self-echo guards, with local text-to-speech. Chat is available from the phone,
   Discord and iMessage.

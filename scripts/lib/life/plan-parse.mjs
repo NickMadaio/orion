@@ -51,7 +51,8 @@ function hasTimeOrActivity(s) {
     "groceries", "laundry", "clean", "errand", "haircut", "dinner", "lunch",
     "breakfast", "meal", "party", "club", "drinks", "date", "meet", "friends",
     "side project", "vlog", "video", "youtube", "editing", "nap", "rest", "break",
-    "lecture", "seminar", "lab", "class", "meal prep", "clean"
+    "lecture", "seminar", "lab", "class", "meal prep", "clean",
+    "soccer practice", "football practice", "team practice"
   ];
   for (const a of activities) {
     if (lower.includes(a)) return true;
@@ -109,14 +110,14 @@ function parseTime(token) {
   const lower = token.toLowerCase();
 
   // "from X till Y" / "X-Y" / "X to Y"
-  let m = lower.match(/\b(from\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(till|to|-)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  let m = lower.match(/\b(from\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(till|to)\s+|\s*(-)\s*)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
   if (m) {
     const startH = parseInt(m[2], 10);
     const startM = m[3] ? parseInt(m[3], 10) : 0;
     const startAmPm = m[4] ? m[4].toLowerCase() : null;
-    const endH = parseInt(m[6], 10);
-    const endM = m[7] ? parseInt(m[7], 10) : 0;
-    const endAmPm = m[8] ? m[8].toLowerCase() : null;
+    const endH = parseInt(m[7], 10);
+    const endM = m[8] ? parseInt(m[8], 10) : 0;
+    const endAmPm = m[9] ? m[9].toLowerCase() : null;
 
     const startMin = toMinutes(startH, startM, startAmPm);
     const endMin = toMinutes(endH, endM, endAmPm);
@@ -167,7 +168,7 @@ function resolveBareHour(h, kind, clauseLower, now) {
   if (h >= 7 && h <= 11) {
     const isSocialOrDinner = kind === "social" || clauseLower.includes("dinner");
     const isTonightEvening = clauseLower.includes("tonight") || clauseLower.includes("evening");
-    const passedToday = now.date && h * 60 > now.minute;
+    const passedToday = now.date && h * 60 <= now.minute;
     if (isSocialOrDinner || isTonightEvening || passedToday) {
       return h + 12;
     }
@@ -200,7 +201,7 @@ function parseDuration(token) {
 
 function detectKind(clauseLower) {
   // Check in priority order as specified
-  const socialWords = ["with", "friends", "party", "club", "drinks", "date", "meet"];
+  const socialWords = ["with", "friends", "party", "club", "drinks", "date", "meet", "soccer practice", "football practice", "team practice"];
   const mealWords = ["dinner", "lunch", "breakfast", "meal prep", "meal"];
   const gymWords = ["gym", "run", "workout", "lift"];
   const studyWords = ["study", "revise", "homework", "problem set", "reading"];
@@ -237,13 +238,10 @@ function extractTitle(clause) {
   let title = clause.replace(/^\s*(?:(?:and|then|also|but|so|plus)\s+)*(?:(?:before|after)\s+(?:that|this|class|lunch|dinner)\s*,?\s*)?/i, "");
 
   // Remove time expressions — "from X till Y" range first, then individual times
-  title = title.replace(/\b(?:from\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:till|to|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, "");
+  title = title.replace(/\b(?:from\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?:\s+(?:till|to)\s+|\s*-\s*)\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, "");
   title = title.replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, "");
   title = title.replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, "");
   title = title.replace(/\b(noon|midnight)\b/gi, "");
-  // bare numbers that look like hours (standalone digits) — remove carefully
-  title = title.replace(/\b\d{1,2}\b/g, "");
-
   // Remove date expressions
   title = title.replace(/\b(?:today|tonight|tomorrow|tmrw)\b/gi, "");
   title = title.replace(/\bnext\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, "");
@@ -254,6 +252,9 @@ function extractTitle(clause) {
   title = title.replace(/\b(?:for\s+)?(?:like\s+)?\d+\s*(?:minutes?|mins?)\b/gi, "");
   title = title.replace(/\bfor\s+an?\s+hour\b/gi, "");
   title = title.replace(/\b\d+\s+hours?\b/gi, "");
+
+  // Any number left after time ranges and durations were removed is a bare hour.
+  title = title.replace(/\b\d{1,2}\b/g, "");
 
   // Remove "after X", "this afternoon/evening" (anywhere in string)
   title = title.replace(/\bafter\s+(?:class|lunch|work|school|breakfast|dinner|noon)\b/gi, "");
@@ -273,7 +274,7 @@ function extractTitle(clause) {
   title = title.replace(/^\s*to\s+/i, "");
 
   // Trim whitespace and punctuation artifacts
-  title = title.replace(/^[,\s]+|[,\\s]+$/g, "").trim();
+  title = title.replace(/^[,;\s-]+|[,;\s-]+$/g, "").trim();
 
   // Collapse multiple spaces
   title = title.replace(/\s{2,}/g, " ").trim();
@@ -292,7 +293,8 @@ function hasActivityWords(clauseLower) {
     "groceries", "laundry", "clean", "errand", "haircut", "dinner", "lunch",
     "breakfast", "meal", "party", "club", "drinks", "date", "meet", "friends",
     "side project", "vlog", "video", "youtube", "editing", "nap", "rest", "break",
-    "lecture", "seminar", "lab", "class", "meal prep"
+    "lecture", "seminar", "lab", "class", "meal prep",
+    "soccer practice", "football practice", "team practice"
   ];
   for (const kw of activityKeywords) {
     if (clauseLower.includes(kw)) return true;
@@ -406,14 +408,14 @@ function extractDateToken(lower, now) {
 
 function extractTimeInfo(lower, kind, now) {
   // "from X till Y" / "X-Y" / "X to Y"
-  let m = lower.match(/\b(from\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(till|to|-)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  let m = lower.match(/\b(from\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(till|to)\s+|\s*(-)\s*)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
   if (m) {
     let startH = parseInt(m[2], 10);
     const startM = m[3] ? parseInt(m[3], 10) : 0;
     const startAmPm = m[4] ? m[4].toLowerCase() : null;
-    let endH = parseInt(m[6], 10);
-    const endM = m[7] ? parseInt(m[7], 10) : 0;
-    const endAmPm = m[8] ? m[8].toLowerCase() : null;
+    let endH = parseInt(m[7], 10);
+    const endM = m[8] ? parseInt(m[8], 10) : 0;
+    const endAmPm = m[9] ? m[9].toLowerCase() : null;
 
     const rawStart = startH;
     const rawEnd = endH;
@@ -463,7 +465,7 @@ function extractTimeInfo(lower, kind, now) {
   // Check for bare number that looks like an hour
   m = lower.match(/\b(\d{1,2})\b/);
   if (m) {
-    const h = parseInt(m[1], 10);
+    let h = parseInt(m[1], 10);
     if (h >= 1 && h <= 23) {
       h = resolveBareHour(h, kind, lower, now);
       return { start: h * 60, minutes: null };

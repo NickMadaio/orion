@@ -5,6 +5,25 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 00:40 BST — ORION can see and ease the phone's app lock
+
+- **Why:** at 00:24 Nick asked ORION from the phone "can you pretty please unblock my apps just until 12:45". ORION checked `orion-focus` (the Mac's timer) and said nothing was locked. The lock lives on the phone (Screen Time), and the Mac had no view of it.
+- **Phone → Mac:** a new `LinkLog.screen(at, locked, until, why, graceUntil)`, sent before every chat message and after a grant. The helper's `TrackingLog` stores it as `phoneScreen` (latest) plus `screenLog` (history) in the health log.
+- **Mac → phone:** `LinkSnapshot.screenGrant` (id, until, because), from `~/.openclaw/orion-controlled/screen-grant.json` via `SnapshotReader.screenGrant`.
+  - The phone's `FocusLock.grant` lifts the shield, sets `graceUntil`, and starts a DeviceActivity "grace" interval ending at `until`.
+  - `ScreenMonitor.intervalDidEnd("grace")` re-shields if the lock window still runs, even with ORION closed.
+  - A lock threshold inside a grace period is noted but not applied. The grant also arrives through background refresh.
+- **Fixed along the way:** the Screen Time monitor never set `orion.screen.lockedBy`, so the end of a work window could not unlock. And the app read the lock from standard defaults, while the monitor wrote to the app group.
+- **`scripts/orion-phone-time`:** `status | grant <min|HH:MM> --because | revoke`, max 60 minutes. It is allowlisted, has a TOOLS blurb and AGENTS guidance (decide like a friend; past bedtime prefer 10–20 minutes; talk to him, not about him). `orion-remote` adds the lock line to live facts.
+- **`orion-remote` live facts:** the day guidance is replaced with tonight's rules (`--plan` in his order, no invented times, drop/overrun/add), and the watch question only shows when under 6 hours old.
+- **Tests:** `phone-time` (5), LinkCore +3 (28 in total), MobileCore 41 pass, 789 Node tests, ci check OK. Live eval `orion-eval-phonelock-0034`, with a simulated "locked until 7:15, night" report:
+  - the vague ask was refused, with 10 minutes offered for a reason;
+  - 2 hours was refused;
+  - "reply to my mom about flights, 10 min" was granted until 12:45 with the reason recorded.
+  - The test state and the grant were removed afterwards.
+- **Deployed:** Orion.app with the new ORION Link helper (DR 171a72ab; previous copy at `/Applications/.Orion-previous-*-phonelock.app`). The helper restarted 00:36 and is connected.
+- **PENDING:** the phone build (markers, 105-minute ready time, lock reporting, grants) is not installed. The device reported error 4016 (locked). Until it is installed, `orion-phone-time status` says Unknown, and grants wait for the phone.
+
 ## 2026-10-01 00:04 BST — Wake / asleep-by markers; one to-do list; optional workshops removed
 
 - **Markers.** The Mac day view (Tasks → Day) and the phone day view draw a dashed "Wake" line and an "Asleep by" line.

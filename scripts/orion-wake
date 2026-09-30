@@ -1,0 +1,34 @@
+#!/usr/bin/env node
+// orion-wake — set tomorrow's wake-up alarm on Nick's iPhone (2026-09-29).
+//   orion-wake 07:30     the next 07:30 (today if still ahead, else tomorrow)
+//   orion-wake clear     back to the automatic alarm (first class − get-ready time)
+//   orion-wake           what is set
+// Asked "wake me up at 7:30", ORION said "Done" and nothing happened. The alarm
+// lives on the phone (AlarmKit); this leaves the request where the phone link
+// publishes it, and the phone sets the real alarm and reports back.
+import { readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+const dir = join(homedir(), ".openclaw/orion-controlled");
+const file = join(dir, "wake-request.json");
+const ack = join(homedir(), "Library/Application Support/ORION Link/status.json");
+const arg = process.argv[2];
+const read = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
+if (!arg) {
+  const current = read(file);
+  console.log(current ? `Wake-up set for ${new Date(current.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })} (asked ${current.setAt}).` : "No manual wake-up; the phone uses the automatic one (first class minus get-ready time).");
+  process.exit(0);
+}
+if (arg === "clear") { rmSync(file, { force: true }); console.log("Cleared. The phone goes back to the automatic wake-up."); process.exit(0); }
+const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(arg);
+if (!m) { console.error("usage: orion-wake HH:MM | clear"); process.exit(2); }
+const at = new Date(); at.setHours(Number(m[1]), Number(m[2]), 0, 0);
+if (at <= new Date()) at.setDate(at.getDate() + 1);
+mkdirSync(dir, { recursive: true });
+writeFileSync(file, JSON.stringify({ at: at.toISOString(), setAt: new Date().toISOString() }));
+const link = read(ack);
+const fresh = link?.writtenAt && Date.now() - Date.parse(link.writtenAt) < 120_000;
+const when = at.toLocaleString("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit" });
+console.log(fresh
+  ? `Sent to Nick's iPhone: alarm for ${when}. The phone sets it the next time ORION refreshes there (within seconds if the app is open, otherwise when he next opens it). Tell him to open ORION on the phone once to confirm.`
+  : `Saved an alarm for ${when}, but the phone link on this Mac is not running, so the iPhone has not received it. Say so.`);

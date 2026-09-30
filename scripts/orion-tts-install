@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+# Keep ORION's voice running. (2026-09-29)
+#
+#   ./scripts/orion-tts-install            install and start
+#   ./scripts/orion-tts-install --status   is it running, and which copy
+#   ./scripts/orion-tts-install --remove   stop and uninstall
+#
+# The voice daemon (scripts/orion_tts_daemon.py) was only ever started by hand
+# through orion-interface. On 2026-09-07 it was stopped and nothing brought it
+# back: for three weeks the app fell back to the robotic system voice, which is
+# what "his voice isn't even working" was. launchd cannot run code under
+# ~/Desktop (TCC), so -- like orion-remote-install -- this runs a COPY under
+# ~/.openclaw/orion-tts, restarted by launchd whenever it exits. Keys come from
+# the login Keychain exactly as before; nothing secret is copied.
+#
+# Re-run this after changing orion_tts_daemon.py: the copy is what runs.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+INSTALL="$HOME/.openclaw/orion-tts"
+PLIST="$HOME/Library/LaunchAgents/com.nickmadaio.orion.tts.plist"
+LABEL="com.nickmadaio.orion.tts"
+LOGDIR="$HOME/.openclaw/logs"
+SOCKET="$HOME/.openclaw/orion-tts.sock"
+DOMAIN="gui/$(id -u)"
+
+fingerprint() { shasum -a 256 "$1" 2>/dev/null | cut -c1-12; }
+
+if [ "${1:-}" = "--status" ]; then
+  printf '  loaded     '; launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 && echo yes || echo no
+  printf '  socket     '; [ -S "$SOCKET" ] && echo "present ($SOCKET)" || echo "missing"
+  echo "  installed  $INSTALL  [$(fingerprint "$INSTALL/orion_tts_daemon.py")]"
+  echo "  repo       $HERE  [$(fingerprint "$HERE/orion_tts_daemon.py")]"
+  [ "$(fingerprint "$INSTALL/orion_tts_daemon.py")" = "$(fingerprint "$HERE/orion_tts_daemon.py")" ] \
+    || echo "  DRIFTED — the running copy is not the repo copy. Re-run this script."
+  exit 0
+fi
+
+if [ "${1:-}" = "--remove" ]; then
+  launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+  rm -f "$PLIST"
+  echo "  voice daemon stopped and uninstalled (copy left at $INSTALL)"
+  exit 0
+fi
+
+PYTHON="$("$HERE/orion-python" 2>/dev/null)"
+if [ -z "$PYTHON" ] || ! "$PYTHON" -c 'import mlx_audio' >/dev/null 2>&1; then
+  echo "  FAILED: no Python with mlx_audio (see ./scripts/orion-doctor)" >&2
+  exit 1
+fi
+
+mkdir -p "$INSTALL" "$LOGDIR" "$(dirname "$PLIST")"
+cp "$HERE/orion_tts_daemon.py" "$INSTALL/orion_tts_daemon.py"
+chmod 600 "$INSTALL/orion_tts_daemon.py"
+
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$PYTHON</string>
+    <string>$INSTALL/orion_tts_daemon.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>$INSTALL</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>$LOGDIR/orion-tts.out.log</string>
+  <key>StandardErrorPath</key><string>$LOGDIR/orion-tts.err.log</string>
+</dict>
+</plist>
+PLIST
+chmod 644 "$PLIST"
+
+# Same race orion-remote-install had: wait for the old job to be gone, retry
+# the bootstrap, and fail loudly rather than print success over a dead voice.
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+for _ in $(seq 1 50); do launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break; sleep 0.2; done
+LOADED=no
+for _ in 1 2 3 4 5; do
+  if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then LOADED=yes; break; fi
+  launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 && { LOADED=yes; break; }
+  sleep 1
+done
+[ "$LOADED" = yes ] || { echo "  FAILED: launchd would not load $PLIST" >&2; exit 1; }
+
+# The model loads once; give it time, then require the socket.
+for _ in $(seq 1 60); do [ -S "$SOCKET" ] && break; sleep 1; done
+if [ -S "$SOCKET" ]; then
+  echo "  ORION's voice is running, and launchd restarts it if it ever stops."
+else
+  echo "  FAILED: the daemon started but no socket appeared; see $LOGDIR/orion-tts.err.log" >&2
+  exit 1
+fi

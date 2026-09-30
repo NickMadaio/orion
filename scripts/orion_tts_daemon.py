@@ -487,6 +487,56 @@ def starts_new_sentence(text: str, index: int) -> bool:
     return text[cursor].isupper()
 
 
+_ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+         "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = ["", "", "twenty", "thirty", "forty", "fifty"]
+_CLOCK = re.compile(r"\b(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?\s*[Mm]\.?(?![A-Za-z]))?")
+
+
+def _minute_words(minute: int) -> str:
+    if minute == 0:
+        return ""
+    if minute < 10:
+        return f"oh {_ONES[minute]}"
+    if minute < 20:
+        return _ONES[minute]
+    tens, ones = divmod(minute, 10)
+    return _TENS[tens] + (f" {_ONES[ones]}" if ones else "")
+
+
+def spoken_times(text: str) -> str:
+    """Clock times written the way they are said (2026-09-29).
+
+    The Flash voice model does not normalise numbers itself: "It's 8:14 PM."
+    came out with the ending slurred. Written as words it is read cleanly, and a
+    24-hour time is said the way Nick says it ("20:11" -> "eight eleven PM").
+    """
+    def say(match: "re.Match[str]") -> str:
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if hour > 23 or minute > 59:
+            return match.group(0)
+        marker = match.group(3)
+        # The regex may swallow the sentence's full stop with "p.m."; give it back.
+        after = match.string[match.end():match.end() + 2]
+        ends_sentence = after == "" or after[:1] == "\n" or (after[:1] == " " and after[1:2].isupper())
+        stop = "." if match.group(0).endswith(".") and ends_sentence else ""
+        if marker:
+            half = "A M" if marker.lower() == "a" else "P M"
+        elif hour == 0 and minute == 0:
+            return "midnight" + stop
+        elif hour == 12 and minute == 0:
+            return "noon" + stop
+        elif hour >= 13 or hour == 0:
+            half = "P M" if hour >= 12 else "A M"
+        else:
+            half = ""  # "3:45" on its own: say the numbers, invent no AM or PM
+        hour12 = hour % 12 or 12
+        tail = _minute_words(minute)
+        spoken = f"{_ONES[hour12]} {tail}".strip() if tail else (_ONES[hour12] if half else f"{_ONES[hour12]} o'clock")
+        return f"{spoken} {half}".strip() + stop
+    return _CLOCK.sub(say, text)
+
+
 def split_sentences(text: str) -> list[str]:
     """Split text into sentences without losing any characters.
 
@@ -1902,7 +1952,7 @@ class Synthesizer:
         emit: Callable[[dict[str, Any]], None],
     ) -> None:
         job_id = str(request.get("id") or f"job-{uuid.uuid4().hex[:10]}")
-        text = str(request.get("text") or "")
+        text = spoken_times(str(request.get("text") or ""))
         mode = str(request.get("mode") or "file").lower()
         voice = str(request.get("voice") or self.config.voice)
         speed = float(request.get("speed") or self.config.speed)

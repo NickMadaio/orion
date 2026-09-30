@@ -1901,3 +1901,21 @@ class CacheIsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+
+class SpokenTimesTest(unittest.TestCase):
+    """2026-09-29: Flash slurred the end of "It's 8:14 PM."; times go to the voice as words."""
+
+    def test_clock_times_are_spoken_as_words(self):
+        import importlib.util, pathlib
+        path = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "orion_tts_daemon.py"
+        spec = importlib.util.spec_from_file_location("orion_tts_daemon_times", path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        say = module.spoken_times
+        self.assertEqual(say("It's 8:14 PM."), "It's eight fourteen P M.")
+        self.assertEqual(say("Just past 20:11"), "Just past eight eleven P M")
+        self.assertEqual(say("Class at 13:30, then 9:05 am."), "Class at one thirty P M, then nine oh five A M.")
+        self.assertEqual(say("ratio 3:45 of it"), "ratio three forty five of it")
+        self.assertEqual(say("At 8:14 p.m. now"), "At eight fourteen P M now")
+        self.assertEqual(say("Bed at 00:00"), "Bed at midnight")

@@ -8,16 +8,16 @@
 // or after where it was, most important first. What cannot fit is reported,
 // never silently dropped.
 import { freeGaps } from "./gaps.mjs";
-import { priorityOf } from "./priority.mjs";
+import { importanceOf, priorityOf } from "./priority.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
 /**
  * @param blocks   the day's blocks (fixed ones never move)
- * @param changes  { now, window: {start,end}, blocked: [{start,end,title}], add: [{title, kind, minutes, at?, fixed?, before?}] }
+ * @param changes  { now, window: {start,end}, blocked, add, rebuild? }
  * @returns { blocks, moves: [{id,title,from,to}], created: [block], unplaced: [{title, minutes}] }
  */
-export function replan(blocks, { now, window, blocked = [], add = [] }) {
+export function replan(blocks, { now, window, blocked = [], add = [], rebuild = false }) {
   const date = blocks[0]?.date ?? add[0]?.date ?? null;
   const floor = Math.max(window.start, now);
   const walls = [
@@ -28,17 +28,21 @@ export function replan(blocks, { now, window, blocked = [], add = [] }) {
   ];
   const created = walls.filter((w) => w.id.startsWith("new-fixed-"));
   const movable = blocks.filter((b) => !b.fixed);
-  // Past or untouched movable blocks stay exactly where they are.
-  const stays = movable.filter((b) => b.end <= floor || (b.start >= floor && !walls.some((w) => overlaps(w, b))));
+  // An incremental change keeps untouched work still. A rebuild keeps only the
+  // past still, then lays every remaining movable item down again by importance.
+  const stays = movable.filter((b) => b.start < floor || (!rebuild && b.start >= floor && !walls.some((w) => overlaps(w, b))));
   const toPlace = [
     ...movable.filter((b) => !stays.includes(b)).map((b) => ({ block: b, minutes: b.end - b.start, after: Math.max(floor, b.start), before: window.end })),
     ...add.filter((a) => !(a.fixed && Number.isInteger(a.at))).map((a, i) => ({
-      block: { id: `new-${i}`, title: a.title, kind: a.kind ?? "other", date, start: null, end: null, fixed: false, source: "orion" },
+      block: { id: `new-${i}`, title: a.title, kind: a.kind ?? "other", importance: a.importance, date, start: null, end: null, fixed: false, source: "orion" },
       minutes: a.minutes, after: Math.max(floor, Number.isInteger(a.at) ? a.at : floor), before: Number.isInteger(a.before) ? a.before : window.end, fresh: true })),
   // What he already planned goes back in before anything ORION suggests; within
   // each group, most important first. (A scenario run put the side-project hour
   // ahead of the cleaning he had said he'd do first.)
-  ].sort((x, y) => (x.fresh ? 1 : 0) - (y.fresh ? 1 : 0) || priorityOf(x.block) - priorityOf(y.block) || (x.after - y.after));
+  ].sort((x, y) => importanceOf(x.block) - importanceOf(y.block)
+    || (x.fresh ? 1 : 0) - (y.fresh ? 1 : 0)
+    || priorityOf(x.block) - priorityOf(y.block)
+    || (x.after - y.after));
   let placedSoFar = [...walls, ...stays];
   const moves = []; const unplaced = []; const placedNew = [];
   for (const item of toPlace) {
@@ -46,7 +50,7 @@ export function replan(blocks, { now, window, blocked = [], add = [] }) {
     const fits = (g, from) => Math.max(g.start, from) + item.minutes <= Math.min(g.end, item.before);
     // Nearest at or after where it was; else anywhere later today before its limit.
     const gap = gaps.find((g) => g.end > item.after && fits(g, item.after)) ?? gaps.find((g) => fits(g, floor));
-    if (!gap) { unplaced.push({ title: item.block.title, minutes: item.minutes, id: item.block.id }); continue; }
+    if (!gap) { unplaced.push({ title: item.block.title, minutes: item.minutes, id: item.block.id, importance: importanceOf(item.block), fresh: !!item.fresh }); continue; }
     const start = Math.max(gap.start, gaps.includes(gap) && gap.end > item.after && fits(gap, item.after) ? item.after : floor);
     const placed = { ...item.block, start, end: start + item.minutes };
     placedSoFar = [...placedSoFar, placed];

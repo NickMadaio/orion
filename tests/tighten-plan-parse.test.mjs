@@ -106,3 +106,11 @@ test("bare hours in a full replacement day parse without crashing (2026-09-30 re
     ["Workout", 1200, 60],
   ]);
 });
+
+test("must-have and optional language becomes scheduling importance, not title text", () => {
+  const items = parsePlans("I have to do application progress for 90 min, then maybe study for 60 min", NOW);
+  assert.deepEqual(items.map((item) => [item.title, item.importance]), [
+    ["Application progress", 0],
+    ["Study", 2],
+  ]);
+});

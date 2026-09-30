@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { priorityOf, comparePriority, movable } from "../scripts/lib/life/priority.mjs";
+import { priorityOf, importanceOf, comparePriority, movable } from "../scripts/lib/life/priority.mjs";
 
 test("classes outrank everything", () => {
   const cls = { id: "c1", title: "Class", kind: "class", date: "2026-01-01", start: 540, end: 630, fixed: true, source: "calendar" };
@@ -62,4 +62,11 @@ test("sorting does not mutate the input array", () => {
   assert.deepStrictEqual(arr, copy.toSorted(comparePriority));
   // The original order of `copy` must be unchanged since we spread before sorting.
   // More precisely: the sorted result equals what toSorted would produce from the original.
+});
+
+test("explicit must-haves outrank kind defaults and optional work comes last", () => {
+  assert.equal(importanceOf({ title: "Application progress", importance: 0 }), 0);
+  assert.equal(importanceOf({ title: "study if there's time" }), 2);
+  assert.ok(comparePriority({ id: "apps", title: "Applications", kind: "other", start: 900, fixed: false, importance: 0 },
+                            { id: "gym", title: "Gym", kind: "gym", start: 800, fixed: false }) < 0);
 });

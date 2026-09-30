@@ -52,9 +52,27 @@ test("his own plans go back in before ORION's suggestions", () => {
 });
 
 test("what cannot fit is reported, not dropped silently", () => {
-  const day = [b("wall", "class", 900, 1380, true), b("study", "study", 800, 890)];
+  const day = [b("wall", "class", 900, 1380, true), b("study", "study", 850, 890)];
   const r = replan(day, { now: 850, window: win, blocked: [{ start: 850, end: 900 }] });
   assert.equal(r.unplaced[0].title, "study");
+});
+
+test("a rebuild lays must-haves first and leaves optional work out when needed", () => {
+  const day = [b("optional", "rest", 900, 1020, false, "Games if there's time")];
+  const r = replan(day, { now: 900, window: { start: 900, end: 1080 }, rebuild: true, add: [
+    { title: "Application progress", kind: "other", minutes: 120, importance: 0 },
+  ] });
+  assert.equal(r.created[0].title, "Application progress");
+  assert.equal(r.created[0].start, 900);
+  assert.equal(r.unplaced[0].id, "optional");
+  assert.equal(r.unplaced[0].importance, 2);
+});
+
+test("a rebuild never moves work that is already in progress", () => {
+  const day = [b("nap", "rest", 780, 870, false, "Nap"), b("study", "study", 900, 960)];
+  const r = replan(day, { now: 810, window: win, rebuild: true });
+  assert.equal(r.blocks.find((item) => item.id === "nap").start, 780);
+  assert.ok(!r.moves.some((move) => move.id === "nap"));
 });
 
 test("titles decide what may move", () => {

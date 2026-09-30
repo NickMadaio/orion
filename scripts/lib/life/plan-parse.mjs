@@ -232,6 +232,12 @@ function detectKind(clauseLower) {
   return "other";
 }
 
+function detectImportance(clauseLower) {
+  if (/\b(must(?: do| have)?|have to|need to|high priority|important|cannot drop|can't drop)\b/.test(clauseLower)) return 0;
+  if (/\b(if (?:there(?:'s| is) time|possible)|maybe|optional|low priority|nice to have)\b/.test(clauseLower)) return 2;
+  return 1;
+}
+
 function extractTitle(clause) {
   // Joining words and sequencing ("and before that", "then after class") are not
   // part of what he is doing (Claude, 2026-09-30).
@@ -259,6 +265,9 @@ function extractTitle(clause) {
   // Remove "after X", "this afternoon/evening" (anywhere in string)
   title = title.replace(/\bafter\s+(?:class|lunch|work|school|breakfast|dinner|noon)\b/gi, "");
   title = title.replace(/\bthis\s+(?:afternoon|evening|morning)\b/gi, "");
+  title = title.replace(/\b(?:high|low)\s+priority\b/gi, "");
+  title = title.replace(/\b(?:must(?: do| have)?|have to|need to|important|cannot drop|can't drop|optional|nice to have|maybe)\b/gi, "");
+  title = title.replace(/\bif\s+(?:there(?:'s| is)\s+time|possible)\b/gi, "");
 
   // Remove leading filler phrases — try longest matches first
   // Handle all common apostrophe variants: ', ', '
@@ -272,6 +281,9 @@ function extractTitle(clause) {
 
   // Remove leading "to " that may remain after other strips
   title = title.replace(/^\s*to\s+/i, "");
+  title = title.replace(/^\s*do\s+/i, "");
+  title = title.replace(/^\s*i\s+(?:do\s+)?/i, "");
+  title = title.replace(/\s+is\s*$/i, "");
 
   // Trim whitespace and punctuation artifacts
   title = title.replace(/^[,;\s-]+|[,;\s-]+$/g, "").trim();
@@ -354,6 +366,7 @@ export function parsePlans(text, now) {
     }
 
     const fixed = kind === "class" || kind === "social";
+    const importance = detectImportance(lower);
 
     items.push({
       title,
@@ -362,6 +375,7 @@ export function parsePlans(text, now) {
       start: timeInfo ? timeInfo.start : null,
       minutes,
       fixed,
+      importance,
       assumed,
     });
   }

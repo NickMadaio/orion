@@ -9,6 +9,8 @@
 //        around them (use this instead of several adds + fill — run in parallel they collide)
 //        add --replace when he explicitly says to redo/rebuild the whole schedule: every
 //        future non-class/deadline block is replaced in the same reversible transaction
+//        add --rebuild to keep the tasks but lay the remaining day out again, must-haves first;
+//        day also falls back to this automatically when an incremental change cannot fit
 //   orion-reschedule clear [--date YYYY-MM-DD]                        clear future movable blocks
 //   orion-reschedule undo                                             put the last change back
 //   add --dry-run to any of them to see the plan without touching the calendar.
@@ -90,7 +92,7 @@ const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMin
 const window = { start: Math.max(wakeMinute - 60, 360), end: bed <= 360 ? 1440 : bed };
 const events = await calendarEvents().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 const blocks = toBlocks(events, date);
-const blocked = []; const add = [];
+const blocked = []; let add = [];
 
 if (command === "late") {
   const n = Number(rest[0]); if (!Number.isInteger(n) || n < 5 || n > 600) fail("usage: orion-reschedule late <minutes>");
@@ -111,12 +113,15 @@ if (command === "late") {
   for (const p of said.filter((item) => item.date === date)) {
     const title = clean(p.title);
     const fixed = p.fixed && p.start !== null;
-    add.push({ title, kind: classify(title), minutes: p.minutes, ...(p.start !== null ? { at: p.start } : {}), fixed });
+    add.push({ title, kind: classify(title), minutes: p.minutes, importance: p.importance,
+      ...(p.start !== null ? { at: p.start } : {}), fixed });
   }
   for (const raw of planArgs) {
     // Commas, not "|": ORION's exec router reads a pipe as a shell operator and refuses the call.
     const parts = raw.split(",").map((x) => x.trim()).filter(Boolean);
     const fx = parts.some((p) => /^fixed$/i.test(p)) ? "fixed" : "";
+    const importance = parts.some((p) => /^(must|high|important)$/i.test(p)) ? 0
+      : parts.some((p) => /^(optional|low)$/i.test(p)) ? 2 : 1;
     const at = parts.find((p) => /^\d{1,2}:\d{2}$/.test(p)) ?? null;
     const m = (parts.find((p, i) => i > 0 && /^\d+\s*(min(ute)?s?)?$/i.test(p)) ?? "").replace(/\D/g, "");
     const t = parts[0];
@@ -126,7 +131,7 @@ if (command === "late") {
     // even if the caller said "fixed" (a scenario run pinned "clean" over his meal prep).
     const fixed = isSocial(title) || (fx === "fixed" && !movableTitle(title));
     if (fixed && when === null) fail(`"${title}" is a fixed plan and needs a time`);
-    add.push({ title, kind: classify(title), minutes: n, ...(when !== null ? { at: when } : {}), fixed });
+    add.push({ title, kind: classify(title), minutes: n, importance, ...(when !== null ? { at: when } : {}), fixed });
   }
 } else if (command === "clear") {
   // The generic calendar-delete action is deliberately approval-gated. This is
@@ -146,7 +151,19 @@ if (command === "late") {
 
 const replaceDay = command === "day" && args.includes("--replace");
 const clearMovable = command === "clear";
-const removed = replaceDay || clearMovable
+const normalizedTitle = (title) => clean(title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// Repeating a fixed plan already at that exact time means "keep it", not
+// "create another copy". This was the source of the duplicate soccer events.
+const alreadyFixed = [];
+add = add.filter((item) => {
+  if (!item.fixed || !Number.isInteger(item.at)) return true;
+  const same = blocks.some((block) => block.fixed
+    && normalizedTitle(block.title) === normalizedTitle(item.title)
+    && block.start === item.at && block.end === item.at + item.minutes);
+  if (same) alreadyFixed.push(item.title);
+  return !same;
+});
+let removed = replaceDay || clearMovable
   ? blocks.filter((block) => block.end > nowMinute
       && block.kind !== "class" && block.kind !== "deadline"
       && (replaceDay || !block.fixed))
@@ -161,7 +178,26 @@ const clashes = fixedNew.flatMap((a, i) => [...fixedNew.slice(i + 1), ...plannin
   .map((b) => `${a.title} overlaps ${b.title}`));
 // Travel to and from campus is not free time (a nap landed at 12:30, the minute class ended).
 blocked.push(...commuteWalls(planningBlocks, config));
-let result = replan(planningBlocks, { now: nowMinute, window, blocked, add });
+let rebuilt = command === "day" && args.includes("--rebuild") && !replaceDay;
+let result = replan(planningBlocks, { now: nowMinute, window, blocked, add, rebuild: rebuilt });
+// Normal changes are incremental. If that cannot fit something, retry the
+// whole remaining movable day before bothering Nick: fixed commitments stay as
+// walls, then must-haves, ordinary work and optional fillers are laid down.
+if (command === "day" && !replaceDay && !rebuilt && result.unplaced.length) {
+  rebuilt = true;
+}
+if (rebuilt) {
+  // If Nick names an existing movable task again, the newly stated duration,
+  // time and importance replace that copy instead of creating a duplicate.
+  const requestedTitles = new Set(add.map((item) => normalizedTitle(item.title)));
+  const superseded = blocks.filter((block) => !block.fixed && block.end > nowMinute
+    && requestedTitles.has(normalizedTitle(block.title)));
+  const supersededIds = new Set(superseded.map((block) => block.id));
+  const rebuildBlocks = blocks.filter((block) => !supersededIds.has(block.id));
+  result = replan(rebuildBlocks, { now: nowMinute, window, blocked, add, rebuild: true });
+  const byExistingId = new Map(rebuildBlocks.map((block) => [block.id, block]));
+  removed = [...superseded, ...result.unplaced.map((item) => byExistingId.get(item.id)).filter(Boolean)];
+}
 if (command === "day" && args.includes("--fill")) {
   // His plans are now in place; fill around them without moving any of them.
   const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => []);
@@ -176,13 +212,25 @@ if (command === "day" && args.includes("--fill")) {
 }
 const byId = new Map(blocks.map((b) => [b.id, b]));
 const lines = [
+  ...(rebuilt ? ["rebuilt the remaining day from fixed commitments and must-haves first"] : []),
+  ...(alreadyFixed.length ? [`kept already-scheduled fixed plan${alreadyFixed.length === 1 ? "" : "s"}: ${alreadyFixed.join(", ")}`] : []),
   ...(removed.length ? [`cleared ${removed.length} prior schedule block${removed.length === 1 ? "" : "s"}: ${removed.map((b) => b.title).join(", ")}`] : []),
   ...result.moves.map((m) => `moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`),
   ...result.created.map((c) => `${c.fixed ? "added (fixed)" : "planned"} ${c.title}: ${hhmm(c.start)}–${hhmm(c.end)}`),
-  ...result.unplaced.map((u) => `NOT BOOKED: ${u.title} (${u.minutes} min) did not fit on ${dayName} — ask whether to drop it or put it on another day (--date YYYY-MM-DD)`),
+  ...result.unplaced.map((u) => u.importance === 0
+    ? `MUST-HAVE NOT BOOKED: ${u.title} (${u.minutes} min) did not fit on ${dayName}`
+    : u.importance === 2
+      ? `SKIPPED OPTIONAL: ${u.title} (${u.minutes} min) did not fit on ${dayName}`
+      : `NOT BOOKED: ${u.title} (${u.minutes} min) did not fit on ${dayName} — ask whether to drop it or put it on another day (--date YYYY-MM-DD)`),
   ...clashes.map((c) => `CLASH: ${c} — ask him which one is right`),
 ];
 if (!lines.length) { console.log("Nothing needed to move."); process.exit(0); }
+const missingMustHaves = result.unplaced.filter((item) => item.importance === 0);
+if (missingMustHaves.length) {
+  console.log(`NOTHING WAS CHANGED: must-haves could not fit: ${missingMustHaves.map((item) => item.title).join(", ")}.`);
+  for (const l of lines) console.log(`  ${l}`);
+  process.exit(1);
+}
 if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, removed, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 // 2026-09-29: "could not fit side project today" came back and ORION told Nick
 // it was booked for Wednesday. The headline now says what was and was not written.

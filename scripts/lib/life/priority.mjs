@@ -12,7 +12,17 @@ const KINDS = [
 
 /** @param {object} block — a life block object */
 export function priorityOf(block) {
-  return KINDS.indexOf(block.kind);
+  const index = KINDS.indexOf(block.kind);
+  return index < 0 ? KINDS.length : index;
+}
+
+/** Explicit user importance outranks category defaults during a full rebuild. */
+export function importanceOf(block) {
+  if ([0, 1, 2].includes(block.importance)) return block.importance;
+  const title = String(block.title ?? "").toLowerCase();
+  if (/\b(must(?: do| have)?|have to|need to|high priority|important|cannot drop|can't drop)\b/.test(title)) return 0;
+  if (/\b(if (?:there(?:'s| is) time|possible)|maybe|optional|low priority|nice to have)\b/.test(title)) return 2;
+  return 1;
 }
 
 /**
@@ -32,6 +42,9 @@ export function comparePriority(a, b) {
 
   const pa = priorityOf(a);
   const pb = priorityOf(b);
+  const ia = importanceOf(a);
+  const ib = importanceOf(b);
+  if (ia !== ib) return ia - ib;
   if (pa !== pb) return pa - pb;
 
   if (a.start !== b.start) return a.start - b.start;

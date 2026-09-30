@@ -17,6 +17,12 @@ if not phones: sys.exit("No available iPhone Simulator; choose/install a runtime
 print(phones[0]["udid"])
 ')
 fi
+# The UI tests start from a phone that has granted nothing: a Simulator where
+# Calendar access was granted earlier shows the real day instead of the sample
+# route the tests walk (found 2026-09-28). Reset this app's privacy grants only.
+xcrun simctl boot "$simulator" >/dev/null 2>&1 || true
+xcrun simctl privacy "$simulator" reset all com.nickmadaio.orion.phone >/dev/null 2>&1 || true
+
 xcodebuild -project native/OrionMobile/OrionMobile.xcodeproj -scheme OrionPhone \
   -destination "platform=iOS Simulator,id=$simulator" \
   -derivedDataPath .builds/phone-shell-check \

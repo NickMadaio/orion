@@ -543,6 +543,36 @@
       "note": "catalog.ts also runs a hand-written validateArguments for this action"
     },
     {
+      "action": "apple_reminder_complete",
+      "capability": "calendar.apple.reminder.complete",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "reads_user_data"
+      ],
+      "resource_scope": "calendar",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
       "action": "calendar_event_add",
       "capability": "calendar.event.add",
       "domain": "calendar",
@@ -1351,6 +1381,37 @@
       "note": "catalog.ts also runs a hand-written validateArguments for this action"
     },
     {
+      "action": "supplement_remove",
+      "capability": "health.supplement.remove",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
       "action": "supplement_status",
       "capability": "health.supplement.status",
       "domain": "health",
@@ -1379,6 +1440,37 @@
     {
       "action": "supplement_take",
       "capability": "health.supplement.take",
+      "domain": "health",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files",
+        "reads_user_data"
+      ],
+      "resource_scope": "health_tracking",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "supplement_update",
+      "capability": "health.supplement.update",
       "domain": "health",
       "risk": "low",
       "approval_required": false,
@@ -2938,6 +3030,32 @@
     {
       "action": "media_next_track",
       "capability": "system.media.next.track",
+      "domain": "computer",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "controls_media"
+      ],
+      "resource_scope": "media_control",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "catalog.ts also runs a hand-written validateArguments for this action"
+    },
+    {
+      "action": "media_now_playing",
+      "capability": "system.media.now.playing",
       "domain": "computer",
       "risk": "low",
       "approval_required": false,

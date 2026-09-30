@@ -182,8 +182,10 @@ echo ""
 echo "== the transport does not speak the gate's language =="
 LEAK="$("$NODE" -e '
 const fs = require("fs");
-const brief = fs.readFileSync("'"$REPO"'/scripts/orion-remote", "utf8")
-  .split("const CHANNEL_BRIEF = [")[1].split("].join")[0];
+const src = fs.readFileSync("'"$REPO"'/scripts/orion-remote", "utf8");
+const brief = src
+  .split("const CHANNEL_BRIEF = [")[1].split("].join")[0]
+  + [...src.matchAll(/const CHECK_(?:DONE|CANT|SILENT) = "([^"]*)"/g)].map((m) => m[1]).join(" ");
 const cat = fs.readFileSync("'"$REPO"'/plugin/orion-control/src/catalog.ts", "utf8");
 const m = cat.match(/AUTHORITY_INSTRUCTION\s*=\s*\n?\s*(\/.+\/[a-z]*)/);
 if (!m) { process.stdout.write("REGEX-NOT-FOUND"); process.exit(0); }
@@ -192,6 +194,49 @@ process.stdout.write([...new Set([...brief.matchAll(re)].map((x) => x[0]))].join
 ')"
 [ "$LEAK" = "none" ]
 check $? "the channel brief contains no word that satisfies AUTHORITY_INSTRUCTION (found: $LEAK)"
+
+CHAT="$(ALLOW=phone remote handle --from phone --mode chat -- 'No, I mean the task page of orion')"
+echo "$CHAT" | grep -qv "deny needs"
+check $? "chat mode never reads a sentence starting with No as deny (got: $CHAT)"
+
+echo ""
+echo "== the truth check: a claimed action with no tool run is sent back once =="
+LIAR_STUB="$SANDBOX/liar-openclaw"
+cat > "$LIAR_STUB" <<'STUB'
+#!/bin/bash
+prev=""; file=""
+for a in "$@"; do [ "$prev" = "--message-file" ] && file="$a"; prev="$a"; done
+# Scenario words are matched against Nick's line only (the last line): the
+# transport context above it mentions showers and screens in its own rules.
+said="$(tail -1 "$file")"
+if grep -q "without a reply" "$file"; then
+  echo '{"runId":"r3","status":"ok","result":{"payloads":[{"text":"Paused the slides for 20 min while you shower.","mediaUrl":null}],"meta":{"durationMs":500}}}'
+elif grep -q "orion-remote check" "$file"; then
+  echo '{"runId":"r2","status":"ok","result":{"payloads":[{"text":"CHECKED: that is not done yet","mediaUrl":null}],"meta":{"toolSummary":{"calls":0,"failures":0}}}}'
+elif echo "$said" | grep -q "shower"; then
+  echo '{"runId":"r1","status":"ok","result":{"payloads":[{"text":"⚠️ Agent couldn'"'"'t generate a response. Note: some tool actions may have already been executed.","mediaUrl":null}],"meta":{"toolSummary":{"calls":1,"failures":0}}}}'
+elif echo "$said" | grep -q "honest"; then
+  echo '{"runId":"r1","status":"ok","result":{"payloads":[{"text":"Done. Opened it.","mediaUrl":null}],"meta":{"toolSummary":{"calls":1,"failures":0}}}}'
+elif echo "$said" | grep -q "screen"; then
+  echo '{"runId":"r1","status":"ok","result":{"payloads":[{"text":"No, I don'"'"'t have access to your screen.","mediaUrl":null}],"meta":{"durationMs":900}}}'
+else
+  echo '{"runId":"r1","status":"ok","result":{"payloads":[{"text":"Done. I'"'"'ll wake you at 7:30.","mediaUrl":null}],"meta":{"toolSummary":{"calls":0,"failures":0}}}}'
+fi
+STUB
+chmod +x "$LIAR_STUB"
+liar() { HOME="$SANDBOX" ORION_REMOTE_ALLOW=phone ORION_BRAIN_BIN="$LIAR_STUB" "$NODE" "$REMOTE" handle --from phone --mode chat -- "$1" 2>&1; }
+OUT="$(liar 'wake me up at 7:30')"
+echo "$OUT" | grep -q "CHECKED"
+check $? "'Done' with zero tools run is re-asked, and the second answer is what Nick gets (got: $OUT)"
+OUT="$(liar 'can you see my screen')"
+echo "$OUT" | grep -q "CHECKED"
+check $? "'I don't have access' without looking is re-asked (got: $OUT)"
+OUT="$(liar 'gonna shower first')"
+[ "$OUT" = "Paused the slides for 20 min while you shower." ]
+check $? "a turn that ends with no reply is asked for its words once (got: $OUT)"
+OUT="$(liar 'honest request')"
+[ "$OUT" = "Done. Opened it." ]
+check $? "a claim backed by a real tool call is passed through untouched (got: $OUT)"
 
 echo ""
 echo "== the brain sits BEHIND every guard =="
@@ -215,19 +260,23 @@ check $? "an unknown sender gets SILENCE, not a refusal -- confirming the addres
 echo ""
 echo "== a message cannot forge its own sender =="
 #
-# The bridge builds: node orion-remote inject --from <id> -- <text>. The old
-# order put the text first, and a message beginning with "--" was taken as a
-# flag name that then SWALLOWED the --from after it: `flags.from` was never set,
-# the sender fell back to "local", and a stranger was attributed to -- and where
-# "local" is allowlisted, authorised as -- the local account. It also wrote the
-# real sender id into the audit as the message TEXT.
+# The authenticated bridge calls handle directly with Discord's author, id and
+# timestamp. The local append-only fixture queue may no longer mint a remote
+# author at all; otherwise Orion could write an envelope as Nick and wait for a
+# later bridge poll to execute it.
 rm -f "$CTRL/inbox.jsonl"
-remote inject --from "999888777" -- "--x" > /dev/null 2>&1
-FORGED="$("$NODE" -e "
-const l=require('fs').readFileSync('$CTRL/inbox.jsonl','utf8').trim().split('\n').pop();
-const e=JSON.parse(l); process.stdout.write(e.from + '|' + e.text);")"
-[ "$FORGED" = "999888777|--x" ]
-check $? "a message beginning with -- stays the message and the sender stays the sender (got: $FORGED)"
+IMPERSONATION="$(ALLOW=999888777 remote inject --from "999888777" -- "agent resume demo" 2>&1)"
+echo "$IMPERSONATION" | grep -q "cannot impersonate a remote sender"
+check $? "the local queue cannot forge a remote sender"
+[ ! -e "$CTRL/inbox.jsonl" ]
+check $? "and a refused impersonation appends no envelope"
+
+NOW_DIRECT="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+DIRECT="$(ALLOW=999888777 remote handle --from 999888777 --id direct-message-1 --at "$NOW_DIRECT" -- "--x")"
+echo "$DIRECT" | grep -q "STUBBRAIN"
+check $? "a message beginning with -- stays message text on the authenticated direct path"
+tail -1 "$CTRL/remote-audit.jsonl" | grep -q '"from":"999888777","text":"--x"'
+check $? "and the audit keeps the authenticated sender separate from the text"
 
 # The layer that would have caught it even without the terminator.
 #
@@ -383,6 +432,37 @@ chmod +x "$OVERLOAD_STUB"
 OVERLOADED="$(HOME="$SANDBOX" ORION_REMOTE_ALLOW=local ORION_BRAIN_BIN="$OVERLOAD_STUB" "$NODE" "$REMOTE" handle 'what is the weather' --from local 2>&1)"
 echo "$OVERLOADED" | grep -q "Orion did not finish: provider overloaded"
 check $? "and a structurally-reported provider overload names it in a plain sentence too"
+
+echo ""
+echo "== running actions can be listed and cancelled from the phone (Phase 46) =="
+OUT="$(remote handle 'actions' --from local)"
+echo "$OUT" | grep -q "nothing is running"
+check $? "with nothing running, it says so"
+mkdir -p "$CTRL/actions/running"
+printf '{"taskId":"orion-00112233aabbccdd","goal":"Tidy the Desktop","actions":["file_move","file_move"],"startedAt":"2026-09-25T20:00:00.000Z"}' > "$CTRL/actions/running/orion-00112233aabbccdd.json"
+OUT="$(remote handle 'actions' --from local)"
+echo "$OUT" | grep -q "orion-00112233aabbccdd: Tidy the Desktop (file_move, file_move)"
+check $? "a running action is listed with its id, goal and steps"
+OUT="$(remote handle 'action cancel orion-00112233aabbccdd' --from local)"
+echo "$OUT" | grep -q "cancel requested" && [ -f "$CTRL/actions/cancel/orion-00112233aabbccdd" ]
+check $? "cancel writes the mark the plugin checks before its next step"
+echo "$OUT" | grep -q "step in flight finishes"
+check $? "and says honestly that the step in flight is not killed"
+OUT="$(remote handle 'action cancel orion-ffffffffffffffff' --from local)"
+[ ! -f "$CTRL/actions/cancel/orion-ffffffffffffffff" ]
+check $? "an id that is not running is refused, and nothing is written"
+OUT="$(remote handle 'action cancel ../../x' --from local)"
+[ -z "$(ls "$CTRL/actions/cancel" | grep -v orion-00112233aabbccdd)" ] && [ ! -e "$CTRL/x" ]
+check $? "a path is never an id"
+rm -f "$CTRL/actions/cancel/orion-00112233aabbccdd"
+printf '{"locked":true,"at":"2026-09-25T20:00:00.000Z"}' > "$CTRL/lock.json"
+OUT="$(remote handle 'device' --from local)"
+echo "$OUT" | grep -q "locked"
+check $? "(precondition) with the lock in place, ordinary commands are refused"
+OUT="$(remote handle 'action cancel orion-00112233aabbccdd' --from local)"
+echo "$OUT" | grep -q "cancel requested"
+check $? "but a cancel still gets through: a lock must never prevent stopping something"
+rm -f "$CTRL/lock.json"
 
 echo ""
 echo "== the live system was not touched =="

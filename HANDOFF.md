@@ -1,3 +1,365 @@
+## 2026-09-30 10:00 BST — Qwen batch finished + wired; supplements; connections (orion-connect), finance, Shortcuts, Screen Time (Claude)
+
+- **Qwen "Tighten ORION"**: run escalated overnight (deadline-ramp worker_stuck on the cap/spill). Took over: brought the 5 accepted modules from `orion-agent/30a6ca83` (reply-lint, claims, eval-grade, lateness, plan-parse) into the tree; wrote deadline-ramp, morning-brief, distraction to their briefs. 205 node tests (life + tighten + connect). Wired: orion-remote truth check uses `claims.classifyClaim` (edits like "combined" now count), every reply goes through `fixReply` (24-hour/mixed times, repeats; `lint` recorded); orion-patterns uses `lateness`; orion-watch sends a once-a-day morning brief (`morning-brief`, assessments only — holidays filtered); orion-reschedule books ramped study via `deadline-ramp` (fill and day --fill; holidays filtered — "Study for Halloween" was one dry run away) and takes `day --say "<his words>"` (plan-parse; title joining words stripped); distraction rules drive the phone's Screen Time monitor.
+- **Supplement failure (07:02)**: "combine" had no remove/rename → ORION added two items and said "Combined". Added `supplement_remove`, `supplement_update` (health.ts find/remove/update + verifiers + tests), AGENTS rule "combine = remove + add; done only if every part ran", "actions are not tool ids" in the task-run description. Nick's list fixed via the real route: Ashwaganda, Creatine, "magnesium, zinc & calcium", "vitamin D3 & K2". Plugin 380 tests; deployed (registry needs `npm run build` first — it reads dist/).
+- **Connections**: `scripts/orion-connect` (list = live status of every connection incl. Gmail revoked; run/show/create/set/how) + `lib/connect/spec.mjs` (declarative GET-only connectors: one https host, Keychain secrets read only there, writes need `orion-connect-admin allow-writes`, not allowlisted) + built-ins `connectors/tfl.json` (live), `canvas.json` (needs domain + "ORION Canvas" token). Live eval: ORION built a `crypto` connector himself in 15 s (how → web_search → create → run). `orion-finance` + `FinanceExport.swift` (Orion.app writes finance-summary.json after each Plaid refresh; live: $382.58 this week). `orion-shortcut` runs only Shortcuts named "ORION …" (folder filter lists everything when missing). All allowlisted, TOOLS/AGENTS updated; CI OK.
+- **Screen Time**: phone target `ScreenMonitor` (DeviceActivity monitor) + `App/ScreenWatch.swift`: work blocks nudge 15/30, lock 45; after bedtime 10/20, lock 30; free time nudges 60/120, never locks; lock only with Focus lock on; shared selection via the app group. Installed; the monitor process is running on the phone.
+- **Eval safety**: `lib/eval-mode.mjs` + guards in orion-discord-alert / orion-messages-send; `scripts/orion-eval-run` (marker on during a run, always removed; grades with orion-eval-grade). Use it for all scenario runs.
+- Calendar "bug" closed: this week's "Academic Writing Workshop (optional)" occurrence (30 Sep) was deleted as a one-off exception; the series is intact; the search is right. Cause not found.
+- Voice ID floor 0.45 lets synthetic voices through (0.49/0.58); Nick's short wake scores ~0.50 → needs re-enrollment with short "Orion" phrases before the bar can rise.
+- Nick to do: Canvas (domain + token), Gmail re-grant, voice re-enroll, choose Focus-lock apps if not done, turn Focus lock on for locking.
+
+## 2026-09-29 21:12 BST — Tighten list; Qwen project "Tighten ORION" imported; last fixes (Claude)
+
+- Full list: `docs/planning/v2/TIGHTEN_LIST_2026-09-29.md` (fixed today / Qwen / Claude next / Nick).
+- Qwen: `docs/agentic/plans/tighten-orion.md` + briefs, 8 independent standalone modules (reply-lint, claims, eval-grade, lateness, deadline-ramp, plan-parse, morning-brief, distraction); `orion-agent plan` clean; imported via `orion-projects add` — not started (Nick turns Qwen on).
+- Since the 20:55 entry: `orion-weather-alert` now described as SENDS (a test answer to "umbrella?" ran it and posted to Discord); weather/orion-show/tick-off rules in AGENTS; CLAIMS_CANT restored for "don't have a … tool" and "… through the phone"; the can't-retry fires only on a leading refusal and quotes his message (a re-ask had answered the previous question); gateway "⚠️ 🛠️ Exec failed" lines stripped from replies (kept as `toolNoise`); `media_now_playing` verifier observes the read. Re-runs in fresh sessions: tick-off (reminder really completed), umbrella (forecast), desktop files, who, now-playing — all correct. Plugin 374, remote check OK; deployed and installed.
+- All retest side effects undone (6 events, check-in, reminder); memory unchanged (eval capture skip works).
+- Open: EventKit range search omits "Academic Writing Workshop (optional)" (exists, found by id).
+
+## 2026-09-29 20:55 BST — Voice fixed (Mac + phone), 60-scenario review, fixes deployed (Claude)
+
+Nick: "fix voice and do a once over of the entire project … run at least 50 scenarios." Then, live: he cut himself off, heard his own name, slurred "PM", slow for the time.
+- **Mac voice, root causes and fixes** (`native/Orion`):
+  - Keychain on the press path: a locally-signed rebuild made every key read a hidden prompt → 26 s freezes / "NO KEY". `Secrets` now never prompts (`kSecUseAuthenticationUIFail`), falls back to `/usr/bin/security`, caches, and `Secrets.prefetch()` runs at launch.
+  - Mic died mid-turn on device changes: config-change observer now always installed and restarts the mic under an open turn; a dead-engine watchdog (no buffers 1.5 s) restarts it (max 3), else says so.
+  - Self-echo: `MobileCore/SelfEcho.swift` (tests) + `BargeInPolicy` (speakers route): echo compared on letters/digits and words; on laptop speakers only an interruption word he isn't saying himself ("stop/wait/hold/no/cancel/Orion") cuts him off; wake ignored while/just after speaking; a follow-up transcript that is his own words is dropped (`[echo]`). Turn-taking harness 123/123 (now compiles SelfEcho).
+  - Voice ID was dead since 31 Jul (hand-started only; `~/scripts` path): `scripts/orion-voiceid-install` (launchd, copy in `~/.openclaw/orion-voiceid`); enrollment from 31 Jul loads (`enrolled=True`); synthetic voices score 0.49/0.58 vs 0.83 → rejected. Wake word back on.
+  - `orion://listen` starts a hands-free turn as a follow-up (waits for speech); the Mac hologram widget uses it.
+  - `MobileCore/QuickAnswer.swift`: time/date answered locally, 12-hour ("It's 8:14 PM."); same list in `orion-remote` (`quickAnswer`).
+  - Spoken turns tell the brain "one to three short sentences" (a 699-char reply was read aloud).
+  - TTS: Flash model slurred "8:14 PM." → `spoken_times()` in `orion_tts_daemon.py` writes clock times as words (unittest 180/180); installed.
+- **Phone voice** (`PhoneVoice.swift`): early replies (offline answers arrive before `sent(id:)`) kept; 90 s wait timeout; no tight retry loop (back-off, on-device → server fallback, stop after 4); `.default` mode (voiceChat was quiet); recognizer uses the phone's locale.
+- **Phone widgets/lock screen:** glance written on every launch and every snapshot even with no screen (`GlanceWriter.publish(snapshot:)`), thin writes avoided (cached snapshot/night), BG refresh every ~30 min by day. Live Activity buttons are `LiveActivityIntent`s run in the app (card redraws at once); card persists through snoozed/active; first "10 more min" is a real snooze (`orion-checkin defer --snooze`); mini hologram stills for the lock screen. Verified on device: glance has lectures, tomorrow, 4 projects, 5 deadlines, tracking, bed 23:45/alarm 07:45; Live Activity started for a test check-in; taps reached the Mac.
+- **60 scenarios** (`scratchpad eval2`, sessions `orion-eval-v2-c1..c6`, phone+discord): most right and 4–7 s. Fixed from them: fake-"can't" check no longer fires on "I don't have [data]" and retries never narrate tools; `apple_reminder_complete` (bridge `complete_reminder`, `orion-agenda-change task-done`); `media_now_playing`; `weather_now(location, [days])` documented; desktop listing → `desktop_list` (exec `ls ~/Desktop` hung 95 s); undo = one step per command, empty steps never recorded (tests `life-undo-journal`); planner prints "NOTHING WAS BOOKED on <day>" (it had told Nick a side project was booked when nothing was); AGENTS: `--date` for other days, act on "plan it for me", social plans need no questions, bedtime via `orion-now`, patterns via `orion-patterns` (now reports start lateness), identity answer, 12-hour times (USER.md); check-in/watch messages 12-hour; episodic capture skips `eval` sessions; bridge list limit 25→200.
+- All scenario side effects undone (4 events, 2 reminders, water/meal, memory lines, history, patterns, check-in; test text to Mom denied A-DUCA). Tests: MobileCore 41, LinkCore 25, plugin 374, life 132, turn-taking 123, TTS 180, remote/mobile/CI checks OK; plugin deployed; TOOLS.md regenerated.
+- Nick to do: Gmail re-grant (`gog auth manage`, token revoked); web search is off in OpenClaw (needs a provider key) — his call.
+- Open: the bridge's upcoming list omits "Academic Writing Workshop (optional)" though `get_calendar_event` finds it — not investigated further.
+## 2026-09-29 15:42 BST — Widgets (Mac + iPhone), lock-screen presence, time-sensitive check-ins, night signals, model escalation (Claude)
+
+Nick's asks: finish the four open items (Live Activity, time-sensitive notifications, the alarm shift not needing the phone to see him awake, the model decision) and make widgets for Mac and iOS: many variations, hologram / schedule / to-do / project.
+- **Shared data:** `MobileCore/Glance.swift` (`OrionGlance`: blocks, tomorrow, todos, projects, checkin, deadlines, tracking, night, recovery, approvals; `mood`, `line`, `current`, `timelineMoments`, `merge`, `kind`, `isDeadline`; `GlanceFile`). `LinkSnapshot` gained optional `checkin`, `deadlines`, `lastInputAt`. Tests: MobileCore 33/33 (GlanceTests 12), LinkCore 25/25 (GlanceReaderTests 5).
+- **Mac:** the ORION app writes `~/.openclaw/orion-controlled/glance-calendar.json` (`GlanceExport.swift`, every 2 min and on EventKit change). ORION Link composes the glance (`SnapshotReader.checkin/glanceCalendar/glance`) into the app group `JQNK3T6ACY.com.nickmadaio.orion`, reloads widgets only on change, and carries out widget taps from `widget-requests.jsonl` (`LinkCore/WidgetRequests.swift`). Status file shows `widgets:` (live: "2 blocks, 0 to-dos, 4 projects, 5 deadlines…"). Widget extension `OrionWidgetsMac.appex` inside ORION Link (team-signed, sandboxed); pluginkit shows it registered. Orion.app DR unchanged (171A72AB…), reinstalled.
+- **Widgets** (`native/OrionWidgets/Shared`, compiled into both extensions): ORION (hologram S/M/L/XL), Event Horizon (S/M), Command Center (L/XL), Now & Next (S/M + lock screen rect/circle/inline), Today (M/L/XL), To-dos (S/M/L), Projects (S/M/L), Check-in (S/M + rect, Started/Done/10 min buttons), Day Rings (S/M + circular, +1 water), Tonight (S/M + rect), Countdown (S/M). Hologram stills are renders of the real `HologramModel` / black-hole study (`Assets.xcassets`). Rendered offscreen and inspected; fixed horizon crop, large-widget overlap, progress bars.
+- **iPhone:** targets `OrionWidgets` (widgets + Live Activity + AlarmKit countdown) and `OrionNotify` (notification service: check-in level ≥2 and approvals → time-sensitive; subscription now `shouldSendMutableContent`). App: `GlanceWriter`, `LivePresence` (Control ▸ Lock screen toggle; starts when ORION is opened, updates from background), `BackgroundRefresh` (push + BGAppRefresh night check; fetches MacState directly; `SnapshotCache`), night signals without the app: motion history after bedtime, phone unlocked during the night check, Mac input after bedtime. `orion://show/<tab>` opens tabs. Entitlements: app group `group.com.nickmadaio.orion`, time-sensitive. Simulator build OK.
+- **NOT on the phone yet:** device build fails with "No Accounts" — Xcode has no signed-in developer account, so the new App Group / Time Sensitive capabilities can't be added to the profile. Nick: Xcode ▸ Settings ▸ Accounts ▸ sign in, then rebuild/install (same xcodebuild + devicectl commands).
+- **Model decision:** stay on Haiku 4.5 (measured week incl. evals ≈ $1.57 → ≈ $7/month; Sonnet for every turn ≈ $20, over the $0–10 budget). Truth-check retries (fake "done", false "can't", silent turn) now re-ask on `anthropic/claude-sonnet-5` (`ORION_ESCALATION_MODEL`, "off" disables). Added `anthropic/claude-sonnet-5` to `agents.defaults.models` (backup `openclaw.json.pre-escalation-20260929`); probe answered. orion-remote reinstalled; remote check OK.
+- Test check-in ci-4307e3 fired its 15:05 message and was cancelled. Crash reports at 15:36 were the simulator (unsigned test build → CloudKit entitlement trap), not the phone.
+- Don't `ls` the Mac group container from a terminal: macOS's app-data protection blocks it with a prompt.
+
+## 2026-09-29 14:45 BST — The day, moved and filled; late nights; reaching out; patterns (Claude)
+
+Nick's asks: schedule real + reaching out, patterns structure, moving his day, filling empty days by asking first, the executive-function loop, auto-moving the alarm after a late night, background signals, app blocking, offline completion.
+- **Moving the day:** bridge `move_calendar_event` + an `[orion:<kind>]` marker on blocks ORION creates. `lib/life/replan.mjs` (stable; his plans before ORION's suggestions; clashes reported), `live-day.mjs` classify/isSocial/movable (people/classes fixed; study, gym, games, rest, errands, chores, side projects, meals alone movable). `scripts/orion-reschedule late|busy|add|day|fill|undo` (lock; undo journal; `day --plan "<title>, <min>, HH:MM, fixed" … --fill` — commas because exec reads "|" as a pipe). `orion-plan-study … --book` spreads sessions one a day and books movable blocks; study-request parses "two one-hour sessions" and "this/next week".
+- **Filling the day / probing:** `lib/life/fill-day.mjs` + `config.mjs` (`scripts/orion-life`, e.g. sideProjectLabel). `scripts/orion-watch` (run by the ORION app every 5 min via `LifeWatch.swift`, installed copy + bridge copied to `~/.openclaw/orion-remote/bin`): asks about an empty day in the morning and right after the last class; after a short night (<6 h WHOOP or a late "bed") reshapes the morning (nap, early work later) and tells him. Alerts go through `alerts-outbox.jsonl` → LinkEngine → phone. Verified the app-run watcher reads the calendar (`watch.json` calendar: ok). **Today it will ask after Marketing (~17:00).**
+- **Late nights (phone):** NightPlan: a real plan through bedtime (club) moves bedtime after it +30 min and drops wind-down; being seen awake after bedtime (app open, "Going to bed", a background significant-location change) moves the alarm later automatically up to first event − get-ready (Nick's Monday example: up till 03:00, Macro 13:30 → alarm 11:15) and leaves a morning note. Signals asks "Always" location for significant changes.
+- **Reaching out:** check-in pushes carry Started / 10 more min / Done (answered through the link to `orion-checkin`); level ≥3 ignored check-ins engage **Focus lock** (FamilyControls individual auth; development entitlement is in the signed profile) on apps Nick picks; released on Started/Done or after 45 min.
+- **Patterns:** `lib/life/history.mjs` — planned-vs-actual from check-ins → `life-history.jsonl`; `patterns.json` refreshed by the watcher; used by check-in wording, `orion-now`, and the reschedule window (wake median) once ≥3 samples.
+- **Offline completion:** phone "note that… / remember… / idea:" and offline conversations → `LinkLog.note` → `MemoryNote` appends to `~/.openclaw/workspace/memory/<day>.md` under "## From the iPhone".
+- **Memory bug fixed:** episodic auto-capture was saving the remote transport brief as Nick's words (5 junk entries removed, backup in scratch); `episodic.ts nickWords()` + test; plugin deployed (orion-deploy --allow-dirty; only those two files differed).
+- **Brain runs b10–b13** of Nick's real evening (club 22–02, clean after class, meal prep ~18:00, two macro sessions, class late, undo) — final run correct in one call; all test events undone (calendar back to the two lectures).
+- Checks: life 130/130, LinkCore 20/20, MobileCore 21/21, remote OK, phone UI OK, mobile OK, workspace in sync. Mac app + phone reinstalled.
+- **Not done:** Live Activity lock-screen presence (needs a widget extension target); time-sensitive interruption level (needs the entitlement); a Monday-night-style late-night alarm shift only happens if the phone sees him awake (app, notification answer, or background location with Signals on).
+
+## 2026-09-29 14:00 BST — Life loop merged and wired into ORION (Claude)
+
+- Merged `orion-agent/21eb0d9f` → `e7a1f94` on orion-v2/backlog-checkpoint (112/112).
+- Wired: `scripts/lib/life/live-day.mjs` (real calendar → blocks via the bridge); `orion-now` (next action + sleep plan + phone signal + side-project hour + open check-ins); `orion-plan-study` (real free slots to the deadline, prints calendar_event_add args); `orion-patterns` (sleepLog/phoneSignals/WHOOP: 14-day avg 5.6 h sleep, 4 red days); **`orion-checkin`** (follow-through loop + deferral classifier; state `~/.openclaw/orion-controlled/checkins.json`). The phone link runs `orion-checkin tick --json` (installed copy) every ~30 s and sends each message as a LinkAlert; the phone's alert subscription now shows the alert's own text (`alertLocalizationKey "%1$@"`, args `text`). All allowlisted, in TOOLS.md, rules in AGENTS.md, and each phone message carries open check-ins + the loop rules.
+- orion-remote: a turn that ends with the runtime's "Agent couldn't generate a response" is asked once for its words (test added).
+- Brain runs (b7–b9): check-ins used for starting/done/one-more-video/friend-cancel/eat-first/shower; "what now" uses orion-now; study uses orion-plan-study; sleep uses orion-health.
+- A single test check-in is set for 15:05 today (active loop → one "Still on…" message, no escalation) to prove delivery to the iPhone.
+- Checks: life 112/112, LinkCore 19/19, phone UI OK, mobile OK, remote OK, workspace in sync. Mac app + phone app reinstalled.
+
+## 2026-09-29 13:45 BST — Life loop finished by Claude; marked complete in ORION (Claude)
+
+Nick: "just take over all of qwen's work. mark it as done in orion aswell." qwen had accepted 6 tasks + 1 fix before Nick stopped it for class; reviewed (41 tests green, code matches the briefs). Claude built the other 13 on the same branch `orion-agent/21eb0d9f` (worktree under the project), one commit per task (`claude(<task>)`): fit-study, sleep-state, bedtime, follow-through, deferral, after-late-night, patterns, sync-event/merge/apply, next-action, `scripts/orion-next`, `scripts/orion-study`, `docs/planning/v2/LIFE_LOOP_REVIEW.md`. `node --test tests/life-*.test.mjs`: 112/112. Project state set to completed (20/20 accepted, finalReview true; backup `state.json.bak-before-claude-takeover`; journal event `project_completed`). ORION's Projects tab shows "Ready for your review", 100%. **Not merged** into orion-v2/backlog-checkpoint yet; wiring into the brain/phone is the next step (see the review packet's "Needs wiring").
+
+## 2026-09-29 04:25 BST — Real scenario runs: what broke, what was fixed (Claude)
+
+Nick: run many realistic, day-to-day scenarios — real, not just logic — before calling anything done.
+- **Brain, 59 real turns** through orion-remote as the phone (chat mode, isolated `orion-eval-life-*` sessions, same model and tools). First batch 7/12; after fixes 10/12 and 8/10, with the remaining misses listed below. Side effects were undone: 3 calendar events deleted via the bridge by id, 2 test reminders deleted, health log restored from a copy under the shared lock, test wake request cleared.
+- **Fixed from the runs:** fabricated "Done. I'll wake you at 7:30" (no tool) → `orion-wake` (phone alarm via the link snapshot `wakeRequest`) + a **truth check** in orion-remote (a claimed action or inability with zero tools is re-asked once; missing toolSummary = zero, found when it never fired); "I don't have sleep data" → `orion-health`; quiz 17 days out unseen → bridge `list_deadlines` (90 days, one-off events) + `orion-agenda deadlines`, event locations shown; approvals guessed → `orion-waiting`; water/food not logged → `orion-log` (same lock, `ORION_HEALTH_LOG` for tests, decoded by the app's types); timed reminders (`due`), gated titles (Nick's words), `minutes` for event length, screen_capture name — all in AGENTS.md. All four new wrappers allowlisted and in TOOLS.md.
+- **Phone nights:** scenario run found a 13:30 class set the alarm to 12:15; wake is now min(usual wake, first event − get-ready).
+- **Offline brain redesigned:** with write tools, Apple's on-device model invented reminders and times and re-logged food. Now actions come from plain rules (water, "remind me to X at T", food with a portion table; Mac-only requests refused), schedule/sleep/next answers are fixed text from real data, and the model only chats (no tools, facts pasted, no arithmetic).
+- **Voice:** daemon synthesis verified for both providers (local 3.3 s for 5.4 s audio; ElevenLabs 1.6 s). Mac turn-taking verified only by the harness; phone voice untested on hardware.
+- **Needs Nick:** Screen Recording for the gateway process (screen_capture blocked); the phone install; the model decision. Known remaining: no reminder delete; brain's small factual slips (e.g. lecture weekdays); the life loop (follow-up check-ins, "move my day") is the qwen part.
+- Checks: remote OK (truth-check tests added), phone UI OK, mobile OK, LinkCore 19/19, turn-taking 118/118.
+
+## 2026-09-29 03:55 BST — Phone: bedtime/alarm, offline ORION, signals (Claude)
+
+Nick: "do whats left except for qwen part". qwen (Life loop) still stopped.
+- **Night routine** (`App/NightRoutine.swift`): bed = min(latest bedtime, first calendar event tomorrow − get-ready − sleep need); local notifications wind-down → bedtime → +15/+30/+45/+60/+90 (ordinary alerts so Sleep Focus silences them), actions "Going to bed" / "15 more min"; past bedtime at open → nudges from now. **AlarmKit** wake alarm at first event − 75 min with snooze (iOS 26). Today shows a Tonight card, or "It's 03:42. Go to sleep. Xh left" past bedtime. Bed/up logged to the Mac (`LinkLog.sleep` → health-log `sleepLog`). Greeting says "Up late" after 23:00.
+- **Offline ORION** (`App/OfflineBrain.swift`): when the Mac isn't `online`, chat goes to Apple's on-device model (Foundation Models) with tools: readSchedule, addReminder (EventKit), logWater, logFood, tonight. Replies tagged "ON YOUR IPHONE", kept on the phone. Tested on this Mac with the same model: ~1 s answers, correct tool calls, prompt tightened (name the class, 24h times, plain sleep warnings). Falls back to queueing for the Mac if Apple Intelligence is unavailable.
+- **Outbox**: tracking entries that iCloud can't take are kept and retried every 10 s instead of dropped.
+- **Signals** (`App/PhoneSignals.swift`, off by default, Control ▸ Signals): motion, charging, place rounded to ~100 m, sampled on open and every 10 min while open → `LinkLog.signal` → health-log `phoneSignals` (last 2000). Background sampling ("Always" location) deferred to life-loop wiring.
+- **Bug caught**: the mic/speech usage strings from the voice-mode commit had not been written (a replace with count 0) — the mic would have crashed the app. Fixed; all six usage strings verified in the built Info.plist.
+- Context size finding corrected: ~15k tokens base per model call (instructions + 35 tool schemas) growing with conversation; the "240k" was a multi-step turn's total. Not trimmed.
+- Checks: LinkCore 19/19, MobileCore tests 21/21, mobile check OK, phone UI suite OK. Mac app reinstalled (helper restarted on new code). **iPhone build ready but not installed — phone unavailable.**
+
+## 2026-09-29 03:40 BST — Claude's part before qwen: voice back, tools taught, phone voice (Claude)
+
+Nick asked me to do my share before qwen resumes (Life loop stopped after its first task via `agent stop`).
+- **Mac voice was dead for three weeks**: the TTS daemon stopped 2026-09-07 and nothing restarted it (launchd can't run ~/Desktop code). New `scripts/orion-tts-install` runs a copy from `~/.openclaw/orion-tts` under launchd (KeepAlive). Doctor: `responding, engine=mlx-warm`. ElevenLabs key present but not selected (Nick's choice in Preferences).
+- **Interrupting**: widened trailing continuation cues (fillers, articles, prepositions, dangling pronouns) in `AdaptiveEndpointModel`; the harness section that said fillers never extend was rewritten to the new rule (118/118). Nick's endpointing default raised 1400 → 1800 ms (`defaults write com.nickmadaio.orion.app OrionVoiceEndpointingMs`).
+- **Tab switching**: `orion://show/<tab>` in the Mac app (AppDelegate `application(_:open:)` → `state.requestedTab`), `scripts/orion-show` (allowlisted). Verified: a phone-sender "go to the health page" → the Mac showed Health.
+- **Run status**: `scripts/orion-runs` (read-only, allowlisted) — ORION kept saying he couldn't see the coding run.
+- **Brain instructions** (plugin/workspace AGENTS.md + USER.md, synced live): remote ≠ fewer tools; he is a native app, never localhost; try app_open before "not installed"; Nick's mission, priorities and school facts. TOOLS.md regenerated with the two wrappers. Phone chat brief carries open apps + orion-show/orion-runs.
+- **Phone voice mode** (`App/PhoneVoice.swift`): mic button in the ORION tab → on-device speech recognition, 1.6 s end-of-turn, sends as chat, speaks the reply with the best installed English voice, listens again; "stop"/"that's all" ends. Built for device; NOT yet installed (iPhone unavailable). Mic/Speech usage strings added.
+- **Finding for Nick**: the brain is `anthropic/claude-haiku-4-5` with thinking off (Sept: 347 of 349 replies). This is the main cause of weak conversation and flaky tool use; upgrading is a cost decision (USER.md budget $0–10/mo). Each turn also carries ~240k cached tokens of context — worth trimming before or with any upgrade.
+- Checks: remote OK, phone UI suite OK, workspace sync OK, LinkCore 17/17, turn-taking 118/118.
+- Still Claude's: on-device model + offline event log on the phone; phone signals (location/motion/sleep/Screen Time) and notification/escalation delivery; wiring the Life loop modules once qwen finishes.
+
+## 2026-09-29 03:23 BST — v1 list received; life-loop handed to qwen; timetable imported (Claude)
+
+- Nick's v1 list + mission statement saved: `docs/vision/ORION_PURPOSE.md` (mission, priorities: classes > sleep > gym > deadlines/study > ≥1h side project daily > other > rest).
+- Timetable (12 weekly classes, Sep 28 → Dec 11) and 5 deadlines (Macro quizzes Oct 16 / Nov 20; Marketing Oct 26 13:00 ×2, Dec 4 13:30) generated as ICS and opened in Calendar for Nick to import. End times are read from a screenshot (1h30 lectures; Wed writing workshop 1h; Thu workshop 2h) — confirm. Term end date Dec 11 is assumed.
+- qwen project **Life loop** (`project-992584c3…`, 19 tasks, until 20:00 today): pure modules under `scripts/lib/life/` — block/priority/weekly/daily-needs/gaps, study request parse + fit, sleep-state, bedtime ladder, follow-through escalation, deferral classifier, after-late-night replan, patterns, sync event/merge/apply, next-action, CLIs `orion-next`/`orion-study`, review packet.
+- Kept for Claude (harder / wiring): phone voice; Mac voice + turn-taking (interruptions); on-device model on the phone (Apple Foundation Models) + offline event log; conversation quality and false "I can't"; tool-call reliability; phone signals (location, motion, sleep, Screen Time — FamilyControls entitlement needed for app restriction); notifications/escalation delivery; wiring the life modules into the brain and apps; `orion-show` tab switching.
+- Also in this session (uninstalled-to-commit): phone chat always goes to the brain (`--mode chat`), live phone context in the brief (open apps, what ORION's app is), remote-check assertion.
+
+## 2026-09-28 11:16 BST — Home restored; plan, tracking and chat connected phone↔Mac (Claude)
+
+Nick's list: original Mac Home back, finalize scheduling, talk to ORION from the phone, phone tracking (water/calories/supplements), Plan tab "not connected", drop "From your Mac" from the phone's Today.
+
+- **Mac Home** is the pre-Astra version again (orb, orbiting Quick Open apps, parked brief rail); tab renamed back to "Home". Astra's Today plan moved to the **Tasks tab** as a compact "ORION's plan" panel (TodayPlanView/TodayPlanContent rewritten; time budgets folded away). Planner logic (TodayPlanModel/Scheduler/Store) unchanged except completion callbacks and `reloadIfChanged()`.
+- **Scheduling, one plan on both devices.** Phone "Plan my day / Replan / Undo" → `LinkCommand` kind `plan` → the ORION Link helper writes `~/.openclaw/orion-controlled/today-plan-request.json` (MobileCore `PlanRequestFile`) → the ORION app (`PhonePlanRequests`, 3s ticker in DashboardView) refreshes Calendar + Orion Reminders, previews, accepts, writes the outcome back. The snapshot now carries `plan` and `planRequest`; the phone's Plan grid and Today "Now/Next" use the Mac's plan. Free-time blocks are no longer drawn on the phone grid. Verified live: a request was handled in <3s (rev 9) and undone the same way (rev 10, old plan back).
+- **Tracking from the phone.** Kind `log` carries a `LinkLog` (water ±, meal, remove meal, supplement) as JSON; the helper writes health-log.json itself via LinkCore `TrackingLog` using the app/plugin lock protocol (`<file>.lock`, 15s/6s), dictionary-level so unknown keys survive, complete day records. Logs use their sent time (valid 36h, so the Mac sleeping doesn't lose a bottle) and have a replay guard. Proven readable by the app's own `HealthLogFile` decoder on a copy. Phone: Health tab gains Water / Food (log sheet with recents) / Supplements; Today gains a compact tracking strip. Taps are optimistic and reconcile with the next snapshot.
+- **Chat.** orion-remote's brain brief was telling ORION every remote message "arrived over Discord"; it now has per-channel lines (`@discord`/`@phone`, `briefFor(sender)`). Verified: a phone-sender question answered "coming through the ORION app on your iPhone". Replies render light markdown on the phone. Message limit 500 → 2000 chars.
+- **Phone Today**: "From your Mac" removed; only a one-line approval banner (links to Control) remains, plus tracking. Plan tab status line now reflects the CloudKit link, not the old Simulator reader.
+- **Fixes on the way:** `orion-remote-install` raced bootout/bootstrap and left the Discord bridge unloaded while printing success — now waits, retries, fails loudly (bridge verified running). ORION Link helper kept running old code after app updates — `PhoneLink.ensureRunning` now restarts a helper older than its binary (kernel start time; `launchDate` is nil for it). Verified on install.
+- **Checks:** LinkCore 17/17, MobileCore tests 21/21, mobile check 703/703, phone UI suite passed, remote check OK, TodayPlanAppTests pass, Tasks layout harness PASS. Installed Orion build 374 (DR 171A72AB… unchanged, TCC kept); rollback `/Applications/.Orion-previous-374-pre-tracking-20260928.app`.
+- **Not yet on the iPhone:** device build is at `$SCRATCH/phonedd/Build/Products/Debug-iphoneos/OrionPhone.app` (11:15); iPhone (5) is "unavailable". Needs a cable once + Xcode "Connect via network". Then verify on device: chat round trip, water/meal log landing on the Mac, Plan my day, approval push.
+
+## 2026-09-28 10:29 BST — One Mac app; phone tabs made real (Claude)
+
+**Consolidated without a permission reset.** The CloudKit helper is now embedded in Orion.app at `Contents/Library/LoginItems/ORION Link.app`.
+
+- The helper is headless, has no menu, and is signed by team JQNK3T6ACY.
+- `make_app_bundle.sh` builds and embeds it before signing Orion. Orion keeps "Orion Local Signing", so its designated requirement is unchanged and every TCC grant is kept, Full Disk Access included.
+- Orion starts it and registers it as a login item (`PhoneLink.swift`).
+- **Settings → iPhone** shows its status.
+- The standalone `/Applications/ORION Link.app` was removed. Rollback: `/Applications/.Orion-previous-275-pre-phonelink-20260928.app`.
+
+**Phone:**
+- **ORION tab:** a real conversation (`ConversationView.swift`). Each message is a LinkCommand of kind "chat", the Mac hands it to ORION's brain through orion-remote (the conversation the Mac, voice and Discord share), and the history lives in iCloud.
+- **CloudLink:** rewritten around one zone-changes feed carrying the snapshot, replies and history.
+- **Control:** the duplicate "Ask ORION" and history were removed; approvals come first; answers to "Check the Mac" and "Open apps" show in place; there is a real Connection section (iCloud, Mac presence, notifications).
+- **Today:** on the device, the real day plus "From your Mac" (approvals, attention feed, live run, Ask ORION).
+- **Health:** the Mac's `health-log.json`, day-level numbers only, last 7 days, in `LinkSnapshot.health`. A WHOOP-style ring and a 7-day chart.
+- **Simulator:** the old pairing/HTTP/sample harness is Simulator-only, so the UI tests and Phase 49 evidence are kept. `--link-fixture` renders the real screens with fixture data for design review.
+
+**Checks:**
+- LinkCore 8/8, MobileCore 19/19 and mobile check OK.
+- The phone UI check is 2/2. `orion_v2_phone_check.sh` now resets the Simulator's privacy grants for the app first: a Calendar grant from 09-25 made the sample test fail.
+- A conversation message through orion-remote as "phone" got a real answer in 6 s.
+
+**Pending:**
+- Installing the newest phone build: iPhone (5) was unplugged. Nick should tick "Connect via network" in Xcode ▸ Devices the next time it is plugged in.
+- A Mac app pass.
+
+## 2026-09-28 10:00 BST — Phone ↔ Mac link over CloudKit: built and live one way (Claude)
+
+**The design.** iCloud container `iCloud.com.nickmadaio.orion`, a private database, zone `OrionLink`. Contract: `native/OrionMobile/Sources/MobileCore/LinkSnapshot.swift`.
+
+- **Record types:**
+  - `MacState`: one record, "mac", holding the JSON snapshot; the Mac writes it every ~30 s, or on change.
+  - `LinkCommand`: written by the phone; the Mac fills in status and reply.
+  - `LinkAlert`: written by the Mac for each new approval request; it triggers a push.
+- **Every command is text in orion-remote's grammar.** It runs as `handle --from phone --id <record> --at <ms>` with `ORION_REMOTE_ALLOW=phone`, so the lock, replay, rate and verb rules apply exactly as for Discord.
+
+**Mac:** `native/OrionLink`.
+- **LinkCore** (SwiftPM, 7 tests): `SnapshotReader` reads project runs, approval tickets, running actions, `attention-today.json` and `lock.json`; `CommandRunner` calls the installed `~/.openclaw/orion-remote` copy.
+- **The ORION Link.app menu-bar helper**, bundle `com.nickmadaio.orion.link`: team-signed, installed at `/Applications/ORION Link.app`. It writes `~/Library/Application Support/ORION Link/status.json`.
+- **Orion.app keeps its local signing**, so no TCC grants were lost.
+
+**Phone:**
+- `App/CloudLink.swift` plus a rewritten `RemoteViews` Control tab (no preview data): Mac presence, approvals with Approve/Deny, agent runs with Stop/Pause/Resume, running actions with Stop, the attention feed, "Ask ORION", and recent replies.
+- Push registration, with `UIBackgroundModes` remote-notification via `App/OrionPhone-Info.plist`.
+- The entitlements add the container and aps.
+
+**Verified on real devices:**
+- the Mac publishes (after a ~15 min wait for Apple to link the container to the Mac app: CKError 10 / internal 2007 "Invalid bundle ID for container");
+- iPhone (5) reads the snapshot;
+- MobileCore mobile check is 703/703 and package tests 19/19.
+
+**Not yet verified:** the command round trip, waiting on Nick tapping "Mac status", and a real approval push.
+
+## 2026-09-28 09:33 BST — Merged the qwen branches; ORION installed on Nick's iPhone (Claude)
+
+**Merge.** Four `--no-ff` merges into `orion-v2/backlog-checkpoint`:
+- 57 (`58af930`), 58 (`636036b`), the roadmap packets (`33dbcae`) and attention/ops (`efcdac9`);
+- no file overlapped the dirty tree;
+- merged tree: 296 automation/attention/ops tests and 224 agentic tests pass, CI is OK, and the secret scan is clean;
+- `orion-cron-deliver` now records history live, to `~/.openclaw/orion-controlled/cron-delivery-history.jsonl`.
+
+**Phone ↔ Mac.** Nick chose CloudKit as the backbone, with Tailscale as an optional fast lane later. He joined the Apple Developer Program: Team **JQNK3T6ACY**, Individual.
+
+**iPhone (5)**, an iPhone 16, is set up:
+- paired, Developer Mode on, and registered to the team;
+- the WWDR G3 intermediate was missing (only the 2023-expired one was present), and Nick installed it;
+- OrionPhone is built, signed by the team, and installed and launched on the device; the profile runs to 2027-09-28;
+- `DEVELOPMENT_TEAM` is saved in the phone project.
+
+**Next:** the CloudKit command/state layer. The Mac app is still on "Orion Local Signing"; moving it to team signing needs a plan for the TCC grants.
+
+## 2026-09-27 22:23 BST — Review sweep of all qwen branches (Claude)
+
+All four projects are complete: Phase 57 at 7/7, Phase 58 history at 6/6, the roadmap at 44/44, and attention/ops at 32/32. Every branch stayed inside its scope.
+
+**Tests re-run on each branch:**
+- attention/ops: 139/139;
+- history: 31/31, plus the 82 existing automation tests;
+- installer: 43/43, plus the same 82.
+
+**Two defects fixed, with fix commits on the branches:**
+
+1. **attention (`a76bd9e`):** `orion-attention-collect` put full error text, including local file paths, into the Today feed and digest outages. They are now source names only, and `buildTodayFeed` reduces objects to their source. About 20 lines of leftover model reasoning comments were removed.
+2. **history (`4a2816d`):** `orion-cron-deliver` recorded "silent" before the silence check, so every delivered run wrote two history lines. Fixed, with a new test ("each run records exactly one outcome") that fails on the old code.
+
+**Also checked:**
+- An independent 37-check spec probe of the attention engine passes.
+- The branch's `orion-automation simulate` ran end to end in a sandbox HOME with a fake history.
+- All 40 roadmap reports pass `doc-report`. Of 126 requirement statuses, none over-claims against PHASE_GATES; one is conservative.
+
+**Note:** many roadmap reports are thin (38–60 lines against the 100–180 asked for).
+
+**Not merged.** The branches wait for Nick's review.
+
+## 2026-09-27 09:50 BST — New all-day plan running: attention engine and ops tools (Claude)
+
+**Where things stood.** The roadmap run finished at 44/44 accepted (40 planned + 4 corrections). Its packets mostly ended in evidenced blockers (phase-order gates, unregistered native checks, Nick-only decisions), so the new plan was designed, not copied.
+
+**The plan.** `docs/agentic/plans/attention-and-ops.md` plus `.briefs/`. It is uncommitted and lints 0/0/0. It is project `project-f9a223a3-…`, launched `--until-stopped`.
+
+- **30 tasks, 17 of them independent. Every written path is new**, so nothing collides with the dirty checkout.
+- **The attention engine (Phase 59/63/64)**, under `scripts/lib/attention/`:
+  - the item shape, urgency, novelty and scoring (unknown is never zero);
+  - dedup, the quiet/focus gate and a durable queue;
+  - calendar, waiting, focus and manual sources;
+  - rank, explain, an interruption budget, collect, a Today feed JSON, a digest and a day simulator;
+  - the `orion-attention` and `orion-attention-collect` CLIs, driven by fixtures only;
+  - an architecture doc.
+- **Ops tools:**
+  - `orion-costs` (inference ledger, Phase 67);
+  - `orion-incident-timeline` (audit logs, Phase 74);
+  - `orion-focus-report` (Phase 60);
+  - remote-audit stats.
+- **A final review packet.**
+
+Brief facts were checked against HEAD: the admission quiet-hours and focus semantics, host `legacyFocus`, the `waiting.ts` fields, agenda `--json`, and the real ledger, audit and focus-history row shapes.
+
+**First task:** qwen wrote the module and tests on exchange 1, and they passed.
+
+**Not wired on purpose:** live readers, a schedule, delivery and the Swift Today surface.
+
+## 2026-09-26 15:51 BST — Roadmap run escalation: diagnosed, fixed, relaunched (Claude)
+
+**What happened.** The run stopped at 2/40:
+
+- Phase 48 and 49 were accepted. Both reports pass `doc-report` when rerun by hand.
+- Phase 50 and 51 spent every exchange of three attempts on READ and SEARCH, and never wrote their report.
+- The local reviewer declined to repair them, both tasks were deferred, and the recurring `worker_stuck` raised a run-level `repeated_failure` that halted the run.
+
+**The fix:**
+
+1. **Every brief's exchange plan** now says to write the report skeleton with FILE in exchange 1 (six sections and every requirement id), then EDIT at least every two exchanges.
+2. **`common.md`** gained a "Write first" section. Astra's previous briefs are in Claude's scratchpad (`roadmap-briefs.pre-writefirst`).
+3. **`worker.mjs`:** a worker that has written nothing by half its exchanges is told to write now, and a `worker_write_nudge` event is emitted.
+   - A new supervisor test covers it, and fails without the change.
+   - Agentic tests are 157/157, and lint is 0/0.
+
+Then: `rebrief` (the briefs of 38 unfinished tasks changed), the three escalations resolved (50 and 51 requeued with one attempt each), the bridge reinstalled, and the run relaunched `--until-stopped`.
+
+**Note:** the relaunch reset the saved "Keep the display on" to off.
+
+**Open:** `orion-remote-install` left the bridge stopped on its first run, twice today; a second run fixes it. A task chip has been filed.
+
+## 2026-09-26 12:01 BST — Projects: full-screen run view (Claude)
+
+Nick asked for the ChatGPT voice-mode pattern: pressing Start pulls up only the run.
+
+**The view** (`native/Orion/Sources/Orion/ProjectRunFocus.swift`):
+
+- It covers the Projects tab, and both sidebars step aside.
+- A pinned header holds the status orb, Pause / Stop and the overall %, with "task N of M · K accepted".
+- The centrepiece is the live worker → tests → self check → review → correct loop, scaled up.
+- It also shows:
+  - a whole-plan bar, one segment per task (accepted, current part-filled, parked in orange);
+  - the current task's ≈% with a stage rail and "Step x of y";
+  - the live model stream: thinking or writing, character counts and the thinking tail.
+
+**Per-task % is an estimate**, and is labelled one. `RunProgress` works it out from the recorded stage plus the worker's declared steps, and never reaches 100 before acceptance. The overall figure is weighted like the controller's.
+
+**Opening and closing:**
+
+- It opens on Start, via "Watch run" while live, and by itself when "Keep the display on" is set and a run is live, unless that run's view was dismissed.
+- It closes with "Show everything" (verified by a real click), a swipe down, or Esc. Esc could not be exercised by synthetic input to this LSUIElement app.
+
+**Checks:**
+
+- 5 new tests (`ProjectRunFocusTests`).
+- The full Swift suite has 0 failures.
+- It was verified visually with a probe project, since deleted.
+- Subtask captions no longer show the worker's leading "— ".
+
+## 2026-09-26 11:44 BST — Roadmap plan made runnable; Projects view now refreshes itself (Claude)
+
+**Astra's `orion-full-roadmap` project (40 tasks, not launched): two fixes.** Astra's original is kept in Claude's scratchpad as `orion-full-roadmap.pre-claude.md`.
+
+1. **The context no longer says to READ `PHASE_GATES.json`.** That file is 553 KB and READ truncates at 90,000 characters, before phase 34, so the worker would have got about 22k tokens of the wrong phases. Each brief already embeds the phase's gate record.
+2. **The only check is now `doc-report`** (`scripts/lib/agentic/doc-report-check.mjs`, registered in `checks.mjs`). It replaces `node-syntax`, which never ran on Markdown. It fails a report that:
+   - is missing any of the six required sections;
+   - leaves out any of its phase's requirement ids;
+   - cites a repository path that does not exist, before "Smallest next slice".
+
+Agentic tests are 144/144 and lint is 0/0. The project was refreshed, and the Discord bridge reinstalled; the first reinstall left it stopped, and a second brought it back up.
+
+**The UI didn't update for anything:** the Projects list never showed new projects, and the plan tab never reloaded.
+
+- **Root cause:** the dashboard re-renders every second (`SessionTabModel`'s media timer), which re-created the timers stored on child views before they could fire.
+- **Fix:** `ProjectRefresh.swift`. `RefreshTicker` is an `@StateObject` timer that also ticks on app activation. `ProjectLibraryModel` backs the list.
+- **Also:**
+  - the plan reloads when `plan.md` changes;
+  - there is a Refresh button beside `+`;
+  - a `.DS_Store` file is no longer counted as a broken project;
+  - DayTimeline's now-line had the same bug and is fixed.
+- **Verified live:** a probe project appeared and disappeared by itself within 5 seconds. Swift tests show no failures, and there are 4 new tests.
+- **Rollback:** `/Applications/.Orion-previous-275-pre-refresh-20260926.app`.
+
+## 2026-09-26 — Astra full-roadmap transfer to offline model
+
+Created `docs/agentic/plans/orion-full-roadmap.md` and 41 adjacent briefs; registered as **ORION full roadmap — implementation packets**, ID `project-756fe9c4-dd6d-492a-89ce-7377ccc9e5e5`. Import only, not launched; existing installer/history projects and overnight chain were not changed.
+
+40 executable documentation contracts: one for each of 34 non-complete phase records, plus six cross-cutting original-vision packets. These investigate source and propose small implementation contracts; they do not implement features or grant blanket authority. Each worker receives the common architecture plus exact phase requirements. Existing 57/58 projects retain coding ownership. Native check registration, Phase 48/49 authority decisions, entry gates, dirty-source integration and real-device/provider proofs remain explicit prerequisites. No product completion percentage is implied.
+
+Verified against HEAD `9855d99`: all required source preconditions exist in committed HEAD; plan validation/import each reports 0 errors, 0 warnings, 0 scope findings (40 informational documentation-review notes). Plan and brief snapshots match registration. Independent read-only review by review_local_today found no blocking findings and confirmed complete open-phase coverage, committed prerequisites, bounded scopes and preserved gates. Runtime/product tests were not rerun for this documentation-only transfer. Prior source/installed claims in the September26 Claude batch remain attributed historical evidence. The mixed dirty checkout was preserved.
+
+Next: select this project in Projects when ready to run source reconciliation; independently review its output contracts before registering implementation batches. Outputs belong under `docs/planning/offline-roadmap-results/`. Full product roadmap and architectural boundaries are in the plan/common brief. No deployment, merge, new provider, new credentials or worker restart occurred. Rollback: leave the imported project unlaunched and remove only these newly authored plan/brief files if unwanted; no product behavior changed.
+
+## 2026-09-26 04:37 BST — Overnight qwen run: Phase 57 finish, then Phase 58 automation history (Claude)
+
+**What is running.** A detached chain, `~/.openclaw/orion-controlled/project-agent/overnight-chain.sh`, which logs to `overnight-chain.log` beside it:
+
+1. First it relaunched `advance-orion-capabilities` (Phase 57) for its last 2 tasks, `auto-install-fixture-route` and `auto-install-review-packet`. The worker is qwen3.6:27b and alerts are quiet.
+2. When that run ends it starts the new project `project-8478096a-…` ("Automation history", 6 tasks), unless the first run was halted by an operator.
+
+**The new plan:** `docs/agentic/plans/automation-history.md` plus its `.briefs/`. It is uncommitted, and it lints clean (0 errors, 0 warnings).
+
+- It targets Phase 58's last open requirement, `uses_historical_data_where_available`, with:
+  - an append-only history ledger;
+  - a pure summary;
+  - recording in `runInstalledAutomation` and in `orion-cron-deliver`;
+  - `simulate` printing observed numbers;
+  - a review packet.
+- Three tasks have no dependencies.
+- Every brief claim was prototyped on a `git archive HEAD` copy, including that the cron-deliver tests stay off Discord under a temp HOME.
+- The loop does not deploy or merge anything.
+
+**To stop it:**
+
+- the app's Stop, or Discord `agent stop` (the chain then does not start the next project);
+- or `kill $(cat ~/.openclaw/orion-controlled/project-agent/overnight-chain.pid)`, then stop the running project.
+
 ## 2026-09-26 00:48 BST — Phases 40–52 batch: reviewed, repaired, deployed, checkpointed (Claude)
 
 Report: `docs/planning/v2/PHASES_40_52_BATCH_REPORT_2026-09-26.md`.
@@ -35,15 +397,766 @@ Report: `docs/planning/v2/PHASES_40_52_BATCH_REPORT_2026-09-26.md`.
 3. whether to remove bare `env` and `find` from the main allowlist;
 4. which Phase 48 broker isolation to use: a second macOS user, or `sandbox-exec` around the gateway.
 
+## 2026-09-25 20:24 BST — Phone: day planning live on Calendar/Reminders; remote access UI (Claude)
+
+Direction from Nick: the phone is for **remote access** and **day planning**.
+Spec for Astra: `docs/planning/v2/PHONE_FOCUS_2026-09-25.md` (maps the
+backend work to Phases 21–25, 39, 41, 44–49, 56, 65/66).
+
+- **Day planning (real data).** `App/PlannerStore.swift` reads and edits
+  Apple Calendar and the "Orion" Reminders list through EventKit.
+  - Access is asked only on "Connect Calendar & Reminders", never at launch.
+  - It merges ORION's plan blocks from the Mac's `GET /plan`, without
+    duplicating commitments.
+  - `App/PlanViews.swift`:
+    - a calendar-style day grid with overlap columns, drawn from
+      `MobileCore/DayLayout.swift` (10 new checks, 703/703);
+    - a red now line and prev/today/next navigation;
+    - event add/edit/delete, and to-dos add/complete/edit/delete;
+    - ORION blocks drawn dashed and read-only.
+  - Today shows Now/Next and the top to-dos once connected.
+  - Usage strings are added to the build settings.
+- **Remote access (UI, preview data).** `App/RemoteViews.swift` puts four
+  sections on Control: your Mac, agent runs, approvals, and actions (using
+  catalog names).
+  - Everything is labelled PREVIEW, and every button says "not sent".
+    `RemoteStore` is the seam the Phase 44 link fills.
+  - The phone's identity, connection and privacy sections stay below, under
+    "This phone".
+- **Verified in the live Simulator panel:**
+  - granted Calendar and Reminders on the Simulator's test data;
+  - created "Seminar prep", which was saved to Calendar and drawn at 21:00
+    with the now line;
+  - added two to-dos, which were saved to Reminders and shown on Today;
+  - the Control preview notice appears on Stop.
+- **Tests:** `orion_v2_phone_check.sh` 2/2 and
+  `orion_v2_phone_read_check.py` PASS, both on a separate iPhone 17 Pro
+  Simulator. The pairing check is still not run (`cryptography` missing).
+- **Tabs are still the manifest's five.** Control now means remote access.
+
+## 2026-09-25 19:46 BST — Phone app visual redesign (Claude)
+
+`native/OrionMobile`: the phone now uses the Mac app's language. Behaviour,
+security flows and every UI-test identifier are unchanged.
+
+- **`App/PhoneTheme.swift`** (new): tokens (ink, the Mac's cyan, green,
+  violet, orange; mono labels; rounded display type) and components:
+  PhoneBackdrop, PhoneHeader, SectionLabel (fading rule), PhoneRing,
+  PhoneButtonStyle (outline capsule, glow when prominent), StatusDot, PhoneStat,
+  PhoneEmptyState, TimelineRow, `.phoneScreen()`.
+- **`App/PhoneTodayReader.swift`** (new): `PhoneTodayReader` and
+  `NoReadRedirect` moved out unchanged. Both new files are registered in
+  `project.pbxproj` (ids …29–2C).
+- **`OrionMobileApp.swift`**: dark scheme, with these screens:
+  - **Today:** date and greeting; the sample shows NOW big, then next
+    commitment and free minutes as figures.
+  - **Plan:** a timeline, coloured by block kind.
+  - **ORION** and **Health:** designed empty states.
+  - **Control:** sections under labels instead of a grouped List; user-facing
+    wording.
+  - The connection-review and connected-reading views are restyled.
+  - Simulator-only launch arguments `--tab <today|plan|orion|health|control>`
+    and `--sample` make screenshots reachable without taps.
+- **Copy the UI tests pin is kept exactly** ("Wednesday, 9 September · London
+  time", "No personal records loaded", all status strings). Caps are drawn with
+  `.textCase`, so VoiceOver reads the original wording.
+- **Verified:**
+  - `scripts/orion_v2_phone_check.sh` passes (2/2).
+  - `orion_v2_phone_read_check.py` PASS: real Simulator read, stale display,
+    outage, recovery, revocation.
+  - **Not run:** `orion_v2_phone_pairing_check.py`. No Python here has
+    `cryptography`, and nothing was installed. It drives the pairing, session
+    and HTTP-session UI tests. Their identifiers and element types are
+    unchanged, but that is not proof.
+- The Claude Simulator panel needs `sudo xcode-select -s
+  /Applications/Xcode.app/Contents/Developer` (Nick). The builds here used
+  DEVELOPER_DIR.
+
+## 2026-09-25 18:43 BST — Every task checks what already exists first (Claude)
+
+For Astra's full plan, parts of which may already be done (236/236 agentic):
+
+- **Survey.** `scripts/lib/agentic/existing.mjs` `surveyExistingWork` runs at
+  the start of every attempt.
+  - It records, per scope file: exists, lines, exports, test count and last
+    commit.
+  - It records, per `Export foo(` promised in the contract: where it is
+    already defined (git grep).
+  - The worker sees it every exchange as "ALREADY IN THE REPOSITORY". The
+    journal records `existing_work_surveyed`.
+- **Overwrite guard.** `overwriteRisk` checks every worker write, and every
+  reviewer-repair write, against HEAD. It refuses:
+  - a write that removes existing exports the contract text does not mention;
+  - a write that lowers a file's test count;
+  - a whole-file write that discards more than half of a file of 40+ lines.
+
+  The refusal says why. EDITs, and additions, pass.
+- **Already satisfied.** A worker that changed nothing can finish with
+  `### DONE` starting "ALREADY SATISFIED:", on fresh all-green checks.
+  - The host makes an empty commit (`commitAlreadySatisfied`) and journals
+    `already_satisfied`.
+  - The reviewer gets the existing scope files in place of the empty diff and
+    judges them criterion by criterion. There is no benefit of the doubt.
+- Worker and reviewer system prompts are updated (step 0 "find out what already
+  exists"; reviewer item 9 "existing work destroyed"). PLAN_STANDARD §1 notes
+  the behaviour.
+
+## 2026-09-25 15:07 BST — Plan standard, plan lint, scope-tests check (Claude)
+
+**Added** (231/231 agentic tests):
+- `docs/agentic/PLAN_STANDARD.md`, the baseline for every new plan:
+  - what reaches worker, reviewer and repair, and what never does (plan prose,
+    other tasks, the graph);
+  - architecture rules A1–A8: independent branches, one owner per file, a
+    task-specific check, checks registered before the run, sizing, docs-task
+    criteria, scope as the grant, preconditions;
+  - information rules I1–I8: objective as end state, one statement per
+    criterion, named test scenarios, specified interfaces, task-specific
+    context, described failure injection, real escalation conditions, no
+    impossible instructions;
+  - the brief structure, a plan and task template, and a pre-run checklist.
+  - Linked from OPERATING.md §2.
+- `scripts/lib/agentic/plan-lint.mjs`: advisory findings with codes, printed
+  as `lint` by `orion-agent plan` and `orion-projects add`. It never
+  refuses a plan. Its only error is scope-tests with no test file in scope.
+- The `scope-tests` check runs `node --test` on the task's own
+  `tests/**.test.mjs` scope files. The argv is fixed, and paths come only
+  from the approved scope, so no per-plan registry edit is needed.
+  - Scope is now passed at every `runChecks` call site.
+
+**The current plan against it:** 0 errors, 16 warnings, 1 note.
+- Structure: a linear chain, two shared files across four tasks, no
+  task-specific check, and one context paragraph copied into all five tasks.
+- Acceptance criteria: compound criteria, and bundled test scenarios (the one
+  that blocked task 2 twice).
+- Astra's task blocks are unchanged. Its briefs already compensate for the
+  interfaces and the scenario lists.
+
+## 2026-09-25 14:55 BST — Soft task hour; Projects run console redesign (Claude)
+
+**Soft task hour** (227/227 agentic, 82/82 automation):
+- `taskTimeoutMs` (60 min) is now the FIRST budget. `runProjectAgent` has an
+  extendable deadline, capped by `taskHardTimeoutMs` (4 h) and the run's end.
+- At each exchange boundary the worker checks whether the next exchange will
+  fit, judged from the last three exchanges' real duration. Running out of
+  exchanges triggers the same check.
+- If so, and there was progress in the last 4 exchanges (host gate), the
+  reviewer gets a short report. The call runs without thinking.
+  - It grants 0–45 min plus an ETA. `extension.mjs` sets the bound.
+  - Exchanges follow time: one per 5 min granted, never above `maxTurnsHard`
+    (40).
+  - An unusable answer falls back to the host's 20 min.
+  - Every decision is journalled as `deadline_extended` or
+    `deadline_extension_refused`.
+- The live runner still predates this; it applies from the next launch.
+
+**Projects run console** (`ProjectRunConsole.swift`, `ProjectTab.swift`
+header; 522 Swift tests, 0 failures):
+- A status orb that breathes (worker cyan / reviewer violet), spins while
+  changing state, pulses orange when it needs Nick, and closes green when done.
+- A large animated status word, plus who is working, the model, elapsed time
+  and the task.
+- One primary button that changes with state (Continue / Stop / Resume), with
+  Pause and Exterminate beside it.
+- **Proof a press landed:** Sent → Recorded → Done. Done is read from the loop
+  (heartbeat/state), never assumed. `ProjectIntent.isDone` has unit tests.
+- A per-task segmented progress strip in the header and sidebar; the task in
+  flight shimmers.
+- Asleep/Away alert switch (`orion-project-agent alerts`); heartbeat role and
+  model are now decoded.
+- Run settings are folded into one summary line.
+- The old four-row halt list (`ProjectHaltControls`) is removed.
+- A stale Swift test was aligned with the CLI: Resume may clear a stop on an
+  interrupted run.
+- `-orion.initialTab project` launch argument, so screenshot checks can reach a
+  tab.
+- Installed with the same designated requirement. Rollback:
+  `/Applications/.Orion-previous-275-pre-console-20260925.app`.
+
+**Run state:** Nick stopped the run at 14:33 BST (battery). Task 3 and both of
+its corrections are accepted (5/7). Continue from the app when he is plugged in.
+
+## 2026-09-25 14:12 BST — "Stuck" was retyping files; EDIT added; deferral + quiet alerts (Claude)
+
+**Diagnosis of the overnight stop (task 3, 07:30 BST):** not stuck, and not a
+model-quality problem. The block was `worker_timeout`: nine exchanges in the
+hour, and the worker was making progress. The time went on output:
+- Every change was a whole-file `### FILE`. At local generation speed that is
+  about 7 minutes for the 20 KB module and 11 minutes for the 34 KB test file.
+  Turns 6 and 8 each retyped the module for a small fix.
+- Turns 6 and 8 wrote without a CHECK, so the worker was fixing a failure it
+  could not see.
+- The reviewer repair retyped the same file, hit the output cap
+  (`doneReason: length`), and was cut off before its diagnosis.
+- The last failure was a wrong TEST. Its child process ran the install to
+  completion before `exit(73)`, so there was no crash to reconcile.
+
+**Changes** (224/224 agentic):
+1. **`### EDIT`**, SEARCH/REPLACE hunks, in `scripts/lib/agentic/edits.mjs`.
+   - It is parsed in `prompts.mjs` and used by both the worker and the repair.
+   - Each hunk must match exactly once. Trailing whitespace is forgiven. The
+     edit is all-or-nothing, and a failure says which block failed and why.
+   - The whole-file write still goes through `writeScoped`.
+   - Documented in `worker-system.md`, `reviewer-repair.md` and the common
+     brief (rebriefed, rev 3).
+   - The repair now puts its JSON first, so a cut-off reply keeps its diagnosis.
+2. **Checks run automatically after every write.**
+3. **Deferral.** Every task-level escalation is `deferred: true`. The task waits
+   for Astra; independent work continues (the plan forbids skipping
+   dependencies, so dependents wait too).
+4. **Alert modes**, via `scripts/orion-project-agent --project ID alerts
+   quiet|away`. It applies live, and the default is quiet.
+   - **quiet:** no per-deferral, stuck, repair or recovery messages. When the
+     run stops, ONE digest goes out as a silent Discord message (flags 4096),
+     plus `briefs/astra-deferred.md`.
+   - **away:** each deferral is sent as it happens.
+5. **More tries.** A repair that leaves checks failing no longer escalates: the
+   worker continues from it. `repairRetryAttempts` goes from 1 to 3.
+
+**Live result:** relaunched at 14:02 BST in quiet mode, with the diagnosis in
+the resolution note.
+- Worker turn 2 was an EDIT that took 51 seconds, and all checks were green.
+- The task went to review 5 minutes after it started.
+- It was ACCEPTED with two corrections, which are now running.
+- The bridge was reinstalled (in sync).
+
+**Open:** there is no app toggle for the alert mode yet; it is CLI only.
+
+## 2026-09-25 07:40 BST — Task 2 ACCEPTED; four loop defects fixed during the night (Claude)
+
+**Result:** `auto-install-transaction` was accepted at 07:30 BST (independent
+review: transaction order, exclusive publish, all six scenarios). The run moved
+straight to task 3 (`auto-install-reconcile`), which is healthy.
+
+**Defects that kept stopping it, each fixed with a mutation-checked test**
+(214/214 agentic):
+1. **Unfinished work wiped on every resume** (`partial_work_discarded`):
+   23-of-24-passing work was thrown away twice.
+   - Now a task's own dirty files are kept when all are in its scope, it is not
+     accepted, and it was the last task the worker wrote (from the journal).
+     This applies at startup (`recoverRun`) and at claim (`partial_work_kept`).
+   - Another task never inherits them.
+2. **Green work called stuck:**
+   - Self-review exchanges that may not say DONE counted toward the stuck
+     gate, and the repetition gate ignored subtask labels.
+   - Now, with fresh, all-passing checks, both gates submit the checkpoint to
+     review (`worker_green_submitted`).
+   - Stuck fixtures in 3 older tests now fail their checks, which is what stuck
+     means.
+3. **Kept files not counted as written,** so CHECK answered "nothing written".
+   Kept in-scope files now seed `written`, and a checkpoint commits all changed
+   in-scope files.
+4. **Memory-pressure stops charged as failures** (previous entry).
+
+**Task 2's actual last bug** was in its test: the ledger file name used the raw
+installationId instead of its sha256.
+
+## 2026-09-25 04:12 BST — Memory-pressure stop no longer ends a task; run relaunched (Claude)
+
+- **What happened:** at 04:00 BST the resource guard stopped a worker
+  generation ("swap is still climbing"). It was charged as an ordinary worker
+  failure and spent task 2's last attempt, so the run escalated and stopped.
+- **Fix:**
+  - `resources.mjs` marks a guard stop `recoverableRuntime` + `resourcePressure`,
+    so the controller refunds the attempt.
+  - `recovery.mjs` handles pressure on the host, without asking the 27B
+    reviewer: unload the model, wait `resourceSettleMs` (default 180 s), retry.
+    This stays within the recovery budget of 2 per phase and 6 per run, so
+    persistent pressure still escalates.
+  - New test.
+- **Verified:** 211/211 agentic tests. Bridge resynced.
+- **Relaunched** at 04:06 BST after resolving the escalation; turns healthy.
+  - Swap is 17 GB and mostly stale; a reboot before the next run would help.
+  - Keep the lid open.
+
+## 2026-09-25 03:40 BST — Run relaunched overnight on Nick's instruction (Claude)
+
+- **Why it would not start:** the start button was disabled because task 2's
+  escalation was still open, and the app said nothing about it.
+  - Resolved the escalation by CLI with the defect-list note (revision 97).
+  - Launched `--until-stopped --keep-display-on --nudge-minutes 5` on AC power.
+  - The supervisor is live; keep-awake is bound to serve.
+- **First turns are healthy:**
+  - 41 s and 34 s turns with thinking off.
+  - Turn 3 rewrote the installer, fixing every defect the note named.
+- **Lid:** preflight says closing the lid will sleep the Mac, because
+  Vorssaint's lid option is off.
+- **App:** `ProjectTab.swift` now explains a disabled start (it says where to
+  resolve). It builds but is NOT installed; install it while no run needs the
+  app.
+- **Do not initialize a new run.**
+
+## 2026-09-24 23:22 BST — Why the 2026-09-24 morning runs died, and the fixes (Claude)
+
+**Found:** Nick and Astra's morning restarts all stopped on task 2's last
+attempt. The journal shows why:
+
+1. 08:40Z: a worker turn thought for 23 minutes (64k chars) and produced
+   nothing.
+2. 09:13Z: the next call hit models.mjs's 30-minute "inference timeout". This
+   was classed `worker_or_validation_failed`, which spends an attempt, not
+   `worker_timeout`, which goes to the reviewer.
+3. 09:22Z, with worker thinking now off in agentic-config: the worker sent the
+   same `SUBTASK+READ+READ` three turns running. Reads of files already in view
+   were ignored silently, so it never learned. The repetition gate blocked it as
+   an ordinary failure.
+
+No handoff entry was written for the 09:37-10:17 BST edits (worker, supervisor,
+models, controller, Swift).
+
+**Fixed:**
+- A READ of a file already in view now gets a notice ("already in your working
+  set ... write a file and CHECK").
+- The repetition gate counts consecutive identical turns, as its comment always
+  said, and routes to `worker_stuck`, the reviewer rung.
+- "inference timeout" routes to `worker_timeout`.
+- Regression tests for all three.
+
+**Verified:**
+- 210/210 agentic tests and 82/82 automation tests.
+- `doctor`: worker qwen3.6:27b with think off, usable; reviewer with think on,
+  usable.
+- Bridge reinstalled and in sync.
+- The installed app was built after the latest Swift sources.
+
+**State:**
+- Nothing running.
+- Task 2 is blocked with an open escalation; attempts 3/3; its one reviewer
+  repair is used. So a resolution gives it one attempt, and a stuck or timeout
+  in that attempt escalates again rather than going to the reviewer.
+- Swap 9.7 GiB; battery 36% (it drained ~60%/h during the run).
+
+## 2026-09-24 03:37 BST — Plan briefs rewritten and delivered; three loop defects fixed (Claude)
+
+**Found state** (the 00:44 entry was no longer true):
+- The first real run stopped at 02:42 BST, status `escalated`. Task 1 is accepted
+  (via repair `7898699`). Task 2 `auto-install-transaction` is blocked after all
+  attempts; tasks 3-5 are queued behind it. Nick was alerted (journal:
+  `escalation_notified delivered`). No supervisor is running.
+- Task 2's history:
+  1. Attempt 1: the worker read ~10 files in one exchange, evicting 7 of its
+     own reads, then hit the repetition gate.
+  2. Attempt 2: twice spent the whole 16k output budget thinking (empty
+     replies), then timed out.
+  3. A reviewer repair (`d7286b2`) was judged "structurally correct" but
+     blocked for missing tests.
+  4. The 02:39 resolution ("add the six missing tests") was wasted: the
+     controller resubmitted the same repair checkpoint three seconds later, and
+     the reviewer blocked it again.
+- Codex then fixed the resolution path (orion-project-agent.mjs 02:46, with no
+  handoff entry).
+- **The repaired installer is not correct**, whatever the reviewer said:
+  - it requires `now` to be a `Date` and passes it to `automationSchedulePlan`,
+    which throws "Invalid current clock" on every call;
+  - it nests `policy: plan.policy`, which dispatch and the runtime refuse;
+  - it never releases its lock;
+  - it stores neither plan nor record in the transaction;
+  - it labels a failed read (id known) as `create_pending`;
+  - it publishes with `rename`, which overwrites.
+  No test exists to show any of this.
+- Codex's briefs were accurate but thin: 14 KB across all six files.
+- Astra's plan task blocks are unchanged: all five digests are identical to the
+  2026-09-23 originals.
+
+**What changed and why**
+- **Briefs rewritten** (40.8 KB) from the verified research in
+  `docs/handoffs/briefs-research-2026-09-23/`. Codex's versions are kept in
+  `codex-briefs-v1/`. They give:
+  - exact signatures and line references;
+  - the installed-record shape;
+  - adapter and transaction conventions, labelled as recommendations;
+  - a test recipe per scenario, with a fixed clock;
+  - an exchange plan sized to the stuck gate and output budget;
+  - traps, taken from tonight's actual mistakes;
+  - a per-criterion checklist for the reviewer, who cannot open files.
+  - Task 5's brief quotes tasks 1-4's 19 criteria and the follow-on list
+    verbatim, since the plan is not in the worktree.
+- **Runtime fixes:**
+  - a reviewed repair checkpoint is consumed by any verdict;
+  - one exchange reads only what fits beside the task's own files, and the rest
+    is skipped and named;
+  - after a reply starved by thinking, the next exchange runs with
+    `think: false` once (`models.mjs` now takes a per-call `think`).
+- **New operator command:** `orion-projects rebrief <id>` refreshes briefs of
+  unfinished tasks on a started run. It refuses while the run is live or if any
+  task block differs, and bumps `rev`.
+- **Earlier fixes, verified intact alongside Codex's work:**
+  - the checks-heuristic fix;
+  - reaper disarm on resume;
+  - recovery for parked tasks and an unreachable reviewer;
+  - own-file eviction pinning;
+  - Continue gated on a run-level block.
+- **Stale test updated:** `--until-stopped` replaced `--hours` in the resume
+  hint.
+
+**Verification**
+- Node: 206/206 agentic tests (was 187) and 82/82 automation tests.
+- Mutation checks: each new fix's test fails when that fix is reverted.
+- Executable fact-check: a throwaway installer that follows the task 2 brief,
+  run against the real modules. 7/7 tests covering 15+ brief claims passed:
+  - the Date clock error and the refused nested record;
+  - interop `succeeded`, `duplicate_or_old_trigger`, `not_due` at 09:05Z;
+  - the six task 2 scenarios, including ENOTDIR publication failure;
+  - `not_authorized`, `mode_mismatch`, `expired`, `focus_unknown`,
+    `invalid_state`, `stopped`, `busy_or_unavailable` and `outcome_unknown`.
+- `orion-agent plan`: every task has its own brief, 9.4-15.4k chars each.
+- Briefs contain no marker lines and no triple backticks.
+- A worker's first turn is ~7-9k of its 48.5k-token budget, leaving ~104-110 KB
+  for files.
+
+**Live/installed state**
+- The run is stopped and escalated, revision 78. The rebrief is applied:
+  tasks 2-5 are at rev 2 with the new briefs, and task 1 is untouched.
+- The bridge is reinstalled and not DRIFTED.
+- The app is unchanged: build 275 from Codex's 00:04 install.
+- Nothing committed.
+
+**Rollback:** copy `docs/handoffs/briefs-research-2026-09-23/codex-briefs-v1/*`
+back into the briefs folder, then run `orion-projects rebrief`. The runtime
+changes are small and each is covered by named tests.
+
+**Exact next step (Nick's call):** resolve task 2's escalation and Continue. The
+resolution note becomes the task's "why this came back". Suggested note:
+
+> The installer from the reviewer repair has defects no test caught: `now` must
+> be epoch-ms (a Date makes automationSchedulePlan throw); spread `plan.policy`
+> into the record, never nest it; release the lock in finally; store the full
+> plan and record in the transaction; a failed read after an id is `job_known`,
+> not `create_pending`; publish with an exclusive link, not rename. Fix the
+> module against the brief, then write the six test scenarios.
+
+## 2026-09-24 00:44 BST — False worker-stop and repair-continuation defects fixed live
+
+- The first real `advance-orion-capabilities` run never lost its supervisor:
+  PID 20370 and its heartbeat stayed live. What looked like a stop was a false
+  `worker_stuck` transition after four passing check cycles.
+- Root cause: the stuck counter treated only the first write to a path as
+  progress. A worker that corrected that same file during a required
+  self-review was therefore classified as stuck immediately after making a
+  useful correction. `worker.mjs` now resets the counter for a changed file at
+  a runtime-requested self-review checkpoint while retaining the churn gate.
+- A second evidence bug made `diffSince()` omit untracked files, so the repair
+  reviewer was told the current diff was empty before the first checkpoint.
+  `workspace.mjs` now appends read-only `/dev/null` diffs for allowed untracked
+  files without staging or otherwise mutating them.
+- The live recovery exposed one more controller fault: after a passing reviewer
+  repair, the worker was required to rewrite the same files and say `DONE`
+  before the checkpoint could be reviewed. Qwen kept returning `CHECK` and hit
+  the repetition gate. Repair retries now durably carry the repair SHA/files;
+  the host reruns every registered check against those exact files and submits
+  the clean repair to the ordinary independent review gate without another
+  worker-model generation.
+- Regression coverage proves a self-review correction proceeds, unproductive
+  rewrites still route to review, investigation is not called stuck, and an
+  untracked first-checkpoint file appears in the repair diff and remains
+  untracked. It also proves a repaired checkpoint is checked and submitted
+  without rewrite. The complete supervisor suite passed, including recovery,
+  halt, review, repair and timeout paths.
+- The same run was resumed under the corrected backend as PID 31196. At 00:46
+  the independent reviewer accepted repair commit `78986999` after all three
+  checks passed again, and the loop immediately started task 2,
+  `auto-install-transaction`. Two
+  automatic repeated-failure alerts sent while the old processes were being
+  drained were resolved in the durable ledger with the exact controller-fix
+  reason; no escalation remains open. Do not initialize a new run.
+
+## 2026-09-24 00:04 BST — Live monitoring verified during the first real run
+
+- Nick started `advance-orion-capabilities` with `--until-stopped`. The run is
+  live on branch `orion-agent/f3c41a5b`; supervisor and worker leases are held
+  by the same healthy process. Do not restart or duplicate it.
+- Installed build 275 now shows a permanent numeric weighted progress percent,
+  accepted task count, heartbeat age/phase, current task and current subtask in
+  the right workflow panel.
+- **Activity** now shows the streamed local-model trace, the latest 160 lines
+  of `run.log`, an **Open full log** button, every task and subtask state, and
+  the latest 20 durable checkpoints. The views remain readable after a run
+  stops. Installed UI proof showed all of these against the live run.
+- At verification the run was healthy at revision 9, 0%, task
+  `auto-install-readback`, attempt 2, with no escalation. The first attempt was
+  automatically retried after a worker/validation failure, as designed.
+- Validation: 49 targeted Node tests, 25 targeted Swift tests plus the new log
+  tail test, four-state UI harness, signed release build, identity check, live
+  backend doctor, project plan/brief validation, bridge status, and installed
+  UI inspection. Closing/replacing the app did not interrupt the supervisor.
+
+## 2026-09-23 23:51 BST — Wall-clock runs and full-width workflow UI installed
+
+- Project launches now use either an exact `--until ISO_TIME` deadline or
+  `--until-stopped`; the app no longer presents a relative hour budget. The
+  legacy `--hours` parser remains only for compatibility with old scripts.
+- Projects offers **At a time** (normal AM/PM time picker) and **When I stop
+  it**. If the loaded calendar has an upcoming class/lecture/seminar/tutorial/
+  workshop/lab, an Orion shortcut offers 30 minutes before its start.
+- The Projects workspace now fills the window. Its workflow is a persistent,
+  vertical five-stage loop in the right third; Plan/Activity/Reviews use the
+  left two thirds.
+- Installed `/Applications/Orion.app` remains signed build 275. The saved
+  `advance-orion-capabilities` snapshot was refreshed. The Discord bridge was
+  reinstalled after its continuation hint changed. No project was started.
+- Verification: 61 targeted Node tests, 25 targeted Swift tests, 31 focused
+  launch/keep-awake tests, four UI harness states, release build/signature, and
+  installed UI inspection. Both run modes were exercised in the installed UI.
+
+## 2026-09-23 23:31 BST — Projects workflow diagram restored and installed
+
+- Restored the worker → tests → self-check → review → correction → Astra
+  diagram in **Projects → Activity**. Before a run exists it shows the complete
+  loop as a static blueprint; during a run it uses the existing live dial.
+- Narrow verification passed: backend plan/doctor checks, 22 targeted Node
+  tests, 16 targeted Swift tests, the four-state UI layout harness, release
+  build, strict code-sign verification, and identity preservation.
+- `/Applications/Orion.app` is the verified 1.2.0 build 275. The previous bundle
+  is `/Applications/Orion-pre-diagram-20260923.app`. Installed UI proof showed
+  the saved five-task project and the diagram through the normal Projects route.
+- No project run was started and agent execution remains disabled until Nick
+  presses **Enable & start**.
+
+## 2026-09-23 22:40 BST — Safety handoff: plan briefs in progress (Claude)
+
+Written at Nick's request, before continuing, in case this session runs out
+again. The previous two background workflows died on the monthly spend limit.
+**If this is the newest entry, the work below is where things stopped.**
+
+**Found state**
+
+- The **brief mechanism is built, tested and live** (ARCHITECTURE §4.26,
+  OPERATING §2, handoff doc §14). Last full run: 184/184 Node, 514/514 Swift.
+  - A plan may have `<plan>.briefs/common.md` and `<task-id>.md`, which the host
+    renders after each contract for worker, reviewer and repair.
+  - Astra's `docs/agentic/plans/advance-orion-capabilities.md` is unchanged.
+- **No brief has been written yet.** The research for them is complete and saved
+  in `docs/handoffs/briefs-research-2026-09-23/`: one JSON per task plus
+  `environment.json`, each with verified APIs, data shapes, test patterns,
+  per-criterion feasibility, pitfalls, exchange plans and reviewer checks, all
+  with file:line evidence. Every writer, checker and cold-reader agent failed on
+  the spend limit.
+- **Final review of everything:** only the halts and remote dimensions finished.
+  Controller, launch, briefs and readiness failed. Findings are in
+  `docs/handoffs/briefs-research-2026-09-23/final-review-findings.json`.
+  - **Confirmed by a verifier:**
+    1. Resume after exterminate does not disarm the 20 s reaper, so it can
+       SIGKILL the supervisor Nick just resumed. The fix is an exterminate token
+       the reaper re-checks.
+    2. After a hard-killed exterminate, `recovery.mjs allowed()` refuses runtime
+       recovery for the rest of the night, because a reconciled task keeps
+       blocker `worker_outcome_unknown`.
+    3. `ProjectTab` disables **Continue project** whenever any task-level
+       escalation is open. It should gate on run-level `isBlocked`.
+  - **Unverified (the verifiers hit the limit):**
+    - critical: "Orion can resume Nick's halted run by forging an inbox envelope";
+    - high: "LOCK ORION disables Discord agent halts while the run keeps going";
+    - high: "a halt issued just after Start is cleared by
+      prepareProjectContinuation";
+    - several lows (see the JSON).
+- **Host defect found by research** (`environment.json` → planLevelIssues).
+  `checks.mjs` marks a check UNUSABLE ENVIRONMENT whenever its first 2,000 chars
+  of output match `ENOENT|No such file or directory|command not found`, even
+  when the check is just a failing test. The worker then blocks humanOnly.
+  Tasks 2–4 are about missing and partial files, so an honest failing test can
+  park the night for Nick. Fix: apply the heuristic only to spawn failures and
+  exit 127.
+
+**Live/installed state:** nothing running. `agentic-config.json` is absent.
+
+- The Discord bridge is installed and in sync (fingerprint covers the
+  controller).
+- `/Applications/Orion.app` is build 275 with keep-awake and the Plan-tab
+  "Briefs" line. The previous app is kept at
+  `/Applications/.Orion-previous-275-pre-briefs-20260923.app`.
+- The saved project `advance-orion-capabilities` has never been started and has
+  no briefs snapshot.
+
+**Rollback:** the brief mechanism is inert without a `.briefs` folder. The app
+can be restored by swapping in the `.Orion-previous-*` bundle above. Nothing is
+committed.
+
+**Exact next step, in order**
+
+1. Fix the checks.mjs heuristic and the three confirmed findings, with tests.
+2. Write the six brief files from the research JSON, verifying each fact at
+   HEAD (`git show HEAD:path`; the worktree is HEAD).
+3. Run `node scripts/orion-agent plan docs/agentic/plans/advance-orion-capabilities.md`,
+   which must list every task with a brief, and measure the prompts.
+4. Run `node scripts/orion-projects refresh advance-orion-capabilities`.
+5. Reinstall the bridge after the lib changes; rebuild and reinstall the app
+   after the Swift fix.
+6. Verify the unverified review findings, highest first.
+
+Shared files touched: `scripts/lib/agentic/*`, `scripts/orion-project-agent`,
+`native/Orion/Sources/Orion/ProjectTab.swift` and `ProjectAgentStatus.swift`.
+
+## 2026-09-23 16:30 BST — Agentic runtime readiness pass, installed
+
+Acted on Nick's reply to the "will it run when I hit run" audit, then *"install
+and make sure everything is ready for real use"*. Nothing was enabled or launched,
+`agentic-config.json` still does not exist, and nothing was committed or pushed.
+Full detail is in docs/handoffs/CLAUDE_TO_ASTRA_AGENTIC_RUNTIME_HANDOFF.md §13.
+
+What changed:
+
+- A mid-task exterminate can now be resumed.
+- Halts need no revision.
+- Exterminate hard-kills a supervisor that is still alive after 20 s.
+- Stuck or timeout goes to the reviewer; a failing reviewer returns the work to
+  the worker.
+- Only reviewed commits are built on.
+- The swap guard needs sustained growth before it trips.
+- Runtime recovery keeps going after a parked task and when the reviewer is
+  unreachable.
+- Keep-awake options and a lid/power preflight are in the Projects view.
+- Every printed command carries `--project`.
+- Discord `agent` control reaches the installed controller under launchd.
+
+Installed:
+
+- Discord bridge: reinstalled, not DRIFTED, connected. The fingerprint now
+  covers the controller copy.
+- ORION app build 275: same signing identity. The previous app is at
+  /Applications/.Orion-previous-275-pre-keepawake-20260923.app.
+- Plugin: already current, not redeployed.
+
+Verification:
+
+- 174/174 Node tests.
+- 513/513 `swift test`.
+- UI harness pass.
+- Quick CI OK and remote check OK.
+- Secret scan: nothing in the agentic files.
+- Plan validates; the committed baseline passes the plan's suites (82/82).
+
+## 2026-09-23 14:59 BST — Installed saved Projects workspace
+
+Implemented Nick's requested project library and modern Projects UI. The installed
+app now lists saved projects, remembers selection, imports Markdown/JSON plans,
+and exposes Plan / Activity / Reviews, Open Markdown, Start/Continue with a time
+budget, Pause/Resume/Stop/Exterminate, steering, and escalation resolution.
+Registered `advance-orion-capabilities` with the five-task development backlog;
+its saved plan is under ~/.openclaw/orion-controlled/project-agent/projects/
+advance-orion-capabilities/plan.md. Registration created no run or enablement.
+
+New scripts/orion-projects and scripts/lib/agentic/projects.mjs provide validated
+snapshot registration and detached launch. Both existing control CLIs accept
+--project ID; absent that flag the legacy singleton remains the target. A shared
+fleet lease permits one project run at a time. Continue reconciles provably dead
+interrupted workers before clearing stop; unknown task outcomes remain blocked.
+Concurrent dead-lease reclaim now serializes through an exclusive reclaim guard.
+Remote/Discord commands still target the legacy singleton, not saved projects.
+
+New Swift ProjectLibrary.swift and rewritten ProjectTab.swift provide the library
+and workspace. ProjectAgentStatus.swift routes fixed argv controls by selected ID;
+DashboardView.swift labels the tab Projects. The worker boundary protects the new
+launcher. See docs/agentic/OPERATING.md for current project commands.
+
+Verification: 105 Node tests passed, 17 selected Swift tests passed, UI harness
+passed, screenshot inspected, and installed-app accessibility state confirmed the
+correct project, plan, controls and Ready to start / Enable & start state.
+Independent reviewer found Continue-after-Exterminate blocked; fixed and added a
+regression. Reviewer then exhausted usage, so final independent review is partial.
+No actual model run or production launch was performed by this task.
+
+Signed candidate build275 (1.2.0) installed at /Applications/Orion.app after
+codesign strict verification and identity check. Prior build272 retained at
+/Applications/.Orion-previous-272-projects-20260923.app. Installed app left open
+on Projects -> Advance ORION capabilities -> Plan. This local candidate includes
+the existing mixed dirty source; no commit, push, public release or phase closure.
+Evidence logs and projects-library.png are in the current Codex task work/outputs.
+
+## 2026-09-23 09:20 BST — Executable Markdown capability backlog
+
+Nick clarified that the requested document is the phased product work queue,
+not worker operating instructions. Retrieved the actual **Advance Orion
+capabilities** task and its final product checkpoint: Phase57 disabled scheduler
+registration/read-back and later full-route proof remain next. Current source
+confirms preview and guarded runtime already exist; do not redo their guards.
+
+Created docs/agentic/plans/advance-orion-capabilities.md: five bounded source-only
+tasks across verification/registration, crash reconciliation/integration proof,
+and an Astra review packet. Later roadmap inventory is deliberately not queued.
+Added deterministic Markdown plan parser at scripts/lib/agentic/plan.mjs and
+wired plan/init; JSON still works. Only marked contract blocks grant task scope;
+general prose/examples do not. Existing initialized runs are not hot-reloaded.
+Added fixed automation-install-tests check and six parser/boundary regression
+tests, wired into runtime checks and CI. CLI validates five tasks, weight12,
+zero scope findings. Independent review found nested task examples inside spaced
+outer fences could be queued; fixed generic fence scanning and regression-tested.
+
+Final full run99 tests passed; independent final parser review passed6 tests. No run
+initialized or launched, no feature implementation delegated to local models,
+no schedule or installed state changed. Earlier mixed dirty source retained;
+no commit, push, deployment or roadmap gate closure. User-facing copy:
+/Users/nickmadaio/Documents/Codex/2026-09-22/cont/outputs/ORION-Development-Backlog.md.
+
+
+## 2026-09-22 — Reviewer runtime recovery (Nick-authorized addition)
+
+Nick requested automatic reviewer recovery when an issue occurs during an unattended run. The supervisor now asks the reviewer to diagnose thrown loop/review/repair errors before escalating. The reviewer can authorize retry, unload resident models and retry with a fresh session, or request human escalation. Existing task-code repair remains constrained to the task scope and configured repair budget; recovery grants no shell, policy-edit, integration, or permission authority.
+
+Recovery claims are saved in `state.runtimeRecoveries` before inference. Defaults are two recoveries per operation phase/task and six per run, persisted across relaunches. Inference has a 120-second recovery deadline; model unloading propagates cancellation. Failed or refused diagnosis and exhausted budgets escalate and notify before exit. A successful diagnosis only authorizes another attempt: normal checks, checkpoint review and final review still decide completion.
+
+Stop, Pause, Exterminate, held/unknown worker leases, uncertain worker outcomes, explicit BLOCKED verdicts, check disagreements and unresolved escalations are not auto-cleared. This operates while the supervisor is alive; it cannot repair a powered-off machine, a crashed supervisor, unavailable reviewer, or startup failure before loop initialization. It does not install or enable the runtime.
+
 # HANDOFF — ORION
 
-**Last updated 2026-09-21.** This is the only handoff. If you find another one
+**Last updated 2026-09-22.** This is the only handoff. If you find another one
 that is not `docs/planning/v2/HANDOFF.md` (kept solely because `PHASE_GATES.json`
 cites it as evidence for phases 1–33, and marked CLOSED at the top), it is stale
 and should be deleted rather than read.
 
 Read this, then `AGENTS.md` for how the codebase works, then `NICK-TODO.md` for
 what Nick himself is waiting on.
+
+---
+
+## 2026-09-22 22:01 BST — Five agentic review findings repaired (Codex)
+
+Continued the dedicated local-agentic mission and Claude-to-Astra handoff, not
+numbered phase advancement. The starting tree contained Claude's uncommitted
+mission, runtime and UI updates plus earlier shared edits; capabilities.md was
+preserved. The prior read-only review reproduced five defects despite 77 green
+Node tests. This pass repairs those five, with no enablement or deployment.
+
+- Worker leases now use the ownership-record API. Existing ownerless locks are
+  treated as held/uncertain. Live owners block recovery; dead child-process
+  owners can be recovered. Retained uncertain leases prevent cleanup beneath
+  a potentially live worker, including after Exterminate.
+- Exterminate reaches task review, repair and final review; late inference
+  replies cannot write, commit or publish acceptance. Durable cancellation is
+  checked before publication as well as via the heartbeat signal. A repair
+  commit already in flight stays audited, but cannot notify or requeue after
+  cancellation. Cancellation does not generate a new failure escalation.
+- Ordinary worker failures retry from HEAD within the original attempt budget,
+  then reach bounded repair. Human-only refusals and uncertain outcomes stay
+  excluded. Explicit three-attempt and transient-recovery regressions pass.
+- Stop controls can clear the durable request even in ready/waiting-for-review
+  state. The UI exposes the local one-hour restart command; CLI/phone responses
+  distinguish clearing the request from restarting a process. Remote controls
+  still do not launch unattended work. A stopped heartbeat is immediately not
+  live. Restarting the supervisor after clearing Stop reviews its existing
+  checkpoint instead of rerunning the worker.
+- Smoke task one now permits the local greeting import its acceptance requires.
+
+Verification: 88 Node tests passed, 0 failed (agentic suites and controller);
+15 targeted Swift ProjectAgent tests passed, 0 failed; smoke-plan validation has
+zero scope findings; secret scan clean with 30 reviewed allowlisted fixtures;
+git diff --check clean. Independent scoped review: no remaining actionable
+findings; its final three targeted tests passed. Real-source UI layout harness passed in all four states (1136 pt short
+trace; +133 pt long trace; 1290 pt escalated; 1130 pt without telemetry). No real-model or overnight run is claimed by these tests.
+
+Installed/runtime state: execution remains disabled; no production run was
+created, no model settings or permissions changed, no Discord messages sent,
+and no app/plugin installed. Changes remain uncommitted in the shared dirty
+tree; no mixed-work checkpoint or remote push was made.
+
+Evidence/rollback: `.builds/agentic-five-fixes-2026-09-22/` stores verification logs
+and `pre-five-fixes.patch`, preserving the pre-pass tracked diff. Revert only
+this pass's reviewed hunks; do not reset or overwrite the shared dirty tree.
+New cancellation helper is `scripts/lib/agentic/cancellation.mjs`.
+
+Next gate: run the corrected bounded real-model smoke plan after deliberate
+local enablement, before unattended production development. See
+`docs/handoffs/CLAUDE_TO_ASTRA_AGENTIC_RUNTIME_HANDOFF.md` and the current
+`docs/agentic/LOCAL_AGENTIC_DEVELOPMENT_MISSION.md`; no numbered phase closed.
 
 ---
 
@@ -1607,3 +2720,70 @@ scripts/orion-code loop --hours 7     # he works on himself until nothing is lef
 Six suites assert against the live Mac and cannot run in CI — strictness, lock,
 remote, backup, authority contract, mobile. `orion-deploy` runs them, which is
 why a deploy is the real gate and "CI was green" is not a sufficient answer here.
+
+Validation: 93/93 Node tests (`node --test tests/agentic-*.test.mjs tests/project-agent.test.mjs`), secret scan clean with reviewed allowlist, and `git diff --check` clean. Independent review reran four recovery tests and reported no remaining actionable findings. No live-model overnight proof or installation/enablement performed.
+## 2026-09-23 23:15 BST — Agentic project ready for first Start (Codex)
+
+Finished Claude's 22:40 safety handoff and audited the current tree rather than
+assuming its older findings were still present. The saved project remains
+unstarted and execution remains disabled; the next UI action is intentionally
+**Enable & start**.
+
+Completed the five task briefs under
+`docs/agentic/plans/advance-orion-capabilities.briefs/` from Claude's verified
+research, then refreshed the registered `advance-orion-capabilities` snapshot.
+The plan reports five tasks, weight 12, zero scope findings, a common brief and a
+task brief for every contract; every rendered common+task brief is below the
+18,000-character limit. No state.json or agentic-config.json exists for this
+project/system.
+
+Closed all actionable findings from
+`docs/handoffs/briefs-research-2026-09-23/final-review-findings.json`:
+
+- disabled-schedule check failures no longer misclassify ordinary missing-file
+  test output as a broken environment;
+- Continue is gated only by a run-level block, and reconciled uncertain tasks do
+  not disable runtime recovery for the rest of the night;
+- Exterminate has a durable request-specific token. Resume disarms only that
+  request, a later Exterminate cannot be killed by an old reaper, and unrelated
+  state revisions cannot disarm a standing hard-kill. Paused supervisors wake
+  immediately on exterminate;
+- revision-free halts are truly revision-free; an operator halt that arrives
+  during Start preparation wins and is not cleared; expected operator hard-kills
+  produce a stopped receipt with no false failure alert;
+- terminal escalation delivery retries three times with bounded delay, failed
+  attempts are rate-limited, a single stable Astra brief is replaced rather than
+  accumulated, and phone commands include a usable repository cwd;
+- the Discord bridge passes authenticated author/id/timestamp directly to the
+  controller. The local inbox cannot impersonate Nick. Replay/rate admission is
+  serialized only for its short disk transaction, so a slow brain turn cannot
+  block phone Exterminate. Controller refusals (exit 1 plus useful stdout) are
+  relayed rather than becoming silence;
+- LOCK ORION still blocks brain/resume/authority-increasing actions while
+  explicitly allowing agent status, pause, stop and exterminate.
+
+Independent review reproduced three races during this pass (global-revision
+reaper token, slow-chat blocking emergency halt, and bridge refusal stdout
+loss). All three were repaired and have focused regressions. Its broader
+41-test review found no brief blocker or other actionable finding.
+
+Final evidence:
+
+- 198/198 Node agentic/controller tests passed after the final fixes.
+- 247/247 Swift tests passed; UI/source compile succeeded (existing Combine
+  import warnings only).
+- quick CI passed: security 197, unit/integration 348, typecheck, schema,
+  secrets, coverage maps, living docs, Python contracts and architecture rules.
+- strictness/approval gate: 33 passed; authority contract, lock check and updated
+  remote check all passed. Secret scan clean (30 reviewed allowlist findings).
+- `orion-agent doctor`: installed qwen3.6:27b is usable for both worker and
+  reviewer at 65,536 context; one 21 GiB resident model within the 40 GiB budget.
+- preflight: AC power, charging, lid open, idle/display sleep disabled. Closing
+  the lid would still sleep this Mac; Projects shows that warning before Start.
+- remote bridge reinstalled and running with source/installed copies byte-equal.
+  A real configured webhook test delivered successfully.
+- `/Applications/Orion.app` remains signed build 275, identity verified, running.
+
+No local-model project run, worktree, schedule, installation, commit, push or
+phase closure was created by this pass. The live project is now technically
+ready for Nick to press **Enable & start**.

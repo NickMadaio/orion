@@ -78,7 +78,7 @@ fi
 
 if node --test --test-timeout=300000 "$REPO/tests/project-agent.test.mjs" \
     "$REPO/tests/agentic-contract.test.mjs" "$REPO/tests/agentic-boundary.test.mjs" \
-    "$REPO/tests/agentic-orchestrator.test.mjs" "$REPO/tests/agentic-supervisor.test.mjs" \
+    "$REPO/tests/agentic-plan.test.mjs" "$REPO/tests/agentic-projects.test.mjs" "$REPO/tests/agentic-orchestrator.test.mjs" "$REPO/tests/agentic-supervisor.test.mjs" "$REPO/tests/agentic-regressions.test.mjs" \
     >"$LOGS"/orion-ci-project-agent.log 2>&1; then
     ok "project-agent controller and local agentic runtime checks"
 else

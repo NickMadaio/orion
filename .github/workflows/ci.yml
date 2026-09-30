@@ -113,6 +113,9 @@ jobs:
         # Three maps that would otherwise rot, each checked against the system
         # rather than read. The inventory proved itself the day it was written:
         # enabling a new capability tier failed it until the entry existed.
+        # A runner has no installed plugin; check the committed build instead.
+        env:
+          ORION_CATALOG_DIST: ${{ github.workspace }}/plugin/orion-control/dist
         run: |
           python3 scripts/orion_v2_inventory_check.py
           python3 scripts/orion_v2_deferred_check.py

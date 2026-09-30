@@ -11,6 +11,8 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadConfig } from "./lib/life/config.mjs";
+import { sweep } from "./lib/life/todo-lists.mjs";
 
 const BRIDGE = join(
   homedir(),
@@ -114,7 +116,7 @@ if (command === "add") {
   const title = rawTitle?.trim();
   if (!title) fail("task-add needs a title");
   if (due && !ISO_MINUTE.test(due)) fail("due must use YYYY-MM-DDTHH:mm local time");
-  const payload = { title };
+  const payload = { title, list: loadConfig().todoList };   // his one to-do list, not the phone's default
   if (due) {
     const dueAt = new Date(`${due}:00`);
     if (Number.isNaN(dueAt.getTime())) fail("due is not a real local date/time");
@@ -150,6 +152,10 @@ if (command === "add") {
     fail("complete returned but the reminder is still open on readback", 1);
   }
   console.log(JSON.stringify({ verified: true, title: match.title, identifier: match.identifier, completed: true }));
+} else if (command === "tasks-sweep") {
+  // Move reminders from the phone's default list onto his to-do list (todo-lists).
+  const lines = await sweep((action, payload) => ask(action, payload), loadConfig());
+  console.log(lines.length ? lines.join("\n") : "nothing to move: his to-do list is already the only one");
 } else {
-  fail('usage: orion-agenda-change add "<title>" <YYYY-MM-DDTHH:mm> [minutes] | remove-title "<title>" | task-add "<title>" [due] | task-done "<title>"');
+  fail('usage: orion-agenda-change add "<title>" <YYYY-MM-DDTHH:mm> [minutes] | remove-title "<title>" | task-add "<title>" [due] | task-done "<title>" | tasks-sweep');
 }

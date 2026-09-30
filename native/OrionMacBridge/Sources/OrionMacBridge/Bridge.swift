@@ -137,7 +137,11 @@ enum OrionMacBridge {
         case "list_deadlines":
             return try listUpcomingCalendarEvents(days: 90, oneOffOnly: true, limit: 40)
         case "list_incomplete_reminders":
-            return try await listIncompleteReminders()
+            return try await listIncompleteReminders(payload: request.payload ?? [:])
+        case "list_reminder_lists":
+            return try await listReminderLists()
+        case "move_reminder":
+            return try moveReminder(payload: request.payload ?? [:])
         case "complete_reminder":
             return try completeReminder(payload: request.payload ?? [:])
         case "create_reminder":
@@ -252,21 +256,74 @@ enum OrionMacBridge {
         return ["events_json": String(data: try JSONSerialization.data(withJSONObject: events), encoding: .utf8)!]
     }
 
-    static func listIncompleteReminders() async throws -> [String: String] {
+    /// Open reminders with the list each is on (2026-09-30: "plan my day from my
+    /// todo list" also read his groceries, because every list came back as one).
+    /// payload "list": comma-separated list names to read; omitted = every list.
+    static func listIncompleteReminders(payload: [String: String] = [:]) async throws -> [String: String] {
         guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
             throw BridgeError.unavailable("Allow Reminders access in Orion before asking it to read your reminders.")
         }
         let store = EKEventStore()
-        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
+        let wanted = (payload["list"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+        let lists = store.calendars(for: .reminder).filter { wanted.isEmpty || wanted.contains($0.title.lowercased()) }
+        if !wanted.isEmpty && lists.isEmpty { return ["reminders_json": "[]"] }
+        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: wanted.isEmpty ? nil : lists)
+        let iso = ISO8601DateFormatter()
         let items: [[String: String]] = await withCheckedContinuation { continuation in
             store.fetchReminders(matching: predicate) { values in
-                let mapped = (values ?? []).prefix(50).map { reminder in
-                    ["title": reminder.title ?? "Untitled", "identifier": reminder.calendarItemIdentifier]
+                let mapped = (values ?? []).prefix(200).map { reminder -> [String: String] in
+                    var item = ["title": reminder.title ?? "Untitled", "identifier": reminder.calendarItemIdentifier,
+                                "list": reminder.calendar?.title ?? ""]
+                    if let due = reminder.dueDateComponents.flatMap({ Calendar.current.date(from: $0) }) { item["due"] = iso.string(from: due) }
+                    return item
                 }
                 continuation.resume(returning: mapped)
             }
         }
         return ["reminders_json": String(data: try JSONSerialization.data(withJSONObject: items), encoding: .utf8)!]
+    }
+
+    /// Every Reminders list, with how many open items it holds.
+    static func listReminderLists() async throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Reminders access in Orion before asking it to read your reminders.")
+        }
+        let store = EKEventStore()
+        let calendars = store.calendars(for: .reminder)
+        let openLists: [String] = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)) {
+                continuation.resume(returning: ($0 ?? []).map { $0.calendar?.calendarIdentifier ?? "" })
+            }
+        }
+        let rows: [[String: String]] = calendars.map { list in
+            ["title": list.title, "identifier": list.calendarIdentifier,
+             "open": String(openLists.filter { $0 == list.calendarIdentifier }.count),
+             "writable": String(list.allowsContentModifications),
+             "default": String(list.calendarIdentifier == store.defaultCalendarForNewReminders()?.calendarIdentifier)]
+        }
+        return ["lists_json": String(data: try JSONSerialization.data(withJSONObject: rows), encoding: .utf8)!]
+    }
+
+    /// Put one reminder on another list (same reminder, same identifier).
+    static func moveReminder(payload: [String: String]) throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Reminders access in Orion before moving a reminder.")
+        }
+        guard let identifier = payload["identifier"], !identifier.isEmpty, let listName = payload["list"], !listName.isEmpty else {
+            throw BridgeError.invalidRequest("Moving a reminder needs its identifier and a list name.")
+        }
+        let store = EKEventStore()
+        guard let reminder = store.calendarItem(withIdentifier: identifier) as? EKReminder else {
+            throw BridgeError.invalidRequest("No reminder has that identifier.")
+        }
+        guard let list = store.calendars(for: .reminder).first(where: { $0.title.caseInsensitiveCompare(listName) == .orderedSame }),
+              list.allowsContentModifications else {
+            throw BridgeError.invalidRequest("There is no writable Reminders list called \(listName).")
+        }
+        let from = reminder.calendar?.title ?? ""
+        reminder.calendar = list
+        try store.save(reminder, commit: true)
+        return ["status": "moved", "identifier": identifier, "from": from, "to": list.title, "title": reminder.title ?? ""]
     }
 
     static func createReminder(payload: [String: String]) throws -> [String: String] {
@@ -277,7 +334,12 @@ enum OrionMacBridge {
         let store = EKEventStore()
         let reminder = EKReminder(eventStore: store)
         reminder.title = title
-        reminder.calendar = store.defaultCalendarForNewReminders()
+        // payload "list": the list to put it on (ORION's to-dos go on "Orion", the
+        // list the Mac and phone apps show). Falls back to the default list.
+        let named = payload["list"].flatMap { name in
+            store.calendars(for: .reminder).first { $0.title.caseInsensitiveCompare(name) == .orderedSame && $0.allowsContentModifications }
+        }
+        reminder.calendar = named ?? store.defaultCalendarForNewReminders()
         if let dueAt = payload["due_at"], let date = ISO8601DateFormatter().date(from: dueAt) {
             reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
         }
@@ -395,6 +457,22 @@ enum OrionMacBridge {
             throw BridgeError.invalidRequest("No event with that identifier — it may already be gone.")
         }
 
+        // payload "span": "future" with "start" (the occurrence's ISO start)
+        // removes that occurrence and every later one of a repeating event
+        // ("get rid of all of them going forwards", 2026-09-30). The identifier
+        // alone names the series, so the occurrence is found by its start.
+        if payload["span"] == "future" {
+            guard let startText = payload["start"], let start = ISO8601DateFormatter().date(from: startText) else {
+                throw BridgeError.invalidRequest("Removing future occurrences needs the occurrence's start time.")
+            }
+            let window = store.predicateForEvents(withStart: start.addingTimeInterval(-60), end: start.addingTimeInterval(60), calendars: [event.calendar])
+            guard let occurrence = store.events(matching: window).first(where: { $0.calendarItemIdentifier == event.calendarItemIdentifier }) else {
+                throw BridgeError.invalidRequest("No occurrence of that event starts at \(startText).")
+            }
+            let title = occurrence.title ?? "(untitled)"
+            try store.remove(occurrence, span: .futureEvents, commit: true)
+            return ["status": "deleted", "span": "future", "title": title]
+        }
         let title = event.title ?? "(untitled)"
         try store.remove(event, span: .thisEvent, commit: true)
         return ["status": "deleted", "title": title]

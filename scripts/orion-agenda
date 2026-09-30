@@ -43,7 +43,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { ignoredEvent } from "./lib/life/config.mjs";   // events he never goes to ("(optional)" workshops)
+import { ignoredEvent, loadConfig } from "./lib/life/config.mjs";   // events he never goes to ("(optional)" workshops)
 
 const run = promisify(execFile);
 
@@ -265,15 +265,23 @@ switch (command) {
   }
 
   case "tasks": {
+    // His to-do list only (config todoList, "Orion"); Groceries and other lists
+    // are not things to plan his day around (2026-09-30). --all shows every list.
     printGrounding(null);
-    const tasks = unpack(await ask("list_incomplete_reminders"), "reminders_json");
+    const { todoList } = loadConfig();
+    const all = process.argv.includes("--all");
+    const tasks = unpack(await ask("list_incomplete_reminders", all ? {} : { list: todoList }), "reminders_json");
     if (tasks.length === 0) {
-      console.log("nothing outstanding");
+      console.log(all ? "nothing outstanding on any list" : `nothing outstanding on ${todoList}`);
       break;
     }
-    for (const task of tasks) {
-      const due = task.due ? ` (due ${new Date(task.due).toLocaleDateString("en-US")})` : "";
-      console.log(`  ${task.title}${due}`);
+    const lists = [...new Set(tasks.map((task) => task.list || todoList))];
+    for (const list of lists) {
+      console.log(`${list}${!all ? " (his to-do list)" : list === todoList ? " (his to-do list)" : ""}:`);
+      for (const task of tasks.filter((t) => (t.list || todoList) === list)) {
+        const due = task.due ? ` (due ${new Date(task.due).toLocaleDateString("en-US")})` : "";
+        console.log(`  ${task.title}${due}`);
+      }
     }
     break;
   }

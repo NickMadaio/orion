@@ -1,3 +1,4 @@
+import MobileCore
 import AppKit
 import AVFoundation
 import Combine
@@ -78,6 +79,9 @@ final class AppState: ObservableObject {
     /// A counter rather than a Bool: clicking the menu bar twice should focus
     /// twice, and a Bool that is already `true` publishes no change.
     @Published var focusComposerToken: UInt = 0
+    /// A tab someone asked the dashboard to show (orion://show/<tab>); the
+    /// dashboard selects it and clears this.
+    @Published var requestedTab: DashboardTab?
 
     @Published private(set) var gatewayHealth = GatewayHealthSnapshot.initial
     var gatewayAvailability: GatewayAvailability { gatewayHealth.current() }
@@ -461,6 +465,12 @@ final class AppState: ObservableObject {
     /// in one breath and should not be made to repeat the second half.
     private func handleWake(trailing: String?) {
         guard phase == .idle else { return }
+        // The wake word heard in ORION's own reply, or in its tail.
+        if speechOutput.recentlySpoke(),
+           SelfEcho.isEcho(heard: trailing ?? "", spoken: speechOutput.lastSpokenText) || (trailing ?? "").isEmpty {
+            OrionLog.write("[wake] ignored — ORION was just speaking; that was his own voice")
+            return
+        }
 
         onWantsSummon?()
         hologram.ping()
@@ -1087,6 +1097,15 @@ final class AppState: ObservableObject {
     /// `BargeInMonitor` has already applied `BargeInPolicy` before calling
     /// this — nothing here re-checks the route or the energy.
     private func handleSpokenBargeIn(_ heardText: String) {
+        // His own voice through the speakers is not Nick interrupting (2026-09-29:
+        // he cut himself off mid-sentence and started listening to himself).
+        let echo = phase == .speaking
+            ? SelfEcho.isEchoWhileSpeaking(heard: heardText, spoken: speechOutput.lastSpokenText)
+            : SelfEcho.isEcho(heard: heardText, spoken: speechOutput.lastSpokenText)
+        if echo {
+            OrionLog.write("[bargein] ignored — that was ORION's own voice")
+            return
+        }
         switch phase {
         case .speaking:
             OrionLog.write("[bargein] confident speech during .speaking — stopping to listen")
@@ -1595,6 +1614,16 @@ final class AppState: ObservableObject {
     /// `AdaptiveEndpointModel.appendContinuation` and the file header on
     /// `AdaptiveEndpointModel.swift`.
     private func handleFinalTranscript(_ text: String) {
+        // 2026-09-29: the listening that follows a reply picked up its tail
+        // through the speakers — "Eight", "It's eight" — and sent it to the brain
+        // as if Nick had said it. Just his own words, just after he said them,
+        // is echo: drop it.
+        if speechOutput.recentlySpoke(within: 4),
+           SelfEcho.isEchoWhileSpeaking(heard: text, spoken: speechOutput.lastSpokenText) {
+            OrionLog.write("[echo] dropped a transcript that was ORION's own reply")
+            endConversation()
+            return
+        }
         guard !text.isEmpty else {
             if preservedTranscript.isEmpty {
                 setPhase(.idle)
@@ -1740,10 +1769,10 @@ final class AppState: ObservableObject {
         guard !text.isEmpty else { return }
         composer = ""
         if phase == .speaking { bargeIn() }
-        send(text)
+        send(text, typed: true)
     }
 
-    private func send(_ text: String) {
+    private func send(_ text: String, typed: Bool = false) {
         // "Continue" / "keep going" / "what were you saying" resumes an
         // interrupted or paused reply instead of asking the gateway a new
         // question. Checked here so every entry point — hands-free, a typed
@@ -1754,13 +1783,20 @@ final class AppState: ObservableObject {
             handleResumeRequest()
             return
         }
+        // The clock answers the clock questions, instantly (no brain round trip).
+        if let quick = QuickAnswer.reply(to: text) {
+            append(.you, text)
+            askGeneration += 1
+            deliver(GatewayReply(text: quick, elapsedMs: 0))
+            return
+        }
         append(.you, text)
         setPhase(.thinking)
         statusLine = "Thinking…"
 
         askGeneration += 1
         let generation = askGeneration
-        let request = agentRequest(userText: text)
+        let request = agentRequest(userText: text, spoken: !typed)
 
         let turnStartedAt = Date()
         runProgress = RunProgressModel(now: turnStartedAt)
@@ -1894,7 +1930,7 @@ final class AppState: ObservableObject {
     /// current focus session. The agent must not infer a session from the
     /// conversation, and it does not decide this boundary: SessionService and
     /// Enforcer remain the sources of truth.
-    private func agentRequest(userText: String) -> String {
+    private func agentRequest(userText: String, spoken: Bool = false) -> String {
         let snapshot = session.snapshot()
         let response = SessionWire.describe(snapshot)
         let sessionDescription: String
@@ -1927,6 +1963,7 @@ final class AppState: ObservableObject {
         Firm enforcement: \(enforcement).
         Temporary allowed work apps: \(allowedDescription).
         Treat the session status and allowed apps as current operating context. Do not claim an app is blocked, hidden, or quit unless a tool confirms it.
+        \(spoken ? "Nick SAID this out loud and your answer will be SPOKEN: one to three short sentences, no lists, no markdown, times as \"8:15 PM\". Offer detail only if he asks." : "")
 
         User message:
         \(userText)

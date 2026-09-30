@@ -148,7 +148,18 @@ struct AdaptiveEndpointModel: Equatable {
     ]
     /// A trailing conjunction is a clause that is obviously reaching for a
     /// second half.
-    static let trailingConjunctions: Set<String> = ["and", "but", "because", "so", "or"]
+    ///
+    /// Widened 2026-09-29 ("he interrupts me all the time"): a sentence that
+    /// ends on a filler, an article, a preposition or a dangling pronoun is
+    /// someone mid-thought, not someone finished — "can you move my, um",
+    /// "schedule it for the", "I want to".
+    static let trailingConjunctions: Set<String> = [
+        "and", "but", "because", "so", "or", "then", "if", "when", "while", "since", "until",
+        "um", "uh", "er", "erm", "hmm", "like",
+        "the", "a", "an", "my", "your", "his", "her", "their", "our", "this", "that", "these", "those",
+        "to", "for", "with", "of", "in", "on", "at", "from", "about", "into", "by",
+        "i", "i'm", "we", "you", "it's", "is", "are", "was", "be", "just", "maybe"
+    ]
 
     static func hasContinuationCue(_ text: String) -> Bool {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)

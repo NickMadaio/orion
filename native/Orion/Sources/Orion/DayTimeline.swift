@@ -46,7 +46,9 @@ struct DayTimeline: View {
     private let wakingEnd = 23
 
     @State private var now = Date()
-    private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    /// Owned across renders: a timer stored on this struct was re-created every
+    /// second by the dashboard's re-render and never fired (see ProjectRefresh.swift).
+    @StateObject private var clock = RefreshTicker(interval: 30)
 
     private var calendar: Calendar { Calendar.current }
     private var hours: [Int] { Array(firstHour...lastHour) }
@@ -82,7 +84,7 @@ struct DayTimeline: View {
             // scroll view rather than a tall picture of one.
             .frame(maxHeight: .infinity)
         }
-        .onReceive(tick) { now = $0 }
+        .onChange(of: clock.tick) { _, _ in now = Date() }
     }
 
     // MARK: - Opening position

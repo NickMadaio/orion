@@ -34,9 +34,13 @@ BUILD="$HERE/.build"
 mkdir -p "$BUILD"
 
 echo "== building the turn-taking harness =="
+# TurnTakingState imports MobileCore for SelfEcho; compile that one file
+# alongside, with the import dropped, so the harness stays a single swiftc call.
+sed '/^import MobileCore/d' "$ROOT/Sources/Orion/TurnTakingState.swift" > "$BUILD/TurnTakingState.swift"
 swiftc -O \
   "$ROOT/Sources/Orion/AdaptiveEndpointModel.swift" \
-  "$ROOT/Sources/Orion/TurnTakingState.swift" \
+  "$BUILD/TurnTakingState.swift" \
+  "$ROOT/../OrionMobile/Sources/MobileCore/SelfEcho.swift" \
   "$HERE/TurnTakingHarness/main.swift" \
   -o "$BUILD/turntaking-harness" \
   || { echo "turn-taking harness failed to build"; exit 1; }

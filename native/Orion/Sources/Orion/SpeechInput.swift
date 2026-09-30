@@ -190,6 +190,11 @@ final class SpeechInput {
     /// that routes nothing is not starving, it is quiet.
     private var lastLoudAt = Date.distantPast
     private var starvationTimer: Timer?
+    /// When the tap last delivered anything at all. A live engine delivers ~40
+    /// buffers a second even in a silent room; none for a second and a half
+    /// means the engine itself stopped.
+    private var lastBufferAt = Date.distantPast
+    private var micRestarts = 0
 
     /// Live microphone with nothing reaching an ear for this long means the
     /// utterance is starved. Comfortably longer than a natural pause, and far
@@ -261,6 +266,8 @@ final class SpeechInput {
         let now = Date()
         lastRouteProgressAt = now
         lastLoudAt = now
+        lastBufferAt = now
+        micRestarts = 0
         starvationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkStarvation()
         }
@@ -277,6 +284,12 @@ final class SpeechInput {
             return
         }
         let now = Date()
+        // The microphone went dead mid-turn (2026-09-29: audio for one second,
+        // then nothing, and nothing noticed — "no buffers" read as a quiet room).
+        if now.timeIntervalSince(lastBufferAt) > 1.5 {
+            restartMicrophone(because: "no audio from the microphone for \(String(format: "%.1f", now.timeIntervalSince(lastBufferAt)))s")
+            return
+        }
         // Nothing to hear means nothing to route. Not a fault.
         guard now.timeIntervalSince(lastLoudAt) < SpeechInput.starvationTimeout else { return }
         guard now.timeIntervalSince(lastRouteProgressAt) >= SpeechInput.starvationTimeout else { return }
@@ -417,16 +430,41 @@ final class SpeechInput {
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            guard let self, self.monitoring, !self.isRunning, !self.awaitingFinal else { return }
+            guard let self else { return }
+            if self.isRunning || self.awaitingFinal {
+                // The device changed under an open turn (other audio started, a
+                // sample-rate switch, a headset): the engine has stopped itself.
+                self.restartMicrophone(because: "the audio device changed")
+                return
+            }
+            guard self.monitoring else { return }
             self.stopEngine(force: true)
             _ = self.startMicrophone()
         }
+    }
+
+    /// Bring the microphone back under an open utterance, keeping its recogniser.
+    /// A few tries per turn; after that, say so instead of listening to nothing.
+    private func restartMicrophone(because reason: String) {
+        micRestarts += 1
+        OrionLog.write("[audio] microphone restarted mid-turn (\(micRestarts)) — \(reason)")
+        lastBufferAt = Date()
+        guard micRestarts <= 3 else {
+            OrionLog.write("[audio] microphone would not stay up — ending the turn")
+            onError?("The microphone keeps dropping out. Try again, or check the input device in Sound settings.")
+            return
+        }
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        tapInstalled = false
+        _ = startMicrophone()
     }
 
     /// The one microphone session. Everything else is a consumer of this tap.
     /// Idempotent: a push-to-talk press during monitoring reuses the tap that is
     /// already running rather than tearing it down and building another.
     private func startMicrophone() -> Bool {
+        observeConfigurationChanges()
         if engine.isRunning && tapInstalled { return true }
 
         // Decide the input route BEFORE reading the node's format: if output
@@ -450,6 +488,7 @@ final class SpeechInput {
             let level = orionNormalisedLevel(buffer)
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.lastBufferAt = Date()
                 // The wake word sees every buffer in every mode. The hologram
                 // sees the level only while Orion is genuinely listening — an
                 // idle Orion should not shimmer at the room.

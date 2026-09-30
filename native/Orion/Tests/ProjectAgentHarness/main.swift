@@ -24,11 +24,63 @@ import SwiftUI
  allowlist can see.
 */
 
+extension ISO8601DateFormatter {
+    /// Matches what the supervisor stamps, milliseconds included.
+    static let orionSnapshot: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+}
+
 private struct HeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
     }
+}
+
+/*
+ Render a view to a PNG, offscreen.
+
+ Measuring proves the panel LAYS OUT. It cannot say whether the thing looks like
+ anything, and "make it less ugly" is not a number. This draws the same hosting
+ view into a bitmap with `bitmapImageRepForCachingDisplay`, which is an ordinary
+ offscreen draw — no window is shown, nothing is captured from the screen, and
+ no screen-recording permission is involved. Set ORION_PANEL_PNG to a directory
+ to get one image per fixture.
+*/
+@MainActor
+func snapshot<V: View>(_ size: CGSize, to url: URL, @ViewBuilder _ view: () -> V) {
+    // On the app's own ink, and OPAQUE. A hosting view with no background
+    // leaves unpainted pixels undefined, and the panel is white text — the first
+    // image out of this helper was white on white and said nothing at all.
+    let framed = ZStack(alignment: .topLeading) {
+        OrionTheme.ink
+        view()
+            .frame(width: size.width - 48, alignment: .leading)
+            .padding(24)
+    }
+    .frame(width: size.width, height: size.height, alignment: .topLeading)
+
+    let hosting = NSHostingView(rootView: AnyView(framed))
+    hosting.frame = CGRect(origin: .zero, size: size)
+    hosting.layer?.backgroundColor = NSColor.black.cgColor
+    let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    window.contentView = hosting
+    hosting.layoutSubtreeIfNeeded()
+    for _ in 0..<12 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        hosting.layoutSubtreeIfNeeded()
+    }
+    guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
+    hosting.cacheDisplay(in: hosting.bounds, to: rep)
+    if let data = rep.representation(using: .png, properties: [:]) {
+        try? data.write(to: url)
+        print("   png  \(url.path)")
+    }
+    window.contentView = nil
 }
 
 @MainActor
@@ -110,14 +162,14 @@ func activity(traceLength: Int) -> ProjectAgentActivity {
 }
 
 @MainActor
-func panel(_ status: ProjectAgentStatus, _ live: ProjectAgentActivity?) -> some View {
+func panel(_ status: ProjectAgentStatus, _ live: ProjectAgentActivity?, beat: ProjectAgentHeartbeat? = nil) -> some View {
     // Inside a ScrollView, because that is how DashboardView hosts every tab and
     // it is the condition that creates the nested-scroll defect.
     ScrollView {
         ProjectAgentPanel(
-            run: status, beat: nil, activity: live, settings: nil,
+            run: status, beat: beat, activity: live, settings: nil,
             steering: .constant(""), controlling: false, controlError: nil,
-            onControl: { _ in }, onSettingsChanged: { _ in }
+            onControl: { _, _ in }, onSettingsChanged: { _ in }
         )
         .reportHeight()
     }
@@ -153,6 +205,29 @@ MainActor.assumeIsolated {
     } else {
         print("   FAIL reasoning channel grew \(Int(growth))pt — no viewport, the trace pushes the panel open")
         failures.append("reasoning channel is unbounded inside the dashboard's ScrollView")
+    }
+
+    // Optional, and off unless asked for: the images are how a human judges the
+    // design, which no measurement can do for them.
+    if let directory = ProcessInfo.processInfo.environment["ORION_PANEL_PNG"] {
+        let base = URL(fileURLWithPath: directory)
+        snapshot(CGSize(width: 1240, height: 950), to: base.appendingPathComponent("projects-library.png")) {
+            ProjectTab(agenda: AppleCalendarSync())
+        }
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        // A LIVE heartbeat for the image. The measured fixtures deliberately
+        // have none — a panel must survive that — but a picture taken without
+        // one shows every liveness-tinted element in its dead state, which is
+        // not what the thing looks like while it is working.
+        let beating = try? JSONDecoder().decode(
+            ProjectAgentHeartbeat.self,
+            from: Data(#"{"at":"\#(ISO8601DateFormatter.orionSnapshot.string(from: Date()))","phase":"loop","pid":1,"iterations":4}"#.utf8))
+        snapshot(CGSize(width: size.width, height: short + 40), to: base.appendingPathComponent("panel-running.png")) {
+            panel(run(escalated: false), activity(traceLength: 120), beat: beating)
+        }
+        snapshot(CGSize(width: size.width, height: 1200), to: base.appendingPathComponent("panel-escalated.png")) {
+            panel(run(escalated: true), nil)
+        }
     }
 
     let blocked = measure(size) { panel(run(escalated: true), nil) }

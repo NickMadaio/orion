@@ -66,6 +66,14 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
     /// this file; `BargeInPolicy`'s speaker-route path uses it to reject a
     /// heard phrase that is just an echo of Orion's own sentence.
     private(set) var currentText = ""
+    /// What was said last and when it stopped: the microphone keeps hearing a
+    /// reply's tail for a moment after playback ends (see `SelfEcho`).
+    private(set) var lastSpokenText = ""
+    private(set) var lastSpeechEndedAt = Date.distantPast
+    /// True while ORION is speaking or just stopped: echo can still be arriving.
+    func recentlySpoke(within seconds: TimeInterval = 2.5, now: Date = Date()) -> Bool {
+        isSpeaking || now.timeIntervalSince(lastSpeechEndedAt) < seconds
+    }
     private var pendingBuffers = 0
     private var streamComplete = false
     private var playedAnything = false
@@ -90,6 +98,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         playedAnything = false
         pendingBuffers = 0
         currentText = trimmed
+        lastSpokenText = trimmed
 
         tts.stream(
             text: trimmed,
@@ -111,6 +120,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         // is the difference between diagnosing that in one line and guessing.
         if isSpeaking {
             OrionLog.write("[speech] CUT OFF mid-sentence by: \(reason)")
+            lastSpeechEndedAt = Date()
         }
         tts.cancelAll()
         stopFallback()
@@ -222,6 +232,7 @@ final class SpeechOutput: NSObject, AVSpeechSynthesizerDelegate {
         guard isSpeaking, streamComplete, pendingBuffers == 0 else { return }
         OrionLog.write("[speech] finished cleanly")
         isSpeaking = false
+        lastSpeechEndedAt = Date()
         currentText = ""
         if engineConfigured {
             player.stop()

@@ -1,13 +1,22 @@
 import SwiftUI
 
-/// Today puts the accepted day plan first. Quick Open, the morning brief and
-/// the composer remain available without obscuring the work for the day.
+/// Home: Orion himself, the apps orbiting him, and the one place to type —
+/// unless the day has just started, in which case the brief has it.
+///
+/// Two things about the layout, both of them corrections.
+///
+/// The orb is sized from the height it is actually given rather than from a
+/// constant. It used to be a fixed 465pt inside a fixed 520pt box, so on a
+/// large display it sat small with dead space above it, and the more space the
+/// window had the worse that looked.
+///
+/// And the phase line moved to the bottom, beside the composer. It reads as
+/// status, which belongs with the input, and having it above the orb put a row
+/// of text between the navigation and the thing the page is about.
 struct HomeTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var quickOpen: QuickOpenSettings
     @ObservedObject var writer: NarrativeWriter
-    @ObservedObject var todayPlan: TodayPlanModel
-    var refreshPlanSources: () -> Void
     let coreStyle: String
     /// Nil until the day's facts have been gathered.
     let brief: BriefFacts?
@@ -20,7 +29,6 @@ struct HomeTab: View {
     var onPreviewBreak: () -> Void
 
     @FocusState private var composerFocused: Bool
-    @State private var quickOpenExpanded = false
 
     var body: some View {
         Group {
@@ -43,22 +51,43 @@ struct HomeTab: View {
 
     // MARK: - The scene
 
+    /// Whether the brief has a card to park. Drives the reserved rail width, so
+    /// the orb is centred against the same margin on both sides.
     private var showsRail: Bool {
         presentation == .parked && (brief?.hasAnything ?? false)
     }
 
+    private static let railWidth: CGFloat = 178
+
+    /// The orb, with a real column for the parked brief rather than a card
+    /// floating on top of it.
+    ///
+    /// It WAS an overlay on the same ZStack that holds the launcher surface,
+    /// and that could only ever collide: the launcher places its first ring at
+    /// fractions of the container, one of which is x 0.85 / y 0.20 — the exact
+    /// corner the card occupied. So an app icon sat on top of the brief and
+    /// took its clicks.
+    ///
+    /// A matching empty rail on the left keeps the orb centred in the window
+    /// rather than pushed off-axis by the card's width.
     private var scene: some View {
         VStack(spacing: 0) {
-            TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
-                .frame(maxWidth: .infinity)
-            DisclosureGroup("Quick Open", isExpanded: $quickOpenExpanded) {
+            HStack(alignment: .center, spacing: 0) {
+                if showsRail {
+                    Color.clear.frame(width: HomeTab.railWidth)
+                }
+
                 orbField
-            }
-            .font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
-            .frame(maxWidth: 900).padding(.vertical, 12)
-            if showsRail, let brief {
-                ParkedBriefCard(facts: brief) { presentation = .full }
-                    .frame(maxWidth: 900, alignment: .leading)
+
+                if showsRail, let brief {
+                    ParkedBriefCard(facts: brief) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            presentation = .full
+                        }
+                    }
+                    .frame(width: HomeTab.railWidth)
+                    .transition(.opacity.combined(with: .offset(x: 14)))
+                }
             }
 
             composer
@@ -107,8 +136,8 @@ struct HomeTab: View {
     /// becoming a wall on a 6K display. The subtraction is the composer and the
     /// phase line, which sit below it.
     private var coreSize: CGFloat {
-        let forComposer: CGFloat = 180
-        return min(420, max(300, availableHeight - forComposer))
+        let forComposer: CGFloat = 96
+        return min(760, max(360, availableHeight - forComposer))
     }
 
     // MARK: - Composer
@@ -154,7 +183,6 @@ struct HomeTab: View {
                 .shadow(color: OrionTheme.accent.opacity(composerFocused ? 0.45 : 0), radius: 5)
 
             phaseLine
-            RuntimeConnectionView(snapshot: state.gatewayHealth, refresh: state.refreshStatus)
             sessionCard
             previewControls
         }
@@ -234,7 +262,7 @@ struct HomeTab: View {
 
     private var phaseTitle: String {
         switch state.phase {
-        case .idle: "Awaiting your request"
+        case .idle: "Orion is ready"
         case .listening: "Listening"
         case .thinking: "Thinking"
         case .speaking: "Speaking"
@@ -244,7 +272,7 @@ struct HomeTab: View {
 
     private var phaseColor: Color {
         switch state.phase {
-        case .idle: OrionTheme.textDim
+        case .idle: OrionTheme.green
         case .listening: OrionTheme.accent
         case .thinking: OrionTheme.violet
         case .speaking: OrionTheme.orange

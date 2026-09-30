@@ -28,6 +28,25 @@ cp .build/release/Orion "$bundle/Contents/MacOS/Orion"
 cp Resources/Info.plist "$bundle/Contents/Info.plist"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
 
+# The phone link (CloudKit) rides inside Orion as a login-item helper,
+# Contents/Library/LoginItems/ORION Link.app. It is signed by Nick's developer
+# team (CloudKit needs that) BEFORE Orion is signed, and Orion's signature seals
+# it without re-signing it -- so Orion keeps its own identity and every
+# permission it holds. See native/OrionLink/App/OrionLinkApp.swift.
+link_dd="${ORION_LINK_DERIVED:-$PWD/.build/orion-link-dd}"
+if DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" \
+   xcodebuild -project ../OrionLink/OrionLink.xcodeproj -scheme OrionLink -configuration Release \
+     -destination 'platform=macOS' -derivedDataPath "$link_dd" -allowProvisioningUpdates -quiet build >/dev/null 2>"$link_dd.log"; then
+  mkdir -p "$bundle/Contents/Library/LoginItems"
+  ditto "$link_dd/Build/Products/Release/ORION Link.app" "$bundle/Contents/Library/LoginItems/ORION Link.app"
+  codesign --verify --strict "$bundle/Contents/Library/LoginItems/ORION Link.app" \
+    || { print -r -- "✗ the embedded phone-link helper is not validly signed" >&2; exit 3 }
+  link_state="phone link embedded"
+else
+  print -r -- "⚠︎ the phone-link helper did not build (see $link_dd.log); Orion is built without it" >&2
+  link_state="phone link NOT embedded"
+fi
+
 # Version, stamped at bundle time rather than committed into Info.plist.
 #
 # Both numbers had been frozen at 1.0 / 1 since the first build, which does not
@@ -262,6 +281,7 @@ fi
 
 echo "Built $bundle  ($short_version, build $build_number)"
 echo "Signed:  $signed"
+echo "Phone:   ${link_state:-phone link NOT embedded}"
 echo
 echo "Run it:            open $(pwd)/$bundle"
 echo "Install it:        cp -R $(pwd)/$bundle /Applications/"

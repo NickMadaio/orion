@@ -54,10 +54,12 @@ struct ProjectAgentPanel: View {
     @Binding var steering: String
     let controlling: Bool
     let controlError: String?
-    let onControl: (ProjectAgentControl.Command) -> Void
+    let onControl: (ProjectAgentControl.Command, String?) -> Void
     /// Called after a settings write so the host can re-read and surface errors.
     let onSettingsChanged: (String?) -> Void
 
+    @State private var selectedEscalationID = ""
+    @State private var confirmingExterminate = false
     @State private var openDocument: String?
     @State private var showSettings = false
     @State private var changingModel: String?
@@ -65,10 +67,16 @@ struct ProjectAgentPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 30) {
             heading
+            // Two clocks: how much of the plan, and how far through the task.
             clocks
+            // Then the loop itself. It gets its own band because it is a graph
+            // rather than a figure — the arrows are most of what it says, and
+            // squeezed in beside the rings they were unreadable.
+            ProjectAgentLoopDial(run: run, beat: beat)
             thinkingChannel
             if run.hasOpenEscalations { escalationBanner }
             taskLedger
+            ProjectAgentReviewNotes(run: run)
             controls
             instructions
         }
@@ -94,6 +102,17 @@ struct ProjectAgentPanel: View {
             Text(run.tasks.first(where: { $0.id == run.activeTask })?.title ?? planHeadline)
                 .font(OrionTheme.display(21))
                 .foregroundStyle(OrionTheme.text)
+            // A run winding down looks exactly like a run that is working,
+            // which is the confusion this whole panel exists to prevent.
+            if run.isPausing || run.isStopping {
+                Text(run.isExterminating
+                     ? "Exterminating — the generation in flight is being abandoned."
+                     : run.isStopping
+                       ? "Stopping — it will end at the next safe boundary and stay resumable."
+                       : "Pause requested — the current model exchange will finish, then the loop will hold here.")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.orange)
+            }
         }
     }
 
@@ -310,10 +329,7 @@ struct ProjectAgentPanel: View {
 
     private var taskLedger: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("PLAN")
-                .font(OrionTheme.mono(8, .semibold))
-                .tracking(1.8)
-                .foregroundStyle(OrionTheme.textDim)
+            SectionRule(title: "Plan", trailing: run.progressLabel)
             ForEach(run.tasks) { task in
                 HStack(alignment: .firstTextBaseline, spacing: 11) {
                     Text(task.status == .accepted ? "●" : task.status == .blocked ? "▲" : task.status == .running ? "◆" : "○")
@@ -322,7 +338,7 @@ struct ProjectAgentPanel: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 7) {
                             Text(task.title)
-                                .font(OrionTheme.mono(11))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(task.status == .accepted ? OrionTheme.textSoft : OrionTheme.text)
                             if task.isCorrection {
                                 Text("FROM REVIEW")
@@ -381,29 +397,52 @@ struct ProjectAgentPanel: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("CONTROL")
-                .font(OrionTheme.mono(8, .semibold))
-                .tracking(1.8)
-                .foregroundStyle(OrionTheme.textDim)
+            SectionRule(title: "Control")
 
             HStack(spacing: 10) {
                 OutlineAction(title: "Pause", tint: OrionTheme.textSoft,
                               enabled: !controlling && [.running, .ready, .waiting_for_review].contains(run.status)) {
-                    onControl(.pause)
+                    onControl(.pause, nil)
                 }
-                OutlineAction(title: "Resume", tint: OrionTheme.accent,
-                              enabled: !controlling && [.paused, .budget_exhausted].contains(run.status)
-                                       && run.activeTask == nil && !run.hasOpenEscalations) {
-                    onControl(.resume)
+                OutlineAction(title: run.isStopping || beat?.isLive != true ? "Clear pause / stop" : "Resume", tint: OrionTheme.accent,
+                              enabled: !controlling && ProjectAgentControl.canResume(run)) {
+                    onControl(.resume, nil)
+                }
+                // STOP: ends the run somewhere it can be picked straight back
+                // up. This is the one to reach for, so it sits next to Pause.
+                OutlineAction(title: "Stop", tint: OrionTheme.textSoft,
+                              enabled: !controlling && !run.isStopping
+                                       && ![.completed].contains(run.status)) {
+                    onControl(.stop, nil)
+                }
+                // EXTERMINATE: abandons the generation in flight. Tinted like a
+                // warning and gated behind a confirm, because "I could not wait
+                // nine minutes" and "I meant to throw away the task in flight"
+                // should not be one click apart.
+                OutlineAction(title: confirmingExterminate ? "Confirm?" : "Exterminate",
+                              tint: OrionTheme.orange,
+                              enabled: !controlling && ![.completed].contains(run.status)) {
+                    if confirmingExterminate {
+                        confirmingExterminate = false
+                        onControl(.exterminate, nil)
+                    } else {
+                        confirmingExterminate = true
+                    }
                 }
                 if run.hasOpenEscalations {
+                    Picker("Escalation", selection: $selectedEscalationID) {
+                        Text("Choose an escalation").tag("")
+                        ForEach(run.openEscalations) { item in
+                            Text("\(item.taskId ?? "Whole run") · \(item.kind) · \(item.id)").tag(item.id)
+                        }
+                    }
                     // The controller requires a note, so the button must too.
                     // Offering an action the CLI will refuse teaches people the
                     // panel is lying to them, and this is the one moment they
                     // are already unsure what is going on.
                     OutlineAction(title: "Resolve escalation", tint: OrionTheme.orange,
-                                  enabled: !controlling && !steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                        onControl(.resolve)
+                                  enabled: !controlling && run.openEscalations.contains(where: { $0.id == selectedEscalationID }) && !steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        onControl(.resolve, selectedEscalationID)
                     }
                     if steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("write a note below first")
@@ -419,6 +458,16 @@ struct ProjectAgentPanel: View {
                 }
             }
 
+            if beat?.isLive != true || run.isStopping {
+                Text("After the supervisor stops, clear pause / stop above, then restart it from Terminal for a bounded one-hour session:")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textSoft)
+                Text(ProjectAgentControl.restartCommand)
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.text)
+                    .textSelection(.enabled)
+            }
+
             VStack(alignment: .leading, spacing: 6) {
                 TextField(run.hasOpenEscalations
                           ? "Note — why this escalation is now safe to continue"
@@ -432,10 +481,14 @@ struct ProjectAgentPanel: View {
                     .overlay(alignment: .bottom) { fadingRuleHorizontal }
 
                 HStack(spacing: 10) {
+                    // Steering is gated on having something to say and a run to
+                    // say it to — NOT on an escalation being selected. Most of
+                    // the night there is no escalation, and that is exactly
+                    // when an instruction is worth sending.
                     OutlineAction(title: "Send instruction", tint: OrionTheme.blue,
                                   enabled: !controlling && !steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                            && run.status != .completed) {
-                        onControl(.steer)
+                        onControl(.steer, nil)
                     }
                     Text("Steering never interrupts a task mid-flight; it is applied at the next boundary.")
                         .font(OrionTheme.mono(8))
@@ -463,10 +516,7 @@ struct ProjectAgentPanel: View {
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack {
-                Text("AGENT OPERATING SYSTEM")
-                    .font(OrionTheme.mono(8, .semibold))
-                    .tracking(1.8)
-                    .foregroundStyle(OrionTheme.textDim)
+                SectionRule(title: "Agent operating system")
                 Spacer()
                 Button(showSettings ? "Hide settings" : "Settings") { showSettings.toggle() }
                     .buttonStyle(.plain)

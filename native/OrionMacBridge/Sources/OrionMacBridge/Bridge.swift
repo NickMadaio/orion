@@ -129,15 +129,25 @@ enum OrionMacBridge {
             let granted = try await requestEventAccess(for: .event)
             return ["granted": String(granted)]
         case "list_upcoming_calendar_events":
-            return try listUpcomingCalendarEvents()
+            // 25 was the old cap: a week of classes plus ORION's own blocks passed
+            // it, and the planner could not see the end of the week (2026-09-29).
+            let days = Int(request.payload?["days"] ?? "") ?? 7
+            let limit = Int(request.payload?["limit"] ?? "") ?? 200
+            return try listUpcomingCalendarEvents(days: min(max(days, 1), 60), limit: min(max(limit, 1), 500))
+        case "list_deadlines":
+            return try listUpcomingCalendarEvents(days: 90, oneOffOnly: true, limit: 40)
         case "list_incomplete_reminders":
             return try await listIncompleteReminders()
+        case "complete_reminder":
+            return try completeReminder(payload: request.payload ?? [:])
         case "create_reminder":
             return try createReminder(payload: request.payload ?? [:])
         case "create_calendar_event":
             return try createCalendarEvent(payload: request.payload ?? [:])
         case "get_calendar_event":
             return try getCalendarEvent(payload: request.payload ?? [:])
+        case "move_calendar_event":
+            return try moveCalendarEvent(payload: request.payload ?? [:])
         case "delete_calendar_event":
             return try deleteCalendarEvent(payload: request.payload ?? [:])
         case "set_clock_timer":
@@ -207,15 +217,20 @@ enum OrionMacBridge {
         return try await store.requestFullAccessToReminders()
     }
 
-    static func listUpcomingCalendarEvents() throws -> [String: String] {
+    /// `days`/`oneOffOnly` added 2026-09-29 for `orion-agenda deadlines`: a real
+    /// scenario asked "when's my macro quiz?" and got "not on the calendar" --
+    /// the quiz was 17 days out and the seven-day window never saw it. Weekly
+    /// classes are skipped there because they would fill the whole list.
+    static func listUpcomingCalendarEvents(days: Int = 7, oneOffOnly: Bool = false, limit: Int = 25) throws -> [String: String] {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
             throw BridgeError.unavailable("Allow Calendar access in Orion before asking it to read your schedule.")
         }
         let store = EKEventStore()
-        let end = Calendar.current.date(byAdding: .day, value: 7, to: Date())!
+        let end = Calendar.current.date(byAdding: .day, value: days, to: Date())!
         let events = store.events(matching: store.predicateForEvents(withStart: Date(), end: end, calendars: nil))
+            .filter { !oneOffOnly || !$0.hasRecurrenceRules }
             .sorted { $0.startDate < $1.startDate }
-            .prefix(25)
+            .prefix(limit)
             .map { event in
                 // The identifier travels with every event, not just newly created
                 // ones. Without it a caller can only remove something it made
@@ -227,6 +242,11 @@ enum OrionMacBridge {
                     "start": ISO8601DateFormatter().string(from: event.startDate),
                     "end": ISO8601DateFormatter().string(from: event.endDate),
                     "identifier": event.calendarItemIdentifier,
+                    "location": event.location ?? "",
+                    "orion": event.notes.flatMap { notes in
+                        notes.range(of: #"\[orion:([a-z_]+)\]"#, options: .regularExpression).map { String(notes[$0].dropFirst(7).dropLast()) }
+                    } ?? "",
+                    "allDay": event.isAllDay ? "true" : "false",
                 ]
             }
         return ["events_json": String(data: try JSONSerialization.data(withJSONObject: events), encoding: .utf8)!]
@@ -265,6 +285,27 @@ enum OrionMacBridge {
         return ["status": "created", "identifier": reminder.calendarItemIdentifier]
     }
 
+    /// Tick one reminder off by identifier (2026-09-29). "I finished the MSF
+    /// course, tick it off" used to get "want me to delete that reminder?",
+    /// because deleting was the only change on offer. Completing keeps the
+    /// history in Reminders the way ticking it on the phone does.
+    static func completeReminder(payload: [String: String]) throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Reminders access in Orion before completing a reminder.")
+        }
+        guard let identifier = payload["identifier"], !identifier.isEmpty else {
+            throw BridgeError.invalidRequest("A reminder identifier is required.")
+        }
+        let store = EKEventStore()
+        guard let reminder = store.calendarItem(withIdentifier: identifier) as? EKReminder else {
+            throw BridgeError.invalidRequest("No reminder has that identifier.")
+        }
+        reminder.isCompleted = payload["completed"] != "false"
+        try store.save(reminder, commit: true)
+        return ["status": reminder.isCompleted ? "completed" : "reopened", "identifier": identifier,
+                "title": reminder.title ?? ""]
+    }
+
     static func createCalendarEvent(payload: [String: String]) throws -> [String: String] {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
             throw BridgeError.unavailable("Allow Calendar access in Orion before creating an event.")
@@ -280,8 +321,36 @@ enum OrionMacBridge {
         event.startDate = start
         event.endDate = end
         event.calendar = store.defaultCalendarForNewEvents
+        // Blocks ORION plans itself carry a marker, so the planner knows it may
+        // move them later ("[orion:study]", "[orion:side_project]").
+        if let kind = payload["orionKind"], kind.range(of: #"^[a-z_]{1,20}$"#, options: .regularExpression) != nil {
+            event.notes = "Planned by ORION. It may move this block when your day changes. [orion:\(kind)]"
+        }
         try store.save(event, span: .thisEvent, commit: true)
         return ["status": "created", "identifier": event.calendarItemIdentifier]
+    }
+
+    /// Move one event (this occurrence only) by its identifier. Used by
+    /// `orion-reschedule`, which decides what may move; this only moves.
+    static func moveCalendarEvent(payload: [String: String]) throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Calendar access in Orion before moving an event.")
+        }
+        guard let identifier = payload["identifier"], !identifier.isEmpty,
+              let start = payload["start"].flatMap({ ISO8601DateFormatter().date(from: $0) }),
+              let end = payload["end"].flatMap({ ISO8601DateFormatter().date(from: $0) }), end > start else {
+            throw BridgeError.invalidRequest("Moving an event needs its identifier and valid start and end times.")
+        }
+        let store = EKEventStore()
+        guard let event = store.calendarItem(withIdentifier: identifier) as? EKEvent else {
+            throw BridgeError.invalidRequest("No event with that identifier.")
+        }
+        let from = ISO8601DateFormatter().string(from: event.startDate)
+        event.startDate = start
+        event.endDate = end
+        try store.save(event, span: .thisEvent, commit: true)
+        return ["status": "moved", "title": event.title ?? "Untitled", "from": from,
+                "start": ISO8601DateFormatter().string(from: start)]
     }
 
     /// Exact readback for a typed mutation. `list_upcoming_calendar_events`

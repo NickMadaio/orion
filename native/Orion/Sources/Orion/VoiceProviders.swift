@@ -136,20 +136,76 @@ enum Secrets {
     /// different account here would silently find nothing. `kSecReturnData`
     /// with a single-item limit means only the value asked for comes back.
     static func valueFromKeychain(item: String) -> String? {
+        cacheLock.lock()
+        if let cached = keychainCache[item] { cacheLock.unlock(); return cached }
+        cacheLock.unlock()
+        let value = keychainValueWithoutPrompt(item: item) ?? keychainValueViaSecurityTool(item: item)
+        if let value {
+            cacheLock.lock(); keychainCache[item] = value; cacheLock.unlock()
+        } else {
+            OrionLog.write("[secrets] \(item): not readable from the keychain")
+        }
+        return value
+    }
+
+    /*
+     Voice broke on 2026-09-29 because of this lookup. ORION is signed with a
+     local certificate, so the keychain ties its "always allow" to the exact
+     build: every rebuild turned the next key read into a hidden "Orion wants to
+     use your confidential information" prompt, on the main thread, at the moment
+     Nick pressed talk. The press froze (26 s once), or the read failed ("NO
+     KEY"), and by the time listening began the key was already up.
+
+     Now: never prompt (`kSecUseAuthenticationUIFail`); if the item says no, read
+     it through /usr/bin/security, which the item already trusts because it was
+     created with it; cache the value for the life of the process; and
+     `prefetch()` at launch, off the main thread, so no press waits on this.
+    */
+    private static var keychainCache: [String: String] = [:]
+    private static let cacheLock = NSLock()
+
+    private static func keychainValueWithoutPrompt(item: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: item,
             kSecAttrAccount as String: "openclaw",
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
         ]
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let value = String(data: data, encoding: .utf8)
-        else { return nil }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            if status != errSecItemNotFound { OrionLog.write("[secrets] \(item): keychain said \(status), trying the security tool") }
+            return nil
+        }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// The value stays in memory: stdout is read into a pipe, never logged.
+    private static func keychainValueViaSecurityTool(item: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-a", "openclaw", "-s", item, "-w"]
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let trimmed = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Called at launch: resolve the voice keys once, in the background.
+    static func prefetch() {
+        DispatchQueue.global(qos: .utility).async {
+            let found = [deepgramVariable, elevenLabsVariable].filter { value($0) != nil }
+            OrionLog.write("[secrets] prefetched \(found.count) of 2 voice keys")
+        }
     }
 
     static func valueFromEnvFile(_ name: String, path: String) -> String? {

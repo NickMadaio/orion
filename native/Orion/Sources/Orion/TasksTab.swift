@@ -49,6 +49,9 @@ struct TasksTab: View {
     /// dashboard feel like filing. One tab, and the right-hand column changes
     /// granularity instead.
     @ObservedObject var calendar: CalendarModel
+    /// ORION's plan for the day: the tasks below, placed into the calendar's gaps.
+    @ObservedObject var todayPlan: TodayPlanModel
+    var refreshPlanSources: () -> Void
 
     @State private var dueDate = Date().addingTimeInterval(3600)
     @State private var wantsDueDate = false
@@ -61,6 +64,9 @@ struct TasksTab: View {
             VStack(alignment: .leading, spacing: 32) {
                 OrionPanel(padding: 20) {
                     dayHeader.frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                OrionPanel(padding: 20) {
+                    TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
                 }
                 OrionPanel(padding: 20) {
                     tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)

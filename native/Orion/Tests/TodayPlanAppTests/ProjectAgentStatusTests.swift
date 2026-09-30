@@ -54,8 +54,8 @@ final class ProjectAgentStatusTests: XCTestCase {
         XCTAssertEqual(ProjectAgentControl.arguments(.steer, revision: 7, text: instruction),
                        ["steer", "--revision", "7", "--text", instruction])
         XCTAssertEqual(ProjectAgentControl.arguments(.pause, revision: 8), ["pause", "--revision", "8"])
-        XCTAssertEqual(ProjectAgentControl.arguments(.resolve, revision: 9, text: "chose design B"),
-                       ["resolve", "--revision", "9", "--note", "chose design B"])
+        XCTAssertEqual(ProjectAgentControl.arguments(.resolve, revision: 9, text: "chose design B", escalationID: "esc-2"),
+                       ["resolve", "--revision", "9", "--id", "esc-2", "--note", "chose design B"])
     }
 
     /// A newer controller must not blank the panel on an app that has not caught
@@ -127,4 +127,53 @@ final class ProjectAgentStatusTests: XCTestCase {
         let unparseable = ProjectAgentHeartbeat(at: "not a date", phase: nil, pid: nil, iterations: nil)
         XCTAssertFalse(unparseable.isLive, "an unreadable timestamp must not read as live")
     }
+    func testStoppedHeartbeatIsImmediatelyNotLive() {
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stopped = ProjectAgentHeartbeat(at: stamp.string(from: Date()), phase: "stopped", pid: 1, iterations: 1)
+        XCTAssertFalse(stopped.isLive)
+        XCTAssertTrue(stopped.summary.contains("restart"))
+    }
+
+    func testAParkedTaskDoesNotStopTheRunBeingResumedOrContinued() throws {
+        var payload = try JSONSerialization.jsonObject(with: fixture(status: "waiting_for_review")) as! [String: Any]
+        payload["activeTask"] = NSNull()
+        payload["stopRequested"] = true
+        payload["escalations"] = [["id": "esc-1", "at": "2026-09-23T10:00:00Z", "kind": "judgement", "reason": "parked",
+                                   "taskId": "other", "recommendAstra": false, "notified": true]]
+        let parked = try ProjectAgentStatus.decode(JSONSerialization.data(withJSONObject: payload))
+        XCTAssertTrue(parked.hasOpenEscalations)
+        XCTAssertFalse(parked.isBlocked)
+        XCTAssertTrue(ProjectAgentControl.canResume(parked), "one parked task must not lock the rest of the run")
+        payload["status"] = "escalated"
+        let held = try ProjectAgentStatus.decode(JSONSerialization.data(withJSONObject: payload))
+        XCTAssertFalse(ProjectAgentControl.canResume(held), "a run that is actually held waits for Nick")
+    }
+
+    func testNormalStopCanBeClearedButInterruptedWorkRequiresRecovery() throws {
+        var payload = try JSONSerialization.jsonObject(with: fixture(status: "waiting_for_review")) as! [String: Any]
+        payload["activeTask"] = NSNull()
+        payload["stopRequested"] = true
+        var run = try ProjectAgentStatus.decode(JSONSerialization.data(withJSONObject: payload))
+        XCTAssertTrue(ProjectAgentControl.canResume(run))
+        payload["status"] = "interrupted"
+        run = try ProjectAgentStatus.decode(JSONSerialization.data(withJSONObject: payload))
+        // Resume only clears the standing request; the CLI keeps the run
+        // interrupted and leaves reconciliation to recovery (see the JS test
+        // "resume clears a standing stop even when a worker never settled").
+        XCTAssertTrue(ProjectAgentControl.canResume(run), "a standing stop can always be cleared")
+        payload["stopRequested"] = false
+        run = try ProjectAgentStatus.decode(JSONSerialization.data(withJSONObject: payload))
+        XCTAssertFalse(ProjectAgentControl.canResume(run), "with nothing to clear, interrupted work needs recovery, not Resume")
+    }
+
+    func testPendingPauseIsVisibleAndCanBeClearedDuringActiveWork() throws {
+        var payload = try JSONSerialization.jsonObject(with: fixture(status: "running")) as! [String: Any]
+        payload["pauseRequested"] = true
+        let run = try ProjectAgentStatus.decode(JSONSerialization.data(withJSONObject: payload))
+        XCTAssertTrue(run.isPausing)
+        XCTAssertTrue(ProjectAgentControl.canResume(run),
+                      "Resume must be able to cancel a boundary pause while a task is still active")
+    }
+
 }

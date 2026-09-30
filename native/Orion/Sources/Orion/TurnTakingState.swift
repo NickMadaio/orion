@@ -1,3 +1,4 @@
+import MobileCore
 import Foundation
 
 /*
@@ -120,13 +121,24 @@ enum BargeInPolicy {
             return true
         case .voiceRestricted:
             guard energy >= speakerEnergyFloor else { return false }
-            let normalizedHeard = heard.lowercased()
-            let normalizedSpoken = currentlySpoken.lowercased()
-            if !normalizedSpoken.isEmpty, normalizedSpoken.contains(normalizedHeard) {
-                return false
-            }
-            return true
+            // 2026-09-29: "It's 8:07 PM" came back through the laptop speakers as
+            // "it's 8:07 p.m." — not a literal substring, so it counted as Nick
+            // interrupting and ORION cut himself off mid-sentence, every time.
+            // Compare letters and digits only, then words loosely; and on
+            // speakers, only an actual interruption word stops him. (The
+            // push-to-talk key and headphones are unaffected.)
+            let compactHeard = compact(heard)
+            if !compactHeard.isEmpty, compact(currentlySpoken).contains(compactHeard) { return false }
+            if SelfEcho.isEchoWhileSpeaking(heard: heard, spoken: currentlySpoken) { return false }
+            // Only an interruption word he is not saying himself: on 2026-09-29 his
+            // own "Orion" came back through the speakers and cut off a 699-character answer.
+            return !SelfEcho.interruptions(in: heard, spoken: currentlySpoken).isEmpty
         }
+    }
+
+    /// Letters and digits only, lowercased: "8:07 p.m." and "8:07 PM" agree.
+    static func compact(_ text: String) -> String {
+        String(text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
     }
 }
 

@@ -15,82 +15,109 @@ struct TodayPlanContent: View {
     var togglePin: (String) -> Void = { _ in }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if isProposal { Text("PLAN PREVIEW").font(.system(size: 11, weight: .bold)).tracking(2).foregroundStyle(OrionTheme.accent) }
+        VStack(alignment: .leading, spacing: 12) {
             if needsReview {
-                Text("Saved plan needs review").font(.system(size: 20, weight: .medium, design: .rounded))
-                Text("Calendar or task data has changed or needs refreshing. Preview an updated plan before following these saved blocks.")
-                    .font(.system(size: 13)).foregroundStyle(OrionTheme.orange)
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 40) { summary }
-                    VStack(alignment: .leading, spacing: 16) { summary }
-                }
+                Label("Your calendar or tasks changed since this plan was made. Replan to fit them in.",
+                      systemImage: "exclamationmark.circle")
+                    .font(.system(size: 12)).foregroundStyle(OrionTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !isProposal {
+                summary
             }
-            Text(plan.reason).font(.system(size: 13)).foregroundStyle(OrionTheme.textSoft)
-            if isProposal, let previous {
-                let changes = changedTasks(from: previous)
-                if !changes.isEmpty {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("What changes").font(.system(size: 12, weight: .semibold))
-                        ForEach(changes, id: \.self) { Text($0).font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft) }
+            if isProposal {
+                Text(plan.reason).font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let previous {
+                    let changes = changedTasks(from: previous)
+                    if !changes.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(changes, id: \.self) { Text("· " + $0).font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft) }
+                        }
                     }
                 }
             }
             ForEach(Array(plan.warnings.enumerated()), id: \.offset) { _, warning in
-                Text(warning).font(.system(size: 12)).foregroundStyle(OrionTheme.orange)
+                Text(warning).font(.system(size: 11)).foregroundStyle(OrionTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             let allDay = plan.commitments.filter(\.allDay)
             if !allDay.isEmpty {
-                Text("All day: " + allDay.map(\.title).joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
+                Text("All day · " + allDay.map(\.title).joined(separator: " · "))
+                    .font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft)
             }
-            DisclosureGroup("\(plan.blocks.count) blocks · \(plan.completedIDs.count) finished · \(plan.deferredIDs.count) deferred", isExpanded: $expanded) {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(plan.blocks) { block in
-                        HStack(alignment: .top, spacing: 16) {
-                            Text("\(time(block.start))–\(time(block.end))")
-                                .font(.system(size: 11, design: .monospaced)).frame(width: 110, alignment: .leading)
-                                .foregroundStyle(OrionTheme.textSoft)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(block.title).font(.system(size: 13, weight: block.contains(now) ? .semibold : .regular))
-                                Text(block.kind == .task ? "\(block.pinned ? "Pinned slot" : "Planned work") · estimated \(block.minutes) min" : block.kind == .free ? "Yours to use freely" : block.kind == .commitment ? "Calendar commitment" : "Protected transition")
-                                    .font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft)
-                                if block.kind == .task, let id = block.sourceID, !isProposal {
-                                    HStack(spacing: 14) {
-                                        Button("Finish block") { finish(id) }
-                                        Button("15 more minutes") { moreTime(id) }
-                                        Button(block.pinned ? "Unpin slot" : "Pin slot") { togglePin(id) }
-                                    }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(OrionTheme.accent)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(plan.blocks.filter { $0.kind != .transition }) { block in row(block) }
                     if !plan.deferredIDs.isEmpty {
-                        Text("Deferred: " + plan.tasks.filter { plan.deferredIDs.contains($0.id) }.map(\.title).joined(separator: " · "))
-                            .font(.system(size: 12)).foregroundStyle(OrionTheme.orange)
+                        Text("Didn't fit today · " + plan.tasks.filter { plan.deferredIDs.contains($0.id) }.map(\.title).joined(separator: " · "))
+                            .font(.system(size: 11)).foregroundStyle(OrionTheme.orange).padding(.top, 6)
                     }
                     if !plan.completedIDs.isEmpty {
-                        Text("Finished in this plan: " + plan.tasks.filter { plan.completedIDs.contains($0.id) }.map(\.title).joined(separator: " · "))
-                            .font(.system(size: 12)).foregroundStyle(OrionTheme.green)
+                        Text("Done · " + plan.tasks.filter { plan.completedIDs.contains($0.id) }.map(\.title).joined(separator: " · "))
+                            .font(.system(size: 11)).foregroundStyle(OrionTheme.green).padding(.top, 2)
                     }
-                }.padding(.top, 14)
-            }.font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
+                }.padding(.top, 8)
+            } label: {
+                Text("\(plan.blocks.filter { $0.kind == .task }.count) tasks · \(plan.freeMinutes) min free\(plan.completedIDs.isEmpty ? "" : " · \(plan.completedIDs.count) done")")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(OrionTheme.textDim)
+            }
         }
     }
 
-    @ViewBuilder private var summary: some View {
-        metric("NOW", plan.current(at: now)?.title ?? "No block at this moment", detail: plan.current(at: now).map { "until " + time($0.end) } ?? "The plan starts at " + time(plan.windowStart))
-        metric("NEXT COMMITMENT", plan.nextCommitment(at: now)?.title ?? "No later commitment", detail: plan.nextCommitment(at: now).map { time($0.start) } ?? "Day ends " + time(plan.windowEnd))
-        metric("FREE TIME", "\(plan.freeMinutes(after: now)) min", detail: "in the remaining plan")
+    /// Now and next in one glance.
+    private var summary: some View {
+        let current = plan.current(at: now)
+        let next = plan.next(at: now)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(current.map { "Now · \($0.title)" } ?? (next.map { "Next · \($0.title)" } ?? "Nothing left in today's plan"))
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+            Text([current.map { "until \(time($0.end))" }, current == nil ? next.map { "at \(time($0.start))" } : next.map { "then \($0.title) at \(time($0.start))" },
+                  "\(plan.freeMinutes(after: now)) min free left"].compactMap { $0 }.joined(separator: " · "))
+                .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textSoft)
+        }
     }
-    private func metric(_ label: String, _ value: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(label).font(.system(size: 10, weight: .semibold)).tracking(1.8).foregroundStyle(OrionTheme.accent)
-            Text(value).font(.system(size: 20, weight: .medium, design: .rounded)).fixedSize(horizontal: false, vertical: true)
-            Text(detail).font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft)
-        }.frame(maxWidth: 260, alignment: .leading)
+
+    private func row(_ block: TodayPlanBlock) -> some View {
+        let live = block.contains(now)
+        let past = block.end <= now
+        return HStack(alignment: .center, spacing: 10) {
+            Text(time(block.start)).font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim).frame(width: 40, alignment: .leading)
+            RoundedRectangle(cornerRadius: 1.5).fill(tint(block.kind)).frame(width: 3, height: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(block.title).font(.system(size: 12.5, weight: live ? .semibold : .regular)).lineLimit(1)
+                Text("\(block.minutes) min\(block.kind == .free ? " · yours" : block.kind == .commitment ? " · calendar" : "")\(block.pinned ? " · pinned" : "")")
+                    .font(.system(size: 10)).foregroundStyle(OrionTheme.textDim)
+            }
+            Spacer(minLength: 6)
+            if block.kind == .task, let id = block.sourceID, !isProposal, !past {
+                HStack(spacing: 10) {
+                    icon("checkmark", "Mark done in this plan") { finish(id) }
+                    icon("plus", "15 more minutes") { moreTime(id) }
+                    icon(block.pinned ? "pin.fill" : "pin", block.pinned ? "Unpin" : "Keep this slot") { togglePin(id) }
+                }
+            }
+        }
+        .padding(.vertical, 4).padding(.horizontal, 6)
+        .background(live ? OrionTheme.accent.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .opacity(past ? 0.45 : 1)
     }
+
+    private func icon(_ name: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name).font(.system(size: 10, weight: .semibold)).foregroundStyle(OrionTheme.accent)
+        }
+        .buttonStyle(.plain).help(help).accessibilityLabel(help)
+    }
+
+    private func tint(_ kind: TodayPlanBlock.Kind) -> Color {
+        switch kind {
+        case .task: return OrionTheme.accent
+        case .free: return OrionTheme.green
+        case .commitment: return OrionTheme.violet
+        case .transition: return OrionTheme.textDim
+        }
+    }
+
     private func time(_ date: Date) -> String {
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"; formatter.timeZone = TimeZone(identifier: plan.timeZone)
         return formatter.string(from: date)

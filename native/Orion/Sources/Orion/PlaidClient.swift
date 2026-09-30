@@ -493,6 +493,7 @@ final class PlaidClient: ObservableObject {
             self.transactions = collectedTransactions.sorted { $0.date > $1.date }
             self.lastSyncedAt = Date()
             self.lastError = collectedAccounts.isEmpty ? failure : nil
+            FinanceExport.write(accounts: self.accounts, transactions: self.transactions)
             OrionLog.write("[plaid] refreshed — \(collectedAccounts.count) account(s), "
                            + "\(collectedTransactions.count) transaction(s) across \(items.count) institution(s)")
         }

@@ -92,20 +92,25 @@ do {
           model.verdict(at: at(2.5)), .finalize)
 }
 
-// MARK: - Fillers must not be mistaken for a continuation cue
+// MARK: - A TRAILING filler means mid-thought (changed 2026-09-29)
+//
+// This section used to assert the opposite -- fillers were "ordinary text". Nick
+// reported ORION "interrupts me all the time"; ending a turn on "so, um," is
+// exactly that. A filler at the END extends the window; one at the start of a
+// finished sentence ("uh, let me think") does not.
 
-section("fillers: 'um'/'uh' are ordinary text, not a special extend signal")
+section("fillers: a trailing 'um' extends, a leading one does not")
 
-checkTrue("'well, um,' is not a continuation cue",
-          !AdaptiveEndpointModel.hasContinuationCue("well, um,"))
+checkTrue("'well, um,' is a continuation cue",
+          AdaptiveEndpointModel.hasContinuationCue("well, um,"))
 checkTrue("'uh, let me think' is not a continuation cue",
           !AdaptiveEndpointModel.hasContinuationCue("uh, let me think"))
 
 do {
     var model = AdaptiveEndpointModel(now: t0, baseSilence: baseSilence, extendedSilence: extendedSilence)
     model.noteTranscript("so, um,", at: t0)
-    check("a filler-only trailing phrase still finalizes at the ordinary window",
-          model.verdict(at: at(1.0)), .finalize)
+    check("a trailing filler waits past the ordinary window",
+          model.verdict(at: at(1.0)) == .finalize, false)
 }
 
 // MARK: - Self-correction: a SHRINKING transcript must still reset the clock
@@ -255,6 +260,23 @@ checkTrue("voiceRestricted: real distinct speech above the floor interrupts",
                                        heardText: "wait, stop",
                                        energy: 0.5,
                                        currentlySpoken: "here is the weather today"))
+
+checkTrue("voiceRestricted: his own words with different punctuation are echo (2026-09-29, \"It's 8:07 PM\")",
+          !BargeInPolicy.isInterruption(mode: .voiceRestricted, heardText: "it's 8:07 p.m.",
+                                        energy: 0.6, currentlySpoken: "It's 8:07 PM."))
+checkTrue("voiceRestricted: a fragment of his own sentence is echo",
+          !BargeInPolicy.isInterruption(mode: .voiceRestricted, heardText: "marketing lecture",
+                                        energy: 0.6, currentlySpoken: "Your marketing lecture is done."))
+checkTrue("voiceRestricted: talking over him without an interruption word does not stop him on speakers",
+          !BargeInPolicy.isInterruption(mode: .voiceRestricted, heardText: "yeah okay cool",
+                                        energy: 0.6, currentlySpoken: "Your marketing lecture is done."))
+checkTrue("voiceRestricted: \"Orion, stop\" still stops him",
+          BargeInPolicy.isInterruption(mode: .voiceRestricted, heardText: "Orion stop",
+                                       energy: 0.6, currentlySpoken: "Your marketing lecture is done."))
+
+checkTrue("voiceRestricted: his own name in his own sentence does not stop him",
+          !BargeInPolicy.isInterruption(mode: .voiceRestricted, heardText: "Orion",
+                                        energy: 0.6, currentlySpoken: "I'm Orion, and here's your evening."))
 
 // MARK: - Interruption at the start, middle and end of TTS
 

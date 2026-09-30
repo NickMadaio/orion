@@ -33,7 +33,9 @@ let view = ZStack(alignment: .topLeading) {
         energyTitle: "Morning setup",
         availableHeight: windowSize.height - verticalChrome,
         availableWidth: usableWidth,
-        calendar: calendar
+        calendar: calendar,
+        todayPlan: TodayPlanModel(store: TodayPlanStore(url: scratch.appendingPathComponent("today-plan.json"))),
+        refreshPlanSources: {}
     )
     .padding(.horizontal, horizontalPadding)
     .padding(.top, 26)

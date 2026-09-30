@@ -18,7 +18,11 @@ struct DashboardView: View {
     @ObservedObject var state: AppState
     var onDismiss: () -> Void
 
-    @State private var selectedTab: DashboardTab = .home
+    // `-orion.initialTab project` on launch opens that tab: how a screenshot
+    // check reaches a tab without synthetic clicks. Never persisted.
+    @State private var selectedTab: DashboardTab =
+        UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["orion.initialTab"]
+            .flatMap { $0 as? String }.flatMap(DashboardTab.init(rawValue:)) ?? .home
     @Namespace private var navUnderline
 
     @State private var quickOpenEditorVisible = false
@@ -32,6 +36,11 @@ struct DashboardView: View {
     @StateObject private var reminders = AppleRemindersSync()
     @StateObject private var agenda = AppleCalendarSync()
     @StateObject private var todayPlan = TodayPlanModel()
+    /// Plan requests from the phone, and plan changes saved by it, every few seconds.
+    @StateObject private var phoneTicker = RefreshTicker(interval: 3)
+    @State private var phonePlans = PhonePlanRequests()
+    @State private var lifeWatch = LifeWatch()
+    @State private var glanceExport = GlanceExport()
 
     /// The calendar's own model, built here because it needs the same EventKit
     /// syncs this view already owns. Fetches the visible interval plus padding
@@ -130,6 +139,16 @@ struct DashboardView: View {
                             .padding(.top, 26)
                             .padding(.bottom, 60)
                             .frame(width: proxy.size.width, alignment: .leading)
+                    } else if selectedTab == .project {
+                        // Projects is a workspace: the workflow graph owns the
+                        // right third, so the document-column cap would leave
+                        // exactly the space it needs sitting blank.
+                        tabContent(availableHeight: proxy.size.height - 70,
+                                   availableWidth: max(0, proxy.size.width - 64))
+                            .padding(.horizontal, 32)
+                            .padding(.top, 18)
+                            .padding(.bottom, 52)
+                            .frame(width: proxy.size.width, alignment: .leading)
                     } else {
                         // Minus its own vertical padding, the same way the
                         // branch above nets off its 6+18. A tab told it has the
@@ -216,6 +235,16 @@ struct DashboardView: View {
         .onChange(of: reminders.access) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.lastError) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: reminders.tasks) { _, _ in refreshPlanSources(); loadBrief() }
+        .onChange(of: state.requestedTab) { _, tab in
+            guard let tab else { return }
+            selectedTab = tab
+            state.requestedTab = nil
+        }
+        .onReceive(phoneTicker.$tick) { _ in
+            phonePlans.check(model: todayPlan, agenda: agenda, reminders: reminders)
+            lifeWatch.tick()
+            glanceExport.tick()
+        }
         // Phase 52: what ORION is waiting on you for, and what it is running.
         .overlay(alignment: .topTrailing) { ApprovalsOverlay().padding(.top, 96).padding(.trailing, 22) }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
@@ -449,8 +478,6 @@ struct DashboardView: View {
                 HomeTab(state: state,
                         quickOpen: quickOpen,
                         writer: briefWriter,
-                        todayPlan: todayPlan,
-                        refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() },
                         coreStyle: coreStyle,
                         brief: briefFacts,
                         presentation: $briefPresentation,
@@ -464,9 +491,11 @@ struct DashboardView: View {
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
                          energyTitle: energyTitle, availableHeight: availableHeight,
                          availableWidth: availableWidth ?? 1_180,
-                         calendar: calendarModel(state))
+                         calendar: calendarModel(state),
+                         todayPlan: todayPlan,
+                         refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() })
             case .project:
-                ProjectTab()
+                ProjectTab(agenda: agenda)
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
                           connections: connections, day: dayModel.day,
@@ -572,6 +601,21 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     case home, tasks, project, health, finance, brand, settings
     var id: String { rawValue }
 
+    /// The tab a person or ORION means by a word: "plan" and "calendar" are on
+    /// Tasks, "projects" is Project, "finances" is Finance.
+    static func named(_ word: String) -> DashboardTab? {
+        switch word.lowercased() {
+        case "home": return .home
+        case "tasks", "task", "plan", "calendar", "schedule", "todo", "todos": return .tasks
+        case "project", "projects": return .project
+        case "health": return .health
+        case "finance", "finances", "money": return .finance
+        case "brand": return .brand
+        case "settings", "preferences": return .settings
+        default: return nil
+        }
+    }
+
     /// Spelled out rather than derived from `rawValue`.
     ///
     /// The case used to be called `focus` while rendering a task list, which was
@@ -581,9 +625,9 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     /// sitting next to each other in the same enum.
     var title: String {
         switch self {
-        case .home: "Today"
+        case .home: "Home"
         case .tasks: "Tasks"
-        case .project: "Project"
+        case .project: "Projects"
         case .health: "Health"
         case .finance: "Finances"
         case .brand: "Brand"

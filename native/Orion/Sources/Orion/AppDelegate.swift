@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updates = UpdateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Resolve the voice keys now, off the main thread, so pressing talk never waits on the keychain.
+        Secrets.prefetch()
         panelController = PanelController(state: state)
         textWindowController = TextWindowController(state: state)
         preferencesController = PreferencesWindowController(state: state)
@@ -30,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.textWindowController.toggle()
         }
         menuBarController.install()
+
+        // The iPhone link helper embedded in this bundle (PhoneLink.swift).
+        PhoneLink.ensureRunning()
 
         // Updates. The check is deliberately not part of launching: it starts
         // half a minute in, and it asks first whether a focus session is
@@ -151,6 +156,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(editItem)
 
         NSApp.mainMenu = main
+    }
+
+    /// `orion://show/<tab>` — how ORION (or anything on this Mac) brings the
+    /// dashboard up on a tab: `scripts/orion-show tasks`. Showing a tab is the
+    /// whole of its power; any other orion:// link is ignored here (sign-in
+    /// callbacks are handled by their own web-auth session).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            // orion://listen — start a hands-free turn, as if he had said the wake
+            // word: the Mac hologram widget's tap, a Shortcut, or a voice self-test.
+            if url.scheme == "orion", url.host == "listen" {
+                // As a follow-up: a tap is not speech, so wait (up to the follow-up
+                // grace) for him to start before timing pauses. Started as an ordinary
+                // hands-free turn it ended 1.8 s in if he had not begun talking yet.
+                state.beginListening(handsFree: true, followUp: true)
+                continue
+            }
+            guard url.scheme == "orion", url.host == "show",
+                  let tab = DashboardTab.named(url.pathComponents.dropFirst().first ?? "") else { continue }
+            textWindowController.show()
+            state.requestedTab = tab
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

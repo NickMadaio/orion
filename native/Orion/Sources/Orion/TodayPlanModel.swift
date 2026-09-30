@@ -81,7 +81,9 @@ final class TodayPlanModel: ObservableObject {
         inputs?.isFresh(at: now) == true && (validateSources?() ?? true)
     }
 
-    func refresh(agenda: TodayPlanCalendarSource, reminders: TodayPlanRemindersSource) {
+    /// `finished` is told whether usable inputs arrived; the phone's requests wait on it.
+    func refresh(agenda: TodayPlanCalendarSource, reminders: TodayPlanRemindersSource,
+                 finished: ((Bool) -> Void)? = nil) {
         fetchGeneration += 1
         let generation = fetchGeneration
         guard agenda.canReadForPlanning, reminders.canReadForPlanning,
@@ -89,6 +91,7 @@ final class TodayPlanModel: ObservableObject {
               let interval = Calendar.current.dateInterval(of: .day, for: Date()) else {
             inputs = nil; proposal = nil
             sourceMessage = "Calendar or Orion Reminders is unavailable. Check its connection in Settings."
+            finished?(false)
             return
         }
         let tasks = reminders.tasks
@@ -99,23 +102,29 @@ final class TodayPlanModel: ObservableObject {
                 && reminders?.tasks == tasks
         }
         agenda.fetch(interval: interval) { [weak self] events, failure in
-            guard let self, generation == self.fetchGeneration else { return }
+            guard let self, generation == self.fetchGeneration else { finished?(false); return }
             guard validate() else {
                 self.inputs = nil; self.proposal = nil
                 self.sourceMessage = "Calendar or Orion Reminders changed while loading. Refresh the plan sources."
+                finished?(false)
                 return
             }
             guard failure == nil, requestedZone == TimeZone.current.identifier,
                   Calendar.current.isDate(interval.start, inSameDayAs: Date()) else {
                 self.inputs = nil; self.proposal = nil
                 self.sourceMessage = failure ?? "The day or time zone changed. Refresh the plan sources."
+                finished?(false)
                 return
             }
             do {
                 let value = try TodayPlanInputs.make(events: events, tasks: tasks, calendarReadAt: Date(),
                                                     tasksReadAt: taskReadAt, now: Date(), defaultMinutes: self.preferences.defaultTaskMinutes)
                 self.receive(value, validate: validate)
-            } catch { self.inputs = nil; self.proposal = nil; self.sourceMessage = error.localizedDescription }
+                finished?(true)
+            } catch {
+                self.inputs = nil; self.proposal = nil; self.sourceMessage = error.localizedDescription
+                finished?(false)
+            }
         }
     }
 
@@ -186,23 +195,39 @@ final class TodayPlanModel: ObservableObject {
         } catch { proposal = nil; self.error = error.localizedDescription }
     }
 
-    func accept(now: Date = Date()) {
+    func accept(now: Date = Date(), done: ((String?) -> Void)? = nil) {
         guard let plan = proposal, let inputs, !isSaving,
               hasUsableSources(at: now), plan.sourceFingerprint == inputs.fingerprint,
               plan.preferences == preferences, (0...60).contains(now.timeIntervalSince(plan.generatedAt)) else {
-            error = "The preview or its sources changed. Create a fresh preview before applying it."; return
+            error = "The preview or its sources changed. Create a fresh preview before applying it."
+            done?(error); return
         }
         let revision = proposalRevision, id = operationID
-        save { try self.store.accept(plan, expectedRevision: revision, operationID: id) }
+        save(done: done) { try self.store.accept(plan, expectedRevision: revision, operationID: id) }
     }
 
-    func undo() {
-        guard current() != nil, document.hasUndo, !isSaving else { return }
+    func undo(done: ((String?) -> Void)? = nil) {
+        guard current() != nil, document.hasUndo, !isSaving else { done?("There is no plan change to undo."); return }
         let revision = document.revision, id = UUID()
-        save { try self.store.undo(expectedRevision: revision, operationID: id) }
+        save(done: done) { try self.store.undo(expectedRevision: revision, operationID: id) }
     }
 
-    private func save(_ operation: @escaping () throws -> TodayPlanDocument) {
+    /// Picks up a revision saved by another writer -- the phone, through the link.
+    /// Left alone while Nick is previewing or saving here.
+    func reloadIfChanged() {
+        guard loaded, !isSaving, proposal == nil else { return }
+        queue.async { [weak self] in
+            guard let self, let value = try? self.store.load() else { return }
+            DispatchQueue.main.async {
+                guard value.revision != self.document.revision, !self.isSaving, self.proposal == nil else { return }
+                self.document = value
+                if let plan = value.current { self.preferences = plan.preferences }
+            }
+        }
+    }
+
+    /// `done` gets nil on success, or what went wrong.
+    private func save(done: ((String?) -> Void)? = nil, _ operation: @escaping () throws -> TodayPlanDocument) {
         isSaving = true; error = nil
         queue.async { [weak self] in
             let result = Result(catching: operation)
@@ -220,8 +245,10 @@ final class TodayPlanModel: ObservableObject {
                 case .success(let value):
                     self.document = value; self.proposal = nil; self.edits = [:]
                     if let plan = value.current { self.preferences = plan.preferences }
+                    done?(nil)
                 case .failure(let failure):
                     self.error = failure.localizedDescription
+                    done?(failure.localizedDescription)
                     if let refreshed {
                         self.document = refreshed; self.proposal = nil
                         if let plan = refreshed.current { self.preferences = plan.preferences }

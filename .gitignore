@@ -45,3 +45,9 @@ _to_delete/
 
 # Claude Code local permissions — machine-specific
 .claude/settings.local.json
+
+# Xcode / SwiftPM per-user state
+xcuserdata/
+*.xcworkspace/xcuserdata/
+.swiftpm/
+DerivedData/

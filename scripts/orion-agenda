@@ -43,6 +43,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { ignoredEvent } from "./lib/life/config.mjs";   // events he never goes to ("(optional)" workshops)
 
 const run = promisify(execFile);
 
@@ -203,7 +204,7 @@ switch (command) {
     // that output is parsed by other programs, and a fingerprint that carries
     // today's date is a fingerprint that changes at midnight.
     if (!rest.includes("--json")) printGrounding(target);
-    const events = unpack(await ask("list_upcoming_calendar_events"), "events_json");
+    const events = unpack(await ask("list_upcoming_calendar_events"), "events_json").filter((e) => !ignoredEvent(e.title));
     const wanted = events.filter((e) => localDay(new Date(e.start)) === localDay(target));
     if (rest.includes("--json")) {
       console.log(JSON.stringify(wanted, null, 2));
@@ -226,7 +227,7 @@ switch (command) {
   case "upcoming": {
     if (!rest.includes("--json")) printGrounding(null);
     const result = await ask("list_upcoming_calendar_events");
-    const events = unpack(result, "events_json");
+    const events = unpack(result, "events_json").filter((e) => !ignoredEvent(e.title));
     /*
      `--json` emits what was already unpacked, unchanged.
 

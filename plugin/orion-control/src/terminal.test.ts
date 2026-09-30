@@ -7,6 +7,9 @@ import { canonicalActionHash } from "./validator.js";
 import { approvalPaths, chatGrantCovers, grantForChat, mintTicket, CHAT_GRANT_TTL_MS } from "./approvals.js";
 import type { TaskGraph } from "./types.js";
 
+// The terminal runs inside macOS sandbox-exec under zsh; a Linux CI runner has neither.
+const onMac = process.platform === "darwin";
+
 // Phase 52: raw terminal, confirmed in the app -- once, or for this chat.
 const terminal = (command: string, cwd: string): TaskGraph => ({
   version: "1", goal: "run a command", workingContext: cwd,
@@ -36,7 +39,7 @@ describe("terminal_run", () => {
     expect(await readdir(directory)).not.toContain("ran");
   });
 
-  it("runs an approved command in its folder and reports the output and exit code", async () => {
+  it.skipIf(!onMac)("runs an approved command in its folder and reports the output and exit code", async () => {
     const { result, directory } = await run("echo hello from orion; pwd; exit 3");
     expect(result.status).toBe("succeeded");
     const output = result.steps[0]?.execution.output as { exitCode: number; output: string };
@@ -45,7 +48,7 @@ describe("terminal_run", () => {
     expect(output.output).toContain(await import("node:fs/promises").then((fs) => fs.realpath(directory)));
   });
 
-  it("is killed when Nick presses Stop, not left to run out", async () => {
+  it.skipIf(!onMac)("is killed when Nick presses Stop, not left to run out", async () => {
     const { result, seconds } = await run("sleep 30", async (ledgerPath) => {
       await new Promise((resolve) => setTimeout(resolve, 700));
       const actions = path.join(path.dirname(ledgerPath), "actions");

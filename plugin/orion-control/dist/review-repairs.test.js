@@ -9,6 +9,8 @@ import { describeForApproval } from "./index.js";
 import { protectedConflict } from "./protected-paths.js";
 import { redactOutput, SANDBOX_EXEC, sandboxProfile } from "./terminal-sandbox.js";
 import { canonicalActionHash, validateTaskGraph } from "./validator.js";
+// The terminal runs inside macOS sandbox-exec under zsh; a Linux CI runner has neither.
+const onMac = process.platform === "darwin";
 // Repairs from the independent review of phases 40-52 (2026-09-26).
 const user = (content) => ({ id: "u", kind: "instruction", trust: "trusted_user", content });
 describe("C1: ORION cannot change what his own safety rests on", () => {
@@ -49,7 +51,7 @@ describe("C2: the approval names exactly what will run", () => {
     });
 });
 describe("H1: Stop means stop, whatever the retry budget", () => {
-    it("runs a stopped terminal command once, and records the run as cancelled", async () => {
+    it.skipIf(!onMac)("runs a stopped terminal command once, and records the run as cancelled", async () => {
         const directory = await mkdtemp(path.join(os.tmpdir(), "orion-stop-"));
         const graph = {
             version: "1", goal: "count", workingContext: directory, inputs: [user("run it")], assumptions: [], retryBudget: 2,
@@ -110,7 +112,7 @@ describe("H4 and C3: one yes is one run, and a chat grant cannot be forged longe
     });
 });
 describe("C3 and M5: the terminal's fence and its output", () => {
-    it("denies writes under a protected path, even from a backgrounded child", async () => {
+    it.skipIf(!onMac)("denies writes under a protected path, even from a backgrounded child", async () => {
         const guarded = await mkdtemp(path.join(os.tmpdir(), "orion-fence-"));
         const profile = sandboxProfile([guarded]);
         const result = spawnSync(SANDBOX_EXEC, ["-p", profile, "/bin/zsh", "-c", `touch '${guarded}/a'; (touch '${guarded}/b' &); sleep 0.3; touch '${os.tmpdir()}/orion-fence-ok'`], { encoding: "utf8" });

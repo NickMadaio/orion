@@ -31,7 +31,7 @@
  channel changes nothing above it -- hence building it in this order.
 */
 
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { classifyClaim } from "./lib/remote/claims.mjs";
 import { fixReply, lintReply } from "./lib/remote/reply-lint.mjs";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -565,7 +565,19 @@ function watchQuestion() {
     const day = new Date(Date.now() - 4 * 3600000).toLocaleDateString("en-CA");
     const q = JSON.parse(readFileSync(join(CONTROLLED, "watch.json"), "utf8"))?.[day];
     if (!q?.lastQuestion) return null;
+    // Only a recent question can be what he is answering (at 00:24 the morning's nap message was still shown).
+    if (q.lastQuestionAt && Date.now() - new Date(q.lastQuestionAt).getTime() > 6 * 3600000) return null;
     return `- Earlier today you asked him (on his phone): "${String(q.lastQuestion).slice(0, 220)}" — this message may be his answer.`;
+  } catch { return null; }
+}
+
+// His phone's Screen Time lock, as the phone last reported it (2026-10-01: asked
+// to unblock his apps, ORION checked the Mac's focus timer and said nothing was locked).
+function phoneLock() {
+  try {
+    const r = spawnSync(process.execPath, [join(homedir(), "Desktop/ORION/scripts/orion-phone-time"), "status"], { encoding: "utf8", timeout: 5000 });
+    const line = (r.stdout ?? "").trim();
+    return line ? `- His phone's app lock: ${line} Extra time: orion-phone-time grant <minutes|HH:MM> --because "<his reason>" (max 60 min; it re-locks by itself). orion-focus is the Mac's timer, not the phone.` : null;
   } catch { return null; }
 }
 
@@ -592,10 +604,11 @@ async function phoneContext() {
     "- Before saying an app is not installed, try app_open; it reports whether it opened.",
     ...[await todaySchedule()].filter(Boolean),
     openCheckins(),
+    ...[phoneLock()].filter(Boolean),
     ...[watchQuestion()].filter(Boolean),
-    `- His day: use ONE call: ${join(homedir(), "Desktop/ORION/scripts/orion-reschedule")} day --say "<his exact words>" --fill. Ordinary changes are incremental, but if something cannot fit the scheduler automatically rebuilds the remaining movable day: fixed commitments first, then his words marked must/high priority, normal work, optional/maybe items, then fill-ins. If he says rearrange everything or make the day work while keeping its tasks, add --rebuild. If he explicitly gives a complete replacement schedule, add --replace; that preserves classes/deadlines but replaces every other future block. Use \`orion-reschedule clear\` only to clear movable tasks without a replacement. Never loop through calendar_event_remove or invent approvals for a day-plan rewrite.`,
-    "  (\"fixed\" for plans with people; leave the time out if he gave none). Never several calls at once. \"X happened\" / running late →",
-    "  `orion-reschedule late <min>` or `busy HH:MM-HH:MM`. Tell him what moved; `orion-reschedule undo` if he objects.",
+    `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
+    "  Get rid of X → `drop \"X\"` (never undo). Move one thing → `add \"X\" <min> --at HH:MM`. Class running over → `overrun <min>`. He is late right now → `late <min>`. New timeline for the rest of the day → `day --replace --plan …`.",
+    "  Report only what the output says was written; SHIFTED / NOT BOOKED means tell him.",
     `- Closing the loop is your job. In THIS message, if he delays something with a reason → ${join(homedir(), "Desktop/ORION/scripts/orion-checkin")} add <min> "<what>" --because "<reason>";`,
     "  says he is starting → orion-checkin started (or started \"<what>\"); finished → done; plans changed → cancel.",
     "  \"One more video\" or \"later\" is not a reason: say so and add a short check-in anyway.",

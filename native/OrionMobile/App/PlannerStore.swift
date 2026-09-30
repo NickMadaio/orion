@@ -207,7 +207,10 @@ final class PlannerStore: ObservableObject {
         let start = Calendar.current.startOfDay(for: day)
         guard let end = Calendar.current.date(byAdding: .day, value: 1, to: start) else { return nil }
         let events = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
-            .filter { !$0.isAllDay && $0.startDate >= start }
+            // Real commitments only: ORION's own blocks ("[orion:…]" in the notes) and
+            // events he never goes to ("(optional)") must not set his alarm (2026-09-30).
+            .filter { !$0.isAllDay && $0.startDate >= start
+                && !($0.notes ?? "").contains("[orion:") && !($0.title ?? "").localizedCaseInsensitiveContains("(optional)") }
             .sorted { $0.startDate < $1.startDate }
         return events.first.map { ($0.title ?? "Event", $0.startDate) }
     }

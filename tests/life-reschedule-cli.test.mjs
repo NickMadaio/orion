@@ -201,3 +201,13 @@ test("untimed plans after a fixed one keep the order he said them in", (t) => {
   const d = day(); const get = (x) => d.find((e) => e.title === x);
   assert.ok(get("dinner").start >= hm(19, 30) && get("gym").start >= get("dinner").end, r.out);
 });
+
+test("wind down ends on the asleep line, which moves earlier before an early class", (t) => {
+  const next = (h, m = 0) => new Date(2030, 9, 3, h, m).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const { run, day } = world(t, [morning[0], { title: "CS2100 Lab", start: next(8), end: next(9, 30) }]);
+  const r = run("fill");
+  assert.equal(r.code, 0, r.out);
+  const wind = day().find((e) => /wind down/i.test(e.title));
+  // 8:00 lab − 75 min ready = 6:45 wake; 8 h before that = asleep by 22:45.
+  assert.equal(wind?.end, hm(22, 45), r.out);
+});

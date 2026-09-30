@@ -382,7 +382,8 @@ struct TasksTab: View {
                         // than the click doing nothing and looking broken.
                         composerTitle = ""
                         sheetMode = .edit(event)
-                    }
+                    },
+                    night: NightMarkers.load(for: agenda.selectedDate)
                 )
             }
         }

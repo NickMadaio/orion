@@ -11,9 +11,15 @@ export const DEFAULTS = Object.freeze({
   bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
   studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
   commuteMinutes: 30,
+  readyMinutes: 75,          // up before his first commitment (the phone alarm uses the same)
   // Events he never goes to (2026-09-30: "get rid of that optional workshop, i
   // never go to them … all of them going forwards"). Case-insensitive substrings.
   ignoreTitles: ["(optional)"],
+  // His one to-do list, and the lists whose reminders are moved onto it (Siri
+  // and the phone put new reminders on "Reminders"). Other lists (Groceries,
+  // Family) are never planned from.
+  todoList: "Orion",
+  sweepLists: ["Reminders"],
 });
 
 /** True when ORION should act as if this calendar event did not exist. */
@@ -28,6 +34,9 @@ export function loadConfig(file = CONFIG_FILE) {
 
 const VALIDATORS = {
   commuteMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 180,
+  readyMinutes: (v) => Number.isInteger(v) && v >= 15 && v <= 180,
+  todoList: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,
+  sweepLists: (v) => Array.isArray(v) && v.length <= 10 && v.every((x) => typeof x === "string" && x.trim().length > 0 && x.length <= 60),
   ignoreTitles: (v) => Array.isArray(v) && v.length <= 50 && v.every((x) => typeof x === "string" && x.trim().length >= 3 && x.length <= 80),
   sideProjectMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 300,
   sideProjectLabel: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,

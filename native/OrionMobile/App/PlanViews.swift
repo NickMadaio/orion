@@ -45,6 +45,9 @@ struct DayScheduleView: View {
     let day: Date
     var timeZone: TimeZone = .current
     var onSelect: (PlannerStore.Item) -> Void = { _ in }
+    /// When the alarm goes and when he should be asleep; wind-down ends on `bed`.
+    var wake: Date? = nil
+    var bed: Date? = nil
     private let hourHeight: CGFloat = 64
     private let gutter: CGFloat = 52
 
@@ -53,7 +56,9 @@ struct DayScheduleView: View {
     var body: some View {
         let timed = items.filter { !$0.allDay }
         let slots = timed.map { DaySlot(id: $0.id, start: $0.start, end: $0.end) }
-        let range = DayLayout.visibleHours(for: slots, on: day, calendar: calendar)
+        // The markers widen the visible hours so an early alarm or a late bedtime shows.
+        let markerSlots = [wake, bed].compactMap { $0 }.map { DaySlot(id: "marker-\($0.timeIntervalSince1970)", start: $0.addingTimeInterval(-15 * 60), end: $0) }
+        let range = DayLayout.visibleHours(for: slots + markerSlots, on: day, calendar: calendar)
         let placements = Dictionary(uniqueKeysWithValues:
             DayLayout.place(slots, rangeStart: range.start, hours: range.hours).map { ($0.id, $0) })
         VStack(alignment: .leading, spacing: 10) {
@@ -82,6 +87,8 @@ struct DayScheduleView: View {
                                     .offset(x: gutter + CGFloat(place.column) * columnWidth, y: CGFloat(place.top) / 60 * hourHeight)
                             }
                         }
+                        if let wake { marker(wake, "Wake", "sunrise.fill", Phone.orange, range) }
+                        if let bed { marker(bed, "Asleep by", "moon.zzz.fill", Phone.violet, range) }
                         nowLine(range)
                     }
                 }
@@ -135,6 +142,26 @@ struct DayScheduleView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(item.title), \(label(item.start)) to \(label(item.end))")
+    }
+
+    /// A dashed boundary with a small label. Not an event: it takes no taps.
+    @ViewBuilder private func marker(_ moment: Date, _ title: String, _ icon: String, _ tint: Color, _ range: (start: Date, hours: Int)) -> some View {
+        let minutes = moment.timeIntervalSince(range.start) / 60
+        if minutes >= 0, minutes <= Double(range.hours * 60) {
+            HStack(spacing: 6) {
+                Rectangle().fill(.clear).frame(height: 1)
+                    .overlay(Rectangle().stroke(tint.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                Label("\(title) \(label(moment))", systemImage: icon)
+                    .font(Phone.mono(10, .semibold)).foregroundStyle(tint)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Phone.ink.opacity(0.9), in: Capsule())
+                    .fixedSize()
+            }
+            .padding(.leading, gutter).padding(.trailing, 4)
+            .offset(y: CGFloat(minutes) / 60 * hourHeight - 8)
+            .allowsHitTesting(false)
+            .accessibilityLabel("\(title) \(label(moment))")
+        }
     }
 
     @ViewBuilder private func nowLine(_ range: (start: Date, hours: Int)) -> some View {

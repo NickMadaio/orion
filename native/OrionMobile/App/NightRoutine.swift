@@ -172,6 +172,23 @@ final class NightRoutine: ObservableObject {
     /// Recompute tonight and (re)schedule its nudges and the alarm. Cheap; call on every foreground.
     private var lastWakeRequest: Date?
 
+    /// Wake (the alarm) and "asleep by" for the day on screen (2026-09-30: "little
+    /// markers for when i wake up (orion alarm) and when i should be asleep by").
+    /// Tonight's real plan wins, since it carries the alarm actually set and any
+    /// shift for a late night; other days use the same rule with their own events.
+    func markers(for day: Date, planner: PlannerStore, calendar: Calendar = .current) -> (wake: Date, bed: Date) {
+        let midnight = calendar.startOfDay(for: day)
+        let eveningBefore = midnight.addingTimeInterval(-4 * 3600)
+        let evening = midnight.addingTimeInterval(20 * 3600)
+        let first: (Date) -> (title: String, start: Date)? = { planner.firstTimedEvent(on: $0) }
+        let wake = plan.flatMap { calendar.isDate($0.wake, inSameDayAs: midnight) ? $0.wake : nil }
+            ?? NightPlan.make(now: eveningBefore, settings: settings, firstEvent: first, calendar: calendar).wake
+        let nightOfDay = midnight.addingTimeInterval(12 * 3600)..<midnight.addingTimeInterval(36 * 3600)
+        let bed = plan.flatMap { nightOfDay.contains($0.bed) ? $0.bed : nil }
+            ?? NightPlan.make(now: evening, settings: settings, firstEvent: first, calendar: calendar).bed
+        return (wake, bed)
+    }
+
     func refresh(planner: PlannerStore, wakeRequest: Date? = nil, now: Date = Date()) async {
         if let wakeRequest { lastWakeRequest = wakeRequest }
         // Forget a stale "last awake" from a previous night.

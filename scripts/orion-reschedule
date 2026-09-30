@@ -32,6 +32,7 @@ import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { homeFrom, preferredStart } from "./lib/life/sensible-time.mjs";
+import { bedOn, readWakeRequest } from "./lib/life/night.mjs";
 import { loadPatterns } from "./lib/life/history.mjs";
 
 const args = process.argv.slice(2);
@@ -100,13 +101,15 @@ function studyPlanFor(deadlines) {
 }
 const today = date === localDate(nowDate);
 const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : 0;
-const bed = toMinute(config.bedtime);
 // Plan from when he actually gets up, once his history says so (3+ mornings).
 const patterns = loadPatterns();
 const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMinute(config.usualWake);
-const window = { start: Math.max(wakeMinute - 60, 360), end: bed <= 360 ? 1440 : bed };
 const events = await calendarEvents().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 const blocks = toBlocks(events, date);
+// The day ends at the "asleep by" line his phone alarm is set from (night.mjs),
+// so wind-down, the last thing planned, ends exactly on it (2026-09-30).
+const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest() });
+const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy) };
 const blocked = []; let add = [];
 const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5)).filter((x) => x.length >= 3);
   const x = w(a), y = w(b); return x.length > 0 && x.every((q) => y.includes(q)); };

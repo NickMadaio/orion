@@ -24,6 +24,8 @@ struct DayTimeline: View {
     /// Tapping an empty hour offers to fill it.
     var onCreate: (Date) -> Void
     var onSelect: (AgendaEvent) -> Void
+    /// Wake (the ORION alarm) and "asleep by" for this day; wind-down ends on the second.
+    var night: NightMarkers? = nil
 
     /// The whole day, midnight to midnight.
     ///
@@ -65,6 +67,8 @@ struct DayTimeline: View {
                     ZStack(alignment: .topLeading) {
                         grid
                         blocks
+                        if let wake = night?.wake { marker(at: wake, label: "Wake", systemImage: "sunrise.fill", tint: OrionTheme.orange) }
+                        if let bed = night?.bed { marker(at: bed, label: "Asleep by", systemImage: "moon.zzz.fill", tint: OrionTheme.violet) }
                         if isToday { nowLine }
                     }
                     .frame(height: CGFloat(hours.count) * hourHeight + 8)
@@ -282,6 +286,31 @@ struct DayTimeline: View {
         .padding(.leading, gutter - 3)
         .offset(y: offset(for: now))
         .allowsHitTesting(false)
+    }
+
+    /// A thin line across the day with a small label: when the alarm goes, and
+    /// when he should be asleep. Quieter than the now-line; it is a boundary,
+    /// not an event, so it never takes a click.
+    private func marker(at moment: Date, label: String, systemImage: String, tint: Color) -> some View {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return HStack(spacing: 6) {
+            Rectangle()
+                .fill(tint.opacity(0.7))
+                .frame(height: 1)
+                .overlay(Rectangle().stroke(tint.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+            Label("\(label) \(formatter.string(from: moment))", systemImage: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(OrionTheme.ink.opacity(0.85), in: Capsule())
+                .fixedSize()
+        }
+        .padding(.leading, gutter)
+        .padding(.trailing, 6)
+        .offset(y: offset(for: min(moment, calendar.startOfDay(for: date).addingTimeInterval(24 * 3600 - 60))) - 8)
+        .allowsHitTesting(false)
+        .accessibilityLabel("\(label) \(formatter.string(from: moment))")
     }
 
     // MARK: - Overlap

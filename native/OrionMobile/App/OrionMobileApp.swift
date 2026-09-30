@@ -384,7 +384,8 @@ struct PhoneRootView: View {
                     if planMode == "todos" && planner.access == .granted {
                         TodoListView(planner: planner)
                     } else if planner.access == .granted {
-                        DayScheduleView(items: items, day: planner.day) { selectedItem = $0 }
+                        let night = routine.markers(for: planner.day, planner: planner)
+                        DayScheduleView(items: items, day: planner.day, onSelect: { selectedItem = $0 }, wake: night.wake, bed: night.bed)
                     } else if let sample {
                         sampleNotice
                         DayScheduleView(items: items, day: Calendar.current.startOfDay(for: sampleNow),

@@ -23,6 +23,8 @@ import { loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, bridge } from "./lib/life/calendar-write.mjs";
 import { morningBrief } from "./lib/life/morning-brief.mjs";
 import { commuteBlocks } from "./lib/life/commute.mjs";
+import { sweep } from "./lib/life/todo-lists.mjs";
+import { nightMarkers, readWakeRequest } from "./lib/life/night.mjs";
 import { summarize } from "./lib/life/history.mjs";
 
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -53,10 +55,31 @@ const upToday = (log.sleepLog ?? []).some((e) => e.event === "up" && localDate(n
   || (log.phoneSignals ?? []).some((s) => localDate(new Date(s.at)) === today && new Date(s.at).getHours() >= 5);
 const awake = upToday || record.recovery != null || minute >= toMinute(config.usualWake);
 const alerts = [];
-let blocks = [];
-try { blocks = toBlocks(await calendarEvents(), localDate(now)); day.calendar = "ok"; }
+// One to-do list: whatever Siri or the phone put on the default list moves onto
+// his to-do list (todo-lists, 2026-09-30). Quiet; a failure never stops the tick.
+if (!dry) { try { day.swept = (day.swept ?? 0) + (await sweep(bridge, config)).length; } catch { /* reminders unreadable: try next tick */ } }
+let blocks = []; let events = null;
+try { events = await calendarEvents(); blocks = toBlocks(events, localDate(now)); day.calendar = "ok"; }
 catch (error) { day.calendar = `unreadable: ${String(error?.message ?? error).slice(0, 100)}`; /* ask nothing blind */ }
-const bed = toMinute(config.bedtime) <= 360 ? 1440 : toMinute(config.bedtime);
+// Wake and asleep-by for today and tomorrow (night.mjs, the phone alarm's rule):
+// the Mac draws them on its day view, and today's asleep line ends the day here.
+const wakeRequest = await readWakeRequest();
+const nightOf = (date) => events ? nightMarkers(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest }) : null;
+const tonight = nightOf(localDate(now));
+const bed = tonight ? Math.min(1440, tonight.bed) : toMinute(config.bedtime) <= 360 ? 1440 : toMinute(config.bedtime);
+if (!dry && events) {
+  const tomorrowDate = localDate(new Date(now.getTime() + 86400000));
+  // Yesterday is kept as it was worked out while it was today: the calendar feed
+  // starts at now, so after midnight its classes are gone and a recomputed wake
+  // line would fall back to the free-day time (9:00 on a 9:00-seminar day).
+  const yesterday = localDate(new Date(now.getTime() - 86400000));
+  const yesterdayKept = (read(join(CONTROLLED, "night.json"), {}).days ?? []).find((d) => d?.date === yesterday) ?? null;
+  try {
+    mkdirSync(CONTROLLED, { recursive: true });
+    writeFileSync(join(CONTROLLED, "night.json.tmp"), JSON.stringify({ updatedAt: now.toISOString(), days: [yesterdayKept, tonight, nightOf(tomorrowDate)].filter(Boolean) }, null, 2));
+    renameSync(join(CONTROLLED, "night.json.tmp"), join(CONTROLLED, "night.json"));
+  } catch { /* markers are a nicety; the tick goes on */ }
+}
 const freeLeft = () => freeGaps(blocks, { start: Math.max(minute, toMinute(config.usualWake)), end: bed }, { minimum: 30 })
   .reduce((a, g) => a + g.end - g.start, 0);
 const fixed = blocks.filter((b) => b.fixed);

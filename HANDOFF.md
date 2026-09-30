@@ -5,6 +5,35 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-09-30 23:33 BST — Scheduling rebuilt from Nick's real day; optional workshops ignored
+
+- **What went wrong on 2026-09-30.** Soccer 5-7 was added to a day ORION had already filled. The two phone sessions (11:06-11:19, 13:16-13:18 BST) then went through repeated overlaps, "did not fit" refusals, chains of undo that removed soccer, a crash in `--say`, and in the end a rebuild that put gym at 1 PM before soccer. Afterwards, Nick's review of test runs: "why am i reading at 8 am, why am i doing my yt side project right after class with no getting back home buffer … the timing of things are terrible."
+- **Scheduler (`scripts/lib/life/replan.mjs`, rewritten):**
+  - three kinds of time: walls (fixed), pinned (a time he stated; placed exactly, ORION's blocks move), flexible (laid out in time order);
+  - importance only decides what is left out, never the order;
+  - a stated time that cannot be kept becomes flexible and never bumps other blocks (`shifted`);
+  - `soft` walls (travel) guard flexible work but never override his time.
+- **Sensible times (`scripts/lib/life/sensible-time.mjs`, new):**
+  - untimed plans wait until he is home: after his last class plus the commute, or after waking on a day without classes;
+  - each kind has a natural time: evening for reading and relaxing, 5 PM gym, 6:30 PM dinner.
+- **Travel (`commute.mjs`):** plans away from home (soccer practice, nights out) get travel before and after, including ones added in the same call.
+- **`orion-reschedule`:**
+  - `drop "<title>"` (tomorrow is the fallback when no date is given);
+  - `overrun <min>` (a class running over, any day; what follows slides back in order);
+  - `late`, `busy` and `overrun` cascade;
+  - a bare `2026-10-01` or `tomorrow` is the date, and times already over today are refused;
+  - "X after/before Y" is read from titles, and untimed plans chain after the one before;
+  - restating a block replaces it, and `--replace` keeps a fixed plan he restated;
+  - `add "title, 30"` is accepted;
+  - `live-day` honours `ORION_BRIDGE_BIN`.
+- **Ignored events:** `ignoreTitles` in life config (default `["(optional)"]`), filtered in `live-day` and `orion-agenda`. Nick: "i never go to them so get rid of all of them going forwards". Tomorrow's workshop occurrence was deleted. The bridge only deletes `.thisEvent` and resolves the series by identifier, so the recurring series stays in Calendar.app. PENDING: add `span: future` to `deleteCalendarEvent` and rebuild the bridge, with Nick present in case calendar access has to be re-granted.
+- **ORION guidance (AGENTS.md + TOOLS.md blurb):** never invent a time; "nap 60 so 3" ends at 3; relative wording goes in titles; `drop`, not undo; move one block with `add`; `overrun` for classes; `--fill` only when asked.
+- **Tests:** `life-day-scenarios`, `life-reschedule-cli` (end-to-end against `tests/fixtures/fake-bridge.mjs`), `life-sensible-time`, commute. 774/774 Node tests pass; ci check OK.
+- **Live proof:** seven `orion-eval-run` sessions (`orion-eval-sched*`) texting as Nick about 2026-10-01; the last two runs gave correct layouts. Every test change to 2026-10-01 was reverted to the snapshot. A wrong-day run (a bare date, before the fix) wrote to 2026-09-30; it was undone from the journal and leftovers were dropped.
+- **Open:**
+  - ORION's reply can still misstate times the calendar has right (the reply-times task in the Qwen "ORION truthful" project);
+  - `--say` still mangles narrated days, so ORION is told to write `--plan` itself.
+
 ## 2026-09-30 20:37 BST — Repository cleanup for readers; CI green again
 
 - **Why:** Nick is putting the repo on his resume. An interviewer's first two impressions were clutter and a red CI badge (red since 3 September).

@@ -26,6 +26,17 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { assertPromptFits, promptBudget } from './context.mjs';
+import { guardResources } from './resources.mjs';
+
+function recoverableRuntimeError(message, cause = null) {
+  const error = new Error(message);
+  error.name = 'RecoverableRuntimeError';
+  error.code = 'ORION_INFERENCE_RUNTIME';
+  error.recoverableRuntime = true;
+  if (cause) error.cause = cause;
+  return error;
+}
 
 export const CONFIG_PATH = join(homedir(), '.openclaw/orion-controlled/agentic-config.json');
 
@@ -82,10 +93,36 @@ export const DEFAULT_CONFIG = Object.freeze({
   limits: {
     maxAttempts: 3,
     repairAfterAttempts: 3,
+    // Bounded and surgical is architecture; these numbers are not. The mission
+    // (§4A, corrected 2026-09-22) is explicit that they are starting values to
+    // be measured and tuned, so they are configuration rather than constants.
+    // Exchanges that write nothing new and fix no check before the worker is
+    // declared stuck and the problem is handed up a rung.
+    stuckAfterTurns: 4,
+    // How long a stopped or timed-out worker has to actually stop before its
+    // outcome is treated as uncertain. It normally stops within moments; the
+    // bound is for the one that does not.
+    settleGraceMs: 60_000,
+    repairMaxFiles: 2,
+    repairsPerTask: 1,
+    // Worker attempts after a reviewer repair, whether or not the repair made
+    // the checks pass. Raised from 1 (2026-09-25): a single try after a repair
+    // turned most repairs into a 3am escalation for work that was one fix away.
+    repairRetryAttempts: 3,
     maxCorrectionDepth: 2,
+    // The FIRST budget for a task, not a wall: a worker that is progressing
+    // may be granted more (extension.mjs) up to the hard ceiling below.
     taskTimeoutMs: 60 * 60 * 1000,
+    taskHardTimeoutMs: 4 * 60 * 60 * 1000,
+    extensionMaxGrantMs: 45 * 60 * 1000,
+    extensionDefaultGrantMs: 20 * 60 * 1000,
+    maxTurnsHard: 40,
     iterationStallLimit: 3,
     maxConsecutiveFailures: 3,
+    runtimeRecoveriesPerPhase: 2,
+    runtimeRecoveriesPerRun: 6,
+    escalationAlertAttempts: 3,
+    escalationAlertRetryMs: 60_000,
   },
 });
 
@@ -119,11 +156,31 @@ export async function loadAgenticConfig({ path = CONFIG_PATH } = {}) {
   // A repair threshold above the attempt ceiling is a silent misconfiguration:
   // `attempts` can never reach it, so the reviewer-repair rung of the ladder
   // never fires and tasks escalate that the local loop could have unblocked.
+  for (const [name, minimum] of [['runtimeRecoveriesPerPhase', 0], ['runtimeRecoveriesPerRun', 0], ['repairMaxFiles', 1], ['repairsPerTask', 0], ['repairRetryAttempts', 1], ['stuckAfterTurns', 2]]) {
+    const value = config.limits[name];
+    if (!Number.isInteger(value) || value < minimum || value > 20) {
+      throw new Error(`limits.${name} must be an integer between ${minimum} and 20, got ${value}`);
+    }
+  }
+  if (!Number.isInteger(config.limits.escalationAlertAttempts) || config.limits.escalationAlertAttempts < 1 || config.limits.escalationAlertAttempts > 5) {
+    throw new Error('limits.escalationAlertAttempts must be an integer between 1 and 5');
+  }
+  if (!Number.isInteger(config.limits.escalationAlertRetryMs) || config.limits.escalationAlertRetryMs < 0 || config.limits.escalationAlertRetryMs > 10 * 60_000) {
+    throw new Error('limits.escalationAlertRetryMs must be an integer between 0 and 600000');
+  }
+  const { taskTimeoutMs, taskHardTimeoutMs, extensionMaxGrantMs, extensionDefaultGrantMs, maxTurnsHard } = config.limits;
+  if (![taskTimeoutMs, taskHardTimeoutMs, extensionMaxGrantMs, extensionDefaultGrantMs].every(Number.isSafeInteger) ||
+      taskHardTimeoutMs < taskTimeoutMs || taskHardTimeoutMs > 10 * 3600_000 ||
+      extensionDefaultGrantMs > extensionMaxGrantMs || extensionMaxGrantMs < 0) {
+    throw new Error('limits: need taskTimeoutMs <= taskHardTimeoutMs <= 10h and extensionDefaultGrantMs <= extensionMaxGrantMs');
+  }
+  if (!Number.isInteger(maxTurnsHard) || maxTurnsHard < 1 || maxTurnsHard > 100) throw new Error('limits.maxTurnsHard must be 1-100');
   if (config.limits.repairAfterAttempts > config.limits.maxAttempts) {
     throw new Error(`repairAfterAttempts (${config.limits.repairAfterAttempts}) exceeds maxAttempts ` +
       `(${config.limits.maxAttempts}); reviewer repair could never trigger`);
   }
   for (const [role, spec] of Object.entries(config.roles)) {
+    promptBudget(spec);
     if (typeof spec.model !== 'string' || !spec.model.trim()) throw new Error(`role ${role} has no model`);
     if (!Number.isFinite(spec.approxResidentGiB) || spec.approxResidentGiB <= 0) throw new Error(`role ${role} has no memory estimate`);
     if (spec.approxResidentGiB > config.memoryBudgetGiB) {
@@ -147,8 +204,9 @@ export async function loadAgenticConfig({ path = CONFIG_PATH } = {}) {
  silently dropping it is how a trace quietly loses every other token.
 */
 async function streamGenerate(endpoint, body, { signal, timeoutMs, onDelta }) {
+  signal?.throwIfAborted();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('inference timeout')), timeoutMs);
+  const timer = setTimeout(() => controller.abort(recoverableRuntimeError('inference timeout')), timeoutMs);
   const onAbort = () => controller.abort(signal.reason);
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
@@ -162,7 +220,9 @@ async function streamGenerate(endpoint, body, { signal, timeoutMs, onDelta }) {
       // a bad option name, an unloadable model. A bare status code sends
       // whoever reads it at 02:00 looking in the wrong place.
       const detail = await response.text().catch(() => '');
-      throw new Error(`ollama /api/generate returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+      const message = `ollama /api/generate returned ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`;
+      if (response.status >= 500) throw recoverableRuntimeError(message);
+      throw new Error(message);
     }
 
     const decoder = new TextDecoder();
@@ -175,7 +235,7 @@ async function streamGenerate(endpoint, body, { signal, timeoutMs, onDelta }) {
         if (!line.trim()) continue;
         let payload;
         try { payload = JSON.parse(line); } catch { continue; }
-        if (payload.error) throw new Error(`ollama: ${String(payload.error).slice(0, 300)}`);
+        if (payload.error) throw recoverableRuntimeError(`ollama: ${String(payload.error).slice(0, 300)}`);
         const deltaThinking = payload.thinking ?? '';
         const deltaResponse = payload.response ?? '';
         if (deltaThinking) thinking += deltaThinking;
@@ -185,6 +245,13 @@ async function streamGenerate(endpoint, body, { signal, timeoutMs, onDelta }) {
       }
     }
     return { text, thinking, final };
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
+    if (error?.recoverableRuntime === true) throw error;
+    if (error instanceof TypeError || ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET'].includes(error?.code)) {
+      throw recoverableRuntimeError(`inference transport failed: ${String(error?.message ?? error).slice(0, 300)}`, error);
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
@@ -192,8 +259,9 @@ async function streamGenerate(endpoint, body, { signal, timeoutMs, onDelta }) {
 }
 
 async function request(endpoint, path, body, { signal, timeoutMs }) {
+  signal?.throwIfAborted();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('inference timeout')), timeoutMs);
+  const timer = setTimeout(() => controller.abort(recoverableRuntimeError('inference timeout')), timeoutMs);
   const onAbort = () => controller.abort(signal.reason);
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
@@ -211,8 +279,8 @@ async function request(endpoint, path, body, { signal, timeoutMs }) {
 }
 
 /** Models Ollama currently holds in memory. */
-export async function residentModels(endpoint) {
-  const response = await fetch(`${endpoint}/api/ps`, { signal: AbortSignal.timeout(10_000) });
+export async function residentModels(endpoint, { signal } = {}) {
+  const response = await fetch(`${endpoint}/api/ps`, { signal: AbortSignal.any([AbortSignal.timeout(10_000), ...(signal ? [signal] : [])]) });
   if (!response.ok) throw new Error(`ollama /api/ps returned ${response.status}`);
   const body = await response.json();
   return (body.models ?? []).map(entry => ({ model: entry.name ?? entry.model, sizeBytes: entry.size ?? 0 }));
@@ -226,10 +294,10 @@ export async function installedModels(endpoint) {
   return (body.models ?? []).map(entry => entry.name ?? entry.model);
 }
 
-async function unload(endpoint, model) {
+async function unload(endpoint, model, signal) {
   // An empty prompt with keep_alive 0 evicts without generating anything.
   await request(endpoint, '/api/generate', { model, prompt: '', keep_alive: 0, stream: false },
-    { timeoutMs: 120_000 }).catch(() => {});
+    { timeoutMs: 120_000, signal }).catch(error => { if (signal) throw error; });
 }
 
 /** Tokens per minute from a count and a nanosecond duration. */
@@ -249,6 +317,8 @@ export class ModelUnavailableError extends Error {
 export class ModelRuntime {
   #config;
   #resident = null;
+  #observer = () => {};
+  setObserver(emit) { this.#observer = emit; }
 
   constructor(config) { this.#config = config; }
 
@@ -283,10 +353,20 @@ export class ModelRuntime {
     // one-token generation per role is a cheap way to find out now.
     const capability = {};
     for (const [role, spec] of Object.entries(this.#config.roles)) {
+      // Residency is settled OUTSIDE the capability try, and deliberately so:
+      // an eviction or /api/ps failure is a memory or daemon problem, and
+      // reporting it as "this model may not support thinking" sends whoever
+      // reads it at 02:00 to change a setting that was never the cause.
+      await this.ensureExclusive(role);
       try {
         await streamGenerate(this.#config.endpoint, {
-          model: spec.model, prompt: 'ok', think: spec.think, keep_alive: '30s',
-          options: { num_predict: 1, num_ctx: 512 },
+          // At the REAL context size, and held for 5 minutes. Probing at 512
+          // tokens meant the first real generation reloaded the model to build
+          // its 65k-token cache — measured as a 1.84 GiB swap step inside the
+          // resource guard's window, 0.16 short of aborting it. Loading once,
+          // here, before any guard is watching, removes the reload entirely.
+          model: spec.model, prompt: 'ok', think: spec.think, keep_alive: '5m',
+          options: { num_predict: 1, num_ctx: spec.contextTokens },
         }, { timeoutMs: 120_000 });
         capability[role] = { model: spec.model, think: spec.think, usable: true };
       } catch (error) {
@@ -306,14 +386,13 @@ export class ModelRuntime {
    */
   async ensureExclusive(role) {
     const spec = this.spec(role);
-    let current = [];
-    try { current = await residentModels(this.#config.endpoint); } catch { /* treated as unknown, below */ }
+    const current = await residentModels(this.#config.endpoint);
     const strangers = current.filter(entry => entry.model !== spec.model);
     for (const stranger of strangers) await unload(this.#config.endpoint, stranger.model);
     if (strangers.length) {
       // Verify rather than assume. An unload that did not take is how two large
       // models end up resident and the machine starts swapping.
-      const after = await residentModels(this.#config.endpoint).catch(() => []);
+      const after = await residentModels(this.#config.endpoint);
       const remaining = after.filter(entry => entry.model !== spec.model);
       if (remaining.length) {
         throw new ModelUnavailableError(
@@ -330,15 +409,18 @@ export class ModelRuntime {
    * `doneReason` and the thinking length, "no usable output" is a symptom whose
    * three different causes need three different fixes.
    */
-  async generate(role, { system, prompt, signal, maxOutputTokens, temperature, onDelta } = {}) {
+  async generate(role, { system, prompt, signal, maxOutputTokens, temperature, onDelta, think } = {}) {
     const spec = this.spec(role);
+    assertPromptFits(system, prompt, { ...spec, maxOutputTokens: maxOutputTokens ?? spec.maxOutputTokens });
     const handoff = await this.ensureExclusive(role);
     const started = Date.now();
     const body = {
       model: spec.model,
       prompt,
       system,
-      think: spec.think,
+      // A caller may switch thinking off for one generation (worker.mjs does,
+      // after a reply that spent the whole output budget thinking).
+      think: think ?? spec.think,
       keep_alive: '5m',
       options: {
         temperature: temperature ?? spec.temperature,
@@ -346,8 +428,15 @@ export class ModelRuntime {
         num_ctx: spec.contextTokens,
       },
     };
-    const { text, thinking, final } = await streamGenerate(this.#config.endpoint, body,
-      { signal, timeoutMs: spec.timeoutMs, onDelta });
+    const guard = await guardResources({ signal, emit: this.#observer });
+    let generation;
+    try {
+      generation = await streamGenerate(this.#config.endpoint, body,
+        { signal: guard.signal, timeoutMs: spec.timeoutMs, onDelta });
+      if (guard.failure) throw guard.failure;
+    } catch (error) { throw guard.failure ?? error; }
+    finally { guard.close(); }
+    const { text, thinking, final } = generation;
     return {
       role,
       model: spec.model,
@@ -379,10 +468,11 @@ export class ModelRuntime {
   }
 
   /** Release memory at the end of a run rather than leaving 17 GiB pinned. */
-  async releaseAll() {
+  async releaseAll({ signal } = {}) {
+    signal?.throwIfAborted();
     let current = [];
-    try { current = await residentModels(this.#config.endpoint); } catch { return; }
-    for (const entry of current) await unload(this.#config.endpoint, entry.model);
+    try { current = await residentModels(this.#config.endpoint, { signal }); } catch (error) { if (signal) throw error; return; }
+    for (const entry of current) await unload(this.#config.endpoint, entry.model, signal);
     this.#resident = null;
   }
 }

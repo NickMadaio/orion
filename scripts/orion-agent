@@ -4,15 +4,23 @@
 
  USAGE
 
+   orion-agent [--project <id>] commands  every command for that project, filled in, with
+                                          what each one does. Start here if you forget.
    orion-agent doctor                     can this machine run a session at all?
    orion-agent plan <plan.json>           validate a plan; changes nothing
    orion-agent init <plan.json>           create a run from an approved plan
    orion-agent run [--hours N]            supervise until done, blocked or spent
    orion-agent status                     durable state + heartbeat + leases
    orion-agent brief                      write the Astra review brief
-   orion-agent resolve --revision N --note "..."   clear an escalation (human)
+   orion-agent resolve --revision N --id ESCALATION_ID --note "..."   clear an escalation (human)
    orion-agent bench [--candidates M,M+M,M!] [--hours N]   measure candidate models
                                           M = both roles · M+M = worker+reviewer · M! = no thinking
+
+ `--project <id>` selects a saved project (see `orion-projects list`). Without
+ it a command acts on the original single-run directory, which for a project
+ means "no run exists". So anything this script prints for Nick to type carries
+ the flag whenever it was given one: a hint that omits it fails at exactly the
+ moment it is needed.
 
  THE ENABLEMENT GATE
 
@@ -27,37 +35,58 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sampleResources } from './lib/agentic/resources.mjs';
 import {
   initializeProjectAgent, projectAgentProgress, readProjectAgent, resolveProjectEscalation,
 } from './lib/orion-project-agent.mjs';
 import { auditContractScope, loadInstalledPolicy } from './lib/agentic/boundary.mjs';
-import { normalizeTaskGraph } from './lib/agentic/contract.mjs';
-import { CHECK_REGISTRY, isRegisteredCheck } from './lib/agentic/checks.mjs';
+import { loadAgentPlan } from './lib/agentic/plan.mjs';
+import { lintPlan, lintSummary } from './lib/agentic/plan-lint.mjs';
 import { loadAgenticConfig, ModelRuntime, CONFIG_PATH } from './lib/agentic/models.mjs';
-import { inspectLease } from './lib/agentic/lease.mjs';
+import { readProject, PROJECT_HOME } from './lib/agentic/projects.mjs';
+import { acquireLease, releaseLease, inspectLease } from './lib/agentic/lease.mjs';
 import { auditJournal } from './lib/agentic/journal.mjs';
 import { writeAstraBrief } from './lib/agentic/escalation.mjs';
 import { ensureRunRoot, superviseRun } from './lib/agentic/supervisor.mjs';
 import { benchmarkCandidate, formatBenchmark, recordBenchmark } from './lib/agentic/bench.mjs';
 import { ensureWorkspace } from './lib/agentic/workspace.mjs';
+import { cli, commandReference, startCommand } from './lib/agentic/brief.mjs';
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = join(homedir(), '.openclaw/orion-controlled/project-agent');
+const argv = process.argv.slice(2);
+const projectFlag = argv.indexOf('--project');
+const projectID = projectFlag < 0 ? null : argv.splice(projectFlag, 2)[1] ?? null;
+if (projectFlag >= 0 && !projectID) {
+  console.error('--project needs a project id. List them with: scripts/orion-projects list');
+  process.exit(2);
+}
+// Resolved before anything else runs, and refused in words rather than a stack
+// trace: a mistyped id is the most likely way to reach this line.
+let project = null;
+if (projectID) {
+  try { project = await readProject(projectID); }
+  catch (error) {
+    console.error(error?.code === 'ENOENT'
+      ? `no saved project called "${projectID}". List them with: scripts/orion-projects list`
+      : `project "${projectID}" cannot be used: ${error?.message ?? error}`);
+    process.exit(1);
+  }
+}
+const ROOT = project?.root ?? PROJECT_HOME;
 const WORKTREE = join(ROOT, 'worktree');
+// This run's spelling of each CLI, `--project <id>` included when there is one.
+const AGENT = cli('orion-agent', projectID);
+const CONTROL = cli('orion-project-agent', projectID);
+const START = startCommand(projectID);
 
 const say = message => console.log(message);
 const out = value => console.log(JSON.stringify(value, null, 2));
 
 async function readPlan(file) {
   const path = resolvePath(process.cwd(), file);
-  const plan = JSON.parse(await readFile(path, 'utf8'));
-  const tasks = normalizeTaskGraph(plan.tasks ?? plan);
-  const unregistered = [...new Set(tasks.flatMap(task => task.checks))].filter(name => !isRegisteredCheck(name));
-  if (unregistered.length) {
-    throw new Error(`plan names unregistered check(s): ${unregistered.join(', ')}. ` +
-      `Registered: ${Object.keys(CHECK_REGISTRY).join(', ')}. Adding one is a reviewed edit to scripts/lib/agentic/checks.mjs.`);
-  }
-  return { path, project: typeof plan.project === 'string' ? plan.project : 'ORION', tasks, options: plan.options ?? {} };
+  // With the briefs beside it (plan.mjs): what the worker is handed is the
+  // contract AND its brief, so validating one without the other checks half.
+  return { path, ...(await loadAgentPlan(path)) };
 }
 
 async function heartbeatOf(root) {
@@ -66,7 +95,7 @@ async function heartbeatOf(root) {
     const ageMs = Date.now() - Date.parse(beat.at);
     // A "running" status with a stale heartbeat is a crashed supervisor. The
     // distinction is the whole point of writing one.
-    return { ...beat, ageSeconds: Math.round(ageMs / 1000), live: ageMs < 60_000 };
+    return { ...beat, ageSeconds: Math.round(ageMs / 1000), live: beat.phase !== 'stopped' && ageMs >= 0 && ageMs < 60_000 };
   } catch { return null; }
 }
 
@@ -95,6 +124,7 @@ async function commandDoctor() {
         ? `${distinct.size} models cannot be resident together; each handoff evicts and reloads.`
         : `${distinct.size} models would fit together, but residency is exclusive by design and each handoff still reloads.`,
   };
+  report.resources = await sampleResources().catch(error => ({ available: false, reason: error.message }));
   report.heartbeat = await heartbeatOf(ROOT);
   report.leases = { supervisor: await inspectLease(join(ROOT, 'supervisor.lock')), worker: await inspectLease(join(ROOT, 'worker.lock')) };
   out(report);
@@ -113,6 +143,15 @@ async function commandPlan(file) {
     totalWeight: plan.tasks.reduce((sum, task) => sum + task.weight, 0),
     checks: [...new Set(plan.tasks.flatMap(task => task.checks))],
     scopeFindings: findings,
+    // How well the plan will RUN, against docs/agentic/PLAN_STANDARD.md.
+    lint: (() => { const lint = lintPlan(plan, { briefs: plan.briefs }); return { ...lintSummary(lint), findings: lint }; })(),
+    // Characters of brief each task will carry (common.md + its own), so a task
+    // left without one is visible here rather than discovered at 03:00.
+    briefs: plan.briefs
+      ? { directory: plan.briefs.directory, commonChars: plan.briefs.common.length,
+        tasks: Object.fromEntries(plan.tasks.map(task => [task.id, task.brief.length])),
+        withoutOwnBrief: plan.tasks.filter(task => !plan.briefs.byTask[task.id]).map(task => task.id) }
+      : null,
   });
   if (findings.length) {
     console.error('\nSome scope entries can never be written; the boundary would refuse them. Fix the plan.');
@@ -136,22 +175,44 @@ async function commandInit(file) {
   }, null, 2), { mode: 0o600 });
   say(`Run ${state.runId} initialized: ${plan.tasks.length} task(s) on branch ${branch}.`);
   say(`Worktree: ${WORKTREE} (base ${workspace.head.slice(0, 10)})`);
-  say('Nothing has executed. Start it with: orion-agent run --hours 8');
+  // `orion-projects serve` calls init and then starts the run itself, so for a
+  // project this line is a record of how to start it again, not a to-do.
+  say(`Nothing has executed yet. Start it with: ${START}`);
+  say(`Every command for this run: ${AGENT} commands`);
 }
 
 async function loadRun() {
   try { return JSON.parse(await readFile(join(ROOT, 'run.json'), 'utf8')); }
-  catch { throw new Error('no run exists; create one with: orion-agent init <plan.json>'); }
+  catch {
+    // A project is initialized by its first launch; only the legacy route has
+    // a separate init step for a human to type.
+    throw new Error(projectID
+      ? `project ${projectID} has not been started yet; start it with: ${START}`
+      : 'no run exists; create one with: scripts/orion-agent init PLAN.json');
+  }
 }
 
-async function commandRun(hours) {
+async function commandRun(durationMs) {
   const config = await loadAgenticConfig();
   if (config.enabled !== true) {
     throw new Error(
-      `unattended execution is disabled. Set {"enabled": true} in ${CONFIG_PATH} to allow it. ` +
+      `unattended execution is disabled. Set {"enabled": true} in ${CONFIG_PATH} to allow it` +
+      `${projectID ? `, or start with: ${START} --enable` : ''}. ` +
       'That file is outside the repository on purpose: nothing this system runs can reach it.');
   }
   const run = await loadRun();
+  // A stop is DURABLE, so it survives the process that honoured it. Starting
+  // again without clearing it would exit at the first boundary and look like a
+  // launch that silently did nothing.
+  const current = await readProjectAgent(ROOT).catch(() => null);
+  if (current?.stopRequested) {
+    // Halts carry no revision, so neither does this. For a project, `launch`
+    // also clears the stop itself, after proving any interrupted worker dead.
+    throw new Error(
+      `this run was stopped by an operator${current.exterminateRequested ? ' (exterminate)' : ''} and the request is still standing. ` +
+      `Clear it with: ${CONTROL} resume` +
+      `${projectID ? ` (or continue it with: ${START}, which clears it for you)` : ''}`);
+  }
   const runtime = new ModelRuntime(config);
   const controller = new AbortController();
   // SIGINT/SIGTERM stop the loop at its next boundary rather than killing it
@@ -159,14 +220,18 @@ async function commandRun(hours) {
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, () => { say(`\n${signal}: stopping at the next task boundary…`); controller.abort(); });
   }
+  const fleetLock = join(PROJECT_HOME, 'active-project.lock');
+  await acquireLease(fleetLock, { extra: { role: 'project-run', projectID } });
+  try {
   const result = await superviseRun(ROOT, {
     repoRoot: run.repo, worktree: run.worktree, baseRef: run.baseRef,
     runtime, config, project: run.project,
-    durationMs: Math.round(hours * 3600_000), signal: controller.signal,
+    durationMs, signal: controller.signal,
   });
   out({ iterations: result.iterations, tasksAccepted: result.tasksAccepted, reviews: result.reviews,
     repairs: result.repairs, escalated: result.escalated, status: result.state.status,
     progress: projectAgentProgress(result.state) });
+  } finally { await releaseLease(fleetLock); }
 }
 
 /*
@@ -220,7 +285,7 @@ async function commandStatus() {
     project: run?.project ?? 'ORION', branch: run?.branch ?? null, baseRef: run?.baseRef ?? null,
     runId: state.runId, revision: state.revision, status: state.status,
     activeTask: state.activeTask, progress: projectAgentProgress(state),
-    escalation: state.escalation,
+    escalations: state.escalations.filter(item => !item.resolvedAt),
     heartbeat: await heartbeatOf(ROOT),
     leases: { supervisor: await inspectLease(join(ROOT, 'supervisor.lock')), worker: await inspectLease(join(ROOT, 'worker.lock')) },
     journal: await auditJournal(ROOT),
@@ -236,28 +301,48 @@ async function commandBrief() {
   const state = await readProjectAgent(ROOT);
   const run = await loadRun();
   const path = await writeAstraBrief(state, {
-    root: ROOT, worktree: run.worktree, baseRef: run.baseRef, project: run.project, escalation: state.escalation,
+    root: ROOT, worktree: run.worktree, baseRef: run.baseRef, project: run.project, escalations: state.escalations.filter(item => !item.resolvedAt),
   });
   say(path);
 }
 
-async function commandResolve(revision, note) {
-  const state = await resolveProjectEscalation(ROOT, revision, note);
+async function commandResolve(revision, id, note) {
+  const state = await resolveProjectEscalation(ROOT, revision, id, note);
   say(`Escalation resolved at revision ${state.revision}; status is now ${state.status}.`);
 }
 
-const [command, ...args] = process.argv.slice(2);
+const [command, ...args] = argv;
 const flag = name => { const index = args.indexOf(name); return index === -1 ? null : args[index + 1] ?? null; };
 
+// `commands` touches nothing: it is what Nick reaches for when he has forgotten
+// everything else, so it must work before any run exists and must not create
+// so much as a directory on the way.
+const referenceOnly = command === 'commands' && args.length === 0;
+
 try {
-  await mkdir(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 }).catch(() => {});
-  if (command === 'doctor') await commandDoctor();
+  if (!referenceOnly) await mkdir(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 }).catch(() => {});
+  if (referenceOnly) say(commandReference({ projectID, name: project?.name ?? null, repo: REPO }));
+  else if (command === 'doctor') await commandDoctor();
   else if (command === 'plan' && args[0]) await commandPlan(args[0]);
   else if (command === 'init' && args[0]) await commandInit(args[0]);
   else if (command === 'run') {
-    const hours = Number(flag('--hours') ?? 8);
-    if (!Number.isFinite(hours) || hours <= 0 || hours > 12) throw new Error('--hours must be between 0 and 12');
-    await commandRun(hours);
+    const untilStopped = args.includes('--until-stopped');
+    const until = flag('--until');
+    const hoursFlag = flag('--hours');
+    const modes = [untilStopped, until !== null, hoursFlag !== null].filter(Boolean).length;
+    if (modes > 1) throw new Error('choose one of --until ISO_TIME, --until-stopped, or legacy --hours N');
+    let durationMs;
+    if (untilStopped || modes === 0) durationMs = Number.MAX_SAFE_INTEGER;
+    else if (until !== null) {
+      const deadline = new Date(until).getTime();
+      if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new Error('--until must be a future ISO-8601 date and time');
+      durationMs = deadline - Date.now();
+    } else {
+      const hours = Number(hoursFlag);
+      if (!Number.isFinite(hours) || hours <= 0 || hours > 12) throw new Error('--hours must be between 0 and 12');
+      durationMs = Math.round(hours * 3600_000);
+    }
+    await commandRun(durationMs);
   } else if (command === 'bench') {
     const hours = Number(flag('--hours') ?? 2);
     const candidates = (flag('--candidates') ?? 'qwen3.6:27b')
@@ -270,17 +355,28 @@ try {
   } else if (command === 'status') await commandStatus();
   else if (command === 'brief') await commandBrief();
   else if (command === 'resolve') {
-    const revision = Number(flag('--revision'));
+    const revision = flag('--revision') === null ? NaN : Number(flag('--revision'));
     const note = flag('--note');
-    if (!Number.isSafeInteger(revision) || revision < 0) throw new Error('resolve needs --revision N from `status`');
+    if (!Number.isSafeInteger(revision) || revision < 0) throw new Error(`resolve needs --revision N, the "revision" from: ${AGENT} status`);
     if (!note) throw new Error('resolve needs --note "why this is now safe to continue"');
-    await commandResolve(revision, note);
+    const id = flag('--id');
+    if (!id) throw new Error(`resolve needs --id ESCALATION_ID, from the alert or from: ${AGENT} status`);
+    await commandResolve(revision, id, note);
   } else {
-    console.error('usage: orion-agent doctor | plan <plan.json> | init <plan.json> | run [--hours N] | ' +
-      'status | brief | resolve --revision N --note "…" | bench [--candidates w/r,w/r] [--hours N]');
+    console.error('usage: orion-agent [--project <id>] commands | doctor | plan <plan.json> | init <plan.json> | run [--hours N] | ' +
+      'status | brief | resolve --revision N --id ESCALATION_ID --note "…" | bench [--candidates M,M+M,M!] [--hours N]\n' +
+      `Every command, filled in and explained: ${AGENT} commands`);
     process.exitCode = 2;
   }
 } catch (error) {
-  console.error(error?.code === 'ENOENT' ? `not found: ${error.path ?? error.message}` : String(error?.message ?? error));
+  // A missing state file is not a broken install; it is a run that has not been
+  // started. Say how to start it, rather than print a path and leave Nick to
+  // work out what the path means.
+  const neverStarted = error?.code === 'ENOENT' && error.path === join(ROOT, 'state.json');
+  console.error(neverStarted
+    ? (projectID
+      ? `project ${projectID} has not been started yet; start it with: ${START}`
+      : 'no run exists; create one with: scripts/orion-agent init PLAN.json')
+    : error?.code === 'ENOENT' ? `not found: ${error.path ?? error.message}` : String(error?.message ?? error));
   process.exitCode = 1;
 }

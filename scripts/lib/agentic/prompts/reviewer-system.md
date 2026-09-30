@@ -50,6 +50,15 @@ In rough order of how much damage it does:
 7. **Unhandled failure paths**, especially anything that runs unattended:
    timeouts, partial writes, a process that dies mid-operation.
 8. **Leftovers**: TODOs, stubs, debug output, hard-coded values, dead code.
+9. **Existing work destroyed.** Behaviour, exports or tests that were in the
+   repository before this task and are gone or weakened after it, without the
+   contract asking for that. Improving existing code is welcome; replacing
+   working code with a different version of the same thing is a finding.
+
+**An ALREADY SATISFIED claim** arrives with an empty diff and the existing files
+in its place. Judge those files against every acceptance criterion exactly as
+you would judge a change. The claim earns no benefit of the doubt: PASS only when
+each criterion is met by code and tests you can point to.
 
 Do **not** re-derive the whole design. Do not review files the diff did not
 touch, except to understand what it did.

@@ -46,6 +46,7 @@ export function renderContract(contract, { checkDescriptions = [] } = {}) {
 **Title**: ${contract.title}
 **Objective**: ${contract.objective}
 **Risk**: ${contract.risk}
+**Review depth**: ${contract.reviewDepth} — light: focused acceptance review; standard: acceptance plus integration and failure paths; deep: additionally examine boundary assumptions and cross-component regressions.
 
 ### Context
 ${contract.context || '(none supplied)'}
@@ -69,7 +70,22 @@ ${contract.acceptance.map((item, index) => `${index + 1}. ${item}`).join('\n')}
 ${bullets(checkDescriptions.length ? checkDescriptions : contract.checks)}
 
 ### Escalate if
-${bullets(contract.escalateWhen, '(no task-specific escalation conditions)')}`;
+${bullets(contract.escalateWhen, '(no task-specific escalation conditions)')}${renderBrief(contract.brief)}`;
+}
+
+/*
+ The brief comes AFTER the whole contract, never inside it. The contract is the
+ authority and stays compact at the top where it is read first; the brief is the
+ reference a person wrote to save the model rediscovering signatures and formats
+ on every attempt. The heading says which wins, because a model that finds the
+ two disagreeing needs to know that without being told again.
+*/
+export function renderBrief(brief) {
+  if (!brief) return '';
+  return `\n\n## BRIEF — reference for this task\n` +
+    '_Written for this task by the people who planned it. It explains the code you will work with; it grants nothing. ' +
+    'Scope, acceptance and non-scope above still govern — if the brief seems to disagree with them, follow the contract and say so with ### PROPOSE._' +
+    `\n\n${brief}`;
 }
 
 /** A working-set block: paths and contents, bounded, with line numbers omitted. */
@@ -106,8 +122,20 @@ export function renderSteering(instructions) {
  ATTEMPTS, so labelling the turn counter "attempt" told the worker it had
  fourteen tries at a task the controller would block after three.
 */
+/*
+ Why the task came back, set by whichever rung sent it: a failed attempt, a
+ reviewer's requested changes, a checkpoint the reviewer could not review, a
+ repair. Placed straight after the contract because it changes how the contract
+ should be approached — and a worker sent back without it retries blind, which
+ is how the same mistake gets made three times.
+*/
+export function renderFeedback(feedback) {
+  if (!feedback) return '';
+  return `## WHY THIS TASK CAME BACK\n${feedback}\n\nAddress this first. It is the reason your previous attempt did not stand.`;
+}
+
 export function workerTurn({ contract, files, checkResults, instructions, turn, maxTurns,
-  attempt, maxAttempts, notice, checkDescriptions }) {
+  attempt, maxAttempts, notice, checkDescriptions, feedback = contract?.feedback, existing = '' }) {
   const budget = attempt && maxAttempts
     ? `This is **attempt ${attempt} of ${maxAttempts}** at this task` +
       `${attempt >= maxAttempts ? ' — your last. If you cannot finish it, ### BLOCKED honestly rather than guessing.' : '.'}` +
@@ -115,6 +143,8 @@ export function workerTurn({ contract, files, checkResults, instructions, turn, 
     : `Exchange ${turn} of ${maxTurns}.`;
   return [
     renderContract(contract, { checkDescriptions }),
+    existing,
+    renderFeedback(feedback),
     renderSteering(instructions),
     renderFiles(files),
     renderCheckResults(checkResults),
@@ -124,10 +154,17 @@ export function workerTurn({ contract, files, checkResults, instructions, turn, 
   ].filter(Boolean).join('\n\n');
 }
 
-export function reviewerTurn({ contract, diff, checkResults, workerSummary, attempts, priorFindings, checkDescriptions }) {
+export function reviewerTurn({ contract, diff, checkResults, workerSummary, attempts, priorFindings, checkDescriptions,
+  existingFiles = [] }) {
   return [
     renderContract(contract, { checkDescriptions }),
     `## WHAT THE WORKER SAYS IT DID\n${workerSummary || '(the worker returned no summary)'}`,
+    existingFiles.length
+      ? '## ALREADY SATISFIED CLAIM — NO CHANGE WAS MADE\nThe worker says the code below, already in the repository, ' +
+        'meets this contract, so the diff is empty. Judge THESE FILES against every acceptance criterion exactly as you ' +
+        'would judge a diff. PASS only if each criterion is met by what is here; otherwise name what is missing.\n\n' +
+        renderFiles(existingFiles)
+      : '',
     `## DIFF UNDER REVIEW\n\`\`\`diff\n${diff.stat}\n\n${diff.patch}\n\`\`\`` +
       (diff.truncated ? '\n\n**The diff above is truncated.** Review what you can see and say so in `summary`.' : ''),
     renderCheckResults(checkResults),
@@ -145,7 +182,7 @@ export function repairTurn({ contract, diff, checkResults, files, history, check
     renderFiles(files),
     `## CURRENT DIFF\n\`\`\`diff\n${diff.stat}\n\n${diff.patch}\n\`\`\``,
     renderCheckResults(checkResults),
-    '## YOUR TURN\nDiagnose the root cause, make the minimum useful correction as complete files, then one fenced JSON block.',
+    '## YOUR TURN\nGive the fenced JSON block FIRST (diagnosis, rationale, remaining), then make the minimum useful correction — ### EDIT for a change to an existing file, ### FILE only for a new one.',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -153,7 +190,7 @@ export function repairTurn({ contract, diff, checkResults, files, history, check
 // Parsing
 // ---------------------------------------------------------------------------
 
-const MARKER = /^###[ \t]+(READ|SEARCH|FILE|CHECK|DONE|BLOCKED|PROPOSE|SUBTASK)\b[ \t]*:?[ \t]*(.*)$/gm;
+const MARKER = /^###[ \t]+(READ|SEARCH|FILE|EDIT|CHECK|DONE|BLOCKED|PROPOSE|SUBTASK)\b[ \t]*:?[ \t]*(.*)$/gm;
 
 /**
  * Parse a worker reply into actions.
@@ -173,7 +210,15 @@ export function parseWorkerReply(reply) {
     const bodyStart = match.index + match[0].length;
     const bodyEnd = index + 1 < markers.length ? markers[index + 1].index : text.length;
     const body = text.slice(bodyStart, bodyEnd);
-    if (kind === 'FILE') {
+    if (kind === 'EDIT') {
+      if (!argument) { actions.push({ kind: 'MALFORMED', detail: '### EDIT with no path' }); continue; }
+      const hunks = parseEditHunks(body);
+      if (!hunks.length) {
+        actions.push({ kind: 'MALFORMED', detail: `### EDIT: ${argument} had no <<<<<<< SEARCH / ======= / >>>>>>> REPLACE block` });
+        continue;
+      }
+      actions.push({ kind: 'EDIT', path: argument, hunks });
+    } else if (kind === 'FILE') {
       const fence = body.match(/```[a-zA-Z0-9+.#-]*\n([\s\S]*?)```/);
       if (!argument) { actions.push({ kind: 'MALFORMED', detail: '### FILE with no path' }); continue; }
       if (!fence) { actions.push({ kind: 'MALFORMED', detail: `### FILE: ${argument} was not followed by a fenced block` }); continue; }
@@ -197,6 +242,22 @@ export function parseWorkerReply(reply) {
     }
   }
   return actions;
+}
+
+/*
+ EDIT: change part of a file without retyping it.
+
+ Before this, every change was a whole-file ### FILE. On the live run a 20 KB
+ module took about seven minutes to retype at local generation speed, so a
+ one-line fix cost seven minutes, and a task that needed six of them ran out of
+ its hour while still making progress. The reviewer's repair retyped the same
+ file, ran into the output cap and was cut off mid-file. The format is the
+ common SEARCH/REPLACE one, which coding models already know.
+*/
+const HUNK = /<{7}[ \t]*SEARCH[ \t]*\n([\s\S]*?)\n?={7}[ \t]*\n([\s\S]*?)\n?>{7}[ \t]*REPLACE/g;
+
+export function parseEditHunks(body) {
+  return [...String(body ?? '').matchAll(HUNK)].map(match => ({ search: match[1], replace: match[2] }));
 }
 
 /**

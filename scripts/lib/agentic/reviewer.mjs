@@ -1,3 +1,4 @@
+import { cancellableGenerate } from './cancellation.mjs';
 /*
  The reviewer adapter: the stronger local model's review and bounded repair.
 
@@ -22,6 +23,8 @@
 import { normalizeReviewContract, contractDigest, normalizeTaskContract } from './contract.mjs';
 import { runChecks, describeChecks } from './checks.mjs';
 import { parseJsonBlock, parseWorkerReply, repairTurn, reviewerTurn, systemPrompt } from './prompts.mjs';
+import { materializeEdits } from './edits.mjs';
+import { overwriteRisk } from './existing.mjs';
 import { changedFiles, commitCheckpoint, diffForCheckpoint, diffSince, readScoped, snapshotBaseline, writeScoped } from './workspace.mjs';
 
 const MAX_REVIEW_ATTEMPTS = 2;
@@ -34,7 +37,7 @@ const MAX_REVIEW_ATTEMPTS = 2;
  files covers the realistic cases (an interface and its one caller); anything
  wider is an architecture question, which escalates.
 */
-const MAX_REPAIR_FILES = 2;
+const DEFAULT_MAX_REPAIR_FILES = 2;
 
 export class ReviewUnusable extends Error {
   constructor(message, detail) { super(message); this.name = 'ReviewUnusable'; this.detail = detail; }
@@ -64,7 +67,8 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
   if (rerunChecks && task.checks?.length) {
     const changed = (await changedFiles(worktree)).map(file => file.path);
     const files = changed.length ? changed : (task.evidence?.files ?? []);
-    const independent = await runChecks(task.checks, { worktree, changedFiles: files, baseline: new Map(), signal });
+    const independent = await runChecks(task.checks, { worktree, changedFiles: files, baseline: await snapshotBaseline(worktree, files, { ref: `${task.commit}^` }), signal, scope: task.scope });
+    signal?.throwIfAborted();
     const disagreed = independent.filter(result => {
       const claimed = (checkResults ?? []).find(item => item.name === result.name);
       return claimed && claimed.ok !== result.ok;
@@ -85,8 +89,23 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
   // blame this task for a previous one's accepted changes -- see
   // diffForCheckpoint's comment for the three models that fell into it.
   const diff = await diffForCheckpoint(worktree, task.commit);
+  // An empty checkpoint is an ALREADY SATISFIED claim: nothing changed, so the
+  // thing to judge is the existing code. Without it the reviewer would be
+  // asked to accept an empty diff on the worker's word.
+  const existingFiles = [];
+  if (!String(diff.patch ?? '').trim()) {
+    let budget = 150_000;
+    for (const path of task.scope.filter(entry => !entry.endsWith('/'))) {
+      try {
+        const contents = await readScoped(worktree, path, { maxBytes: Math.max(2_000, Math.min(90_000, budget)) });
+        budget -= contents.length;
+        existingFiles.push({ path, contents });
+      } catch { /* not there */ }
+      if (budget <= 0) break;
+    }
+  }
   const prompt = reviewerTurn({
-    contract: task, diff, checkResults: evidence, workerSummary,
+    contract: task, diff, checkResults: evidence, workerSummary, existingFiles,
     attempts: task.attempts, priorFindings, checkDescriptions: describeChecks(task.checks),
   });
 
@@ -96,7 +115,7 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
       phase: 'review', taskId: task.id, note: `Reviewing ${task.id} against its contract` });
     let response;
     try {
-      response = await runtime.generate('reviewer', {
+      response = await cancellableGenerate(runtime, 'reviewer', {
         system,
         prompt: lastError
           ? `${prompt}\n\n## YOUR PREVIOUS REPLY WAS REJECTED\n${lastError}\nReturn one fenced JSON block that satisfies the rules exactly.`
@@ -134,7 +153,8 @@ export async function reviewCheckpoint({ runtime, worktree, task, baseRef, check
  * validate, hand back. Returns what it changed so the caller can record it
  * separately from the review.
  */
-export async function repairCheckpoint({ runtime, worktree, task, baseRef, checkResults, history, emit = () => {}, signal, activity = null }) {
+export async function repairCheckpoint({ runtime, worktree, task, baseRef, checkResults, history, emit = () => {},
+  signal, activity = null, maxFiles = DEFAULT_MAX_REPAIR_FILES, beforeWrite = async () => {} }) {
   const system = await systemPrompt('reviewer-repair');
   const diff = task.commit ? await diffForCheckpoint(worktree, task.commit) : await diffSince(worktree, baseRef);
   const files = [];
@@ -142,13 +162,13 @@ export async function repairCheckpoint({ runtime, worktree, task, baseRef, check
     if (entry.endsWith('/') || files.length >= 6) continue;
     try { files.push({ path: entry, contents: await readScoped(worktree, entry, { maxBytes: 90_000 }) }); } catch { /* may not exist */ }
   }
-  const baseline = await snapshotBaseline(worktree, task.scope.filter(entry => !entry.endsWith('/')));
+  const baseline = await snapshotBaseline(worktree, task.scope);
 
   activity?.begin({ role: 'reviewer', model: runtime.spec?.('reviewer')?.model ?? null,
     phase: 'repair', taskId: task.id, note: `Bounded repair of ${task.id}` });
   let response;
   try {
-    response = await runtime.generate('reviewer', {
+    response = await cancellableGenerate(runtime, 'reviewer', {
       system,
       prompt: repairTurn({ contract: task, diff, checkResults, files, history, checkDescriptions: describeChecks(task.checks) }),
       signal,
@@ -165,20 +185,35 @@ export async function repairCheckpoint({ runtime, worktree, task, baseRef, check
     }, model: response.model };
   }
 
-  const writes = parseWorkerReply(response.text).filter(action => action.kind === 'FILE');
+  // A repair may EDIT as the worker does: retyping a 20 KB file ran the live
+  // repair into the output cap, cut off before its diagnosis.
+  const edited = await materializeEdits(worktree, parseWorkerReply(response.text));
+  const writes = edited.actions.filter(action => action.kind === 'FILE');
+  for (const failure of edited.failures) emit({ kind: 'repair_edit_failed', taskId: task.id, data: failure });
   if (!writes.length) {
     return { repaired: false, escalate: { kind: 'judgement', reason: 'the reviewer neither repaired anything nor explained why it could not' }, model: response.model };
   }
-  if (writes.length > MAX_REPAIR_FILES) {
+  if (writes.length > maxFiles) {
     // "Minimum useful correction" is the contract. A reviewer rewriting the
     // world is making a design decision, and design decisions escalate.
-    return { repaired: false, escalate: { kind: 'architecture', reason: `the reviewer proposed changing ${writes.length} files; a bounded repair is at most ${MAX_REPAIR_FILES}` }, model: response.model };
+    return { repaired: false, escalate: { kind: 'architecture', reason: `the reviewer proposed changing ${writes.length} files; a bounded repair is at most ${maxFiles}` }, model: response.model };
   }
 
   const written = [];
   const refusals = [];
   for (const write of writes) {
-    try { written.push(await writeScoped(worktree, task, write.path, write.contents)); }
+    await beforeWrite();
+    signal?.throwIfAborted();
+    try {
+      // The reviewer's repair is held to the same rule as the worker: it may
+      // fix existing work, not delete what the contract did not ask about.
+      const relative = write.path.replace(/^\.\//, '');
+      const contractText = [task.objective, task.context, task.brief, ...(task.acceptance ?? []), ...(task.constraints ?? [])]
+        .filter(Boolean).join('\n');
+      const risk = overwriteRisk(relative, baseline.get(relative), write.contents, { contractText, wholeFile: !write.fromEdit });
+      if (risk) throw new Error(`not written, because ${risk}`);
+      written.push(await writeScoped(worktree, task, write.path, write.contents));
+    }
     catch (error) { refusals.push(`${write.path}: ${error.message}`); }
   }
   if (!written.length) {
@@ -186,7 +221,8 @@ export async function repairCheckpoint({ runtime, worktree, task, baseRef, check
   }
 
   const dirty = (await changedFiles(worktree)).map(file => file.path);
-  const results = await runChecks(task.checks, { worktree, changedFiles: dirty, baseline, signal });
+  const results = await runChecks(task.checks, { worktree, changedFiles: dirty, baseline, signal, scope: task.scope });
+  signal?.throwIfAborted();
   const failing = results.filter(result => !result.ok);
   emit({ kind: 'repair_checks', taskId: task.id, data: { files: written, results: results.map(item => ({ name: item.name, ok: item.ok })) } });
 
@@ -244,7 +280,7 @@ export async function reviewRun({ runtime, worktree, baseRef, tasks, reviews, em
     phase: 'final_review', taskId: null, note: 'Final review of the whole run' });
   let response;
   try {
-    response = await runtime.generate('reviewer', { system, prompt, signal, onDelta: delta => activity?.delta(delta) });
+    response = await cancellableGenerate(runtime, 'reviewer', { system, prompt, signal, onDelta: delta => activity?.delta(delta) });
   } finally { await activity?.end(); }
   emit({ kind: 'final_review_turn', data: { ms: response.ms, model: response.model } });
   const raw = parseJsonBlock(response.text);

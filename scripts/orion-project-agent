@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 /*
- Operator controls. Pause, resume, steer, resolve an escalation — the four
- things a human does to a running agent.
+ Operator controls. Pause, resume, steer, stop, exterminate, resolve — what a
+ human does to a running agent.
+
+ THREE WAYS TO HALT, AND THEY ARE NOT THE SAME
+
+   pause        hold here, keep the lease, carry on when resumed
+   stop         finish the task in flight, end at a safe boundary, stay resumable
+   exterminate  abandon the in-flight generation NOW; the run reconciles and any
+                half-written mutation is discarded on next start
+
+ Stop is the one to reach for. Exterminate exists because "wait for a 27B to
+ finish thinking" is not always an acceptable answer, and it is deliberately a
+ separate word rather than a flag on stop: the destructive one should be
+ something you typed on purpose.
 
  What is deliberately NOT here: starting a run, initializing one, approving a
  review, or clearing a worker lease. Starting and planning belong to
@@ -20,10 +32,18 @@ import { join } from 'node:path';
 import {
   projectAgentProgress, readProjectAgent, resolveProjectEscalation, steerProjectAgent,
 } from './lib/orion-project-agent.mjs';
+import { readProject, PROJECT_HOME } from './lib/agentic/projects.mjs';
 import { inspectLease } from './lib/agentic/lease.mjs';
+import { spawn } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { setRoleModel, readSettings } from './lib/agentic/settings.mjs';
 
-const root = join(homedir(), '.openclaw/orion-controlled/project-agent');
+const argv = process.argv.slice(2);
+const projectFlag = argv.indexOf('--project');
+const projectID = projectFlag < 0 ? null : argv.splice(projectFlag, 2)[1];
+if (projectFlag >= 0 && !projectID) throw new Error('--project requires an id');
+const root = projectID ? (await readProject(projectID)).root : PROJECT_HOME;
 
 async function heartbeat() {
   try {
@@ -32,18 +52,98 @@ async function heartbeat() {
     // "running" plus a stale heartbeat is a crashed supervisor, and the UI must
     // be able to tell those apart rather than showing a spinner all night.
     return { at: beat.at, phase: beat.phase ?? null, pid: beat.pid ?? null,
-      ageSeconds: Math.round(ageMs / 1000), live: Number.isFinite(ageMs) && ageMs < 60_000 };
+      ageSeconds: Math.round(ageMs / 1000), live: beat.phase !== 'stopped' && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 60_000 };
   } catch { return null; }
 }
 
-const [command, ...args] = process.argv.slice(2);
+const [command, ...args] = argv;
+const HALTS = ['pause', 'resume', 'stop', 'exterminate'];
+
+/*
+ THE REAPER: exterminate's guarantee that the process actually dies.
+
+ Exterminate is first a durable request, which a healthy supervisor notices on
+ its next heartbeat tick and honours within seconds, leaving everything clean.
+ But "stop it NOW" has to hold even when the supervisor is wedged — stuck in a
+ call that never yields, so it never reads the flag. For that, the process is
+ killed.
+
+ Not here, though. The panel runs this command with a 15-second timeout and
+ Discord with 20, so waiting for the supervisor and then killing it would get
+ THIS process killed first. The wait is handed to a small detached reaper that
+ returns control immediately. It kills only the exact process that held the
+ supervisor lease when exterminate was asked for — same pid, same boot, same
+ start time — so a reused pid, or a supervisor that already exited cleanly, is
+ never touched. The run that is left behind is the crash shape recovery already
+ knows how to reconcile.
+*/
+async function reap({ pid, started, boot, afterSeconds, runId, exterminateToken }) {
+  await new Promise(resolve => setTimeout(resolve, afterSeconds * 1000));
+  const lease = await inspectLease(join(root, 'supervisor.lock'));
+  const same = lease.held && !lease.dead && lease.owner?.pid === pid &&
+    lease.owner?.startedAt === started && lease.owner?.bootId === boot;
+  // The exterminate must still be STANDING. A resume in the grace window clears
+  // it, and killing the supervisor Nick has just told to carry on would turn his
+  // change of mind into a hard crash: the task stranded as an uncertain
+  // outcome, its attempt spent, a failure alert sent. A fresh exterminate sets
+  // the flag again, which re-arms this reaper as well as scheduling its own.
+  const current = await readProjectAgent(root).catch(() => null);
+  const standing = current?.exterminateRequested === true && (!runId || current.runId === runId) &&
+    (!exterminateToken || current.exterminateToken === exterminateToken);
+  let killed = false, reason = 'the supervisor stopped by itself';
+  if (same && !standing) {
+    reason = 'the exterminate was withdrawn (resumed) before the grace ran out; left running';
+  } else if (same) {
+    try { process.kill(pid, 'SIGKILL'); killed = true; reason = `pid ${pid} did not stop within ${afterSeconds}s; killed`; }
+    catch (error) { reason = `could not kill pid ${pid}: ${error.message}`; }
+  } else if (lease.held && lease.owner?.pid !== pid) {
+    reason = 'a different supervisor holds the lease now; left alone';
+  }
+  await writeFile(join(root, 'exterminate.json'),
+    JSON.stringify({ at: new Date().toISOString(), pid, killed, reason }), { mode: 0o600 }).catch(() => {});
+}
+
+async function scheduleReaper(graceSeconds, runId, exterminateToken) {
+  const lease = await inspectLease(join(root, 'supervisor.lock'));
+  if (!lease.held || lease.dead || !lease.owner?.pid) return null;
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url),
+    ...(projectID ? ['--project', projectID] : []), '_reap',
+    String(lease.owner.pid), String(lease.owner.startedAt ?? ''), String(lease.owner.bootId ?? ''), String(graceSeconds),
+    String(runId ?? ''), String(exterminateToken ?? '')],
+    { detached: true, stdio: 'ignore' });
+  child.unref();
+  return { pid: lease.owner.pid, afterSeconds: graceSeconds };
+}
 
 try {
   let state;
-  if (command === 'status' && args.length === 0) {
+  let reaper = null;
+  if (command === '_reap' && (args.length === 4 || args.length === 5 || args.length === 6)) {
+    await reap({ pid: Number(args[0]), started: args[1] || undefined, boot: args[2] || undefined,
+      afterSeconds: Math.min(300, Math.max(1, Number(args[3]) || 20)), runId: args[4] || undefined,
+      exterminateToken: args[5] || undefined });
+    process.exit(0);
+  } else if (command === 'status' && args.length === 0) {
     state = await readProjectAgent(root);
-  } else if (['pause', 'resume', 'steer'].includes(command) && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
-      (command === 'steer' ? args.length === 4 && args[2] === '--text' : args.length === 2)) {
+  } else if (HALTS.includes(command) &&
+      (args.length === 0 || (args.length === 2 && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '')))) {
+    // Halts take no revision. The revision exists so a stale snapshot cannot act
+    // on a run that has moved; that matters for steering and resolving, which
+    // carry content. It does not matter for "stop" — halting is always safe, and
+    // a revision number is not something anyone should have to look up while
+    // trying to stop a run. One is still accepted, and still checked, if given.
+    const revision = args.length ? Number(args[1]) : undefined;
+    state = await steerProjectAgent(root, command, revision);
+    // 20s: a healthy supervisor notices the flag on its next 10s heartbeat tick
+    // and stops well within it. The override exists for tests, and is bounded.
+    if (command === 'exterminate') {
+      reaper = await scheduleReaper(Math.min(300, Math.max(1, Number(process.env.ORION_EXTERMINATE_GRACE_SECONDS) || 20)), state.runId, state.exterminateToken);
+    }
+  } else if (command === 'alerts' && args.length === 1 && ['quiet', 'away'].includes(args[0])) {
+    // quiet (asleep): deferrals wait for one silent digest when the run stops.
+    // away (out): each deferral is sent as it happens. Applies live.
+    state = await steerProjectAgent(root, 'alerts', undefined, args[0]);
+  } else if (command === 'steer' && args.length === 4 && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') && args[2] === '--text') {
     state = await steerProjectAgent(root, command, Number(args[1]), args[3]);
   } else if (command === 'resolve' && args[0] === '--revision' && /^\d+$/.test(args[1] ?? '') &&
       args[2] === '--id' && typeof args[3] === 'string' && args[3].trim() &&
@@ -63,14 +163,28 @@ try {
     console.log(JSON.stringify(await readSettings(), null, 2));
     process.exit(0);
   } else {
-    throw new Error('usage: status | settings | set-model worker|reviewer MODEL | ' +
-      'pause/resume --revision N | steer --revision N --text TEXT | ' +
-      'resolve --revision N --id ESCALATION_ID --note TEXT');
+    throw new Error('usage: [--project ID] status | settings | set-model worker|reviewer MODEL | ' +
+      'pause | resume | stop | exterminate   (no revision needed to halt) | alerts quiet|away | ' +
+      'steer --revision N --text TEXT | resolve --revision N --id ESCALATION_ID --note TEXT');
   }
+  const beat = await heartbeat();
   console.log(JSON.stringify({
     ...state,
+    // Briefs are reference text for the models, thousands of characters each.
+    // A person reading status needs to know one is there, not to scroll past it.
+    tasks: state.tasks.map(({ brief = '', ...task }) => ({ ...task, briefChars: brief.length })),
+    ...(command === 'resume' ? { continuation: beat?.live
+      // Honest about the one case resume cannot undo: a supervisor that had
+      // already acted on an exterminate has abandoned its work and is exiting.
+      ? 'Resume recorded; the live supervisor carries on at its next boundary. If it had already begun exterminating, it still exits — then continue it with the Projects view or the launch command.'
+      : `Pause/stop cleared. No supervisor is running. Restart it with: ${projectID
+        ? `scripts/orion-projects launch ${projectID} --until-stopped`
+        : 'scripts/orion-agent run --until-stopped'}` } : {}),
+    ...(command === 'exterminate' ? { hardKill: reaper
+      ? `If the supervisor (pid ${reaper.pid}) has not stopped within ${reaper.afterSeconds}s, it will be killed. See exterminate.json.`
+      : 'No live supervisor holds this run; nothing needs killing.' } : {}),
     progress: projectAgentProgress(state),
-    heartbeat: await heartbeat(),
+    heartbeat: beat,
     leases: {
       supervisor: await inspectLease(join(root, 'supervisor.lock')),
       worker: await inspectLease(join(root, 'worker.lock')),

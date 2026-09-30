@@ -13,6 +13,13 @@
 
    objective/context/constraints/nonScope   go into the worker prompt and are
                                             what the reviewer checks against
+   brief                                    reference material the host loads
+                                            from files beside the plan (see
+                                            plan.mjs). Rendered after the
+                                            contract, for worker, reviewer and
+                                            repair alike. It informs; it grants
+                                            nothing -- scope and acceptance still
+                                            govern
    scope                                    IS the write gate (boundary.mjs);
                                             a file not in scope cannot be
                                             written, whatever the model decides
@@ -21,8 +28,9 @@
                                             that run. Never a shell string.
    acceptance                               what PASS means, in the reviewer's
                                             own output schema
-   risk/reviewDepth                         checkpoint cadence, which reviewer
-                                            runs, how many attempts are allowed
+   risk/reviewDepth                         risk triggers worker self-review; reviewDepth
+                                            guides the reviewer prompt. Neither
+                                            expands authority or retry budgets
    weight/dependencies                      scheduling and honest progress
    origin/originReview                      provenance: this is how Astra sees
                                             that a task was authored by a review
@@ -48,6 +56,13 @@ export const SEVERITIES = ['minor', 'major', 'blocking'];
 
 const MAX_TEXT = 2000;
 const MAX_LIST = 40;
+/*
+ A brief is common.md plus the task's own file (plan.mjs). 18,000 characters is
+ about 6,000 tokens by context.mjs's estimate: an eighth of the worker's input
+ budget, leaving the working set room for eight real files. More than that and
+ the brief starts evicting the code it is describing.
+*/
+export const MAX_BRIEF = 18_000;
 
 function fail(message) { throw new Error(`invalid task contract: ${message}`); }
 
@@ -136,6 +151,7 @@ export function normalizeTaskContract(raw) {
     title: text(raw.title, 'title', { max: 200 }),
     objective: text(raw.objective, 'objective'),
     context: text(raw.context, 'context', { required: false }),
+    brief: text(raw.brief, 'brief', { required: false, max: MAX_BRIEF }),
     weight: raw.weight,
     dependencies,
     scope,
@@ -154,6 +170,36 @@ export function normalizeTaskContract(raw) {
   });
 }
 
+/*
+ Preconditions: optional, and ENFORCEABLE where they can be (mission §5,
+ corrected 2026-09-22).
+
+ A precondition written in one of the machine-checkable forms below is verified
+ before the worker takes its first turn, and the task refuses to start if it does
+ not hold. Anything else is prose, and prose still reaches the worker and the
+ reviewer as context — the field is not required, and a plain sentence is a
+ legitimate use of it.
+
+   exists: path/to/file        must be present in the worktree before work starts
+   absent: path/to/file        must NOT be present
+
+ The failure this prevents is the expensive one: an agent spending an attempt,
+ and a reviewer spending a cycle, discovering that the ground it was standing on
+ was not there. `accepted:` is deliberately absent — that is what `dependencies`
+ already expresses, and two ways to say one thing is one way to disagree.
+*/
+const PRECONDITION = /^(exists|absent):\s*(.+)$/;
+
+export function parsePrecondition(text) {
+  const match = PRECONDITION.exec(String(text ?? '').trim());
+  if (!match) return null;
+  const path = match[2].trim();
+  // A precondition that names an unusable path is a broken contract, not a
+  // failed precondition, so it is reported as prose rather than enforced.
+  if (!path || path.startsWith('/') || path.startsWith('~') || path.includes('..') || path.includes('\0')) return null;
+  return { kind: match[1], path };
+}
+
 /** The fields a contract's identity depends on; runtime status is excluded. */
 const DIGEST_FIELDS = ['id', 'rev', 'title', 'objective', 'context', 'weight', 'dependencies',
   'scope', 'nonScope', 'constraints', 'preconditions', 'acceptance', 'checks', 'risk',
@@ -166,6 +212,10 @@ const DIGEST_FIELDS = ['id', 'rev', 'title', 'objective', 'context', 'weight', '
  */
 export function contractDigest(contract) {
   const canonical = DIGEST_FIELDS.map(field => [field, contract[field]]);
+  // The brief is part of what a review examined, so an edited brief is a
+  // different contract. It is appended only when present, so every contract
+  // written before briefs existed keeps the digest its reviews recorded.
+  if (contract.brief) canonical.push(['brief', contract.brief]);
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex').slice(0, 32);
 }
 

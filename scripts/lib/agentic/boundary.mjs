@@ -58,6 +58,11 @@ export const RUNTIME_PROTECTED_SURFACES = Object.freeze([
   { pattern: /^scripts\/lib\/agentic\//, reason: 'the local agentic runtime, including this deny-list and the agent operating-system prompts' },
   { pattern: /^scripts\/lib\/orion-project-agent\.mjs$/, reason: 'the durable controller that owns workflow state and the review gates' },
   { pattern: /^scripts\/orion-project-agent$/, reason: 'the operator control CLI' },
+  // The launcher is what writes the enablement switch when Nick chooses
+  // "Enable & start". The switch itself lives outside the repository, so no task
+  // can name it — but the code that writes it lives inside, and a worker that
+  // could edit it could change what "enable" means.
+  { pattern: /^scripts\/orion-projects$/, reason: 'the local project library and launch control' },
   { pattern: /^scripts\/orion-agent$/, reason: 'the supervisor entrypoint' },
   { pattern: /^docs\/agentic\//, reason: 'the mission and architecture that define what this system is for' },
   { pattern: /^scripts\/lib\/orion-selfdev-policy\.mjs$/, reason: "the legacy coder's window onto the self-change policy" },

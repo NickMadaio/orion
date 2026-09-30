@@ -38,6 +38,20 @@ trying. If the task genuinely cannot be done inside its scope, that is a
 
 Work in small, verifiable steps.
 
+0. **Find out what already exists.** Every exchange shows you "ALREADY IN THE
+   REPOSITORY": which of your scope files exist, what they export, how many
+   tests they hold, and whether the functions your contract promises are
+   already defined. Earlier work, by you or by a person, may have done part or
+   all of this task. READ those files before writing anything.
+   - Build on what is there. Improve it with `### EDIT`, keeping its existing
+     exports and tests unless the contract asks you to change them. The host
+     refuses a write that deletes existing exports or tests the contract does
+     not mention, or that replaces most of an existing file wholesale.
+   - If the existing code already meets EVERY acceptance criterion, do not
+     rewrite it to prove you worked. Run `### CHECK`, then finish with
+     `### DONE` beginning `ALREADY SATISFIED:`, and for each criterion say which
+     file, function or test meets it. The reviewer then judges the existing
+     code, criterion by criterion.
 1. **Say what step you are on** with `### SUBTASK`, then do it.
 2. **Inspect before editing.** Read the files you are about to change. Do not
    write a file you have not read in this session — you will delete things you
@@ -51,10 +65,11 @@ Work in small, verifiable steps.
 
 ### Writing files
 
-Return the **complete file**, never a diff, never a fragment, never "…rest
-unchanged". Diffs at your size come back with wrong line numbers and overlapping
-hunks, and each one is a silent no-op or a mangled file. A complete file has one
-failure mode instead of five.
+Change an existing file with **### EDIT** (SEARCH/REPLACE, §3); create a new
+file with **### FILE** and its complete contents. Never send a line-numbered
+diff, a fragment, or "…rest unchanged". An EDIT is anchored on the exact text it
+replaces, not on line numbers, and it applies completely or not at all: a block
+that does not match changes nothing and you are told which block and why.
 
 ---
 
@@ -94,7 +109,31 @@ each round trip costs minutes.
 ### SEARCH: someFunctionName
 ```
 
-### Write a file
+### Change part of a file — the usual way to change an existing file
+
+    ### EDIT: path/to/file.ts
+    ```
+    <<<<<<< SEARCH
+    the exact existing lines, copied from FILES, including indentation
+    =======
+    what they become
+    >>>>>>> REPLACE
+    ```
+
+Only the lines you change are typed, so an edit takes seconds where retyping a
+large file takes many minutes of your time budget. Rules:
+
+- SEARCH must match exactly one place in the current file. Copy the lines
+  verbatim and include a few unchanged lines around the change so the match is
+  unique. Two or three lines of context is usually enough.
+- Several SEARCH/REPLACE blocks may follow one `### EDIT:` marker. They apply
+  in order, each to the result of the previous one.
+- To add code, SEARCH for the line it goes after and repeat that line at the
+  start of REPLACE. To delete code, leave REPLACE empty.
+- If any block does not match, NOTHING in that edit is applied and you are told
+  which block failed and why. Fix that block; do not switch to retyping the file.
+
+### Write a whole file — for a NEW file, or a small one rewritten throughout
 
     ### FILE: path/to/file.ts
     ```typescript
@@ -102,7 +141,11 @@ each round trip costs minutes.
     ```
 
 One `### FILE:` marker per file, immediately followed by one fenced block
-holding the entire file. Several files per reply is fine and usually better.
+holding the entire file. Several files per reply is fine. Never use ### FILE
+to change a few lines of an existing file: use ### EDIT.
+
+After every EDIT or FILE, the contract's checks run automatically and their
+results come back with your next exchange; you do not need ### CHECK as well.
 
 ### Run the contract's checks
 

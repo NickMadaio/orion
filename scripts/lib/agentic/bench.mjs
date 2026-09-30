@@ -172,6 +172,7 @@ export async function benchmarkCandidate({ name, config, durationMs = 2 * 3600_0
       durationMs,
       // A benchmark must never page Nick. It also must never be the reason an
       // escalation goes unnoticed, so the escalation still lands in state.
+      notifyRecovery: async () => ({ delivered: false }),
       notify: async () => ({ attempted: false, delivered: false, reason: 'benchmark', briefPath: null, message: null }),
     });
   } catch (error) {

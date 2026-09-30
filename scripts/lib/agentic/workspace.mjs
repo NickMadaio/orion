@@ -27,8 +27,8 @@
  the subject, not one mystery diff.
 */
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { dirname, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { assertWritable, unreadableSurface } from './boundary.mjs';
 
@@ -123,12 +123,27 @@ export async function ensureWorkspace(repoRoot, { worktree, branch, baseRef = 'H
   return { worktree, branch, created: true, head: await currentHead(worktree) };
 }
 
-/** Read files before the worker edits them, for the orphan-export comparison. */
-export async function snapshotBaseline(worktree, paths) {
+/*
+ The state of `paths` at `ref`, for the orphan-export comparison.
+
+ Read from the REF rather than from the working tree, so the reviewer can
+ reconstruct exactly what the worker saw before it edited anything — an empty
+ baseline makes every pre-existing export look newly added, which turns a clean
+ checkpoint into a false check disagreement and wakes Nick for nothing.
+
+ An unresolvable ref yields an EMPTY baseline rather than throwing. `commit^` of
+ a root commit does not resolve, and the honest reading of "nothing existed
+ before this" is an empty baseline, not a dead review pass.
+*/
+export async function snapshotBaseline(worktree, paths, { ref = 'HEAD' } = {}) {
+  if (!paths.length) return new Map();
+  const listed = await git(worktree, ['ls-tree', '-r', '--name-only', '-z', ref, '--', ...paths],
+    { trim: false, allowFailure: true });
   const baseline = new Map();
-  for (const path of paths) {
-    try { baseline.set(path, await readFile(join(worktree, path), 'utf8')); }
-    catch { baseline.set(path, ''); }
+  if (!listed.ok) return baseline;
+  for (const path of listed.stdout.split('\0').filter(Boolean)) {
+    const result = await git(worktree, ['show', `${ref}:${path}`], { trim: false, allowFailure: true });
+    if (result.ok) baseline.set(path, result.stdout);
   }
   return baseline;
 }
@@ -159,7 +174,10 @@ export async function writeScoped(worktree, contract, relativePath, contents) {
 export async function readScoped(worktree, relativePath, { maxBytes = 400_000 } = {}) {
   if (typeof relativePath !== 'string' || relativePath.includes('\0') || relativePath.startsWith('/') ||
       relativePath.includes('..')) throw new Error('unusable path');
-  const forbidden = unreadableSurface(relativePath);
+  const root = await realpath(worktree);
+  const target = await realpath(join(root, relativePath));
+  if (!target.startsWith(root + sep)) throw new Error('read resolves outside the worktree');
+  const forbidden = unreadableSurface(relativePath) ?? unreadableSurface(relative(root, target));
   if (forbidden) throw new Error(`refusing to read "${relativePath}": that is ${forbidden.reason}`);
   const text = await readFile(join(worktree, relativePath), 'utf8');
   return text.length > maxBytes ? `${text.slice(0, maxBytes)}\n…[truncated, ${text.length} chars total]` : text;
@@ -197,6 +215,24 @@ export async function commitCheckpoint(worktree, { paths, message, author = 'Ori
 }
 
 /**
+ * A checkpoint that changes nothing: the task's work was already in the
+ * repository. An empty commit gives the review a real, unique object to name,
+ * and the history says plainly that this task was judged already satisfied.
+ */
+export async function commitAlreadySatisfied(worktree, { message, author = 'Orion local agent <orion@localhost>' }) {
+  const before = await currentHead(worktree);
+  if ((await changedFiles(worktree)).length) return { committed: false, reason: 'the tree has uncommitted changes', commit: null };
+  const name = author.replace(/\s*<.*>$/, '');
+  const email = author.match(/<(.+)>/)?.[1] ?? 'orion@localhost';
+  const commit = await git(worktree, ['-c', `user.name=${name}`, '-c', `user.email=${email}`,
+    'commit', '--allow-empty', '--no-verify', '--no-gpg-sign', '-m', message.slice(0, 4000)], { allowFailure: true });
+  if (!commit.ok) return { committed: false, reason: `commit refused: ${commit.stderr || commit.stdout}`, commit: null };
+  const after = await currentHead(worktree);
+  if (after === before) return { committed: false, reason: 'HEAD did not move', commit: null };
+  return { committed: true, commit: after, previous: before, files: [] };
+}
+
+/**
  * Discard uncommitted work back to HEAD. Used when an attempt failed or when a
  * crash left a half-written mutation: the last ACCEPTED commit is the only state
  * this system treats as real, so returning to it is always safe.
@@ -211,6 +247,54 @@ export async function discardToHead(worktree) {
     throw new Error(`could not return the worktree to HEAD; still dirty: ${remaining.map(item => item.path).join(', ').slice(0, 300)}`);
   }
   return { discarded: dirty.map(item => item.path), head: await currentHead(worktree) };
+}
+
+/**
+ * Return the worktree to the most recent checkpoint this run KNOWS about.
+ *
+ * `discardToHead` removes uncommitted edits, which is enough when the only
+ * thing left behind is a half-written file. It is not enough when the worker
+ * COMMITTED and then failed — verification refused the checkpoint, or a stop
+ * landed while git was finishing. That commit is on the run branch, no review
+ * has seen it, and the next attempt builds on top of it; its checkpoint diff is
+ * then `commit^..commit`, which leaves the stray commit's changes out of the
+ * one view the reviewer is given. Work nobody approved would ride in.
+ *
+ * So the rule is the system's own, applied to history as well as to the tree:
+ * the last ACCEPTED (or recorded) commit is the only thing treated as real.
+ * `knownCommits` are the run's base, every recorded checkpoint, and every
+ * recorded reviewer repair. The newest of them in HEAD's history is the target.
+ *
+ * `keepWork` resets history but leaves the files as they were, unstaged. The
+ * repair rung wants that: the worker's partial attempt is exactly the evidence
+ * the reviewer needs, while the reviewer's commit then records only its own
+ * files. Everywhere else the leftovers are discarded.
+ *
+ * This only ever moves the agent's own run branch in its own worktree.
+ */
+export async function resetToKnownCheckpoint(worktree, knownCommits, { keepWork = false } = {}) {
+  const known = new Set((knownCommits ?? []).filter(commit => SHA.test(commit ?? '')));
+  if (!known.size) throw new Error('no known checkpoint was supplied; refusing to guess where to reset');
+  const head = await currentHead(worktree);
+  const dirty = (await changedFiles(worktree)).map(item => item.path);
+  const history = await git(worktree, ['rev-list', '--first-parent', '--max-count=2000', 'HEAD']);
+  const target = history.stdout.split('\n').find(commit => known.has(commit));
+  if (!target) throw new Error('no known checkpoint is in the history of HEAD; refusing to guess where to reset');
+  if (target === head && (keepWork || !dirty.length)) {
+    return { reset: false, from: head, target, strayCommits: 0, discarded: [] };
+  }
+  const stray = await git(worktree, ['rev-list', '--count', `${target}..HEAD`]);
+  if (keepWork) {
+    await git(worktree, ['reset', '--mixed', '-q', target]);
+  } else {
+    await git(worktree, ['reset', '--hard', '-q', target]);
+    await git(worktree, ['clean', '-fd', '-q']);
+    const remaining = await changedFiles(worktree);
+    if (remaining.length) {
+      throw new Error(`could not return the worktree to ${target.slice(0, 10)}; still dirty: ${remaining.map(item => item.path).join(', ').slice(0, 300)}`);
+    }
+  }
+  return { reset: true, from: head, target, strayCommits: Number(stray.stdout) || 0, discarded: keepWork ? [] : dirty };
 }
 
 /**
@@ -248,9 +332,30 @@ export async function diffSince(worktree, ref, { maxChars = 60_000, paths = [] }
   const argv = ['diff', '--no-color', '--stat=200', ref, '--'];
   const stat = await git(worktree, paths.length ? [...argv, ...paths] : argv.slice(0, -1), { allowFailure: true });
   const body = await git(worktree, ['diff', '--no-color', '-U3', ref, ...(paths.length ? ['--', ...paths] : [])], { allowFailure: true });
-  const text = body.ok ? body.stdout : '';
+  // `git diff <ref>` is blind to untracked files. Those are exactly what a
+  // worker has before its first checkpoint, so a repair reviewer used to be
+  // told CURRENT DIFF was empty while the complete new implementation sat in
+  // front of it. Add each allowed untracked file as a /dev/null diff without
+  // staging or otherwise mutating the worktree.
+  const inRequestedPaths = path => !paths.length || paths.some(requested =>
+    path === requested || (requested.endsWith('/') && path.startsWith(requested)));
+  const untracked = (await changedFiles(worktree))
+    .filter(file => file.status === '??' && inRequestedPaths(file.path));
+  const extraStats = [];
+  const extraPatches = [];
+  for (const file of untracked) {
+    const extraStat = await git(worktree,
+      ['diff', '--no-index', '--no-color', '--stat=200', '--', '/dev/null', file.path],
+      { allowFailure: true });
+    const extraBody = await git(worktree,
+      ['diff', '--no-index', '--no-color', '-U3', '--', '/dev/null', file.path],
+      { allowFailure: true });
+    if (extraStat.stdout) extraStats.push(extraStat.stdout);
+    if (extraBody.stdout) extraPatches.push(extraBody.stdout);
+  }
+  const text = [body.stdout, ...extraPatches].filter(Boolean).join('\n');
   return {
-    stat: stat.ok ? stat.stdout : '',
+    stat: [stat.stdout, ...extraStats].filter(Boolean).join('\n'),
     patch: text.length > maxChars ? `${text.slice(0, maxChars)}\n…[diff truncated at ${maxChars} characters]` : text,
     truncated: text.length > maxChars,
   };
@@ -264,10 +369,13 @@ export async function diffSince(worktree, ref, { maxChars = 60_000, paths = [] }
  */
 export async function searchRepo(worktree, pattern, { maxMatches = 40 } = {}) {
   if (typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200) return [];
-  const result = await git(worktree, ['grep', '-n', '-I', '-F', '--max-count=3', '--', pattern.trim()],
+  const result = await git(worktree, ['grep', '--untracked', '-z', '-n', '-I', '-F', '--max-count=3', '-e', pattern.trim(), '--', '.'],
     { allowFailure: true, timeoutMs: 60_000 });
   if (!result.ok && !result.stdout) return [];
-  return result.stdout.split('\n').filter(Boolean).slice(0, maxMatches).map(line => line.slice(0, 300));
+  return result.stdout.split('\n').filter(line => {
+    const end = line.indexOf('\0');
+    return end > 0 && !unreadableSurface(line.slice(0, end));
+  }).slice(0, maxMatches).map(line => line.replaceAll('\0', ':').slice(0, 300));
 }
 
 /** Commits on this run's branch that are not on its base — what the run did. */

@@ -153,6 +153,31 @@ test('a repair grants exactly one more attempt, not a fresh budget', async t => 
   await assert.rejects(grantRepairRetry(root, blocked.revision, 'task-one'), /already used its 1 repair/);
 });
 
+test('a reviewed repair checkpoint is consumed, so the next attempt is a real worker turn', async t => {
+  for (const decision of ['changes_requested', 'blocked', 'accept']) {
+    const root = await fixture(t, { maxAttempts: 3 });
+    let state = await runProjectAgent(root, host());
+    await reviewProjectTask(root, { revision: state.revision, taskId: 'task-one', commit: sha('a'), decision: 'changes_requested' });
+    state = await runProjectAgent(root, host());
+    await reviewProjectTask(root, { revision: state.revision, taskId: 'task-one', commit: sha('a'), decision: 'changes_requested' });
+    state = await runProjectAgent(root, host());
+    await reviewProjectTask(root, { revision: state.revision, taskId: 'task-one', commit: sha('a'), decision: 'changes_requested' });
+    state = await readProjectAgent(root);
+    state = await grantRepairRetry(root, state.revision, 'task-one', { checkpoint: { commit: sha('b'), files: ['sandbox/one.mjs'] } });
+    assert.deepEqual(state.tasks[0].repairCheckpoint, { commit: sha('b'), files: ['sandbox/one.mjs'] });
+    state = await runProjectAgent(root, host({ worker: async () => ({ commit: sha('b'), summary: 'repair', files: ['sandbox/one.mjs'],
+      checks: [{ name: 'node-syntax', ok: true, ms: 1 }] }) }));
+    state = await reviewProjectTask(root, { revision: state.revision, taskId: 'task-one', commit: sha('b'), decision });
+    assert.equal(state.tasks[0].repairCheckpoint, null, `after "${decision}" the reviewed checkpoint must not be resubmitted`);
+  }
+});
+
+test('a model call past its own limit is a timeout for the reviewer, not a spent ordinary attempt', async t => {
+  const root = await fixture(t);
+  const state = await runProjectAgent(root, host({ worker: async () => { throw new Error('inference timeout'); } }));
+  assert.equal(state.tasks[0].blocker, 'worker_timeout');
+});
+
 test('a task-level escalation parks ONE task and the run keeps going', async t => {
   const root = await fixture(t);
   let state = await readProjectAgent(root);
@@ -183,6 +208,30 @@ test('a task-level escalation parks ONE task and the run keeps going', async t =
   assert.equal(state.escalations[0].resolvedAt !== null, true);
   assert.equal(state.tasks[0].status, 'queued', 'the task is claimable again');
   assert.equal(state.status, 'ready');
+});
+
+test('resolving an exhausted task grants one real worker continuation', async t => {
+  const root = await fixture(t, { maxAttempts: 2 });
+  for (let i = 0; i < 2; i++) {
+    const running = await runProjectAgent(root, host());
+    await reviewProjectTask(root, {
+      revision: running.revision, taskId: 'task-one', commit: sha('a'), decision: 'changes_requested',
+    });
+  }
+  let state = await readProjectAgent(root);
+  assert.equal(state.tasks[0].attempts, state.maxAttempts);
+  state = await escalateProjectAgent(root, state.revision, {
+    kind: 'repeated_failure', taskId: 'task-one', reason: 'required tests are still missing',
+  });
+  state = await resolveProjectEscalation(root, state.revision, state.escalations[0].id,
+    'add the missing tests before another checkpoint');
+  assert.equal(state.tasks[0].attempts, state.maxAttempts - 1,
+    'the resolution opens exactly one attempt in the original bounded budget');
+  assert.equal(state.tasks[0].repairCheckpoint, null);
+  assert.match(state.tasks[0].feedback, /add the missing tests/);
+  const continued = await runProjectAgent(root, host());
+  assert.equal(continued.tasks[0].attempts, state.maxAttempts,
+    'the worker actually receives the continuation attempt');
 });
 
 test('one blocked task does not stop work that is still possible', async t => {

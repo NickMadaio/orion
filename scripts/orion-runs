@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+// orion-runs — what the development loop is doing, read-only (2026-09-29).
+// ORION kept answering "I don't have visibility into an active project" because
+// run status lived only behind the remote channel's `agent status` verb. This
+// reads the same files the Mac app and the phone read and changes nothing.
+//   orion-runs            live runs first, then the three most recent
+//   orion-runs --json
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const root = join(homedir(), ".openclaw/orion-controlled/project-agent/projects");
+const read = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
+const now = Date.now();
+let dirs = [];
+try { dirs = readdirSync(root).filter((d) => !d.startsWith(".")); } catch { dirs = []; }
+const runs = dirs.map((dir) => {
+  const base = join(root, dir);
+  const project = read(join(base, "project.json"));
+  const state = read(join(base, "state.json"));
+  if (!project || !state || !Array.isArray(state.tasks)) return null;
+  const beat = read(join(base, "heartbeat.json"));
+  const age = beat?.at ? now - Date.parse(beat.at) : Infinity;
+  const live = beat && beat.phase !== "stopped" && age < 60_000;
+  const accepted = state.tasks.filter((t) => t.status === "accepted").length;
+  const active = state.tasks.find((t) => t.id === state.activeTask);
+  const open = (state.escalations ?? []).filter((e) => !e.resolvedAt && !e.deferred).length;
+  let changed = 0;
+  try { changed = statSync(join(base, "state.json")).mtimeMs; } catch {}
+  return { id: project.id, name: project.name, status: state.status, live: Boolean(live),
+    stopRequested: Boolean(state.stopRequested), pauseRequested: Boolean(state.pauseRequested),
+    role: live ? beat.role : null, activeTask: active?.title ?? null,
+    accepted, total: state.tasks.length, openEscalations: open, changed };
+}).filter(Boolean).sort((a, b) => (b.live - a.live) || (b.changed - a.changed));
+const shown = [...runs.filter((r) => r.live), ...runs.filter((r) => !r.live).slice(0, 3)];
+if (process.argv.includes("--json")) { console.log(JSON.stringify(shown, null, 2)); process.exit(0); }
+if (!shown.length) { console.log("No development runs exist."); process.exit(0); }
+for (const r of shown) {
+  const state = r.live ? `RUNNING (${r.role ?? "working"})${r.stopRequested ? ", stopping after this task" : r.pauseRequested ? ", pausing after this task" : ""}` : r.status;
+  console.log(`${r.name} [${r.id}] — ${state} — ${r.accepted}/${r.total} tasks accepted`);
+  if (r.activeTask && r.live) console.log(`  now: ${r.activeTask}`);
+  if (r.openEscalations) console.log(`  ${r.openEscalations} escalation(s) need a decision`);
+}

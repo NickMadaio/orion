@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+// Local desktop project library. Registration imports a plan; only an explicit
+// launch creates/runs a worktree. Steer and resolve still carry revision checks.
+//
+// Keep-awake: `launch` takes --keep-display-on, --nudge-minutes N and
+// --no-keep-awake, and saves them as the project's launch options. `serve`
+// starts keep-awake bound to its OWN pid before anything else, so the assertion
+// lives exactly as long as the run and needs no cleanup; its preflight and
+// status go into every launch.json receipt. `preflight` is the same read-only
+// check on its own, for the app to show before a start.
+import { open, readFile, writeFile, rename, access } from 'node:fs/promises';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { listProjects, registerProject, readProject, refreshProject, rebriefProject, saveProjectLaunchOptions, prepareProjectContinuation, PROJECT_HOME } from './lib/agentic/projects.mjs';
+import { acquireLease, releaseLease, inspectLease } from './lib/agentic/lease.mjs';
+import { loadAgenticConfig, CONFIG_PATH } from './lib/agentic/models.mjs';
+import { readProjectAgent, steerProjectAgent } from './lib/orion-project-agent.mjs';
+import { sendDiscordAlert } from './lib/agentic/escalation.mjs';
+import { loadAgentPlan } from './lib/agentic/plan.mjs';
+import { lintPlan, lintSummary } from './lib/agentic/plan-lint.mjs';
+import { parseAwakeFlags, startKeepAwake, preflight, assessPreflight, keepAwakeReceipt } from './lib/agentic/awake.mjs';
+const [command, ...args] = process.argv.slice(2);
+const env = { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' };
+const out = x => console.log(JSON.stringify(x));
+const cli = join(import.meta.dirname, 'orion-agent');
+const child = argv => new Promise((resolve, reject) => {
+  const p = spawn(process.execPath, [cli, ...argv], { stdio: 'inherit', env });
+  p.once('error', reject); p.once('exit', code => code === 0 ? resolve() : reject(new Error(`Agent exited (${code}); see run.log`)));
+});
+
+// A project run ends by an operator decision or at a wall-clock boundary. The
+// old relative hour budget remains accepted for older scripts, but the app and
+// command reference use these two explicit forms.
+function parseRunLimit(argv, { allowEnable = false } = {}) {
+  const rest = [...argv];
+  const enableCount = rest.filter(item => item === '--enable').length;
+  if (enableCount > (allowEnable ? 1 : 0)) throw new Error('Unknown launch option');
+  const enable = enableCount === 1;
+  if (enable) rest.splice(rest.indexOf('--enable'), 1);
+
+  if (rest.length === 0 || (rest.length === 1 && rest[0] === '--until-stopped')) {
+    return { enable, agentArgs: ['--until-stopped'], receipt: { mode: 'until-stopped' } };
+  }
+  if (rest[0] === '--until' && rest.length === 2) {
+    const at = new Date(rest[1]);
+    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
+      throw new Error('--until must be a future ISO-8601 date and time');
+    }
+    return { enable, agentArgs: ['--until', at.toISOString()], receipt: { mode: 'time', at: at.toISOString() } };
+  }
+  // Compatibility for existing terminal commands and recovery hints.
+  if (rest.length === 1) {
+    const hours = Number(rest[0]);
+    if (Number.isFinite(hours) && hours > 0 && hours <= 12) {
+      return { enable, agentArgs: ['--hours', String(hours)], receipt: { mode: 'legacy-hours', hours } };
+    }
+  }
+  throw new Error('Choose --until ISO_TIME or --until-stopped');
+}
+try {
+  if (command === 'list' && !args.length) out(await listProjects());
+  else if (command === 'add' && args[0] && args.length <= 2) {
+    const project = await registerProject(args[0], { name: args[1] });
+    // Advice against docs/agentic/PLAN_STANDARD.md, shown at import so a weak
+    // plan is fixed before a night is spent on it. Never refuses the import.
+    const plan = await loadAgentPlan(args[0]);
+    const findings = lintPlan(plan, { briefs: plan.briefs });
+    out({ ...project, lint: { ...lintSummary(findings), findings } });
+  }
+  // Re-copy the plan and its briefs from where they were imported from. Only
+  // before the first start: after that the tasks live in the run's state.
+  else if (command === 'refresh' && args[0] && args.length === 1) out(await refreshProject(args[0]));
+  // After a project has started: replace the briefs of tasks not yet done,
+  // leaving every task block, and all accepted work, exactly as it was.
+  else if (command === 'rebrief' && args[0] && args.length === 1) out(await rebriefProject(args[0]));
+  else if (command === 'preflight') {
+    // Read-only. Flags are accepted so the answer can include what THIS
+    // launch's options would mean (keep-awake off on a one-minute idle sleep).
+    const { options, rest } = parseAwakeFlags(args);
+    if (rest.length) throw new Error('usage: orion-projects preflight [--keep-display-on] [--nudge-minutes N] [--no-keep-awake]');
+    out(assessPreflight(await preflight(), options));
+  }
+  else if (['launch','serve'].includes(command) && args[0]) {
+    const project = await readProject(args[0]);
+    // Keep-awake flags are pulled out first; what remains parses exactly as it
+    // always has, so `launch ID HOURS --enable` means what it meant before.
+    const { options: awake, rest, given } = parseAwakeFlags(args.slice(1));
+    if (command === 'serve' && given) throw new Error('serve takes its keep-awake options from the saved project, not from flags');
+    const limit = parseRunLimit(rest, { allowEnable: command === 'launch' });
+    if (command === 'launch') {
+      for (const lock of [join(PROJECT_HOME,'active-project.lock'),join(project.root,'launch.lock'),join(project.root,'supervisor.lock'),join(project.root,'worker.lock')]) {
+        const lease = await inspectLease(lock);
+        if (lease.held && !lease.dead) throw new Error('A project is running or has an uncertain worker. Stop/reconcile it before starting another.');
+      }
+      if (!(await loadAgenticConfig()).enabled) {
+        if (!limit.enable) throw new Error('Execution is disabled. Choose Enable & start to enable local execution.');
+        let config = {};
+        try { config = JSON.parse(await readFile(CONFIG_PATH,'utf8')); } catch(e) { if(e.code !== 'ENOENT') throw e; }
+        const temporary = CONFIG_PATH + `.tmp-${process.pid}`;
+        await writeFile(temporary, JSON.stringify({ ...config, enabled:true },null,2), { mode:0o600 });
+        await rename(temporary,CONFIG_PATH);
+      }
+      // Saved only once every refusal above has passed, so a refused launch
+      // changes nothing. `serve` reads them back from the project record.
+      await saveProjectLaunchOptions(project.id, awake);
+      let launchRevision = 'new';
+      try { launchRevision = String((await readProjectAgent(project.root)).revision); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const log = await open(join(project.root,'run.log'),'a',0o600);
+      const p = spawn(process.execPath,[import.meta.filename,'serve',project.id,...limit.agentArgs],
+        { detached:true, stdio:['ignore',log.fd,log.fd],env:{...env,ORION_LAUNCH_REVISION:launchRevision} });
+      await new Promise((resolve,reject)=>{ p.once('spawn',resolve);p.once('error',reject); });
+      p.unref(); await log.close();
+      out({ launched:true, pid:p.pid, projectID:project.id, stopRule:limit.receipt, launchOptions:awake });
+    } else {
+      // Before anything that can wait: the Mac has a one-minute idle sleep, and
+      // init alone can outlast that. Bound to this process, so it ends with it.
+      const keepAwake = startKeepAwake(project.launchOptions, { pid: process.pid });
+      // Never blocks the launch: the lid and battery become warnings in the
+      // receipt, and the decision stays with the person reading it.
+      const checked = assessPreflight(await preflight(), project.launchOptions);
+      const power = keepAwakeReceipt(keepAwake, checked);
+      console.log(`${new Date().toISOString()} ${power.keepAwake.summary}${power.keepAwake.command ? ` (${power.keepAwake.command})` : ''}`);
+      for (const warning of power.warnings) console.log(`${new Date().toISOString()} warning: ${warning}`);
+      const lock = join(project.root,'launch.lock');
+      await acquireLease(lock,{extra:{role:'project-launch',projectID:project.id}});
+      const receipt = (status, detail) => writeFile(join(project.root,'launch.json'),
+        JSON.stringify({status,detail,at:new Date().toISOString(),stopRule:limit.receipt,...keepAwakeReceipt(keepAwake, checked)}),{mode:0o600});
+      try {
+        await receipt('starting','Preparing the project');
+        let exists = true;
+        try { await access(join(project.root,'state.json')); } catch(e) { if(e.code === 'ENOENT') exists=false; else throw e; }
+        if (!exists) await child(['init',project.planPath,'--project',project.id]);
+        const state = await readProjectAgent(project.root);
+        if (state.status === 'completed') throw new Error('This plan is complete. Import a new plan to start the next batch.');
+        const launchRevision = /^\d+$/.test(process.env.ORION_LAUNCH_REVISION ?? '')
+          ? Number(process.env.ORION_LAUNCH_REVISION) : null;
+        const continuation = await prepareProjectContinuation(project, { launchRevision });
+        if (!continuation.shouldStart) {
+          await receipt('stopped','Stopped by the operator while the project was preparing');
+        } else {
+          await receipt('running','Waiting for the supervisor heartbeat');
+          await child(['run',...limit.agentArgs,'--project',project.id]);
+          await receipt('stopped','Run ended; see its task state and reviews');
+        }
+      } catch(e) {
+        const stopped = await readProjectAgent(project.root).then(state =>
+          state.stopRequested || state.pauseRequested || state.exterminateRequested, () => false);
+        if (stopped) {
+          await receipt('stopped','Stopped by the operator');
+        } else {
+          await receipt('failed',e.message);
+          await sendDiscordAlert(`ORION · ${project.name}: the project could not continue. Check its Projects view and run log. No success has been claimed.`);
+          throw e;
+        }
+      } finally { await releaseLease(lock); }
+    }
+  } else throw new Error('usage: orion-projects list | add PLAN [NAME] | refresh ID | rebrief ID | preflight | ' +
+    'launch ID (--until ISO_TIME | --until-stopped) [--enable] [--keep-display-on] [--nudge-minutes N] [--no-keep-awake]');
+} catch(e) { console.error(e.message); process.exitCode=1; }

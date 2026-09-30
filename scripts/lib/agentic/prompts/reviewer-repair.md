@@ -56,17 +56,8 @@ Astra**. You are the last local rung, not the last rung.
 
 ## Output format
 
-Prose reasoning first — your diagnosis, stated plainly. Then the files, then the
-handback block.
-
-Write complete files, exactly as the worker does:
-
-    ### FILE: path/to/file.ts
-    ```typescript
-    <the complete contents of the file>
-    ```
-
-Then exactly one fenced JSON block:
+Keep prose short. Give the handback block FIRST, so that if your reply is cut
+off, your diagnosis still reaches the worker. Exactly one fenced JSON block:
 
     ```json
     {
@@ -77,6 +68,24 @@ Then exactly one fenced JSON block:
       "escalate": null
     }
     ```
+
+Then the change. To change an existing file, EDIT it; do not retype it. A
+retyped 20 KB file takes longer than your output budget allows, and the repair
+is lost:
+
+    ### EDIT: path/to/file.ts
+    ```
+    <<<<<<< SEARCH
+    the exact existing lines, copied from the file, including indentation
+    =======
+    what they become
+    >>>>>>> REPLACE
+    ```
+
+Each SEARCH must match exactly one place in the current file; include enough
+surrounding lines to make it unique. Several blocks may follow one marker, and
+apply in order. Use `### FILE:` with the complete contents only for a file that
+does not exist yet.
 
 If you conclude that no bounded repair is appropriate, change nothing and reply
 with only:

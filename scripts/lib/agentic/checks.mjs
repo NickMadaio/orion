@@ -25,8 +25,10 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const NODE = process.execPath;
+const DOC_REPORT_CHECK = fileURLToPath(new URL('./doc-report-check.mjs', import.meta.url));
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
@@ -41,17 +43,41 @@ export const CHECK_REGISTRY = Object.freeze({
     argv: file => [NODE, '--check', file],
     timeoutMs: 60_000,
   },
+  /*
+   An investigation report's floor (orion-full-roadmap): required sections,
+   every requirement id for a phase packet, and cited paths that exist. The
+   script lives in the main repository because worktrees fork committed HEAD.
+  */
+  'doc-report': {
+    kind: 'per-file',
+    description: 'a report has its sections, its requirement ids, and only real cited paths',
+    extensions: ['.md'],
+    argv: file => [NODE, DOC_REPORT_CHECK, file],
+    timeoutMs: 60_000,
+  },
+  'agentic-smoke-test': {
+    kind: 'command',
+    description: 'execute the sandbox greeting test against the real module',
+    argv: [NODE, '--test', 'tests/workspace/agentic-smoke/greeting.test.mjs'],
+    timeoutMs: 60_000,
+  },
   'agentic-tests': {
     kind: 'command',
     description: 'the local agentic runtime suites',
     argv: [NODE, '--test', 'tests/agentic-contract.test.mjs', 'tests/agentic-boundary.test.mjs',
-      'tests/agentic-orchestrator.test.mjs', 'tests/agentic-supervisor.test.mjs'],
+      'tests/agentic-plan.test.mjs', 'tests/agentic-plan-lint.test.mjs', 'tests/agentic-projects.test.mjs', 'tests/agentic-orchestrator.test.mjs', 'tests/agentic-supervisor.test.mjs', 'tests/agentic-regressions.test.mjs'],
     timeoutMs: 5 * 60 * 1000,
   },
   'project-agent-tests': {
     kind: 'command',
     description: 'the durable controller suite',
     argv: [NODE, '--test', 'tests/project-agent.test.mjs'],
+    timeoutMs: 5 * 60 * 1000,
+  },
+  'automation-install-tests': {
+    kind: 'command',
+    description: 'source-only automation installer and recovery fixtures',
+    argv: [NODE, '--test', 'tests/automation-install.test.mjs'],
     timeoutMs: 5 * 60 * 1000,
   },
   'automation-tests': {
@@ -91,6 +117,21 @@ export const CHECK_REGISTRY = Object.freeze({
       '--allowlist', 'docs/planning/v2/secret-scan-allowlist.json'],
     timeoutMs: 10 * 60 * 1000,
   },
+  /*
+   A task's OWN test files, without a registry edit per plan.
+
+   Plans that give each task its own test file (docs/agentic/PLAN_STANDARD.md)
+   would otherwise need a new entry here for every file. This runs
+   `node --test` on the scope entries that are test files, and nothing else:
+   the argv is still fixed, and the paths come from the task's approved scope,
+   which a model cannot change, filtered to `tests/**.test.mjs`.
+  */
+  'scope-tests': {
+    kind: 'scope-tests',
+    description: "node --test on this task's own tests/*.test.mjs scope files",
+    pattern: /^tests\/[A-Za-z0-9._\/-]+\.test\.mjs$/,
+    argv: files => [NODE, '--test', ...files],
+  },
   'no-orphan-exports': {
     kind: 'builtin',
     description: 'every export added by this task is referenced somewhere else',
@@ -127,6 +168,7 @@ const MAX_OUTPUT = 60_000;
 
 function runArgv(argv, { cwd, timeoutMs, signal, worktree }) {
   return new Promise(resolve => {
+    if (signal?.aborted) return resolve({ ok: false, exitCode: null, cancelled: true, output: 'cancelled', ms: 0 });
     const started = Date.now();
     let child;
     try {
@@ -174,11 +216,45 @@ function runArgv(argv, { cwd, timeoutMs, signal, worktree }) {
  rewrite the file trying. The legacy coder learned this; it is kept.
 */
 function environmentBroken(result) {
-  return Boolean(result.startFailure) || result.exitCode === 127 ||
-    /command not found|ENOENT|No such file or directory/i.test(result.output.slice(0, 2000));
+  if (result.startFailure || result.exitCode === 127) return true;
+  // A check that ran and passed is never a broken machine, whatever its output
+  // mentions -- a test NAMED "handles ENOENT" used to block the task for Nick.
+  if (result.ok) return false;
+  // Only a shell's own "command not found" says a tool is missing. ENOENT and
+  // "No such file or directory" are what a failing test prints about the files
+  // it is testing, and treating them as an environment fault parked honest
+  // failures humanOnly -- on a batch whose tasks are ABOUT missing and partial
+  // files, that would have ended the night over an ordinary red test.
+  return /command not found/i.test(result.output.slice(0, 2000));
 }
 
-const EXPORT_NAME = /^export\s+(?:async\s+)?(?:function|const|class|let)\s+([A-Za-z_$][\w$]*)/gm;
+/*
+ The two spellings an export can have a NAME in.
+
+ A declaration (`export function greet`, `export async function`, `export var`)
+ and a binding list (`export { greet, format as pretty }`, where the name that
+ matters is the EXTERNAL one — `pretty`, not `format`). `export default` is
+ deliberately absent: it has no name to search for, so there is nothing this
+ check could ask about it.
+
+ Missing the brace form was worth fixing rather than leaving: a model that has
+ been told its unreferenced additions will be caught, and then finds one spelling
+ that is not, has been handed the exact loophole the check exists to close.
+*/
+const EXPORT_DECLARATION = /^export\s+(?:async\s+)?(?:function|const|class|let|var)\s+([A-Za-z_$][\w$]*)/gm;
+const EXPORT_LIST = /^export\s*\{([^}]*)\}/gm;
+
+function exportedNames(source) {
+  const names = new Set([...source.matchAll(EXPORT_DECLARATION)].map(match => match[1]));
+  for (const match of source.matchAll(EXPORT_LIST)) {
+    for (const entry of match[1].split(',')) {
+      // `a as b` exports the name `b`; a bare `a` exports `a`.
+      const name = entry.trim().split(/\s+as\s+/).pop()?.trim();
+      if (name && /^[A-Za-z_$][\w$]*$/.test(name) && name !== 'default') names.add(name);
+    }
+  }
+  return names;
+}
 
 async function orphanExports({ worktree, changedFiles, baseline, signal }) {
   const orphans = [];
@@ -187,10 +263,10 @@ async function orphanExports({ worktree, changedFiles, baseline, signal }) {
     let after = '';
     try { after = await readFile(join(worktree, file), 'utf8'); } catch { continue; }
     const before = baseline.get(file) ?? '';
-    const names = source => new Set([...source.matchAll(EXPORT_NAME)].map(match => match[1]));
+    const names = source => exportedNames(source);
     const added = [...names(after)].filter(name => !names(before).has(name));
     for (const name of added) {
-      const found = await runArgv(['/usr/bin/git', 'grep', '-l', '-w', '--', name], {
+      const found = await runArgv(['/usr/bin/git', 'grep', '--untracked', '-l', '-w', '--', name], {
         cwd: worktree, timeoutMs: 90_000, signal, worktree,
       });
       // git grep exits 1 for "no matches"; only the changed file itself is not
@@ -211,7 +287,7 @@ async function orphanExports({ worktree, changedFiles, baseline, signal }) {
  * check that merely failed, and distinguishes "your code is wrong" from "this
  * machine cannot run the check".
  */
-export async function runCheck(name, { worktree, changedFiles = [], baseline = new Map(), signal } = {}) {
+export async function runCheck(name, { worktree, changedFiles = [], baseline = new Map(), signal, scope = [] } = {}) {
   const entry = CHECK_REGISTRY[name];
   if (!entry) return { name, ok: false, exitCode: null, output: `"${name}" is not a registered check`, ms: 0, unusable: true };
   const timeoutMs = Math.min(entry.timeoutMs ?? DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
@@ -228,6 +304,22 @@ export async function runCheck(name, { worktree, changedFiles = [], baseline = n
       if (!result.ok) return { name, ...result, unusable: environmentBroken(result), output: `${file}: ${result.output}` };
     }
     return { name, ok: true, exitCode: 0, output: `${targets.length} file(s) parse`, ms: 0 };
+  }
+  if (entry.kind === 'scope-tests') {
+    const files = scope.filter(path => entry.pattern.test(path) && !path.includes('..'));
+    if (!files.length) {
+      return { name, ok: false, exitCode: null, ms: 0,
+        output: 'this task names scope-tests but has no tests/*.test.mjs file in its scope' };
+    }
+    const present = [];
+    for (const file of files) {
+      try { await readFile(join(worktree, file), 'utf8'); present.push(file); } catch { /* not written yet */ }
+    }
+    if (!present.length) {
+      return { name, ok: false, exitCode: 1, ms: 0, output: `none of this task's test files exist yet: ${files.join(', ')}` };
+    }
+    const result = await runArgv(entry.argv(present), { cwd: worktree, timeoutMs, signal, worktree });
+    return { name, ...result, unusable: environmentBroken(result) };
   }
   const cwd = entry.cwd ? join(worktree, entry.cwd) : worktree;
   const result = await runArgv(entry.argv, { cwd, timeoutMs, signal, worktree });

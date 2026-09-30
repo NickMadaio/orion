@@ -30,7 +30,7 @@
  worktree, and two writers is the failure this file exists to make impossible.
 */
 import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 let cachedBootId;
@@ -121,10 +121,19 @@ export async function acquireLease(path, { extra = {}, reclaimDead = true } = {}
     const owner = await readLeaseOwner(path);
     const verdict = ownerIsProvablyDead(owner);
     if (!reclaimDead || !verdict.dead) throw new LeaseHeldError(path, owner, verdict.reason);
-    // Reclaim in place rather than removing and re-creating: removing first
-    // opens a window in which a third process could take it.
-    await writeFile(join(path, 'owner.json'), JSON.stringify(ownerRecord({ ...extra, reclaimedFrom: owner, reclaimReason: verdict.reason })), { mode: 0o600 });
-    return { reclaimed: true, previousOwner: owner, reason: verdict.reason };
+    // Serialize reclaimers too. Two callers can both observe the same dead
+    // owner; an in-place overwrite alone lets both believe they own the lease.
+    // An orphaned reclaim guard fails closed rather than admitting two writers.
+    const reclaim = `${path}.reclaim`;
+    try { await mkdir(reclaim, { mode: 0o700 }); }
+    catch { throw new LeaseHeldError(path, owner, 'lease recovery is already in progress or requires investigation'); }
+    try {
+      const latest = await readLeaseOwner(path);
+      const proof = ownerIsProvablyDead(latest);
+      if (!proof.dead) throw new LeaseHeldError(path, latest, proof.reason);
+      await writeFile(join(path, 'owner.json'), JSON.stringify(ownerRecord({ ...extra, reclaimedFrom: latest, reclaimReason: proof.reason })), { mode: 0o600 });
+      return { reclaimed: true, previousOwner: latest, reason: proof.reason };
+    } finally { await rm(reclaim, { recursive: true, force: true }); }
   }
   await writeFile(join(path, 'owner.json'), JSON.stringify(ownerRecord(extra)), { mode: 0o600 });
   return { reclaimed: false, previousOwner: null, reason: null };
@@ -137,7 +146,14 @@ export async function releaseLease(path) {
 /** Inspect a lease without taking it — what the operator CLI and UI report. */
 export async function inspectLease(path) {
   const owner = await readLeaseOwner(path);
-  if (!owner) return { held: false, owner: null, dead: null, reason: 'no lease' };
+  if (!owner) {
+    try { await lstat(path); }
+    catch (error) {
+      if (error.code === 'ENOENT') return { held: false, owner: null, dead: null, reason: 'no lease' };
+      throw error;
+    }
+    return { held: true, owner: null, dead: false, reason: 'the lease carries no usable owner record; recovery requires operator investigation' };
+  }
   const verdict = ownerIsProvablyDead(owner);
   return { held: true, owner, dead: verdict.dead, reason: verdict.reason };
 }

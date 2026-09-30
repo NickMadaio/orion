@@ -90,14 +90,34 @@ test('failed host acceptance or failed worker cannot manufacture a checkpoint', 
     const state = await run(root, adapter); assert.equal(state.tasks[0].status, 'blocked'); assert.equal(state.tasks[0].commit, null);
   }
 });
-test('timeout retains lease and marks uncertainty; late worker cannot publish success', async t => {
+test('a worker that never stops after a timeout is uncertain: lease retained, no second writer, no late publish', async t => {
   const root = await fixture(t); let finish, verified = 0;
-  const adapter = host(); adapter.taskTimeoutMs = 20; adapter.worker = async () => new Promise(resolve => finish = resolve);
+  // It ignores its abort signal, so it is still "running" when the grace ends.
+  const adapter = host(); adapter.taskTimeoutMs = 20; adapter.settleGraceMs = 30;
+  adapter.worker = async () => new Promise(resolve => finish = resolve);
   adapter.verify = async () => { verified++; return true; };
   const state = await run(root, adapter); assert.equal(state.status, 'interrupted');
-  await assert.rejects(run(root, host())); await assert.rejects(steer(root, 'resume', state.revision));
+  await assert.rejects(run(root, host()), 'a second writer never starts beside a possibly-live first');
+  // Resume clears requests but never reconciles: that still needs proof the
+  // writer is dead, which only recovery can supply.
+  const resumed = await steer(root, 'resume', state.revision);
+  assert.equal(resumed.status, 'interrupted');
+  await assert.rejects(run(root, host()));
   finish({ commit: sha }); await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal((await read(root)).tasks[0].commit, null);
+  assert.equal((await read(root)).tasks[0].commit, null, 'the late result is never published');
+  assert.equal(verified, 0);
+});
+test('a worker that stops after a timeout has a KNOWN outcome: handed on, lease released, nothing published', async t => {
+  const root = await fixture(t); let verified = 0;
+  const adapter = host(); adapter.taskTimeoutMs = 20; adapter.settleGraceMs = 2000;
+  // Honours its abort signal, as the real worker does — so it settles.
+  adapter.worker = (_task, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  adapter.verify = async () => { verified++; return true; };
+  const state = await run(root, adapter);
+  assert.notEqual(state.status, 'interrupted', 'a settled worker leaves nothing uncertain behind');
+  assert.equal(state.tasks[0].status, 'blocked');
+  assert.equal(state.tasks[0].blocker, 'worker_timeout', 'routed to the reviewer, not left to end the night');
+  assert.equal(state.tasks[0].commit, null);
   assert.equal(verified, 0);
 });
 test('valid JSON with corrupt lifecycle fields refuses instead of inventing progress or budget', async t => {

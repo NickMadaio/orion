@@ -66,3 +66,13 @@ test('unknown subject preserves original casing — on', () => {
   const result = parseStudyRequest('study on MixedCaseTopic', TODAY);
   assert.equal(result.subject, 'MixedCaseTopic');
 });
+
+test("session counts and 'this week' (added 2026-09-29)", () => {
+  const r = parseStudyRequest("two one-hour study sessions for macro this week", "2026-09-29");
+  assert.deepEqual(r.splitMinutes, [60, 60]);
+  assert.equal(r.minutes, 120);
+  assert.equal(r.byDate, "2026-10-04");
+  assert.equal(r.subject, "ECON1115");
+  assert.deepEqual(parseStudyRequest("3 x 45 min sessions next week", "2026-09-29").splitMinutes, [45, 45, 45]);
+  assert.equal(parseStudyRequest("study next week", "2026-09-29").byDate, "2026-10-11");
+});

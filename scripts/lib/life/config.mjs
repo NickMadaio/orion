@@ -1,0 +1,50 @@
+// Nick's standing preferences for planning, one small file he can change in
+// conversation ("make my side-project hour about the London vlog").
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+
+export const CONFIG_FILE = process.env.ORION_LIFE_CONFIG || join(homedir(), ".openclaw/orion-controlled/life-config.json");
+export const DEFAULTS = Object.freeze({
+  sideProjectMinutes: 60, sideProjectLabel: "Side project (YouTube)",
+  gymDays: [1, 3, 5], gymMinutes: 60,
+  bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
+  studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
+  commuteMinutes: 30,
+});
+
+export function loadConfig(file = CONFIG_FILE) {
+  try { return { ...DEFAULTS, ...JSON.parse(readFileSync(file, "utf8")) }; } catch { return { ...DEFAULTS }; }
+}
+
+const VALIDATORS = {
+  commuteMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 180,
+  sideProjectMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 300,
+  sideProjectLabel: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,
+  gymDays: (v) => Array.isArray(v) && v.every((d) => Number.isInteger(d) && d >= 1 && d <= 7),
+  gymMinutes: (v) => Number.isInteger(v) && v >= 15 && v <= 180,
+  bedtime: (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
+  usualWake: (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
+  sleepHours: (v) => typeof v === "number" && v >= 5 && v <= 11,
+  studyMinutes: (v) => Number.isInteger(v) && v >= 15 && v <= 240,
+  dinner: (v) => typeof v === "boolean",
+  windDownMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 90,
+  freeMinutesKept: (v) => Number.isInteger(v) && v >= 0 && v <= 240,
+};
+
+export function setConfig(key, raw, file = CONFIG_FILE) {
+  if (!VALIDATORS[key]) throw new TypeError(`unknown setting ${key}`);
+  let value = raw;
+  if (typeof DEFAULTS[key] === "number") value = Number(raw);
+  if (typeof DEFAULTS[key] === "boolean") value = raw === true || raw === "true";
+  if (Array.isArray(DEFAULTS[key])) value = String(raw).split(",").map((x) => Number(x.trim()));
+  if (!VALIDATORS[key](value)) throw new TypeError(`${key} cannot be ${raw}`);
+  const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ ...current, [key]: value }, null, 2));
+  renameSync(tmp, file);
+  return value;
+}
+
+export const toMinute = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };

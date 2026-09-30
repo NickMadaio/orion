@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+// orion-waiting — approvals waiting for Nick, read-only (2026-09-29).
+// ORION answered "no pending approvals" without looking. This looks: unexpired
+// tickets that have no grant yet. It cannot approve anything.
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+const base = join(homedir(), ".openclaw/orion-gate/approvals");
+const list = (dir) => { try { return readdirSync(join(base, dir)).filter((f) => f.endsWith(".json")); } catch { return []; } };
+const granted = new Set(list("grants").map((f) => f.replace(/\.json$/, "")));
+const now = Date.now();
+const waiting = list("tickets").map((f) => { try { return JSON.parse(readFileSync(join(base, "tickets", f), "utf8")); } catch { return null; } })
+  .filter((t) => t && t.id && !granted.has(t.id) && Date.parse(t.expiresAt) > now)
+  .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt));
+if (!waiting.length) { console.log("Nothing is waiting for Nick's approval."); process.exit(0); }
+for (const t of waiting) {
+  const mins = Math.round((Date.parse(t.expiresAt) - now) / 60000);
+  console.log(`${t.id} — ${t.action}: ${String(t.summary ?? "").slice(0, 160)} (expires in ${mins} min)`);
+}
+console.log("Nick approves with: approve <id>  (from the phone's Control tab, Discord, or the Mac).");

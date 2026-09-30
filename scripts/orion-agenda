@@ -126,7 +126,8 @@ function describeEvents(events, { onlyToday }) {
       month: "short",
       day: "numeric",
     });
-    console.log(`  ${day} ${timeLabel(event.start)} — ${event.title}`);
+    const when = event.allDay === "true" ? "all day" : timeLabel(event.start);
+    console.log(`  ${day} ${when} — ${event.title}${event.location ? ` @ ${event.location}` : ""}`);
     // Printed so `remove` works on anything listed, not only on what `add`
     // just returned. Indented under the event so it reads as a detail.
     if (event.identifier) console.log(`      id: ${event.identifier}`);
@@ -191,7 +192,7 @@ function printGrounding(target) {
 // This program is on OpenClaw's exec allowlist, so its contract must be
 // uniformly read-only. An allowlist cannot attach different approval policy to
 // different subcommands of the same executable.
-if (!["today", "upcoming", "tasks", "day"].includes(command)) {
+if (!["today", "upcoming", "tasks", "day", "deadlines"].includes(command)) {
   fail("this wrapper is read-only; Calendar changes must use Orion's typed Calendar actions");
 }
 
@@ -254,6 +255,14 @@ switch (command) {
     break;
   }
 
+  case "deadlines": {
+    // One-off events for the next 90 days: quizzes, submissions, trips. Weekly
+    // classes are left out so they cannot crowd the list.
+    printGrounding(null);
+    describeEvents(unpack(await ask("list_deadlines"), "events_json"), { onlyToday: false });
+    break;
+  }
+
   case "tasks": {
     printGrounding(null);
     const tasks = unpack(await ask("list_incomplete_reminders"), "reminders_json");
@@ -269,5 +278,5 @@ switch (command) {
   }
 
   default:
-    fail("usage: orion-agenda today | upcoming | tasks | day <date|weekday|today|tomorrow>");
+    fail("usage: orion-agenda today | upcoming | deadlines | tasks | day <date|weekday|today|tomorrow>");
 }

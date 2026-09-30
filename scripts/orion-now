@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// orion-now — "what should Nick do right now", from his real day (2026-09-29).
+// Today's calendar (life-day), the phone's last activity sample (health-log
+// phoneSignals), tonight's sleep plan (bed 00:00 or earlier; wake 75 min before
+// tomorrow's first class, never after 09:00), open check-ins, and whether today
+// still has its side-project hour. Prints one recommendation and its reasons.
+//   orion-now [--json]
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { liveDay, localDate } from "./lib/life/live-day.mjs";
+import { nextAction } from "./lib/life/next-action.mjs";
+import { sleepState } from "./lib/life/sleep-state.mjs";
+import { bedtimeNudge } from "./lib/life/bedtime.mjs";
+import { dailyNeeds } from "./lib/life/daily-needs.mjs";
+import { loadPatterns } from "./lib/life/history.mjs";
+
+const read = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
+const hhmm = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, "0")}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`;
+const at = new Date();
+const minute = at.getHours() * 60 + at.getMinutes();
+// Before 4 AM the day that matters is still "today" for classes tomorrow morning.
+const nightOf = minute < 360;
+const today = localDate(at);
+const tomorrow = localDate(new Date(at.getTime() + 86400000));
+let blocks = [], tomorrowBlocks = [], calendarProblem = null;
+try { [blocks, tomorrowBlocks] = await Promise.all([liveDay(today), liveDay(nightOf ? today : tomorrow)]); }
+catch (error) { calendarProblem = String(error.message ?? error).slice(0, 120); }
+
+const firstTomorrow = tomorrowBlocks.find((b) => b.fixed && b.start >= 300 && (nightOf ? b.start > minute : true));
+const wake = Math.min(540, firstTomorrow ? firstTomorrow.start - 75 : 540);
+const bedtime = Math.min(1440, wake + 1440 - 480) % 1440;           // 8 h before wake, but never after midnight
+const log = read(join(homedir(), ".openclaw/orion-controlled/health-log.json")) ?? {};
+const signal = (log.phoneSignals ?? []).at(-1);
+const lastActive = signal ? Math.round((Date.now() - Date.parse(signal.at)) / 60000) : null;
+const sleep = sleepState({ now: minute, bedtime: Math.min(bedtime, 0) === 0 && bedtime > 720 ? bedtime : bedtime, wake,
+                          lastActiveMinutesAgo: lastActive === null || lastActive > 180 ? null : lastActive, charging: signal?.charging });
+// No phone signal but it is the middle of the night and he is asking: he is awake.
+const state = sleep.state === "unknown" ? "awake_late" : sleep.state;
+const action = nextAction({ blocks, now: minute, state });
+const needs = dailyNeeds(blocks, { weekday: ((at.getDay() + 6) % 7) + 1 });
+const checkins = (read(join(homedir(), ".openclaw/orion-controlled/checkins.json"))?.checkins ?? [])
+  .filter((c) => !["done", "cancelled", "given_up"].includes(c.loop?.phase));
+const out = { now: hhmm(minute), action, sleep: { state, bedtime: hhmm(bedtime), wake: hhmm(wake), reason: sleep.reason },
+              nudge: state === "awake_late" || state === "winding_down"
+                ? bedtimeNudge({ state, minutesPastBedtime: sleep.minutesPastBedtime, nudgesSent: 2, firstFixedTomorrow: firstTomorrow?.start ?? null, now: minute }).message : null,
+              sideProjectMissing: needs.missing.find((m) => m.need === "side_project")?.minutes ?? 0,
+              openCheckins: checkins.map((c) => `${c.id}: ${c.what} (${c.loop.phase})`), calendarProblem };
+if (process.argv.includes("--json")) { console.log(JSON.stringify(out, null, 2)); process.exit(0); }
+console.log(`It's ${out.now}. ${out.nudge ?? `${action.action.toUpperCase()}: ${action.reason}`}`);
+if (!out.nudge && action.action !== "do" && out.sideProjectMissing > 0 && minute < 1320)
+  console.log(`No side-project time on the calendar yet today (${out.sideProjectMissing} min short of the daily hour).`);
+if (out.openCheckins.length) console.log(`Open check-ins: ${out.openCheckins.join("; ")}`);
+console.log(`Tonight: bed by ${out.sleep.bedtime}, up at ${out.sleep.wake}${firstTomorrow ? ` for ${firstTomorrow.title} at ${hhmm(firstTomorrow.start)}` : ""}.`);
+const patterns = loadPatterns();
+const learned = Object.entries(patterns?.byKind ?? {}).filter(([, k]) => k.planned >= 3)
+  .map(([kind, k]) => `${kind}: happens ${Math.round(k.rate * 100)}% of the time${k.medianDelay !== null && k.medianDelay >= 10 ? `, usually ${k.medianDelay} min late` : ""}`);
+if (patterns?.sleep?.median != null) learned.push(`usually asleep around ${hhmm(patterns.sleep.median)}`);
+if (learned.length) console.log(`Patterns so far: ${learned.join("; ")}.`);
+if (calendarProblem) console.log(`(Calendar unreadable: ${calendarProblem})`);

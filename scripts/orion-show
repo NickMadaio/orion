@@ -1,0 +1,14 @@
+#!/bin/bash
+# Show a tab of ORION's Mac app: orion-show <home|tasks|plan|calendar|projects|health|finances|brand|settings>
+# (2026-09-29) ORION is a native app, not a website. Asked for "the task page"
+# he once opened http://localhost:3000/tasks in a browser; this is the real way.
+# Opens orion://show/<tab>, which the app handles by bringing the dashboard
+# forward on that tab. It can do nothing else.
+set -u
+tab="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+case "$tab" in
+  home|tasks|task|plan|calendar|schedule|todo|todos|project|projects|health|finance|finances|money|brand|settings|preferences) ;;
+  *) echo "usage: orion-show <home|tasks|projects|health|finances|brand|settings>  (plan and calendar are on tasks)" >&2; exit 2 ;;
+esac
+/usr/bin/open "orion://show/$tab" || { echo "ORION's app did not open" >&2; exit 1; }
+echo "Showing $tab in ORION on the Mac."

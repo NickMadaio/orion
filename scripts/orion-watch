@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+// orion-watch — ORION noticing the day without being asked (2026-09-29).
+//   orion-watch tick [--json]    run by the ORION app every ~5 minutes
+//   orion-watch status           what it has asked / done today
+//   --at HH:MM --dry-run         (testing) pretend it is that time; change nothing, send nothing
+//
+// 1. An empty day. Once he's up, if the rest of today has three or more hours
+//    with nothing planned, ORION asks what the plan is — in the morning, and
+//    again right after his last class if it's still empty. (Nick: "he should
+//    probe and ask. and once he has my solidified plans he fills in the blanks.")
+// 2. A short night. The morning after less than six hours (WHOOP, or a late
+//    "Going to bed"), early heavy work moves later and a nap goes in after the
+//    first class past noon — done, then told, with undo. He'll be too tired to
+//    be asked.
+// Alerts are printed (JSON with --json) and appended to the phone link's outbox.
+import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
+import { freeGaps } from "./lib/life/gaps.mjs";
+import { adjustForShortSleep } from "./lib/life/after-late-night.mjs";
+import { loadConfig, toMinute } from "./lib/life/config.mjs";
+import { applyPlan, bridge } from "./lib/life/calendar-write.mjs";
+import { morningBrief } from "./lib/life/morning-brief.mjs";
+import { commuteBlocks } from "./lib/life/commute.mjs";
+import { summarize } from "./lib/life/history.mjs";
+
+const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
+const STATE = process.env.ORION_WATCH_FILE || join(CONTROLLED, "watch.json");
+const OUTBOX = join(CONTROLLED, "alerts-outbox.jsonl");
+const read = (f, fallback) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return fallback; } };
+// These messages go straight to Nick's phone: 12-hour, the way he says it (2026-09-29).
+const hhmm = (m) => { const h = Math.floor((m % 1440) / 60), mm = String(m % 60).padStart(2, "0"); return `${h % 12 || 12}:${mm} ${h < 12 ? "AM" : "PM"}`; };
+const argAt = (() => { const i = process.argv.indexOf("--at"); return i > 0 ? process.argv[i + 1] : null; })();
+const dry = process.argv.includes("--dry-run");
+const now = new Date();
+if (argAt && /^\d{1,2}:\d{2}$/.test(argAt)) { const [h, m] = argAt.split(":").map(Number); now.setHours(h, m, 0, 0); }
+const minute = now.getHours() * 60 + now.getMinutes();
+const today = localDate(new Date(now.getTime() - 4 * 3600000));   // the day turns at 4 AM
+const config = loadConfig();
+const state = read(STATE, {});
+const day = state[today] ?? { asked: [], adjusted: false };
+const save = () => {
+  mkdirSync(dirname(STATE), { recursive: true });
+  const keep = Object.fromEntries(Object.entries({ ...state, [today]: day }).sort().slice(-7));
+  writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2)); renameSync(`${STATE}.tmp`, STATE);
+};
+if (process.argv[2] === "status") { console.log(JSON.stringify(day, null, 2)); process.exit(0); }
+
+const log = read(process.env.ORION_HEALTH_LOG || join(CONTROLLED, "health-log.json"), {});
+const record = (log.days ?? {})[today] ?? {};
+const upToday = (log.sleepLog ?? []).some((e) => e.event === "up" && localDate(new Date(e.at)) === today)
+  || (log.phoneSignals ?? []).some((s) => localDate(new Date(s.at)) === today && new Date(s.at).getHours() >= 5);
+const awake = upToday || record.recovery != null || minute >= toMinute(config.usualWake);
+const alerts = [];
+let blocks = [];
+try { blocks = toBlocks(await calendarEvents(), localDate(now)); day.calendar = "ok"; }
+catch (error) { day.calendar = `unreadable: ${String(error?.message ?? error).slice(0, 100)}`; /* ask nothing blind */ }
+const bed = toMinute(config.bedtime) <= 360 ? 1440 : toMinute(config.bedtime);
+const freeLeft = () => freeGaps(blocks, { start: Math.max(minute, toMinute(config.usualWake)), end: bed }, { minimum: 30 })
+  .reduce((a, g) => a + g.end - g.start, 0);
+const fixed = blocks.filter((b) => b.fixed);
+const classes = fixed.filter((b) => b.kind === "class");
+const lastClass = classes.at(-1);
+const short_ = (t) => t.replace(/ — .*$/, "").replace(/^[A-Z]{2,4}\d{3,4}\s+/, "");
+const plans = (list) => list.map((b) => `${short_(b.title)} at ${hhmm(b.start)}`).join(", ");
+
+// 2. A short night: reshape the morning, once, as soon as he is up.
+const slept = typeof record.sleepHours === "number" ? record.sleepHours * 60 : null;
+const lateBed = (log.sleepLog ?? []).filter((e) => e.event === "bed").map((e) => new Date(e.at))
+  .filter((d) => now - d < 16 * 3600000 && (d.getHours() >= 2 && d.getHours() < 8)).at(-1);
+const short = (slept !== null && slept < 360) || lateBed;
+if (awake && short && !day.adjusted && minute < 780 && blocks.length) {
+  const sleptMinutes = slept ?? Math.max(0, Math.round((toMinute(config.usualWake) + 1440 - (lateBed.getHours() * 60 + lateBed.getMinutes())) % 1440));
+  // The commute home after class is not nap time: gaps are found around it, and
+  // the pseudo-blocks never reach the calendar.
+  const withCommute = [...blocks, ...commuteBlocks(blocks, config)];
+  const reshaped = adjustForShortSleep(withCommute, { sleptMinutes, wake: minute, window: { start: minute, end: bed } });
+  const r = { ...reshaped, blocks: reshaped.blocks.filter((b) => !String(b.id).startsWith("commute-")) };
+  const before = new Map(blocks.map((b) => [b.id, b]));
+  const moves = r.blocks.filter((b) => before.has(b.id) && before.get(b.id).start !== b.start)
+    .map((b) => ({ id: b.id, title: b.title, from: before.get(b.id).start, to: b.start }));
+  const created = r.blocks.filter((b) => !before.has(b.id)).map((b) => ({ ...b, fixed: false, kind: "rest" }));
+  if (moves.length || created.length) {
+    try {
+      if (!dry) await applyPlan({ date: localDate(now), moves, created, blocksById: before });
+      alerts.push({ id: "watch-short-night", level: 1,
+        text: `Short night (${Math.round((sleptMinutes / 60) * 10) / 10} h). ${r.changes.join(". ")}. Tell me "undo" if you'd rather keep the day as it was.` });
+    } catch { /* leave the day alone if the calendar refuses */ }
+  }
+  day.adjusted = true;
+}
+
+// 0. The morning brief (tighten-orion/morning-brief, 2026-09-30): once, when
+// he is up and before 1 PM — sleep, the first fixed thing, the nearest deadline,
+// the side-project hour. On an empty day it leads into the question below.
+let brief = null;
+if (awake && minute < 780 && day.calendar === "ok" && !day.asked.includes("brief")) {
+  const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => [])
+    .then((list) => list.filter((e) => /\b(quiz|exam|midterm|final|test|due|submission|presentation|essay|assignment|coursework)\b/i.test(e.title))
+      .map((e) => ({ title: e.title, date: localDate(new Date(e.start)) })));   // assessments, not holidays
+  brief = morningBrief({
+    now: { date: localDate(now), minute },
+    blocks: blocks.map((b) => ({ title: short_(b.title), kind: b.kind, start: b.start, end: b.end, fixed: b.fixed })),
+    deadlines, sleep: { hours: record.sleepHours ?? null, recovery: record.recovery ?? null },
+    sideProjectLabel: config.sideProjectLabel,
+  }).text;
+  day.asked.push("brief");
+}
+
+// 1. An empty day: ask, don't guess.
+const free = awake ? freeLeft() : 0;
+if (awake && free >= 180) {
+  if (!day.asked.includes("morning") && minute < 780) {
+    day.asked.push("morning");
+    alerts.push({ id: "watch-morning", level: 1, text: brief
+      ? `Morning. ${brief} After that the day's open — what's the plan? Anything fixed? Tell me and I'll fill in the rest.`
+      : classes.length
+      ? `Morning. Today: ${plans(classes)}. After that nothing's planned until bed. What's the plan? Anything fixed — friends, going out? Tell me and I'll fill in the rest.`
+      : `Morning. Nothing's on the calendar today. What's the plan? Tell me what's fixed and I'll fill in the rest.` });
+    brief = null;
+  } else if (!day.asked.includes("afterClass") && lastClass && minute >= lastClass.end && minute <= lastClass.end + 45) {
+    day.asked.push("afterClass");
+    alerts.push({ id: "watch-after-class", level: 1,
+      text: `${short_(lastClass.title)}'s done. The rest of today is open — what's the plan? Anything fixed tonight? I'll fill in the rest around it.` });
+  }
+}
+if (brief) alerts.unshift({ id: "watch-brief", level: 1, text: `Morning. ${brief}` });
+if (alerts.length) {
+  day.lastQuestion = alerts.at(-1).text;
+  day.lastQuestionAt = now.toISOString();
+  mkdirSync(CONTROLLED, { recursive: true });
+  if (!dry) for (const a of alerts) appendFileSync(OUTBOX, `${JSON.stringify({ ...a, kind: "checkin" })}\n`);
+}
+if (!dry) { save(); summarize(log); }
+if (process.argv.includes("--json")) console.log(JSON.stringify(alerts));
+else for (const a of alerts) console.log(a.text);

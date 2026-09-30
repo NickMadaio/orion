@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+// orion-plan-study — find real slots for a study request (2026-09-29).
+//   orion-plan-study "<request>" [--book]   e.g. "two one-hour study sessions for macro this week"
+// Parses the request (study-request), then walks the days from today to the
+// deadline and fits the sessions into free time on Nick's real calendar
+// (fit-study; classes and events are fixed). Prints the slots to book with
+// calendar_event_add; it books nothing itself.
+import { parseStudyRequest } from "./lib/life/study-request.mjs";
+import { fitStudy } from "./lib/life/fit-study.mjs";
+import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
+import { applyPlan } from "./lib/life/calendar-write.mjs";
+
+const text = process.argv.slice(2).filter((a) => a !== "--book").join(" ").trim();
+if (!text) { console.error('usage: orion-plan-study "<request>"'); process.exit(2); }
+const now = new Date();
+const today = localDate(now);
+const request = parseStudyRequest(text, today);
+if (request.error) { console.error(`orion-plan-study: ${request.error}`); process.exit(1); }
+const events = await calendarEvents().catch((e) => { console.error(`orion-plan-study: ${e.message}`); process.exit(1); });
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+let remaining = [...request.splitMinutes];
+const slots = [];
+const days = [];
+for (let d = 0; d < 14; d++) {
+  const date = localDate(new Date(now.getTime() + d * 86400000));
+  if (date > request.byDate && d > 0) break;
+  days.push(date);
+}
+// Spread the sessions: one a day first, then doubling up only if the deadline forces it.
+for (const perDay of [1, 3]) {
+  for (const date of days) {
+    if (!remaining.length) break;
+    const nowMinute = date === today ? now.getHours() * 60 + now.getMinutes() + 15 : 0;
+    const taken = slots.filter((s) => s.date === date).map((s) => ({ id: `s-${s.start}`, title: "study", kind: "study", date, start: s.start, end: s.end, fixed: true, source: "orion" }));
+    if (taken.length >= perDay) continue;
+    // Daytime study only: 09:00–22:00, protecting sleep and the evening wind-down.
+    const r = fitStudy([...toBlocks(events, date), ...taken], remaining.slice(0, perDay - taken.length), { start: 540, end: 1320 }, nowMinute, date);
+    for (const p of r.placed) slots.push({ date, start: p.start, end: p.end });
+    const placed = r.placed.map((p) => p.end - p.start);
+    for (const m of placed) remaining.splice(remaining.indexOf(m), 1);
+  }
+}
+const subject = request.subject ? ` for ${request.subject}` : "";
+if (!slots.length) { console.log(`No free slot fits ${request.minutes} min of study${subject} before ${request.byDate}. Offer something shorter or ask what to drop.`); process.exit(0); }
+console.log(`Study${subject}: ${request.minutes} min, by ${request.byDate}. Free slots on his real calendar:`);
+for (const s of slots) console.log(`  ${new Date(`${s.date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} ${hhmm(s.start)}–${hhmm(s.end)}`);
+if (remaining.length) console.log(`  (${remaining.reduce((a, b) => a + b, 0)} min did not fit before the deadline — say so.)`);
+if (process.argv.includes("--book")) {
+  // Booked as ORION's own blocks, so they can move later when his day changes.
+  const title = `Study${subject}`.slice(0, 80);
+  const group = `study-${Date.now()}`;
+  for (const s of slots) {
+    await applyPlan({ date: s.date, moves: [], created: [{ title, kind: "study", start: s.start, end: s.end, fixed: false }], blocksById: new Map(), group });
+  }
+  console.log(`Booked ${slots.length} session${slots.length === 1 ? "" : "s"} in his calendar as "${title}". "orion-reschedule undo" removes ${slots.length === 1 ? "it" : "all of them"}.`);
+} else {
+  console.log("Add --book to put them in his calendar as ORION's (movable) study blocks.");
+}

@@ -1,0 +1,78 @@
+// Calendar writes for the planner, through the Mac bridge, with an undo record.
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+
+const run = promisify(execFile);
+// ORION_BRIDGE_BIN: a stand-in bridge for tests.
+const BRIDGE = process.env.ORION_BRIDGE_BIN || ([join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridge"),
+                join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find((p) => existsSync(p))
+  ?? join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge"));
+export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO || join(homedir(), ".openclaw/orion-controlled/reschedule-undo.json");
+
+export async function bridge(action, payload) {
+  const request = JSON.stringify({ id: "life", action, payload }).replace(/'/g, "'\\''");
+  const { stdout } = await run("/bin/sh", ["-c", `printf '%s\\n' '${request}' | "${BRIDGE}"`], { timeout: 30000 });
+  const line = stdout.split("\n").find((l) => l.trim().startsWith("{"));
+  const parsed = line ? JSON.parse(line) : null;
+  if (!parsed?.ok) throw new Error(parsed?.error ?? "the calendar bridge did not answer");
+  return parsed.result;
+}
+
+/** Local date + minute of day → ISO. Minutes past 1440 roll into the next day. */
+export function iso(date, minute) {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d, 0, minute, 0, 0).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+export const clean = (title) => String(title).replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 80);
+
+/*
+ One change, one undo step (2026-09-29). "Two study sessions" was booked as two
+ separate journal entries, so "undo" removed one and ORION said both were gone;
+ and a change that did nothing still wrote an empty entry for undo to land on.
+ Now `group` merges calls from one command into one entry, and empty changes
+ are never recorded.
+*/
+export async function applyPlan({ date, moves, created, blocksById, group = null }) {
+  const undo = [];
+  for (const m of moves) {
+    const block = blocksById.get(m.id);
+    if (!block?.calendarId) continue;
+    const length = block.end - block.start;
+    await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, m.to + length) });
+    undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
+  }
+  for (const c of created) {
+    const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end) };
+    if (!c.fixed) payload.orionKind = c.kind;   // Nick's own plans stay unmarked, so they never move
+    const result = await bridge("create_calendar_event", payload);
+    undo.push({ op: "create", identifier: result.identifier, title: payload.title });
+  }
+  if (!undo.length) return;
+  mkdirSync(dirname(UNDO_FILE), { recursive: true });
+  const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
+  const last = history.at(-1);
+  const next = group && last?.group === group
+    ? [...history.slice(0, -1), { ...last, steps: [...last.steps, ...undo] }]
+    : [...history, { at: new Date().toISOString(), ...(group ? { group } : {}), steps: undo }];
+  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-10), null, 2));
+  renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
+}
+
+export async function undoLast() {
+  const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
+  // Skip empty entries older versions wrote: undo always undoes something real.
+  while (history.length && !(history.at(-1).steps ?? []).length) history.pop();
+  const last = history.pop();
+  if (!last) return [];
+  const done = [];
+  for (const step of [...last.steps].reverse()) {
+    if (step.op === "move") { await bridge("move_calendar_event", { identifier: step.identifier, start: step.start, end: step.end }); done.push(`put ${step.title} back`); }
+    if (step.op === "create") { await bridge("delete_calendar_event", { identifier: step.identifier }).catch(() => null); done.push(`removed ${step.title}`); }
+  }
+  writeFileSync(UNDO_FILE, JSON.stringify(history, null, 2));
+  return done;
+}

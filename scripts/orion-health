@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+// orion-health — Nick's sleep, recovery and today's tracking, read-only (2026-09-29).
+// Asked "how'd I sleep last night", ORION said "I don't have sleep tracking data"
+// while WHOOP numbers sat in the health log the app writes. This reads that log.
+//   orion-health          today (the day turns at 4 AM) and the last 7 days
+//   orion-health --json
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+let log = {};
+try { log = JSON.parse(readFileSync(join(homedir(), ".openclaw/orion-controlled/health-log.json"), "utf8")); }
+catch { console.log("The health log could not be read."); process.exit(1); }
+const key = (d) => d.toLocaleDateString("en-CA");
+const today = key(new Date(Date.now() - 4 * 3600_000));
+const days = log.days ?? {};
+const recent = Object.keys(days).sort().slice(-7);
+const meals = (log.nutritionLog ?? {})[today] ?? [];
+// Before WHOOP scores the new day, "how did I sleep" means the latest scored night.
+const scored = Object.keys(days).sort().filter((d) => days[d].recovery != null || days[d].sleepHours != null);
+const latest = scored.at(-1) ?? null;
+const t = days[today] ?? {};
+const w = (t.recovery == null && t.sleepHours == null && latest) ? days[latest] : t;
+const wearableDay = w === t ? today : latest;
+const taken = new Set(t.supplementIDs ?? []);
+const supplements = (log.supplements ?? []).map((s) => ({ name: s.name, taken: taken.has(s.id) }));
+const out = {
+  day: today,
+  wearableDay,
+  sleep: { hours: w.sleepHours ?? null, performance: w.sleepPerformance ?? null },
+  recovery: w.recovery ?? null, hrv: w.hrv ?? null, restingHeartRate: w.restingHeartRate ?? null, strain: w.strain ?? null,
+  water: { bottles: t.waterBottles ?? 0, goal: 9 },
+  food: { calories: meals.reduce((a, m) => a + (m.calories ?? 0), 0), protein: meals.reduce((a, m) => a + (m.protein ?? 0), 0),
+          goal: log.nutritionGoals?.calories ?? 2200, meals: meals.map((m) => `${m.title} (${m.calories} kcal)`) },
+  supplements,
+  lastBed: (log.sleepLog ?? []).filter((e) => e.event === "bed").slice(-1)[0]?.at ?? null,
+  week: recent.map((d) => ({ day: d, recovery: days[d].recovery ?? null, sleepHours: days[d].sleepHours ?? null, strain: days[d].strain ?? null })),
+};
+if (process.argv.includes("--json")) { console.log(JSON.stringify(out, null, 2)); process.exit(0); }
+const n = (v, unit = "") => (v === null || v === undefined ? "not recorded" : `${v}${unit}`);
+console.log(`Health for ${today} (WHOOP + what Nick logged):`);
+console.log(`  latest WHOOP reading (${wearableDay ?? "none"}): sleep ${n(out.sleep.hours, "h")} (performance ${n(out.sleep.performance, "%")}), recovery ${n(out.recovery, "%")}, HRV ${n(out.hrv, " ms")}, resting HR ${n(out.restingHeartRate)}, strain ${n(out.strain)}`);
+console.log(`  water ${out.water.bottles}/${out.water.goal} bottles; food ${out.food.calories}/${out.food.goal} kcal, ${out.food.protein} g protein${out.food.meals.length ? ` — ${out.food.meals.join(", ")}` : ""}`);
+if (supplements.length) console.log(`  supplements: ${supplements.map((s) => `${s.name} ${s.taken ? "taken" : "not yet"}`).join(", ")}`);
+console.log(`  last 7 days recovery: ${out.week.map((w) => `${w.day.slice(5)} ${n(w.recovery, "%")}`).join(", ")}`);

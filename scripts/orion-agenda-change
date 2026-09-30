@@ -127,6 +127,29 @@ if (command === "add") {
   );
   if (!landed) fail("create returned but the reminder was absent on readback", 1);
   console.log(JSON.stringify({ verified: true, title, identifier: created.identifier, due: due ?? null }));
+} else if (command === "task-done") {
+  // Tick a reminder off (2026-09-29). Exact title first; otherwise one reminder
+  // whose title contains the words given ("the MSF course" -> "Finish MSF online
+  // course"). Two or more candidates is a question for Nick, never a guess.
+  const wanted = rest[0]?.trim();
+  if (!wanted) fail("task-done needs the reminder's title");
+  const open = unpack(await ask("list_incomplete_reminders"), "reminders_json");
+  const norm = (text) => String(text ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  const exact = open.filter((item) => norm(item.title) === norm(wanted));
+  const words = norm(wanted).split(" ").filter((word) => word.length > 2 && !["the", "and", "for", "off", "with"].includes(word));
+  const partial = open.filter((item) => words.length > 0 && words.every((word) => norm(item.title).includes(word)));
+  const matches = exact.length > 0 ? exact : partial;
+  if (matches.length === 0) fail(`no open reminder matches ${JSON.stringify(wanted)}`, 1);
+  if (matches.length > 1) {
+    fail(`more than one open reminder matches: ${matches.map((item) => JSON.stringify(item.title)).join(", ")} — say which`, 1);
+  }
+  const match = matches[0];
+  await ask("complete_reminder", { identifier: match.identifier });
+  const after = unpack(await ask("list_incomplete_reminders"), "reminders_json");
+  if (after.some((item) => item.identifier === match.identifier)) {
+    fail("complete returned but the reminder is still open on readback", 1);
+  }
+  console.log(JSON.stringify({ verified: true, title: match.title, identifier: match.identifier, completed: true }));
 } else {
-  fail('usage: orion-agenda-change add "<title>" <YYYY-MM-DDTHH:mm> [minutes] | remove-title "<title>" | task-add "<title>" [due]');
+  fail('usage: orion-agenda-change add "<title>" <YYYY-MM-DDTHH:mm> [minutes] | remove-title "<title>" | task-add "<title>" [due] | task-done "<title>"');
 }

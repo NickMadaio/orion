@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+// orion-patterns — what Nick's real history says (2026-09-29), for planning
+// that fits the person rather than the ideal: typical bedtime and wake (from
+// "Going to bed" / the first open after the alarm), late-night phone use, and
+// WHOOP sleep and recovery over the last two weeks. Read-only.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { learnPatterns } from "./lib/life/patterns.mjs";
+import { HISTORY_FILE } from "./lib/life/history.mjs";
+import { lateness } from "./lib/life/lateness.mjs";
+
+const log = (() => { try { return JSON.parse(readFileSync(join(homedir(), ".openclaw/orion-controlled/health-log.json"), "utf8")); } catch { return {}; } })();
+const minuteOf = (iso) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
+const hhmm = (m) => m === null ? "not enough data yet" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`;
+const history = [
+  ...(log.sleepLog ?? []).filter((e) => e.event === "bed").map((e) => ({ kind: "sleep", minute: minuteOf(e.at) })),
+  ...(log.sleepLog ?? []).filter((e) => e.event === "up").map((e) => ({ kind: "wake", minute: minuteOf(e.at) })),
+];
+const p = learnPatterns(history);
+const lateNights = new Set((log.phoneSignals ?? []).filter((s) => { const m = minuteOf(s.at); return m >= 60 && m < 300 && s.motion !== "vehicle"; })
+  .map((s) => new Date(s.at).toLocaleDateString("en-CA")));
+const days = Object.entries(log.days ?? {}).sort().slice(-14).map(([, d]) => d);
+const avg = (xs) => xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null;
+const sleepHours = avg(days.map((d) => d.sleepHours).filter((x) => typeof x === "number"));
+const recovery = avg(days.map((d) => d.recovery).filter((x) => typeof x === "number"));
+const low = days.filter((d) => typeof d.recovery === "number" && d.recovery < 34).length;
+console.log(`Typical bedtime: ${hhmm(p.sleep.median)} (${p.sleep.samples} nights logged with "Going to bed")`);
+console.log(`Typical wake: ${hhmm(p.wake.median)} (${p.wake.samples} mornings)`);
+console.log(`Phone in use between 01:00 and 05:00 on ${lateNights.size} of the recorded nights`);
+console.log(`WHOOP, last 14 days: ${sleepHours ?? "?"} h sleep on average, recovery ${recovery ?? "?"}%, ${low} red day(s) under 34%`);
+if (p.sleep.samples < 3) console.log("Few logged nights so far — patterns firm up as he taps \"Going to bed\" on the phone.");
+
+// Starting things: every finished check-in left planned vs actual. Read by
+// tighten-orion/lateness (by kind, weekday, time of day, and the trend).
+const outcomes = (() => { try { return readFileSync(HISTORY_FILE, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } })();
+const late = lateness(outcomes);
+console.log(`Starting things: ${late.sentence}`);
+if (late.overall.confident) {
+  const kinds = Object.entries(late.byKind).filter(([, k]) => k.confident)
+    .map(([kind, k]) => `${kind} ${k.medianDelay === null ? "never started" : `${k.medianDelay} min`}, skipped ${k.skipped}`);
+  if (kinds.length) console.log(`  by kind: ${kinds.join("; ")}`);
+}

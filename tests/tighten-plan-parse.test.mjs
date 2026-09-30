@@ -1,0 +1,95 @@
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { parsePlans, DEFAULT_MINUTES } from "../scripts/lib/life/plan-parse.mjs";
+
+const NOW = { date: "2026-09-29", minute: 900, weekday: 2 }; // Tuesday 3 PM
+
+test("dinner with friends tomorrow at 7", () => {
+  const items = parsePlans("dinner with friends tomorrow at 7", NOW);
+  assert.strictEqual(items.length, 1);
+  const item = items[0];
+  assert.strictEqual(item.title, "Dinner with friends");
+  assert.strictEqual(item.kind, "social");
+  assert.strictEqual(item.date, "2026-09-30");
+  assert.strictEqual(item.start, 1140); // 7 PM = 19*60
+  assert.strictEqual(item.minutes, 120);
+  assert.strictEqual(item.fixed, true);
+  assert.deepStrictEqual(item.assumed, ["120 min"]);
+});
+
+test("club from 10 till 2 tonight", () => {
+  const items = parsePlans("tonight I'm going to Ministry of Sound from 10 till 2", NOW);
+  assert.strictEqual(items.length, 1);
+  const item = items[0];
+  assert.strictEqual(item.title, "Ministry of Sound");
+  assert.strictEqual(item.kind, "social");
+  assert.strictEqual(item.date, "2026-09-29");
+  assert.strictEqual(item.start, 1320); // 10 PM = 22*60
+  assert.strictEqual(item.minutes, 240); // 10 PM to 2 AM = 4 hours
+  assert.strictEqual(item.fixed, true);
+});
+
+test("three plans in one sentence", () => {
+  const items = parsePlans(
+    "going home after class to clean, then meal prep with a friend at 6, then the club at 10",
+    NOW
+  );
+  assert.strictEqual(items.length, 3);
+
+  // Item 1: Clean
+  assert.strictEqual(items[0].title, "Clean");
+  assert.strictEqual(items[0].kind, "errand");
+  assert.strictEqual(items[0].start, null);
+  assert.ok(items[0].assumed.includes("afternoon"), `expected "afternoon" in assumed, got ${JSON.stringify(items[0].assumed)}`);
+
+  // Item 2: Meal prep with a friend
+  assert.strictEqual(items[1].title, "Meal prep with a friend");
+  assert.strictEqual(items[1].kind, "social");
+  assert.strictEqual(items[1].start, 1080); // 6 PM = 18*60
+
+  // Item 3: Club
+  assert.strictEqual(items[2].title, "Club");
+  assert.strictEqual(items[2].kind, "social");
+  assert.strictEqual(items[2].start, 1320); // 10 PM = 22*60
+});
+
+test("durations in words", () => {
+  const items = parsePlans("gym for an hour and a half at 7am tomorrow", NOW);
+  assert.strictEqual(items.length, 1);
+  const item = items[0];
+  assert.strictEqual(item.minutes, 90);
+  assert.strictEqual(item.start, 420); // 7 AM = 7*60
+  assert.strictEqual(item.kind, "gym");
+  assert.strictEqual(item.fixed, false);
+});
+
+test("weekday names", () => {
+  const items = parsePlans("study macro thursday at 2", NOW);
+  assert.strictEqual(items.length, 1);
+  const item = items[0];
+  assert.strictEqual(item.date, "2026-10-01"); // Thursday Oct 1
+  assert.strictEqual(item.start, 840); // 2 PM = 14*60
+  assert.strictEqual(item.kind, "study");
+});
+
+test("a passed bare hour today means pm", () => {
+  const items = parsePlans("groceries at 5", NOW);
+  assert.strictEqual(items.length, 1);
+  const item = items[0];
+  assert.strictEqual(item.start, 1020); // 5 PM = 17*60
+});
+
+test("no activity gives nothing", () => {
+  const items = parsePlans("tomorrow at 7", NOW);
+  assert.strictEqual(items.length, 0);
+});
+
+test("invalid now throws", () => {
+  assert.throws(() => parsePlans("x", null), TypeError);
+});
+
+test("joining words are not part of the title (2026-09-30)", () => {
+  const now = { date: "2026-09-30", minute: 480, weekday: 3 };
+  const items = parsePlans("tonight Ministry of Sound from 10 till 2, and before that meal prep with a friend at 6", now);
+  assert.deepEqual(items.map((i) => i.title), ["Ministry of Sound", "Meal prep with a friend"]);
+});

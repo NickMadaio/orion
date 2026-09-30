@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+// orion-reschedule — move Nick's day around what actually happened (2026-09-29).
+//   orion-reschedule late <minutes> [--why "<what happened>"]         he's running late: lose the time from now
+//   orion-reschedule busy HH:MM-HH:MM [--why "<what>"]                something took that time
+//   orion-reschedule add "<title>" <minutes> [--at HH:MM] [--fixed] [--before HH:MM] [--date YYYY-MM-DD]
+//   orion-reschedule fill [--date YYYY-MM-DD]                         fill the blanks once his real plans are known
+//   orion-reschedule day --plan "<title>, <min>, HH:MM, fixed" [--plan …] [--fill]
+//        everything he just told you, in ONE call: his plans go in first, then the blanks are filled
+//        around them (use this instead of several adds + fill — run in parallel they collide)
+//   orion-reschedule undo                                             put the last change back
+//   add --dry-run to any of them to see the plan without touching the calendar.
+// Only movable things move (study, gym, games, rest, groceries, chores, side
+// projects, meals alone, anything ORION planned). Classes, deadlines and plans
+// with people never do. Every change is written to Apple Calendar and can be undone.
+import { calendarEvents, toBlocks, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
+import { replan } from "./lib/life/replan.mjs";
+import { fillDay } from "./lib/life/fill-day.mjs";
+import { loadConfig, toMinute } from "./lib/life/config.mjs";
+import { applyPlan, undoLast, bridge, clean } from "./lib/life/calendar-write.mjs";
+import { ramp } from "./lib/life/deadline-ramp.mjs";
+import { parsePlans } from "./lib/life/plan-parse.mjs";
+import { commuteWalls } from "./lib/life/commute.mjs";
+import { loadPatterns } from "./lib/life/history.mjs";
+
+const args = process.argv.slice(2);
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say"].includes(args[i - 1])));
+const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
+const [command, ...rest] = positional;
+const dry = args.includes("--dry-run");
+const fail = (m, code = 2) => { console.error(m); process.exit(code); };
+const hhmm = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const minute = (t) => { const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(t ?? ""); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
+// One change at a time: two runs started together would each plan from the
+// same old calendar and write on top of each other (found in a scenario run).
+import { mkdirSync as mkLock, rmSync as rmLock, statSync as statLock } from "node:fs";
+import { join as joinPath } from "node:path";
+import { homedir as home } from "node:os";
+const LOCK = joinPath(home(), ".openclaw/orion-controlled/reschedule.lock");
+if (!dry) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    try { mkLock(LOCK); break; } catch {
+      try { if (Date.now() - statLock(LOCK).mtimeMs > 60000) rmLock(LOCK, { recursive: true, force: true }); } catch {}
+      if (Date.now() > deadline) fail("another change to his day is still running; try again", 1);
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  process.on("exit", () => { try { rmLock(LOCK, { recursive: true, force: true }); } catch {} });
+}
+
+if (command === "undo") {
+  const done = await undoLast().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+  console.log(done.length ? `Undone: ${done.join("; ")}.` : "Nothing to undo.");
+  process.exit(0);
+}
+
+const config = loadConfig();
+const nowDate = new Date();
+/*
+ --say "<his own words>" (2026-09-30): the plan parser (tighten-orion/plan-parse)
+ reads the titles, dates, times and lengths out of what Nick said, so the model
+ no longer composes "--plan" lines and forgets "--date" for tomorrow. Items for
+ another day are reported, not dropped.
+*/
+const sayText = flag("--say");
+const said = sayText ? parsePlans(sayText, { date: localDate(nowDate), minute: nowDate.getHours() * 60 + nowDate.getMinutes(), weekday: nowDate.getDay() }) : [];
+const date = flag("--date") ?? said[0]?.date ?? localDate(nowDate);
+const otherDays = said.filter((p) => p.date !== date);
+const dayName = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
+// Today's share of the study each assessment still needs (deadline-ramp). Only
+// assessments: the deadline feed also carries public holidays ("Study for
+// Halloween" was one dry run away, 2026-09-30).
+function studyPlanFor(deadlines) {
+  const assessments = deadlines.filter((e) => /\b(quiz|exam|midterm|final|test|due|submission|presentation|essay|assignment|coursework)\b/i.test(e.title));
+  const rampDay = ramp(assessments.map((e, i) => ({ id: e.identifier ?? `d${i}`, title: e.title.replace(/^DUE \d\d:\d\d — /, ""),
+    date: localDate(new Date(e.start)) })), { today: date }).find((d) => d.date === date);
+  return rampDay ? rampDay.items.map((it) => ({ title: it.title, minutes: it.minutes })) : [];
+}
+const today = date === localDate(nowDate);
+const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : 0;
+const bed = toMinute(config.bedtime);
+// Plan from when he actually gets up, once his history says so (3+ mornings).
+const patterns = loadPatterns();
+const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMinute(config.usualWake);
+const window = { start: Math.max(wakeMinute - 60, 360), end: bed <= 360 ? 1440 : bed };
+const events = await calendarEvents().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+const blocks = toBlocks(events, date);
+const blocked = []; const add = [];
+
+if (command === "late") {
+  const n = Number(rest[0]); if (!Number.isInteger(n) || n < 5 || n > 600) fail("usage: orion-reschedule late <minutes>");
+  blocked.push({ start: nowMinute, end: nowMinute + n, title: flag("--why") ?? "running late" });
+} else if (command === "busy") {
+  const [a, b] = String(rest[0] ?? "").split("-").map(minute);
+  if (a === null || b === null || b <= a) fail("usage: orion-reschedule busy HH:MM-HH:MM");
+  blocked.push({ start: a, end: b, title: flag("--why") ?? "busy" });
+} else if (command === "add") {
+  const title = clean(rest[0] ?? ""); const n = Number(rest[1]);
+  if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail('usage: orion-reschedule add "<title>" <minutes> [--at HH:MM] [--fixed] [--before HH:MM]');
+  const at = minute(flag("--at")); const before = minute(flag("--before"));
+  const fixed = args.includes("--fixed") || isSocial(title);
+  if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
+  add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(before !== null ? { before } : {}), fixed });
+} else if (command === "day") {
+  if (!planArgs.length && !said.length && !args.includes("--fill")) fail('usage: orion-reschedule day --say "<his words>" [--fill]  (or --plan "<title>, <min>, HH:MM, fixed" …)');
+  for (const p of said.filter((item) => item.date === date)) {
+    const title = clean(p.title);
+    const fixed = p.fixed && p.start !== null;
+    add.push({ title, kind: classify(title), minutes: p.minutes, ...(p.start !== null ? { at: p.start } : {}), fixed });
+  }
+  for (const raw of planArgs) {
+    // Commas, not "|": ORION's exec router reads a pipe as a shell operator and refuses the call.
+    const parts = raw.split(",").map((x) => x.trim()).filter(Boolean);
+    const fx = parts.some((p) => /^fixed$/i.test(p)) ? "fixed" : "";
+    const at = parts.find((p) => /^\d{1,2}:\d{2}$/.test(p)) ?? null;
+    const m = (parts.find((p, i) => i > 0 && /^\d+\s*(min(ute)?s?)?$/i.test(p)) ?? "").replace(/\D/g, "");
+    const t = parts[0];
+    const title = clean(t ?? ""); const n = Number(m); const when = minute(at);
+    if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail(`bad --plan "${raw}" (want "<title>, <minutes>, HH:MM, fixed")`);
+    // Nick's rule: plans with people (and classes) stay put; what he does alone can move,
+    // even if the caller said "fixed" (a scenario run pinned "clean" over his meal prep).
+    const fixed = isSocial(title) || (fx === "fixed" && !movableTitle(title));
+    if (fixed && when === null) fail(`"${title}" is a fixed plan and needs a time`);
+    add.push({ title, kind: classify(title), minutes: n, ...(when !== null ? { at: when } : {}), fixed });
+  }
+} else if (command === "fill") {
+  const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => []);
+  const dayMs = 86400000; const base = new Date(`${date}T00:00:00`).getTime();
+  const soon = deadlines.filter((e) => /quiz|exam|test|due|submission/i.test(e.title))
+    .map((e) => ({ title: e.title.replace(/^DUE \d\d:\d\d — /, ""), daysAway: Math.floor((new Date(e.start).getTime() - base) / dayMs) }));
+  const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
+  add.push(...fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) }));
+  if (!add.length) { console.log("Nothing to add: the day already has what it needs, and the rest stays free."); process.exit(0); }
+} else {
+  fail("usage: orion-reschedule late|busy|add|day|fill|undo  (see the header)");
+}
+
+// Two fixed plans at the same time is his call, not ours: say so.
+const fixedNew = add.filter((a) => a.fixed && Number.isInteger(a.at));
+const clashes = fixedNew.flatMap((a, i) => [...fixedNew.slice(i + 1), ...blocks.filter((b) => b.fixed)]
+  .filter((b) => (b.at ?? b.start) < a.at + a.minutes && a.at < (b.at ?? b.start) + (b.minutes ?? (b.end - b.start)))
+  .map((b) => `${a.title} overlaps ${b.title}`));
+// Travel to and from campus is not free time (a nap landed at 12:30, the minute class ended).
+blocked.push(...commuteWalls(blocks, config));
+let result = replan(blocks, { now: nowMinute, window, blocked, add });
+if (command === "day" && args.includes("--fill")) {
+  // His plans are now in place; fill around them without moving any of them.
+  const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => []);
+  const base = new Date(`${date}T00:00:00`).getTime();
+  const soon = deadlines.filter((e) => /quiz|exam|test|due|submission/i.test(e.title))
+    .map((e) => ({ title: e.title.replace(/^DUE \d\d:\d\d — /, ""), daysAway: Math.floor((new Date(e.start).getTime() - base) / 86400000) }));
+  const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
+  // Today's share of the study each deadline still needs (deadline-ramp).
+  const asks = fillDay(result.blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) });
+  const second = replan(result.blocks.map((b) => ({ ...b, id: `kept-${b.id}`, fixed: true })), { now: nowMinute, window, add: asks });
+  result = { ...result, created: [...result.created, ...second.created], unplaced: [...result.unplaced, ...second.unplaced] };
+}
+const byId = new Map(blocks.map((b) => [b.id, b]));
+const lines = [
+  ...result.moves.map((m) => `moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`),
+  ...result.created.map((c) => `${c.fixed ? "added (fixed)" : "planned"} ${c.title}: ${hhmm(c.start)}–${hhmm(c.end)}`),
+  ...result.unplaced.map((u) => `NOT BOOKED: ${u.title} (${u.minutes} min) did not fit on ${dayName} — ask whether to drop it or put it on another day (--date YYYY-MM-DD)`),
+  ...clashes.map((c) => `CLASH: ${c} — ask him which one is right`),
+];
+if (!lines.length) { console.log("Nothing needed to move."); process.exit(0); }
+if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+// 2026-09-29: "could not fit side project today" came back and ORION told Nick
+// it was booked for Wednesday. The headline now says what was and was not written.
+for (const p of otherDays) lines.push(`NOT BOOKED: ${p.title} is on ${p.date} — run again with --date ${p.date} --say "${p.title}${p.start !== null ? ` at ${hhmm(p.start)}` : ""}"`);
+if (said.length) lines.push(`(read from his words: ${said.map((p) => `${p.title} ${p.date}${p.start !== null ? ` ${hhmm(p.start)}` : ""} ${p.minutes} min${p.assumed.length ? ` [assumed ${p.assumed.join(", ")}]` : ""}`).join("; ")})`);
+const written = result.moves.length + result.created.length;
+if (!written) console.log(`NOTHING WAS BOOKED on ${dayName} (${date}). Do not tell him anything was added or moved.`);
+console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
+for (const l of lines) console.log(`  ${l}`);
+if (!dry && written) console.log('Written to his calendar. "orion-reschedule undo" puts it back.');

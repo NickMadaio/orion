@@ -22,6 +22,16 @@ const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frida
 export function parseStudyRequest(text, today) {
   const lowerText = text.toLowerCase().trim();
 
+  // 0. "two one-hour sessions", "3 x 45 min", "two 1 hour study sessions" (added 2026-09-29):
+  //    the session count and length are said outright, so they win over everything else.
+  const sessions = parseSessions(lowerText);
+  if (sessions) {
+    const total = sessions.count * sessions.each;
+    if (total < 15 || total > 600) return { error: 'minutes out of range' };
+    const byDate0 = parseByDate(lowerText, today) ?? today;
+    return { minutes: total, subject: parseSubject(text), byDate: byDate0, splitMinutes: Array(sessions.count).fill(sessions.each) };
+  }
+
   // 1. Parse minutes
   let minutes = parseMinutes(lowerText);
   if (minutes === null) {
@@ -79,12 +89,12 @@ function parseSubject(text) {
   // Look for "for <subject>" or "on <subject>"
   // Stop at "before", "by", or end of string
   
-  const forMatch = text.match(/\bfor\s+(.+?)(?:\s+before\b|\s+by\b|$)/i);
+  const forMatch = text.match(/\bfor\s+(.+?)(?:\s+(?:before|by|this|next|today|tomorrow|on\s+(?:mon|tue|wed|thu|fri|sat|sun)\w*|outside|during|after)\b|[,.]|$)/i);
   if (forMatch) {
     return normalizeSubject(forMatch[1].trim());
   }
 
-  const onMatch = text.match(/\bon\s+(.+?)(?:\s+before\b|\s+by\b|$)/i);
+  const onMatch = text.match(/\bon\s+(.+?)(?:\s+(?:before|by|this|next|today|tomorrow|on\s+(?:mon|tue|wed|thu|fri|sat|sun)\w*|outside|during|after)\b|[,.]|$)/i);
   if (onMatch) {
     return normalizeSubject(onMatch[1].trim());
   }
@@ -111,6 +121,17 @@ function normalizeSubject(raw) {
  * @param {string} today - YYYY-MM-DD
  * @returns {string | null}
  */
+function parseSessions(text) {
+  const count = { one: 1, two: 2, three: 3, four: 4, a: 1, "1": 1, "2": 2, "3": 3, "4": 4 };
+  const m = text.match(/\b(one|two|three|four|a|[1-4])\s*(?:x\s*)?(one|1|half|30|45|60|90)?[\s-]*(hour|hr|minute|min)s?[\s-]*(?:long\s+)?(?:study\s+)?(session|block|slot)s?\b/);
+  if (!m) return null;
+  const n = count[m[1]];
+  let each;
+  if (m[3].startsWith("h")) each = m[2] === "half" ? 30 : m[2] === "90" ? 90 : 60;
+  else each = Number(m[2] ?? 60) || 60;
+  return n ? { count: n, each } : null;
+}
+
 function parseByDate(text, today) {
   // Check for explicit date first
   const dateMatch = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
@@ -126,6 +147,16 @@ function parseByDate(text, today) {
   // "tomorrow"
   if (/\btomorrow\b/.test(text)) {
     return addDays(today, 1);
+  }
+
+  // "this week" / "by the weekend" → the coming Sunday; "next week" → the Sunday after.
+  if (/\b(this week|by the weekend|before the weekend|this weekend)\b/.test(text)) {
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    return addDays(today, dow === 0 ? 0 : 7 - dow);
+  }
+  if (/\bnext week\b/.test(text)) {
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    return addDays(today, (dow === 0 ? 0 : 7 - dow) + 7);
   }
 
   // Weekday name

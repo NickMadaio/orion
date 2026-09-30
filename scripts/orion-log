@@ -1,0 +1,69 @@
+#!/usr/bin/env node
+// orion-log — log water or food into Nick's health log (2026-09-29).
+//   orion-log water [bottles]                  +1 by default, 1..3
+//   orion-log food "<what>" <kcal> [protein_g] [breakfast|lunch|dinner|snack]
+// "I just had a big bottle of water" got "you're at 1 of 9" and nothing was
+// logged: the brain had no way to write it. This writes the same file the app
+// and the phone write, under the same lock (<file>.lock, O_EXCL, broken after
+// 15 s, given up after 6 s) and with every day-record key the app requires.
+import { readFileSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync, statSync, mkdirSync, chmodSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+
+// ORION_HEALTH_LOG redirects it for tests, exactly as the app allows.
+const FILE = process.env.ORION_HEALTH_LOG || join(homedir(), ".openclaw/orion-controlled/health-log.json");
+const [kind, ...rest] = process.argv.slice(2);
+const usage = () => { console.error('usage: orion-log water [1-3] | orion-log food "<what>" <kcal> [protein_g] [breakfast|lunch|dinner|snack]'); process.exit(2); };
+const day = new Date(Date.now() - 4 * 3600_000).toLocaleDateString("en-CA");
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function withLock(body) {
+  const lock = `${FILE}.lock`; const deadline = Date.now() + 6000;
+  mkdirSync(dirname(FILE), { recursive: true });
+  for (;;) {
+    try { closeSync(openSync(lock, "wx")); break; } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      try { if (Date.now() - statSync(lock).mtimeMs > 15000) unlinkSync(lock); } catch {}
+      if (Date.now() > deadline) { console.error("the health log stayed busy; try again"); process.exit(1); }
+      sleep(20);
+    }
+  }
+  try { return body(); } finally { try { unlinkSync(lock); } catch {} }
+}
+
+let reply;
+if (kind === "water") {
+  const n = rest[0] === undefined ? 1 : Number(rest[0]);
+  if (!Number.isInteger(n) || n < 1 || n > 3) usage();
+  withLock(() => update((log, record) => { record.waterBottles = (record.waterBottles ?? 0) + n; reply = `Logged ${n} bottle${n > 1 ? "s" : ""}: ${record.waterBottles} of 9 today.`; }));
+} else if (kind === "food") {
+  const [title, kcal, protein, said] = rest;
+  const calories = Number(kcal), grams = protein === undefined ? 0 : Number(protein);
+  if (!title?.trim() || title.length > 80 || !Number.isInteger(calories) || calories < 0 || calories > 5000 || !Number.isInteger(grams) || grams < 0 || grams > 500) usage();
+  const hour = new Date().getHours();
+  const named = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" }[String(said ?? "").toLowerCase()];
+  if (said !== undefined && !named) usage();
+  // What he called it wins over the clock ("for lunch" at 4 AM is still lunch).
+  const meal = named ?? (hour >= 4 && hour < 11 ? "Breakfast" : hour < 15 && hour >= 11 ? "Lunch" : hour >= 17 && hour < 22 ? "Dinner" : "Snack");
+  withLock(() => update((log, record) => {
+    const nutrition = log.nutritionLog ?? {}; const entries = nutrition[day] ?? [];
+    entries.push({ id: randomUUID().toUpperCase(), title: title.trim(), meal, calories, protein: grams, carbohydrates: 0, fat: 0, fiber: 0,
+                   notes: "Logged by ORION.", loggedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") });
+    nutrition[day] = entries; log.nutritionLog = nutrition;
+    record.calories = entries.reduce((a, e) => a + (e.calories ?? 0), 0);
+    reply = `Logged ${title.trim()} (${calories} kcal): ${record.calories} kcal today.`;
+  }));
+} else usage();
+console.log(reply);
+
+function update(change) {
+  const log = JSON.parse(readFileSync(FILE, "utf8"));
+  const days = log.days ?? {};
+  const record = { waterBottles: 0, calories: 0, supplementIDs: [], updatedAt: "", ...(days[day] ?? {}) };
+  change(log, record);
+  const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  record.updatedAt = stamp; days[day] = record; log.days = days; log.updatedAt = stamp;
+  const scratch = join(dirname(FILE), `.health-log.${randomUUID()}.tmp`);
+  writeFileSync(scratch, JSON.stringify(log, null, 2)); chmodSync(scratch, 0o600); renameSync(scratch, FILE);
+}

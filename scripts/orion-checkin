@@ -1,0 +1,175 @@
+#!/usr/bin/env node
+// orion-checkin — ORION coming back to check (2026-09-29). Closes the loop:
+// "I'm starving, let me eat first" → ORION gives 25 minutes, then comes back:
+// "Okay, you ate. Now we're starting." Ignored, it escalates; started, it goes
+// quiet and checks the work is still going; done or cancelled, it stops.
+//
+//   orion-checkin add <minutes> "<what>" [--because "<reason>"]   schedule a check-in
+//   orion-checkin started|done [id]                                 he began / finished
+//   orion-checkin started "<what>"                                  he began something with no check-in
+//   orion-checkin defer <minutes> [id] [--because "<reason>"]       a real pause
+//   orion-checkin cancel [id] [--because "<reason>"]                 plans changed — no scolding
+//   orion-checkin list                                               what is pending
+//   orion-checkin tick [--json]                                      advance due loops; print alerts
+//
+// The loop itself is scripts/lib/life/follow-through.mjs. `tick` is run by the
+// phone link on the Mac every 30 s; each alert it prints becomes a notification
+// on Nick's iPhone. [id] defaults to the most recent open check-in.
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
+import { startLoop, step } from "./lib/life/follow-through.mjs";
+import { classifyDeferral } from "./lib/life/deferral.mjs";
+import { recordOutcome, loadPatterns, lateHabit } from "./lib/life/history.mjs";
+import { classify } from "./lib/life/live-day.mjs";
+
+const FILE = process.env.ORION_CHECKIN_FILE || join(homedir(), ".openclaw/orion-controlled/checkins.json");
+const MAX_ALERTS = 8;
+const nowMinute = () => Math.floor(Date.now() / 60000);
+const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };
+const save = (state) => {
+  mkdirSync(dirname(FILE), { recursive: true });
+  const tmp = `${FILE}.${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); renameSync(tmp, FILE);
+};
+const args = process.argv.slice(2);
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1].startsWith("--")));
+const [command, ...rest] = positional;
+const fail = (msg, code = 2) => { console.error(msg); process.exit(code); };
+/** "I'm starving" → "you ate": what he'll have done when ORION comes back. */
+function returning(because) {
+  const t = String(because ?? "").toLowerCase();
+  if (!t) return null;
+  if (/eat|hungry|starv|food|lunch|dinner|breakfast|snack/.test(t)) return "you ate";
+  if (/shower/.test(t)) return "you showered";
+  if (/call/.test(t)) return "the call's done";
+  if (/bathroom|toilet/.test(t)) return "you're back";
+  if (/laundry/.test(t)) return "laundry's sorted";
+  return "break's over";
+}
+const open = (c) => !["done", "cancelled", "given_up"].includes(c.loop.phase);
+
+function pick(state, id) {
+  const list = state.checkins.filter(open);
+  const found = id ? list.find((c) => c.id === id) : list[list.length - 1];
+  if (!found) fail(id ? `no open check-in ${id}` : "no open check-in", 1);
+  return found;
+}
+
+/** What ORION says when a check-in comes due, by level. Plain, not motivational. */
+export function message(c, now) {
+  const late = Math.max(0, now - c.dueAt);
+  const w = c.what;
+  const W = w.charAt(0).toUpperCase() + w.slice(1);
+  if (c.loop.level <= 1 && c.returning) return `Okay, ${c.returning}. Now we're starting: ${w}.`;
+  const habit = lateHabit(loadPatterns(), classify(w));
+  switch (c.loop.level) {
+    case 1: return `Time to start: ${w}.${habit ? ` ${habit}` : ""}`;
+    case 2: return `${W} — still not started. Start now; just the first five minutes.`;
+    case 3: return `It's been ${late} min. ${W}, now. Phone down.`;
+    default: return `You've been avoiding ${w} for ${late} min. Get up. We're doing it now.`;
+  }
+}
+
+const state = load();
+const now = nowMinute();
+
+switch (command) {
+  case "add": {
+    const minutes = Number(rest[0]); const what = rest.slice(1).join(" ").trim();
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720 || !what || what.length > 120) fail('usage: orion-checkin add <0-720 minutes> "<what>"');
+    const id = `ci-${randomBytes(3).toString("hex")}`;
+    const because = flag("--because");
+    const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0,
+                returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
+                loop: startLoop({ id, start: now + minutes }, now) };
+    state.checkins = [...state.checkins.filter(open), c].slice(-20);
+    save(state);
+    const at = new Date((now + minutes) * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    console.log(`Check-in ${id}: I'll come back at ${at} (${minutes} min) about "${what}" on Nick's iPhone, and keep at it until he starts.`);
+    break;
+  }
+  case "started": case "done": {
+    // "Starting the slides now" with nothing open: begin a quiet "still going?" loop.
+    const openOnes = state.checkins.filter(open);
+    if (command === "started" && !openOnes.some((c) => c.id === rest[0]) && (rest.length > 0 && !/^ci-/.test(rest[0]) || openOnes.length === 0)) {
+      const what = rest.join(" ").trim() || "what you started";
+      const id = `ci-${randomBytes(3).toString("hex")}`;
+      const loop = step(startLoop({ id, start: now }, now), { type: "started" }, now);
+      state.checkins = [...openOnes, { id, what, dueAt: now, createdAt: new Date().toISOString(), alerts: 0, returning: null, loop }].slice(-20);
+      save(state);
+      console.log(`Noted: ${what} started. I'll check in ~25 min that it's still going.`);
+      break;
+    }
+    const c = pick(state, rest[0]);
+    // Planned vs actual: the first time he starts it is the sample that counts.
+    if (command === "started" && c.loop.phase !== "active" && c.dueAt) recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: now * 60000 });
+    c.loop = step(c.loop, { type: command }, now);
+    save(state);
+    console.log(command === "started" ? `Noted: ${c.what} started. I'll check in ~25 min that it's still going.` : `Done: ${c.what}. Check-in closed.`);
+    break;
+  }
+  case "defer": {
+    const minutes = Number(rest[0]); const c = pick(state, rest[1]);
+    if (!Number.isInteger(minutes) || minutes < 1) fail("usage: orion-checkin defer <minutes> [id] [--because \"reason\"]");
+    const because = flag("--because") ?? "";
+    const verdict = classifyDeferral(because);
+    // "10 more min" tapped on the phone: the first one is a real snooze; a
+    // second in a row is putting it off, and the loop gets firmer.
+    const snooze = args.includes("--snooze") && c.loop.deferrals === 0;
+    const legitimate = snooze || verdict.kind === "pause" || verdict.kind === "change";
+    c.loop = step(c.loop, { type: "defer", minutes, legitimate }, now);
+    if (legitimate) c.returning = returning(because);
+    save(state);
+    console.log(c.loop.phase === "deferred"
+      ? `Fair — back in ${Math.max(5, Math.min(45, minutes))} min about ${c.what}.`
+      : `That reads as putting it off (${verdict.kind}). Not deferring — the check-in stays on and gets firmer.`);
+    break;
+  }
+  case "cancel": {
+    const c = pick(state, rest[0]);
+    c.loop = step(c.loop, { type: "cancelled", reason: flag("--because") ?? "" }, now);
+    save(state);
+    console.log(`Cancelled: ${c.what}. Plans changed; no follow-up.`);
+    break;
+  }
+  case "list": {
+    const list = state.checkins.filter(open);
+    if (!list.length) { console.log("No open check-ins."); break; }
+    for (const c of list) {
+      const at = c.loop.nextCheckAt ? new Date(c.loop.nextCheckAt * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—";
+      console.log(`${c.id} — ${c.what} — ${c.loop.phase}, level ${c.loop.level}, next check ${at}`);
+    }
+    break;
+  }
+  case "tick": {
+    const alerts = [];
+    for (const c of state.checkins.filter(open)) {
+      const before = c.loop;
+      const after = step(before, { type: "tick" }, now);
+      if (after === before) {
+        // An active block: confirm it is still going once, then leave him alone.
+        if (before.phase === "active" && before.nextCheckAt !== null && now >= before.nextCheckAt) {
+          c.loop = { ...before, nextCheckAt: null };
+          alerts.push({ id: c.id, level: 0, text: `Still on ${c.what}? Reply "done" when you finish.` });
+        }
+        continue;
+      }
+      c.loop = after;
+      c.alerts += 1;
+      if (c.alerts > MAX_ALERTS) {
+        recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
+        c.loop = { ...after, phase: "given_up", nextCheckAt: null }; alerts.push({ id: c.id, level: 4, text: `I'll stop pinging about ${c.what}. Tell me when you want to pick it back up.` }); continue; }
+      alerts.push({ id: c.id, level: after.level, text: message(c, now) });
+      c.returning = null;
+    }
+    save(state);
+    if (args.includes("--json")) console.log(JSON.stringify(alerts));
+    else for (const a of alerts) console.log(`[${a.id}] ${a.text}`);
+    break;
+  }
+  default:
+    fail('usage: orion-checkin add|started|done|defer|cancel|list|tick  (see the header of this file)');
+}

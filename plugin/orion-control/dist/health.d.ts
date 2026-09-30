@@ -55,6 +55,35 @@ export declare function addSupplement(file: string, name: string, dose?: string,
     supplement?: Supplement;
 }>;
 /**
+ * Find one supplement by what Nick called it: exact name first, otherwise the
+ * single entry whose name contains his words ("vitamin d" → "vitamin d3").
+ * Two or more candidates is his decision, reported, never a guess.
+ */
+export declare function findSupplement(supplements: Supplement[], name: string): {
+    match?: Supplement;
+    ambiguous: Supplement[];
+};
+/**
+ * Take a supplement off the list (2026-09-30). "Combine magnesium, zinc and
+ * calcium into one" had no way to remove the singles, so ORION added the
+ * combined item and said it had combined them. Past days keep their taken
+ * records; only the list changes.
+ */
+export declare function removeSupplement(file: string, name: string): Promise<{
+    removed?: Supplement;
+    ambiguous: string[];
+}>;
+/** Rename a supplement or change its dose or time of day, keeping its id and history. */
+export declare function updateSupplement(file: string, name: string, changes: {
+    newName?: string;
+    dose?: string;
+    timeOfDay?: string;
+}): Promise<{
+    updated?: Supplement;
+    ambiguous: string[];
+    clash?: string;
+}>;
+/**
  * Mark a supplement taken today, by name.
  *
  * Adds it to the list if it is not there yet: being told "I took my magnesium"

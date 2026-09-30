@@ -49,7 +49,20 @@ function normalized(value) {
  * consolidation pass decides what deserves long-term promotion. Zero model
  * calls means capture cannot itself become a token leak.
  */
-export function episodeFromUserText(input) {
+/**
+ * Only Nick's own words. Remote messages arrive as ONE user turn: the
+ * transport's context (live facts, channel rules) and then "--- Nick's message
+ * follows ---". Capturing the whole turn wrote those rules into his journal as
+ * if he had said them (found 2026-09-29: "It is not a website: never open a…").
+ */
+export function nickWords(input) {
+    const marker = "--- Nick's message follows ---";
+    const at = input.lastIndexOf(marker);
+    const own = at === -1 ? input : input.slice(at + marker.length);
+    return own.split(/\n/).filter((line) => !/^\s*\[orion-remote[^\]]*\]/.test(line)).join("\n");
+}
+export function episodeFromUserText(rawInput) {
+    const input = nickWords(rawInput);
     const source = clean(input);
     if (!source || SECRET_SHAPED.test(source))
         return undefined;

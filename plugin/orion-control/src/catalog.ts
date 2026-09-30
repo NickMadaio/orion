@@ -257,6 +257,7 @@ export interface MediaControlPolicy {
   kind: "media_control";
   operation:
     | "play_pause"
+    | "now_playing"
     | "next_track"
     | "previous_track"
     | "volume_set"
@@ -355,6 +356,8 @@ export type ExecutionPolicy =
       operation:
         | "supplement_add"
         | "supplement_take"
+        | "supplement_remove"
+        | "supplement_update"
         | "supplement_status"
         | "workout_log"
         | "workout_status";
@@ -380,7 +383,7 @@ export type ExecutionPolicy =
     }
   | {
       kind: "calendar";
-      operation: "event_add" | "event_remove" | "reminder_add";
+      operation: "event_add" | "event_remove" | "reminder_add" | "reminder_complete";
     }
   /**
    * Sending, through `scripts/orion-messages-send`.
@@ -2146,6 +2149,17 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     },
     { requiredArguments: [], verification: "media_player_state_toggled" },
   ),
+  // "What song is this?" (2026-09-29) was answered by trying to look at the
+  // screen, because nothing could simply ask the player. Read-only.
+  media_now_playing: mediaAction(
+    {
+      kind: "media_control",
+      operation: "now_playing",
+      playerArgument: "player",
+      targetWords: ["music", "song", "track", "playing", "spotify", "podcast", "artist"],
+    },
+    { requiredArguments: [], verification: "media_track_reported" },
+  ),
   media_next_track: mediaAction(
     {
       kind: "media_control",
@@ -2476,6 +2490,9 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     reversible: true,
     capabilityTier: "ambient_info",
     execution: { kind: "ambient_read", operation: "weather" },
+    // "Do I need an umbrella tomorrow?" was answered from today's sky (2026-09-29):
+    // the forecast was there, but nothing told ORION it could ask for it.
+    optionalArguments: { days: "days ahead to forecast; 1 = tomorrow" },
     validateArguments(arguments_) {
       const location = arguments_.location;
       if (typeof location !== "string" || location.trim().length === 0) {
@@ -2685,6 +2702,44 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
     },
   },
 
+  // Removing and editing (2026-09-30). "Combine X, Y and Z into one item" is
+  // remove the singles + add the combined one; without these ORION could only
+  // add, and said it had combined them.
+  supplement_remove: {
+    risk: "low",
+    requiredArguments: ["name"],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "supplement_remove" },
+    validateArguments(arguments_) {
+      const name = arguments_.name;
+      return typeof name === "string" && name.trim().length > 0 ? [] : ["name must say which supplement to remove"];
+    },
+  },
+
+  supplement_update: {
+    risk: "low",
+    requiredArguments: ["name"],
+    approvalRequired: false,
+    verification: "health_log_readback",
+    reversible: true,
+    capabilityTier: "health_tracking",
+    execution: { kind: "health_log", operation: "supplement_update" },
+    validateArguments(arguments_) {
+      const issues: string[] = [];
+      if (typeof arguments_.name !== "string" || arguments_.name.trim().length === 0) issues.push("name must say which supplement to change");
+      if (arguments_.newName === undefined && arguments_.dose === undefined && arguments_.timeOfDay === undefined) {
+        issues.push("give newName, dose or timeOfDay");
+      }
+      if (arguments_.timeOfDay !== undefined && !["morning", "lunch", "evening", "anytime"].includes(String(arguments_.timeOfDay))) {
+        issues.push("timeOfDay must be morning, lunch, evening or anytime");
+      }
+      return issues;
+    },
+  },
+
   supplement_status: {
     risk: "low",
     requiredArguments: [],
@@ -2818,6 +2873,26 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
         issues.push("due must be local time in YYYY-MM-DDTHH:mm form");
       }
       return issues;
+    },
+  },
+
+  // "I finished X, tick it off" (2026-09-29). Completing is what ticking it on
+  // the phone does: reversible, keeps the history, and so needs no approval —
+  // unlike deleting, which was the only option before and got offered instead.
+  apple_reminder_complete: {
+    risk: "low",
+    requiredArguments: ["title"],
+    approvalRequired: false,
+    verification: "apple_reminder_completed",
+    reversible: true,
+    capabilityTier: "calendar",
+    execution: { kind: "calendar", operation: "reminder_complete" },
+    userOriginatedArguments: ["title"],
+    validateArguments(arguments_) {
+      const title = arguments_.title;
+      return typeof title === "string" && title.trim().length > 0 && title.length <= 200
+        ? []
+        : ["title must name the reminder (its words are enough) and be 200 characters or fewer"];
     },
   },
 

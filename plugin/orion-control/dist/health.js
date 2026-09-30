@@ -169,6 +169,66 @@ export async function addSupplement(file, name, dose = "", timeOfDay = "anytime"
     return added ? { added, supplement } : { added: false, ...(supplement ? { supplement } : {}) };
 }
 /**
+ * Find one supplement by what Nick called it: exact name first, otherwise the
+ * single entry whose name contains his words ("vitamin d" → "vitamin d3").
+ * Two or more candidates is his decision, reported, never a guess.
+ */
+export function findSupplement(supplements, name) {
+    const wanted = name.trim().toLowerCase();
+    if (!wanted)
+        return { ambiguous: [] };
+    const exact = supplements.find((entry) => entry.name.toLowerCase() === wanted);
+    if (exact)
+        return { match: exact, ambiguous: [] };
+    const partial = supplements.filter((entry) => entry.name.toLowerCase().includes(wanted));
+    return partial.length === 1 ? { match: partial[0], ambiguous: [] } : { ambiguous: partial };
+}
+/**
+ * Take a supplement off the list (2026-09-30). "Combine magnesium, zinc and
+ * calcium into one" had no way to remove the singles, so ORION added the
+ * combined item and said it had combined them. Past days keep their taken
+ * records; only the list changes.
+ */
+export async function removeSupplement(file, name) {
+    let removed;
+    let ambiguous = [];
+    await mutate(file, (log) => {
+        const found = findSupplement(log.supplements, name);
+        ambiguous = found.ambiguous.map((entry) => entry.name);
+        if (!found.match)
+            return;
+        removed = found.match;
+        log.supplements = log.supplements.filter((entry) => entry.id !== found.match.id);
+    });
+    return removed ? { removed, ambiguous } : { ambiguous };
+}
+/** Rename a supplement or change its dose or time of day, keeping its id and history. */
+export async function updateSupplement(file, name, changes) {
+    let updated;
+    let ambiguous = [];
+    let clash;
+    await mutate(file, (log) => {
+        const found = findSupplement(log.supplements, name);
+        ambiguous = found.ambiguous.map((entry) => entry.name);
+        if (!found.match)
+            return;
+        const newName = changes.newName?.trim();
+        if (newName && log.supplements.some((entry) => entry.id !== found.match.id && entry.name.toLowerCase() === newName.toLowerCase())) {
+            clash = newName;
+            return;
+        }
+        const next = {
+            ...found.match,
+            ...(newName ? { name: newName } : {}),
+            ...(changes.dose !== undefined ? { dose: changes.dose } : {}),
+            ...(changes.timeOfDay !== undefined ? { timeOfDay: changes.timeOfDay } : {}),
+        };
+        log.supplements = log.supplements.map((entry) => (entry.id === next.id ? next : entry));
+        updated = next;
+    });
+    return { ...(updated ? { updated } : {}), ambiguous, ...(clash ? { clash } : {}) };
+}
+/**
  * Mark a supplement taken today, by name.
  *
  * Adds it to the list if it is not there yet: being told "I took my magnesium"

@@ -150,6 +150,19 @@ describe("orion-control plugin", () => {
       ),
     ).toContain("Apple Contacts");
     expect(episodeFromUserText("what is on my calendar today?")).toBeUndefined();
+    // The transport's context in front of a remote message is not Nick talking.
+    const remote = [
+      "[orion-remote] Live facts for this message (read just now, not from Nick):",
+      "- ORION's own app is the native Mac app Orion.app. It is not a website: never open a localhost address.",
+      "[orion-remote] Context from the transport, not from Nick:",
+      "- Never offer to configure or repair it, and never claim it is unavailable.",
+      "--- Nick's message follows ---",
+      "whats on tomorrow?",
+    ].join("\n");
+    expect(episodeFromUserText(remote)).toBeUndefined();
+    expect(
+      episodeFromUserText(remote.replace("whats on tomorrow?", "From now on my gym days are Monday and Thursday.")),
+    ).toBe("From now on my gym days are Monday and Thursday.");
     expect(
       episodeFromUserText("remember my client_secret is definitely-not-for-memory"),
     ).toBeUndefined();
@@ -227,6 +240,12 @@ describe("orion-control plugin", () => {
     expect(ACTION_CATALOG.apple_reminder_add).toMatchObject({
       capabilityTier: "calendar",
       approvalRequired: false,
+    });
+    expect(ACTION_CATALOG.apple_reminder_complete).toMatchObject({
+      capabilityTier: "calendar",
+      approvalRequired: false,
+      reversible: true,
+      execution: { kind: "calendar", operation: "reminder_complete" },
     });
     expect(ACTION_CATALOG.calendar_event_remove).toMatchObject({
       capabilityTier: "calendar",

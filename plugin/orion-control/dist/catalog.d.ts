@@ -67,7 +67,7 @@ export interface BrowserControlPolicy {
 }
 export interface MediaControlPolicy {
     kind: "media_control";
-    operation: "play_pause" | "next_track" | "previous_track" | "volume_set" | "volume_mute" | "volume_unmute" | "display_sleep";
+    operation: "play_pause" | "now_playing" | "next_track" | "previous_track" | "volume_set" | "volume_mute" | "volume_unmute" | "display_sleep";
     levelArgument?: string;
     playerArgument?: string;
     /** Nouns the user's own turn must mention for this control to be authorized. */
@@ -154,7 +154,7 @@ export type ExecutionPolicy = {
     operation: "read" | "write";
 } | {
     kind: "health_log";
-    operation: "supplement_add" | "supplement_take" | "supplement_status" | "workout_log" | "workout_status";
+    operation: "supplement_add" | "supplement_take" | "supplement_remove" | "supplement_update" | "supplement_status" | "workout_log" | "workout_status";
 }
 /**
  * Reading the Messages database, through `scripts/orion-messages`.
@@ -170,7 +170,7 @@ export type ExecutionPolicy = {
     operation: "recent" | "from" | "search" | "chats" | "whoami" | "contacts_status";
 } | {
     kind: "calendar";
-    operation: "event_add" | "event_remove" | "reminder_add";
+    operation: "event_add" | "event_remove" | "reminder_add" | "reminder_complete";
 }
 /**
  * Sending, through `scripts/orion-messages-send`.

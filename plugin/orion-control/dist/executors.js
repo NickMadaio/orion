@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { clampVolume, browserUrlIssues, isMutableRoot, isObservationPolicy, isSafeRelativePath, isSafeSegment, isVisibleNonSensitiveName, ORION_APP_DOMAIN, resolveBrowserName, resolvePlayerName, SUPPORTED_BROWSERS, SUPPORTED_PLAYERS, TUNABLE_SETTINGS, } from "./catalog.js";
-import { addSupplement, defaultHealthLogPath, logExercise, readHealthLog, supplementStatus, takeSupplement, today as todayKey, workoutStatus, } from "./health.js";
+import { addSupplement, defaultHealthLogPath, removeSupplement, updateSupplement, logExercise, readHealthLog, supplementStatus, takeSupplement, today as todayKey, workoutStatus, } from "./health.js";
 import { canonicalActionHash, hash } from "./validator.js";
 import { protectedConflict } from "./protected-paths.js";
 import { redactOutput, SANDBOX_EXEC, sandboxProfile, terminalEnvironment } from "./terminal-sandbox.js";
@@ -574,6 +574,29 @@ async function controlMedia(policy, step, idempotencyKey) {
      than aborting. An unverified pause that actually happened beats a verified
      one that did not. Manifest PHASE 46, added the same day.
     */
+    if (policy.operation === "now_playing") {
+        const raw = await runAppleScript(`tell application id "${player.bundleId}"
+  set s to "stopped"
+  try
+    if player state is playing then set s to "playing"
+    if player state is paused then set s to "paused"
+  end try
+  set n to ""
+  set a to ""
+  try
+    set n to name of current track
+    set a to artist of current track
+  end try
+  return s & character id 1 & n & character id 1 & a
+end tell`, { application: player.name, timeoutMs: 5000 });
+        const [state = "unknown", track = "", artist = ""] = raw.trim().split(TAB_FIELD_SEPARATOR);
+        return {
+            mode: "observed",
+            idempotencyKey,
+            target: player.name,
+            output: { operation: policy.operation, player: player.name, state, track: track || null, artist: artist || null },
+        };
+    }
     const before = await playerSnapshot(player, 3000).catch(() => ({ state: "unknown", trackId: "", position: 0 }));
     const command = policy.operation === "play_pause"
         ? "playpause"
@@ -1527,6 +1550,16 @@ async function verifyBrowser(policy, step, execution, context) {
     };
 }
 async function verifyMedia(policy, step, execution) {
+    // A read: asking the player IS the observation (as with the weather), so a
+    // reported track is observed, not "could not verify".
+    if (policy.operation === "now_playing") {
+        const state = outputField(execution.output, "state");
+        const track = outputField(execution.output, "track");
+        return {
+            observed: typeof state === "string" && state !== "unknown",
+            evidence: `player_state:${String(state)};track:${String(track ?? "none")}`,
+        };
+    }
     if (policy.operation === "volume_set") {
         const requested = outputField(execution.output, "level");
         const settings = await volumeSettings();
@@ -1845,6 +1878,32 @@ async function trackHealth(execution, step, context, idempotencyKey) {
             },
         };
     }
+    if (execution.operation === "supplement_remove" || execution.operation === "supplement_update") {
+        const name = String(step.arguments.name ?? "");
+        if (execution.operation === "supplement_remove") {
+            const result = await removeSupplement(file, name);
+            if (!result.removed) {
+                throw new ActionExecutionError(result.ambiguous.length
+                    ? `More than one supplement matches "${name}": ${result.ambiguous.join(", ")}. Ask which.`
+                    : `No supplement called "${name}" is on the list.`);
+            }
+            return { mode: "cancelled", idempotencyKey, target: result.removed.name, output: { removed: result.removed.name } };
+        }
+        const changes = {
+            ...(typeof step.arguments.newName === "string" ? { newName: step.arguments.newName } : {}),
+            ...(typeof step.arguments.dose === "string" ? { dose: step.arguments.dose } : {}),
+            ...(typeof step.arguments.timeOfDay === "string" ? { timeOfDay: step.arguments.timeOfDay } : {}),
+        };
+        const result = await updateSupplement(file, name, changes);
+        if (result.clash)
+            throw new ActionExecutionError(`"${result.clash}" is already on the list; remove one of them instead.`);
+        if (!result.updated) {
+            throw new ActionExecutionError(result.ambiguous.length
+                ? `More than one supplement matches "${name}": ${result.ambiguous.join(", ")}. Ask which.`
+                : `No supplement called "${name}" is on the list.`);
+        }
+        return { mode: "controlled", idempotencyKey, target: result.updated.name, output: { updated: result.updated } };
+    }
     if (execution.operation === "supplement_take") {
         const name = String(step.arguments.name ?? "");
         const result = await takeSupplement(file, name);
@@ -2107,6 +2166,17 @@ export async function verifyAction(definition, step, execution, context) {
                 observed: found === true,
                 evidence: `${step.arguments.exercise}:${found ? "logged" : "missing"}`,
             };
+        }
+        if (definition.execution.operation === "supplement_remove") {
+            const removed = String(outputField(execution.output, "removed") ?? "").toLowerCase();
+            const still = log.supplements.some((candidate) => candidate.name.toLowerCase() === removed);
+            return { observed: removed.length > 0 && !still, evidence: `${removed}:${still ? "still-listed" : "gone"}` };
+        }
+        if (definition.execution.operation === "supplement_update") {
+            const updated = outputField(execution.output, "updated");
+            const now = log.supplements.find((candidate) => candidate.id === updated?.id);
+            const matches = now !== undefined && now.name === updated?.name && now.dose === updated?.dose;
+            return { observed: matches, evidence: `${updated?.name ?? "?"}:${matches ? "as-written" : "differs"}` };
         }
         const name = String(step.arguments.name ?? "").toLowerCase();
         const entry = log.supplements.find((candidate) => candidate.name.toLowerCase() === name);
@@ -3259,11 +3329,13 @@ async function changeCalendar(policy, step, idempotencyKey) {
         ]
         : policy.operation === "event_remove"
             ? ["remove-title", String(step.arguments.title ?? "")]
-            : [
-                "task-add",
-                String(step.arguments.title ?? ""),
-                ...(step.arguments.due === undefined ? [] : [String(step.arguments.due)]),
-            ];
+            : policy.operation === "reminder_complete"
+                ? ["task-done", String(step.arguments.title ?? "")]
+                : [
+                    "task-add",
+                    String(step.arguments.title ?? ""),
+                    ...(step.arguments.due === undefined ? [] : [String(step.arguments.due)]),
+                ];
     const result = await runOrionScript("orion-agenda-change", arguments_, 60_000);
     if (result.code !== 0) {
         throw new ActionExecutionError(result.output || "The Calendar change failed.");
@@ -3279,7 +3351,7 @@ async function changeCalendar(policy, step, idempotencyKey) {
         throw new ActionExecutionError("Calendar did not verify the requested change.");
     }
     return {
-        mode: policy.operation === "event_remove" ? "cancelled" : "created",
+        mode: policy.operation === "event_remove" ? "cancelled" : policy.operation === "reminder_complete" ? "observed" : "created",
         idempotencyKey,
         target: output.title ?? String(step.arguments.title ?? ""),
         output,

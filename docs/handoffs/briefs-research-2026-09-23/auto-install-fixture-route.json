@@ -1,0 +1,328 @@
+{
+ "summary": "Task 4 (\"auto-install-fixture-route\", plan lines 200-246) is a test-first integration task. It is feasible inside its two scope files with the real APIs, and I found no clause that truly needs Astra or Nick. The route it must prove: call installDisabledAutomation (task 2) with a fake scheduler and temporary root and repoRoot. Then call runInstalledAutomation(name, scheduledAt, {automationRoot: sameRoot, repoRoot: sameRepo, checks: fake, run: fake}) (scripts/lib/orion-automation-runtime.mjs:18-21). That call reads root/installed/<name>.json (runtime.mjs:25-34) and then dispatches against root/runtime (runtime.mjs:77), where the installer's initializeAutomationDispatch created the ledgers (dispatch.mjs:50-57).\n\nI checked every status and reason code quoted below in a scratch run (temporary directories in the session scratchpad only). It used a hand-built record of the shape the installer must publish, plus the real plan, ledger-initialisation, runtime and dispatch modules:\n- A due trigger gives `succeeded` with delivery `not_requested`. A repeat gives `refused` with `duplicate_or_old_trigger`.\n- Revoked authority gives `not_authorized`, a mode mismatch gives `mode_mismatch`, unknown focus with skipDuringFocus gives `focus_unknown`, and an expired policy gives `expired`. Each is status `refused` with `attempts:0`, and the executor runs 0 times.\n- A changed record body gives `invalid_state`. A changed installationId gives `state_or_adapter_unavailable`. An extra field added after ledger init gives `invalid_state`.\n- An effect-then-throw under retry_once gives `outcome_unknown` after 1 launch, and a later restart gives `stopped`.\n- A child process that exits inside `run` leaves phase `pending` and a `.lock` directory. A restart then gives `busy_or_unavailable`; after the lock is removed in the fixture it gives `outcome_unknown`, and the next day's slot also gives `outcome_unknown`.\n\nThe existing 82 automation tests pass on disk; the automation modules and tests are identical at HEAD.\n\nThree interop hazards this task exists to catch:\n1. `plan.policy` has no `trigger` and no `name`, and `plan.name` is `orion-auto-<name>` (schedule.mjs:31-34). The runtime needs the bare `proposal.name`, because that is what the scheduler argv passes (schedule.mjs:27; tick.mjs:12).\n2. The published installed record must be canonically identical to the object passed to initializeAutomationDispatch. The dispatch binding is a sha256 of the whole record (dispatch.mjs:26, 72), so any field added later breaks the route.\n3. `installedAt` must be a parseable string (runtime.mjs:30).\n\nLimits of the worker's environment (worker.mjs, context.mjs):\n- 14 exchanges per attempt.\n- A stuck gate that counts the progress turn itself: a turn that writes a file or runs checks without progress increments the counter after `progressed()` resets it, so the progress turn plus 3 barren turns makes the worker \"stuck\" (worker.mjs:141-142, 277, 306, 342-353).\n- A write over 12,000 characters, a subtask change, or a check flipping forces a self-review exchange where DONE is withheld (worker.mjs:243-245, 280, 308, 355).\n- The working set evicts the OLDEST files first, and those are the two scope files (worker.mjs:261; context.mjs:74-80).\n- The worker's input budget is 48,512 tokens: 65,536 minus 16,000 output minus 1,024 (models.mjs:59,63; context.mjs:54).\n- common.md plus this brief must total at most 18,000 characters (contract.mjs:65; plan.mjs:67-71).\n- A failing test whose output contains ENOENT in its first 2,000 characters is classed as UNUSABLE ENVIRONMENT, which blocks the attempt for a human (checks.mjs:189-192; worker.mjs:319-324). I confirmed Node 26 prints the error in the end-of-run summary.\n\nTasks 1-3 code does not exist yet. The brief must tell the worker to re-read, in the working set, the installer's `now` type, its return shape, its published record fields, its transaction files and the fake-scheduler helper in the test file. It must also say to keep verifyDisabledSchedule, installDisabledAutomation and reconcileDisabledAutomation and every existing test intact.",
+ "apis": [
+  {
+   "name": "runInstalledAutomation",
+   "file": "scripts/lib/orion-automation-runtime.mjs",
+   "line": 18,
+   "signature": "export async function runInstalledAutomation(name, scheduledAt, { automationRoot = join(homedir(), \".openclaw/orion-controlled/automations\"), repoRoot = repo, checks = createAutomationHostChecks({ repoRoot }), run = executeFile } = {})",
+   "behavior": "Returns {status:'refused',reason:'invalid_name'} unless name matches /^[a-z0-9][a-z0-9-]{1,47}$/ (line 22-24). Reads join(automationRoot,'installed',`${name}.json`) (line 25). It refuses with 'installation_unavailable_or_unsupported' if the file is missing or unparsable, or if record.name!==name, action!=='agenda_today', delivery!==undefined, or installedAt is not a parseable string (lines 27-34). It snapshots canonical(record) and rechecks it with unchanged() inside authorize and execute (lines 35-38, 46, 53, 58). Adapters: readContext is checks.readContext (lines 41-45); authorize is unchanged() && checks.authorize(action)===true (line 46). execute re-reads context, rechecks conditions against the admitted context, rechecks the 5-minute window and re-authorizes, and on any refusal returns {ok:false,retrySafe:true} (lines 49-62). It then calls run(join(repoRoot,'scripts/orion-agenda'), ['today'], {timeout:35000, killSignal:'SIGKILL', maxBuffer:1048576, encoding:'utf8', env:{...process.env, TZ: record.timeZone}}) (lines 64-67). A non-string stdout gives {ok:false} (line 68), success gives {ok:true, output: stdout.slice(0,8192)} (line 69), and any throw gives {ok:false} (lines 70-74). Returns dispatchAutomation(join(automationRoot,'runtime'), record, scheduledAt, adapters) (line 77). ALL FOUR options default to production (root under the real home dir, real host checks that spawn scripts/orion-authority and scripts/orion-session, real execFile), so tests must pass all four."
+  },
+  {
+   "name": "dispatchAutomation",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 59,
+   "signature": "export async function dispatchAutomation(root, value, scheduledAt, adapters)",
+   "behavior": "Refusal order:\n- invalid record gives 'invalid_installation' (lines 61-62).\n- A slot not matching the trigger in record.timeZone, or scheduledAt not minute-aligned, gives 'not_due' (line 63; scheduledSlot lines 28-38).\n- mkdir of `${key}.dispatch.json.lock` failing gives 'busy_or_unavailable' (lines 65-67).\n- A version, binding, phase or slot mismatch gives 'invalid_state' (lines 72-77).\n- A phase other than ready is refused with reason = phase, except that 'pending' is reported as 'outcome_unknown'; these carry actionCompleted (lines 78-80).\n- scheduledAt<=lastAt or slot<=lastSlot gives 'duplicate_or_old_trigger' (lines 82-84).\n- Per attempt: context.now outside [scheduledAt, scheduledAt+300000] gives 'stale_or_future_trigger' (lines 99-101); authorize!==true gives 'not_authorized' (line 102); a reserveAutomationRun refusal passes on its reason (lines 103-104). abortAttempt returns status 'refused' with attempts:0 when nothing executed, and 'failed' with phase stopped otherwise (lines 88-94).\nIt persists phase 'pending' before execute (lines 107-108). An unknown result, or ok:false without retrySafe:true, gives phase 'stopped' and returns {status:'outcome_unknown', attempts} (lines 114-118). Success gives phase action_completed, then 'ready' with lastDelivery; it returns {status:'succeeded', attempts, output, delivery}, and delivery is {status:'not_requested'} when record.delivery is absent (lines 119-159). A thrown state error gives 'state_or_adapter_unavailable' (lines 167-171). The lock is removed in finally (line 173) but survives process death."
+  },
+  {
+   "name": "initializeAutomationDispatch",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 50,
+   "signature": "export async function initializeAutomationDispatch(root, value)",
+   "behavior": "Validates through installation(): the action must be in AUTOMATION_ACTIONS, failureBehavior one of stop|retry_once|report_and_continue, installationId a string, and the trigger daily|hourly|weekly with integer fields; the delivery policy is checked if present (lines 14-27). It then calls initializeAutomationAdmission(join(root,'admission'), record) (line 52), which mkdirs recursively. It writes join(root, `${sha256(installationId)}.dispatch.json`) exclusively ('wx'; persist lines 39-49 with initial=true) as {version:1, binding: sha256(canonical(record)), phase:'ready', lastAt:null, lastSlot:null} (lines 54-56). It throws if the file exists. Task 2 must call it at root/runtime; task 4 must NOT call it (that would be hand-built ledgers)."
+  },
+  {
+   "name": "initializeAutomationAdmission / reserveAutomationRun / checkAutomationConditions",
+   "file": "scripts/lib/orion-automation-admission.mjs",
+   "line": 71,
+   "signature": "initializeAutomationAdmission(root, record); reserveAutomationRun(root, record, context) (line 73); checkAutomationConditions(record, context) (line 88)",
+   "behavior": "binding() (lines 14-41) requires:\n- name /^[a-z0-9][a-z0-9-]{1,47}$/\n- installationId /^[a-zA-Z0-9-]{8,80}$/ (a randomUUID fits)\n- expiresOn a valid YYYY-MM-DD\n- riskLimits.maxRunsPerDay 1-1440\n- permissions.expectsMode one of contained|guarded|open|sovereign\n- conditions an object, with skipDuringFocus boolean if present and quietHours [h,h] if present\n- timeZone 'UTC' or an Intl-supported zone\nThe admission ledger is root/<sha256(installationId)>.json = {version:1,binding,day:null,runs:0,lastAt:0} (lines 42-44, 64-70). checkConditions order (lines 93-115): 'invalid_clock', 'mode_mismatch' (context.effectiveMode!==expectsMode), 'expired' (local day in timeZone > expiresOn), 'quiet_hours', then skipDuringFocus && focusActive!==false gives 'focus_active' when true and 'focus_unknown' otherwise. A condition failure returns BEFORE any quota is charged (lines 80-81). The reservation charges quota with no refunds (lines 117-146) and can return 'busy', 'state_unavailable', 'invalid_state', 'clock_regressed' or 'daily_limit'."
+  },
+  {
+   "name": "automationSchedulePlan",
+   "file": "scripts/lib/orion-automation-schedule.mjs",
+   "line": 6,
+   "signature": "export function automationSchedulePlan(proposal, timeZone, repoRoot, now = Date.now())",
+   "behavior": "Pure. It throws when:\n- validateProposal reports issues (line 11); the proposal's expiresOn is swapped for a harmless date for that call (lines 9-10).\n- the action is not agenda_today or delivery is present (lines 12-14).\n- the timezone or policy is invalid (lines 15-18).\n- now is not a safe non-negative integer (line 19).\n- expiresOn is not between today (in timeZone, from `now`) and 180 days ahead (lines 20-25).\nReturns {readyToInstall:false, nextGate, name:`orion-auto-${proposal.name}`, timeZone, cron, commandArgv:[join(repoRoot,'scripts/orion-automation-run'), proposal.name], policy:{action,intent,expiresOn,conditions,permissions,riskLimits,failureBehavior}, schedulerArgs:[...,'--command-cwd', repoRoot, '--disabled','--exact','--no-deliver',...]} (lines 27-40). NOTE: policy has no trigger, name, timeZone or installationId."
+  },
+  {
+   "name": "createAutomationHostChecks",
+   "file": "scripts/lib/orion-automation-host.mjs",
+   "line": 23,
+   "signature": "export function createAutomationHostChecks({ repoRoot = repo, homeRoot = homedir(), run = executeFile, read = readFile, now = Date.now } = {})",
+   "behavior": "The production host checks that tests must replace. readContext spawns scripts/orion-authority and scripts/orion-session and reads ~/.openclaw/orion-controlled/focus.json (lines 27-63). authorize(action) spawns orion-authority and checks the installed plugin dist at ~/.openclaw/extensions/orion-control/dist (lines 26, 35-45, 65-82). The fake must present the same interface: readContext() returning {now, effectiveMode, focusActive}, and authorize(action) returning true/false."
+  },
+  {
+   "name": "automationTick",
+   "file": "scripts/lib/orion-automation-tick.mjs",
+   "line": 5,
+   "signature": "export async function automationTick(args, { now = Date.now, run = runInstalledAutomation } = {})",
+   "behavior": "This is the scheduler route: scripts/orion-automation-run:4 calls automationTick(process.argv.slice(2)). It accepts exactly one name arg (line 6), floors now to the minute (line 12) and calls run(name, minute) with NO options, so the real route always uses the runtime's default production automationRoot (runtime.mjs:19). It returns only {exitCode, summary:{status, reason?}} (lines 15-19). Using it in task 4 is optional; it cannot inject automationRoot."
+  },
+  {
+   "name": "validateProposal / cronExpression / AUTOMATION_ACTIONS / AUTOMATION_ROOT",
+   "file": "plugin/orion-control/dist/automation.js",
+   "line": 114,
+   "signature": "validateProposal(value) -> string[]; cronExpression(trigger) (line 209); AUTOMATION_ACTIONS (line 76); AUTOMATION_ROOT (line 66); MAX_AUTOMATION_DAYS = 180 (line 106)",
+   "behavior": "This file is tracked at HEAD. A valid proposal needs:\n- name matching NAME_RE\n- intent of at least 8 characters, at most 400 (lines 120-125)\n- a trigger of daily{atHour,atMinute}, hourly{atMinute} or weekly{weekday 0-6 Sunday first, atHour, atMinute} (lines 126-149)\n- an action in the table (line 159)\n- quietHours [h,h] if present\n- riskLimits.maxRunsPerDay 1-1440 AND maxMessagesPerDay 0-48 (both required, lines 179-187)\n- a failureBehavior\n- permissions.expectsMode\nAUTOMATION_ACTIONS.agenda_today.argv is ['orion-agenda','today'] (lines 92-96). AUTOMATION_ROOT = join(homedir(), '.openclaw/orion-controlled/automations') is the production root (line 66)."
+  },
+  {
+   "name": "verifyDisabledSchedule (task 1, not yet written)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 0,
+   "signature": "verifyDisabledSchedule(expected, observed) -> boolean (per plan line 87)",
+   "behavior": "The contract requires it to be pure, with expected = automationSchedulePlan output and observed = {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}. cwd must equal the --command-cwd value; it requires enabled===false, exact===true, noDeliver===true and exact argv (plan lines 87-88). Task 4 must keep it exported and unchanged in behaviour; line 0 means the code does not exist yet."
+  },
+  {
+   "name": "installDisabledAutomation (task 2, not yet written)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 0,
+   "signature": "installDisabledAutomation({root, proposal, timeZone, repoRoot, scheduler, now}) (per plan line 133)",
+   "behavior": "The contract requires:\n- root, repoRoot and scheduler are required, with no production defaults. scheduler exposes createDisabled(plan), read(id), remove(id), and the function never enables a job.\n- It uses automationSchedulePlan, a random installationId, and the installation's timezone and installedAt, and calls initializeAutomationDispatch at root/runtime.\n- It publishes root/installed/<name>.json in the shape runInstalledAutomation consumes.\n- It writes an exclusive per-name intent before creating the job and records the scheduler id before verifying.\n- It returns verified disabled state only after publication and read-back (plan lines 133-137).\nNot fixed by the contract, so task 4 must read the actual code: the type of `now` (number or function), the return shape, the transaction or intent file paths, what createDisabled must return, and whether the record carries extra fields."
+  },
+  {
+   "name": "reconcileDisabledAutomation (task 3, not yet written)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 0,
+   "signature": "reconcileDisabledAutomation({root, name, scheduler}) (per plan line 186)",
+   "behavior": "Must never create or enable a job, reset quotas, or assume a lock owner is dead (plan lines 186-190). Task 4 does not need to call it but must keep its export and tests intact."
+  }
+ ],
+ "shapes": [
+  {
+   "name": "Installed record (what root/installed/<name>.json must contain for the runtime)",
+   "definition": "{ name: proposal.name (bare, NOT 'orion-auto-\u2026'), installationId: string /^[a-zA-Z0-9-]{8,80}$/, action: 'agenda_today', intent?: string, trigger: {kind:'daily'|'hourly'|'weekly', atMinute, atHour?, weekday?}, timeZone: IANA string, expiresOn: 'YYYY-MM-DD', conditions: {quietHours?: [h,h], skipDuringFocus?: boolean}, permissions: {expectsMode}, riskLimits: {maxRunsPerDay 1-1440, maxMessagesPerDay?}, failureBehavior: 'stop'|'retry_once'|'report_and_continue', installedAt: ISO string; delivery must be absent }. The object written to disk must be canonically identical (sorted-key JSON; undefined fields dropped) to the object given to initializeAutomationDispatch. Any later field change gives 'invalid_state'.",
+   "evidence": "runtime.mjs:22, 29-31; dispatch.mjs:14-27 (binding = sha256(canonical(record)), line 26), 72; admission.mjs:14-29; example record tests/automation-runtime.test.mjs:13-16; trigger/name are absent from plan.policy (schedule.mjs:32-34), so they must come from the proposal"
+  },
+  {
+   "name": "Schedule plan (automationSchedulePlan output = verifier 'expected')",
+   "definition": "{ readyToInstall:false, nextGate:string, name:`orion-auto-${proposal.name}`, timeZone, cron, commandArgv:[`${repoRoot}/scripts/orion-automation-run`, proposal.name], policy:{action,intent,expiresOn,conditions,permissions,riskLimits,failureBehavior}, schedulerArgs:['cron','add','--name',name,'--cron',cron,'--tz',tz,'--command-argv',JSON.stringify(commandArgv),'--command-cwd',repoRoot,'--disabled','--exact','--no-deliver','--timeout-seconds','120','--output-max-bytes','4096','--json'] }",
+   "evidence": "scripts/lib/orion-automation-schedule.mjs:27-40"
+  },
+  {
+   "name": "Observed scheduler job (fake scheduler read(id) result, task 1 contract)",
+   "definition": "{ id: nonempty string, name, timeZone, cron, commandArgv: string[], cwd: string, enabled: false, exact: true, noDeliver: true }. The fake should derive it from plan.schedulerArgs: parse --command-argv JSON, take --command-cwd, and map the --disabled/--exact/--no-deliver flags. It should not return the expected object itself.",
+   "evidence": "plan line 87; schedulerArgs at schedule.mjs:36-39"
+  },
+  {
+   "name": "Injected host checks (runInstalledAutomation options.checks)",
+   "definition": "{ readContext: async () => ({ now: safe-integer ms, effectiveMode: 'contained'|'guarded'|'open'|'sovereign', focusActive: true|false|null }), authorize: async (action) => boolean (only === true passes) }. action = Object.freeze({name:'agenda_today', argv:['orion-agenda','today'], installationId}). On success each method is called twice.",
+   "evidence": "runtime.mjs:41-46, 54, 61; dispatch.mjs:85-86, 98-102; host.mjs:61-63; call counts asserted at tests/automation-runtime.test.mjs:44"
+  },
+  {
+   "name": "Injected executor (runInstalledAutomation options.run)",
+   "definition": "async (file, args, opts) => ({ stdout: string }); a throw means 'launched, outcome unknown'. It is called with file = join(repoRoot,'scripts/orion-agenda'), args = ['today'], opts = {timeout:35000, killSignal:'SIGKILL', maxBuffer:1048576, encoding:'utf8', env:{...process.env, TZ: record.timeZone}}.",
+   "evidence": "runtime.mjs:64-74; tests/automation-runtime.test.mjs:33-37, 45-48"
+  },
+  {
+   "name": "runInstalledAutomation result",
+   "definition": "The shape depends on the outcome:\n- Success: {status:'succeeded', attempts:1, output, delivery:{status:'not_requested'}}.\n- Refused before execution: {status:'refused', reason, attempts:0}, where reason is not_authorized|mode_mismatch|expired|focus_unknown|stale_or_future_trigger|daily_limit\u2026.\n- Refused by gate: {status:'refused', reason} for invalid_name, installation_unavailable_or_unsupported, not_due, busy_or_unavailable, invalid_state or duplicate_or_old_trigger.\n- Non-ready phase: {status:'refused', reason:'stopped'|'outcome_unknown'(phase pending)|\u2026, actionCompleted:boolean}.\n- Launched then failed: {status:'outcome_unknown', attempts:n}.\n- Refused inside execute after admission: {status:'failed', attempts:1} (only when failureBehavior is 'stop').\nThe shapes differ in their keys, so assert individual fields rather than deepEqual on the whole object.",
+   "evidence": "dispatch.mjs:62-63, 67, 76, 78-80, 83, 93, 117, 159, 165, 168-171; runtime.mjs:23, 34; experiment output recorded in summary"
+  },
+  {
+   "name": "Dispatch ledger on disk",
+   "definition": "root/runtime/<sha256hex(installationId)>.dispatch.json = {version:1, binding, phase:'ready'|'pending'|'stopped'|'action_completed'|'delivery_pending'|'delivery_unknown', lastAt:null|ms, lastSlot:null|'YYYY-MM-DDTHH:MM', lastDelivery?}; the lock directory is the same path + '.lock'. Admission ledger: root/runtime/admission/<sha256hex(installationId)>.json = {version:1, binding, day, runs, lastAt}. No root/runtime/messages directory exists when there is no delivery.",
+   "evidence": "dispatch.mjs:26, 53-56, 65, 73, 107, 158; admission.mjs:42-44, 68, 138; experiment listing ['<key>.dispatch.json','admission']"
+  },
+  {
+   "name": "Minimal valid proposal for the installer",
+   "definition": "{ name:'calendar-check', intent:'Read the calendar at the chosen time', action:'agenda_today', expiresOn, trigger:{kind:'daily', atHour:9, atMinute:5}, conditions:{} (or {skipDuringFocus:true} for the focus case), permissions:{expectsMode:'guarded'}, riskLimits:{maxRunsPerDay:2, maxMessagesPerDay:0}, failureBehavior:'stop' (or 'retry_once' for the effect-then-fail case) }",
+   "evidence": "tests/automation-schedule.test.mjs:8-11; validateProposal requirements automation.js:114-195"
+  },
+  {
+   "name": "Verified fixed timeline (Europe/London, BST = UTC+1 in September)",
+   "definition": "Install with now = Date.parse('2026-09-20T07:30:00Z') and expiresOn '2026-09-21'. Due slot: scheduledAt = context.now = Date.parse('2026-09-20T08:05:00Z') (09:05 local). Next-day due slot: Date.parse('2026-09-21T08:05:00Z'). Expired slot: Date.parse('2026-09-22T08:05:00Z'), which gives 'expired'. Wrong offset: Date.parse('2026-09-20T09:05:00Z'), which gives 'not_due'. This only works if the installer passes the explicit `now` through to automationSchedulePlan, because the real clock (2026-09-23) is already past these dates.",
+   "evidence": "schedule.mjs:19-25; dispatch.mjs:28-38, 99; admission.mjs:103-105; scratch experiment results"
+  }
+ ],
+ "testPatterns": [
+  {
+   "pattern": "A disposable root per case, removed after the test",
+   "evidence": "tests/automation-runtime.test.mjs:11-12; tests/automation-dispatch.test.mjs:15-16",
+   "snippet": "const root = await mkdtemp(join(tmpdir(), \"orion-install-route-\"));\nt.after(() => rm(root, { recursive: true, force: true }));"
+  },
+  {
+   "name": "",
+   "pattern": "Counting fake checks and executor passed to runInstalledAutomation, with all four options explicit",
+   "evidence": "tests/automation-runtime.test.mjs:21-39",
+   "snippet": "const options = { automationRoot: root, repoRoot: repo,\n  checks: { readContext: async () => { state.contextCalls++; return { ...state.context }; },\n            authorize: async () => { state.authorityCalls++; return state.authorize ? state.authorize() : true; } },\n  run: async (file, args, opts) => { state.launches.push({ file, args, opts }); await appendFile(effect, \"x\\n\"); if (state.failure) throw state.failure; return { stdout: \"fixture\" }; } };"
+  },
+  {
+   "pattern": "The tampering-proof pattern already used in the runtime suite: change or remove the record and assert no launch",
+   "evidence": "tests/automation-runtime.test.mjs:76-84 (mid-flight change gives status failed and 0 launches); 51-61 (malformed or mismatched record gives refused)"
+  },
+  {
+   "pattern": "Effect then failure is never executed again (retry_once), then the next call gives 'stopped'",
+   "evidence": "tests/automation-runtime.test.mjs:111-120; 93-102"
+  },
+  {
+   "pattern": "Actual process death inside the effect: the child is `node --input-type=module -e source` with JSON args, asserted with exit code 73. The lock is removed only in the fixture and only after the child has exited.",
+   "evidence": "tests/automation-dispatch.test.mjs:160-180",
+   "snippet": "const url = new URL('../scripts/lib/orion-automation-runtime.mjs', import.meta.url).href;\nconst source = `import {runInstalledAutomation} from ${JSON.stringify(url)}; import {writeFile} from 'node:fs/promises';\n  const [root, repo, at] = JSON.parse(process.argv[1]);\n  await runInstalledAutomation('calendar-check', at, { automationRoot: root, repoRoot: repo,\n    checks: { readContext: async () => ({ now: at, effectiveMode: 'guarded', focusActive: false }), authorize: async () => true },\n    run: async () => { await writeFile(root + '/effect.txt', 'happened'); process.exit(73); } });`;\nawait assert.rejects(promisify(execFile)(process.execPath, ['--input-type=module', '-e', source, JSON.stringify([root, repo, due])]), e => e.code === 73);"
+  },
+  {
+   "pattern": "Inspect the durable ledger by suffix, never by a hard-coded hash",
+   "evidence": "tests/automation-dispatch.test.mjs:31, 175",
+   "snippet": "const ledger = (await readdir(join(root, \"runtime\"))).find(n => n.endsWith(\".dispatch.json\"));\nassert.equal(JSON.parse(await readFile(join(root, \"runtime\", ledger), \"utf8\")).phase, \"pending\");"
+  },
+  {
+   "pattern": "Read files that may be missing with .catch(() => null), so a failure never prints ENOENT (which the host would class as UNUSABLE ENVIRONMENT)",
+   "evidence": "tests/automation-dispatch.test.mjs:216; checks.mjs:189-192",
+   "snippet": "assert.equal(await readFile(effect, \"utf8\").catch(() => null), \"happened\");"
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "Use a fake disabled scheduler, temporary root, real installation transaction, real durable ledgers, and runInstalledAutomation with injected host checks/executor. Do not hand-author replacement installed records to bypass the installer.",
+   "feasible": true,
+   "approach": "1. Per case, mkdtemp a root and a repoRoot (a name with a space is fine).\n2. Build a fake scheduler with exactly createDisabled, read and remove, and a call log. Reuse the helper tasks 2-3 put in tests/automation-install.test.mjs if its shape matches what installDisabledAutomation expects. read(id) should derive the observed job from plan.schedulerArgs.\n3. Call the real installDisabledAutomation({root, proposal, timeZone:'Europe/London', repoRoot, scheduler, now: fixed}).\n4. Take the automation name from what the scheduler would pass: the created plan's commandArgv[1] (equal to proposal.name).\n5. Call runInstalledAutomation(thatName, scheduledAt, {automationRoot: root, repoRoot, checks: fake, run: fake}).\nNever call initializeAutomationDispatch, and never write a fresh installed JSON, in the positive path.",
+   "evidence": "runtime.mjs:18-21, 25, 77; dispatch.mjs:50-57; schedule.mjs:27, 31; tick.mjs:12 (the scheduler passes commandArgv[1]); plan line 133-134 (installer interface)",
+   "risk": "Wrong implementations that still look plausible:\n- The test calls initializeAutomationDispatch and writes installed/<name>.json itself, copying tests/automation-runtime.test.mjs:17-20, so the installer is bypassed.\n- It passes the installer's return value instead of the on-disk record.\n- It calls runInstalledAutomation with plan.name ('orion-auto-\u2026').\n- It omits automationRoot, checks or run: the defaults are production (runtime.mjs:19-20), and in the check environment HOME is the real home (checks.mjs:129)."
+  },
+  {
+   "criterion": "A due trigger produces exactly one disposable execution, and a repeated trigger is refused after reopening the runtime state.",
+   "feasible": true,
+   "approach": "1. Due: scheduledAt = Date.parse('2026-09-20T08:05:00Z'), with the fake context {now: scheduledAt, effectiveMode:'guarded', focusActive:false}.\n2. Assert status 'succeeded', exactly one launch (the file is join(repoRoot,'scripts/orion-agenda') and args are ['today']), and an effect file under the temp root containing one line.\n3. Then build NEW options, checks and run objects and call runInstalledAutomation again with the same scheduledAt. runInstalledAutomation re-reads the record and ledger from disk (runtime.mjs:28; dispatch.mjs:71). Assert status 'refused' with reason 'duplicate_or_old_trigger', and that the launch and effect counts are unchanged.\n4. Optionally assert the on-disk ledger shows phase 'ready' and lastSlot '2026-09-20T09:05'. A child-process second call is a stronger, optional reading of 'reopening'.",
+   "evidence": "dispatch.mjs:82-84, 107, 157-159; verified in the experiment: first gives succeeded, repeat gives refused duplicate_or_old_trigger, launches=1",
+   "risk": "Plausible-but-wrong versions:\n- scheduledAt written as '\u2026T09:05:00Z' for Europe/London gives 'not_due'. The worker then 'fixes' it by switching to UTC or loosening the assertion.\n- The same in-memory options object is reused and treated as proof of reopening.\n- The test asserts only status and not the launch count, so 'exactly one' goes unproven.\n- The test uses Date.now() for context.now, which gives stale_or_future_trigger or expired."
+  },
+  {
+   "criterion": "Revoked authority, expired policy, incompatible mode, unknown focus when suppression applies, and changed installation each refuse before the execution adapter runs.",
+   "feasible": true,
+   "approach": "Use a fresh install per case, and for each assert status 'refused', the specific reason, and run never called (launches.length===0):\n- Revoked authority: checks.authorize returns false, giving 'not_authorized'.\n- Expired policy: install on 2026-09-20 with expiresOn '2026-09-21', then trigger at Date.parse('2026-09-22T08:05:00Z') with context.now equal to it, giving 'expired'. The installer refuses an already-expired proposal (schedule.mjs:25), so expiry must come from time passing.\n- Incompatible mode: effectiveMode 'open' against expectsMode 'guarded' gives 'mode_mismatch'.\n- Unknown focus: the proposal needs conditions {skipDuringFocus:true} and focusActive null, giving 'focus_unknown'.\n- Changed installation: read the installer-written record, change one field (e.g. intent), write it back, giving 'invalid_state'. Changing installationId instead gives 'state_or_adapter_unavailable'.\nThe execution adapter is the injected `run`: dispatch's internal execute adapter is built inside the runtime and cannot be injected.",
+   "evidence": "dispatch.mjs:88-94, 102-104; admission.mjs:100-113; runtime.mjs:29-34; experiment: revoked/mode/focus/expired each gave {status:'refused', reason, attempts:0} with 0 launches; changed intent gave invalid_state; changed id gave state_or_adapter_unavailable",
+   "risk": "Plausible-but-wrong versions:\n- Omitting skipDuringFocus, so focusActive:null is admitted and the run executes.\n- Writing the expired case with an already-past expiresOn so the installer throws. The test then asserts the throw (proving nothing about the runtime) or hand-authors the record.\n- Reusing one installation across cases after a success, so refusals come from 'duplicate_or_old_trigger' instead of the intended guard.\n- Mid-flight revocation gives status 'failed', not 'refused' (runtime.mjs:61; tests/automation-runtime.test.mjs:66-69), so asserting status 'refused' there fails.\n- deepEqual on the whole result fails because of the extra 'attempts' key."
+  },
+  {
+   "criterion": "A launched executor that performs a disposable effect then fails is not blindly retried; a pending/unknown outcome does not become ready by restarting.",
+   "feasible": true,
+   "approach": "(a) Install with failureBehavior 'retry_once'. The injected run appends to a temp effect file and then throws. Assert status 'outcome_unknown' with attempts 1, exactly one launch and one effect line.\n(b) Restart: make a fresh call at the next due slot (Date.parse('2026-09-21T08:05:00Z'), context.now the same). Assert status 'refused', reason 'stopped', no new launch and the effect unchanged.\n(c) Pending: in a child process (node --input-type=module -e), run runInstalledAutomation with a run that writes the effect and then calls process.exit(73). Assert the child exited with code 73 and the ledger phase is 'pending'. A restarted call gives 'busy_or_unavailable'. Only in the fixture, and only after the child exited, remove the .lock; then a call gives 'outcome_unknown', and so does the next day's slot. The effect stays written once and there are no launches.",
+   "evidence": "dispatch.mjs:78-80, 107-118; runtime.mjs:70-74; tests/automation-runtime.test.mjs:111-120; tests/automation-dispatch.test.mjs:160-180; experiment: effectFail gave outcome_unknown and 1 launch; restartNextDay gave stopped; child gave phase pending, then busy_or_unavailable, then outcome_unknown after lock removal, and outcome_unknown on the next day",
+   "risk": "Plausible-but-wrong versions:\n- Using failureBehavior 'stop' proves nothing about retries.\n- The run returns {ok:false} instead of throwing. The runtime's execute ignores `run`'s return except stdout (runtime.mjs:68-69), so the executor must throw or return a non-string stdout.\n- Expecting reason 'outcome_unknown' after the stopped case; the actual reason is 'stopped'.\n- Hand-editing the ledger to 'pending' instead of producing it through a real process exit.\n- Removing the lock before the child has exited, or in a non-fixture path."
+  },
+  {
+   "criterion": "Fixtures prove no real scheduler, calendar, webhook, production root or installed policy was used. Fix installer interoperability defects within scope; report out-of-scope runtime defects rather than modifying them.",
+   "feasible": true,
+   "approach": "Positive evidence to assert:\n- The fake scheduler's call log shows only createDisabled/read (plus remove if the installer uses it), and the job stays enabled:false.\n- The executor was called with file === join(tempRepoRoot,'scripts/orion-agenda'), not the real repo's script.\n- The injected checks were called (readContext and authorize twice each on success, runtime.test.mjs:44), which is only possible if the production defaults were not used.\n- result.delivery.status === 'not_requested', and root/runtime has no 'messages' entry (the webhook/delivery path was never reached; there is no delivery adapter in runInstalledAutomation).\n- root and repoRoot are inside os.tmpdir(), and root !== AUTOMATION_ROOT / join(homedir(), '.openclaw/orion-controlled/automations'). Do this by string comparison only, never by reading the production path.\nIf the route fails because of the installer (record shape, name, installedAt type, extra field after ledger init, `now` not passed through), fix the installer while preserving tasks 1-3 behaviour. If the defect is in runtime, dispatch, admission, schedule or tick (out of scope), do not edit them. State it in the ### DONE paragraph, which goes into the commit message; use ### PROPOSE if it changes the contract; use ### BLOCKED only if it prevents a criterion.",
+   "evidence": "runtime.mjs:19-20, 64, 77; dispatch.mjs:53, 123; host.mjs:26, 36, 48; automation.js:66; worker.mjs:233-238, 357, 369; scope list plan lines 230-233",
+   "risk": "Plausible-but-wrong versions:\n- 'Proving' absence by reading or stat-ing ~/.openclaw paths, which touches a production path.\n- Asserting only that the test passed.\n- Editing orion-automation-runtime.mjs: the write is refused by scope and burns turns.\n- 'Fixing' interop by weakening or rewriting task-2/3 assertions.\n- Rewriting the whole installer and dropping verifyDisabledSchedule or reconcileDisabledAutomation."
+  }
+ ],
+ "issues": [
+  {
+   "kind": "ambiguity",
+   "detail": "The contract says 'injected host checks/executor' and 'before the execution adapter runs'. runInstalledAutomation's injectable boundaries are `checks` ({readContext, authorize}) and `run` (the execFile-shaped executor). The dispatcher's `adapters.execute` is built internally (runtime.mjs:47-75) and cannot be injected. The only reading that is both literal and testable: the execution adapter is the injected `run`, and a refusal is proven by `run` never being called.",
+   "evidence": "runtime.mjs:18-21, 40-77; tests/automation-runtime.test.mjs:33-37 (launches array)",
+   "needsAstra": false,
+   "contractText": "runInstalledAutomation with injected host checks/executor \u2026 each refuse before the execution adapter runs",
+   "recommendedInterpretation": "Execution adapter = options.run; assert run call count 0 for every refusal case."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "'Refuse' can map to two statuses. Guards checked before admission (authorize, mode, expiry, focus) return status 'refused' with attempts 0. The same guards failing inside the runtime's final execute recheck return status 'failed', consume quota and set phase 'stopped' (with failureBehavior 'stop'). Both keep `run` from being called, but only the first carries the literal word.",
+   "evidence": "dispatch.mjs:88-94 vs 163-165; runtime.mjs:49-62; tests/automation-runtime.test.mjs:66-75 (status 'failed')",
+   "needsAstra": false,
+   "contractText": "Revoked authority, expired policy, incompatible mode, unknown focus when suppression applies, and changed installation each refuse",
+   "recommendedInterpretation": "Test the pre-admission variants and assert status 'refused' with reasons not_authorized / expired / mode_mismatch / focus_unknown / invalid_state, and run not called. Mid-flight variants are optional extras and must assert 'failed' plus 0 launches."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "'After reopening the runtime state' does not say whether a new call or a new process is required. runInstalledAutomation keeps no in-memory state: every call re-reads the installed record and the dispatch ledger from disk.",
+   "evidence": "runtime.mjs:28; dispatch.mjs:71",
+   "needsAstra": false,
+   "contractText": "a repeated trigger is refused after reopening the runtime state",
+   "recommendedInterpretation": "A second runInstalledAutomation call with freshly built options, checks and run objects satisfies the literal text. Also asserting the on-disk ledger (phase 'ready', lastSlot set) makes the reopened state visible. A child-process repeat is stronger but optional."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The dispatch phase 'pending' only survives on disk when the process dies during execution. An in-process throw from `run` becomes phase 'stopped', which is reported as reason 'stopped', not 'outcome_unknown'. A process that died also leaves the lock directory, so a plain restart reports 'busy_or_unavailable', and 'outcome_unknown' appears only after the lock is removed in the fixture. 'Restarting' implies process death.",
+   "evidence": "dispatch.mjs:65-67, 78-80, 107-118, 173; tests/automation-dispatch.test.mjs:160-180; experiment: child exit gave phase pending, then busy_or_unavailable, then outcome_unknown",
+   "needsAstra": false,
+   "contractText": "a pending/unknown outcome does not become ready by restarting",
+   "recommendedInterpretation": "Cover both: the in-process effect-then-throw case (a later call gives 'stopped'), and the child-process exit inside run (phase 'pending'; a restart gives 'busy_or_unavailable'; after fixture-only lock removal it gives 'outcome_unknown', including at the next day's slot). Asserting that the reason is never success and the launch count is unchanged is what proves 'does not become ready'."
+  },
+  {
+   "kind": "check-gap",
+   "detail": "No registered check can prove absence. node-syntax, automation-install-tests and automation-tests only run node --check and node --test (checks.mjs:37-43, 63-77). The test can only assert positive evidence of injection: fakes were called, paths are temporary, there is no messages ledger, and delivery is not_requested. 'Installed policy' has two plausible meanings: ORION's installed plugin authority (~/.openclaw/extensions/orion-control/dist, host.mjs:26) and the production installed automation records (~/.openclaw/orion-controlled/automations/installed). Injecting `checks` and `automationRoot` covers both.",
+   "evidence": "checks.mjs:37-77; host.mjs:26, 35-45; runtime.mjs:19-20; automation.js:66",
+   "needsAstra": false,
+   "contractText": "Fixtures prove no real scheduler, calendar, webhook, production root or installed policy was used.",
+   "recommendedInterpretation": "Assert positive injection evidence plus string-only comparisons against the production paths (never read or stat them). The reviewer must confirm in the diff that every runInstalledAutomation call passes all four options and every installDisabledAutomation call passes a temporary root, a temporary repoRoot and a fake scheduler."
+  },
+  {
+   "kind": "check-gap",
+   "detail": "No check detects hand-authored installed records or ledgers. The pattern to avoid is exactly the existing runtime fixture (tests/automation-runtime.test.mjs:17-20: writeFile installed JSON + initializeAutomationDispatch). The 'changed installation' case legitimately rewrites the installer-written file, which the reviewer must distinguish from a bypass.",
+   "evidence": "tests/automation-runtime.test.mjs:17-20, 76-84",
+   "needsAstra": false,
+   "contractText": "Do not hand-author replacement installed records to bypass the installer.",
+   "recommendedInterpretation": "The positive route must use unmodified installer output. Tamper cases must read the installer-written file and change exactly one field. New task-4 tests must never import or call initializeAutomationDispatch."
+  },
+  {
+   "kind": "other",
+   "detail": "This is an out-of-scope route limitation to report, not fix. The real scheduler command is scripts/orion-automation-run, which calls automationTick, which calls runInstalledAutomation(name, minute) with no options, so it always uses the default automationRoot join(homedir(), '.openclaw/orion-controlled/automations') and the real host checks. The fixture must inject automationRoot, so it cannot prove that the tick entry point reads the root the installer wrote to. In production the installer's `root` must equal that default for the route to connect. tick.mjs and runtime.mjs are outside scope.",
+   "evidence": "scripts/orion-automation-run:3-4; scripts/lib/orion-automation-tick.mjs:5,12; runtime.mjs:19; plan line 241 ('not evidence that real scheduler registration or activation works')",
+   "needsAstra": false,
+   "contractText": "report out-of-scope runtime defects rather than modifying them",
+   "recommendedInterpretation": "Mention this in the ### DONE paragraph as a limitation for task 5 and Astra. Do not edit tick or runtime, and do not add a root-injecting wrapper export (it would be unreferenced by production)."
+  },
+  {
+   "kind": "missing-info",
+   "detail": "Task 4's context names schedule, dispatch, admission, runtime and tests/automation-schedule.test.mjs. It does not name tests/automation-runtime.test.mjs (the closest pattern, named only in task 2's context) or tests/automation-dispatch.test.mjs (the child-process crash pattern). Everything task 4 depends on from tasks 1-3 is left to their implementation: the type of `now`, the installer's return shape, what createDisabled returns, where transaction files live, and any extra record fields.",
+   "evidence": "plan lines 139, 241; tests/automation-runtime.test.mjs:1-131; tests/automation-dispatch.test.mjs:160-180",
+   "needsAstra": false,
+   "contractText": "Read scripts/lib/orion-automation-schedule.mjs, orion-automation-dispatch.mjs, orion-automation-admission.mjs, orion-automation-runtime.mjs and tests/automation-schedule.test.mjs.",
+   "recommendedInterpretation": "The brief supplies the runtime and dispatch facts and patterns (all exist at HEAD). The worker must derive the task 1-3 specifics from the two scope files already in its initial working set."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The contract allows fixing installer interoperability defects, but the constraints say 'Keep existing regression assertions; add coverage without loosening checks.' A real interop fix, such as dropping a field the installer added to the record after initialising the ledgers, may require changing a task-2 or task-3 assertion about that field.",
+   "evidence": "plan lines 218-220 (constraints), 239; dispatch.mjs:26, 72 (binding over the whole record)",
+   "needsAstra": false,
+   "contractText": "Fix installer interoperability defects within scope \u2026 Keep existing regression assertions; add coverage without loosening checks.",
+   "recommendedInterpretation": "An assertion may change only when the old one encoded the defect, and only to an equal or stricter assertion. The change must be named in ### DONE. Deleting or weakening a test to get green is never allowed."
+  },
+  {
+   "kind": "other",
+   "detail": "Infrastructure note: the 'automation-install-tests' check is registered only in the uncommitted on-disk scripts/lib/agentic/checks.mjs (disk lines 63-68). It is absent at HEAD. The host loads its registry from disk, so this works as long as the run uses the on-disk host code. It does not affect the worker's task.",
+   "evidence": "git diff HEAD -- scripts/lib/agentic/checks.mjs shows the entry added; disk checks.mjs:63-68",
+   "needsAstra": false,
+   "contractText": "\"checks\": [\"node-syntax\", \"automation-install-tests\", \"automation-tests\"]",
+   "recommendedInterpretation": "No brief change is needed. Nick should know the host must run from the working copy (or commit the host change) for plan validation to pass."
+  }
+ ],
+ "pitfalls": [
+  "Rewriting a scope file from memory. Every ### FILE is a COMPLETE file. The test file must keep every task 1-3 test byte-for-byte with the new tests appended. The installer must keep verifyDisabledSchedule, installDisabledAutomation and reconcileDisabledAutomation. If a scope file is no longer shown under 'FILES IN YOUR WORKING SET' (evicted), ### READ it again before writing.",
+  "Evicting your own scope files. The two scope files are loaded first, and the OLDEST entries are dropped when the set passes 8 files (worker.mjs:261) or the ~48.5k-token budget (context.mjs:74-80). READ at most ~3-4 extra files per attempt: runtime.mjs and tests/automation-runtime.test.mjs, plus dispatch.mjs or dispatch.test.mjs only if needed.",
+  "Taking the name from the plan. plan.name is 'orion-auto-<name>' and plan.policy has no trigger or name (schedule.mjs:31-34). The runtime is called with the bare proposal.name, which is what the scheduler passes (plan.commandArgv[1]). Calling runInstalledAutomation(plan.name) gives 'installation_unavailable_or_unsupported'.",
+  "Adding any field to the installed record after initializeAutomationDispatch, e.g. a scheduler job id or status, or writing a different object than was initialised. The binding is sha256 of the whole canonical record (dispatch.mjs:26, 72), so every trigger then refuses with 'invalid_state' (verified). The ledger record and the published record must be the same object.",
+  "Writing installedAt as a number or Date. The runtime requires typeof installedAt === 'string' and parseable (runtime.mjs:30). A Date stays a string through JSON, but a number fails.",
+  "Hand-building the route. Copying tests/automation-runtime.test.mjs:17-20 (writeFile installed JSON + initializeAutomationDispatch) bypasses the installer and violates criterion 1. In task-4 tests the only writers of installed/ and runtime/ must be installDisabledAutomation, plus single-field tamper edits of its output.",
+  "Omitting any runInstalledAutomation option. automationRoot, repoRoot, checks and run all default to production (runtime.mjs:19-20). Checks run with HOME set to the real home (checks.mjs:129), so an omitted option reaches the real ~/.openclaw paths or spawns scripts/orion-authority.",
+  "Timezone arithmetic. The dispatcher computes the slot in record.timeZone (dispatch.mjs:28-38). For Europe/London in September, 09:05 local is 08:05Z, so a scheduledAt of '\u2026T09:05:00Z' gives 'not_due'. scheduledAt must be minute-aligned, and context.now must lie in [scheduledAt, scheduledAt+300000] (dispatch.mjs:99).",
+  "Using the real clock. The real date (2026-09-23) is past fixture dates like 2026-09-20, so pass a fixed `now` to the installer (in whatever type task 2 chose) and use fixed context.now values. If the installer ignores `now` somewhere, that is an in-scope interop defect to fix.",
+  "Expecting the installer to accept an already-expired proposal. It throws (schedule.mjs:25). Create expiry by triggering after expiresOn: install on 2026-09-20 with expiresOn 2026-09-21, then trigger 2026-09-22T08:05:00Z.",
+  "Forgetting conditions {skipDuringFocus:true} for the unknown-focus case. Without it, focusActive:null is admitted and the executor runs (admission.mjs:111-113).",
+  "Reusing one installation across refusal cases after a success. Later calls then refuse with 'duplicate_or_old_trigger' or 'stopped' for the wrong reason. Use a fresh temp root and installation per case.",
+  "Asserting whole results with deepEqual. Refusals before admission include attempts:0, non-ready phases include actionCompleted, and not_due/invalid_state have no attempts key. Assert status and reason fields individually.",
+  "Making the failing executor return {ok:false}. The runtime ignores run()'s return except stdout (runtime.mjs:68-69). To model 'launched then failed', the injected run must write the disposable effect and then THROW. Use failureBehavior 'retry_once' so 'not blindly retried' is meaningful.",
+  "Expecting 'outcome_unknown' on the restart after an in-process failure. The ledger phase is 'stopped', so the reason is 'stopped' (dispatch.mjs:78-80). Only a real process exit leaves 'pending', and then the leftover lock gives 'busy_or_unavailable' until it is removed in the fixture.",
+  "Removing a .lock anywhere except in the disposable fixture after the child process has positively exited (tests/automation-dispatch.test.mjs:174-176). Never write code in the installer that clears locks.",
+  "Letting ENOENT reach a failure message. If a failing test prints 'ENOENT'/'No such file or directory' within the first 2000 chars of check output, the host marks the check UNUSABLE ENVIRONMENT and blocks the attempt for a human (checks.mjs:189-192; worker.mjs:319-324). Read possibly-missing files with .catch(() => null).",
+  "Proving 'no production root' by reading or stat-ing ~/.openclaw paths. That touches production. Compare path strings only, and assert that the injected fakes were used.",
+  "Editing runtime, dispatch, admission, schedule or tick to make the route pass. The write is refused by scope (worker.mjs:286-291) and wastes an exchange. Report the defect in ### DONE (or ### BLOCKED if it prevents a criterion).",
+  "The stuck gate. A write/CHECK turn counts as progress only if it writes a file not written before in this attempt, or flips a failing check to passing, and the counter ends that turn at 1, not 0 (worker.mjs:277, 306, 342-343). After the first test-file write, three more rewrite+CHECK turns that do not turn a check green hand the task to the reviewer as 'stuck'. Read everything first and get the test right on the first write.",
+  "The self-review turn. The first write over 12,000 chars (the test file will be), a new SUBTASK label, or a check flipping forces a self-review exchange where ### DONE is withheld (worker.mjs:153-206, 243-245, 280, 308). DONE in the same reply as such a trigger is bounced (worker.mjs:355). Budget two exchanges after the last green CHECK.",
+  "Output limit. Replies are capped at 16,000 tokens (models.mjs:63). Writing both a large test file and the full installer in one reply can truncate the fence, which gives MALFORMED. Write one large file per reply.",
+  "Spawning anything but process.execPath in child-process tests, or letting a child call real scheduler or host code. The child's runInstalledAutomation must receive the same four injected options as in-process calls."
+ ],
+ "exchangePlan": [
+  "Exchange 1: `### SUBTASK: 1/3 read the route`. The two scope files are already in the working set. Batch-READ scripts/lib/orion-automation-runtime.mjs and tests/automation-runtime.test.mjs, and tests/automation-dispatch.test.mjs only if the brief's child-process snippet is not enough. Do not write yet.",
+  "Exchange 2: in prose, from the working set, write down:\n- installDisabledAutomation's parameter handling (especially the type of `now`) and its return value;\n- the exact fields of the record it publishes, and whether any field is added after initializeAutomationDispatch;\n- where its intent/transaction files live;\n- the fake-scheduler helper tasks 2-3 defined in the test file.\nCompare these against the brief's installed-record shape. If an installer interop defect is visible, note it now. If something is unknown (e.g. a dispatch reason), READ scripts/lib/orion-automation-dispatch.mjs. Otherwise go straight to exchange 3.",
+  "Exchange 3: `### SUBTASK: 2/3 fixture route tests`. Write the COMPLETE tests/automation-install.test.mjs: every existing test unchanged, plus new tests for:\n- (a) due trigger succeeds once, then repeated with fresh options gives 'duplicate_or_old_trigger';\n- (b) five refusal cases, each with a fresh install and run never called;\n- (c) effect-then-throw with retry_once, then a restart gives 'stopped';\n- (d) child-process exit inside run gives 'pending', then busy, then outcome_unknown after fixture-only lock removal;\n- (e) injection evidence.\nThen `### CHECK`. This first write counts as progress; the next exchange will be a self-review checkpoint because the file is over 12,000 characters.",
+  "Exchange 4 (checkpoint, DONE withheld): read the CHECK output tail. If a failure shows an installer interop defect (e.g. invalid_state from an extra field, installation_unavailable_or_unsupported from the name or installedAt type), write the COMPLETE installer with the minimal fix, keeping all three exports and prior behaviour, and CHECK. If the failure is in the test (timezone, reason string, missing skipDuringFocus), fix the test and CHECK.",
+  "Exchange 5: self-review each of the five criteria against the file. Confirm:\n- no initializeAutomationDispatch or hand-written installed record in the new tests;\n- all four runInstalledAutomation options on every call, including inside the child source;\n- the name comes from the plan's commandArgv[1].\nFix and CHECK only if something is wrong. Remember that only a failing-to-passing flip counts as progress now.",
+  "Exchanges 6-8: reserve for at most two more fix+CHECK cycles. If the same failure repeats twice, stop editing and READ the module the failure points at (dispatch.mjs, admission.mjs or schedule.mjs). If a runtime defect outside scope blocks a criterion, ### BLOCKED with the evidence instead of looping.",
+  "Exchange 9: once all three checks pass, reply with a short self-review and nothing else. If this is the checkpoint exchange, a DONE would be withheld anyway.",
+  "Exchange 10: `### DONE` alone (no FILE, no CHECK, so the checks stay fresh). One paragraph:\n- what was added, criterion by criterion;\n- any installer fix and why;\n- the out-of-scope limitation that orion-automation-run/automationTick cannot inject automationRoot, so the fixture does not prove the real tick reads the installer's root.",
+  "Exchanges 11-14: slack for a bounced DONE ('Self-review is required' or a withheld notice): run ### CHECK once if told the checks are stale, then ### DONE. Never rewrite a passing file just to be busy, because non-progress write turns feed the stuck gate."
+ ],
+ "reviewerChecks": [
+  "Criterion 1: in the diff, new tests call installDisabledAutomation with a temporary root, a temporary repoRoot, a fake scheduler and a fixed now. They NEVER import or call initializeAutomationDispatch and never write a fresh installed/<name>.json for the positive route. Every runInstalledAutomation call passes automationRoot (the same temp root), repoRoot, checks and run, including inside any child-process source string. The name used is proposal.name, ideally taken from the created plan's commandArgv[1]. Superficially passing but wrong: a copied runtime-test fixture (writeFile installed JSON + initializeAutomationDispatch), or a runInstalledAutomation call missing an option.",
+  "Criterion 2: the test asserts status 'succeeded' AND exactly one executor call/effect line. The executor file is join(tempRepo,'scripts/orion-agenda') with args ['today']. The second call, with the same scheduledAt, asserts reason 'duplicate_or_old_trigger' and an unchanged launch count. Superficially passing but wrong: asserting only status, or reusing a cached result object.",
+  "Criterion 3: five separate cases, each with its own installation, each asserting status 'refused', its reason and zero executor calls: not_authorized, expired (triggered after expiresOn, not an already-expired install), mode_mismatch, focus_unknown (the proposal has skipDuringFocus:true and focusActive is null), and invalid_state or state_or_adapter_unavailable for a changed installer-written record. Superficially passing but wrong:\n- the focus case without skipDuringFocus;\n- an expired case that only asserts the installer throws;\n- a refusal that is really 'duplicate_or_old_trigger' because the installation was reused;\n- 'changed installation' done by writing a brand-new record rather than editing the installer's output.",
+  "Criterion 4: the effect-then-fail case uses failureBehavior 'retry_once', and its run writes an effect under the temp root and then throws. It asserts 'outcome_unknown', one launch and one effect line; a later call gives 'stopped' with no new launch. The pending case uses a real child process exit (assert.rejects with code 73). It asserts ledger phase 'pending', a restart refused 'busy_or_unavailable', lock removal only after the child exited, then 'outcome_unknown' with no launches. Superficially passing but wrong:\n- a run that returns {ok:false} (never 'launched' semantics);\n- failureBehavior 'stop' only;\n- the ledger hand-edited to 'pending';\n- restart asserted only as 'not succeeded'.",
+  "Criterion 5: assertions show the fake scheduler call log (no enable, job stays enabled:false), the executor path is under the temp repo, the injected checks were called, result.delivery.status === 'not_requested', no root/runtime/messages entry exists, and temp paths differ from the production automation root by string comparison. The diff must NOT touch scripts/lib/orion-automation-runtime.mjs, -dispatch, -admission, -schedule, -tick, -host or any other file outside the two scope files. Any installer change must be minimal, keep verifyDisabledSchedule, installDisabledAutomation and reconcileDisabledAutomation, and be explained in the worker summary. Out-of-scope observations (e.g. the tick cannot inject automationRoot) must be reported, not coded around.",
+  "Regression and gaming: compare removed lines in tests/automation-install.test.mjs. No task 1-3 test deleted, skipped (t.skip/todo) or weakened. Any changed assertion must encode a stricter or corrected format, with a stated reason. automation-tests still passes all 82 existing tests, and automation-install-tests shows the new test names in its output. No console.log, TODO or production path literal (other than in string-inequality assertions)."
+ ]
+}

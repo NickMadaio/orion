@@ -1,0 +1,318 @@
+{
+ "summary": "Task 1 (auto-install-readback, plan lines 56-96) asks for one new pure, synchronous export, verifyDisabledSchedule(expected, observed) -> boolean, in a NEW file scripts/lib/orion-automation-install.mjs, and a NEW test file tests/automation-install.test.mjs. Neither file exists at HEAD (git cat-file -e fails for both), so the worker's initial working set is empty (worker.mjs:72-80) and READs of those paths fail.\n\nEverything the verifier compares comes from automationSchedulePlan (scripts/lib/orion-automation-schedule.mjs:6-40), which is identical at HEAD and on disk. I ran it on the existing test fixture (the proposal from tests/automation-schedule.test.mjs:8-11, \"Europe/London\", \"/fixture/repo with spaces\") and got:\n- name \"orion-auto-calendar-check\"\n- timeZone \"Europe/London\"\n- cron \"5 9 * * *\"\n- commandArgv [\"/fixture/repo with spaces/scripts/orion-automation-run\",\"calendar-check\"]\n- schedulerArgs: 20 entries, with \"--command-cwd\" at index 10 and the raw repoRoot at index 11.\n\nThe plan output has no `cwd` field. cwd must be read from schedulerArgs, and repoRoot is not normalised there. With repoRoot \"/r/\", commandArgv[0] becomes \"/r/scripts/orion-automation-run\" because join() normalises it, while --command-cwd stays \"/r/\".\n\nThree admission rules can make a test's own fixture throw:\n- validateProposal (plugin/orion-control/dist/automation.js:114-195) needs riskLimits.maxMessagesPerDay (0-48) and an intent of at least 8 characters.\n- The plan function allows only agenda_today with no delivery (schedule.mjs:12-14).\n- conditions must be an object (admission.mjs:18-19, reached through schedule.mjs:16-18).\nI confirmed that leaving out maxMessagesPerDay or conditions throws.\n\nA prototype that meets all four criteria fits in about 1.4 KB of module and 3.2 KB of test. Its four tests pass, and they catch 7 of 7 plausible wrong implementations:\n- a timeZone/timezone key typo\n- skipping the cwd comparison\n- a truthiness check on enabled\n- skipping the argv length check\n- indexOf -1 falling back to schedulerArgs[0]=\"cron\"\n- an async verifier\n- a missing id check\nThe prototype is at /private/tmp/claude-501/-Users-nickmadaio/bc935486-ff13-4103-9768-e781f5714e27/scratchpad/proto/.\n\nThe existing seven automation suites pass: 82/82, run read-only.\n\nRuntime facts that shape the brief:\n- automation-install-tests is registered only in the UNCOMMITTED working copy of scripts/lib/agentic/checks.mjs (lines 63-68). At HEAD it is absent.\n- Check commands run with the real HOME (checks.mjs:130).\n- A failing check whose first 2000 characters contain ENOENT, \"No such file or directory\" or \"command not found\" counts as an unusable environment. The task then blocks as human-only (checks.mjs:189-192, worker.mjs:319-324).\n- Writing a file over 12,000 characters, changing the SUBTASK n/m, or a check going from fail to pass each force a self-review exchange where ### DONE is withheld (worker.mjs:243-245, 280, 305-310, 355, 195-205).\n- The stuck gate fires after 4 exchanges that write or check but make no progress (worker.mjs:342-353). Three byte-identical action sets block the task (worker.mjs:226-230).\n- The brief (common.md plus the task file, joined by \"\\n\\n---\\n\\n\") must total 18,000 characters or less (contract.mjs:65, plan.mjs:67-72).\n\nNo contradiction in the contract requires Astra. The ambiguities below each have a faithful literal reading.",
+ "apis": [
+  {
+   "name": "automationSchedulePlan",
+   "file": "scripts/lib/orion-automation-schedule.mjs",
+   "line": 6,
+   "signature": "export function automationSchedulePlan(proposal, timeZone, repoRoot, now = Date.now())",
+   "behavior": "Pure; no fs/network/process. Throws Error(issues.join('; ')) if validateProposal finds issues (lines 9-11; note it substitutes a tomorrow expiresOn for that call only, so real expiry is checked later). Throws 'Only agenda_today without outbound delivery is supported by this runtime' if action !== 'agenda_today' or delivery !== undefined (12-14). Throws 'An explicit IANA timezone and valid bounded policy are required' if checkAutomationConditions returns invalid_policy (16-18; e.g. missing conditions object, tz 'EST'). Throws 'Invalid current clock' for a bad now (19). Throws /Expiry must be today through 180 calendar days ahead/ if expiresOn is before today or more than 180 days ahead in the chosen zone (20-25). Returns {readyToInstall:false, nextGate:string, name:`orion-auto-${proposal.name}`, timeZone, cron:cronExpression(trigger), commandArgv:[join(repoRoot,'scripts/orion-automation-run'), proposal.name], policy:{action,intent,expiresOn,conditions,permissions,riskLimits,failureBehavior}, schedulerArgs:[20 strings]} (27-40). Object is not frozen. repoRoot is not required to exist and is not normalized in --command-cwd (line 38)."
+  },
+  {
+   "name": "validateProposal",
+   "file": "plugin/orion-control/dist/automation.js",
+   "line": 114,
+   "signature": "export function validateProposal(value): string[]",
+   "behavior": "Returns every issue at once. Requires: name matching NAME_RE /^[a-z0-9][a-z0-9-]{1,47}$/ (104,117); intent a string of at least 8 characters after trim and at most 400 (120-125); trigger daily/hourly/weekly with integer atHour/atMinute/weekday (126-149); action an own key of AUTOMATION_ACTIONS (159); quietHours optional [h,h] (162-167); expiresOn YYYY-MM-DD (168-178); riskLimits.maxRunsPerDay 1-1440 AND riskLimits.maxMessagesPerDay 0-48, both required (179-187); failureBehavior stop|retry_once|report_and_continue (188); permissions.expectsMode contained|guarded|open|sovereign (191). The file imports only node:os and node:path (1-2), so importing it has no side effects. It is tracked and identical at HEAD."
+  },
+  {
+   "name": "cronExpression",
+   "file": "plugin/orion-control/dist/automation.js",
+   "line": 209,
+   "signature": "export function cronExpression(trigger): string",
+   "behavior": "daily -> `${atMinute} ${atHour} * * *`; hourly -> `${atMinute} * * * *`; weekly -> `${atMinute} ${atHour} * * ${weekday}` (210-217). Single spaces, no padding. Example {kind:'daily',atHour:9,atMinute:5} -> '5 9 * * *' (asserted at tests/automation-schedule.test.mjs:15)."
+  },
+  {
+   "name": "checkAutomationConditions",
+   "file": "scripts/lib/orion-automation-admission.mjs",
+   "line": 88,
+   "signature": "export function checkAutomationConditions(record, context): {admitted:boolean, reason?:string, now?, day?}",
+   "behavior": "Returns {admitted:false, reason:'invalid_policy'} if binding() throws (89-90). binding (14-41) requires name regex, installationId /^[a-zA-Z0-9-]{8,80}$/, a valid expiresOn day, maxRunsPerDay 1-1440, expectsMode in MODES, conditions a non-array object, skipDuringFocus boolean if present, valid quietHours, and timeZone 'UTC' or a member of Intl.supportedValuesOf('timeZone'). The schedule preview calls it with installationId 'preview-only' and now:0 only to validate the policy (schedule.mjs:15-18). Task 1 does not need to call it."
+  },
+  {
+   "name": "removeAutomationSchedule",
+   "file": "scripts/lib/orion-automation-removal.mjs",
+   "line": 3,
+   "signature": "export async function removeAutomationSchedule(run, binary, name)",
+   "behavior": "The only existing code that reads real scheduler output. Expects the job name `orion-auto-${name}` (7). Parses `cron list --all --json` stdout as {jobs:[{id,name,...}], total, offset:0, hasMore:false} and rejects any job whose id is not a non-empty string (`typeof job.id !== 'string' || !job.id`, line 13), plus duplicate ids (15). Precedent for 'nonempty job id' = non-empty string, with no format regex. No single-job read(id) parser or normalizer exists anywhere at HEAD (git grep for verifyDisabledSchedule/orion-automation-install/installDisabledAutomation at HEAD: no matches)."
+  },
+  {
+   "name": "initializeAutomationDispatch",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 50,
+   "signature": "export async function initializeAutomationDispatch(root, value)",
+   "behavior": "NOT used by task 1 (task 2). Writes admission ledger at join(root,'admission'), a messages ledger only if delivery is set, and `${sha256(installationId)}.dispatch.json` with {version:1,binding,phase:'ready',lastAt:null,lastSlot:null} using exclusive create (51-56, persist 39-49). Throws if the file already exists (open 'wx')."
+  },
+  {
+   "name": "runInstalledAutomation",
+   "file": "scripts/lib/orion-automation-runtime.mjs",
+   "line": 18,
+   "signature": "export async function runInstalledAutomation(name, scheduledAt, { automationRoot = join(homedir(), '.openclaw/orion-controlled/automations'), repoRoot = repo, checks = createAutomationHostChecks({ repoRoot }), run = executeFile } = {})",
+   "behavior": "NOT used by task 1 (task 4). Defaults are PRODUCTION paths and real host probes (19-20). Every caller in tests must pass automationRoot, repoRoot, checks and run explicitly (as tests/automation-runtime.test.mjs:23-38 does). Reads root/installed/<name>.json and requires name, action 'agenda_today', no delivery, and a parseable installedAt (25-34). Dispatches against join(automationRoot,'runtime') (77)."
+  },
+  {
+   "name": "verifyDisabledSchedule (to be created)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 1,
+   "signature": "export function verifyDisabledSchedule(expected, observed): boolean   // synchronous, NOT async",
+   "behavior": "Does not exist at HEAD; task 1 creates it (plan line 87). Required behaviour, from plan lines 87-88: return true only if observed.id is a non-empty string; observed.name === expected.name; observed.timeZone === expected.timeZone; observed.cron === expected.cron; observed.commandArgv is an array of exactly expected.commandArgv.length entries, each strictly equal by index; observed.cwd === the element after the single '--command-cwd' in expected.schedulerArgs; observed.enabled === false; observed.exact === true; observed.noDeliver === true. Otherwise return false. It must never throw on malformed input, never mutate its arguments, and import nothing that touches fs, network or processes. Tasks 2-4 call it from installDisabledAutomation and reconcileDisabledAutomation ('Preserve the verifier interface from the prior task', plan line 139)."
+  },
+  {
+   "name": "CHECK_REGISTRY entries used by this task",
+   "file": "scripts/lib/agentic/checks.mjs",
+   "line": 37,
+   "signature": "'node-syntax' (37-43): per-file [node,'--check',file] on changed .mjs/.js; 'automation-install-tests' (63-68): [node,'--test','tests/automation-install.test.mjs']; 'automation-tests' (69-77): [node,'--test', the seven tests/automation-*.test.mjs suites]",
+   "behavior": "Run with cwd = worktree root and env {PATH fixed, HOME = real HOME, LANG, TMPDIR, CI=1, ORION_AGENTIC_CHECK=1, ORION_REPO_ROOT=worktree} (126-136). Output is capped at 60,000 characters (138). The worker sees the last 6,000 characters (prompts.mjs renderCheckResults). A result is marked 'unusable' if the process fails to start, exits 127, or its first 2000 characters of output match /command not found|ENOENT|No such file or directory/i (189-192). The worker then throws WorkerBlocked with humanOnly (worker.mjs:319-324). 'automation-install-tests' exists ONLY in the uncommitted working copy of checks.mjs; `git show HEAD:scripts/lib/agentic/checks.mjs` has no such entry (only automation-tests, at 57-63)."
+  },
+  {
+   "name": "worker loop limits",
+   "file": "scripts/lib/agentic/worker.mjs",
+   "line": 36,
+   "signature": "MAX_TURNS=14, MAX_WORKING_SET=8, MAX_FILE_CHARS=90_000 (36-38); stuckAfterTurns=4 (models.mjs:92)",
+   "behavior": "The initial working set is the scope files that exist (72-80); for task 1 that is none. A failed READ adds a NOTICE line and nothing else (262-264). Writing a file not written before counts as progress (277). A check going from fail to pass counts as progress (306). A barren counter increments on any exchange with a FILE, CHECK or DONE that made no progress; at 4 the task goes to the reviewer (342-353). Three identical action fingerprints block the task (226-230). A self-review checkpoint is scheduled by: a SUBTASK n/m change after the first (243-245), a written file over 12,000 characters (280), a check flipping pass<->fail (307-310), or the same failure seen twice (314). In a checkpoint exchange DONE is withheld (195-205), and a DONE in the same exchange that raised a trigger is deferred (355). DONE requires a written file, fresh checks, and all checks passing (356-364). The per-task wall clock is limits.taskTimeoutMs = 60 minutes (models.mjs:101, supervisor.mjs:454-455)."
+  }
+ ],
+ "shapes": [
+  {
+   "name": "expected (automationSchedulePlan output) \u2014 the verified example the tests should use",
+   "definition": "{ readyToInstall: false, nextGate: 'Human installer must publish installation identity and durable ledgers, create disabled job, verify it, then enable it', name: 'orion-auto-calendar-check', timeZone: 'Europe/London', cron: '5 9 * * *', commandArgv: ['/fixture/repo with spaces/scripts/orion-automation-run', 'calendar-check'], policy: { action:'agenda_today', intent, expiresOn, conditions:{}, permissions:{expectsMode:'guarded'}, riskLimits:{maxRunsPerDay:2,maxMessagesPerDay:0}, failureBehavior:'stop' }, schedulerArgs: ['cron','add','--name','orion-auto-calendar-check','--cron','5 9 * * *','--tz','Europe/London','--command-argv','[\"/fixture/repo with spaces/scripts/orion-automation-run\",\"calendar-check\"]','--command-cwd','/fixture/repo with spaces','--disabled','--exact','--no-deliver','--timeout-seconds','120','--output-max-bytes','4096','--json'] }. Key order: readyToInstall, nextGate, name, timeZone, cron, commandArgv, policy, schedulerArgs. schedulerArgs.length === 20; indexOf('--command-cwd') === 10; the value is at index 11. There is NO `cwd` field on the plan.",
+   "evidence": "scripts/lib/orion-automation-schedule.mjs:27-40, produced by running automationSchedulePlan with the proposal from tests/automation-schedule.test.mjs:8-11, 'Europe/London' and '/fixture/repo with spaces' (the same inputs as tests/automation-schedule.test.mjs:14). The literals match the assertions at schedule.test.mjs:15-17."
+  },
+  {
+   "name": "observed (normalized scheduler adapter read-back)",
+   "definition": "{ id: string (non-empty), name: string, timeZone: string, cron: string, commandArgv: string[], cwd: string, enabled: boolean (must be false), exact: boolean (must be true), noDeliver: boolean (must be true) }. The field names are exactly these, camelCase: timeZone, not timezone; commandArgv, not argv; noDeliver, not deliver. Valid example matching the expected above: { id: 'job-7f3a', name: 'orion-auto-calendar-check', timeZone: 'Europe/London', cron: '5 9 * * *', commandArgv: ['/fixture/repo with spaces/scripts/orion-automation-run', 'calendar-check'], cwd: '/fixture/repo with spaces', enabled: false, exact: true, noDeliver: true }.",
+   "evidence": "Defined only by the contract, plan line 87: 'observed is the normalized adapter object {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}'. No adapter or normalizer exists at HEAD (git grep, no matches). In task 2 this object is what scheduler.read(id) returns (plan line 133)."
+  },
+  {
+   "name": "Proposal fixture that automationSchedulePlan accepts",
+   "definition": "() => ({ name: 'calendar-check', intent: 'Read the calendar at the chosen time', action: 'agenda_today', expiresOn: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), trigger: { kind: 'daily', atHour: 9, atMinute: 5 }, conditions: {}, permissions: { expectsMode: 'guarded' }, riskLimits: { maxRunsPerDay: 2, maxMessagesPerDay: 0 }, failureBehavior: 'stop' }). Required: maxMessagesPerDay (throws 'riskLimits.maxMessagesPerDay must be 0-48 \u2014 ...' without it); conditions:{} (throws 'An explicit IANA timezone and valid bounded policy are required' without it); action 'agenda_today'; no delivery key.",
+   "evidence": "tests/automation-schedule.test.mjs:8-11. Required fields: automation.js:179-187, admission.mjs:18-19, schedule.mjs:12-18. Both omissions confirmed by execution to throw."
+  },
+  {
+   "name": "repoRoot normalization asymmetry",
+   "definition": "commandArgv[0] = path.join(repoRoot, 'scripts/orion-automation-run'), which is normalized; the --command-cwd value is repoRoot verbatim. With repoRoot '/r/': commandArgv[0] = '/r/scripts/orion-automation-run' but cwd must be '/r/'. So cwd must come from schedulerArgs. Deriving it from dirname(dirname(commandArgv[0])) is wrong.",
+   "evidence": "schedule.mjs:27 and 38. Confirmed by execution: automationSchedulePlan(..., '/r/', ...) gave commandArgv ['/r/scripts/orion-automation-run','calendar-check'] and schedulerArgs[11] '/r/'."
+  },
+  {
+   "name": "Real scheduler list output (background only; not the read(id) shape)",
+   "definition": "stdout JSON {jobs:[{id:string, name:string, ...}], total:number, offset:0, hasMore:false}",
+   "evidence": "scripts/lib/orion-automation-removal.mjs:9-18; tests/automation-removal.test.mjs:5-6. There is no evidence at HEAD of the single-job read-back format or of how enabled/exact/noDeliver appear in real scheduler output. That belongs to the next batch (plan line 305)."
+  },
+  {
+   "name": "Brief container limits",
+   "definition": "The brief is common.md + '\\n\\n---\\n\\n' + auto-install-readback.md and must total 18,000 characters or less, else plan loading throws. It is rendered after the contract under '## BRIEF \u2014 reference for this task', with a note that the contract wins.",
+   "evidence": "scripts/lib/agentic/contract.mjs:65 (MAX_BRIEF = 18_000); scripts/lib/agentic/plan.mjs:67-72; scripts/lib/agentic/prompts.mjs:83-89 (renderBrief, in the working copy)."
+  }
+ ],
+ "testPatterns": [
+  {
+   "pattern": "Imports and runner: node:test default import + strict assert; relative import of modules from ../scripts/lib/",
+   "evidence": "tests/automation-schedule.test.mjs:1-5",
+   "snippet": "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { automationSchedulePlan } from \"../scripts/lib/orion-automation-schedule.mjs\";\nimport { verifyDisabledSchedule } from \"../scripts/lib/orion-automation-install.mjs\";"
+  },
+  {
+   "pattern": "Proposal factory that returns a fresh object each call (never a shared const), relative expiry so the fixture never goes stale",
+   "evidence": "tests/automation-schedule.test.mjs:8-11",
+   "snippet": "const proposal = () => ({ name: \"calendar-check\", intent: \"Read the calendar at the chosen time\", action: \"agenda_today\",\n  expiresOn: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),\n  trigger: { kind: \"daily\", atHour: 9, atMinute: 5 }, conditions: {}, permissions: { expectsMode: \"guarded\" },\n  riskLimits: { maxRunsPerDay: 2, maxMessagesPerDay: 0 }, failureBehavior: \"stop\" });"
+  },
+  {
+   "pattern": "Inert fixture path containing spaces as repoRoot. It is never created or touched, and the plan function only joins strings.",
+   "evidence": "tests/automation-schedule.test.mjs:14-17 uses '/fixture/repo with spaces' and asserts the derived commandArgv literal",
+   "snippet": "const plan = automationSchedulePlan(p, \"Europe/London\", \"/fixture/repo with spaces\");\nassert.deepEqual(plan.commandArgv, [\"/fixture/repo with spaces/scripts/orion-automation-run\", p.name]);"
+  },
+  {
+   "pattern": "Table-driven refusal loop: each case is built from a fresh factory output plus one change",
+   "evidence": "tests/automation-schedule.test.mjs:41-48",
+   "snippet": "for (const change of [{ action: \"daily_rollup\" }, { delivery: { targetId: \"someone\" } }, ...]) {\n  assert.throws(() => automationSchedulePlan({ ...proposal(), ...change }, \"UTC\", \"/repo\"));\n}"
+  },
+  {
+   "pattern": "Observed object written out by hand as literals, so the test does not validate the plan against itself, with a helper that deletes one key from a clone for 'missing field' cases",
+   "evidence": "Prototype (scratchpad/proto/tests/automation-install.test.mjs) passed 4/4 and caught 7/7 mutants; literals match schedule.test.mjs:15-16",
+   "snippet": "const observed = () => ({ id: \"job-7f3a\", name: \"orion-auto-calendar-check\", timeZone: \"Europe/London\",\n  cron: \"5 9 * * *\", commandArgv: [\"/fixture/repo with spaces/scripts/orion-automation-run\", \"calendar-check\"],\n  cwd: \"/fixture/repo with spaces\", enabled: false, exact: true, noDeliver: true });\nconst without = (object, key) => { const copy = structuredClone(object); delete copy[key]; return copy; };"
+  },
+  {
+   "pattern": "Assert results with strict equality to the literals true/false, never truthiness and never `await`. strict equal also proves the return is a boolean and not a Promise.",
+   "evidence": "node:assert/strict equal is Object.is. In the prototype, an async verifier failed all 4 tests; with `await` in the tests it would have passed.",
+   "snippet": "assert.equal(verifyDisabledSchedule(plan(), observed()), true);\nassert.equal(verifyDisabledSchedule(plan(), { ...observed(), enabled: true }), false);"
+  },
+  {
+   "pattern": "Fake scheduler runner with a call log that fails on any unexpected call (for later tasks' injected adapters; task 1 needs no adapter object)",
+   "evidence": "tests/automation-removal.test.mjs:7-16",
+   "snippet": "function runner(responses) {\n  const calls = [];\n  return { calls, run: async (...args) => { calls.push(args); assert.ok(responses.length, \"unexpected scheduler call\"); ... } };\n}"
+  },
+  {
+   "pattern": "Explicit temporary root with cleanup (for tasks 2-4, not needed by the pure task-1 verifier)",
+   "evidence": "tests/automation-runtime.test.mjs:10-12",
+   "snippet": "const root = await mkdtemp(join(tmpdir(), \"orion-runtime-\"));\nt.after(() => rm(root, { recursive: true, force: true }));"
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "Export verifyDisabledSchedule(expected, observed), returning a boolean without filesystem or network effects; expected is automationSchedulePlan output and observed is the normalized adapter object {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}.",
+   "feasible": true,
+   "approach": "Create scripts/lib/orion-automation-install.mjs with a named, NON-async `export function verifyDisabledSchedule(expected, observed)`. It needs no imports at all: string comparisons and Array checks only. No Date, no fs, no child_process. Guard every access so it returns false and never throws: expected or observed that is null, not an object, a string, or missing fields. Never mutate either argument. Put helpers in non-exported functions.",
+   "evidence": "The plan output shape is at schedule.mjs:28-40. The observed shape is defined only at plan line 87. Task 2 must 'Preserve the verifier interface from the prior task' (plan line 139). The prototype is 1,411 bytes with zero imports.",
+   "risk": "Declaring it `async` returns Promise<boolean>, which is not a boolean. Tests that `await` it would still pass, so it looks right and is wrong. Other risks: throwing on malformed input (e.g. expected.schedulerArgs.indexOf on undefined); a default export, or a name other than verifyDisabledSchedule; importing automationSchedulePlan and re-deriving expected inside the verifier (changes the interface)."
+  },
+  {
+   "criterion": "Require a nonempty job id, exact expected name/timezone/cron/argv, cwd equal to the --command-cwd value in schedulerArgs, enabled === false, exact === true, and noDeliver === true. Reject missing, malformed, or additional command argv entries.",
+   "feasible": true,
+   "approach": "id: typeof observed.id === 'string' && observed.id.length > 0 (rejecting whitespace-only is allowed; do NOT impose an id format regex). name, timeZone, cron: require expected's value to be a non-empty string, then strict ===. Without that, undefined === undefined passes when both sides lack a field. argv: Array.isArray(observed.commandArgv) && observed.commandArgv.length === expected.commandArgv.length && every index strictly === (expected.commandArgv must itself be a non-empty array of strings). cwd: i = expected.schedulerArgs.indexOf('--command-cwd'); return false if i === -1 (otherwise i+1 === 0 yields 'cron'), if the flag appears twice, or if schedulerArgs[i+1] is not a non-empty string. Then observed.cwd === schedulerArgs[i+1]. Booleans: observed.enabled === false && observed.exact === true && observed.noDeliver === true, strict (not !observed.enabled). Do not trim, lowercase, path.normalize or resolve any observed value: 'exact' means byte-equal.",
+   "evidence": "--command-cwd sits at schedulerArgs index 10 and repoRoot at 11 (schedule.mjs:36-39, confirmed by execution). cwd is not normalized, but commandArgv[0] is (schedule.mjs:27 vs 38). The removal module's id precedent is a non-empty string (removal.mjs:13). In the prototype, mutants for the timezone key typo, the dropped cwd comparison, `!observed.enabled`, the dropped length check and the dropped indexOf -1 guard were each caught.",
+   "risk": "Plausible-but-wrong versions: comparing observed.cwd with expected.cwd (undefined); deriving cwd from dirname(commandArgv[0]); comparing argv with Array.includes, a prefix match, or a join(' ') string (joined strings let a single string or a space-split array pass); using `observed.timezone`; truthiness for enabled (null/0/undefined would pass); comparing observed.name with the proposal name 'calendar-check' instead of 'orion-auto-calendar-check'; accepting observed.commandArgv as the JSON string that appears in schedulerArgs."
+  },
+  {
+   "criterion": "Tests independently alter each field and cover paths with spaces, valid acceptance, unexpected active job, missing id and shell-like arguments. Do not validate an object against itself.",
+   "feasible": true,
+   "approach": "In tests/automation-install.test.mjs, build expected with automationSchedulePlan(proposal(), 'Europe/London', '/fixture/repo with spaces'). Build observed from a factory of HAND-WRITTEN literals, not copied from the plan. Tests: (1) valid acceptance: verify(plan(), observed()) === true. (2) For each of the nine fields id, name, timeZone, cron, commandArgv, cwd, enabled, exact, noDeliver, start from a fresh observed(), change exactly that one field (plus one case with the field deleted) and assert === false. Wrong values to use: name 'calendar-check'/'orion-auto-other'; timeZone 'UTC'/'europe/london'; cron '6 9 * * *'/'5 9 * * * '; cwd '/fixture/repo'/'/fixture/repo with spaces/'; commandArgv [run] (missing), [run,'calendar-check','--extra'] (additional), the string `${run} calendar-check` and [run, 7] (malformed), and the space-split path; enabled true/'false'/0/null; exact false/'true'/1; noDeliver false/'true'/1. (3) Unexpected active job: enabled:true. (4) Missing id: key deleted, and ''. (5) Shell-like argv: ['/bin/sh','-c',`${run} calendar-check`], [run,'calendar-check; rm -rf ~'], [`'${run}'`,'calendar-check'], [run,'$(calendar-check)']. (6) Recommended extra: malformed expected or observed (null, a string, a plan with '--command-cwd' removed and observed.cwd 'cron') returns false without throwing, and the inputs deepEqual their clones afterwards. Keep the file well under 12,000 characters.",
+   "evidence": "schedule.test.mjs:14-17 already asserts these exact literals for this proposal and repoRoot. The literal contract text is at plan line 89. Prototype: 3,244 bytes, 4 tests, all pass, and it caught 7/7 mutants.",
+   "risk": "Validating against itself: verify(plan, plan), or observed built as {...plan, id, cwd: plan.schedulerArgs[11], ...} or {name: plan.name, ...}. Either hides a wrong plan, or a verifier that compares a field to itself. Other risks: altering several fields per case, so no single field is shown to matter; mutating a shared observed/commandArgv across cases (push/splice on a module-level const pollutes later cases); only rejection cases and no acceptance case (a verifier that always returns false passes); asserting with assert.ok(!result), which lets undefined pass; assertions inside `await`; a hard-coded expiresOn without an explicit `now` (the fixture expires as the calendar moves); omitting maxMessagesPerDay or conditions from the proposal (the plan throws)."
+  },
+  {
+   "criterion": "No scheduler process is spawned and the existing automation suites still pass.",
+   "feasible": true,
+   "approach": "By construction: the module imports nothing (in particular not node:child_process, node:fs or any network module), and the function is synchronous. Tests call it directly with plain objects; the test file needs no child_process import. Leave every existing tests/automation-*.test.mjs and every existing module untouched; both are outside scope and refused anyway (boundary.mjs assertWritable). The 'automation-tests' check re-runs the seven suites; they currently pass 82/82.",
+   "evidence": "checks.mjs:69-77 lists the seven suites. My read-only run: 82 pass, 0 fail. The scope files are writable under the installed policy (auditContractScope returned no findings). There is no scheduler binary call anywhere in the task path; the only existing scheduler invocation is removal.mjs:9,24 through an injected run().",
+   "risk": "No registered check can detect a spawn or fs access directly, so the reviewer must read the imports. Do not 'prove' no-spawn with a test that greps the module source for 'fs', 'spawn' or 'child_process': task 2 MUST add fs imports to this same module, and 'Keep existing regression assertions' would then trap tasks 2-4. Do not call runInstalledAutomation, removeAutomationSchedule or scripts/orion-automation in task-1 tests."
+  }
+ ],
+ "issues": [
+  {
+   "kind": "missing-info",
+   "detail": "The contract's context names three modules without their directory. A worker READ of 'orion-automation-dispatch.mjs' resolves against the worktree root and fails with a NOTICE, which costs an exchange. The real paths are scripts/lib/orion-automation-dispatch.mjs, scripts/lib/orion-automation-admission.mjs and scripts/lib/orion-automation-runtime.mjs.",
+   "evidence": "plan line 92 ('Read scripts/lib/orion-automation-schedule.mjs, orion-automation-dispatch.mjs, orion-automation-admission.mjs, orion-automation-runtime.mjs ...'); readScoped joins worktree + relativePath (scripts/lib/agentic/workspace.mjs:174-183); a READ failure becomes a notice (worker.mjs:262-264).",
+   "needsAstra": false,
+   "contractText": "Read scripts/lib/orion-automation-schedule.mjs, orion-automation-dispatch.mjs, orion-automation-admission.mjs, orion-automation-runtime.mjs and tests/automation-schedule.test.mjs.",
+   "recommendedInterpretation": "The brief states the full repository-relative paths and says all five exist at HEAD. It also says the two scope files do NOT exist yet and must be created with ### FILE, not READ."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "'nonempty job id' does not say whether a whitespace-only id or any particular format counts. The real scheduler's id format is not established anywhere at HEAD.",
+   "evidence": "plan line 88; removal.mjs:13 uses `typeof job.id !== 'string' || !job.id`; the fixture ids are 'job-1' and 'replacement' (tests/automation-removal.test.mjs:5,48). escalateWhen at plan line 76 forbids guessing scheduler schema.",
+   "needsAstra": false,
+   "contractText": "Require a nonempty job id",
+   "recommendedInterpretation": "typeof id === 'string' && id.length > 0, which matches the removal module. Rejecting whitespace-only is a harmless strictening. Do NOT add a format regex (UUID etc.): that is guessing the scheduler's schema."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The contract lists the nine observed fields but does not say whether extra keys on observed must be rejected. 'additional' refers only to command argv entries.",
+   "evidence": "plan line 87 ('observed is the normalized adapter object {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}') and line 88 ('Reject missing, malformed, or additional command argv entries').",
+   "needsAstra": false,
+   "contractText": "Reject missing, malformed, or additional command argv entries.",
+   "recommendedInterpretation": "Literal reading: verify the nine listed fields exactly and ignore other keys. Rejecting unknown keys is not required. The reviewer should not fail either choice, but the brief should pick one (ignore) so tasks 2-3's fake adapters stay simple."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The contract does not say what happens when `expected` is malformed (not real plan output). A throw would break 'returning a boolean'.",
+   "evidence": "plan line 87 ('returning a boolean ... expected is automationSchedulePlan output'); indexOf returning -1 would make schedulerArgs[0] = 'cron' the expected cwd (schedule.mjs:36).",
+   "needsAstra": false,
+   "contractText": "Export verifyDisabledSchedule(expected, observed), returning a boolean",
+   "recommendedInterpretation": "Never throw. Return false for any malformed expected or observed, including a schedulerArgs with no '--command-cwd' or more than one, and non-string name/timeZone/cron. Optional extra consistency checks on expected (e.g. schedulerArgs '--name' value === name) are allowed but not required, and must hold for real plan output."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "'independently alter each field' does not name the fields: the observed fields, or expected's too.",
+   "evidence": "plan line 89.",
+   "needsAstra": false,
+   "contractText": "Tests independently alter each field",
+   "recommendedInterpretation": "Each of the nine observed fields (id, name, timeZone, cron, commandArgv, cwd, enabled, exact, noDeliver), one per case, each from a fresh valid baseline that is itself asserted true. Include a 'field deleted' case for each."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The shared constraints require explicit temporary roots and injected fake scheduler adapters, but task 1's function is pure and takes no root or adapter.",
+   "evidence": "plan line 71 ('Tests must use explicit temporary roots and injected fake scheduler adapters. No production paths or external commands with side effects.'); the existing pure-function precedent uses the inert path '/fixture/repo with spaces' (tests/automation-schedule.test.mjs:14).",
+   "needsAstra": false,
+   "contractText": "Tests must use explicit temporary roots and injected fake scheduler adapters. No production paths or external commands with side effects.",
+   "recommendedInterpretation": "The constraint's purpose, no production paths or side effects, is met by touching no filesystem at all. repoRoot is an inert string that is never created or read. The hand-built observed objects stand in for what a fake adapter's read(id) would return. Never use the real repo root (e.g. new URL('..', import.meta.url)) or homedir() as repoRoot."
+  },
+  {
+   "kind": "check-gap",
+   "detail": "No registered check can detect filesystem, network or process effects, or an async (Promise-returning) verifier if the tests await it. node-syntax only parses, and the test checks only run assertions.",
+   "evidence": "checks.mjs:37-43, 63-77; plan lines 87 and 90.",
+   "needsAstra": false,
+   "contractText": "returning a boolean without filesystem or network effects ... No scheduler process is spawned",
+   "recommendedInterpretation": "Evidence is: the module has no imports, the function is not async, and the tests assert strict equality with true/false without await. The reviewer must inspect the imports and the function declaration in the diff."
+  },
+  {
+   "kind": "other",
+   "detail": "The verifier's signature has no expected job id, so it cannot tell a read-back of the right job from a read-back of a different job with identical fields. Binding observed.id to the id returned by createDisabled must be done by the caller.",
+   "evidence": "plan line 87 (signature verifyDisabledSchedule(expected, observed)); plan line 135 ('Record returned scheduler id before proceeding to verifyDisabledSchedule'); plan line 188 ('only when exact transaction identity and read-back match').",
+   "needsAstra": false,
+   "contractText": "Export verifyDisabledSchedule(expected, observed)",
+   "recommendedInterpretation": "Task 1 must not add a third parameter (that changes the interface). The briefs for tasks 2 and 3 should say the caller must also check observed.id === recordedId."
+  },
+  {
+   "kind": "other",
+   "detail": "The normalized observed shape leaves out --timeout-seconds 120, --output-max-bytes 4096 and --json, so exact read-back cannot confirm those parts of the created job.",
+   "evidence": "schedule.mjs:39 vs. plan line 87 field list.",
+   "needsAstra": false,
+   "contractText": "observed is the normalized adapter object {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}",
+   "recommendedInterpretation": "Do not add fields in task 1 (the contract fixes the shape). Record this as a limitation in task 5's review packet and in the next batch's real adapter contract."
+  },
+  {
+   "kind": "other",
+   "detail": "The check 'automation-install-tests' is registered only in the uncommitted working copy of scripts/lib/agentic/checks.mjs. Plan validation rejects unknown checks, so the run works only if the host process runs the on-disk code (it does today). The worker's worktree is built from HEAD, which is irrelevant here because checks run from the host's registry against worktree paths.",
+   "evidence": "checks.mjs:63-68 (working copy) vs `git show HEAD:scripts/lib/agentic/checks.mjs` (no entry); plan.mjs:116 rejects unregistered checks.",
+   "needsAstra": false,
+   "contractText": "\"checks\": [\"node-syntax\", \"automation-install-tests\", \"automation-tests\"]",
+   "recommendedInterpretation": "Operational note for Nick. Nothing for the worker to do. Do not tell the worker to READ checks.mjs; it is in the runtime deny-list for writes, and it is irrelevant to the task."
+  },
+  {
+   "kind": "check-gap",
+   "detail": "If a failing test's first 2000 characters of output contain 'ENOENT', 'No such file or directory' or 'command not found', the whole check is classed as a broken environment. The worker then throws a human-only block instead of getting a chance to fix the test. Task 1 avoids this by touching no filesystem; tasks 2-4 are exposed.",
+   "evidence": "checks.mjs:189-192 (environmentBroken), worker.mjs:319-324. Verified: a missing import prints 'Cannot find module' (not matched) and a missing test file prints \"Could not find '...'\" (not matched).",
+   "needsAstra": false,
+   "contractText": "automation-install-tests",
+   "recommendedInterpretation": "Task-1 tests must not read, write or stat files. Warn in the common brief that assertion messages must not quote raw ENOENT errors."
+  }
+ ],
+ "pitfalls": [
+  "Trying to ### READ scripts/lib/orion-automation-install.mjs or tests/automation-install.test.mjs. Neither exists at HEAD, the working set starts empty (worker.mjs:72-80), and worker-system.md:42-43 ('Do not write a file you have not read') can push the model into READ/SEARCH loops. Both must be created with ### FILE.",
+  "READing the context's bare names ('orion-automation-dispatch.mjs') instead of 'scripts/lib/orion-automation-dispatch.mjs'. Each costs a notice and possibly an exchange.",
+  "Making verifyDisabledSchedule `async`, or awaiting it in tests. A Promise is not a boolean; awaited tests hide it; task 2's interface then inherits the mistake.",
+  "Validating the plan against itself: verify(plan, plan), or observed = {...plan, id:'x', cwd: plan.schedulerArgs[11], enabled:false, exact:true, noDeliver:true}. The contract forbids it (plan line 89). Write observed as hand-typed literals.",
+  "Key typos that compare undefined === undefined and always pass: `timezone` vs `timeZone`, `argv` vs `commandArgv`, `expected.cwd` (the plan has no cwd field). Guard that expected's name/timeZone/cron are non-empty strings.",
+  "Taking cwd from the wrong place: expected.cwd (undefined), dirname(dirname(commandArgv[0])) (wrong when repoRoot has a trailing slash, because schedule.mjs:27 normalizes via join and line 38 does not), or process.cwd().",
+  "schedulerArgs.indexOf('--command-cwd') returning -1, so +1 reads index 0, 'cron'. Guard i === -1.",
+  "Loose argv comparison: includes(), startsWith, a join(' ') string compare (lets the single string `${run} calendar-check` or the space-split array pass), comparing only commandArgv[0], or ignoring extra trailing entries.",
+  "Truthiness instead of strict booleans: `!observed.enabled` accepts undefined/null/0; `observed.exact` accepts 1/'true'.",
+  "Normalizing observed strings (trim, toLowerCase, path.normalize/resolve). The criterion says exact; 'europe/london' and a trailing-slash cwd must fail.",
+  "Imposing an id format regex (UUID etc.). The scheduler's id schema is unknown (escalateWhen, plan line 76); removal.mjs:13 only requires a non-empty string.",
+  "Building the proposal fixture from memory and omitting riskLimits.maxMessagesPerDay (throws 'riskLimits.maxMessagesPerDay must be 0-48'), conditions:{} (throws 'An explicit IANA timezone and valid bounded policy are required'), using action other than agenda_today, adding delivery, or using timeZone 'EST'. Copy tests/automation-schedule.test.mjs:8-11 exactly.",
+  "Hard-coding expiresOn (e.g. '2026-09-30') without passing an explicit `now` as the 4th argument. The run may happen on a later date and the plan then throws /Expiry/ (schedule.mjs:24-25).",
+  "Using the real repository path or homedir() as repoRoot. Use the inert '/fixture/repo with spaces'. The check env passes the REAL HOME (checks.mjs:130), so any homedir()-derived path in tests points at Nick's machine.",
+  "Sharing one mutable observed/commandArgv across cases (push/splice/assignment on a module-level const) so later cases test the wrong object. Use a factory function and spread/structuredClone. The user's style rules also require immutability.",
+  "Only writing rejection tests. A verifier that always returns false passes them all; a valid-acceptance assertion of === true is mandatory.",
+  "Altering several fields in one case, which proves nothing about each field. One field per case, from a fresh valid baseline.",
+  "Writing a 'no spawn' test that scans the module source for 'fs'/'child_process'/'spawn'. Task 2 must add fs to this same module, and 'Keep existing regression assertions' would then trap tasks 2-4.",
+  "Adding extra exports (helpers, a normalizer, a re-export of automationSchedulePlan) or pre-building task 2's installDisabledAutomation. That is scope creep, and unreferenced exports are exactly what worker-system.md:145-148 warns about.",
+  "Trying to edit files outside scope (e.g. adding the new test to the automation-tests list in scripts/lib/agentic/checks.mjs, or exporting a helper from orion-automation-schedule.mjs). Writes are refused before any bytes land (boundary.mjs assertWritable; scripts/lib/agentic/ is runtime-protected).",
+  "Writing a test file over 12,000 characters. That triggers a self-review checkpoint that withholds DONE (worker.mjs:280, 195-205) and makes every later task re-emit a bigger file. About 3-5 KB is enough.",
+  "Changing SUBTASK n/m labels often. Each change after the first schedules a self-review exchange where DONE is withheld (worker.mjs:243-245). Use one label such as '1/1 verifier and tests'.",
+  "Sending a bare '### CHECK' three times with no edits. The same action fingerprint three times blocks the task (worker.mjs:226-230). Also, 4 exchanges that write or check with no new file and no fail-to-pass flip trip the stuck gate (worker.mjs:342-353, models.mjs:92).",
+  "Expecting DONE to land in the same exchange as a fail-to-pass flip. The flip schedules a checkpoint, so DONE is deferred (worker.mjs:305-310, 355) and then withheld in the next exchange. Budget 2 extra exchanges after the first green run that follows a red one.",
+  "Test assertion messages or failures that print raw ENOENT / 'No such file or directory' in the first 2000 characters of output. The check is then classed as an unusable environment and the task blocks as human-only (checks.mjs:189-192, worker.mjs:319-324). Task 1 should touch no files at all.",
+  "Letting thinking consume the 16,000-token output allowance (models.mjs:63) before the ### FILE blocks. Keep reasoning short and put the markers after it; a reply cut off at the length limit loses the turn (worker.mjs:217-218).",
+  "Spending exchanges slowly. The per-attempt wall clock is 60 minutes (models.mjs:101) and each exchange with thinking takes about a minute or more."
+ ],
+ "exchangePlan": [
+  "Exchange 1: '### SUBTASK: 1/1 verifier and read-back tests'. Batch-READ in one reply: scripts/lib/orion-automation-schedule.mjs, tests/automation-schedule.test.mjs, scripts/lib/orion-automation-admission.mjs, scripts/lib/orion-automation-dispatch.mjs, scripts/lib/orion-automation-runtime.mjs. About 32 KB, roughly 11k estimated tokens; fits the 48.5k input budget with the brief. Optionally scripts/lib/orion-automation-removal.mjs (1.6 KB) for the id precedent. Do NOT READ the two scope files; they do not exist yet.",
+  "Exchange 2: With the plan output shape confirmed from schedule.mjs:27-40, write BOTH complete files in one reply. ### FILE: scripts/lib/orion-automation-install.mjs (one synchronous named export, no imports). ### FILE: tests/automation-install.test.mjs (proposal factory copied from schedule.test.mjs:8-11, hand-written observed literals, the acceptance / per-field / active / missing-id / shell-like / malformed-input tests). Then ### CHECK. DONE may be included in the same reply: it commits only if all three checks pass on this first run and no checkpoint trigger fired. Keep both files under 12,000 characters.",
+  "Exchange 3: If any check failed, read the failure tail (last 6,000 chars shown). Fix the specific cause and re-emit the complete corrected file(s), then ### CHECK. A fail-to-pass flip here schedules a self-review for exchange 4.",
+  "Exchange 4: Self-review checkpoint (DONE is withheld). Walk each acceptance criterion against the files: sync boolean return, all nine fields strictly compared, cwd from '--command-cwd' with the -1 guard, argv exact length and per-index, strict booleans, literals not derived from the plan, a fresh baseline per case, no imports, no fs. Fix anything found with a complete ### FILE and ### CHECK. Otherwise reply with a short review and ### CHECK so the checks stay fresh.",
+  "Exchange 5: ### DONE with a one-paragraph summary mapping each of the 4 criteria to the test names. Only if the last CHECK was after the last write and all passed.",
+  "Exchanges 6-8 (only if exchange 3 or 5 failed again): READ nothing new unless the failure names a file. Make one targeted fix per exchange with a complete FILE + CHECK. After two identical failures, stop editing and re-READ tests/automation-schedule.test.mjs and scripts/lib/orion-automation-schedule.mjs to re-check the fixture and shape. Remember that 4 barren write/check exchanges trip the stuck gate.",
+  "Exchanges 9-10: Expect a self-review checkpoint after any fail-to-pass flip, then DONE on the following exchange.",
+  "Exchanges 11-14: Reserve. If the checks still cannot pass because of something outside scope (e.g. an existing suite failing at HEAD, or automationSchedulePlan behaving differently from the brief), send ### BLOCKED with the exact check output rather than editing out-of-scope files or weakening tests."
+ ],
+ "reviewerChecks": [
+  "Criterion 1: The diff creates scripts/lib/orion-automation-install.mjs with `export function verifyDisabledSchedule(expected, observed)`: named, NOT `async`, NOT default. The module has no import of node:child_process, node:fs, node:fs/promises, node:net, node:http(s), or any module that performs effects; for task 1 it should have no imports at all. The function never mutates its inputs and never throws: look for unguarded property access on expected.schedulerArgs or observed.commandArgv. Superficially passing but wrong: an async verifier whose tests all `await` it; a verifier that takes (proposal, observed) and re-derives the plan; extra exported helpers.",
+  "Criterion 2: Confirm each comparison against the exact field names: observed.id (non-empty string only, no format regex), observed.name === expected.name, observed.timeZone === expected.timeZone (camelCase on BOTH sides), observed.cron === expected.cron, observed.cwd === the value after the single '--command-cwd' in expected.schedulerArgs with an explicit indexOf === -1 guard, observed.commandArgv an array of equal length with strict per-index equality, enabled === false, exact === true, noDeliver === true (strict, not truthy). Superficially passing but wrong: cwd compared with expected.cwd or derived from commandArgv[0]; argv via includes/startsWith/join; `!observed.enabled`; values normalized with trim/lowercase/path.resolve; a missing guard that lets undefined === undefined pass.",
+  "Criterion 3a (independent fields): The test has a valid-acceptance case asserting strict === true. There is one case per observed field (all nine) plus field-deleted cases, each built from a FRESH baseline factory with exactly one change. Superficially passing but wrong: no true-assertion (an always-false verifier passes); several fields changed per case; a shared mutable baseline mutated across cases; assert.ok(!result) instead of strict equality with false.",
+  "Criterion 3b (not self-validating): observed is written as literals ('orion-auto-calendar-check', 'Europe/London', '5 9 * * *', ['/fixture/repo with spaces/scripts/orion-automation-run','calendar-check'], '/fixture/repo with spaces'), NOT copied from plan fields and NOT verify(plan, plan). Superficially passing but wrong: observed = {...plan, ...}, or name: plan.name, or cwd: plan.schedulerArgs[11].",
+  "Criterion 3c (named scenarios): Present and asserting false: paths with spaces (acceptance with the spaced repoRoot, plus rejection of the space-split argv and the truncated cwd), unexpected active job (enabled: true), missing id (key deleted, and ''), shell-like arguments (e.g. ['/bin/sh','-c', ...], an entry containing '; rm -rf', a quoted path, '$(...)'), missing/additional/malformed argv entries (shorter array, longer array, a single string, a non-string entry).",
+  "Criterion 3d (fixtures): The proposal fixture matches tests/automation-schedule.test.mjs:8-11, including maxMessagesPerDay and conditions:{}. repoRoot is an inert fixture string, never the real repo, never homedir(). If expiresOn is a fixed date, an explicit `now` is passed. No filesystem access, no child_process, no scheduler binary in the test.",
+  "Criterion 4: Check output shows node-syntax passed for both new files, automation-install-tests passed, and automation-tests passed (82 existing tests at HEAD). The diff touches ONLY the two scope files; no existing test or module was edited or weakened. There is no test that scans module source text for 'fs'/'spawn' (it would trap tasks 2-4). Superficially passing but wrong: 'no spawn' asserted by a source grep, or effects hidden behind a dynamic import.",
+  "Interface forward-compatibility for tasks 2-4: The verifier is small, synchronous and standalone, so task 2 can add installDisabledAutomation without changing it. The worker summary must not claim that the verifier ties observed.id to a created job; that binding is the caller's job in tasks 2-3."
+ ]
+}

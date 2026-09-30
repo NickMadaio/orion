@@ -1,0 +1,320 @@
+{
+ "summary": "Task 5 (auto-install-review-packet) writes one file, docs/planning/v2/PHASE_57_LOCAL_AGENT_REVIEW.md, and the installed self-change policy allows it (assertDiffAllowed returned ok, which I checked against ~/.openclaw/extensions/orion-control/dist/self-development-authority.js:233). Every criterion can be met inside that scope. The problems are about what evidence the worker can actually reach:\n\n(1) The plan file is untracked at HEAD bbe4575 (`git status` shows `?? docs/agentic/plans/advance-orion-capabilities.md`). So the worker cannot read tasks 1\u20134's acceptance criteria or the plan's \"Next batch\" list. The brief has to quote them word for word: about 3,825 characters for the 19 criteria and about 1,115 for the next-batch section, inside MAX_BRIEF 18,000 (contract.mjs:64), which is shared with common.md.\n\n(2) The worker has no git access and gets no diffs, receipts or commit ids. renderContract/workerTurn carry none of these (prompts.mjs:43-74, 137-154). Run state lives outside the worktree in ~/.openclaw/orion-controlled/project-agent (projects.mjs:10), and readScoped refuses absolute or `..` paths (workspace.mjs:175-176). What it can use: READ the final contents of the two batch files, which are both absent at HEAD, so their whole content is the combined change from tasks 1\u20134. It can also run ### CHECK.\n\n(3) The only observed test evidence is the tail of the check output shown to the worker, at most 6,000 characters per check (prompts.mjs:104). The existing automation-tests suite prints 6,954 characters on node v26.5.0, so the first ~15 admission test lines are cut. The summary lines (`\u2139 tests 82`, `\u2139 pass 82`, `\u2139 fail 0`) are visible. node-syntax passes without testing anything: it prints \"no matching changed files\" (checks.mjs:262-264).\n\n(4) The local reviewer sees only the doc diff, the contract with the brief, and pass/fail for each check with the output stripped (reviewer.mjs:83; prompts.mjs:156-168 passes no files). It cannot check the doc's claims against the code.\n\n(5) A runtime limit that matters a lot here: with a single scope file, \"progress\" is possible only on the first write. After that, every exchange with FILE, CHECK or DONE adds 1 to the stuck counter, and the counter is tested before DONE is handled (worker.mjs:276-277, 342-353; stuckAfterTurns 4 at models.mjs:92). So the worker gets at most three such exchanges, counting the first write, and the third must contain ### DONE. A write longer than 12,000 characters (worker.mjs:280) or a SUBTASK index change (worker.mjs:243-245) forces a self-review exchange where DONE is withheld.\n\nBig files that would blow the ~48,500-token input budget (65536-16000-1024, models.mjs:59,63 and context.mjs:46-55): HANDOFF.md at HEAD is 93,611 characters (cut at 90,000), PHASE_GATES.json is 545,310 characters, AGENTS.md is 47,073 characters. The worker must not READ these, and it cannot read .builds/ because it is gitignored (.gitignore:42).\n\nThe doc has to describe what install.mjs actually does. Where the code differs from the earlier contracts, the doc says so rather than restating the contracts. It uses no commit SHAs and no line numbers, because the worker sees files without line numbers (prompts.mjs:91-96). It must never say the real scheduler was used, that anything was installed, or that Phase 57 is complete.",
+ "apis": [
+  {
+   "name": "automationSchedulePlan",
+   "file": "scripts/lib/orion-automation-schedule.mjs",
+   "line": 6,
+   "signature": "automationSchedulePlan(proposal, timeZone, repoRoot, now = Date.now())",
+   "behavior": "Pure preview. Throws on validateProposal issues (l.9-11); throws unless action==='agenda_today' and delivery===undefined (l.12-14); throws on invalid timezone/policy (l.16-18), invalid clock (l.19), expiry outside today..180 days in timeZone (l.20-25). Returns {readyToInstall:false, nextGate, name:`orion-auto-${proposal.name}`, timeZone, cron, commandArgv:[join(repoRoot,'scripts/orion-automation-run'), proposal.name], policy:{action,intent,expiresOn,conditions,permissions,riskLimits,failureBehavior}, schedulerArgs:['cron','add','--name',name,'--cron',cron,'--tz',timeZone,'--command-argv',JSON.stringify(commandArgv),'--command-cwd',repoRoot,'--disabled','--exact','--no-deliver','--timeout-seconds','120','--output-max-bytes','4096','--json']} (l.28-39). policy does NOT contain name, trigger, timeZone, installationId or installedAt."
+  },
+  {
+   "name": "initializeAutomationDispatch",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 50,
+   "signature": "async initializeAutomationDispatch(root, value)",
+   "behavior": "Validates the record via installation() (l.14-27: requires action in AUTOMATION_ACTIONS, failureBehavior in stop|retry_once|report_and_continue, string installationId, trigger daily|hourly|weekly with atMinute/atHour/weekday). Calls initializeAutomationAdmission(join(root,'admission'), record) (l.52), messages ledger only if record.delivery (l.53), then creates join(root, `${sha256hex(installationId)}.dispatch.json`) = {version:1,binding,phase:'ready',lastAt:null,lastSlot:null} with open(...,'wx') so it throws EEXIST rather than overwrite (l.39-49, 54-56)."
+  },
+  {
+   "name": "initializeAutomationAdmission",
+   "file": "scripts/lib/orion-automation-admission.mjs",
+   "line": 71,
+   "signature": "initializeAutomationAdmission(root, record) => initializeBudget(root, record, 'runs')",
+   "behavior": "binding() throws unless name matches /^[a-z0-9][a-z0-9-]{1,47}$/, installationId matches /^[a-zA-Z0-9-]{8,80}$/, valid expiresOn, riskLimits.maxRunsPerDay 1..1440, permissions.expectsMode in contained|guarded|open|sovereign, conditions object, explicit supported IANA timeZone (l.14-41). mkdir root recursive 0o700, writes join(root, `${sha256hex(installationId)}.json`) = {version:1,binding,day:null,runs:0,lastAt:0} with 'wx', then fsyncs the directory (l.62-70)."
+  },
+  {
+   "name": "dispatchAutomation",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 59,
+   "signature": "async dispatchAutomation(root, value, scheduledAt, adapters)",
+   "behavior": "Returns {status:'refused'|'failed'|'succeeded'|'outcome_unknown', reason?, attempts?, output?, delivery?}. The lock is mkdir `${file}.lock` (l.65-67) and is removed in finally (l.173); a crash leaves it in place. Phases: ready|pending|stopped|action_completed|delivery_pending|delivery_unknown (l.73). Anything other than ready refuses, and pending maps to outcome_unknown (l.78-80). Reservation happens before pending is persisted; a crash between them consumes quota (l.103-108). An unknown result or an uncertified failure goes to stopped and returns outcome_unknown (l.111-118)."
+  },
+  {
+   "name": "runInstalledAutomation",
+   "file": "scripts/lib/orion-automation-runtime.mjs",
+   "line": 18,
+   "signature": "async runInstalledAutomation(name, scheduledAt, { automationRoot = join(homedir(), '.openclaw/orion-controlled/automations'), repoRoot = repo, checks = createAutomationHostChecks({repoRoot}), run = executeFile } = {})",
+   "behavior": "Production defaults (l.19-20). Reads automationRoot/installed/<name>.json (l.25). Requires record.name===name, action==='agenda_today', no delivery, and a parseable installedAt string (l.29-31); otherwise refuses with installation_unavailable_or_unsupported (l.34). Re-reads the record and compares its canonical identity before authorizing and executing (l.35-38, 46, 53, 58). Never initializes ledgers. Dispatches at join(automationRoot,'runtime') (l.77)."
+  },
+  {
+   "name": "automationTick",
+   "file": "scripts/lib/orion-automation-tick.mjs",
+   "line": 5,
+   "signature": "async automationTick(args, { now = Date.now, run = runInstalledAutomation } = {})",
+   "behavior": "Accepts exactly one valid name, floors the time to the minute, and returns {exitCode, summary:{status, reason?}}. Called by the scheduler entry point scripts/orion-automation-run (l.1-6)."
+  },
+  {
+   "name": "removeAutomationSchedule",
+   "file": "scripts/lib/orion-automation-removal.mjs",
+   "line": 3,
+   "signature": "async removeAutomationSchedule(run, binary, name)",
+   "behavior": "The only source evidence of the real scheduler's read format. It runs `cron list --all --json` and expects {jobs:[{id,name,...}], hasMore:false, offset:0, total} (l.9-18). It removes by exact id with `cron remove <id> --json` (l.24) and then re-lists to confirm the job is gone (l.25-28). It establishes nothing about the enabled/cron/tz/argv/cwd/exact/noDeliver fields in the real scheduler's read-back."
+  },
+  {
+   "name": "orion-automation CLI (install/remove)",
+   "file": "scripts/orion-automation",
+   "line": 153,
+   "signature": "orion-automation install <name>",
+   "behavior": "install always fails, saying guarded registration is unavailable and nothing was scheduled (l.153-157). ROOT is ~/.openclaw/orion-controlled/automations (l.57). The OpenClaw binary is ~/.openclaw/bin/openclaw (l.60). schedule-plan passes repoRoot = ~/Desktop/ORION (l.148). There is no enable/activate command anywhere."
+  },
+  {
+   "name": "verifyDisabledSchedule (task 1, not yet written)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 0,
+   "signature": "verifyDisabledSchedule(expected, observed) -> boolean (contract text, plan l.87)",
+   "behavior": "Contract requires: pure, with no filesystem or network effects. expected = automationSchedulePlan output. observed = {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}. The task 5 worker must READ the actual code and document what it does. The file does not exist at HEAD bbe4575."
+  },
+  {
+   "name": "installDisabledAutomation (task 2, not yet written)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 0,
+   "signature": "installDisabledAutomation({root,proposal,timeZone,repoRoot,scheduler,now}) (plan l.133); scheduler = {createDisabled(plan), read(id), remove(id)}",
+   "behavior": "Contract requires: no implicit production defaults; persist an exclusive per-name intent before any scheduler effect; record the returned id before verifying; publish root/installed/<name>.json in runInstalledAutomation's shape and ledgers via initializeAutomationDispatch(root/runtime); return verified only after publication and read-back. The actual state names and intent path are whatever task 2 wrote, and the doc must quote them from the code."
+  },
+  {
+   "name": "reconcileDisabledAutomation (task 3, not yet written)",
+   "file": "scripts/lib/orion-automation-install.mjs",
+   "line": 0,
+   "signature": "reconcileDisabledAutomation({root,name,scheduler}) (plan l.186)",
+   "behavior": "Contract requires: it never creates or enables jobs, never resets quotas, and never presumes a lock owner is dead. A missing returned id stays blocked. Remove is allowed only when transaction identity and read-back match exactly. The actual behaviour is whatever task 3 wrote."
+  },
+  {
+   "name": "workerTurn / renderContract / renderCheckResults",
+   "file": "scripts/lib/agentic/prompts.mjs",
+   "line": 137,
+   "signature": "workerTurn({contract, files, checkResults, instructions, turn, maxTurns, attempt, maxAttempts, notice, checkDescriptions, feedback})",
+   "behavior": "The prompt carries the contract (only the fields at l.43-74, with no commit ids and no other tasks), the brief (l.83-89), files without line numbers (l.91-96), and check results whose output is cut to the last 6,000 characters (l.98-107). No earlier reasoning is carried over (l.14-17)."
+  },
+  {
+   "name": "runCheck (per-file and command)",
+   "file": "scripts/lib/agentic/checks.mjs",
+   "line": 253,
+   "signature": "async runCheck(name, {worktree, changedFiles, baseline, signal})",
+   "behavior": "When no .mjs/.js file changed, node-syntax returns {ok:true, exitCode:0, output:'no matching changed files'} (l.262-264). automation-install-tests runs `node --test tests/automation-install.test.mjs` (l.63-68). automation-tests runs the seven existing suites (l.69-77). Captured output is capped at 60,000 characters (l.138)."
+  },
+  {
+   "name": "reviewCheckpoint",
+   "file": "scripts/lib/agentic/reviewer.mjs",
+   "line": 48,
+   "signature": "async reviewCheckpoint({runtime, worktree, task, baseRef, checkResults, workerSummary, priorFindings, ...})",
+   "behavior": "Re-runs the checks independently (l.65-82). The reviewer then gets only {name, ok, ms, exitCode} with no output (l.83), plus the diff of this checkpoint only (l.89). reviewerTurn passes no files (prompts.mjs:156-168)."
+  }
+ ],
+ "shapes": [
+  {
+   "name": "Installed record consumed by runInstalledAutomation",
+   "definition": "{name, installationId (/^[a-zA-Z0-9-]{8,80}$/), action:'agenda_today', installedAt (ISO string), timeZone (IANA or 'UTC'), expiresOn 'YYYY-MM-DD', permissions:{expectsMode}, conditions:{skipDuringFocus?, quietHours?}, riskLimits:{maxRunsPerDay 1..1440}, failureBehavior, trigger:{kind, atMinute, atHour?, weekday?}}, with no delivery field",
+   "evidence": "runtime.mjs:29-31; dispatch.mjs:14-27; admission.mjs:14-29; fixture at tests/automation-runtime.test.mjs:13-16"
+  },
+  {
+   "name": "Dispatch ledger",
+   "definition": "<root>/runtime/<sha256hex(installationId)>.dispatch.json = {version:1, binding:sha256(canonical(record)), phase:'ready'|'pending'|'stopped'|'action_completed'|'delivery_pending'|'delivery_unknown', lastAt:null|ms, lastSlot:null|'YYYY-MM-DDTHH:MM', lastDelivery?}; lock dir <file>.lock",
+   "evidence": "dispatch.mjs:13,26,54-56,65,73,158"
+  },
+  {
+   "name": "Admission ledger",
+   "definition": "<root>/runtime/admission/<sha256hex(installationId)>.json = {version:1, binding, day:null|'YYYY-MM-DD', runs, lastAt}; lock dir <key>.lock, which is never removed automatically",
+   "evidence": "admission.mjs:42-45,67-68,149-151; dispatch.mjs:52"
+  },
+  {
+   "name": "Schedule plan (expected input to verifyDisabledSchedule)",
+   "definition": "{readyToInstall:false, nextGate, name, timeZone, cron, commandArgv, policy, schedulerArgs}; the cwd to compare is the element after '--command-cwd' in schedulerArgs (it equals repoRoot)",
+   "evidence": "schedule.mjs:28-39"
+  },
+  {
+   "name": "Observed scheduler object (task 1 contract)",
+   "definition": "{id, name, timeZone, cron, commandArgv, cwd, enabled, exact, noDeliver}",
+   "evidence": "plan l.87 (auto-install-readback acceptance 1)"
+  },
+  {
+   "name": "Scheduler adapter (task 2 contract)",
+   "definition": "{createDisabled(plan), read(id), remove(id)}",
+   "evidence": "plan l.133"
+  },
+  {
+   "name": "Real scheduler list read-back (only evidence in the source)",
+   "definition": "`cron list --all --json` gives {jobs:[{id:string, name:string,...}], hasMore:false, offset:0, total:jobs.length}",
+   "evidence": "orion-automation-removal.mjs:9-18"
+  },
+  {
+   "name": "Check result as the worker sees it",
+   "definition": "'### <name> \u2014 PASSED|FAILED|TIMED OUT|UNUSABLE ENVIRONMENT (exit N)' then a fenced block holding the last 6,000 characters. Node 26 spec reporter lines look like '\u2714 <test name> (Nms)', and the summary lines are '\u2139 tests N', '\u2139 suites N', '\u2139 pass N', '\u2139 fail N', '\u2139 cancelled N', '\u2139 skipped N', '\u2139 todo N', '\u2139 duration_ms N'",
+   "evidence": "prompts.mjs:98-107; run observed 2026-09-23 on node v26.5.0: existing automation-tests gave 6,954 characters of output and '\u2139 tests 82 / \u2139 pass 82 / \u2139 fail 0'"
+  },
+  {
+   "name": "Review contract (reviewer output)",
+   "definition": "{verdict:PASS|PASS_WITH_TASKS|BLOCKED, summary, examined, passed, failed:[{criterion,severity,evidence}], corrections, escalationReason, escalationKind}",
+   "evidence": "scripts/lib/agentic/prompts/reviewer-system.md:112-135"
+  }
+ ],
+ "testPatterns": [
+  {
+   "pattern": "The fixture shape for installed runtime tests: a temporary root, a hand-written installed record, initializeAutomationDispatch at root/runtime, and injected checks/run. Task 4's contract forbids hand-authoring the record, so its fixture test must produce the record with installDisabledAutomation instead. The doc worker should check which one the install tests actually do.",
+   "evidence": "tests/automation-runtime.test.mjs:10-40",
+   "snippet": "const root = await mkdtemp(join(tmpdir(), \"orion-runtime-\")); ... await initializeAutomationDispatch(join(root, \"runtime\"), record);"
+  },
+  {
+   "pattern": "'Actual child-process exit at a transaction seam' in this codebase means a node child started with execFile(process.execPath, ['--input-type=module','-e', source]) that calls process.exit(73) partway through. A thrown Error or a rejected promise does not count as an actual process exit.",
+   "evidence": "tests/automation-dispatch.test.mjs:169-190; tests/automation-admission.test.mjs:132-152",
+   "snippet": "execute:async()=>{await writeFile(root+'/effect.txt','happened');process.exit(73);}"
+  },
+  {
+   "pattern": "The existing standard for 'real disposable effect then failure is not retried': a shell script appends to effect.txt and exits 1, and the test asserts outcome_unknown, then 'stopped' on replay, then exactly one effect line.",
+   "evidence": "tests/automation-runtime.test.mjs:111-120"
+  },
+  {
+   "pattern": "Citing test evidence in the doc: use the exact test name string from test(\"...\") plus the file path. Do not cite line numbers, because the worker never sees them. Copy the summary lines from CHECK RESULTS exactly as printed.",
+   "evidence": "prompts.mjs:91-96 (no line numbers); prompts.mjs:98-107"
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "Document public APIs, transaction states, side-effect ordering, durable paths, rollback/reconciliation behavior and invariants actually implemented.",
+   "feasible": true,
+   "approach": "READ scripts/lib/orion-automation-install.mjs as it stands in the worktree. List every export with its exact signature. List the state/status string literals exactly as spelled. Give the order of steps: intent persisted, scheduler.createDisabled, id recorded, ledgers/record published, read-back and verify, return. Then give durable paths, what reconcile does in each state, and the invariants. Use existing module facts for the shared paths: installed/<name>.json (runtime.mjs:25), runtime/<sha256(installationId)>.dispatch.json (dispatch.mjs:54), runtime/admission/<sha256(installationId)>.json (admission.mjs:43-44,67). Write down the intent-file path as the code defines it. Where the code differs from the task 1\u20133 contracts, say so explicitly.",
+   "evidence": "The install files are the combined output of tasks 1\u20134 (both absent at HEAD bbe4575; git ls-tree shows nothing). The shared ledger formats are cited at left. Invariants that already exist: the runtime never initializes ledgers (runtime.mjs:1-2; tests/automation-runtime.test.mjs:62-65); no quota refunds (admission.mjs:142-145); locks are never removed automatically (admission.mjs:149-151); 'wx' refuses overwrite (dispatch.mjs:42; admission.mjs:47).",
+   "risk": "The most likely wrong version copies the contract text into the doc as if it were implemented, for example saying 'returns verified only after read-back' without checking the code. Another is inventing state names such as 'no_effect' or 'known_disabled' that do not appear in the code. A third is documenting a function evicted from the working set from memory. Any of these would pass a local review, because the reviewer cannot see the source."
+  },
+  {
+   "criterion": "Map every task acceptance criterion to concrete tests or explicit unproven status; distinguish observed check output from inferred behavior.",
+   "feasible": true,
+   "approach": "For each of the 19 criteria in tasks 1\u20134 (the brief must quote them, because the plan is not in the worktree), give the test name(s) in tests/automation-install.test.mjs whose assertions actually exercise it. Label each 'observed' (passing output visible in this task's CHECK RESULTS, or covered by an exact '\u2139 pass N' / '\u2139 fail 0' / '\u2139 skipped 0' / '\u2139 todo 0' summary), 'inferred' (read in source, no test), or 'unproven'. Say that node-syntax passed only because no .mjs/.js file changed. Task 5's own criteria are met by the document itself, not by tests.",
+   "evidence": "The plan is untracked (`?? docs/agentic/plans/advance-orion-capabilities.md`), so it is not in the worktree, which is built from HEAD (workspace.mjs:100-123). The worker's contract has only task 5 (prompts.mjs:43-74). Check output is cut to the last 6,000 characters (prompts.mjs:104). node-syntax gives 'no matching changed files' (checks.mjs:262-264).",
+   "risk": "Marking every criterion 'covered' because a test name sounds right, for example a 'concurrency' test that runs sequentially or a 'child-process exit' test that only throws. Claiming the admission tests are missing because they were cut from the visible tail. Citing check output from an earlier task that the worker never saw."
+  },
+  {
+   "criterion": "Identify the remaining real scheduler adapter, explicit human activation, exact installed read-back, remote controls, and disposable live-route proof. Do not say any of these happened in the fixture.",
+   "feasible": true,
+   "approach": "Make a 'Not done / not proven' section that lists all five items. Evidence for each: CLI install still refuses (scripts/orion-automation:153-157). No enable/activate path exists. The only source evidence of the real read-back format is the list shape in removal.mjs:9-18, which has no enabled/cron/tz/argv/cwd fields, so mapping the real output to the normalized observed object is not established. No automation controls exist in scripts/orion-remote (git grep shows only a TCC comment at l.581). The fixture used a fake scheduler and temporary roots only.",
+   "evidence": "scripts/orion-automation:153-157; orion-automation-removal.mjs:9-18; schedule.mjs:29-30 (readyToInstall:false and the nextGate text); `git grep -i automation HEAD -- scripts/orion-remote` gives only l.581",
+   "risk": "Wording such as 'verified disabled job' or 'installed' without 'fake scheduler / temporary root'. Describing remote controls as existing. Presenting the fake adapter's read(id) as 'installed read-back'."
+  },
+  {
+   "criterion": "List changed paths and limitations relevant to Astra review, including crash windows and unknown outcomes. Do not mark Phase 57 complete, edit the manifest or claim installation/deployment.",
+   "feasible": true,
+   "approach": "Changed paths: scripts/lib/orion-automation-install.mjs, tests/automation-install.test.mjs, and this doc. Say this list is inferred from scope enforcement (boundary.mjs:194-198; repairs keep the task's scope, reviewer.mjs:20-21; corrections cannot widen scope, orion-project-agent.mjs:556-563), not observed from git. Crash windows: take each seam from the install code (before create, after create but before the id is durable, after read-back but before or during publication), plus the dispatch window between reservation and pending (dispatch.mjs:103-108), lock dirs left behind by a crash (dispatch.mjs:66,173; admission.mjs:149-151), and non-atomic check-then-spawn (runtime.mjs:57-66). State that Phase 57 remains in progress, and that commit ids were not supplied to the worker.",
+   "evidence": "Scope is enforced at boundary.mjs:194-198. The Phase 57 gate at HEAD is status 'in_progress' (docs/planning/v2/PHASE_GATES.json, entry \"57\", around l.4695-4697 at HEAD).",
+   "risk": "Claiming a per-task diff attribution or commit SHAs. Trying to update PHASE_GATES.json, HANDOFF.md or MANIFEST_PHASES.json (refused, and an exchange wasted). Omitting the crash window between scheduler create and durable id recording, which is the one task 3 exists to handle."
+  },
+  {
+   "criterion": "State the next bounded source task and the specific live proof required; do not start that work inside this documentation task.",
+   "feasible": true,
+   "approach": "Use the plan's own follow-on list, quoted in the brief because the plan is not in the worktree. Next source task: item 1, 'Implement the exact installed scheduler adapter: supported argv only, parse current read-back format, create disabled, verify exact identity and fields, refuse unknown schema.' Live proof: item 4, 'Exercise a disposable complete route through the installed scheduler, then stop/remove it and verify absence. No real calendar messages or broad standing routines as a test substitute.' Activation (item 3) is a separate, human-gated step. Write no code.",
+   "evidence": "plan l.301-309 (untracked, so the brief must supply it); scope is only the doc (plan l.283-285)",
+   "risk": "Inventing a different next task, for example 'enable the job' or 'wire the CLI' first, without saying why. Writing adapter code, which is refused because it is out of scope. Describing the live proof vaguely, for example as 'test with the real scheduler', without remove-and-verify-absence."
+  }
+ ],
+ "issues": [
+  {
+   "kind": "missing-info",
+   "detail": "Criterion 2 needs tasks 1\u20134's acceptance criteria, and criterion 5 is best served by the plan's 'Next batch' list. The worker can see neither. The plan file is untracked, the worktree is built from HEAD, and the rendered contract contains only task 5.",
+   "evidence": "`git status` gives `?? docs/agentic/plans/advance-orion-capabilities.md`; git ls-files shows only smoke-run.json in that directory; prompts.mjs:43-74 renders only the current contract; workspace.mjs:100-123 builds the worktree from a ref.",
+   "contractText": "Map every task acceptance criterion to concrete tests or explicit unproven status",
+   "needsAstra": false,
+   "recommendedInterpretation": "The task brief quotes tasks 1\u20134's 19 acceptance criteria word for word, numbered (about 3,825 characters), and quotes plan l.301-309 (about 1,115 characters), labelled as reference from the approved plan. This fits inside MAX_BRIEF 18,000 (contract.mjs:64) together with common.md."
+  },
+  {
+   "kind": "infeasible",
+   "detail": "The literal instruction to review the prior task diffs cannot be carried out. The worker has no git, no diff input, no access to receipts or reviews, and no commit ids.",
+   "evidence": "There is no diff or commit field in workerTurn (prompts.mjs:137-154). Run state lives in ~/.openclaw/orion-controlled/project-agent (projects.mjs:10), and readScoped refuses absolute paths and `..` (workspace.mjs:175-176). The only commands are registered checks (checks.mjs:36-111).",
+   "contractText": "Review the prior four task diffs and test evidence. Do not fabricate commit identifiers if they are not supplied by the host.",
+   "needsAstra": false,
+   "recommendedInterpretation": "Both batch files are new (absent at HEAD bbe4575), so their current contents are the combined change from tasks 1\u20134. Reviewing them in full, and running ### CHECK in this task, is the evidence the worker can actually reach. The doc should say per-task attribution, review verdicts and commit ids were not available to it, and that Astra should take them from the run's receipts."
+  },
+  {
+   "kind": "check-gap",
+   "detail": "No registered check can detect whether any of the five criteria are met. node-syntax passes without testing anything, and the two test checks only show that earlier tasks' tests still pass. The local reviewer sees only the doc diff, the contract with the brief, and pass/fail without output. It cannot compare the doc's API, state or path claims with install.mjs, or its counts with the real output.",
+   "evidence": "checks.mjs:262-264; reviewer.mjs:83 strips output; reviewer.mjs:89 gives the checkpoint diff only; prompts.mjs:156-168 gives the reviewer no files.",
+   "contractText": "distinguish observed check output from inferred behavior",
+   "needsAstra": false,
+   "recommendedInterpretation": "Accept that this is inherent to a documentation task. The brief gives the reviewer facts to check against (the 19 criteria, the existing paths, a baseline of 82 automation tests at HEAD). Local PASS is provisional and Astra checks the facts (plan l.366-373). Nick should know the local reviewer cannot verify the packet's accuracy."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "'Every task acceptance criterion' could mean tasks 1\u20134, all five tasks, or also any review-correction tasks. Correction tasks' criteria are not visible to the worker.",
+   "evidence": "Corrections get minted ids like '<task>-fix1-1' (orion-project-agent.mjs:553-555) and live only in run state.",
+   "contractText": "Map every task acceptance criterion to concrete tests or explicit unproven status",
+   "needsAstra": false,
+   "recommendedInterpretation": "Map the 19 criteria of tasks 1\u20134 individually. Say task 5's criteria are met by the document itself, not by tests. Say any correction tasks' criteria were not visible to this worker."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "'remote controls' is not defined anywhere in the batch. At HEAD there are no automation controls in the remote path.",
+   "evidence": "`git grep -i automation HEAD -- scripts/orion-remote` matches only a macOS Automation TCC comment (l.581). The plugin automation tier has propose/list/simulate/withdraw only (PHASE_GATES.json at HEAD, Phase 57 requirement 'model_may_not_silently_install_permanent_automation').",
+   "contractText": "Identify the remaining real scheduler adapter, explicit human activation, exact installed read-back, remote controls, and disposable live-route proof.",
+   "needsAstra": false,
+   "recommendedInterpretation": "List remote (phone/remote-session) controls to view, stop or activate an installed automation as remaining and not implemented by this batch. Do not design them."
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The contract names no single 'next bounded source task'. The plan prose has five follow-ons that the worker cannot read.",
+   "evidence": "plan l.301-309",
+   "contractText": "State the next bounded source task and the specific live proof required",
+   "needsAstra": false,
+   "recommendedInterpretation": "The next source task is item 1 (the exact installed scheduler adapter) and the live proof is item 4 (disposable route through the installed scheduler, then remove and verify absence), both quoted from the plan via the brief. If the review found an installer defect that should come first, the doc may say so as an observation."
+  },
+  {
+   "kind": "other",
+   "detail": "This task can only reach DONE if automation-install-tests passes. Those tests belong to earlier tasks and are outside task 5's scope. A flaky or time-dependent test left by tasks 1\u20134 would block the doc task with no in-scope fix.",
+   "evidence": "DONE is refused while checks fail (worker.mjs:361-364); the scope is only the doc (plan l.283-285).",
+   "contractText": "\"checks\": [\"node-syntax\", \"automation-install-tests\", \"automation-tests\"]",
+   "needsAstra": false,
+   "recommendedInterpretation": "If a check fails, the worker sends ### BLOCKED quoting the failing output and does not edit tests. That is the correct outcome, not a defect in the doc."
+  },
+  {
+   "kind": "other",
+   "detail": "Runtime limit specific to a single-file task. After the first write, no more progress is possible unless a check goes from failing to passing, so the fourth exchange that contains FILE, CHECK or DONE, counting the first write, triggers 'stuck' before DONE is handled. The stuck path hands the task to the reviewer for repair and notifies Nick.",
+   "evidence": "worker.mjs:276-277 (progress only on a path's first write), worker.mjs:342-353 (counter tested before DONE at l.356), models.mjs:92 stuckAfterTurns 4, supervisor.mjs:385-392.",
+   "contractText": "(runtime behaviour, not contract text)",
+   "needsAstra": false,
+   "recommendedInterpretation": "The brief tells the worker to spend at most three exchanges with FILE, CHECK or DONE: a full draft with CHECK, a final version with CHECK (or with DONE), then DONE. Nick may want to know that stuckAfterTurns=4 is tight for documentation tasks."
+  },
+  {
+   "kind": "other",
+   "detail": "Correction tasks run before new plan work, but only while they are claimable. If a correction task for task 4 is parked under an escalation, task 5 can still run, because it depends only on the accepted parent. The packet would then describe uncorrected code.",
+   "evidence": "orion-project-agent.mjs:55-60 (dependencies checked against accepted parents only) and 894-899 (corrections first, among claimable tasks).",
+   "contractText": "\"dependencies\": [\"auto-install-fixture-route\"]",
+   "needsAstra": false,
+   "recommendedInterpretation": "The doc states that it describes the files as present in its own worktree when it ran. Astra reviews the final diff anyway (plan l.368)."
+  }
+ ],
+ "pitfalls": [
+  "READ with the bare names in the context string ('orion-automation-dispatch.mjs') gives 'Could not read'. Use scripts/lib/orion-automation-dispatch.mjs and the other full paths (workspace.mjs:174-183).",
+  "Trying to READ docs/agentic/plans/advance-orion-capabilities.md, which is untracked and so not in the worktree. Rely on the brief's quoted criteria and next-batch list.",
+  "READing HANDOFF.md (93,611 characters at HEAD, cut at 90,000, about 31k tokens), docs/planning/v2/PHASE_GATES.json (545,310 characters) or AGENTS.md (47,073) pushes the install files out of the ~48.5k-token budget (context.mjs:74-83). The model is not told when a file is evicted (worker.mjs:161-163 only records it in the journal).",
+  "Citing .builds/ evidence directories: they are gitignored (.gitignore:42) and absent from the worktree. Do not claim evidence that was not observed.",
+  "Taking the contract text as a description of the code, for example documenting 'returns verified only after read-back' or state names like 'no effect / known disabled / unknown' without finding them in install.mjs. Document what the code does and flag deviations.",
+  "Inventing commit SHAs, per-task diffs, reviewer verdicts, repair counts or dates of acceptance. None are supplied (prompts.mjs:43-74, 137-154).",
+  "Citing file line numbers: the worker sees files without them (prompts.mjs:91-96). Cite test names and function names instead.",
+  "Treating node-syntax PASS as evidence. For a .md-only change its output is 'no matching changed files' (checks.mjs:262-264).",
+  "Believing that tests missing from the visible CHECK output did not run. Output is cut to the last 6,000 characters (prompts.mjs:104), and the existing suite's 6,954 characters lose about 15 admission tests from the top. Cite the \u2139 summary lines instead.",
+  "Counting a test as proof of a criterion by its name alone. Check the assertions: a 'child-process exit' test must actually spawn node and call process.exit, as in tests/automation-dispatch.test.mjs:169-190, and a 'concurrency' test must run the calls concurrently.",
+  "Stuck gate: after the first write of the doc, only three exchanges containing FILE, CHECK or DONE are allowed, and the last must include DONE (worker.mjs:276-277, 342-356). A fourth revision gets the task declared stuck. Exchanges with only READ or SEARCH do not count.",
+  "A doc longer than 12,000 characters (worker.mjs:280), or changing the SUBTASK index (worker.mjs:243-245), makes the next exchange a self-review where ### DONE is withheld (worker.mjs:195-206). Plan for it: use that exchange for the final FILE plus CHECK, then send DONE on the next.",
+  "CHECK before any file is written just returns 'No file has been written yet' (worker.mjs:297-298). Observed check output only exists after the first draft is written.",
+  "Output limit: 16,000 tokens covering thinking and the answer together (models.mjs:63). Long reasoning plus a long doc gets cut off with no marker, wasting an exchange (worker.mjs:217-218). Keep reasoning short and put it before the markers.",
+  "Writing to a dated filename such as PHASE_57_LOCAL_AGENT_REVIEW_2026-09-23.md, which the house style might suggest, or editing PHASE_GATES.json, HANDOFF.md or MANIFEST_PHASES.json. All are refused by scope (boundary.mjs:194-198).",
+  "SEARCH returns at most 3 matches per file and 40 in total (workspace.mjs:333-339), so it cannot list every test in the install test file. READ the file.",
+  "Vocabulary: installDisabledAutomation contains 'install'. Every sentence about it must say fake scheduler and temporary root, and must never say installed, enabled, deployed or verified against the real scheduler.",
+  "If automation-install-tests or automation-tests fail, do not attempt fixes (out of scope) and do not write around it. Send ### BLOCKED with the failing output (worker.mjs:361-364).",
+  "Starting the next task, such as writing an adapter sketch in code blocks meant as implementation, or 'stubbing' the CLI connection. State it only.",
+  "Giving programme completion figures (46/85) or phase counts copied from house-style docs. The worker cannot observe them in the worktree without reading huge files, so leave them out or label them as not observed."
+ ],
+ "exchangePlan": [
+  "Exchange 1: ### SUBTASK: 1/2 gather evidence. Send one ### READ batch in this order, so the most important files are newest and evicted last (worker.mjs:256-261): scripts/lib/orion-automation-schedule.mjs, scripts/lib/orion-automation-runtime.mjs, scripts/lib/orion-automation-dispatch.mjs, scripts/lib/orion-automation-admission.mjs, tests/automation-schedule.test.mjs, tests/automation-runtime.test.mjs, tests/automation-install.test.mjs, scripts/lib/orion-automation-install.mjs. No FILE or CHECK.",
+  "Exchange 2: check the FILES IN YOUR WORKING SET headings to see which files survived eviction. Using install.mjs and the install tests, work out the exports, state literals, ordering, intent path and test names. Optionally ### SEARCH exact names (for example 'child_process', 'process.exit', 'createDisabled') to confirm. No writes.",
+  "Exchange 3 (optional, only if a needed file was evicted or cut off): READ that single file again. Otherwise skip. Never loop re-reading.",
+  "Exchange 4: ### SUBTASK: 2/2 write and verify packet. ### FILE docs/planning/v2/PHASE_57_LOCAL_AGENT_REVIEW.md as a complete draft covering all five criteria, with a clearly marked check-evidence section that exchange 5 will replace. Add ### CHECK in the same reply. Stuck counter goes to 1.",
+  "Exchange 5 (probably a self-review checkpoint because of the SUBTASK change or a doc over 12,000 characters; DONE withheld): compare the doc with each of the five criteria. Replace the check section with the exact lines from CHECK RESULTS (names, PASSED, exit code, \u2139 tests/pass/fail/skipped/todo). Send ### FILE with the complete final doc plus ### CHECK. Counter goes to 2.",
+  "Exchange 6: ### DONE with one paragraph mapping the doc sections to criteria 1\u20135. The checks are still fresh, so DONE is accepted at counter 3. If a last fix is unavoidable, send the FILE together with DONE in this same reply (the checks re-run automatically), never as a separate exchange.",
+  "Exchanges 7\u201314: spare, for reading only. Any further exchange with FILE, CHECK or DONE beyond the three above gets the task declared stuck (worker.mjs:342-353). If a check fails at exchange 4 or 5, send ### BLOCKED quoting the failure rather than rewriting."
+ ],
+ "reviewerChecks": [
+  "Criterion 1 (APIs/states/ordering/paths/invariants): the diff must name verifyDisabledSchedule(expected, observed), installDisabledAutomation({root,proposal,timeZone,repoRoot,scheduler,now}) and reconcileDisabledAutomation({root,name,scheduler}), or explicitly note a deviation. Durable paths must match the existing formats: installed/<name>.json, runtime/<sha256(installationId)>.dispatch.json, runtime/admission/<sha256(installationId)>.json, and the lock dirs. Side-effect ordering must put the durable intent before scheduler create and the id recording before verify. Superficially passing but wrong: a section that restates the contract bullets word for word with no state literals or intent path, or ledger paths that contradict dispatch.mjs:54 / admission.mjs:43-44.",
+  "Criterion 2 (mapping): count the rows. All 19 criteria of tasks 1\u20134 appear (4+5+5+5), each with a named test or an explicit 'unproven/inferred' label, and there is a distinct 'observed' marker tied to quoted CHECK lines. Superficially passing but wrong: every row marked covered; a 'child-process exit' criterion mapped to a test that only throws; test counts that differ from the automation-tests baseline of 82 without explanation; node-syntax presented as evidence. The reviewer cannot see check output (reviewer.mjs:83), so quoted numbers can only be checked for internal consistency and against the brief's baseline.",
+  "Criterion 3 (remaining live work): all five items are named: real scheduler adapter, human activation, exact installed read-back, remote controls, disposable live-route proof. The doc states the fixture used a fake scheduler and temporary roots. Superficially passing but wrong: phrases like 'job verified disabled' or 'installation succeeded' without the fixture qualifier, or remote controls described as present.",
+  "Criterion 4 (changed paths/limitations): lists scripts/lib/orion-automation-install.mjs, tests/automation-install.test.mjs and the doc itself, and says the list is inferred from scope enforcement rather than git. Names crash windows at the installer seams (especially create done but id not yet durable) and the existing dispatch windows (reservation before pending; leftover locks). Contains no commit SHA, no 'Phase 57 complete', no manifest or gate edit, and no 'installed/deployed' claim. Diff touches only the one scope file. Superficially passing but wrong: a hex string that looks like a commit, or 'all four tasks accepted' presented as observed.",
+  "Criterion 5 (next task/live proof): states one bounded next source task (expected: the exact installed scheduler adapter, per plan item 1) and a specific live proof (disposable complete route through the installed scheduler, then stop/remove and verify absence, with no real calendar messages). No code for it appears in the diff. Superficially passing but wrong: a vague 'next: test with the real scheduler', or activation named as the next source task with no reason given.",
+  "Across all criteria: the doc cites observed evidence only from this task's checks and the files read. There is no .builds/ path presented as observed, no HANDOFF/PHASE_GATES content quoted as if read, and no line numbers presented as verified."
+ ]
+}

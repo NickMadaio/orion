@@ -1,0 +1,356 @@
+{
+ "summary": "Task 3 (\"auto-install-reconcile\", plan.md:155-198) adds reconcileDisabledAutomation({root,name,scheduler}) to scripts/lib/orion-automation-install.mjs and its tests to tests/automation-install.test.mjs. Neither file exists at HEAD: tasks 1 and 2 create them, and they will be in the worker's initial working set. Every automation module and test is byte-identical at HEAD and on disk, and all 82 existing automation tests pass on Node v26.5.0.\n\n**Main constraint.** The signature carries no proposal, timeZone, repoRoot or now (plan.md:186). So everything reconcile verifies has to come from durable evidence written by task 2's transaction: the expected automationSchedulePlan output, installationId, the recorded scheduler job id, and the phase. Reconcile must not recompute the plan. automationSchedulePlan checks expiry against `now` (orion-automation-schedule.mjs:24-25), and commandArgv/--command-cwd depend on a repoRoot that reconcile is not given (:27, :38).\n\n**What reconcile may do:**\n- Read the job by its recorded id.\n- Remove it only when all three hold: the transaction is incomplete, observed.id equals the recorded id, and verifyDisabledSchedule(storedPlan, observed) is true.\n- After a remove, record success only if a read-back proves the job is absent.\n- Append evidence to the transaction record atomically, never deleting anything.\n\n**What reconcile must never do:**\n- Call createDisabled or any enable call.\n- Call initializeAutomationDispatch or initializeAutomationAdmission, or write under root/runtime or root/installed.\n- Remove a lock it did not create.\n\n**Contract gaps.** None of these needs Astra, because each has a faithful reading:\n- Read-back absence is undefined in the adapter.\n- Reconcile needs a lock that the installer holds for its whole run, and task 2 may not provide one.\n- Roll-forward versus roll-back is unspecified.\n- A rolled-back transaction permanently blocks re-install of that name.\n\n**Harness hazards found by reading the host code:**\n- checks.mjs:189-192,273 marks any check UNUSABLE, even a passing one, when its first 2000 output characters contain \"ENOENT\", \"no such file or directory\" or \"command not found\". worker.mjs:319-323 then blocks the task humanOnly. Test names and early failure text must avoid these strings. Verified: node --test spec output puts failure details after the name list.\n- The working set holds at most 8 files and evicts the oldest first (worker.mjs:37,261; context.mjs:77). The oldest is the worker's own install module, the first scope entry loaded at worker.mjs:73-81.\n- The stuck gate leaves barren=1 after a progress exchange, so only 3 more write/check exchanges without a fail-to-pass flip are allowed (worker.mjs:141-143, 342-353).\n- DONE needs about 2 exchanges after the last green CHECK (worker.mjs:181-206, 355).\n- Output is 16000 tokens including thinking (models.mjs:59-64). Write one complete file per exchange.",
+ "apis": [
+  {
+   "name": "reconcileDisabledAutomation (THIS TASK, to be created)",
+   "file": "docs/agentic/plans/advance-orion-capabilities.md",
+   "line": 186,
+   "signature": "export async function reconcileDisabledAutomation({ root, name, scheduler })",
+   "behavior": "Contract text only: never create or enable jobs, never reset consumed quotas, never guess a live lock owner is dead; completed records inspected idempotently; uncertain create without durable job id stays blocked; known disabled jobs inspected/removed only on exact identity+read-back match; mismatched/enabled jobs reported without changing unrelated jobs; failed cleanup/unknown outcomes persisted; no success claim without read-back; evidence preserved across attempts. Return shape is NOT specified by the contract \u2014 the worker must define a closed set of status values."
+  },
+  {
+   "name": "installDisabledAutomation (task 2, exists only after task 2 commit)",
+   "file": "docs/agentic/plans/advance-orion-capabilities.md",
+   "line": 133,
+   "signature": "export async function installDisabledAutomation({ root, proposal, timeZone, repoRoot, scheduler, now })",
+   "behavior": "Contract (plan.md:133-137): all roots/adapters required, no production defaults; scheduler exposes createDisabled(plan), read(id), remove(id); never enables; uses automationSchedulePlan, random installationId, installation-bound timeZone/installedAt, initializeAutomationDispatch at root/runtime; publishes root/installed/<name>.json in runInstalledAutomation's shape; persists an exclusive per-name transaction intent BEFORE any scheduler effect; refuses to overwrite an existing installation, ledger or uncertain transaction; records the returned scheduler id before verifyDisabledSchedule; durable status distinguishes no effect / known disabled job / unknown scheduler outcome. Exact file paths, phase names and lock mechanism are task 2's choices \u2014 task 3 must READ them, not assume them."
+  },
+  {
+   "name": "verifyDisabledSchedule (task 1, exists only after task 1 commit)",
+   "file": "docs/agentic/plans/advance-orion-capabilities.md",
+   "line": 87,
+   "signature": "export function verifyDisabledSchedule(expected, observed) -> boolean",
+   "behavior": "Pure. expected = automationSchedulePlan output; observed = normalized adapter object {id,name,timeZone,cron,commandArgv,cwd,enabled,exact,noDeliver}. True only for nonempty id, exact name/timeZone/cron/commandArgv, cwd === value after --command-cwd in expected.schedulerArgs, enabled===false, exact===true, noDeliver===true (plan.md:88). Does NOT receive the recorded job id, so it cannot detect an id mismatch \u2014 reconcile must compare observed.id to the durable id itself."
+  },
+  {
+   "name": "automationSchedulePlan",
+   "file": "scripts/lib/orion-automation-schedule.mjs",
+   "line": 6,
+   "signature": "export function automationSchedulePlan(proposal, timeZone, repoRoot, now = Date.now())",
+   "behavior": "Pure. Throws on invalid proposal (validateProposal, :9-11), action !== 'agenda_today' or delivery present (:12-14), invalid tz/policy (:16-18), invalid clock (:19), expiry outside today..180 days in timeZone relative to `now` (:20-25). Returns {readyToInstall:false,nextGate,name:`orion-auto-${proposal.name}`,timeZone,cron,commandArgv:[join(repoRoot,'scripts/orion-automation-run'),proposal.name],policy:{action,intent,expiresOn,conditions,permissions,riskLimits,failureBehavior},schedulerArgs:[...]} (:28-40). Output depends on `now` and repoRoot, so reconcile must not recompute it."
+  },
+  {
+   "name": "initializeAutomationDispatch",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 50,
+   "signature": "export async function initializeAutomationDispatch(root, value) -> Promise<void>",
+   "behavior": "Validates record (:14-27), calls initializeAutomationAdmission(join(root,'admission'), record) (:52), then creates join(root, `${sha256hex(installationId)}.dispatch.json`) with open 'wx' = {version:1,binding,phase:'ready',lastAt:null,lastSlot:null} (:54-56, persist initial at :39-49). Throws EEXIST if either file exists (admission writeNew 'wx', admission.mjs:46-50). Not atomic across the two files. Reconcile must NEVER call it (would be a ledger re-init)."
+  },
+  {
+   "name": "dispatchAutomation",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 59,
+   "signature": "export async function dispatchAutomation(root, value, scheduledAt, adapters)",
+   "behavior": "Takes lock dir `${file}.lock` via mkdir (:65-67, refuses 'busy_or_unavailable'), removes it in finally (:173). Phases: ready|pending|stopped|action_completed|delivery_pending|delivery_unknown (:73). Useful in a quota-preservation test only through fake adapters; reconcile does not call it."
+  },
+  {
+   "name": "initializeAutomationAdmission / reserveAutomationRun / checkAutomationConditions",
+   "file": "scripts/lib/orion-automation-admission.mjs",
+   "line": 71,
+   "signature": "initializeAutomationAdmission(root, record) (:71); reserveAutomationRun(root, record, context) (:73); checkAutomationConditions(record, context) (:88)",
+   "behavior": "Admission ledger at join(root, `${sha256hex(installationId)}.json`) (:42-45), initial {version:1,binding,day:null,runs:0,lastAt:0} (:66-68). Reservation writes {version:1,binding,day,runs:runs+1,lastAt:now} (:138) and returns {admitted:true,day,runNumber} (:144-145). Lock dir `${key}.lock` (:44,:119-120, EEXIST->'busy'). Comment :149-150: never guess another process's lock is stale. Comment :62-63: runtime never recreates a missing ledger (deletion must not become a quota reset)."
+  },
+  {
+   "name": "runInstalledAutomation",
+   "file": "scripts/lib/orion-automation-runtime.mjs",
+   "line": 18,
+   "signature": "export async function runInstalledAutomation(name, scheduledAt, { automationRoot = join(homedir(), '.openclaw/orion-controlled/automations'), repoRoot = repo, checks = createAutomationHostChecks({ repoRoot }), run = executeFile } = {})",
+   "behavior": "PRODUCTION DEFAULTS (:19-20) \u2014 any test that omits options touches the real HOME (checks env passes real HOME, checks.mjs:129). Name regex /^[a-z0-9][a-z0-9-]{1,47}$/ (:22). Reads automationRoot/installed/<name>.json (:25); requires record.name===name, action 'agenda_today', no delivery, parseable installedAt string (:29-31); refuses if file changes canonically between checks (:35-38); dispatches at join(automationRoot,'runtime') (:77). Reconcile must not touch these files."
+  },
+  {
+   "name": "removeAutomationSchedule (precedent only)",
+   "file": "scripts/lib/orion-automation-removal.mjs",
+   "line": 3,
+   "signature": "export async function removeAutomationSchedule(run, binary, name)",
+   "behavior": "Precedent for 'a successful command is not proof' (:1-2): after `cron remove` it re-lists and throws if the id or name remains (:24-28); a list outage throws rather than reporting absence (tests :33-37, :53-56). Uses the real CLI list format \u2014 not the injected adapter interface; do not import it into reconcile."
+  },
+  {
+   "name": "validateProposal / cronExpression / AUTOMATION_ACTIONS / NAME_RE / AUTOMATION_ROOT",
+   "file": "plugin/orion-control/dist/automation.js",
+   "line": 114,
+   "signature": "validateProposal(value) -> string[] (:114); cronExpression(trigger) (:209); AUTOMATION_ACTIONS (:76); NAME_RE (:104); MAX_AUTOMATION_DAYS=180 (:106); AUTOMATION_ROOT = homedir()/.openclaw/orion-controlled/automations (:66)",
+   "behavior": "Tracked at HEAD (dist is committed). Proposal needs intent >= 8 chars (:120), riskLimits.maxMessagesPerDay 0-48 (:184-186), maxRunsPerDay 1-1440 (:181). AUTOMATION_ROOT is the production path \u2014 never import it in reconcile or tests. describeTrigger(trigger) (:197-206) dereferences trigger.kind and throws on undefined."
+  },
+  {
+   "name": "Module-private helpers that are NOT exported",
+   "file": "scripts/lib/orion-automation-dispatch.mjs",
+   "line": 39,
+   "signature": "persist(root,file,value,initial) (dispatch.mjs:39, private); writeNew/syncDirectory (admission.mjs:46-54, private); canonical (dispatch.mjs:11, runtime.mjs:15, private)",
+   "behavior": "Cannot be imported. The install module must use its own atomic writer (temp file 'wx' + fsync + rename + directory fsync, same pattern as dispatch.mjs:39-49). Tasks 1-2 may already have one in the install module \u2014 reuse it."
+  },
+  {
+   "name": "Check runner hazard: environmentBroken",
+   "file": "scripts/lib/agentic/checks.mjs",
+   "line": 189,
+   "signature": "function environmentBroken(result) -> /command not found|ENOENT|No such file or directory/i.test(result.output.slice(0, 2000))",
+   "behavior": "Applied to EVERY command check result, passing or failing (:273). worker.mjs:319-323 then throws WorkerBlocked humanOnly 'could not run on this machine'. node --test (Node v26.5.0, piped) uses the spec reporter: test names first, failure details after the summary. Verified in scratchpad."
+  },
+  {
+   "name": "Worker loop limits",
+   "file": "scripts/lib/agentic/worker.mjs",
+   "line": 36,
+   "signature": "MAX_TURNS=14 (:36), MAX_WORKING_SET=8 (:37), MAX_FILE_CHARS=90_000 (:38)",
+   "behavior": "Initial working set = existing scope files in scope order (:73-81): install.mjs first. READ pushes to the end and splices from the FRONT when over 8 (:256-262). A write updates an existing entry in place, keeping its old position (:282-284). Progress = first write of a path this attempt (:277) or a check going fail->pass (:306). barren += 1 after every write/check exchange, after any reset (:342-343); stuck at 4 (:344-353). Writes over 12000 chars (:280), check flips (:307-310), subtask changes (:244) and repeated identical failures (:314) trigger a self-review checkpoint, during which DONE is withheld (:181-206). DONE with pending checkpoint reasons is deferred (:355). DONE needs a fresh passing run of every check (:356-364)."
+  },
+  {
+   "name": "Prompt budget",
+   "file": "scripts/lib/agentic/context.mjs",
+   "line": 74,
+   "signature": "fitWorkingSet({system, files, build, spec, onDrop})",
+   "behavior": "Estimate = bytes/3 (:30). Budget = 65536 - 16000 - 1024 = 48512 tokens (models.mjs:59,63; context.mjs:46-55). When over budget it evicts files.shift() (oldest) (:77), so again the install module goes first. Worker maxOutputTokens 16000 covers thinking AND the answer (models.mjs:60-63). Brief (common + task) limited to 18,000 chars (contract.mjs:65; plan.mjs:69-71). Check output shown to worker = last 6000 chars per check (prompts.mjs:104). Reviewer sees the checkpoint diff truncated at 60,000 chars (workspace.mjs:296-308)."
+  }
+ ],
+ "shapes": [
+  {
+   "name": "Proposal fixture (valid input to automationSchedulePlan / installDisabledAutomation)",
+   "definition": "{ name: 'calendar-check', intent: 'Read the calendar at the chosen time', action: 'agenda_today', expiresOn: 'YYYY-MM-DD', trigger: { kind: 'daily', atHour: 9, atMinute: 5 }, conditions: {}, permissions: { expectsMode: 'guarded' }, riskLimits: { maxRunsPerDay: 2, maxMessagesPerDay: 0 }, failureBehavior: 'stop' }. No `delivery` key. `conditions` must be an object (admission.mjs:18-19). expiresOn must be 0..180 calendar days after the date of `now` in timeZone (schedule.mjs:24-25). A hard-coded date works only with an explicit `now` passed consistently.",
+   "evidence": "tests/automation-schedule.test.mjs:8-11; scripts/lib/orion-automation-schedule.mjs:9-25; plugin/orion-control/dist/automation.js:114-194"
+  },
+  {
+   "name": "automationSchedulePlan output = `expected` for verifyDisabledSchedule",
+   "definition": "{ readyToInstall: false, nextGate: string, name: 'orion-auto-<proposal.name>', timeZone, cron, commandArgv: [<repoRoot>/scripts/orion-automation-run, <proposal.name>], policy: {action,intent,expiresOn,conditions,permissions,riskLimits,failureBehavior}, schedulerArgs: ['cron','add','--name',name,'--cron',cron,'--tz',timeZone,'--command-argv',JSON.stringify(commandArgv),'--command-cwd',repoRoot,'--disabled','--exact','--no-deliver','--timeout-seconds','120','--output-max-bytes','4096','--json'] }. policy has NO name/installationId/timeZone/trigger/installedAt.",
+   "evidence": "scripts/lib/orion-automation-schedule.mjs:27-40"
+  },
+  {
+   "name": "Normalized scheduler read-back object (`observed`)",
+   "definition": "{ id: string (nonempty), name: string, timeZone: string, cron: string, commandArgv: string[], cwd: string, enabled: boolean, exact: boolean, noDeliver: boolean }. Nothing defines what read(id) returns for an absent job. See the issues list.",
+   "evidence": "docs/agentic/plans/advance-orion-capabilities.md:87"
+  },
+  {
+   "name": "Injected scheduler adapter",
+   "definition": "{ createDisabled(plan), read(id), remove(id) }. Reconcile needs only read and remove and must never call createDisabled. No list(), so without a recorded id the job cannot be found. The real adapter is next-batch work (plan.md:305).",
+   "evidence": "docs/agentic/plans/advance-orion-capabilities.md:133, :186-187, :305"
+  },
+  {
+   "name": "Installed record (root/installed/<name>.json) as runInstalledAutomation consumes it",
+   "definition": "Must satisfy: record.name === <automation name> (NOT 'orion-auto-\u2026'), action === 'agenda_today', delivery === undefined, installedAt = Date.parse-able string (runtime.mjs:29-31). Dispatch: action in AUTOMATION_ACTIONS, failureBehavior in stop|retry_once|report_and_continue, installationId string, valid trigger (dispatch.mjs:14-22). Admission: installationId /^[a-zA-Z0-9-]{8,80}$/, valid expiresOn, riskLimits.maxRunsPerDay 1..1440, permissions.expectsMode, conditions object, supported timeZone (admission.mjs:15-29). Example: {name:'runtime-test', installationId:'runtime-test-0001', action:'agenda_today', installedAt:'2026-09-20T09:00:00Z', timeZone:'UTC', expiresOn:'2026-09-20', permissions:{expectsMode:'guarded'}, conditions:{skipDuringFocus:true}, riskLimits:{maxRunsPerDay:10}, failureBehavior:'stop', trigger:{kind:'hourly', atMinute:0}}. Task 2 writes it; reconcile must never rewrite it, because the runtime refuses any canonical change (runtime.mjs:35-38).",
+   "evidence": "scripts/lib/orion-automation-runtime.mjs:25-38; scripts/lib/orion-automation-dispatch.mjs:14-27; scripts/lib/orion-automation-admission.mjs:14-34; tests/automation-runtime.test.mjs:13-16"
+  },
+  {
+   "name": "Dispatch ledger",
+   "definition": "Path: <root>/runtime/<sha256hex(installationId)>.dispatch.json. Initial content {version:1, binding:<sha256 of canonical record>, phase:'ready', lastAt:null, lastSlot:null}; later phases pending|stopped|action_completed|delivery_pending|delivery_unknown. Lock dir: same path + '.lock'.",
+   "evidence": "scripts/lib/orion-automation-dispatch.mjs:26, :54-56, :65-67, :73"
+  },
+  {
+   "name": "Admission (run quota) ledger",
+   "definition": "Path: <root>/runtime/admission/<sha256hex(installationId)>.json. Initial {version:1, binding, day:null, runs:0, lastAt:0}; after a reservation {version:1, binding, day:'YYYY-MM-DD', runs:n, lastAt:<ms>}. Lock dir <key>.lock. Consumed runs are never refunded. Reconcile must leave these bytes unchanged.",
+   "evidence": "scripts/lib/orion-automation-admission.mjs:42-45, :64-70, :137-145, :147-151"
+  },
+  {
+   "name": "Transaction intent/record (task 2's choice)",
+   "definition": "Required contents per the contracts:\n- exclusive per name\n- written before any scheduler effect\n- holds the returned scheduler id once known\n- durable status distinguishing no effect, known disabled job and unknown outcome.\n\nFor reconcile to verify, it must also hold the full expected plan (or everything verifyDisabledSchedule reads), the installationId, and a completion marker. The path and field names are NOT known until task 2's code is read. It must not live in root/installed/: scripts/orion-automation:74-86,100-103 lists every .json there as a running automation and calls describeTrigger(p.trigger), which throws on a missing trigger (automation.js:197-199).",
+   "evidence": "docs/agentic/plans/advance-orion-capabilities.md:135-136, :187-189; scripts/orion-automation:74-103; plugin/orion-control/dist/automation.js:197-206"
+  },
+  {
+   "name": "Check result as the worker sees it",
+   "definition": "{ name, ok, exitCode, output (<=60,000 chars captured, last 6000 shown), ms, unusable, timedOut? }. The verdict is 'UNUSABLE ENVIRONMENT' if unusable.",
+   "evidence": "scripts/lib/agentic/checks.mjs:138, :168-180, :273; scripts/lib/agentic/prompts.mjs:98-106"
+  }
+ ],
+ "testPatterns": [
+  {
+   "pattern": "Disposable temp root, cleaned up after each test",
+   "evidence": "tests/automation-runtime.test.mjs:10-12; tests/automation-dispatch.test.mjs:14-16",
+   "snippet": "const root = await mkdtemp(join(tmpdir(), \"orion-install-\"));\nt.after(() => rm(root, { recursive: true, force: true }));"
+  },
+  {
+   "pattern": "Actual child-process exit at a seam: node child imports the real module by file URL, receives JSON args via process.argv[1], an injected adapter calls process.exit(73) mid-operation; the parent asserts the exit code, then asserts the lock is respected, removes the lock ONLY in the fixture after the child has positively exited, and re-runs against re-opened durable state",
+   "evidence": "tests/automation-dispatch.test.mjs:160-180 (lock comment :175-177); :181-197",
+   "snippet": "const moduleURL = new URL('../scripts/lib/orion-automation-install.mjs', import.meta.url).href;\nconst source = `import {installDisabledAutomation} from ${JSON.stringify(moduleURL)};\n  import {writeFile} from 'node:fs/promises';\n  const [args, store] = JSON.parse(process.argv[1]);\n  await installDisabledAutomation({ ...args, scheduler: {\n    createDisabled: async plan => { await writeFile(store, JSON.stringify({/* normalized job */})); process.exit(73); },\n    read: async () => null, remove: async () => {} } });`;\nawait assert.rejects(promisify(execFile)(process.execPath, ['--input-type=module','-e',source, JSON.stringify([args, store])]), error => error.code === 73);"
+  },
+  {
+   "pattern": "Child returns a JSON result on stdout",
+   "evidence": "tests/automation-admission.test.mjs:22-28",
+   "snippet": "const result = await execute(process.execPath, [\"--input-type=module\", \"-e\", source, JSON.stringify([...])]);\nreturn JSON.parse(result.stdout);"
+  },
+  {
+   "pattern": "Fake adapter that fails the test on any unexpected call and records every call (use it to prove reconcile never calls createDisabled and never removes an unrelated or mismatched job)",
+   "evidence": "tests/automation-removal.test.mjs:7-16",
+   "snippet": "function runner(responses) { const calls = []; return { calls, run: async (...args) => { calls.push(args); assert.ok(responses.length, \"unexpected scheduler call\"); ... } }; }"
+  },
+  {
+   "pattern": "Fake scheduler state that must survive a child exit has to be FILE-backed in the temp dir (a sibling of the automation root, not inside root/installed or root/runtime); an in-memory fake dies with the child",
+   "evidence": "Inference from the child-process pattern at tests/automation-dispatch.test.mjs:163-172, where the child's effect is observed via a file (:169, :173)"
+  },
+  {
+   "pattern": "Read a consumed quota ledger and compare bytes before and after reconcile",
+   "evidence": "tests/automation-dispatch.test.mjs:74-75; scripts/lib/orion-automation-admission.mjs:42-45",
+   "snippet": "const dir = join(root, 'runtime', 'admission');\nconst before = await Promise.all((await readdir(dir)).map(f => readFile(join(dir, f), 'utf8')));\n// ...reconcile...\nassert.deepEqual(after, before);"
+  },
+  {
+   "pattern": "Failure injection inside a child by monkey-patching node:fs/promises before importing the module",
+   "evidence": "tests/automation-dispatch.test.mjs:198-212",
+   "snippet": "import fs from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module'; ... fs.rename=async(...a)=>{...throw new Error('injected')...}; syncBuiltinESMExports(); const m = await import(moduleURL);"
+  },
+  {
+   "pattern": "Assert absence without producing ENOENT text in output: a boolean existence helper instead of an assert.rejects(..., {code:'ENOENT'}) that would print ENOENT on failure",
+   "evidence": "scripts/lib/agentic/checks.mjs:189-192, :273 (any 'ENOENT' / 'no such file or directory' in the first 2000 chars marks the check unusable)",
+   "snippet": "const exists = path => access(path).then(() => true, () => false);\nassert.equal(await exists(join(root, 'installed', 'calendar-check.json')), false);"
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "Export reconcileDisabledAutomation({root,name,scheduler}); never create or enable jobs while reconciling, never reset consumed quotas, and never guess that a live lock owner is dead.",
+   "feasible": true,
+   "approach": "1. Add an exported async function to scripts/lib/orion-automation-install.mjs. Keep every existing export from tasks 1-2 unchanged.\n2. Validate inputs:\n   - root is a nonempty string with no default;\n   - name matches /^[a-z0-9][a-z0-9-]{1,47}$/, the automation name and not 'orion-auto-\u2026';\n   - scheduler.read and scheduler.remove are functions.\n3. Never reference scheduler.createDisabled or any enable call.\n4. Never call initializeAutomationDispatch, initializeAutomationAdmission, reserveAutomationRun or dispatchAutomation. Never write, rename or delete anything under root/runtime/ or root/installed/.\n5. Take the SAME per-name exclusive lock the installer holds for its whole run, with an mkdir lock directory as in dispatch.mjs:65-67 and admission.mjs:119-120. On EEXIST return a busy/refused status with no other effect. Release only the lock you created, in finally. Never rmdir or rm a lock found already present. No age, pid or mtime heuristics.\n6. If task 2's installer holds no such for-the-duration lock (for example it relies only on 'wx' creation of the durable intent), add one to installDisabledAutomation in this same file. Do not change its signature or its tests' expectations.",
+   "evidence": "Contract: plan.md:186. Lock precedent: admission.mjs:147-151 ('Never guess that another process's lock is stale'); dispatch.mjs:65-67, :173; dispatch.test.mjs:175-177. Ledger re-init throws EEXIST (admission.mjs:46-50, :67) but must not even be attempted. Quota bytes: admission.mjs:137-145.",
+   "risk": "Plausible but wrong implementations:\n- A reconcile that 'repairs' a missing dispatch ledger by calling initializeAutomationDispatch, which is a quota/replay reset.\n- A reconcile that deletes ledgers during rollback.\n- A reconcile that clears a stale-looking lock (by age, or because the child is known dead in the test) inside reconcile itself, instead of the test removing it.\n- A reconcile that falls back to createDisabled when the id is missing.\n- A worker that rewrites the whole module and drops or renames verifyDisabledSchedule or installDisabledAutomation."
+  },
+  {
+   "criterion": "Completed records are inspected idempotently. An uncertain create with no durable returned job id remains blocked for human inspection; never create a replacement merely because the id is missing.",
+   "feasible": true,
+   "approach": "1. Load the transaction record written by task 2 (READ task 2's code for its path, phase names and fields).\n2. Completed transaction:\n   - check that root/installed/<name>.json exists and its installationId equals the transaction's;\n   - call scheduler.read(recordedId);\n   - succeed only if observed.id === recordedId AND verifyDisabledSchedule(storedPlan, observed) === true;\n   - make no scheduler mutations. When everything matches, preferably write nothing, so a second call gives the identical result with identical bytes on disk.\n3. Intent with no durable job id, whose status is not a durable 'nothing was attempted' marker from task 2: return a blocked status for human inspection. Make no scheduler call (there is no id to read and no list()). Never call createDisabled. Persist a note that this state was observed only if that preserves all existing fields.",
+   "evidence": "plan.md:187; the adapter has only createDisabled/read/remove (plan.md:133), so a job whose id was never recorded cannot be located; task 2 must distinguish no effect vs unknown (plan.md:136).",
+   "risk": "Wrong variants:\n- Treating 'no id recorded' as 'nothing was created', when the process may have died inside createDisabled after the scheduler created the job.\n- Marking a completed record verified without reading back.\n- Rewriting the installed record or phase on every inspection, which is not idempotent and can make runInstalledAutomation refuse (runtime.mjs:35-38).\n- Recomputing the plan with automationSchedulePlan at a new clock. It throws after expiry (schedule.mjs:24-25) and needs the repoRoot that reconcile does not have."
+  },
+  {
+   "criterion": "Known disabled jobs may be inspected or removed only when exact transaction identity and read-back match. Mismatched or unexpectedly enabled jobs are reported for intervention without changing unrelated jobs.",
+   "feasible": true,
+   "approach": "1. For a transaction with a durable job id, call read(recordedId). A read is always permitted; it is how a match is established.\n2. Call it a match only if all hold:\n   - observed is an object;\n   - observed.id === recordedId;\n   - verifyDisabledSchedule(storedPlan, observed) is true;\n   - any published installed record carries the transaction's installationId.\n3. Only on a match, and only for a transaction that did not complete, may reconcile call remove(recordedId).\n4. On any mismatch (different id, wrong name/cron/tz/argv/cwd, enabled === true, exact/noDeliver wrong): make no remove call and no call with any other id. Persist and return an intervention status, recording which of these it was, for example enabled:true versus content or id mismatch.\n5. Use verifyDisabledSchedule for the decision. Do not write a looser comparison.",
+   "evidence": "plan.md:188; verifyDisabledSchedule does not receive the recorded id (plan.md:87), so the id comparison must be separate; removal precedent never removes on ambiguity (removal.mjs:20-21).",
+   "risk": "Wrong variants:\n- Relying on verifyDisabledSchedule alone, which accepts ANY nonempty id, so a read returning a different job passes.\n- 'Fixing' an enabled job by removing or disabling it. The contract says report.\n- Removing by name instead of by the recorded id.\n- A fake whose read ignores its id argument, so the mismatched-id test proves nothing.\n- A test that passes storedPlan-derived fields straight in as observed, which validates an object against itself."
+  },
+  {
+   "criterion": "Persist failed cleanup/unknown outcomes accurately. No success claim unless the expected state has been read back. Preserve evidence across another reconciliation attempt.",
+   "feasible": true,
+   "approach": "1. After remove(recordedId), confirm with a fresh read(recordedId) that returns the adapter's defined 'verified absent' value.\n2. Record the outcome accurately:\n   - remove rejected: outcome unknown, not 'failed' and not 'removed';\n   - remove resolved but the read-back still shows the job: cleanup failed, job present;\n   - the read after remove throws: unknown.\n3. Treat a thrown read at any point as unknown, never as absent (precedent removal.test.mjs:33-37).\n4. Write the transaction record atomically (temp 'wx' + fsync + rename + directory fsync, dispatch.mjs:39-49). Keep every earlier field (jobId, installationId, plan, prior status). Append the new observation, for example to a list of attempts. Never delete the transaction record.\n5. On a second reconcile after an unknown or failed cleanup, re-read. If still an exact match, remove may be retried. If absent, record verified absence. Earlier failure entries must still be present.",
+   "evidence": "plan.md:189; 'A successful command is not proof that a schedule stopped' (removal.mjs:1-2, :24-28); atomic write pattern dispatch.mjs:39-49.",
+   "risk": "Wrong variants:\n- Treating remove's resolved value as success.\n- Treating read throwing as absent.\n- Overwriting the record with only the latest status and losing the job id or the earlier failure.\n- A non-atomic writeFile that a crash can truncate.\n- Deleting the transaction after successful cleanup, which destroys evidence."
+  },
+  {
+   "criterion": "Tests include an actual child-process exit at a transaction seam, re-opened durable state, repeated reconciliation, scheduler read failure, mismatched id/content, and cleanup failure.",
+   "feasible": true,
+   "approach": "Add tests to tests/automation-install.test.mjs and keep every task 1-2 test unchanged.\n\n(a) Child-process seam, following dispatch.test.mjs:160-180:\n- spawn process.execPath ['--input-type=module','-e',source,JSON.stringify(args)];\n- the child calls the real installDisabledAutomation with a FILE-backed fake scheduler whose createDisabled writes the fake job to a store file, then calls process.exit(73) before returning the id (the uncertain-create seam). Optionally add a second seam after the id is recorded, for example exit inside read();\n- assert error.code === 73;\n- assert reconcile refuses as busy while the child's lock remains;\n- the TEST (not reconcile) removes the lock, commented that the child positively exited;\n- reconcile with a fresh parent-side fake reading the same store file, and assert the blocked/uncertain status or the correct known-id handling;\n- assert createDisabled was never called by reconcile, using a fake whose createDisabled throws or records.\n\n(b) Re-opened durable state: the parent reads only what the child left on disk.\n\n(c) Repeated reconciliation: call twice and assert the same classification, no additional remove calls, identical installed record and ledger bytes, and earlier evidence still present.\n\n(d) Scheduler read failure: read rejects. Assert no remove call, an unknown status persisted, and no success.\n\n(e) Mismatched id: read returns a job with a different id. Mismatched content: cron, argv, cwd or name changed, plus enabled:true. Assert an intervention status, no remove, and an unrelated job in the fake store untouched.\n\n(f) Cleanup failure: remove rejects, or the job is still present on read-back. Assert the persisted failed/unknown status, then a second reconcile preserves it.\n\nAlso worth adding for criterion 1: consume a run with reserveAutomationRun on the installed record, reconcile, and assert the admission ledger bytes are unchanged.",
+   "evidence": "plan.md:190; child-process precedent tests/automation-dispatch.test.mjs:160-197 and tests/automation-admission.test.mjs:22-28, 74-79; check automation-install-tests runs exactly node --test tests/automation-install.test.mjs (checks.mjs:63-68).",
+   "risk": "Wrong variants:\n- A 'child-process' test that only simulates by throwing in-process.\n- An in-memory fake in the child, so the parent cannot see the created job.\n- The test removing the lock BEFORE asserting reconcile refuses.\n- Hard-coded expiresOn without passing an explicit `now` to installDisabledAutomation (plan throws once the real date passes, schedule.mjs:24-25).\n- Test names or console output containing 'ENOENT', 'no such file or directory' or 'command not found' (checks.mjs:189-192,273). This blocks the task as an unusable environment even when the tests pass.\n- Deleting or loosening task 1-2 tests while rewriting the file."
+  }
+ ],
+ "issues": [
+  {
+   "kind": "missing-info",
+   "detail": "The injected adapter's read(id) has no defined result for an ABSENT job. Criterion 4 requires success only after the expected state is read back, and after a cleanup the expected state is 'absent'. Without a convention, absent cannot be told apart from read failure.",
+   "contractText": "scheduler exposes createDisabled(plan), read(id), remove(id) (task 2) / \"No success claim unless the expected state has been read back.\" (task 3)",
+   "evidence": "plan.md:133, :189. The normalized object at plan.md:87 describes only a present job. The real CLI read-back format is next-batch work (plan.md:305). Precedent: a list outage must never be reported as absence (removal.test.mjs:33-37).",
+   "recommendedInterpretation": "Use whatever convention task 2's code and fake already define. If none exists:\n- read(id) resolves null (or undefined) only when the scheduler positively reports the job absent;\n- read(id) resolves the normalized object when present;\n- a rejection means unknown.\n\nState this in a comment or JSDoc on the adapter as the INJECTED interface contract, not a claim about the real scheduler. Make the fake in the test file honour it. This defines the module's own interface rather than guessing installed scheduler behaviour, so escalateWhen at plan.md:176 is not triggered.",
+   "needsAstra": false
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "reconcileDisabledAutomation receives only {root,name,scheduler}. It has no proposal, timeZone, repoRoot or now, so it cannot rebuild the expected plan that verifyDisabledSchedule needs. The expected plan must come from durable transaction evidence.",
+   "contractText": "Export reconcileDisabledAutomation({root,name,scheduler}) ... Known disabled jobs may be inspected or removed only when exact transaction identity and read-back match.",
+   "evidence": "plan.md:186, :188. The plan depends on `now` (schedule.mjs:19-25, throws after expiry) and repoRoot (schedule.mjs:27, :38).",
+   "recommendedInterpretation": "Read the full automationSchedulePlan output (or every field verifyDisabledSchedule reads, including schedulerArgs) from the transaction record. If task 2's intent does not persist it, extend installDisabledAutomation, in scope, to include the plan in the intent written BEFORE any scheduler effect. Keep the task 2 signature and tests passing. Never call automationSchedulePlan inside reconcile.",
+   "needsAstra": false
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The contract does not say whether reconcile should ROLL FORWARD an incomplete transaction (publish the installed record, initialize ledgers, mark complete) or ROLL BACK (remove the job). It lists only 'inspected or removed' for known disabled jobs.",
+   "contractText": "Known disabled jobs may be inspected or removed only when exact transaction identity and read-back match.",
+   "evidence": "plan.md:188. The context says 'stay inside its existing authority' (plan.md:192). Ledger initialization must never be repeated (admission.mjs:62-63, never reset consumed quotas plan.md:186).",
+   "recommendedInterpretation": "Take the literal reading: reconcile's only scheduler actions are read and remove, and its only writes are to the transaction record.\n- Complete transactions: inspect only.\n- Incomplete transactions with an exactly matching disabled job: may be cleaned up with remove(recordedId) plus read-back of absence.\n- Leave any already-published installed record and ledgers untouched, and report them.\n- Never publish or initialize anything.\n\nThis satisfies 'cleanup failure' (plan.md:190), which presumes a cleanup path exists.",
+   "needsAstra": false
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The sentence reads as circular: a job may be 'inspected' only when read-back matches, but reading is how a match is established.",
+   "contractText": "Known disabled jobs may be inspected or removed only when exact transaction identity and read-back match.",
+   "evidence": "plan.md:188",
+   "recommendedInterpretation": "read(recordedId) is non-mutating and always allowed for the recorded id. 'Inspected' means accepting or reporting the job as this transaction's verified job. Only a match (observed.id === recordedId and verifyDisabledSchedule true) permits that claim or a remove. Never read or remove any other id.",
+   "needsAstra": false
+  },
+  {
+   "kind": "missing-info",
+   "detail": "'Never guess that a live lock owner is dead' only works if every live installer holds a lock for its whole run, and reconcile respects it. If task 2 made the durable intent file itself the exclusivity mechanism, a crashed transaction and a live one look the same to reconcile.",
+   "contractText": "never guess that a live lock owner is dead. / Persist an exclusive per-name transaction intent before any scheduler effect",
+   "evidence": "plan.md:135, :186. Precedent: lock dir via mkdir, released in finally, never broken by heuristics (dispatch.mjs:65-67, :173; admission.mjs:119-120, :147-151). The fixture removes a lock only after the child has positively exited (dispatch.test.mjs:175-177).",
+   "recommendedInterpretation": "Re-read task 2. If installDisabledAutomation does not hold a per-name lock for its duration, add one in this same file using the mkdir/rmdir-in-finally pattern, and have reconcile acquire the same lock. On EEXIST, return busy and change nothing. A crashed installer's lock remains until a human removes it; in the test, the fixture removes it after observing exit code 73.",
+   "needsAstra": false
+  },
+  {
+   "kind": "ambiguity",
+   "detail": "The contract does not say whether 'no id recorded' means provably no effect or uncertain. That depends on whether task 2 persisted a durable marker immediately before calling createDisabled.",
+   "contractText": "An uncertain create with no durable returned job id remains blocked for human inspection; never create a replacement merely because the id is missing.",
+   "evidence": "plan.md:136 (task 2 must distinguish no effect / known job / unknown), :187",
+   "recommendedInterpretation": "Treat 'no effect' as established only when task 2's durable status says the scheduler was never invoked, for example a failure recorded before create. Any intent where createDisabled may have been called and no id is recorded is uncertain: blocked, with no scheduler calls.",
+   "needsAstra": false
+  },
+  {
+   "kind": "other",
+   "detail": "Leftover transaction evidence blocks re-install. After a successful rollback, the preserved transaction record (evidence must be preserved, plan.md:189) will still block a fresh install of the same name under task 2's 'prevent overwrite of ... uncertain transaction'. No in-scope path releases the name without deleting evidence. This is a real operational limitation, not a contract violation.",
+   "contractText": "prevent overwrite of existing installation, ledger, or uncertain transaction (task 2) / Preserve evidence across another reconciliation attempt (task 3)",
+   "evidence": "plan.md:135, :189",
+   "recommendedInterpretation": "Do not invent a release mechanism. Give rolled-back and blocked states distinct, documented status values, so task 5 (plan.md:290, 'limitations ... crash windows and unknown outcomes') can report that a human must archive the transaction before re-installing.",
+   "needsAstra": false
+  },
+  {
+   "kind": "check-gap",
+   "detail": "The three registered checks only run syntax and the test files. None of them can detect:\n- a listed scenario that is missing from the tests;\n- a task 1-2 test deleted or loosened;\n- reconcile referencing createDisabled or initialize* in an untested path;\n- lock-breaking heuristics;\n- writes under root/runtime or root/installed.\n\nno-orphan-exports is not in this task's checks.",
+   "contractText": "\"checks\": [\"node-syntax\",\"automation-install-tests\",\"automation-tests\"] / Keep existing regression assertions",
+   "evidence": "plan.md:159-163, :171; checks.mjs:37-43, :63-77, :106-110",
+   "recommendedInterpretation": "The reviewer must verify these by reading the diff:\n- the test count ('\u2139 tests N') must not drop versus task 2's commit;\n- no task 1-2 test body is weakened;\n- grep reconcile for createDisabled, initializeAutomation, rm, rmdir, unlink and writeFile targets.",
+   "needsAstra": false
+  },
+  {
+   "kind": "other",
+   "detail": "Harness hazard, not in the contract. checks.mjs marks a check UNUSABLE, and the worker blocks the task humanOnly, if the first 2000 characters of its output contain 'ENOENT', 'no such file or directory' (case-insensitive) or 'command not found'. This happens EVEN WHEN THE CHECK PASSES. Reconcile tests naturally involve missing files.",
+   "contractText": "(none \u2014 host behaviour)",
+   "evidence": "checks.mjs:189-192 (regex), :273 (applied regardless of ok); worker.mjs:319-323 (throws WorkerBlocked humanOnly). In a scratchpad run with the same reporter, node --test on Node v26.5.0 put ENOENT failure details within the first 2000 chars of a small suite.",
+   "recommendedInterpretation": "Test titles and any test output must avoid those three phrases. Assert absence with a boolean helper (access(...).then(()=>true,()=>false)), not assert.rejects(..., {code:'ENOENT'}). No console.log in tests.",
+   "needsAstra": false
+  },
+  {
+   "kind": "other",
+   "detail": "If task 2 put its transaction file under root/installed/, the human CLI's list command treats every .json there as a running automation and calls describeTrigger(p.trigger), which throws when trigger is undefined. The runtime also expects exactly <name>.json there.",
+   "contractText": "Publish the installed record at root/installed/<name>.json (task 2)",
+   "evidence": "scripts/orion-automation:74-86, :100-103; plugin/orion-control/dist/automation.js:197-199; scripts/lib/orion-automation-runtime.mjs:25",
+   "recommendedInterpretation": "Task 3 should not move task 2's files. Reconcile must add no files to root/installed/ or root/runtime/. If task 2 placed the transaction in root/installed/, the reviewer should note it as a finding for task 2/Astra rather than have task 3 silently relocate it.",
+   "needsAstra": false
+  }
+ ],
+ "pitfalls": [
+  "Rewriting the whole install module from memory and dropping or changing verifyDisabledSchedule or installDisabledAutomation from tasks 1-2. Task 4 and task 5 depend on both. Append reconcile code and keep existing code byte-identical where possible. This also keeps the reviewer's diff under its 60,000-char cap (workspace.mjs:296-308).",
+  "Working-set eviction removes the worker's OWN module first. install.mjs is index 0 of the initial set (worker.mjs:73-81), writes keep its position (:282-284), and READs splice from the front past 8 files (:261). The token-budget eviction also drops the oldest file (context.mjs:77). Read at most about 4 extra files in one batch. If you READ more, re-READ scripts/lib/orion-automation-install.mjs before writing it.",
+  "Calling verifyDisabledSchedule and trusting it for identity. It accepts ANY nonempty id, so reconcile must also check observed.id === the recorded job id.",
+  "Recomputing the expected plan with automationSchedulePlan inside reconcile. It has no repoRoot or now, and the plan throws after expiry (schedule.mjs:24-25). Use the plan persisted in the transaction record.",
+  "Treating 'no job id recorded' as 'nothing created' and cleaning up or re-creating. It is uncertain, so block it. Never call createDisabled from reconcile, not even to 'repair'.",
+  "Treating a rejected read() as 'absent', or remove() resolving as 'removed'. Only a fresh read-back returning the defined absent value proves removal (removal.mjs:1-2, :24-28).",
+  "Removing or disabling a job that reads back enabled:true or mismatched. The contract says report for intervention, with no mutation.",
+  "Calling initializeAutomationDispatch or initializeAutomationAdmission to 'repair' missing ledgers, or deleting or rewriting files under root/runtime. That is a quota and replay reset (admission.mjs:62-63; plan.md:186).",
+  "Rewriting root/installed/<name>.json during inspection, even with the same content. The runtime refuses on any canonical change (runtime.mjs:35-38), and it is not idempotent.",
+  "Breaking a lock in reconcile because it 'looks stale' or because the test knows the child died. Only the test fixture removes the lock, after asserting exit code 73 (dispatch.test.mjs:175-177).",
+  "Overwriting the transaction record with only the latest status, which loses the job id, installationId, plan or earlier failures. Keep all fields, append observations, and write atomically (temp + fsync + rename + directory fsync, pattern dispatch.mjs:39-49; that helper is private and not importable).",
+  "Importing private helpers: persist (dispatch.mjs:39), writeNew/syncDirectory (admission.mjs:46-54) and canonical are not exported. The only dispatch exports are initializeAutomationDispatch and dispatchAutomation. Admission exports initializeAutomationAdmission, initializeAutomationMessages, reserveAutomationRun, reserveAutomationMessage and checkAutomationConditions.",
+  "Production defaults. Do not give root a default and never use homedir() or AUTOMATION_ROOT (automation.js:66). The check env passes the REAL HOME (checks.mjs:129), so a defaulted path would touch ~/.openclaw. runInstalledAutomation defaults to the production root (runtime.mjs:19); always pass automationRoot if you call it.",
+  "Confusing the automation name ('calendar-check') with the scheduler job name ('orion-auto-calendar-check', schedule.mjs:31). reconcile takes the automation name. Validate it with /^[a-z0-9][a-z0-9-]{1,47}$/ before building any path.",
+  "Child-process test with an in-memory fake scheduler. The job the child created vanishes with it. Use a file-backed fake store in the temp dir, outside root/installed and root/runtime.",
+  "Passing JSON args to the child incorrectly. With `node --input-type=module -e source arg`, the arg is process.argv[1] (dispatch.test.mjs:165). Import the module by absolute file URL built from import.meta.url (dispatch.test.mjs:162).",
+  "Hard-coding expiresOn without passing a matching explicit `now` to installDisabledAutomation. The plan checks expiry against `now` in the chosen time zone (schedule.mjs:20-25), so tests break when the real date passes. Either pass `now` explicitly (for example Date.parse('2026-09-20T10:00:00Z') with expiresOn '2026-09-25') or derive expiresOn from Date.now(), as automation-schedule.test.mjs:9 does.",
+  "Proposal fixture missing required fields: intent of 8+ chars, riskLimits.maxMessagesPerDay 0-48, conditions:{} (automation.js:120, :184-186; admission.mjs:18-19). Or including delivery, or an action other than agenda_today (schedule.mjs:12-14).",
+  "Putting 'ENOENT', 'no such file or directory' or 'command not found' in a test title or test output. The check is then marked UNUSABLE and the task blocks humanOnly, even if every test passes (checks.mjs:189-192, :273; worker.mjs:319-323).",
+  "Writing both complete files plus long reasoning in one reply. The 16000-token output budget includes thinking (models.mjs:60-63), and a truncated FILE block is MALFORMED. Write one file per exchange, reasoning brief and before the markers.",
+  "Stuck gate. After a progress exchange barren is 1, so only 3 more write/check exchanges without a fail-to-pass flip are allowed (worker.mjs:141-143, :342-353). Always put CHECK in the same exchange as FILE. A FILE with no CHECK burns a barren tick without the chance of a flip.",
+  "DONE timing. Writes over 12000 chars, subtask changes and check flips trigger a self-review exchange where DONE is withheld (worker.mjs:181-206, :244, :280, :307-310). DONE sent while checkpoint reasons are pending is deferred (:355). Budget 2 exchanges after the last green CHECK: self-review, then DONE.",
+  "Deleting, skipping or loosening task 1-2 tests while rewriting tests/automation-install.test.mjs. The constraint forbids it (plan.md:171), and no check catches it.",
+  "Using timestamps that make repeated reconciliation non-deterministic, or adding a required `now` parameter to reconcile's signature. The contract signature is {root,name,scheduler}. No criterion needs a clock."
+ ],
+ "exchangePlan": [
+  "Exchange 1:\n- Declare `### SUBTASK: 1/4 read task 1-2 code and the child-process pattern`.\n- The install module and its test (from tasks 1-2) are already in the working set. Study their exports, the transaction record path, fields and phase names, the lock mechanism, the fake scheduler, and whether the intent stores the full plan.\n- In ONE batch, READ tests/automation-dispatch.test.mjs (child-exit pattern, lines 160-197) and at most 2-3 of: scripts/lib/orion-automation-dispatch.mjs, scripts/lib/orion-automation-admission.mjs, scripts/lib/orion-automation-schedule.mjs.\n- Stay at or under 6 files so install.mjs is not evicted. No FILE or CHECK yet; reads do not count toward the stuck gate.",
+  "Exchange 2:\n- Declare `### SUBTASK: 2/4 add reconcileDisabledAutomation`, with a short plan: state classification, lock, read and verify, remove plus read-back, persistence.\n- Write the COMPLETE scripts/lib/orion-automation-install.mjs with every task 1-2 export untouched. Add reconcile and, if needed, (a) persist the expected plan in the intent before any scheduler effect, and (b) a held-for-duration per-name lock in the installer.\n- Put `### CHECK` in the same reply. Expect the task 1-2 tests to still pass. If they fail, the change broke earlier behaviour: fix that first.",
+  "Exchange 3:\n- Declare `### SUBTASK: 3/4 reconcile tests`.\n- Write the COMPLETE tests/automation-install.test.mjs: all existing tests kept verbatim, plus the new tests:\n  - completed idempotent inspection (twice, byte-identical ledgers, no remove);\n  - uncertain create blocked (createDisabled on the reconcile fake throws if called);\n  - child-process exit at a seam (exit 73, busy while the lock remains, fixture removes the lock, reconcile on re-opened state);\n  - read failure;\n  - mismatched id;\n  - mismatched content plus enabled:true, with an unrelated job untouched;\n  - cleanup failure (remove rejects, and job still present after remove), followed by a second reconcile preserving evidence;\n  - quota bytes unchanged.\n- Avoid ENOENT and 'no such file' wording.\n- Put `### CHECK` in the same reply.",
+  "Exchange 4: read the failing test output, which is the tail of the output. Fix the smallest thing, with one complete FILE plus `### CHECK`. If it is a module bug, rewrite the module file; if a test bug, fix the test, never by weakening an assertion.",
+  "Exchange 5: this is probably a self-review checkpoint, triggered by a large write or a flip, and DONE is withheld. Re-check each of the five acceptance criteria against the code, plus the non-scope. Fix anything found with FILE plus CHECK in the same exchange.",
+  "Exchange 6: if the checks are green and no checkpoint is pending, send `### DONE` with a paragraph mapping each criterion to its test names. Otherwise continue fixing, always FILE plus CHECK together.",
+  "Exchanges 7-9: reserve for fixes. Remember the stuck gate: 3 write/check exchanges without a fail-to-pass flip after the last progress block the attempt. If the same failure appears twice, stop editing and READ the relevant file (re-READ install.mjs if it was evicted) before the next write.",
+  "Exchange 10: last sensible exchange to reach green. After a flip to green, expect one self-review exchange (send CHECK or a brief review; DONE there is withheld) and then DONE.",
+  "Exchanges 11-12: self-review, then `### DONE`, with checks fresh and passing.",
+  "Exchanges 13-14: margin only. If still not green, send `### BLOCKED` with what was learned, for example 'task 2 record lacks the plan and I could not safely add it'. Do not spend the remaining exchanges repeating an edit."
+ ],
+ "reviewerChecks": [
+  "Criterion 1 (export and prohibitions). The diff must show `export async function reconcileDisabledAutomation({ root, name, scheduler })` in scripts/lib/orion-automation-install.mjs, and verifyDisabledSchedule and installDisabledAutomation must still be exported with unchanged signatures.\n\nGrep the reconcile body. It must contain no createDisabled, no enable, and no initializeAutomationDispatch, initializeAutomationAdmission, reserveAutomation or dispatchAutomation. It must make no writeFile, rename, unlink, rm or rmdir aimed at root/runtime/** or root/installed/**. It must not default root to homedir() or AUTOMATION_ROOT.\n\nLock handling:\n- rmdir only of the lock this call created, in finally, after a successful mkdir;\n- EEXIST returns busy/refused with no other effect;\n- no mtime, age or pid heuristics.\n\nA superficially passing but wrong version removes an existing lock 'if stale', or re-initializes a missing ledger. A test showing quota-ledger bytes unchanged after reconcile should exist.",
+  "Criterion 2 (completed idempotent; uncertain create blocked).\n\nThere must be a test that reconciles a successfully installed transaction TWICE and asserts:\n- the same status both times;\n- zero remove calls;\n- read(recordedId) was actually called, since there is no success without read-back;\n- the installed record and ledger bytes are unchanged.\n\nThere must be a test with a transaction whose id was never recorded (ideally produced by a child exiting inside createDisabled) that asserts:\n- a blocked or human-inspection status;\n- zero createDisabled calls, with a fake that throws or records if called;\n- no remove.\n\nWrong looks like: 'no id \u2192 no effect \u2192 cleaned/ok', or success returned without any read call.",
+  "Criterion 3 (exact identity and read-back; mismatch reported).\n\nIn code, a remove must be preceded by all of:\n- observed.id === the durable recorded id;\n- verifyDisabledSchedule(storedPlan, observed) === true, where storedPlan comes from the durable record and not from automationSchedulePlan at reconcile time;\n- an incomplete transaction state.\n\nTests must cover:\n- a different-id read-back;\n- changed content (cron, argv, cwd or name);\n- enabled:true.\n\nEach must assert an intervention status and zero remove calls, and a second, unrelated job in the fake store must be untouched.\n\nWrong looks like: relying on verifyDisabledSchedule alone (it accepts any nonempty id), a fake read that ignores its id argument, or building `observed` by spreading the stored plan, which validates an object against itself.",
+  "Criterion 4 (accurate persistence; no success without read-back; evidence preserved).\n\nThe code must follow remove() with a fresh read(). 'Removed' is recorded only when that read returns the documented absent value. A rejected read or remove is recorded as unknown, never as absent or removed.\n\nThe transaction record must be written atomically and must keep jobId, installationId, the plan and prior entries. There must be a test that runs reconcile after a cleanup failure, runs it again, and asserts the first failure's evidence is still in the durable record.\n\nWrong looks like: success from remove's return value, the record overwritten with only the latest status, or the transaction file deleted after cleanup.",
+  "Criterion 5 (required test scenarios). All six must be present and meaningful:\n1. A REAL child process: execFile(process.execPath, ['--input-type=module','-e',\u2026]) running the real installDisabledAutomation, with process.exit at a seam and an assertion on the exit code. An in-process throw is not a child-process exit.\n2. Re-opened durable state: the parent-side reconcile uses only disk state, with a file-backed fake store.\n3. Repeated reconciliation.\n4. read() rejection.\n5. Mismatched id and mismatched content.\n6. Cleanup failure.\n\nThe lock must be removed by the TEST, and only after the exit code is asserted, with reconcile shown to refuse before that. The check output must show automation-install-tests and automation-tests PASSED. The '\u2139 tests' count must be at least task 2's count plus the new tests, and the diff must delete or weaken no earlier test.",
+  "Cross-cutting:\n- no test title or output contains 'ENOENT', 'no such file or directory' or 'command not found' (checks.mjs:189-192);\n- every test root comes from mkdtemp with t.after cleanup, with no homedir paths;\n- no new files in root/installed/ or root/runtime/ from reconcile;\n- no changes outside the two scope files;\n- the reconcile return value uses a closed, documented set of statuses that task 5 can describe;\n- if the worker extended installDisabledAutomation (persisting the plan, or adding a lock), task 2's tests still pass unmodified and the durable record remains compatible with runInstalledAutomation (runtime.mjs:29-31)."
+ ]
+}

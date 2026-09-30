@@ -104,6 +104,16 @@ final class SnapshotReaderTests: XCTestCase {
         XCTAssertNil(reader.attention())
         XCTAssertFalse(reader.locked())
         XCTAssertEqual(reader.health(), [])
+        XCTAssertNil(reader.screenGrant(now: now))
+    }
+
+    func testAScreenGrantIsSentOnlyWhileItRuns() throws {
+        let until = now.addingTimeInterval(20 * 60)
+        try write(".openclaw/orion-controlled/screen-grant.json",
+                  ["id": "g1", "until": ISO8601DateFormatter().string(from: until), "because": "asked nicely"])
+        let reader = SnapshotReader(home: home)
+        XCTAssertEqual(reader.screenGrant(now: now)?.id, "g1")
+        XCTAssertNil(reader.screenGrant(now: until.addingTimeInterval(1)))
     }
 }
 

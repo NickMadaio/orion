@@ -1,6 +1,9 @@
+import DeviceActivity
 import FamilyControls
 import ManagedSettings
+import MobileCore
 import SwiftUI
+import UserNotifications
 
 /*
  Locking distracting apps when Nick keeps ignoring ORION (2026-09-29).
@@ -47,9 +50,13 @@ final class FocusLock: ObservableObject {
         Self.shared_defaults?.set(enabled, forKey: "orion.focuslock.enabled")
         if let data = try? PropertyListEncoder().encode(selection) { Self.shared_defaults?.set(data, forKey: "orion.focuslock.selection") }
     }
-    @Published private(set) var lockedUntil: Date? = {
-        let t = UserDefaults.standard.double(forKey: "orion.focuslock.until"); return t > 0 ? Date(timeIntervalSince1970: t) : nil
-    }()
+    /// Read from the app group: the Screen Time monitor locks while ORION is
+    /// closed and writes there, so the app must look there too (2026-10-01).
+    @Published private(set) var lockedUntil: Date? = FocusLock.groupDate("orion.focuslock.until")
+
+    private static func groupDate(_ key: String) -> Date? {
+        let t = shared_defaults?.double(forKey: key) ?? 0; return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
     @Published private(set) var problem: String?
 
     private let store = ManagedSettingsStore(named: .init("orion.focus"))
@@ -81,18 +88,53 @@ final class FocusLock: ObservableObject {
         store.shield.applicationCategories = .specific(selection.categoryTokens)
         let until = Date().addingTimeInterval(Double(minutes * 60))
         lockedUntil = until
-        UserDefaults.standard.set(until.timeIntervalSince1970, forKey: "orion.focuslock.until")
+        Self.shared_defaults?.set(until.timeIntervalSince1970, forKey: "orion.focuslock.until")
+        Self.shared_defaults?.set("checkin", forKey: "orion.screen.lockWhy")
     }
 
     func release() {
         store.clearAllSettings()
         lockedUntil = nil
-        UserDefaults.standard.removeObject(forKey: "orion.focuslock.until")
+        for key in ["orion.focuslock.until", "orion.screen.lockWhy", "orion.screen.lockedBy"] { Self.shared_defaults?.removeObject(forKey: key) }
     }
 
     /// Called whenever ORION runs: a lock past its time comes off.
     func releaseIfExpired(now: Date = Date()) {
+        lockedUntil = Self.groupDate("orion.focuslock.until")
         if let lockedUntil, now >= lockedUntil { release() }
+    }
+
+    /// What ORION on the Mac should know (2026-10-01: Nick asked for 20 more
+    /// minutes and ORION said nothing was locked — it could not see the phone).
+    static func screenState(now: Date = Date()) -> LinkLog {
+        let iso = ISO8601DateFormatter()
+        let until = groupDate("orion.focuslock.until").flatMap { $0 > now ? $0 : nil }
+        let grace = groupDate("orion.screen.graceUntil").flatMap { $0 > now ? $0 : nil }
+        return .screen(at: iso.string(from: now), locked: until != nil && grace == nil,
+                       until: until.map(iso.string), why: until == nil ? nil : shared_defaults?.string(forKey: "orion.screen.lockWhy"),
+                       graceUntil: grace.map(iso.string))
+    }
+
+    /// Extra time ORION granted ("unblock my apps until 12:45"): lift the lock
+    /// now; the Screen Time monitor puts it back at `until` if the lock's own
+    /// window is still running, even with ORION closed. Applied once per grant.
+    func grant(_ grant: LinkSnapshot.ScreenGrant, now: Date = Date()) {
+        guard grant.until > now, Self.shared_defaults?.string(forKey: "orion.screen.grantApplied") != grant.id else { return }
+        Self.shared_defaults?.set(grant.id, forKey: "orion.screen.grantApplied")
+        Self.shared_defaults?.set(grant.until.timeIntervalSince1970, forKey: "orion.screen.graceUntil")
+        store.clearAllSettings()
+        // DeviceActivity intervals are at least 15 minutes; ending at `until` is what matters.
+        let calendar = Calendar.current
+        let start = min(now, grant.until.addingTimeInterval(-15 * 60))
+        let parts: (Date) -> DateComponents = { calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: $0) }
+        let center = DeviceActivityCenter()
+        center.stopMonitoring([DeviceActivityName("grace")])
+        try? center.startMonitoring(DeviceActivityName("grace"),
+                                    during: DeviceActivitySchedule(intervalStart: parts(start), intervalEnd: parts(grant.until), repeats: false))
+        let content = UNMutableNotificationContent()
+        content.title = "ORION"
+        content.body = "Apps unlocked until \(grant.until.formatted(date: .omitted, time: .shortened))."
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "orion.screen.grant.\(grant.id)", content: content, trigger: nil))
     }
 }
 

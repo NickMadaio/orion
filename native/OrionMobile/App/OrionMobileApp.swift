@@ -209,6 +209,11 @@ struct PhoneRootView: View {
             await routine.checkNightSignals(planner: planner, macLastInput: remote.snapshot?.lastInputAt)
             publishGlance()
         }
+        .onChange(of: remote.snapshot?.screenGrant) { _, grant in
+            guard let grant else { return }
+            FocusLock.shared.grant(grant)
+            remote.logQuietly(FocusLock.screenState())
+        }
         .onChange(of: remote.snapshot?.wakeRequest) { _, request in
             Task { await routine.refresh(planner: planner, wakeRequest: request) }
         }

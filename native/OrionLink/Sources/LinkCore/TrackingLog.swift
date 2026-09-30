@@ -125,6 +125,17 @@ public struct TrackingLog {
                 signals.append(sample)
                 log["phoneSignals"] = Array(signals.suffix(2000))
                 reply = "Noted."
+            case let .screen(at, locked, until, why, graceUntil):
+                // The latest state (what ORION reads) plus a short history for patterns.
+                var state: [String: Any] = ["at": at, "locked": locked]
+                if let until { state["until"] = until }
+                if let why { state["why"] = why }
+                if let graceUntil { state["graceUntil"] = graceUntil }
+                log["phoneScreen"] = state
+                var history = log["screenLog"] as? [[String: Any]] ?? []
+                history.append(state)
+                log["screenLog"] = Array(history.suffix(300))
+                reply = "Noted."
             case let .sleep(event, at):
                 // A top-level list the app does not decode and preserves untouched.
                 var sleepLog = log["sleepLog"] as? [[String: Any]] ?? []
@@ -132,7 +143,7 @@ public struct TrackingLog {
                 log["sleepLog"] = Array(sleepLog.suffix(400))
                 reply = event == "bed" ? "Logged: going to bed." : "Logged: up."
             }
-            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else {
+            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .screen = entry {} else {
                 nutrition[day] = meals
                 log["nutritionLog"] = nutrition
                 record["calories"] = meals.reduce(0) { $0 + (Self.int($1["calories"]) ?? 0) }

@@ -222,7 +222,11 @@ final class RemoteStore: ObservableObject {
             return
         }
         sent?(id)
-        Task { await link.send(text, kind: .chat, id: id) }
+        Task {
+            // The lock state goes first, so ORION knows it before reading "unlock my apps".
+            if let state = try? FocusLock.screenState().validated().encoded() { _ = await link.send(state, kind: .log) }
+            await link.send(text, kind: .chat, id: id)
+        }
     }
 
     func decide(_ approval: LinkSnapshot.Approval, approve: Bool) {
@@ -259,7 +263,7 @@ final class RemoteStore: ObservableObject {
                 }
             case let .supplement(id, taken):
                 if let index = value.supplements.firstIndex(where: { $0.id == id }) { value.supplements[index].taken = taken }
-            case .sleep, .signal, .checkin, .note:
+            case .sleep, .signal, .screen, .checkin, .note:
                 break
             }
         }

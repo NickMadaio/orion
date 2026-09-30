@@ -183,6 +183,14 @@ public struct SnapshotReader {
         return at
     }
 
+    /// Extra phone time from `scripts/orion-phone-time grant`, while it is still running.
+    public func screenGrant(now: Date = Date()) -> LinkSnapshot.ScreenGrant? {
+        guard let object = json(controlled.appendingPathComponent("screen-grant.json")) as? [String: Any],
+              let id = object["id"] as? String, let until = (object["until"] as? String).flatMap(Self.parseDate),
+              until > now else { return nil }
+        return .init(id: id, until: until, because: object["because"] as? String)
+    }
+
     // MARK: - Check-ins and the widgets
 
     /// The follow-up that matters most right now: one being chased, else one in

@@ -188,7 +188,8 @@ final class LinkEngine: ObservableObject {
                                     tracking: reader.tracking(now: now), plan: reader.plan(now: now),
                                     planRequest: reader.planRequest(now: now), wakeRequest: reader.wakeRequest(now: now),
                                     checkin: reader.checkin(now: now), deadlines: calendar?.deadlines,
-                                    lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) })
+                                    lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) },
+                                    screenGrant: reader.screenGrant(now: now))
         publishGlance(snapshot, now: now)
         // Compare without the clock, so an unchanged Mac is not re-sent every tick.
         var probe = snapshot; probe.generatedAt = .distantPast

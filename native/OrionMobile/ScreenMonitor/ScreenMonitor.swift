@@ -35,21 +35,53 @@ final class ScreenMonitor: DeviceActivityMonitor {
         case ("day", "long1"): notify("An hour on your phone today. Anything you meant to do?")
         case ("day", "long2"): notify("Two hours on your phone today. What's the plan for the rest of it?")
         case (_, "lock") where kind == "work" || kind == "night":
-            lock(until: Double(info["end"] ?? "") ?? Date().addingTimeInterval(1800).timeIntervalSince1970, why: kind == "night" ? "until morning" : "until \(title) is over")
+            lock(activity: activity.rawValue, kind: kind,
+                 until: Double(info["end"] ?? "") ?? Date().addingTimeInterval(1800).timeIntervalSince1970,
+                 why: kind == "night" ? "until morning" : "until \(title) is over")
         default: break
         }
     }
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
+        // Extra time ORION granted is over: back on, if the lock's own window still runs.
+        if activity.rawValue == "grace" {
+            defaults?.removeObject(forKey: "orion.screen.graceUntil")
+            let until = defaults?.double(forKey: "orion.focuslock.until") ?? 0
+            if until > Date().timeIntervalSince1970, shield() {
+                notify("Time's up. Apps locked again until \(clock(until)).")
+            }
+            return
+        }
         if defaults?.string(forKey: "orion.screen.lockedBy") == activity.rawValue {
             store.clearAllSettings()
-            defaults?.removeObject(forKey: "orion.screen.lockedBy")
-            defaults?.removeObject(forKey: "orion.focuslock.until")
+            for key in ["orion.screen.lockedBy", "orion.focuslock.until", "orion.screen.lockWhy"] { defaults?.removeObject(forKey: key) }
         }
     }
 
-    private func lock(until: TimeInterval, why: String) {
+    /// Put the shield on the chosen apps; false when Focus lock is off or unset.
+    private func shield() -> Bool {
+        guard defaults?.bool(forKey: "orion.focuslock.enabled") == true,
+              let data = defaults?.data(forKey: "orion.focuslock.selection"),
+              let selection = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data) else { return false }
+        store.shield.applications = selection.applicationTokens
+        store.shield.applicationCategories = .specific(selection.categoryTokens)
+        return true
+    }
+
+    private func clock(_ time: TimeInterval) -> String {
+        let formatter = DateFormatter(); formatter.timeStyle = .short
+        return formatter.string(from: Date(timeIntervalSince1970: time))
+    }
+
+    private func lock(activity: String, kind: String, until: TimeInterval, why: String) {
+        // Inside time ORION granted: note the lock's window, but do not lock yet.
+        let grace = defaults?.double(forKey: "orion.screen.graceUntil") ?? 0
+        // Which window locked, so the end of THAT window unlocks (it was never set before).
+        defaults?.set(activity, forKey: "orion.screen.lockedBy")
+        defaults?.set(kind, forKey: "orion.screen.lockWhy")
+        defaults?.set(until, forKey: "orion.focuslock.until")
+        if grace > Date().timeIntervalSince1970 { return }
         guard defaults?.bool(forKey: "orion.focuslock.enabled") == true,
               let data = defaults?.data(forKey: "orion.focuslock.selection"),
               let selection = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data) else {
@@ -58,7 +90,6 @@ final class ScreenMonitor: DeviceActivityMonitor {
         }
         store.shield.applications = selection.applicationTokens
         store.shield.applicationCategories = .specific(selection.categoryTokens)
-        defaults?.set(until, forKey: "orion.focuslock.until")
         notify("Locked your distracting apps \(why). Tap Started on ORION's check-in or open ORION to unlock.")
     }
 

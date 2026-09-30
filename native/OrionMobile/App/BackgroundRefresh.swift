@@ -59,6 +59,11 @@ enum BackgroundRefresh {
         let planner = PlannerStore()
         await planner.loadTodos()
         let snapshot = await fetchSnapshot() ?? SnapshotCache.load()
+        // Extra phone time ORION granted while the app was in the background.
+        if let grant = snapshot?.screenGrant, grant.until > now {
+            FocusLock.shared.grant(grant, now: now)
+            await CloudLink.sendNow(FocusLock.screenState(now: now))
+        }
         let routine = NightRoutine.shared
         if routine.plan == nil { await routine.refresh(planner: planner, wakeRequest: snapshot?.wakeRequest, now: now) }
         await routine.checkNightSignals(planner: planner, macLastInput: snapshot?.lastInputAt, now: now)

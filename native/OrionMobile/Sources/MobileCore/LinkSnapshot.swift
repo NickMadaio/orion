@@ -233,6 +233,16 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
     /// A wake-up time Nick asked ORION for ("wake me up at 7:30"); the phone's
     /// alarm uses it instead of the automatic one for that morning.
     public var wakeRequest: Date?
+    /// Extra phone time ORION granted ("unblock my apps until 12:45"): the phone
+    /// lifts its Screen Time lock until `until`, then puts it back. `id` makes one
+    /// grant apply once.
+    public struct ScreenGrant: Codable, Equatable, Sendable {
+        public var id: String
+        public var until: Date
+        public var because: String?
+        public init(id: String, until: Date, because: String? = nil) { self.id = id; self.until = until; self.because = because }
+    }
+    public var screenGrant: ScreenGrant?
     /// The follow-up ORION is running now, for the phone's lock screen and widgets.
     public var checkin: OrionGlance.Checkin?
     /// One-off deadlines ahead (quizzes, presentations), from the Mac's calendar export.
@@ -244,12 +254,14 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
     public init(generatedAt: Date, mac: Mac, runs: [Run] = [], approvals: [Approval] = [],
                 running: [RunningAction] = [], attention: Attention? = nil, health: [HealthDay]? = nil,
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
-                checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil) {
+                checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
+                screenGrant: ScreenGrant? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
         self.tracking = tracking; self.plan = plan; self.planRequest = planRequest; self.wakeRequest = wakeRequest
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
+        self.screenGrant = screenGrant
     }
 
     public static let currentVersion = 1
@@ -335,6 +347,10 @@ public enum LinkLog: Codable, Equatable, Sendable {
     /// (lat/lon rounded to ~100 m) when he has allowed location. History for the
     /// life loop's "what is actually happening"; nothing acts on one sample.
     case signal(at: String, motion: String, charging: Bool, latitude: Double?, longitude: Double?)
+    /// Whether the phone's Screen Time lock is on (2026-10-01: Nick asked ORION for
+    /// 20 more minutes and ORION said nothing was locked; it could not see the phone).
+    /// `why` is "night", "work" or "checkin"; `until` and `graceUntil` are ISO-8601.
+    case screen(at: String, locked: Bool, until: String?, why: String?, graceUntil: String?)
     /// An answer to a check-in notification: "started", "snooze" (10 more min) or "done".
     case checkin(action: String)
     /// Something noted on the phone ("remember…", an idea, or an offline
@@ -380,6 +396,11 @@ public enum LinkLog: Codable, Equatable, Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty, cleaned.count <= 1200 else { throw LinkError.invalidCommand("a note is 1 to 1200 characters") }
             return .note(text: cleaned, at: at)
+        case let .screen(at, locked, until, why, graceUntil):
+            let time = { (value: String?) in value == nil || ISO8601DateFormatter().date(from: value!) != nil }
+            guard ISO8601DateFormatter().date(from: at) != nil, time(until), time(graceUntil),
+                  why == nil || ["night", "work", "checkin"].contains(why!) else { throw LinkError.invalidCommand("not a screen state") }
+            return .screen(at: at, locked: locked, until: until, why: why, graceUntil: graceUntil)
         case .checkin(let action):
             guard ["started", "snooze", "done"].contains(action) else { throw LinkError.invalidCommand("not a check-in answer") }
             return self

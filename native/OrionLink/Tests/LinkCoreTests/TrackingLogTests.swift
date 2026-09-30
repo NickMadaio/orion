@@ -117,6 +117,21 @@ final class TrackingLogTests: XCTestCase {
         XCTAssertNoThrow(try TrackingLog(file: file).apply(.water(delta: 1), now: now), "waits for the other writer")
         XCTAssertFalse(FileManager.default.fileExists(atPath: lock), "released after writing")
     }
+    /// 2026-10-01: ORION told Nick nothing was locked; it could not see the phone.
+    func testTheScreenLockStateIsKeptWhereOrionReadsIt() throws {
+        let log = TrackingLog(file: file)
+        _ = try log.apply(.screen(at: "2026-10-01T00:02:00Z", locked: true, until: "2026-10-01T06:15:00Z", why: "night", graceUntil: nil), now: now)
+        let state = try XCTUnwrap(try json()["phoneScreen"] as? [String: Any])
+        XCTAssertEqual(state["locked"] as? Bool, true)
+        XCTAssertEqual(state["why"] as? String, "night")
+        XCTAssertEqual((try json()["screenLog"] as? [[String: Any]])?.count, 1)
+        XCTAssertEqual((try json()["futureField"] as? [String: Any])?["kept"] as? Bool, true)
+    }
+
+    func testANonsenseScreenStateIsRefused() {
+        XCTAssertThrowsError(try LinkLog.screen(at: "yesterday", locked: true, until: nil, why: nil, graceUntil: nil).validated())
+        XCTAssertThrowsError(try LinkLog.screen(at: "2026-10-01T00:02:00Z", locked: true, until: nil, why: "boredom", graceUntil: nil).validated())
+    }
 }
 
 final class PlanLinkTests: XCTestCase {
@@ -170,4 +185,5 @@ final class MemoryNoteTests: XCTestCase {
         XCTAssertEqual(text.components(separatedBy: "vlog about").count, 2, "the same note is written once")
         XCTAssertTrue(text.contains("- 14:02 — [iphone] Offline — Nick: what's tomorrow? / ORION (phone): Seminar at 09:00"))
     }
+
 }

@@ -738,7 +738,7 @@ test("reconcileDisabledAutomation: scheduler read failure", async (t) => {
   const txDir = join(root, "transactions");
   await mkdir(txDir, { recursive: true });
   
-  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT, NOW);
   const txData = {
     version: 1,
     name: "calendar-check",
@@ -786,7 +786,7 @@ test("reconcileDisabledAutomation: mismatched id and content", async (t) => {
   const txDir = join(root, "transactions");
   await mkdir(txDir, { recursive: true });
   
-  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT, NOW);
   const txData = {
     version: 1,
     name: "calendar-check",
@@ -839,7 +839,7 @@ test("reconcileDisabledAutomation: cleanup failure scenarios", async (t) => {
   const txDir = join(root, "transactions");
   await mkdir(txDir, { recursive: true });
   
-  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT, NOW);
   const txData = {
     version: 1,
     name: "calendar-check",
@@ -894,7 +894,7 @@ test("reconcileDisabledAutomation: cleanup failure - job still present after rem
   const txDir = join(root, "transactions");
   await mkdir(txDir, { recursive: true });
   
-  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT);
+  const plan = automationSchedulePlan(makeProposal(), "Europe/London", REPO_ROOT, NOW);
   const txData = {
     version: 1,
     name: "calendar-check",

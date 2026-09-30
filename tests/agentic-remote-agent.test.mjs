@@ -15,7 +15,7 @@
 */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -376,6 +376,9 @@ async function installedCopy(ctx) {
   const scripts = join(ctx.home, '.openclaw/orion-remote/scripts');
   await fakeRepo(join(ctx.home, '.openclaw/orion-remote')); // the snapshot, deliberately present
   await copyFile(REMOTE, join(scripts, 'orion-remote'));
+  // orion-remote imports its helpers from lib/, and orion-remote-install copies
+  // all of scripts/ — so the installed copy has them too.
+  await cp(join(REPO, 'scripts/lib'), join(scripts, 'lib'), { recursive: true });
   return join(scripts, 'orion-remote');
 }
 
@@ -425,6 +428,7 @@ test('with no reachable repository and no installed controller, the reply says w
   const scripts = join(ctx.home, '.openclaw/orion-remote/scripts');
   await mkdir(scripts, { recursive: true });
   await copyFile(REMOTE, join(scripts, 'orion-remote'));
+  await cp(join(REPO, 'scripts/lib'), join(scripts, 'lib'), { recursive: true });
   const script = join(scripts, 'orion-remote');
 
   const missing = await send(ctx, 'agent stop', { script, env: { ORION_REPO: undefined } });

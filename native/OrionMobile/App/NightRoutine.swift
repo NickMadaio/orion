@@ -30,8 +30,9 @@ struct RoutineSettings: Codable, Equatable {
     /// Minutes after midnight; values below noon mean after midnight (0 = 00:00).
     var bedtimeMinute = 0
     var sleepMinutes = 480
-    /// From waking to the first event: shower, breakfast, travel.
-    var readyMinutes = 75
+    /// From waking to the first event: shower, breakfast, travel. Nick, 2026-10-01:
+    /// "i usually wake up at 7:15 am for 9 classes" — 1 h 45 min.
+    var readyMinutes = 105
     var windDownMinutes = 30
     var wakeAlarm = true
     /// The usual wake time; earlier only when the first class needs it.
@@ -41,7 +42,13 @@ struct RoutineSettings: Codable, Equatable {
     static let key = "orion.routine.settings.v1"
     static func load() -> RoutineSettings {
         guard let data = UserDefaults.standard.data(forKey: key),
-              let value = try? JSONDecoder().decode(RoutineSettings.self, from: data) else { return RoutineSettings() }
+              var value = try? JSONDecoder().decode(RoutineSettings.self, from: data) else { return RoutineSettings() }
+        // Once: the old 75-minute default becomes his real 105. A value he chose himself is left alone.
+        let migrated = "orion.routine.ready105"
+        if !UserDefaults.standard.bool(forKey: migrated) {
+            if value.readyMinutes == 75 { value.readyMinutes = 105; value.save() }
+            UserDefaults.standard.set(true, forKey: migrated)
+        }
         return value
     }
     func save() { UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.key) }

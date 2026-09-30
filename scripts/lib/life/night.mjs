@@ -20,7 +20,7 @@ export function wakeOn(date, { blocksOf, config, wakeRequest = null }) {
   if (wakeRequest && wakeRequest.date === date && wakeRequest.minute < 12 * 60) return wakeRequest.minute;
   const usual = toMinute(config.usualWake);
   const first = blocksOf(date).filter((b) => b.fixed && b.source !== "orion").sort((a, b) => a.start - b.start)[0];
-  return first ? Math.min(usual, first.start - (config.readyMinutes ?? 75)) : usual;
+  return first ? Math.min(usual, first.start - (config.readyMinutes ?? 105)) : usual;
 }
 
 /** Minutes after `date`'s midnight by which he should be asleep that night (may pass 1440). */

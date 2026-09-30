@@ -208,6 +208,6 @@ test("wind down ends on the asleep line, which moves earlier before an early cla
   const r = run("fill");
   assert.equal(r.code, 0, r.out);
   const wind = day().find((e) => /wind down/i.test(e.title));
-  // 8:00 lab − 75 min ready = 6:45 wake; 8 h before that = asleep by 22:45.
-  assert.equal(wind?.end, hm(22, 45), r.out);
+  // 8:00 lab − 105 min ready (7:15 for a 9:00 class, Nick) = 6:15 wake; 8 h before = asleep by 22:15.
+  assert.equal(wind?.end, hm(22, 15), r.out);
 });

@@ -11,7 +11,7 @@ export const DEFAULTS = Object.freeze({
   bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
   studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
   commuteMinutes: 30,
-  readyMinutes: 75,          // up before his first commitment (the phone alarm uses the same)
+  readyMinutes: 105,         // up before his first commitment: 7:15 for a 9:00 class (the phone uses the same)
   // Events he never goes to (2026-09-30: "get rid of that optional workshop, i
   // never go to them … all of them going forwards"). Case-insensitive substrings.
   ignoreTitles: ["(optional)"],

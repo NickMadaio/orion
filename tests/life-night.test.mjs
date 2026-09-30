@@ -12,7 +12,7 @@ const days = {
 const blocksOf = (d) => days[d] ?? [];
 
 test("wake is the first real commitment minus get-ready time, never ORION's own block", () => {
-  assert.equal(wakeOn("2026-10-01", { blocksOf, config }), 540 - 75);
+  assert.equal(wakeOn("2026-10-01", { blocksOf, config }), 540 - 75, "config says 75 here");
   assert.equal(wakeOn("2026-10-03", { blocksOf, config }), 540, "free day: usual wake");
 });
 

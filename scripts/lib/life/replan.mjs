@@ -3,60 +3,128 @@
 // studying, sleep, playing games, relax time, groceries … plans with friends
 // are different, cant move those or classes."
 //
-// Stable by design: only movable blocks that now clash (with something fixed,
-// something new, or time already lost) move, each to the nearest free time at
-// or after where it was, most important first. What cannot fit is reported,
-// never silently dropped.
+// Three kinds of time (rewritten 2026-09-30, after a day where soccer 5-7 went
+// onto a full calendar and every attempt overlapped, refused, or put gym at
+// 1 PM before soccer):
+//   walls   — classes, plans with people, anything fixed. Never move.
+//   pinned  — a time Nick said ("nap at 1"). Placed exactly there; ORION's own
+//             blocks get out of its way. Only a wall can push it, and then just
+//             past the wall, reported in `shifted`.
+//   flexible— everything else, laid out in TIME ORDER (his stated order), each at
+//             or after where he wanted it. Importance only decides what is left
+//             out when not everything fits; it never reorders the day.
+// What cannot fit is reported, never silently dropped.
 import { freeGaps } from "./gaps.mjs";
 import { importanceOf, priorityOf } from "./priority.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
+/** First start ≥ from, inside [floor, end], where `minutes` fit among `taken`. */
+function slot(taken, { from, before, minutes, floor, end }) {
+  const gaps = freeGaps(taken, { start: floor, end }, { minimum: 5 });
+  const gap = gaps.find((g) => Math.max(g.start, from) + minutes <= Math.min(g.end, before));
+  return gap ? Math.max(gap.start, from) : null;
+}
+
+/** Lay items down in time order; returns placed blocks and the ones that did not fit.
+ *  Items with a time preference (his existing blocks, "after soccer", "before 5")
+ *  go first; untimed suggestions then fill the gaps in the order he listed them. */
+function layout(items, taken, { floor, end }) {
+  const want = (item) => Math.max(item.after, item.prefer ?? item.after);
+  const ordered = [...items].sort((x, y) => (x.pref ? 0 : 1) - (y.pref ? 0 : 1) || want(x) - want(y) || x.seq - y.seq);
+  let used = [...taken]; const placed = []; const missed = [];
+  for (const item of ordered) {
+    // Its natural time of day first; if that is full, anything from its floor.
+    const start = slot(used, { from: want(item), before: item.before, minutes: item.minutes, floor, end })
+      ?? (want(item) > item.after ? slot(used, { from: item.after, before: item.before, minutes: item.minutes, floor, end }) : null);
+    if (start === null) { missed.push(item); continue; }
+    const block = { ...item.block, start, end: start + item.minutes };
+    used = [...used, block]; placed.push({ item, block });
+  }
+  return { placed, missed };
+}
+
 /**
  * @param blocks   the day's blocks (fixed ones never move)
- * @param changes  { now, window: {start,end}, blocked, add, rebuild? }
- * @returns { blocks, moves: [{id,title,from,to}], created: [block], unplaced: [{title, minutes}] }
+ * @param changes  { now, window: {start,end}, blocked, soft?, add, rebuild? }
+ *   soft: ORION's own guesses (travel to and from class). Flexible work avoids
+ *   them; a time Nick states is placed over them.
+ *   add item: { title, kind, minutes, at?, fixed?, after?, before?, prefer?, importance? }
+ *   (after is a hard floor; prefer is the natural time of day, used when free)
+ * @returns { blocks, moves: [{id,title,from,to}], created: [block],
+ *            unplaced: [{title, minutes, id, importance, fresh}], shifted: [{title, from, to, because}] }
  */
-export function replan(blocks, { now, window, blocked = [], add = [], rebuild = false }) {
+export function replan(blocks, { now, window, blocked = [], soft = [], add = [], rebuild = false }) {
   const date = blocks[0]?.date ?? add[0]?.date ?? null;
   const floor = Math.max(window.start, now);
+  const end = window.end;
   const walls = [
     ...blocks.filter((b) => b.fixed),
     ...blocked.map((b, i) => ({ id: `blocked-${i}`, title: b.title ?? "busy", kind: "other", start: b.start, end: b.end, fixed: true })),
     ...add.filter((a) => a.fixed && Number.isInteger(a.at)).map((a, i) => ({ id: `new-fixed-${i}`, title: a.title, kind: a.kind ?? "other", date,
       start: a.at, end: a.at + a.minutes, fixed: true, source: "nick" })),
   ];
-  const created = walls.filter((w) => w.id.startsWith("new-fixed-"));
+  const createdFixed = walls.filter((w) => w.id.startsWith("new-fixed-"));
   const movable = blocks.filter((b) => !b.fixed);
-  // An incremental change keeps untouched work still. A rebuild keeps only the
-  // past still, then lays every remaining movable item down again by importance.
-  const stays = movable.filter((b) => b.start < floor || (!rebuild && b.start >= floor && !walls.some((w) => overlaps(w, b))));
-  const toPlace = [
-    ...movable.filter((b) => !stays.includes(b)).map((b) => ({ block: b, minutes: b.end - b.start, after: Math.max(floor, b.start), before: window.end })),
-    ...add.filter((a) => !(a.fixed && Number.isInteger(a.at))).map((a, i) => ({
-      block: { id: `new-${i}`, title: a.title, kind: a.kind ?? "other", importance: a.importance, date, start: null, end: null, fixed: false, source: "orion" },
-      minutes: a.minutes, after: Math.max(floor, Number.isInteger(a.at) ? a.at : floor), before: Number.isInteger(a.before) ? a.before : window.end, fresh: true })),
-  // What he already planned goes back in before anything ORION suggests; within
-  // each group, most important first. (A scenario run put the side-project hour
-  // ahead of the cleaning he had said he'd do first.)
-  ].sort((x, y) => importanceOf(x.block) - importanceOf(y.block)
-    || (x.fresh ? 1 : 0) - (y.fresh ? 1 : 0)
-    || priorityOf(x.block) - priorityOf(y.block)
-    || (x.after - y.after));
-  let placedSoFar = [...walls, ...stays];
-  const moves = []; const unplaced = []; const placedNew = [];
-  for (const item of toPlace) {
-    const gaps = freeGaps(placedSoFar, { start: floor, end: window.end }, { minimum: 5 });
-    const fits = (g, from) => Math.max(g.start, from) + item.minutes <= Math.min(g.end, item.before);
-    // Nearest at or after where it was; else anywhere later today before its limit.
-    const gap = gaps.find((g) => g.end > item.after && fits(g, item.after)) ?? gaps.find((g) => fits(g, floor));
-    if (!gap) { unplaced.push({ title: item.block.title, minutes: item.minutes, id: item.block.id, importance: importanceOf(item.block), fresh: !!item.fresh }); continue; }
-    const start = Math.max(gap.start, gaps.includes(gap) && gap.end > item.after && fits(gap, item.after) ? item.after : floor);
-    const placed = { ...item.block, start, end: start + item.minutes };
-    placedSoFar = [...placedSoFar, placed];
-    if (item.fresh) placedNew.push(placed);
-    else if (placed.start !== item.block.start) moves.push({ id: item.block.id, title: item.block.title, from: item.block.start, to: placed.start });
+  const past = movable.filter((b) => b.start < floor);
+
+  // 1. Pinned: his own times, in the order of those times. Walls and earlier
+  //    pinned items are the only things that can push one, and only just past.
+  const newBlock = (a, i) => ({ id: `new-${i}`, title: a.title, kind: a.kind ?? "other", importance: a.importance, date,
+    start: null, end: null, fixed: false, source: "orion" });
+  const pinnedAsks = add.map((a, i) => ({ a, i })).filter(({ a }) => !a.fixed && Number.isInteger(a.at)).sort((x, y) => x.a.at - y.a.at || x.i - y.i);
+  let taken = [...walls, ...past];
+  const pinned = []; const shifted = []; const unplaced = []; const lostTime = [];
+  for (const { a, i } of pinnedAsks) {
+    const wanted = { start: a.at, end: a.at + a.minutes };
+    const blocker = taken.find((t) => overlaps(t, wanted));
+    if (a.at >= floor && !blocker && wanted.end <= end) {
+      const block = { ...newBlock(a, i), start: a.at, end: wanted.end };
+      taken = [...taken, block]; pinned.push(block); continue;
+    }
+    // His time cannot be kept (a wall is there, or it has passed). It is no
+    // longer "his time", so it may not push anything: it waits for free time
+    // at or after it, like any flexible item, and the shift is reported.
+    lostTime.push({ a, i, because: blocker?.title ?? "it was already past" });
   }
-  const result = placedSoFar.filter((b) => !b.id.startsWith("blocked-")).sort((a, b) => a.start - b.start);
-  return { blocks: result, moves, created: [...created, ...placedNew], unplaced };
+  // 2. What stays put. An incremental change keeps every untouched block still;
+  //    a rebuild lays all remaining movable work down again.
+  const stays = movable.filter((b) => b.start >= floor && !rebuild && !taken.some((t) => overlaps(t, b)));
+  const softWalls = soft.map((w, k) => ({ id: `blocked-soft-${k}`, title: w.title ?? "travel", kind: "other", start: w.start, end: w.end, fixed: true }))
+    .filter((w) => !pinned.some((p) => overlaps(p, w)));
+
+  // 3. Flexible work: displaced blocks go back at or after where they were;
+  //    new items at or after where he wanted them, in the order he listed them.
+  const flexible = [
+    ...movable.filter((b) => b.start >= floor && !stays.includes(b)).map((b, k) => ({ block: b, minutes: b.end - b.start,
+      after: Math.max(floor, b.start), before: end, seq: -1000 + k, fresh: false, pref: true })),
+    ...lostTime.map(({ a, i }) => ({ block: newBlock(a, i), minutes: a.minutes, after: Math.max(floor, a.at),
+      before: Number.isInteger(a.before) ? a.before : end, seq: i, fresh: true, pref: true })),
+    ...add.map((a, i) => ({ a, i })).filter(({ a }) => !Number.isInteger(a.at)).map(({ a, i }) => ({ block: newBlock(a, i), minutes: a.minutes,
+      after: Math.max(floor, Number.isInteger(a.after) ? a.after : floor), before: Number.isInteger(a.before) ? a.before : end, seq: i, fresh: true,
+      ...(Number.isInteger(a.prefer) ? { prefer: a.prefer } : {}),
+      pref: Number.isInteger(a.after) || Number.isInteger(a.before) || Number.isInteger(a.prefer) })),
+  ];
+  // Choose what fits, most important first (his existing plans before ORION's
+  // suggestions), then lay the chosen set out in time order.
+  const byImportance = [...flexible].sort((x, y) => importanceOf(x.block) - importanceOf(y.block)
+    || (x.fresh ? 1 : 0) - (y.fresh ? 1 : 0) || priorityOf(x.block) - priorityOf(y.block) || x.after - y.after);
+  const fixedTaken = [...taken, ...stays, ...softWalls];
+  let chosen = [];
+  for (const item of byImportance) {
+    if (layout([...chosen, item], fixedTaken, { floor, end }).missed.length === 0) chosen = [...chosen, item];
+    else unplaced.push({ title: item.block.title, minutes: item.minutes, id: item.block.id, importance: importanceOf(item.block), fresh: item.fresh });
+  }
+  const { placed } = layout(chosen, fixedTaken, { floor, end });
+
+  const moves = placed.filter(({ item, block }) => !item.fresh && block.start !== item.block.start)
+    .map(({ item, block }) => ({ id: item.block.id, title: item.block.title, from: item.block.start, to: block.start }));
+  const placedNew = placed.filter(({ item }) => item.fresh).map(({ block }) => block);
+  for (const { a, i, because } of lostTime) {
+    const got = placedNew.find((block) => block.id === `new-${i}`);
+    if (got) shifted.push({ title: a.title, from: a.at, to: got.start, because });
+  }
+  const all = [...walls, ...past, ...pinned, ...stays, ...placed.map(({ block }) => block)];
+  const result = all.filter((b) => !b.id.startsWith("blocked-")).sort((a, b) => a.start - b.start);
+  return { blocks: result, moves, created: [...createdFixed, ...pinned, ...placedNew], unplaced, shifted };
 }

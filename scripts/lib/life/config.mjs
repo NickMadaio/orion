@@ -11,7 +11,16 @@ export const DEFAULTS = Object.freeze({
   bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
   studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
   commuteMinutes: 30,
+  // Events he never goes to (2026-09-30: "get rid of that optional workshop, i
+  // never go to them … all of them going forwards"). Case-insensitive substrings.
+  ignoreTitles: ["(optional)"],
 });
+
+/** True when ORION should act as if this calendar event did not exist. */
+export function ignoredEvent(title, config = loadConfig()) {
+  const t = String(title ?? "").toLowerCase();
+  return (config.ignoreTitles ?? []).some((pattern) => pattern && t.includes(String(pattern).toLowerCase()));
+}
 
 export function loadConfig(file = CONFIG_FILE) {
   try { return { ...DEFAULTS, ...JSON.parse(readFileSync(file, "utf8")) }; } catch { return { ...DEFAULTS }; }
@@ -19,6 +28,7 @@ export function loadConfig(file = CONFIG_FILE) {
 
 const VALIDATORS = {
   commuteMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 180,
+  ignoreTitles: (v) => Array.isArray(v) && v.length <= 50 && v.every((x) => typeof x === "string" && x.trim().length >= 3 && x.length <= 80),
   sideProjectMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 300,
   sideProjectLabel: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,
   gymDays: (v) => Array.isArray(v) && v.every((d) => Number.isInteger(d) && d >= 1 && d <= 7),

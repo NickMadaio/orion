@@ -7,12 +7,14 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { ignoredEvent } from "./config.mjs";
 
 const run = promisify(execFile);
 // The installed copy first (launchd- and app-started processes cannot read ~/Desktop), then the build.
-const BRIDGE = [join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridge"),
+// ORION_BRIDGE_BIN: a stand-in bridge for tests (the same override calendar-write honours).
+const BRIDGE = process.env.ORION_BRIDGE_BIN || ([join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridge"),
                 join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find((p) => existsSync(p))
-  ?? join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge");
+  ?? join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge"));
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -67,7 +69,7 @@ export async function calendarEvents() {
   const line = stdout.split("\n").find((l) => l.trim().startsWith("{"));
   const parsed = line ? JSON.parse(line) : null;
   if (!parsed?.ok) throw new Error(parsed?.error ?? "the calendar bridge did not answer");
-  return JSON.parse(parsed.result.events_json ?? "[]");
+  return JSON.parse(parsed.result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title));
 }
 
 export async function liveDay(date) {

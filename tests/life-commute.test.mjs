@@ -19,3 +19,8 @@ test("the short-night nap waits until he is home (2026-09-30)", () => {
   const nap = r.blocks.find((b) => b.title === "Nap");
   assert.ok(nap.start >= 780, `nap at ${nap.start}`);
 });
+
+test("plans away from home get travel before and after", () => {
+  const soccer = [{ id: "s", title: "soccer practice", kind: "other", date: "2026-10-01", start: 1020, end: 1140, fixed: true }];
+  assert.deepEqual(commuteWalls(soccer, { commuteMinutes: 30 }).map((w) => [w.start, w.end]), [[990, 1020], [1140, 1170]]);
+});

@@ -5,6 +5,22 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 00:04 BST — Wake / asleep-by markers; one to-do list; optional workshops removed
+
+- **Markers.** The Mac day view (Tasks → Day) and the phone day view draw a dashed "Wake" line and an "Asleep by" line.
+  - The rule is `scripts/lib/life/night.mjs`, the phone's NightPlan rule: wake = a morning alarm he asked for, else min(usual wake, first real commitment − readyMinutes 75); asleep by = min(bedtime, next wake − 8 h), or after a night out plus the trip home.
+  - `orion-watch` writes `~/.openclaw/orion-controlled/night.json`: yesterday (kept as it was computed, because the calendar feed starts at now), today and tomorrow. The Mac reads it through `NightMarkers.swift`.
+  - `orion-reschedule` ends the day at asleep-by, so Wind down ends on the line.
+  - The phone filters `[orion:…]` blocks and "(optional)" events out of `firstTimedEvent`, so ORION's own blocks never set the alarm.
+  - Bug found live: the 3:30 PM nap alarm (`wake-request.json`) drew the wake line at 3:30 PM. Only morning requests count now.
+- **Reminders.**
+  - Bridge (rebuilt; TCC kept): `list_incomplete_reminders` carries `list` and `due` and takes a `list` filter; new `list_reminder_lists` and `move_reminder`; `create_reminder` takes `list`.
+  - `todoList` "Orion" and `sweepLists` ["Reminders"] in life config. `orion-agenda tasks` reads only Orion (`--all` for every list). `task-add` writes to Orion.
+  - `orion-agenda-change tasks-sweep`, plus a sweep on every `orion-watch` tick, moves the phone's default-list reminders onto Orion; a duplicate is ticked off (reopenable).
+  - Merged tonight: 6 moved, 1 duplicate ("finish resume") ticked. Groceries and the Family packing list are untouched and never planned from.
+- **Workshops.** `ignoreTitles` ["(optional)"] is filtered from the planner and the agenda. The bridge's `delete_calendar_event` takes `span: future` + `start`. Both optional series were deleted from 7/8 Oct onward (0 left in 60 days).
+- **Not done:** the phone build (with markers) is built but not installed: the device reported error 4016 (locked/asleep). Install with `xcrun devicectl device install app --device 00008140-00013C1C213A801C <dd-dev>/Build/Products/Debug-iphoneos/OrionPhone.app`. The previous Mac app bundle was not kept as a `.Orion-previous` copy this time.
+
 ## 2026-09-30 23:33 BST — Scheduling rebuilt from Nick's real day; optional workshops ignored
 
 - **What went wrong on 2026-09-30.** Soccer 5-7 was added to a day ORION had already filled. The two phone sessions (11:06-11:19, 13:16-13:18 BST) then went through repeated overlaps, "did not fit" refusals, chains of undo that removed soccer, a crash in `--say`, and in the end a rebuild that put gym at 1 PM before soccer. Afterwards, Nick's review of test runs: "why am i reading at 8 am, why am i doing my yt side project right after class with no getting back home buffer … the timing of things are terrible."

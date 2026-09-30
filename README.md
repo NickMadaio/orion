@@ -53,10 +53,11 @@ access.
 | Life loop | Pure Node modules + CLIs (`orion-reschedule`, `orion-watch`, …) | `scripts/lib/life/`, `scripts/` |
 | Chat path | Truth checks, reply lint, eval mode, connectors | `scripts/lib/remote/`, `scripts/lib/eval/`, `scripts/lib/connect/` |
 | Agentic dev loop | Plan lint, briefs, worker/reviewer, recovery | `scripts/lib/agentic/`, `docs/agentic/` |
-| Legacy runtime | Original Python planner/executor (superseded, kept for reference) | `orion/` |
+| Policy & registry | Python policy engine, v2 schemas and capability registry — checked in CI never to be more permissive than the live gate | `orion/core/`, `scripts/orion_v2_*` |
+| Phone backend (v1) | Python device-pairing and sync service with P-256 device identity; superseded by CloudKit, still covered by its tests | `backend/` |
 
-Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python
-(the Python is legacy), across about 400 commits since July 2026.
+Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python,
+across about 400 commits since July 2026.
 
 ## Safety model
 
@@ -79,6 +80,18 @@ bash scripts/orion_v2_ci_check.sh            # registry + plugin + workspace con
 
 The Swift test harnesses are in `native/Orion/Tests/` and
 `native/OrionMobile/Tests/`.
+
+## Repository map
+
+```
+native/      SwiftUI apps: Orion (Mac), OrionMobile (iPhone), OrionWidgets, OrionLink (CloudKit), OrionMacBridge (EventKit CLI)
+plugin/      orion-control (TypeScript action catalog) and workspace/ (the agent's operating context and skills)
+scripts/     allowlisted wrapper CLIs ORION calls, plus lib/ (life loop, chat path, connectors, agentic runtime) and gate checks
+tests/       Node and Python test suites
+orion/       Python policy engine, schemas and capability registry
+backend/     v1 phone backend (superseded by CloudKit)
+docs/        vision, phase plans, agent work plans — see docs/README.md
+```
 
 ## Key documents
 

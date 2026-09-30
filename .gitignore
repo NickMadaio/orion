@@ -51,3 +51,6 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 .swiftpm/
 DerivedData/
+
+# Personal knowledge vault (Obsidian) — lives locally, not in the repo
+var/brain/

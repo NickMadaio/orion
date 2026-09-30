@@ -60,7 +60,8 @@ findings that are still worth reading, are in
    time.
 
 Entries older than 2026-08-27 were moved out of both handoffs on 2026-09-01 into
-`docs/planning/_archive/`. Nothing was deleted, but do not plan from the archives.
+`docs/planning/_archive/`. On 2026-09-30 that folder was moved out of the repo to
+`~/Desktop/ORION-archive/2026-09-30/` (still in git history). Do not plan from the archives.
 
 ## Gates and checkpoints
 

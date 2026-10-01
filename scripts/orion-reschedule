@@ -29,6 +29,8 @@
 //   orion-reschedule rename "<old title>" "<new title>"               "replace apply somewhere with YouTube": same slot, new thing
 //   orion-reschedule move "<title>" --to HH:MM                        "move study to 4": same length, the rest cascades
 //   orion-reschedule swap "<title>" "<title>"                         "swap study and the side project" (any lengths)
+//   orion-reschedule early [block|out-of-class|home] [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
+//        finished early: shorten what is under way (or clip a class that just ended), pull the rest of the day forward
 //   orion-reschedule undo                                             put the last change back
 //   add --dry-run to any of them to see the plan without touching the calendar.
 // Only movable things move (study, gym, games, rest, groceries, chores, side
@@ -50,10 +52,11 @@ import { bedOn, readWakeRequest } from "./lib/life/night.mjs";
 import { loadPatterns } from "./lib/life/history.mjs";
 import { withMinimums, shrinkPlan, applyShrink } from "./lib/life/lengths.mjs";
 import { clockNow } from "./lib/life/bridge-path.mjs";
+import { earlyContext, finishEarly } from "./lib/life/early.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--now"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // A bare date is a date (2026-09-30 eval: "day 2026-10-01 --plan …" without --date
@@ -453,8 +456,98 @@ if (command === "late") {
   const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
   add.push(...sensible(fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) })));
   if (!add.length) { console.log("Nothing to add: the day already has what it needs, and the rest stays free."); process.exit(0); }
+} else if (command === "early") {
+  const modeArg = rest[0];
+  const nowFlag = minute(flag("--now"));
+  const checkMode = args.includes("--check");
+
+  // Resolve "now": --now flag, or ORION_RESCHEDULE_NOW env, or real clock
+  let effectiveNow;
+  if (nowFlag !== null) {
+    effectiveNow = nowFlag;
+  } else {
+    effectiveNow = today ? nowMinute : 0;
+  }
+
+  // --check: print context JSON and exit
+  if (checkMode) {
+    const ctx = earlyContext(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes });
+    console.log(JSON.stringify(ctx));
+    process.exit(0);
+  }
+
+  // Determine mode
+  let mode;
+  if (modeArg) {
+    if (!["block", "out-of-class", "home"].includes(modeArg)) {
+      fail(`usage: orion-reschedule early [block|out-of-class|home]`, 2);
+    }
+    mode = modeArg;
+  } else {
+    // No mode given: infer from context
+    const ctx = earlyContext(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes });
+    if (ctx.kind === "after-class") {
+      console.log(`ASK: out-of-class or home (just finished ${ctx.classTitle})`);
+      process.exit(3);
+    } else if (ctx.kind === "block") {
+      mode = "block";
+    } else {
+      console.log("Nothing is under way to finish.");
+      process.exit(1);
+    }
+  }
+
+  // Call finishEarly
+  let plan;
+  try {
+    plan = finishEarly(blocks, { now: effectiveNow, mode, commuteMinutes: config.commuteMinutes, buffer: config.bufferMinutes, dayEnd: window.end });
+  } catch (e) {
+    fail(`orion-reschedule: ${e.message}`, 1);
+  }
+
+  // Build moves for applyPlan
+  const moves = plan.moves.map((m) => ({ id: m.id, title: m.title, from: m.from, to: m.to }));
+  const shortened = plan.shortened;
+
+  // Build dayWithClip for judging: blocks with clipped class end set to now, and shortened block end set to now
+  let dayWithClip = [...blocks];
+  if (plan.clipped) {
+    dayWithClip = dayWithClip.map((b) => b.id === plan.clipped.id ? { ...b, end: effectiveNow } : b);
+  }
+  if (shortened) {
+    dayWithClip = dayWithClip.map((b) => b.id === shortened.id ? { ...b, end: effectiveNow } : b);
+  }
+
+  // Add the shortened block as a move if it exists
+  if (shortened) {
+    moves.push({ id: shortened.id, title: shortened.title, from: blocks.find((b) => b.id === shortened.id).start, to: blocks.find((b) => b.id === shortened.id).start, toEnd: effectiveNow });
+  }
+
+  // Judge first
+  refuseIfBroken(projectDay(dayWithClip, { moves }), effectiveNow, "finishing early");
+
+  if (!dry) {
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    await applyPlan({ date, moves, created: [], removed: [], blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+    await verifyWritten(date, effectiveNow);
+  }
+
+  // Output
+  console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
+  if (shortened) {
+    console.log(`  finished ${shortened.title} at ${hhmm(effectiveNow)}`);
+  }
+  const realMoves = moves.filter((m) => !shortened || m.id !== shortened.id);
+  for (const m of realMoves) {
+    if (m.to !== m.from) console.log(`  moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`);
+  }
+  if (!realMoves.some((m) => m.to !== m.from)) {
+    console.log("  nothing else had to move");
+  }
+  if (!dry) console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
+  process.exit(0);
 } else {
-  fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|rename|add|day|drop|tidy|clear|fill|undo  (see the header)");
+  fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|rename|early|add|day|drop|tidy|clear|fill|undo  (see the header)");
 }
 
 // A time already over today is never booked: it almost always means he was

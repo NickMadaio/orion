@@ -1,5 +1,3 @@
-import { strict as assert } from "node:assert";
-
 export const LISTS = ["messaging", "feeds", "video", "games"];
 
 const FOCUS_KINDS = new Set(["study", "side_project", "deadline", "other"]);
@@ -19,12 +17,12 @@ function validateCurrent(current) {
 }
 
 export function listsToBlock({ block, usedToday, current, escalation, allowMessaging = true }) {
-  assert(block === null || typeof block === "object", "block must be null or an object");
-  assert(typeof usedToday === "object" && usedToday !== null, "usedToday must be an object");
-  assert(
-    ["none", "warn", "block"].includes(escalation),
-    `escalation must be "none", "warn" or "block", got "${escalation}"`
-  );
+  if (block !== null && typeof block !== "object")
+    throw new TypeError("block must be null or an object");
+  if (typeof usedToday !== "object" || usedToday === null)
+    throw new TypeError("usedToday must be an object");
+  if (!["none", "warn", "block"].includes(escalation))
+    throw new TypeError(`escalation must be "none", "warn" or "block", got "${escalation}"`);
 
   validateUsed(usedToday);
   validateCurrent(current);

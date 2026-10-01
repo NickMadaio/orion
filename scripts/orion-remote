@@ -757,6 +757,10 @@ async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
       ["agent", "--session-key", BRAIN_SESSION, "--timeout", String(BRAIN_TIMEOUT_S),
        // ORION_BRAIN_MODEL: the model a whole run uses (orion-eval-schedule compares them).
        ...((model ?? process.env.ORION_BRAIN_MODEL) ? ["--model", model ?? process.env.ORION_BRAIN_MODEL] : []),
+       // ORION_BRAIN_THINKING: off | minimal | low | medium | high for a whole run.
+       // Thinking was off for every message (openclaw thinkingDefault "off", chosen for
+       // voice speed); text messages that change his day need it (2026-10-01).
+       "--thinking", process.env.ORION_BRAIN_THINKING ?? "low",
        "--json", "--message-file", file],
       { timeout: (BRAIN_TIMEOUT_S + 30) * 1000, maxBuffer: 32 * 1024 * 1024 },
     );

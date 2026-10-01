@@ -22,9 +22,10 @@ import { gradeSchedule } from "./lib/eval/schedule-grade.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const file = args.find((a, i) => !a.startsWith("--") && !["--model", "--only", "--out"].includes(args[i - 1]));
+const file = args.find((a, i) => !a.startsWith("--") && !["--model", "--only", "--out", "--thinking"].includes(args[i - 1]));
 if (!file) { console.error("usage: orion-eval-schedule <scenarios.json> [--model provider/model] [--only id,id] [--out file]"); process.exit(2); }
 const model = flag("--model");
+const thinking = flag("--thinking");
 const only = flag("--only")?.split(",");
 const here = dirname(fileURLToPath(import.meta.url));
 const data = JSON.parse(readFileSync(file, "utf8"));
@@ -63,12 +64,12 @@ try {
       const run = spawnSync(process.execPath, [join(here, "orion-remote"), "handle", "--from", "phone", "--mode", "chat",
         "--id", `${session}-${i}`, "--at", String(Date.now()), "--", say],
         { encoding: "utf8", timeout: 300_000,
-          env: { ...process.env, ORION_REMOTE_ALLOW: "phone", ORION_BRAIN_SESSION: session, ...(model ? { ORION_BRAIN_MODEL: model } : {}) } });
+          env: { ...process.env, ORION_REMOTE_ALLOW: "phone", ORION_BRAIN_SESSION: session, ...(model ? { ORION_BRAIN_MODEL: model } : {}), ...(thinking ? { ORION_BRAIN_THINKING: thinking } : {}) } });
       replies.push((run.stdout ?? "").trim() || `(no reply, exit ${run.status}) ${(run.stderr ?? "").slice(0, 200)}`);
     }
     const after = readDay();
     const grade = gradeSchedule({ after, before, expect: s.expect ?? {}, now: toMinute(s.now), reply: replies.at(-1) });
-    const row = { id: s.id, model: model ?? "default", ok: grade.ok, failures: grade.failures, secs: Math.round((Date.now() - started) / 1000),
+    const row = { id: s.id, model: model ?? "default", thinking: thinking ?? "default", ok: grade.ok, failures: grade.failures, secs: Math.round((Date.now() - started) / 1000),
       replies, day: after.filter((b) => b.end > toMinute(s.now)) };
     results.push(row);
     console.log(`${grade.ok ? "PASS" : "FAIL"} ${s.id} (${row.secs}s)${grade.ok ? "" : `\n   ${grade.failures.join("\n   ")}`}\n   ORION: ${replies.at(-1).slice(0, 220).replace(/\n/g, " ")}`);

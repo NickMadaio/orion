@@ -30,10 +30,23 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "MobileCore", targets: ["MobileCore"]),
+        // Jakub Antalik's thinking orbs (MIT, vendored from Libraries.dev at
+        // c1e1926; LICENSE beside the sources). The SwiftUI orb ORION's
+        // hologram is built around, on the phone and the Mac.
+        .library(name: "ThinkingOrbsKit", targets: ["ThinkingOrbsKit"]),
+        // Self-contained SwiftUI screens shared by the Mac and the phone. Kept
+        // out of native/Orion so the local agent can build them (that tree is
+        // refused to it: signing, Sparkle and LOCK live there).
+        .library(name: "OrionViews", targets: ["OrionViews"]),
     ],
     targets: [
         .executableTarget(name: "TodayPlanExport", dependencies: ["MobileCore"]),
         .testTarget(name: "TodayReadTests", dependencies: ["MobileCore"]),
+        // One test file per task from the local agent's plans (each task owns its file).
+        .testTarget(name: "AgentTasksTests", dependencies: ["MobileCore", "OrionViews"]),
+        .target(name: "OrionViews", dependencies: ["MobileCore", "ThinkingOrbsKit"],
+                swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "ThinkingOrbsKit", exclude: ["LICENSE"]),
         .target(
             name: "MobileCore",
             swiftSettings: [.swiftLanguageMode(.v5)]

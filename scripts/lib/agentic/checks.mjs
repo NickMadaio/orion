@@ -30,6 +30,8 @@ import { fileURLToPath } from 'node:url';
 const NODE = process.execPath;
 const DOC_REPORT_CHECK = fileURLToPath(new URL('./doc-report-check.mjs', import.meta.url));
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const XCODE = 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer';
+const SWIFT_CACHE = join(process.env.HOME ?? '/tmp', '.openclaw/orion-controlled/project-agent/swift-cache');
 
 /**
  * `cwd` is relative to the worktree root. `argv[0]` is an absolute path or a
@@ -116,6 +118,35 @@ export const CHECK_REGISTRY = Object.freeze({
     argv: ['/usr/bin/env', 'python3', 'scripts/orion_v2_secret_scan.py',
       '--allowlist', 'docs/planning/v2/secret-scan-allowlist.json'],
     timeoutMs: 10 * 60 * 1000,
+  },
+  /*
+   Swift (orion-surfaces, 2026-10-01). Xcode's toolchain is named per command
+   because the global xcode-select still points at Command Line Tools, and every
+   build keeps its intermediates in one cache OUTSIDE the worktree, so a check is
+   an incremental build rather than a cold one per task.
+  */
+  'mobile-swift-tests': {
+    kind: 'command',
+    description: 'the OrionMobile package builds and its XCTest suites pass',
+    cwd: 'native/OrionMobile',
+    argv: ['/usr/bin/env', XCODE, 'swift', 'test', '--scratch-path', `${SWIFT_CACHE}/mobile`],
+    timeoutMs: 15 * 60 * 1000,
+  },
+  'mac-build': {
+    kind: 'command',
+    description: 'the ORION Mac app compiles',
+    cwd: 'native/Orion',
+    argv: ['/usr/bin/env', XCODE, 'swift', 'build', '--product', 'Orion', '--scratch-path', `${SWIFT_CACHE}/mac`],
+    timeoutMs: 15 * 60 * 1000,
+  },
+  'phone-build': {
+    kind: 'command',
+    description: 'the iPhone app compiles for the simulator',
+    cwd: 'native/OrionMobile',
+    argv: ['/usr/bin/env', XCODE, 'xcodebuild', '-quiet', '-project', 'OrionMobile.xcodeproj', '-scheme', 'OrionPhone',
+      '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', `${SWIFT_CACHE}/phone`,
+      'CODE_SIGNING_ALLOWED=NO', 'build'],
+    timeoutMs: 15 * 60 * 1000,
   },
   /*
    A task's OWN test files, without a registry edit per plan.

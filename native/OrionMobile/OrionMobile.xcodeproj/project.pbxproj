@@ -10,6 +10,10 @@
 		00000000000000000000000D /* App/OrionMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* App/OrionMobileApp.swift */; };
 		00000000000000000000000E /* AppUITests/PhoneShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* AppUITests/PhoneShellTests.swift */; };
 		000000000000000000000020 /* MobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 00000000000000000000001F /* MobileCore */; };
+		000000000000000000000D02 /* App/FinishEarly.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000D01 /* App/FinishEarly.swift */; };
+		000000000000000000000D04 /* App/FocusLists.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000D03 /* App/FocusLists.swift */; };
+		000000000000000000000D06 /* App/PhoneOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000D05 /* App/PhoneOrb.swift */; };
+		000000000000000000000D08 /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000D07 /* ThinkingOrbsKit */; };
 		000000000000000000000024 /* App/PhoneDeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000023 /* App/PhoneDeviceIdentity.swift */; };
 		000000000000000000000026 /* App/PairingApprovalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000025 /* App/PairingApprovalView.swift */; };
 		000000000000000000000028 /* App/PhoneHTTPReadSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000027 /* App/PhoneHTTPReadSession.swift */; };
@@ -90,6 +94,9 @@
 		000000000000000000000007 /* AppUITests/PhoneShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUITests/PhoneShellTests.swift; sourceTree = "<group>"; };
 		000000000000000000000008 /* OrionPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = OrionPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000009 /* OrionPhoneUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OrionPhoneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000D01 /* App/FinishEarly.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FinishEarly.swift; sourceTree = "<group>"; };
+		000000000000000000000D03 /* App/FocusLists.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FocusLists.swift; sourceTree = "<group>"; };
+		000000000000000000000D05 /* App/PhoneOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneOrb.swift; sourceTree = "<group>"; };
 		000000000000000000000023 /* App/PhoneDeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDeviceIdentity.swift; sourceTree = "<group>"; };
 		000000000000000000000025 /* App/PairingApprovalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PairingApprovalView.swift; sourceTree = "<group>"; };
 		000000000000000000000027 /* App/PhoneHTTPReadSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneHTTPReadSession.swift; sourceTree = "<group>"; };
@@ -136,6 +143,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000020 /* MobileCore in Frameworks */,
+				000000000000000000000D08 /* ThinkingOrbsKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -185,6 +193,9 @@
 				000000000000000000000029 /* App/PhoneTodayReader.swift */,
 				000000000000000000000027 /* App/PhoneHTTPReadSession.swift */,
 				000000000000000000000025 /* App/PairingApprovalView.swift */,
+				000000000000000000000D01 /* App/FinishEarly.swift */,
+				000000000000000000000D03 /* App/FocusLists.swift */,
+				000000000000000000000D05 /* App/PhoneOrb.swift */,
 				000000000000000000000023 /* App/PhoneDeviceIdentity.swift */,
 				000000000000000000000006 /* App/OrionMobileApp.swift */,
 				000000000000000000000007 /* AppUITests/PhoneShellTests.swift */,
@@ -242,6 +253,7 @@
 			name = OrionPhone;
 			packageProductDependencies = (
 				00000000000000000000001F /* MobileCore */,
+				000000000000000000000D07 /* ThinkingOrbsKit */,
 			);
 			productName = OrionPhone;
 			productReference = 000000000000000000000008 /* OrionPhone.app */;
@@ -380,6 +392,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				00000000000000000000000D /* App/OrionMobileApp.swift in Sources */,
+				000000000000000000000D02 /* App/FinishEarly.swift in Sources */,
+				000000000000000000000D04 /* App/FocusLists.swift in Sources */,
+				000000000000000000000D06 /* App/PhoneOrb.swift in Sources */,
 				000000000000000000000024 /* App/PhoneDeviceIdentity.swift in Sources */,
 				000000000000000000000026 /* App/PairingApprovalView.swift in Sources */,
 				000000000000000000000028 /* App/PhoneHTTPReadSession.swift in Sources */,
@@ -809,6 +824,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 00000000000000000000001E;
 			productName = MobileCore;
+		};
+		000000000000000000000D07 /* ThinkingOrbsKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 00000000000000000000001E /* XCLocalSwiftPackageReference "." */;
+			productName = ThinkingOrbsKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

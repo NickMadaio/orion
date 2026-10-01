@@ -43,6 +43,11 @@ final class FocusModeTests: XCTestCase {
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
+        // Removing the domain leaves an empty plist behind; 545 of them had
+        // piled up in ~/Library/Preferences by 2026-10-01.
+        let plist = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Preferences/\(suiteName!).plist")
+        try? FileManager.default.removeItem(at: plist)
         super.tearDown()
     }
 

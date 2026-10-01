@@ -5,6 +5,18 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 01:04 BST — Phone unblocking did not work for Nick; first job tomorrow
+
+- **What Nick saw:** at first ORION did not recognise the block; when he asked again, ORION said "Done" and nothing unlocked. He turned the lock off by hand in Settings.
+- **Cause:** every phone-side part (lock reporting, acting on grants, re-locking) is in the phone build that was never installed. devicectl reports the iPhone `unavailable` (error 4016).
+- **Now:** a grant to a phone that has never reported prints SENT, NOT CONFIRMED, plus how to unlock it by hand (ORION → Focus lock off, or Settings → Screen Time).
+- **TOMORROW, FIRST:**
+  1. With the phone on the same Wi-Fi with the screen on (or on USB), install `OrionPhone.app` from the dd-dev build (rebuild if the scratchpad is gone; the scheme is OrionPhone).
+  2. Open ORION on the phone once, so it mirrors the lock state to the app group.
+  3. Test end to end on the real device. Turn Focus lock on; get it locked (a work block, or a check-in left ignored to level 3); send "unlock my apps for 10 minutes, I need to reply to my mom"; check that `orion-phone-time status` shows LOCKED before the reply and UNLOCKED on extra time after it; check the apps really unlock and lock again at the end.
+  4. Only then call it fixed.
+- **Chained run:** `~/.openclaw/orion-controlled/project-agent/chain-truthful-2.sh` (nohup) launches "ORION truthful 2" once "ORION truthful" has been idle for two 5-minute checks. Log: `chain-truthful-2.log` beside it.
+
 ## 2026-10-01 01:02 BST — Qwen project unblocked and running; ORION truthful 2 queued; honest grants
 
 - **Block:** "ORION truthful" stopped at 15:51 on `trace`, three attempts gone in three seconds with "could not evict gpt-oss:20b before loading qwen3.6:27b". It was not Qwen's work. The ORION app keeps its fallback `gpt-oss:20b` loaded, `ensureExclusive` checked the unload once, instantly, and the error counted against the task.

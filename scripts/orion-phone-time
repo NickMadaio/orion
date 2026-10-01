@@ -66,7 +66,7 @@ if (!command || command === "status") {
   // phone whose ORION was too old to act on a grant, and nothing unlocked).
   const reported = read(HEALTH)?.phoneScreen;
   if (!reported) {
-    console.log(`SENT, NOT CONFIRMED: extra time until ${clock(until)} is on its way, but his phone has never reported its lock, so its ORION may be too old to act on it. Tell him it is sent, not done: if his apps are still locked in a minute, the ORION update on his phone is what is missing (install it from the Mac). Do not say he is unlocked.`);
+    console.log(`SENT, NOT CONFIRMED: extra time until ${clock(until)} is on its way, but his phone has never reported its lock, so its ORION may be too old to act on it. Tell him it is sent, not done, and how to unlock himself right now if he needs to: ORION on his phone → Focus lock → switch it off (or iPhone Settings → Screen Time). Do not say he is unlocked.`);
   } else {
     console.log(`Sent to his phone: apps unlock until ${clock(until)} (${minutes} min), then lock again by themselves. It lands within seconds while ORION is open on the phone, otherwise when the phone next checks in; \`status\` shows UNLOCKED once the phone confirms.`);
   }

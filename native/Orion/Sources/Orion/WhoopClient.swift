@@ -226,6 +226,7 @@ final class WhoopClient: ObservableObject {
             let sleeps = (collected["/activity/sleep"] ?? []).filter { ($0["nap"] as? Bool) != true }
             let cycles = collected["/cycle"] ?? []
 
+            WhoopClient.exportNights(sleeps)
             let week = WhoopClient.buildWeek(recoveries: recoveries, sleeps: sleeps, cycles: cycles)
             var next = WhoopClient.snapshot(recoveries: recoveries, sleeps: sleeps, cycles: cycles)
 
@@ -524,6 +525,28 @@ final class WhoopClient: ObservableObject {
     /// taking one produced the empty panel. Sorting by timestamp rather than
     /// trusting the array order is what makes "today, or the last day there
     /// was one" true regardless of how the API chooses to paginate.
+    /// When he actually fell asleep and woke, night by night, for the planner
+    /// and the day view's wake line (2026-10-01: "have the wake up line move to
+    /// when I actually wake up"). Written where `orion-watch` reads it; scored or
+    /// not, since this morning's record has its end long before its score.
+    static func exportNights(_ sleeps: [[String: Any]], to url: URL = FileManager.default.homeDirectoryForCurrentUser
+                                .appendingPathComponent(".openclaw/orion-controlled/sleep-actual.json")) {
+        let iso = ISO8601DateFormatter()
+        let nights: [[String: String]] = sleeps.compactMap { record in
+            guard let start = (record["start"] as? String).flatMap(parseTimestamp),
+                  let end = (record["end"] as? String).flatMap(parseTimestamp), end > start else { return nil }
+            return ["fellAsleep": iso.string(from: start), "wokeAt": iso.string(from: end), "source": "whoop"]
+        }
+        .sorted { ($0["wokeAt"] ?? "") < ($1["wokeAt"] ?? "") }
+        var seen = Set<String>()
+        let unique = nights.filter { seen.insert($0["wokeAt"] ?? "").inserted }.suffix(14)
+        guard !unique.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: ["updatedAt": iso.string(from: Date()), "nights": Array(unique)],
+                                                     options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
     static func mostRecentScored(_ records: [[String: Any]]) -> [String: Any]? {
         records
             .filter { record in

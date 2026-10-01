@@ -24,7 +24,7 @@ import { applyPlan, bridge } from "./lib/life/calendar-write.mjs";
 import { morningBrief } from "./lib/life/morning-brief.mjs";
 import { commuteBlocks } from "./lib/life/commute.mjs";
 import { sweep } from "./lib/life/todo-lists.mjs";
-import { nightMarkers, readWakeRequest } from "./lib/life/night.mjs";
+import { nightMarkers, readWakeRequest, actualWake, actualSleep } from "./lib/life/night.mjs";
 import { summarize } from "./lib/life/history.mjs";
 
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -64,7 +64,18 @@ catch (error) { day.calendar = `unreadable: ${String(error?.message ?? error).sl
 // Wake and asleep-by for today and tomorrow (night.mjs, the phone alarm's rule):
 // the Mac draws them on its day view, and today's asleep line ends the day here.
 const wakeRequest = await readWakeRequest();
-const nightOf = (date) => events ? nightMarkers(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest }) : null;
+// What actually happened beats the plan once it is known (2026-10-01: "have the
+// wake up line move to when I actually wake up"): WHOOP via the ORION app, else the phone.
+const evidence = { nights: read(join(CONTROLLED, "sleep-actual.json"), {}).nights ?? [], sleepLog: log.sleepLog ?? [], phoneSignals: log.phoneSignals ?? [], now };
+const withActual = (entry) => {
+  if (!entry) return entry;
+  const woke = actualWake(entry.date, evidence);
+  const slept = actualSleep(entry.date, evidence);
+  return { ...entry, plannedWake: entry.plannedWake ?? entry.wake,
+    ...(woke ? { wake: woke.minute, woke: true, wakeSource: woke.source } : {}),
+    ...(slept ? { asleepAt: slept.minute, asleepSource: slept.source } : {}) };
+};
+const nightOf = (date) => events ? withActual(nightMarkers(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest })) : null;
 const tonight = nightOf(localDate(now));
 const bed = tonight ? Math.min(1440, tonight.bed) : toMinute(config.bedtime) <= 360 ? 1440 : toMinute(config.bedtime);
 if (!dry && events) {
@@ -73,7 +84,7 @@ if (!dry && events) {
   // starts at now, so after midnight its classes are gone and a recomputed wake
   // line would fall back to the free-day time (9:00 on a 9:00-seminar day).
   const yesterday = localDate(new Date(now.getTime() - 86400000));
-  const yesterdayKept = (read(join(CONTROLLED, "night.json"), {}).days ?? []).find((d) => d?.date === yesterday) ?? null;
+  const yesterdayKept = withActual((read(join(CONTROLLED, "night.json"), {}).days ?? []).find((d) => d?.date === yesterday) ?? null);
   try {
     mkdirSync(CONTROLLED, { recursive: true });
     writeFileSync(join(CONTROLLED, "night.json.tmp"), JSON.stringify({ updatedAt: now.toISOString(), days: [yesterdayKept, tonight, nightOf(tomorrowDate)].filter(Boolean) }, null, 2));

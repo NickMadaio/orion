@@ -104,6 +104,23 @@ final class FocusLock: ObservableObject {
         if let lockedUntil, now >= lockedUntil { release() }
     }
 
+    /// A new day: once he is up, the night lock comes off (2026-10-01: "my phone's
+    /// been locked all night … it's a new day, so my phone shouldn't be locked").
+    /// Only a NIGHT lock, only in the morning; work-block locks keep their own end.
+    func releaseNightLock(awakeAt moment: Date = Date(), calendar: Calendar = .current) {
+        let hour = calendar.component(.hour, from: moment)
+        let why = Self.shared_defaults?.string(forKey: "orion.screen.lockWhy")
+        let by = Self.shared_defaults?.string(forKey: "orion.screen.lockedBy")
+        // A lock with no recorded reason was left by the build that never wrote one; in the morning it is last night's.
+        let legacy = why == nil && by == nil && Self.groupDate("orion.focuslock.until") != nil
+        guard (4..<14).contains(hour), why == "night" || by == "night" || legacy else { return }
+        release()
+        let content = UNMutableNotificationContent()
+        content.title = "ORION"
+        content.body = "Morning. Your apps are unlocked."
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "orion.screen.morning", content: content, trigger: nil))
+    }
+
     /// What ORION on the Mac should know (2026-10-01: Nick asked for 20 more
     /// minutes and ORION said nothing was locked — it could not see the phone).
     static func screenState(now: Date = Date()) -> LinkLog {

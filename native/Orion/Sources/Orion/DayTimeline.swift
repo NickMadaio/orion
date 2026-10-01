@@ -67,7 +67,8 @@ struct DayTimeline: View {
                     ZStack(alignment: .topLeading) {
                         grid
                         blocks
-                        if let wake = night?.wake { marker(at: wake, label: "Wake", systemImage: "sunrise.fill", tint: OrionTheme.orange) }
+                        if let asleep = night?.fellAsleep { marker(at: asleep, label: "Fell asleep", systemImage: "bed.double.fill", tint: OrionTheme.violet.opacity(0.7)) }
+                        if let wake = night?.wake { marker(at: wake, label: night?.woke == true ? "Woke" : "Wake", systemImage: "sunrise.fill", tint: OrionTheme.orange) }
                         if let bed = night?.bed { marker(at: bed, label: "Asleep by", systemImage: "moon.zzz.fill", tint: OrionTheme.violet) }
                         if isToday { nowLine }
                     }

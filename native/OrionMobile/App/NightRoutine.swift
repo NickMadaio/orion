@@ -183,7 +183,20 @@ final class NightRoutine: ObservableObject {
     /// markers for when i wake up (orion alarm) and when i should be asleep by").
     /// Tonight's real plan wins, since it carries the alarm actually set and any
     /// shift for a late night; other days use the same rule with their own events.
-    func markers(for day: Date, planner: PlannerStore, calendar: Calendar = .current) -> (wake: Date, bed: Date) {
+    func markers(for day: Date, planner: PlannerStore, snapshot: LinkSnapshot? = nil,
+                 calendar: Calendar = .current) -> (wake: Date, bed: Date, woke: Bool, fellAsleep: Date?) {
+        // What the Mac knows actually happened (WHOOP, the phone's signals) wins.
+        let key: String = { let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone
+            f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f.string(from: day) }()
+        let fromMac = snapshot?.night?.first { $0.date == key }
+        let planned = plannedMarkers(for: day, planner: planner, calendar: calendar)
+        if let fromMac, fromMac.woke, let wake = fromMac.wake {
+            return (wake, planned.bed, true, fromMac.fellAsleep)
+        }
+        return (planned.wake, planned.bed, false, fromMac?.fellAsleep)
+    }
+
+    private func plannedMarkers(for day: Date, planner: PlannerStore, calendar: Calendar = .current) -> (wake: Date, bed: Date) {
         let midnight = calendar.startOfDay(for: day)
         let eveningBefore = midnight.addingTimeInterval(-4 * 3600)
         let evening = midnight.addingTimeInterval(20 * 3600)
@@ -348,6 +361,7 @@ final class NightRoutine: ObservableObject {
         guard now >= previousWake, now < previousWake.addingTimeInterval(5 * 3600),
               UserDefaults.standard.string(forKey: Self.upKey) != key else { return }
         UserDefaults.standard.set(key, forKey: Self.upKey)
+        FocusLock.shared.releaseNightLock(awakeAt: now)
         record(.sleep(event: "up", at: ISO8601DateFormatter().string(from: now)))
     }
 

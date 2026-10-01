@@ -243,6 +243,20 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
         public init(id: String, until: Date, because: String? = nil) { self.id = id; self.until = until; self.because = because }
     }
     public var screenGrant: ScreenGrant?
+    /// When he actually woke and fell asleep, per day, as the Mac worked it out
+    /// (WHOOP via the ORION app, else the phone's own signals). 2026-10-01: "have
+    /// the wake up line move to when I actually wake up".
+    public struct NightDay: Codable, Equatable, Sendable {
+        public var date: String          // YYYY-MM-DD
+        public var wake: Date?
+        public var woke: Bool
+        public var bed: Date?
+        public var fellAsleep: Date?     // last night's actual sleep, when it was after midnight on `date`
+        public init(date: String, wake: Date?, woke: Bool, bed: Date?, fellAsleep: Date? = nil) {
+            self.date = date; self.wake = wake; self.woke = woke; self.bed = bed; self.fellAsleep = fellAsleep
+        }
+    }
+    public var night: [NightDay]?
     /// The follow-up ORION is running now, for the phone's lock screen and widgets.
     public var checkin: OrionGlance.Checkin?
     /// One-off deadlines ahead (quizzes, presentations), from the Mac's calendar export.
@@ -255,13 +269,13 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
                 running: [RunningAction] = [], attention: Attention? = nil, health: [HealthDay]? = nil,
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
-                screenGrant: ScreenGrant? = nil) {
+                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
         self.tracking = tracking; self.plan = plan; self.planRequest = planRequest; self.wakeRequest = wakeRequest
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
-        self.screenGrant = screenGrant
+        self.screenGrant = screenGrant; self.night = night
     }
 
     public static let currentVersion = 1

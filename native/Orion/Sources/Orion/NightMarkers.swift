@@ -13,9 +13,15 @@ import Foundation
 struct NightMarkers: Equatable {
     var wake: Date?
     var bed: Date?
+    /// True once he is actually up and `wake` is when (WHOOP, else the phone);
+    /// until then `wake` is the planned alarm (2026-10-01).
+    var woke = false
+    /// When he actually fell asleep in the small hours of this day (last night),
+    /// drawn as its own line so "asleep by" and "asleep at" can be compared.
+    var fellAsleep: Date?
 
     private struct File: Decodable {
-        struct Day: Decodable { let date: String; let wake: Int?; let bed: Int? }
+        struct Day: Decodable { let date: String; let wake: Int?; let bed: Int?; let woke: Bool?; let asleepAt: Int? }
         let days: [Day?]
     }
 
@@ -30,9 +36,16 @@ struct NightMarkers: Equatable {
         formatter.locale = Locale(identifier: "en_CA"); formatter.calendar = calendar; formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         let key = formatter.string(from: date)
-        guard let day = file.days.compactMap({ $0 }).first(where: { $0.date == key }) else { return nil }
+        let days = file.days.compactMap { $0 }
+        guard let day = days.first(where: { $0.date == key }) else { return nil }
         let midnight = calendar.startOfDay(for: date)
+        // Last night's actual sleep belongs to the day before, and lands on this
+        // one when it was after midnight.
+        let previousKey = calendar.date(byAdding: .day, value: -1, to: midnight).map(formatter.string(from:))
+        let lastNight = days.first(where: { $0.date == previousKey })?.asleepAt.flatMap { $0 >= 1440 ? $0 - 1440 : nil }
         return NightMarkers(wake: day.wake.map { midnight.addingTimeInterval(Double($0 * 60)) },
-                            bed: day.bed.map { midnight.addingTimeInterval(Double($0 * 60)) })
+                            bed: day.bed.map { midnight.addingTimeInterval(Double($0 * 60)) },
+                            woke: day.woke ?? false,
+                            fellAsleep: lastNight.map { midnight.addingTimeInterval(Double($0 * 60)) })
     }
 }

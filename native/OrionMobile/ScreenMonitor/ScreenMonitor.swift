@@ -53,7 +53,10 @@ final class ScreenMonitor: DeviceActivityMonitor {
             }
             return
         }
-        if defaults?.string(forKey: "orion.screen.lockedBy") == activity.rawValue {
+        // The night window ends at the alarm: a night lock comes off then, including
+        // one left by a build that never recorded which window locked it.
+        if defaults?.string(forKey: "orion.screen.lockedBy") == activity.rawValue
+            || (activity.rawValue == "night" && defaults?.string(forKey: "orion.screen.lockWhy") != "work") {
             store.clearAllSettings()
             for key in ["orion.screen.lockedBy", "orion.focuslock.until", "orion.screen.lockWhy"] { defaults?.removeObject(forKey: key) }
         }

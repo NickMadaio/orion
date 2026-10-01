@@ -204,6 +204,8 @@ struct PhoneRootView: View {
                 })
             await routine.refresh(planner: planner, wakeRequest: remote.snapshot?.wakeRequest)
             FocusLock.shared.releaseIfExpired()
+            // Opening ORION in the morning is being up: the night lock comes off.
+            FocusLock.shared.releaseNightLock()
             // Opening the phone after bedtime is being awake: it can move the alarm later.
             await routine.noteAwake(planner: planner)
             await routine.checkNightSignals(planner: planner, macLastInput: remote.snapshot?.lastInputAt)
@@ -389,8 +391,9 @@ struct PhoneRootView: View {
                     if planMode == "todos" && planner.access == .granted {
                         TodoListView(planner: planner)
                     } else if planner.access == .granted {
-                        let night = routine.markers(for: planner.day, planner: planner)
-                        DayScheduleView(items: items, day: planner.day, onSelect: { selectedItem = $0 }, wake: night.wake, bed: night.bed)
+                        let night = routine.markers(for: planner.day, planner: planner, snapshot: remote.snapshot)
+                        DayScheduleView(items: items, day: planner.day, onSelect: { selectedItem = $0 },
+                                        wake: night.wake, bed: night.bed, woke: night.woke, fellAsleep: night.fellAsleep)
                     } else if let sample {
                         sampleNotice
                         DayScheduleView(items: items, day: Calendar.current.startOfDay(for: sampleNow),

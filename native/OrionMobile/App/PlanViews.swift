@@ -48,6 +48,9 @@ struct DayScheduleView: View {
     /// When the alarm goes and when he should be asleep; wind-down ends on `bed`.
     var wake: Date? = nil
     var bed: Date? = nil
+    /// `wake` is when he actually got up, not the alarm.
+    var woke = false
+    var fellAsleep: Date? = nil
     private let hourHeight: CGFloat = 64
     private let gutter: CGFloat = 52
 
@@ -57,7 +60,7 @@ struct DayScheduleView: View {
         let timed = items.filter { !$0.allDay }
         let slots = timed.map { DaySlot(id: $0.id, start: $0.start, end: $0.end) }
         // The markers widen the visible hours so an early alarm or a late bedtime shows.
-        let markerSlots = [wake, bed].compactMap { $0 }.map { DaySlot(id: "marker-\($0.timeIntervalSince1970)", start: $0.addingTimeInterval(-15 * 60), end: $0) }
+        let markerSlots = [wake, bed, fellAsleep].compactMap { $0 }.map { DaySlot(id: "marker-\($0.timeIntervalSince1970)", start: $0.addingTimeInterval(-15 * 60), end: $0) }
         let range = DayLayout.visibleHours(for: slots + markerSlots, on: day, calendar: calendar)
         let placements = Dictionary(uniqueKeysWithValues:
             DayLayout.place(slots, rangeStart: range.start, hours: range.hours).map { ($0.id, $0) })
@@ -87,7 +90,8 @@ struct DayScheduleView: View {
                                     .offset(x: gutter + CGFloat(place.column) * columnWidth, y: CGFloat(place.top) / 60 * hourHeight)
                             }
                         }
-                        if let wake { marker(wake, "Wake", "sunrise.fill", Phone.orange, range) }
+                        if let fellAsleep { marker(fellAsleep, "Fell asleep", "bed.double.fill", Phone.violet.opacity(0.7), range) }
+                        if let wake { marker(wake, woke ? "Woke" : "Wake", "sunrise.fill", Phone.orange, range) }
                         if let bed { marker(bed, "Asleep by", "moon.zzz.fill", Phone.violet, range) }
                         nowLine(range)
                     }

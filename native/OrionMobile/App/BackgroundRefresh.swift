@@ -64,6 +64,11 @@ enum BackgroundRefresh {
             FocusLock.shared.grant(grant, now: now)
             await CloudLink.sendNow(FocusLock.screenState(now: now))
         }
+        // Up, by WHOOP or the phone's signals as the Mac reads them: the night lock
+        // comes off even if he never opens ORION. A lock past its end comes off too.
+        FocusLock.shared.releaseIfExpired(now: now)
+        let today: String = { let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f.string(from: now) }()
+        if snapshot?.night?.first(where: { $0.date == today })?.woke == true { FocusLock.shared.releaseNightLock(awakeAt: now) }
         let routine = NightRoutine.shared
         if routine.plan == nil { await routine.refresh(planner: planner, wakeRequest: snapshot?.wakeRequest, now: now) }
         await routine.checkNightSignals(planner: planner, macLastInput: snapshot?.lastInputAt, now: now)

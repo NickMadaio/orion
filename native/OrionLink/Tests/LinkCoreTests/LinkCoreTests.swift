@@ -107,6 +107,21 @@ final class SnapshotReaderTests: XCTestCase {
         XCTAssertNil(reader.screenGrant(now: now))
     }
 
+    /// 2026-10-01: to bed 00:53, up at 06:42; the phone draws "Woke 6:42" and "Fell asleep 12:53".
+    func testNightMarkersCarryWhenHeActuallyWokeAndFellAsleep() throws {
+        try write(".openclaw/orion-controlled/night.json", ["days": [
+            ["date": "2026-09-30", "wake": 471, "bed": 1425, "woke": true, "asleepAt": 1493],
+            ["date": "2026-10-01", "wake": 402, "bed": 1440, "woke": true, "plannedWake": 435],
+            ["date": "2026-10-02", "wake": 540, "bed": 1440]]])
+        let night = try XCTUnwrap(SnapshotReader(home: home).night())
+        let today = try XCTUnwrap(night.first { $0.date == "2026-10-01" })
+        let midnight = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 1))!
+        XCTAssertTrue(today.woke)
+        XCTAssertEqual(today.wake, midnight.addingTimeInterval(402 * 60))
+        XCTAssertEqual(today.fellAsleep, midnight.addingTimeInterval(53 * 60))
+        XCTAssertFalse(try XCTUnwrap(night.first { $0.date == "2026-10-02" }).woke)
+    }
+
     func testAScreenGrantIsSentOnlyWhileItRuns() throws {
         let until = now.addingTimeInterval(20 * 60)
         try write(".openclaw/orion-controlled/screen-grant.json",

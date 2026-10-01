@@ -5,6 +5,21 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 06:57 BST — The wake line follows when he actually woke; the night lock ends in the morning
+
+- **Nick:** "have the wake up line move to when I actually wake up" (up before 7 after a 7:15 alarm). And: "is my phone just locked forever now … it's a new day."
+- **Actual sleep:**
+  - `WhoopClient.exportNights` writes `~/.openclaw/orion-controlled/sleep-actual.json` (fell asleep and woke, per night, scored or not) on every WHOOP sync.
+  - `night.mjs` `actualWake` uses WHOOP, then the phone's "up", then the first phone use after 4 AM (unplugged or moving). `actualSleep` uses WHOOP, then "bed".
+  - `orion-watch` writes `wake` (actual, `woke: true`, `wakeSource`), `plannedWake` and `asleepAt` into night.json. Yesterday's entry is re-enriched as data arrives.
+- **Display:** the Mac shows "Woke" in place of "Wake", plus a "Fell asleep" line for last night's actual sleep after midnight. The link sends `LinkSnapshot.night` (`SnapshotReader.night`) and the phone draws the same lines.
+- **Verified on real data:** WHOOP says asleep 01:31, woke 06:21 (planned 07:15); night.json has wake 6:21 AM from WHOOP. LinkCore 29 pass, MobileCore 41, Node all pass.
+- **Morning unlock:** `FocusLock.releaseNightLock` runs only in the morning (04–14) and only for a night lock (including the old build's locks, which carry no reason).
+  - It is called when ORION opens, when the phone logs "up", and in background refresh once the Mac says he woke (no need to open ORION).
+  - ScreenMonitor's night-window end clears any non-work lock, and `releaseIfExpired` runs in the background too.
+- **Deployed:** phone (installed twice this morning; the last build has the unlock) and Mac (DR 171a72ab, backup `.Orion-previous-*-sleep.app`).
+- **Noticed, not fixed:** today's calendar has a block titled "Review CS lect , research backpacking stuff, Online learning for Northeastern, f…": several to-dos merged into one block by last night's "plan tomorrow from my to-do list" (phone plan request → Mac planner). That path should use the to-do parser and give each to-do its own block.
+
 ## 2026-10-01 06:45 BST — ORION truthful finished for Qwen; both projects merged; phone updated
 
 - **Phone:** the iPhone was connected this morning and `OrionPhone.app` was installed, with nothing in `native/OrionMobile` newer than the build. On the phone now: night markers, the 105-minute ready time, lock reporting and grants. The real-device unlock test is still to do with Nick.

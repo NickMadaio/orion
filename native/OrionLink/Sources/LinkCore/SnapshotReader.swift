@@ -191,6 +191,27 @@ public struct SnapshotReader {
         return .init(id: id, until: until, because: object["because"] as? String)
     }
 
+    /// Wake and sleep markers from `orion-watch` (night.json): planned or actual.
+    public func night(calendar: Calendar = .current) -> [LinkSnapshot.NightDay]? {
+        guard let object = json(controlled.appendingPathComponent("night.json")) as? [String: Any],
+              let days = object["days"] as? [[String: Any]] else { return nil }
+        let parse = DateFormatter(); parse.locale = Locale(identifier: "en_US_POSIX"); parse.calendar = calendar
+        parse.timeZone = calendar.timeZone; parse.dateFormat = "yyyy-MM-dd"
+        let rows: [(String, Date, [String: Any])] = days.compactMap { day in
+            guard let date = day["date"] as? String, let midnight = parse.date(from: date) else { return nil }
+            return (date, midnight, day)
+        }
+        let minute = { (midnight: Date, value: Any?) in (value as? NSNumber).map { midnight.addingTimeInterval($0.doubleValue * 60) } }
+        let result: [LinkSnapshot.NightDay] = rows.map { date, midnight, day in
+            let previous = rows.first { calendar.date(byAdding: .day, value: 1, to: $0.1) == midnight }
+            let asleep = (previous?.2["asleepAt"] as? NSNumber)?.intValue
+            return .init(date: date, wake: minute(midnight, day["wake"]), woke: day["woke"] as? Bool ?? false,
+                         bed: minute(midnight, day["bed"]),
+                         fellAsleep: asleep.flatMap { $0 >= 1440 ? midnight.addingTimeInterval(Double(($0 - 1440) * 60)) : nil })
+        }
+        return result.isEmpty ? nil : result
+    }
+
     // MARK: - Check-ins and the widgets
 
     /// The follow-up that matters most right now: one being chased, else one in

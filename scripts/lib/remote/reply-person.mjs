@@ -1,5 +1,3 @@
-import { strict as assert } from "node:assert";
-
 const THIRD_PERSON_PATTERNS = [
   /\bHis\b/g,
   /\bhis\b/g,

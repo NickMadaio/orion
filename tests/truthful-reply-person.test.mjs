@@ -45,3 +45,15 @@ test("invalid input throws", () => {
   assert.throws(() => findThirdPerson(123), TypeError);
   assert.throws(() => toSecondPerson({}), TypeError);
 });
+
+test("isNickReference returns false for other capitalized names", () => {
+  const input = "John called; he wants you to ring back.";
+  const results = findThirdPerson(input);
+  // "he" should NOT be identified as a Nick reference because "John" is present
+  assert.equal(results.length, 0);
+});
+
+test("toSecondPerson leaves he unchanged when another name is present", () => {
+  const input = "John called; he wants you to ring back.";
+  assert.equal(toSecondPerson(input), input);
+});

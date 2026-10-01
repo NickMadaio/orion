@@ -35,25 +35,24 @@ function isNickReference(sentence, matchText) {
   // Check if this third-person reference refers to Nick (not someone else)
   // Rule: "he/his/him/himself" and "Nick"/"Nick's" when NO other male name or
   // male noun appears earlier in the same sentence.
-  
-  const lowerSentence = sentence.toLowerCase();
-  
-  // Check for other male names or nouns that would indicate this isn't about Nick
-  const otherMaleIndicators = [
-    /your\s+dad/i,
-    /your\s+brother/i,
-    /the\s+professor/i,
-    /your\s+friend/i,
-    // Any capitalized name other than Nick/ORION
-    /\b[A-Z][a-z]+\b/g,
-  ];
-  
-  // Find all capitalized names in the sentence before this match
-  const nameMatches = lowerSentence.match(/\b[A-Z][a-z]+\b/g) || [];
-  
-  for (const name of nameMatches) {
-    if (name.toLowerCase() !== "nick" && name.toLowerCase() !== "orion") {
-      // Found another capitalized name - this might not be about Nick
+
+  // Third-person pronouns that get capitalized at sentence start — these are
+  // NOT "other names", they ARE the reference we're trying to detect.
+  const thirdPersonPronouns = new Set([
+    "he", "his", "him", "himself",
+  ]);
+
+  // Find all capitalized words in the sentence (original case preserved)
+  const capitalizedWords = sentence.match(/\b[A-Z][a-z]+\b/g) || [];
+
+  for (const word of capitalizedWords) {
+    const lower = word.toLowerCase();
+    if (thirdPersonPronouns.has(lower)) {
+      // This is the pronoun we're looking for, not another person's name
+      continue;
+    }
+    if (lower !== "nick" && lower !== "orion") {
+      // Found another capitalized name — this sentence is about someone else
       return false;
     }
   }

@@ -231,3 +231,41 @@ test("day --todos books each to-do as its own block, never groceries (2026-10-01
   const events = JSON.parse(readFileSync(calendar, "utf8")).map((e) => ({ t: e.title, s: new Date(e.start) }));
   assert.ok(events.filter((e) => e.t !== "CS1800 Lecture").every((e) => e.s.getHours() * 60 + e.s.getMinutes() >= 11 * 60), "after he is home from class");
 });
+
+test("'just got home, eating now, then a break — rearrange' (2026-10-01 10:28)", (t) => {
+  const D = (h, m = 0) => new Date(2030, 9, 2, h, m).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const { run, day } = world(t, [
+    { title: "CS1800 Lecture", start: D(9), end: D(10, 30) },
+    { title: "DS lab", start: D(11), end: D(12, 30), orion: "other" },
+    { title: "Side project (YouTube)", start: D(12, 30), end: D(13, 30), orion: "side_project" },
+    { title: "apply to SOMEWHERE", start: D(14), end: D(14, 45), orion: "other" },
+    { title: "Dinner", start: D(18, 30), end: D(19, 15), orion: "meal" },
+  ]);
+  // --at stands in for "now" (the fake day is in the future): he got home at 10:40.
+  const r = run("now", "Lunch, 25", "Break, 15", "--at", "10:40");
+  assert.equal(r.code, 0, r.out);
+  const d = day(); const get = (x) => d.find((e) => e.title === x);
+  assert.equal(get("Lunch").start, hm(10, 40));
+  assert.equal(get("Break").start, hm(11, 5));
+  assert.equal(get("DS lab").start, hm(11, 20), "what was booked during lunch slides to after the break");
+  assert.equal(get("Side project (YouTube)").start, hm(12, 50), "and the next thing after it, in order");
+  assert.equal(get("apply to SOMEWHERE").start, hm(14), "things with room keep their time");
+  assert.equal(get("Dinner").start, hm(18, 30), "dinner never moves earlier");
+  assert.ok(d.every((x, i) => d.slice(i + 1).every((y) => !(x.start < y.end && y.start < x.end))), "no overlaps");
+});
+
+test("a block already under way when he got home slides too (DS lab 11:00, home 11:28)", (t) => {
+  const D = (h, m = 0) => new Date(2030, 9, 2, h, m).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const { run, day } = world(t, [
+    { title: "DS lab", start: D(11), end: D(12, 30), orion: "other" },
+    { title: "Side project (YouTube)", start: D(12, 30), end: D(13, 30), orion: "side_project" },
+    { title: "Dinner", start: D(18, 30), end: D(19, 15), orion: "meal" },
+  ]);
+  const r = run("now", "Lunch, 25", "Break, 15", "--at", "11:28");
+  assert.equal(r.code, 0, r.out);
+  const d = day(); const get = (x) => d.find((e) => e.title === x);
+  assert.equal(get("Lunch").start, hm(11, 28));
+  assert.equal(get("DS lab").start, hm(12, 8), r.out);
+  assert.equal(get("Side project (YouTube)").start, hm(13, 38));
+  assert.equal(get("Dinner").start, hm(18, 30));
+});

@@ -3,6 +3,8 @@
 //   orion-reschedule late <minutes> [--why "<what happened>"]         he's running late: lose the time from now
 //   orion-reschedule busy HH:MM-HH:MM [--why "<what>"]                something took that time
 //   orion-reschedule overrun <minutes> [--what "<class>"] [--date …]   a class runs over (any day); the trip home moves too
+//   orion-reschedule now "<title>, <min>" ["<title>, <min>" …] [--at HH:MM]   what he is doing right now ("eating, then a
+//        break"): booked from now (or when he started), everything not yet done slides after it in order
 //   orion-reschedule add "<title>" <minutes> [--at HH:MM] [--fixed] [--before HH:MM] [--date YYYY-MM-DD]
 //   orion-reschedule fill [--date YYYY-MM-DD]                         fill the blanks once his real plans are known
 //   orion-reschedule day --plan "<title>, <min>, HH:MM, fixed" [--plan …] [--fill]
@@ -155,6 +157,50 @@ if (command === "late") {
   const fixed = args.includes("--fixed") || isSocial(title);
   if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
   add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(before !== null ? { before } : {}), fixed });
+} else if (command === "now") {
+  /*
+   "I only just got home. I'm going to eat now, so put my break now and rearrange
+   my schedule" (2026-10-01 10:28). ORION retyped the whole day with invented
+   times: nothing went in now, the lab stayed during lunch, dinner moved EARLIER.
+   This is the command for it: what he is doing now goes in from now (or --at,
+   when he started), back to back; everything movable that has not happened yet
+   slides after it in its own order; whatever still has room keeps its time.
+  */
+  const items = rest.map((raw) => {
+    const m = /^(.*?),\s*(\d{1,3})\s*(?:min(?:ute)?s?)?$/i.exec(raw.trim());
+    if (!m || !clean(m[1]) || Number(m[2]) < 5 || Number(m[2]) > 240) fail(`bad item "${raw}" (want "<title>, <minutes>")`);
+    return { title: clean(m[1]), minutes: Number(m[2]) };
+  });
+  if (!items.length) fail('usage: orion-reschedule now "<title>, <minutes>" ["<title>, <minutes>" …] [--at HH:MM]');
+  const startAt = minute(flag("--at")) ?? nowMinute;
+  if (today && (startAt > nowMinute + 30 || startAt < nowMinute - 240)) fail("--at must be when he started: within the last 4 hours, or now", 2);
+  let cursor = startAt;
+  const created = items.map((item, i) => {
+    const block = { id: `now-${i}`, title: item.title, kind: classify(item.title), date, start: cursor, end: cursor + item.minutes, fixed: false, source: "orion" };
+    cursor += item.minutes; return block;
+  });
+  // "Put my break now": a later block with the same name moves to now; it is not doubled.
+  const replaced = blocks.filter((b) => !b.fixed && b.end > startAt && items.some((i) => sameThingEarly(i.title, b.title) && sameThingEarly(b.title, i.title)));
+  const replacedIds = new Set(replaced.map((b) => b.id));
+  const busyUntil = Math.max(cursor, today ? nowMinute : startAt);
+  // A movable block already under way when he got in did not happen (DS lab was
+  // booked 11:00; he got home 11:28): it slides too, so the floor starts at it.
+  const remaining = blocks.filter((b) => !replacedIds.has(b.id));
+  const floorAt = Math.min(startAt, ...remaining.filter((b) => !b.fixed && b.start < startAt && b.end > startAt).map((b) => b.start));
+  // He is home: no commute guess. Fixed things (classes, people) stay walls.
+  const result = replan(remaining, { now: floorAt, window: { ...window, start: Math.min(window.start, floorAt) },
+    blocked: [{ start: floorAt, end: busyUntil, title: items.map((i) => i.title).join(" and ") }], add: [], rebuild: true });
+  const byId = new Map(blocks.map((b) => [b.id, b]));
+  const removed = [...replaced, ...result.unplaced.map((u) => byId.get(u.id)).filter(Boolean)];
+  if (!dry) await applyPlan({ date, moves: result.moves, created, removed, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+  console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
+  for (const c of created) console.log(`  now: ${c.title} ${hhmm(c.start)}–${hhmm(c.end)}`);
+  for (const r of replaced) console.log(`  (the ${r.title} that was at ${hhmm(r.start)} is this one)`);
+  for (const m of result.moves) console.log(`  moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`);
+  for (const u of result.unplaced) console.log(`  NOT BOOKED: ${u.title} (${u.minutes} min) no longer fits on ${dayName} — ask whether to drop it or move it to another day`);
+  if (!result.moves.length) console.log("  nothing else had to move");
+  if (!dry) console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
+  process.exit(0);
 } else if (command === "day" && args.includes("--todos")) {
   // "Plan my day from my to-do list" (2026-10-01): read the list itself, one
   // block per to-do with its real title. ORION used to paste the list into --say,
@@ -175,7 +221,9 @@ if (command === "late") {
       const tasks = parseTodos(title, { now: { date, minute: nowMinute } }).tasks;
       estimate = { minutes: tasks.length === 1 ? tasks[0].minutes : 45, optional: tasks.some((t) => t.optional) };
     } catch { /* keep the default */ }
-    add.push({ title, kind: classify(title), minutes: estimate.minutes,
+    // A to-do is work he does, never a class or a deadline ("DS lab" is homework).
+    const todoKind = ["class", "deadline"].includes(classify(title)) ? "study" : classify(title);
+    add.push({ title, kind: todoKind, minutes: estimate.minutes,
       importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false });
   }
   // Keep time genuinely free (config.freeMinutesKept), as fill does: due first,
@@ -230,7 +278,7 @@ if (command === "late") {
   add.push(...sensible(fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) })));
   if (!add.length) { console.log("Nothing to add: the day already has what it needs, and the rest stays free."); process.exit(0); }
 } else {
-  fail("usage: orion-reschedule late|busy|overrun|add|day|drop|clear|fill|undo  (see the header)");
+  fail("usage: orion-reschedule late|busy|overrun|now|add|day|drop|clear|fill|undo  (see the header)");
 }
 
 // A time already over today is never booked: it almost always means he was

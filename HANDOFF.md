@@ -5,6 +5,23 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 11:39 BST — "Just got home, eating now, rearrange": the `now` command
+
+- **11:28 BST** (the session log shows 10:28Z): "I only just got home … going to eat now so put my break now and rearrange my schedule accordingly." ORION retyped the whole day with `day --plan` and invented times:
+  - nothing went in now, and DS lab stayed at 11:00 during lunch;
+  - the side project went to 12:55 and the break to 14:45;
+  - dinner moved EARLIER, to 18:15.
+- **New `orion-reschedule now "<title>, <min>" … [--at HH:MM]`:**
+  - books what he is doing from now (or from when he started);
+  - a later block with the same name is moved, not doubled ("put my break now");
+  - every movable block not yet done, including one already under way when he got in, slides after it in order, through `replan` rebuild with a blocked window;
+  - whatever still has room keeps its time.
+- **Root bug also fixed:** an ORION-made block was fixed when its title read like a class ("DS lab", a to-do), so it could never move. `toBlocks` now makes every `[orion:…]` block movable, and `day --todos` never files a to-do as class or deadline.
+- **Today repaired:** undid ORION's 11:28 rewrite, then `now "Lunch, 25" "Break, 15" --at 11:28`: Lunch 11:28, Break 11:53, DS lab 12:08, side project 13:38 … Dinner 18:38.
+- **Guidance** (AGENTS, live facts, TOOLS blurb): use `now` for "doing X now / rearrange"; never retype the day.
+- **Live eval** ("just got back, gonna grab a snack real quick and then take a 10 min break. rearrange my stuff"): ORION made one `now` call and the reply named the next two things. Undone afterwards.
+- **Tests:** two `now` CLI tests from his real times, and a toBlocks test; all Node tests pass.
+
 ## 2026-10-01 07:10 BST — "Plan from my to-do list" books one block per to-do
 
 - **Bug:** at 23:23 Nick asked ORION to plan Thursday from his to-do list ("don't include any of the groceries"). ORION pasted the list (Hairspray included) into `day --say`.

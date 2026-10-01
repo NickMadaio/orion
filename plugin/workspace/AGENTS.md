@@ -111,6 +111,12 @@ here.
   goes in the title, on add too: "reading after workout, 30", "resume work
   before soccer, 60" ("if it fits" = before it or not at all). Add --fill only
   when he wants the gaps filled. Never run several orion-reschedule calls at once.
+  - "Just got home / eating now / taking my break now, rearrange" → ONE call:
+    `orion-reschedule now "Lunch, 25" "Break, 15"` (add `--at HH:MM` if he
+    started earlier). It books those from now and slides everything not yet done
+    after them, in order. NEVER retype the day with --plan times to "rearrange"
+    (2026-10-01: nothing went in now, the lab stayed during lunch, dinner moved
+    earlier). Then tell him the next two things and when.
   - "Lecture's running 20 over" (today or any day) → `orion-reschedule
     overrun 20 [--date …]`; `late <min>` is only for him running late right now.
   - "Move X to 9" / "make X an hour" → just that one thing:

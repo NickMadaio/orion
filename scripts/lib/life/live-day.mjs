@@ -54,7 +54,9 @@ export function toBlocks(events, date) {
       const title = e.title ?? "Event";
       const kind = e.orion && /^[a-z_]+$/.test(e.orion) ? e.orion : classify(title);
       const endMinute = localDate(end) === date ? minuteOf(end) : 1440;
-      const fixed = kind === "class" || kind === "deadline" || !movable(title, e.orion || null);
+      // ORION's own blocks always move, whatever the title says: the to-do "DS lab"
+      // was filed as a class and pinned in place over his lunch (2026-10-01).
+      const fixed = e.orion ? false : kind === "class" || kind === "deadline" || !movable(title, null);
       return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
                end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: e.orion ? "orion" : "calendar",

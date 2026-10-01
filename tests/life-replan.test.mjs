@@ -86,3 +86,9 @@ test("titles decide what may move", () => {
                            { title: "Study", start: "2026-09-29T15:00:00", end: "2026-09-29T16:00:00", orion: "study" }], "2026-09-29");
   assert.deepEqual(blocks.map((x) => x.fixed), [true, false]);
 });
+
+test("ORION's own blocks always move, even when the title reads like a class (2026-10-01)", () => {
+  const blocks = toBlocks([{ title: "DS lab", start: "2026-10-01T11:00:00", end: "2026-10-01T12:30:00", orion: "class" },
+                           { title: "CS1800 Lecture", start: "2026-10-01T09:00:00", end: "2026-10-01T10:30:00" }], "2026-10-01");
+  assert.deepEqual(blocks.map((x) => [x.title, x.fixed]), [["CS1800 Lecture", true], ["DS lab", false]]);
+});

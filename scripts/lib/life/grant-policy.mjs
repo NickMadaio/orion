@@ -1,5 +1,3 @@
-import { strict as assert } from "node:assert";
-
 /**
  * Convert minutes after midnight to a 12-hour clock string like "8:15 PM".
  */

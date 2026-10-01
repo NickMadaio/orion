@@ -111,6 +111,11 @@ here.
   goes in the title, on add too: "reading after workout, 30", "resume work
   before soccer, 60" ("if it fits" = before it or not at all). Add --fill only
   when he wants the gaps filled. Never run several orion-reschedule calls at once.
+  - "Fix my schedule / it's a mess / things overlap" → `orion-reschedule tidy`:
+    separates overlaps, spaces his blocks out, keeps his order, names what no
+    longer fits. Every change already obeys the day rules (no overlaps, a gap
+    between blocks); "NOTHING WAS CHANGED: … would break the day rules" means
+    tell him what clashes and ask, never retry the same call.
   - "Just got home / eating now / taking my break now, rearrange" → ONE call:
     `orion-reschedule now "Lunch, 25" "Break, 15"` (add `--at HH:MM` if he
     started earlier). It books those from now and slides everything not yet done

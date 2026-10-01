@@ -16,6 +16,7 @@
 //        day also falls back to this automatically when an incremental change cannot fit
 //   orion-reschedule day --todos [--date YYYY-MM-DD] [--fill]          plan the day from his to-do list (the Orion
 //        Reminders list): one movable block per to-do, real titles, estimates from todo-parse
+//   orion-reschedule tidy [--date YYYY-MM-DD]                         "fix my schedule": separate overlaps, space blocks out
 //   orion-reschedule clear [--date YYYY-MM-DD]                        clear future movable blocks
 //   orion-reschedule drop "<title>" ["<title>" …] [--date YYYY-MM-DD]  remove the named movable blocks
 //        ("get rid of studying and the Orion stuff"); classes and plans with people are never dropped
@@ -30,6 +31,7 @@
 import { calendarEvents, toBlocks, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
 import { replan } from "./lib/life/replan.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
+import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, undoLast, bridge, clean } from "./lib/life/calendar-write.mjs";
@@ -55,6 +57,33 @@ const dry = args.includes("--dry-run");
 const fail = (m, code = 2) => { console.error(m); process.exit(code); };
 const hhmm = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const minute = (t) => { const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(t ?? ""); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
+/*
+ The day as it will be once this change is written, checked against the day
+ rules (day-check) BEFORE anything reaches his calendar, and again after, read
+ back from the calendar itself. A plan that would overlap is never written.
+ (2026-10-01: overlaps kept coming back one case at a time.)
+*/
+function projectDay(dayBlocks, { moves = [], created = [], removed = [] }) {
+  const gone = new Set(removed.map((b) => b.id));
+  const moved = new Map(moves.map((m) => [m.id, m.to]));
+  return [...dayBlocks.filter((b) => !gone.has(b.id)).map((b) => moved.has(b.id)
+    ? { ...b, start: moved.get(b.id), end: moved.get(b.id) + (b.end - b.start) } : b),
+    ...created.map((c) => ({ ...c, source: "orion", fixed: c.fixed === true }))];
+}
+function refuseIfBroken(day, from, label) {
+  const check = checkDay(day, { from });
+  if (check.ok) return;
+  console.log(`NOTHING WAS CHANGED: ${label} would break the day rules — ${check.problems.slice(0, 3).join("; ")}. Tell him what clashes and ask which to move; do not retry the same call.`);
+  process.exit(1);
+}
+async function verifyWritten(date, from) {
+  try {
+    const written = toBlocks(await calendarEvents(), date);
+    const check = checkDay(written, { from });
+    if (!check.ok) console.log(`WARNING: his calendar now has an overlap — ${check.problems.slice(0, 2).join("; ")}. Tell him.`);
+  } catch { /* a failed read-back is not a failed write */ }
+}
 
 // One change at a time: two runs started together would each plan from the
 // same old calendar and write on top of each other (found in a scenario run).
@@ -188,11 +217,13 @@ if (command === "late") {
   const remaining = blocks.filter((b) => !replacedIds.has(b.id));
   const floorAt = Math.min(startAt, ...remaining.filter((b) => !b.fixed && b.start < startAt && b.end > startAt).map((b) => b.start));
   // He is home: no commute guess. Fixed things (classes, people) stay walls.
-  const result = replan(remaining, { now: floorAt, window: { ...window, start: Math.min(window.start, floorAt) },
+  const result = replan(remaining, { now: floorAt, window: { ...window, start: Math.min(window.start, floorAt) }, buffer: config.bufferMinutes, keepFree: config.freeMinutesKept,
     blocked: [{ start: floorAt, end: busyUntil, title: items.map((i) => i.title).join(" and ") }], add: [], rebuild: true });
   const byId = new Map(blocks.map((b) => [b.id, b]));
   const removed = [...replaced, ...result.unplaced.map((u) => byId.get(u.id)).filter(Boolean)];
+  refuseIfBroken(projectDay(blocks, { moves: result.moves, created, removed }), floorAt, "this rearrangement");
   if (!dry) await applyPlan({ date, moves: result.moves, created, removed, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+  if (!dry) await verifyWritten(date, floorAt);
   console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
   for (const c of created) console.log(`  now: ${c.title} ${hhmm(c.start)}–${hhmm(c.end)}`);
   for (const r of replaced) console.log(`  (the ${r.title} that was at ${hhmm(r.start)} is this one)`);
@@ -265,6 +296,9 @@ if (command === "late") {
   }
 } else if (command === "drop") {
   if (!rest.length) fail('usage: orion-reschedule drop "<title>" ["<title>" …]');
+} else if (command === "tidy") {
+  // "Fix my schedule": nothing added; the day rules applied to the day as it is
+  // (overlaps separated, ORION's blocks spaced out, free time kept).
 } else if (command === "clear") {
   // The generic calendar-delete action is deliberately approval-gated. This is
   // different: it only removes the day's future movable planning blocks, records
@@ -278,7 +312,7 @@ if (command === "late") {
   add.push(...sensible(fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) })));
   if (!add.length) { console.log("Nothing to add: the day already has what it needs, and the rest stays free."); process.exit(0); }
 } else {
-  fail("usage: orion-reschedule late|busy|overrun|now|add|day|drop|clear|fill|undo  (see the header)");
+  fail("usage: orion-reschedule late|busy|overrun|now|add|day|drop|tidy|clear|fill|undo  (see the header)");
 }
 
 // A time already over today is never booked: it almost always means he was
@@ -381,8 +415,12 @@ const soft = commuteWalls([...planningBlocks, ...add.filter((a) => a.fixed && Nu
 // Lost time (running late, a class running over, something came up) slides what
 // follows back in order; one block is never flung to the evening while the rest
 // stay put (2026-09-30: internship apps 11:00 → 20:45 for a 20-minute overrun).
-let rebuilt = (command === "day" && args.includes("--rebuild") && !replaceDay) || ["late", "overrun", "busy"].includes(command);
-let result = replan(planningBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: rebuilt });
+// Always lay the remaining day out as a cascade (2026-10-01): in time order,
+// each block at its own time or just after the one before plus the gap, past
+// anything fixed. Blocks with room keep their time; nothing is flung to a far gap
+// (the incremental mode evicted one block at a time — dinner went to 22:33).
+let rebuilt = !replaceDay;
+let result = replan(planningBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: rebuilt , buffer: config.bufferMinutes, keepFree: config.freeMinutesKept });
 // Normal changes are incremental. If that cannot fit something, retry the
 // whole remaining movable day before bothering Nick: fixed commitments stay as
 // walls, then must-haves, ordinary work and optional fillers are laid down.
@@ -395,7 +433,7 @@ if (rebuilt) {
   // removed and reported as NOT BOOKED, never left overlapping.
   const goneIds = new Set(removed.map((block) => block.id));
   const rebuildBlocks = blocks.filter((block) => !goneIds.has(block.id));
-  result = replan(rebuildBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: true });
+  result = replan(rebuildBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: true , buffer: config.bufferMinutes, keepFree: config.freeMinutesKept });
   const byExistingId = new Map(rebuildBlocks.map((block) => [block.id, block]));
   removed = [...removed, ...result.unplaced.map((item) => byExistingId.get(item.id)).filter(Boolean)];
 }
@@ -408,7 +446,7 @@ if (command === "day" && args.includes("--fill")) {
   const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
   // Today's share of the study each deadline still needs (deadline-ramp).
   const asks = sensible(fillDay(result.blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) }));
-  const second = replan(result.blocks.map((b) => ({ ...b, id: `kept-${b.id}`, fixed: true })), { now: nowMinute, window, soft, add: asks });
+  const second = replan(result.blocks.map((b) => ({ ...b, id: `kept-${b.id}`, fixed: true })), { now: nowMinute, window, soft, add: asks , buffer: config.bufferMinutes, keepFree: config.freeMinutesKept });
   result = { ...result, created: [...result.created, ...second.created], unplaced: [...result.unplaced, ...second.unplaced] };
 }
 const byId = new Map(blocks.map((b) => [b.id, b]));
@@ -434,7 +472,9 @@ if (missingMustHaves.length) {
   for (const l of lines) console.log(`  ${l}`);
   process.exit(1);
 }
+refuseIfBroken(projectDay(blocks, { moves: result.moves, created: result.created, removed }), nowMinute, "this change");
 if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, removed, blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+if (!dry) await verifyWritten(date, nowMinute);
 // 2026-09-29: "could not fit side project today" came back and ORION told Nick
 // it was booked for Wednesday. The headline now says what was and was not written.
 for (const p of otherDays) lines.push(`NOT BOOKED: ${p.title} is on ${p.date} — run again with --date ${p.date} --say "${p.title}${p.start !== null ? ` at ${hhmm(p.start)}` : ""}"`);

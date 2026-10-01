@@ -24,3 +24,8 @@ test("plans away from home get travel before and after", () => {
   const soccer = [{ id: "s", title: "soccer practice", kind: "other", date: "2026-10-01", start: 1020, end: 1140, fixed: true }];
   assert.deepEqual(commuteWalls(soccer, { commuteMinutes: 30 }).map((w) => [w.start, w.end]), [[990, 1020], [1140, 1170]]);
 });
+
+test("ORION's own blocks make no travel time, even one called a lab (2026-10-01)", () => {
+  const lab = [{ id: "d", title: "DS lab", kind: "class", date: "2026-10-01", start: 728, end: 818, fixed: false, source: "orion" }];
+  assert.deepEqual(commuteWalls(lab, { commuteMinutes: 30 }), []);
+});

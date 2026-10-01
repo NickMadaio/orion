@@ -132,3 +132,25 @@ test("his stated time wins over ORION's commute guess; the guess still guards ev
   const r2 = replan(day, { now: at(10), window: win, soft: commute, add: [{ title: "Reading", kind: "rest", minutes: 30, after: at(14) }] });
   assert.equal(r2.created[0].start, at(14, 30), "flexible work still waits for the trip home");
 });
+
+test("blocks get a gap between them, not back to back (2026-10-01: 'things are smooshed')", () => {
+  const day = [b("lab", "class", at(9), at(10, 30), true, "CS1800 Lecture")];
+  const r = replan(day, { now: at(8), window: { start: at(8), end: at(24) }, buffer: 10, add: [
+    { title: "DS lab", kind: "study", minutes: 90, after: at(11) },
+    { title: "Side project", kind: "side_project", minutes: 60, after: at(11) },
+    { title: "Study", kind: "study", minutes: 60, after: at(11) },
+  ] });
+  const placed = r.blocks.filter((x) => !x.fixed).sort((a, b) => a.start - b.start);
+  for (let i = 1; i < placed.length; i++) assert.ok(placed[i].start - placed[i - 1].end >= 10, `${placed[i - 1].title} → ${placed[i].title}`);
+});
+
+test("a full day keeps free time by dropping the optional thing first", () => {
+  const day = [b("w", "class", at(9), at(17), true, "All day")];
+  // Free: 8–9 and 17–20 (240 min). Resume + dinner leave 105; study would leave 45 < 60.
+  const r = replan(day, { now: at(8), window: { start: at(8), end: at(20) }, keepFree: 60, rebuild: true, add: [
+    { title: "finish resume", kind: "other", minutes: 90, importance: 1 },
+    { title: "study (if there's time)", kind: "study", minutes: 60, importance: 2 },
+    { title: "Dinner", kind: "meal", minutes: 45, importance: 1 },
+  ] });
+  assert.deepEqual(r.unplaced.map((u) => u.title), ["study (if there's time)"]);
+});

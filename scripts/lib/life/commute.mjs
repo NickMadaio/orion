@@ -6,7 +6,9 @@ import { isSocial } from "./live-day.mjs";
 // the first one or after the last one.
 export function commuteWalls(blocks, { commuteMinutes = 30 } = {}) {
   if (commuteMinutes <= 0) return [];
-  const classes = blocks.filter((b) => b.kind === "class").sort((a, b) => a.start - b.start);
+  // Real classes only: an ORION block filed as "class" (the to-do "DS lab") made
+  // its own travel time and pushed itself two hours later (2026-10-01).
+  const classes = blocks.filter((b) => b.kind === "class" && b.fixed && b.source !== "orion").sort((a, b) => a.start - b.start);
   const walls = classes.length ? [
     { start: Math.max(0, classes[0].start - commuteMinutes), end: classes[0].start, title: "commute to class" },
     { start: classes.at(-1).end, end: Math.min(1440, classes.at(-1).end + commuteMinutes), title: "commute home" },

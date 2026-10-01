@@ -278,7 +278,12 @@ final class PlannerStore: ObservableObject {
             Item(id: "orion-\(block.id)", title: block.title, start: block.start, end: block.end, allDay: false,
                  source: .orion(block.kind), detail: "ORION plan")
         }
-        return (events + fromPlan).sorted { $0.start < $1.start }
+        // The calendar is the one plan. ORION's day planner writes there; a block
+        // from the older on-Mac plan that collides with a calendar event is not
+        // drawn on top of it (2026-10-01: two plans layered read as overlaps).
+        let timed = events.filter { !$0.allDay }
+        let clear = fromPlan.filter { block in !timed.contains { $0.start < block.end && block.start < $0.end } }
+        return (events + clear).sorted { $0.start < $1.start }
     }
 
     // MARK: - Private

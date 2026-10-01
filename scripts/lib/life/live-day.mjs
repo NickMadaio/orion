@@ -52,7 +52,9 @@ export function toBlocks(events, date) {
     .map((e, i) => {
       const start = new Date(e.start); const end = new Date(e.end);
       const title = e.title ?? "Event";
-      const kind = e.orion && /^[a-z_]+$/.test(e.orion) ? e.orion : classify(title);
+      // ORION never plans a class or a deadline; an old block marked so is study.
+      const marked = e.orion && /^[a-z_]+$/.test(e.orion) ? e.orion : null;
+      const kind = marked ? (["class", "deadline"].includes(marked) ? "study" : marked) : classify(title);
       const endMinute = localDate(end) === date ? minuteOf(end) : 1440;
       // ORION's own blocks always move, whatever the title says: the to-do "DS lab"
       // was filed as a class and pinned in place over his lunch (2026-10-01).

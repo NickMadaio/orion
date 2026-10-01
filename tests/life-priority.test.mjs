@@ -70,3 +70,9 @@ test("explicit must-haves outrank kind defaults and optional work comes last", (
   assert.ok(comparePriority({ id: "apps", title: "Applications", kind: "other", start: 900, fixed: false, importance: 0 },
                             { id: "gym", title: "Gym", kind: "gym", start: 800, fixed: false }) < 0);
 });
+
+test("a nap or wind-down ranks as sleep, not as rest", async () => {
+  const { priorityOf } = await import("../scripts/lib/life/priority.mjs");
+  assert.ok(priorityOf({ kind: "rest", title: "Nap" }) < priorityOf({ kind: "other", title: "research backpacking stuff" }));
+  assert.ok(priorityOf({ kind: "rest", title: "Wind down" }) < priorityOf({ kind: "study", title: "Study" }));
+});

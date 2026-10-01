@@ -12,6 +12,9 @@ const KINDS = [
 
 /** @param {object} block — a life block object */
 export function priorityOf(block) {
+  // Sleep is his second priority after classes: a nap or wind-down is sleep, not
+  // "rest" to be dropped first when the day overflows (2026-10-01).
+  if (/\b(nap|wind down|sleep|bed)\b/i.test(String(block.title ?? ""))) return KINDS.indexOf("sleep");
   const index = KINDS.indexOf(block.kind);
   return index < 0 ? KINDS.length : index;
 }

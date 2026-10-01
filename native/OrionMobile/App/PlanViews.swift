@@ -129,16 +129,18 @@ struct DayScheduleView: View {
             HStack(spacing: 0) {
                 Rectangle().fill(item.tint).frame(width: 3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Phone.text).lineLimit(height > 44 ? 2 : 1)
+                    Text(item.title).font(.system(size: height < 22 ? 10.5 : 13, weight: .semibold)).foregroundStyle(Phone.text).lineLimit(height > 44 ? 2 : 1)
                     if height > 34 {
                         Text("\(label(item.start)) – \(label(item.end))\(item.isOrion ? " · ORION" : "")")
                             .font(Phone.mono(10, .medium)).foregroundStyle(Phone.soft)
                     }
                 }
-                .padding(.horizontal, 7).padding(.vertical, 4)
+                .padding(.horizontal, 7).padding(.vertical, height < 22 ? 1 : 4)
                 Spacer(minLength: 0)
             }
-            .frame(height: max(20, height - 2), alignment: .top)
+            // True size: a 20-pt floor drew a 15-minute break over the next block
+            // (2026-10-01: "lunch goes into my break which goes into my lab").
+            .frame(height: max(4, height - 2), alignment: .top)
             // ORION's blocks are outlined; calendar events are filled, as a calendar app draws them.
             .background(item.tint.opacity(item.isOrion ? 0.08 : 0.22))
             .overlay(item.isOrion ? RoundedRectangle(cornerRadius: 5).stroke(item.tint.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 3])) : nil)

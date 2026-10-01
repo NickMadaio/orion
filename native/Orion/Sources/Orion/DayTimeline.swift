@@ -269,7 +269,10 @@ struct DayTimeline: View {
     private func height(for event: AgendaEvent) -> CGFloat {
         let top = offset(for: event.start)
         let bottom = offset(for: event.end)
-        return max(20, bottom - top)
+        // True size, never taller than the event: a 20-pt floor drew a 15-minute
+        // break over the next block (2026-10-01: "lunch goes into my break which
+        // goes into my lab"). Short events get a compact label instead (EventBlock).
+        return max(4, bottom - top - 1)
     }
 
     private var isToday: Bool { calendar.isDateInToday(date) }
@@ -394,7 +397,7 @@ private struct EventBlock: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: height < 20 ? 9.5 : 11.5, weight: .semibold))
                     .foregroundStyle(event.isPast ? OrionTheme.textSoft : OrionTheme.text)
                     .strikethrough(false)
                     .lineLimit(showsCalendar ? 2 : 1)
@@ -423,8 +426,10 @@ private struct EventBlock: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 7)
-        .padding(.vertical, 5)
+        .padding(.vertical, height < 20 ? 1 : 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Nothing drawn outside the event's own time.
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .background {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(tint.opacity(fill))

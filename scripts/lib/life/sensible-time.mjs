@@ -11,7 +11,7 @@ const EVENING = /\b(read(ing)?|book|relax|chill|tv|netflix|film|movie|gam(e|es|i
 
 /** Earliest minute untimed work may start: he is home, or up. */
 export function homeFrom(blocks, { commuteMinutes = 30, wake = 540 } = {}) {
-  const classes = blocks.filter((b) => b.kind === "class");
+  const classes = blocks.filter((b) => b.kind === "class" && b.fixed !== false && b.source !== "orion");
   return classes.length ? Math.max(...classes.map((b) => b.end)) + commuteMinutes : wake;
 }
 

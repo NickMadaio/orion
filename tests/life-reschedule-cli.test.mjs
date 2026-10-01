@@ -181,8 +181,8 @@ test("an overrun slides the next blocks back in order instead of flinging one to
   const r = run("overrun", "20");
   assert.equal(r.code, 0, r.out);
   const d = day(); const get = (x) => d.find((e) => e.title === x).start;
-  assert.equal(get("internship apps"), hm(11, 20), r.out);
-  assert.equal(get("resume"), hm(13, 20));
+  assert.equal(get("internship apps"), hm(11, 30), r.out);   // trip home ends 11:20, then the 10-min gap
+  assert.equal(get("resume"), hm(13, 40));
 });
 
 test("travel after soccer counts even when soccer is added in the same call", (t) => {
@@ -247,9 +247,9 @@ test("'just got home, eating now, then a break — rearrange' (2026-10-01 10:28)
   const d = day(); const get = (x) => d.find((e) => e.title === x);
   assert.equal(get("Lunch").start, hm(10, 40));
   assert.equal(get("Break").start, hm(11, 5));
-  assert.equal(get("DS lab").start, hm(11, 20), "what was booked during lunch slides to after the break");
-  assert.equal(get("Side project (YouTube)").start, hm(12, 50), "and the next thing after it, in order");
-  assert.equal(get("apply to SOMEWHERE").start, hm(14), "things with room keep their time");
+  assert.equal(get("DS lab").start, hm(11, 30), "what was booked during lunch slides to after the break, with a gap");
+  assert.equal(get("Side project (YouTube)").start, hm(13, 10), "and the next thing after it, in order");
+  assert.equal(get("apply to SOMEWHERE").start, hm(14, 20), "pushed only as far as the side project plus the gap");
   assert.equal(get("Dinner").start, hm(18, 30), "dinner never moves earlier");
   assert.ok(d.every((x, i) => d.slice(i + 1).every((y) => !(x.start < y.end && y.start < x.end))), "no overlaps");
 });
@@ -265,7 +265,20 @@ test("a block already under way when he got home slides too (DS lab 11:00, home 
   assert.equal(r.code, 0, r.out);
   const d = day(); const get = (x) => d.find((e) => e.title === x);
   assert.equal(get("Lunch").start, hm(11, 28));
-  assert.equal(get("DS lab").start, hm(12, 8), r.out);
-  assert.equal(get("Side project (YouTube)").start, hm(13, 38));
+  assert.equal(get("DS lab").start, hm(12, 18), r.out);
+  assert.equal(get("Side project (YouTube)").start, hm(13, 58));
   assert.equal(get("Dinner").start, hm(18, 30));
+});
+
+test("an overlap already on the calendar is separated by the next change, with a gap", (t) => {
+  const D = (h, m = 0) => new Date(2030, 9, 2, h, m).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const { run, day } = world(t, [
+    { title: "Lunch", start: D(11, 30), end: D(12), orion: "meal" },
+    { title: "Break", start: D(11, 50), end: D(12, 10), orion: "rest" },
+    { title: "DS lab", start: D(12), end: D(13, 30), orion: "study" },
+  ]);
+  const r = run("add", "Gym", "60", "--at", "18:00");
+  assert.equal(r.code, 0, r.out);
+  const d = day().sort((a, b) => a.start - b.start);
+  for (let i = 1; i < d.length; i++) assert.ok(d[i].start >= d[i - 1].end + 10, `${d[i - 1].title} → ${d[i].title}\n${r.out}`);
 });

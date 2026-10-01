@@ -5,6 +5,35 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 12:01 BST — Day rules: no overlaps by construction, a cascade, true-size drawing
+
+- **Nick:** "lunch goes into my break which goes into my lab. things are smooshed … even after you reviewed and fixed it yourself there was still overlaps … that a design flaw we need to polish out."
+- **Root causes found:**
+  1. Drawing: the Mac (20 pt) and phone (~20 pt) gave every block a minimum height, while 15 minutes is 13 or 16 pt, so short blocks were drawn over the next one.
+  2. Planning packed blocks edge to edge, with no breathing room.
+  3. No invariant: "what stays" was decided block by block against walls only. The property tests found existing overlaps kept, and in-progress blocks running into classes.
+  4. Incremental mode evicted a block into the first far gap (a tidy preview put dinner at 22:33 and dropped four blocks), and keepFree dropped existing plans.
+  5. An ORION block filed as "class" (the to-do "DS lab") made its own commute walls and pushed itself two hours.
+  6. Nap and wind-down ranked as "rest", the first thing dropped.
+- **Fixes:**
+  - `day-check.mjs`: the day rules, applied to the part of the day still ahead. `orion-reschedule` checks the projected day before any write (refuses with NOTHING WAS CHANGED) and reads back after.
+  - replan:
+    - in-progress blocks stay only if their remaining time is clear;
+    - stays are kept greedily, each checked against what is already kept, with `buffer`;
+    - `buffer` and `keepFree` options, where keepFree only limits additions.
+  - The CLI always lays out as a cascade (rebuild): blocks keep their time where there is room, otherwise just after the previous block plus the gap.
+  - Config `bufferMinutes` 10.
+  - Commute and "home" come only from real fixed classes. An ORION class or deadline mark is read as study.
+  - Nap, wind down and sleep rank as sleep.
+  - New `orion-reschedule tidy` ("fix my schedule").
+  - Drawing: Mac and phone blocks at true size (4 pt floor), compact one-line labels, clipped. The phone no longer layers TodayPlan blocks that collide with calendar events.
+- **Tests:** `tests/life-day-invariants.test.mjs`: 3,000 + 1,000 random days (once run at 20,000 + 5,000), no ORION overlap, the gap kept; checkDay unit test. Plus gap/keepFree scenarios, an existing-overlap repair test, a commute test for ORION's "lab", and priority. All Node tests pass.
+- **Today:** tidied to Break 11:53, DS lab 12:18, side project 13:58, nap 15:08, study 16:03, apply 17:13, internship applications 18:08, dinner 19:48, resume 20:43, review CS lect 2 22:23, wind down 23:30. "Research backpacking stuff" is named as not fitting.
+- **Deployed:** Mac app (DR 171a72ab, backup `.Orion-previous-*-truesize.app`); scripts and workspace.
+- **Pending:**
+  - phone build ready but not installed (device 4016, locked);
+  - the Day view not yet seen on screen after the drawing change (synthetic clicks hide the window).
+
 ## 2026-10-01 11:39 BST — "Just got home, eating now, rearrange": the `now` command
 
 - **11:28 BST** (the session log shows 10:28Z): "I only just got home … going to eat now so put my break now and rearrange my schedule accordingly." ORION retyped the whole day with `day --plan` and invented times:

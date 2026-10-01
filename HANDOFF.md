@@ -5,6 +5,20 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 06:45 BST — ORION truthful finished for Qwen; both projects merged; phone updated
+
+- **Phone:** the iPhone was connected this morning and `OrionPhone.app` was installed, with nothing in `native/OrionMobile` newer than the build. On the phone now: night markers, the 105-minute ready time, lock reporting and grants. The real-device unlock test is still to do with Nick.
+- **ORION truthful (project-37a62c0e)** was left by Qwen with todo-parse accepted, triage awaiting review, reply-times blocked (implementation without tests), trace blocked (the runtime, not the task) and scenarios not started. Finished by hand-over:
+  - triage was reviewed against its brief (accepted);
+  - reply-times was rewritten: it passed its brief but scrambled real replies, so times now belong to their clause, an unmarked time takes the reading that fits the booking, and a lone time must be the start (30 September reply added as a test);
+  - trace and scenarios (150 messages over 16 areas, plus the validator) were written;
+  - the commits are `claude(<task>)` on `orion-agent/156a78ea`.
+- **Run state:** closed through the runner's own library (`resolveProjectEscalation`, `mutateProjectAgent`, `acceptProjectFinalReview`): completed, 100%, finalReview true, and readProjectAgent validates it.
+- **ORION truthful 2 (project-2f12825d):** completed by Qwen overnight (the chained launch at 03:48). It was spot-checked on real cases: the reply-person rewrite of the 2026-10-01 reply; grant-policy refuses "pretty please" and gives 20 minutes to "text my friends then bed".
+- **Merged** both branches (they only add new files): 855 Node tests pass.
+- **Life loop project (project-992584c3):** its state was invalid after the 2026-09-29 hand-over (13 accepted tasks still carried review evidence). Cleared, and it validates as completed 20/20. Backup: `state.json.bak-20261001`.
+- **Not yet wired (next):** todo-parse into orion-reschedule; trace and expectTools into orion-eval-run; reply-times and reply-person into orion-remote's reply path; grant-policy into orion-phone-time; triage behind a notification reader; day-review as the evening message; then run the 150 scenarios.
+
 ## 2026-10-01 01:04 BST — Phone unblocking did not work for Nick; first job tomorrow
 
 - **What Nick saw:** at first ORION did not recognise the block; when he asked again, ORION said "Done" and nothing unlocked. He turned the lock off by hand in Settings.

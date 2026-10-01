@@ -607,7 +607,7 @@ async function phoneContext() {
     ...[phoneLock()].filter(Boolean),
     ...[watchQuestion()].filter(Boolean),
     `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
-    "  Get rid of X → `drop \"X\"` (never undo). Move one thing → `add \"X\" <min> --at HH:MM`. Class running over → `overrun <min>`. He is late right now → `late <min>`. New timeline for the rest of the day → `day --replace --plan …`.",
+    "  From his to-do list → `day --todos [--date …]` (one block per to-do; never paste the list). Get rid of X → `drop \"X\"` (never undo). Move one thing → `add \"X\" <min> --at HH:MM`. Class running over → `overrun <min>`. He is late right now → `late <min>`. New timeline for the rest of the day → `day --replace --plan …`.",
     "  Report only what the output says was written; SHIFTED / NOT BOOKED means tell him.",
     `- Closing the loop is your job. In THIS message, if he delays something with a reason → ${join(homedir(), "Desktop/ORION/scripts/orion-checkin")} add <min> "<what>" --because "<reason>";`,
     "  says he is starting → orion-checkin started (or started \"<what>\"); finished → done; plans changed → cancel.",

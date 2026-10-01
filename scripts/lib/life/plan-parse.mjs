@@ -327,7 +327,20 @@ function hasTimePattern(s) {
   return false;
 }
 
+// A number that labels something is not a time (2026-10-01: "review CS lect 2"
+// was booked at 2 PM and glued to the next items; "CS2100 lab 3" at 3 PM). Before
+// parsing, such numbers are swapped for private-use characters no time pattern
+// matches, and put back in the titles.
+const LABEL_NUMBER = /\b(lect|lecture|lab|quiz|exam|midterm|chapter|ch|week|wk|unit|part|problem|problems|ps|set|assignment|hw|homework|test|lesson|module|section|sec|page|pages|episode|ep|season|room|no|number|round|level|task|step|q|question|slide|slides|lecture\s+notes)(\s+)(\d{1,3})\b/gi;
+const shield = (text) => text.replace(LABEL_NUMBER, (_, word, space, digits) => word + space + [...digits].map((d) => String.fromCharCode(0xe010 + Number(d))).join(""));
+const unshield = (text) => text.replace(/[\ue010-\ue019]/g, (c) => String(c.charCodeAt(0) - 0xe010));
+
 export function parsePlans(text, now) {
+  if (typeof text === "string") return parsePlansShielded(shield(text), now).map((item) => ({ ...item, title: unshield(item.title) }));
+  return parsePlansShielded(text, now);
+}
+
+function parsePlansShielded(text, now) {
   if (now == null) throw new TypeError("now must be provided");
   if (typeof now.date !== "string") throw new TypeError("now.date must be a string");
   if (typeof now.minute !== "number") throw new TypeError("now.minute must be a number");

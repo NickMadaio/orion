@@ -14,6 +14,13 @@ const find = (id) => events.find((e) => e.identifier === id);
 switch (request.action) {
   case "list_upcoming_calendar_events": reply({ events_json: JSON.stringify(events) }); break;
   case "list_deadlines": reply({ events_json: "[]" }); break;
+  case "list_incomplete_reminders": {
+    // $FAKE_REMINDERS: [{ identifier, title, list, due? }]; payload.list filters by list name.
+    const all = (() => { try { return JSON.parse(readFileSync(process.env.FAKE_REMINDERS, "utf8")); } catch { return []; } })();
+    const wanted = (p.list ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+    reply({ reminders_json: JSON.stringify(all.filter((r) => !wanted.length || wanted.includes(String(r.list).toLowerCase()))) });
+    break;
+  }
   case "create_calendar_event": {
     const identifier = `ev-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
     save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.orionKind ? { orion: p.orionKind } : {}) }]);

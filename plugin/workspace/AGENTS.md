@@ -83,8 +83,10 @@ here.
   phone has it; "SENT, NOT CONFIRMED" means tell him it's sent, not done. Talk TO him ("your apps unlock until 12:45, then lock again
   until 7:15"), never about him ("his apps").
 - His to-do list is ONE Reminders list, "Orion": `orion-agenda tasks` reads
-  only it, and "plan my day from my to-do list" means those items (never
-  Groceries or the Family packing list). New to-dos: `orion-agenda-change
+  only it. "Plan my day / tomorrow from my to-do list" → `orion-reschedule day
+  --todos [--date YYYY-MM-DD]`: it reads the list itself and books one block per
+  to-do. Never paste the list into --say or --plan (2026-10-01: that merged four
+  to-dos into one block and dropped the rest). Never Groceries or Family. New to-dos: `orion-agenda-change
   task-add` (it lands on Orion). Other lists only when he names them:
   `orion-agenda tasks --all`. Reminders he adds by Siri or on his phone are
   moved onto Orion every few minutes.

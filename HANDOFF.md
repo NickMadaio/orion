@@ -5,6 +5,21 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 07:10 BST — "Plan from my to-do list" books one block per to-do
+
+- **Bug:** at 23:23 Nick asked ORION to plan Thursday from his to-do list ("don't include any of the groceries"). ORION pasted the list (Hairspray included) into `day --say`.
+  - plan-parse read "review CS lect **2**" as 2 PM, glued it to the following items as "Review CS lect , research backpacking stuff, Online learning for Northeastern, f…", and silently dropped finish resume, apply to SOMEWHERE and the rest.
+  - Its comma splitting joins pieces without an activity word, so it is not a list parser.
+- **Fixes:**
+  - `orion-reschedule day --todos [--date]` reads the Orion list itself and books one movable block per to-do, with its real title.
+  - Estimates come from Qwen's todo-parse, used for minutes and optional only, since it splits "thinking fast and slow book".
+  - Due later or already on the calendar is left out and named. It keeps `freeMinutesKept` free, overdue and due-today first; what does not fit is named "no room today".
+  - plan-parse shields numbers that label something (lect/lab/quiz/chapter/week … N) from time parsing.
+  - AGENTS, the TOOLS blurb and the live facts say: never paste the list.
+- **Today repaired:** the merged block was dropped and the to-dos booked properly (apply 14:00, send internship applications 16:45, finish resume 19:15, review CS lect 2 20:45, research backpacking 21:30; DS lab already at 11; the optional study did not fit).
+- **Live eval:** "can you plan tomorrow out based off my todo list" → ORION ran `day --todos --date 2026-10-02` and named what did not fit. Friday restored to its two lectures.
+- **Tests:** the plan-parse label-number test; the `--todos` end-to-end test (fake reminders in `tests/fixtures/fake-bridge.mjs` via FAKE_REMINDERS). All Node tests pass.
+
 ## 2026-10-01 06:57 BST — The wake line follows when he actually woke; the night lock ends in the morning
 
 - **Nick:** "have the wake up line move to when I actually wake up" (up before 7 after a 7:15 alarm). And: "is my phone just locked forever now … it's a new day."

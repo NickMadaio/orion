@@ -114,3 +114,14 @@ test("must-have and optional language becomes scheduling importance, not title t
     ["Study", 2],
   ]);
 });
+
+test("numbers that label things are not times (2026-10-01)", () => {
+  const now = { date: "2026-10-01", minute: 420, weekday: 4 };
+  const lect = parsePlans("review CS lect 2 at 3", now)[0];
+  assert.equal(lect.title, "Review CS lect 2");
+  assert.equal(lect.start, 900);
+  const quiz = parsePlans("study for quiz 2 at 4", now)[0];
+  assert.equal(quiz.title, "Study for quiz 2");
+  assert.equal(quiz.start, 960);
+  assert.equal(parsePlans("finish lab 3 tomorrow", now)[0].start, null);
+});

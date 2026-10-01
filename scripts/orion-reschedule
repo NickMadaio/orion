@@ -12,6 +12,8 @@
 //        future non-class/deadline block is replaced in the same reversible transaction
 //        add --rebuild to keep the tasks but lay the remaining day out again, must-haves first;
 //        day also falls back to this automatically when an incremental change cannot fit
+//   orion-reschedule day --todos [--date YYYY-MM-DD] [--fill]          plan the day from his to-do list (the Orion
+//        Reminders list): one movable block per to-do, real titles, estimates from todo-parse
 //   orion-reschedule clear [--date YYYY-MM-DD]                        clear future movable blocks
 //   orion-reschedule drop "<title>" ["<title>" …] [--date YYYY-MM-DD]  remove the named movable blocks
 //        ("get rid of studying and the Orion stuff"); classes and plans with people are never dropped
@@ -25,11 +27,13 @@
 // with people never do. Every change is written to Apple Calendar and can be undone.
 import { calendarEvents, toBlocks, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
 import { replan } from "./lib/life/replan.mjs";
+import { freeGaps } from "./lib/life/gaps.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, undoLast, bridge, clean } from "./lib/life/calendar-write.mjs";
 import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
+import { parseTodos } from "./lib/life/todo-parse.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { homeFrom, preferredStart } from "./lib/life/sensible-time.mjs";
 import { bedOn, readWakeRequest } from "./lib/life/night.mjs";
@@ -151,6 +155,41 @@ if (command === "late") {
   const fixed = args.includes("--fixed") || isSocial(title);
   if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
   add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(before !== null ? { before } : {}), fixed });
+} else if (command === "day" && args.includes("--todos")) {
+  // "Plan my day from my to-do list" (2026-10-01): read the list itself, one
+  // block per to-do with its real title. ORION used to paste the list into --say,
+  // where "review CS lect 2" became 2 PM, four to-dos became one block, the rest
+  // were dropped, and Hairspray came along from Groceries.
+  const reminders = await bridge("list_incomplete_reminders", { list: config.todoList })
+    .then((r) => JSON.parse(r.reminders_json ?? "[]")).catch((e) => fail(`orion-reschedule: could not read ${config.todoList}: ${e.message}`, 1));
+  const onCalendar = blocks.filter((b) => b.end > nowMinute);
+  const skipped = [];
+  for (const r of reminders) {
+    const title = clean(r.title ?? "");
+    if (!title) continue;
+    const dueDate = r.due ? localDate(new Date(r.due)) : null;
+    if (dueDate && dueDate > date) { skipped.push(`${title} (due ${dueDate})`); continue; }
+    if (onCalendar.some((b) => sameThingEarly(title, b.title))) { skipped.push(`${title} (already on the calendar)`); continue; }
+    let estimate = { minutes: 45, optional: false };
+    try {
+      const tasks = parseTodos(title, { now: { date, minute: nowMinute } }).tasks;
+      estimate = { minutes: tasks.length === 1 ? tasks[0].minutes : 45, optional: tasks.some((t) => t.optional) };
+    } catch { /* keep the default */ }
+    add.push({ title, kind: classify(title), minutes: estimate.minutes,
+      importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false });
+  }
+  // Keep time genuinely free (config.freeMinutesKept), as fill does: due first,
+  // then his list order; what does not fit is named, not crammed in.
+  const home = homeFrom(blocks, { commuteMinutes: config.commuteMinutes, wake: wakeMinute });
+  let budget = freeGaps(blocks, { start: Math.max(home, nowMinute, window.start), end: window.end }, { minimum: 15 })
+    .reduce((sum, g) => sum + g.end - g.start, 0) - config.freeMinutesKept;
+  const ordered = [...add].sort((a, b) => a.importance - b.importance);
+  const kept = []; const noRoom = [];
+  for (const item of ordered) { if (item.minutes <= budget) { kept.push(item); budget -= item.minutes; } else noRoom.push(item.title); }
+  add = kept;   // overdue and due-today first, so they get the earliest time
+  if (noRoom.length) skipped.push(...noRoom.map((t) => `${t} (no room today)`));
+  if (!add.length) { console.log(`NOTHING TO PLAN: no open to-do fits on ${dayName}${skipped.length ? ` (left out: ${skipped.join(", ")})` : ""}.`); process.exit(0); }
+  if (skipped.length) console.log(`Left out: ${skipped.join(", ")}.`);
 } else if (command === "day") {
   if (!planArgs.length && !said.length && !args.includes("--fill")) fail('usage: orion-reschedule day --say "<his words>" [--fill] [--replace]  (or --plan "<title>, <min>, HH:MM, fixed" …)');
   for (const p of said.filter((item) => item.date === date)) {

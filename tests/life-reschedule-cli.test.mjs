@@ -211,3 +211,23 @@ test("wind down ends on the asleep line, which moves earlier before an early cla
   // 8:00 lab − 105 min ready (7:15 for a 9:00 class, Nick) = 6:15 wake; 8 h before = asleep by 22:15.
   assert.equal(wind?.end, hm(22, 15), r.out);
 });
+
+test("day --todos books each to-do as its own block, never groceries (2026-10-01)", (t) => {
+  const home = mkdtempSync(join(tmpdir(), "orion-resched-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  mkdirSync(join(home, ".openclaw/orion-controlled"), { recursive: true });
+  const calendar = join(home, "calendar.json"); const reminders = join(home, "reminders.json");
+  writeFileSync(calendar, JSON.stringify([{ identifier: "l", ...{ title: "CS1800 Lecture", start: iso(9), end: iso(10, 30) } }]));
+  const todo = (title, list = "Orion") => ({ identifier: title, title, list });
+  writeFileSync(reminders, JSON.stringify([todo("review CS lect 2"), todo("research backpacking stuff"), todo("finish resume"),
+    todo("thinking fast and slow book"), todo("study (if there's time)"), todo("Hairspray", "Groceries")]));
+  const r = spawnSync(process.execPath, [SCRIPT, "day", "--todos", "--date", DATE], { encoding: "utf8",
+    env: { ...process.env, HOME: home, ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: calendar, FAKE_REMINDERS: reminders, ORION_RESCHEDULE_UNDO: join(home, "u.json") } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const titles = JSON.parse(readFileSync(calendar, "utf8")).map((e) => e.title);
+  for (const t of ["review CS lect 2", "research backpacking stuff", "finish resume", "thinking fast and slow book"]) assert.ok(titles.includes(t), `${t}\n${r.stdout}`);
+  assert.ok(!titles.some((t) => /hairspray/i.test(t)), "groceries never planned");
+  assert.ok(!titles.some((t) => t.includes(",")), "no merged blocks");
+  const events = JSON.parse(readFileSync(calendar, "utf8")).map((e) => ({ t: e.title, s: new Date(e.start) }));
+  assert.ok(events.filter((e) => e.t !== "CS1800 Lecture").every((e) => e.s.getHours() * 60 + e.s.getMinutes() >= 11 * 60), "after he is home from class");
+});

@@ -1,310 +1,120 @@
-// Stop words to ignore during title matching
-const STOP_WORDS = new Set(["the", "my", "your", "and"]);
+// Do the times ORION says match what was booked? (ORION truthful / reply-times)
+//
+// 30 September 2026: ORION booked "finish resume" 14:30–16:00 and told Nick
+// "resume at 4:00 PM"; the same night, "dinner 7:30, gym 7:30–8:30" for gym
+// 19:30 and dinner 20:30. A time belongs to the clause it sits in ("dinner 7:30"
+// is dinner's time, not gym's), and a time without AM/PM is read the way the
+// booking makes sense of it before falling back to the bare-hour rule.
+// (Rewritten by Claude on 2026-10-01 from Qwen's draft, which matched times to
+// titles by the six words either side and fixed AM/PM before looking at the day.)
 
-/**
- * Parse a 12-hour time: hour (1-12), optional minute, optional AM/PM modifier.
- * Returns minutes after midnight or null on invalid input.
- */
-function parse12Hour(hour, minute = 0, modifier) {
-  hour = parseInt(hour, 10);
-  minute = parseInt(minute, 10);
-  if (isNaN(hour) || isNaN(minute)) return null;
-  if (hour < 1 || hour > 12) return null;
-  if (minute < 0 || minute > 59) return null;
+const STOP_WORDS = new Set(["the", "my", "your", "and", "then", "with", "after", "before", "until"]);
+const CLAUSE = /[,;.!?\n]|\bthen\b|\band then\b/i;
+const TIME = /\b(noon|midnight)\b|\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s*(?:–|-|to)\s*(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?)?/gi;
 
-  const mod = (modifier || "").toUpperCase();
-  let h = hour;
-  if (mod === "PM" && hour !== 12) h = hour + 12;
-  if (mod === "AM" && hour === 12) h = 0;
-  return h * 60 + minute;
-}
-
-/**
- * Parse a 24-hour time: hour (0-23), optional minute.
- * Returns minutes after midnight or null on invalid input.
- */
-function parse24Hour(hour, minute = 0) {
-  hour = parseInt(hour, 10);
-  minute = parseInt(minute, 10);
-  if (isNaN(hour) || isNaN(minute)) return null;
-  if (hour < 0 || hour > 23) return null;
-  if (minute < 0 || minute > 59) return null;
-  return hour * 60 + minute;
-}
-
-/**
- * Apply bare-hour rules: 1..7 → PM, 8..11 → AM, 12 → PM.
- * Returns the converted 24h hour value, or null if out of range.
- */
-function applyBareHourRules(hour) {
-  if (hour >= 1 && hour <= 7) return hour + 12; // PM
-  if (hour >= 8 && hour <= 11) return hour; // AM
-  if (hour === 12) return 12; // PM → 12:00 = 720
+/** 1..7 → PM, 8..11 → AM, 12 → noon (the brief's bare-hour rule). */
+function bareHour(hour) {
+  if (hour >= 1 && hour <= 7) return hour + 12;
+  if (hour >= 8 && hour <= 11) return hour;
+  if (hour === 12) return 12;
   return null;
 }
 
-/**
- * Extract up to N words from text around a position.
- */
-function getNearWords(text, index, maxWords = 6) {
-  const before = text.slice(0, index);
-  const after = text.slice(index);
-  const beforeWords = before.split(/\s+/).filter(Boolean).slice(-maxWords);
-  const afterWords = after.split(/\s+/).filter(Boolean).slice(0, maxWords);
-  return [...beforeWords, ...afterWords].join(" ");
+/** Minutes after midnight, plus the other reading when AM/PM was not said. */
+function readTime(hourText, minuteText, meridiem) {
+  const hour = Number(hourText); const minute = minuteText ? Number(minuteText) : 0;
+  if (!Number.isInteger(hour) || minute > 59) return null;
+  const mer = meridiem ? meridiem.replace(/\./g, "").toLowerCase() : null;
+  if (mer) {
+    if (hour < 1 || hour > 12) return null;
+    const h = mer === "pm" ? (hour % 12) + 12 : hour % 12;
+    return { minute: h * 60 + minute, alternatives: [] };
+  }
+  if (hour >= 13 && hour <= 23) return { minute: hour * 60 + minute, alternatives: [] };   // 24-hour
+  if (hour === 0) return { minute, alternatives: [] };
+  if (hour > 23) return null;
+  const h = bareHour(hour);
+  if (h === null) return null;
+  const chosen = h * 60 + minute;
+  const other = (chosen + 720) % 1440;
+  return { minute: chosen, alternatives: [other] };
+}
+
+function words(text) {
+  return String(text).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !STOP_WORDS.has(w));
 }
 
 /**
- * Tokenize reply into mentions of clock times.
- * Returns [{ phrase, minute, near }].
+ * Every clock time in the reply: [{ phrase, minute, near }].
+ * `near` is the clause the time sits in (the words that say what it is for).
  */
 export function mentions(reply) {
   if (typeof reply !== "string") throw new TypeError("reply must be a string");
+  return parse(reply).map(({ phrase, minute, near }) => ({ phrase, minute, near }));
+}
 
-  const results = [];
-  // Track character ranges already consumed so we don't double-count
-  const consumedRanges = [];
-
-  function isConsumed(index, length) {
-    for (const [s, e] of consumedRanges) {
-      if (index < e && index + length > s) return true;
-    }
-    return false;
+function parse(reply) {
+  const out = [];
+  // Split into clauses but keep offsets, so each time knows its own clause.
+  let start = 0;
+  const clauses = [];
+  for (const part of reply.split(new RegExp(`(${CLAUSE.source})`, "i"))) {
+    if (part === undefined) continue;
+    if (CLAUSE.test(part) && part.length <= 9) { start += part.length; continue; }
+    clauses.push({ text: part, start }); start += part.length;
   }
-
-  function markConsumed(index, length) {
-    consumedRanges.push([index, index + length]);
-  }
-
-  // --- Phase 1: Ranges with dash/en-dash ---
-  // "2:30–4 PM", "2:30-4:00 PM", "from 2:30 to 4"
-  const rangePattern = /(\d{1,2}(?::\d{2})?)\s*[–\-]\s*(\d{1,2}(?::\d{2})?)\s*(AM|PM|am|pm)?/gi;
-  let m;
-  while ((m = rangePattern.exec(reply)) !== null) {
-    const startStr = m[1];
-    const endStr = m[2];
-    const trailingMod = m[3] || "";
-    const fullPhrase = m[0];
-    const startIndex = m.index;
-
-    const parseRangeEnd = (str, mod) => {
-      if (mod) {
-        // Trailing modifier applies to both ends — always 12-hour
-        if (str.includes(":")) {
-          const [h, min] = str.split(":");
-          return parse12Hour(h, min, mod);
-        } else {
-          return parse12Hour(parseInt(str, 10), 0, mod);
-        }
-      } else if (str.includes(":")) {
-        // No trailing mod, has colon — try 24h first
-        const [h, min] = str.split(":");
-        let val = parse24Hour(h, min);
-        if (val !== null) return val;
-        return parse12Hour(h, min, "");
+  for (const clause of clauses) {
+    for (const m of clause.text.matchAll(TIME)) {
+      const phrase = m[0].trim();
+      if (m[1]) {
+        out.push({ phrase, minute: m[1].toLowerCase() === "noon" ? 720 : 0, alternatives: [], near: clause.text.trim(), range: false });
+        continue;
+      }
+      // A lone number is not a time unless it says so ("at 4", "4 PM", "4:30").
+      const hasColon = m[3] !== undefined; const hasMer = m[4] !== undefined || m[7] !== undefined;
+      const before = clause.text.slice(0, m.index);
+      if (!hasColon && !hasMer && m[5] === undefined && !/\b(at|by|from|until|till|around)\s*$/i.test(before)) continue;
+      if (m[5] !== undefined) {
+        // A range: a trailing AM/PM applies to both ends.
+        const mer = m[7] ?? m[4];
+        const a = readTime(m[2], m[3], m[4] ?? mer); const b = readTime(m[5], m[6], m[7] ?? mer);
+        if (!a || !b) continue;
+        out.push({ phrase, minute: a.minute, alternatives: a.alternatives, near: clause.text.trim(), range: true, end: false });
+        out.push({ phrase, minute: b.minute, alternatives: b.alternatives, near: clause.text.trim(), range: true, end: true });
       } else {
-        // Bare hour, no trailing mod — apply bare-hour rules
-        const hVal = parseInt(str, 10);
-        const converted = applyBareHourRules(hVal);
-        return converted !== null ? converted * 60 : null;
-      }
-    };
-
-    const startMinute = parseRangeEnd(startStr, trailingMod);
-    const endMinute = parseRangeEnd(endStr, trailingMod);
-
-    if (startMinute !== null && endMinute !== null) {
-      const near = getNearWords(reply, startIndex);
-      results.push({ phrase: fullPhrase, minute: startMinute, near, isRange: true });
-      results.push({ phrase: fullPhrase, minute: endMinute, near, isRange: true });
-      markConsumed(startIndex, fullPhrase.length);
-    }
-  }
-
-  // --- Phase 2: "from X to Y" / "between X and Y" patterns ---
-  const fromToPattern = /(?:from|between)\s+(\d{1,2}(?::\d{2})?)\s+(?:to|until|till)\s+(\d{1,2}(?::\d{2})?)\s*(AM|PM|am|pm)?/gi;
-  while ((m = fromToPattern.exec(reply)) !== null) {
-    const startStr = m[1];
-    const endStr = m[2];
-    const trailingMod = m[3] || "";
-    const fullPhrase = m[0];
-    const startIndex = m.index;
-
-    const parseRangeEnd = (str, mod) => {
-      if (mod) {
-        if (str.includes(":")) {
-          const [h, min] = str.split(":");
-          return parse12Hour(h, min, mod);
-        } else {
-          return parse12Hour(parseInt(str, 10), 0, mod);
-        }
-      } else if (str.includes(":")) {
-        const [h, min] = str.split(":");
-        let val = parse24Hour(h, min);
-        if (val !== null) return val;
-        return parse12Hour(h, min, "");
-      } else {
-        const hVal = parseInt(str, 10);
-        const converted = applyBareHourRules(hVal);
-        return converted !== null ? converted * 60 : null;
-      }
-    };
-
-    const startMinute = parseRangeEnd(startStr, trailingMod);
-    const endMinute = parseRangeEnd(endStr, trailingMod);
-
-    if (startMinute !== null && endMinute !== null) {
-      const near = getNearWords(reply, startIndex);
-      results.push({ phrase: fullPhrase, minute: startMinute, near, isRange: true });
-      results.push({ phrase: fullPhrase, minute: endMinute, near, isRange: true });
-      markConsumed(startIndex, fullPhrase.length);
-    }
-  }
-
-  // --- Phase 3: "noon" and "midnight" ---
-  const noonPattern = /\bnoon\b/gi;
-  while ((m = noonPattern.exec(reply)) !== null) {
-    if (!isConsumed(m.index, m[0].length)) {
-      results.push({ phrase: m[0], minute: 720, near: getNearWords(reply, m.index) });
-      markConsumed(m.index, m[0].length);
-    }
-  }
-
-  const midnightPattern = /\bmidnight\b/gi;
-  while ((m = midnightPattern.exec(reply)) !== null) {
-    if (!isConsumed(m.index, m[0].length)) {
-      results.push({ phrase: m[0], minute: 0, near: getNearWords(reply, m.index) });
-      markConsumed(m.index, m[0].length);
-    }
-  }
-
-  // --- Phase 4: 12-hour times with explicit AM/PM ---
-  // "4 PM", "4pm", "4:00 PM", "4:00pm"
-  const time12Pattern = /\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)\b/gi;
-  while ((m = time12Pattern.exec(reply)) !== null) {
-    if (!isConsumed(m.index, m[0].length)) {
-      const hour = parseInt(m[1], 10);
-      const minute = m[2] !== undefined ? parseInt(m[2], 10) : 0;
-      const mod = m[3];
-      const minuteVal = parse12Hour(hour, minute, mod);
-      if (minuteVal !== null) {
-        results.push({ phrase: m[0], minute: minuteVal, near: getNearWords(reply, m.index) });
-        markConsumed(m.index, m[0].length);
+        const t = readTime(m[2], m[3], m[4]);
+        if (t) out.push({ phrase, minute: t.minute, alternatives: t.alternatives, near: clause.text.trim(), range: false });
       }
     }
   }
-
-  // --- Phase 5: 24-hour times "HH:MM" (no AM/PM) ---
-  const time24Pattern = /\b(\d{1,2}):(\d{2})\b/g;
-  while ((m = time24Pattern.exec(reply)) !== null) {
-    if (!isConsumed(m.index, m[0].length)) {
-      const h = parseInt(m[1], 10);
-      const min = parseInt(m[2], 10);
-      const minuteVal = parse24Hour(h, min);
-      if (minuteVal !== null) {
-        results.push({ phrase: m[0], minute: minuteVal, near: getNearWords(reply, m.index) });
-        markConsumed(m.index, m[0].length);
-      }
-    }
-  }
-
-  // --- Phase 6: Bare hours with "at" — only if not part of a HH:MM time ---
-  // "at 4", "at 9" — the hour must not be followed by :MM
-  const bareAtPattern = /\bat\s+(\d{1,2})(?!\s*:\d{2})\b/gi;
-  while ((m = bareAtPattern.exec(reply)) !== null) {
-    if (!isConsumed(m.index, m[0].length)) {
-      const hour = parseInt(m[1], 10);
-      if (hour >= 1 && hour <= 12) {
-        const hVal = applyBareHourRules(hour);
-        if (hVal !== null) {
-          results.push({ phrase: m[0], minute: hVal * 60, near: getNearWords(reply, m.index) });
-          markConsumed(m.index, m[0].length);
-        }
-      }
-    }
-  }
-
-  return results;
+  return out;
 }
 
 /**
- * Score how well a block title matches the near-text of a mention.
- * Counts shared words of 4+ letters, case-insensitive, ignoring stop words.
- */
-function matchScore(title, nearText) {
-  const titleWords = new Set(
-    title.toLowerCase().split(/\s+/).filter(w => w.length >= 4 && !STOP_WORDS.has(w))
-  );
-  const nearWords = nearText.toLowerCase().split(/\s+/).filter(w => w.length >= 4 && !STOP_WORDS.has(w));
-
-  let score = 0;
-  for (const word of nearWords) {
-    if (titleWords.has(word)) score++;
-  }
-  return score;
-}
-
-/**
- * Check reply times against booked blocks.
+ * @param reply   ORION's reply text
+ * @param booked  [{ title, start, end }] minutes after midnight
+ * @returns { ok, mismatches: [{ title, said, booked }], unmatched: [phrase] }
  */
 export function checkReplyTimes(reply, booked) {
   if (typeof reply !== "string") throw new TypeError("reply must be a string");
   if (!Array.isArray(booked)) throw new TypeError("booked must be an array");
-
-  for (const block of booked) {
-    if (typeof block.title !== "string") throw new TypeError("each block must have a string title");
-    if (typeof block.start !== "number" || typeof block.end !== "number") {
-      throw new TypeError("each block must have numeric start and end");
+  const mismatches = []; const unmatched = [];
+  for (const mention of parse(reply)) {
+    const clauseWords = new Set(words(mention.near));
+    const scored = booked.map((block) => ({ block, score: words(block.title).filter((w) => clauseWords.has(w)).length }))
+      .filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+    if (!scored.length) { unmatched.push(mention.phrase); continue; }
+    const best = scored.filter((x) => x.score === scored[0].score);
+    const readings = [mention.minute, ...mention.alternatives];
+    // A lone time is when it starts; only the end of a range may be when it ends.
+    const fits = (block, minute) => (mention.range && mention.end ? minute === block.end : minute === block.start);
+    const hit = best.find(({ block }) => readings.some((minute) => fits(block, minute)));
+    if (hit) continue;
+    // Ties go to the block nearest what he was told.
+    const block = best.map((x) => x.block).sort((a, b) => Math.abs(a.start - mention.minute) - Math.abs(b.start - mention.minute))[0];
+    if (!mismatches.some((x) => x.title === block.title && x.said === mention.minute)) {
+      mismatches.push({ title: block.title, said: mention.minute, booked: block.start });
     }
   }
-
-  const mentionList = mentions(reply);
-  const mismatches = [];
-  const unmatched = [];
-  const matchedBlockIndices = new Set();
-
-  for (let i = 0; i < mentionList.length; i++) {
-    const mention = mentionList[i];
-    let bestBlock = null;
-    let bestBlockIndex = -1;
-    let bestScore = -1;
-    let bestDist = Infinity;
-
-    for (let bi = 0; bi < booked.length; bi++) {
-      if (matchedBlockIndices.has(bi)) continue;
-      const block = booked[bi];
-      const score = matchScore(block.title, mention.near);
-      if (score > 0) {
-        const dist = Math.abs(block.start - mention.minute);
-        if (score > bestScore || (score === bestScore && dist < bestDist)) {
-          bestBlock = block;
-          bestBlockIndex = bi;
-          bestScore = score;
-          bestDist = dist;
-        }
-      }
-    }
-
-    if (bestBlock) {
-      matchedBlockIndices.add(bestBlockIndex);
-      // Check if the mention's minute equals start or end of the block
-      const matchesStart = mention.minute === bestBlock.start;
-      const matchesEnd = mention.isRange && mention.minute === bestBlock.end;
-      if (!matchesStart && !matchesEnd) {
-        mismatches.push({
-          title: bestBlock.title,
-          said: mention.minute,
-          booked: bestBlock.start,
-        });
-      }
-    } else {
-      unmatched.push(mention.phrase);
-    }
-  }
-
-  return {
-    ok: mismatches.length === 0,
-    mismatches,
-    unmatched,
-  };
+  return { ok: mismatches.length === 0, mismatches, unmatched };
 }

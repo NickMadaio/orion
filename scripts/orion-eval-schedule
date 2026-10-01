@@ -1,0 +1,84 @@
+#!/usr/bin/env node
+/*
+ orion-eval-schedule <scenarios.json> [--model provider/model] [--only id,id] [--out results.json]
+
+ Asks the real ORION (orion-remote handle, phone route, the live brain and its
+ tools) to change a day, then grades the day he leaves behind (2026-10-01).
+ Each scenario runs on a SANDBOX calendar with its own clock
+ (lib/life/bridge-path.mjs) inside evaluation mode, so nothing reaches Nick's
+ calendar, his settings or anyone's inbox. --model compares brains on the same
+ scenarios (Haiku, Sonnet, local models through Ollama).
+
+ Scenario: { id, now?: "HH:MM", day?: [{ title, start, end, kind?, fixed? }] (default: the file's base),
+             say: "…" | ["…", "…"], expect: { … see lib/eval/schedule-grade.mjs } }
+*/
+import { readFileSync, writeFileSync, mkdirSync, rmSync, utimesSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { EVAL_MARKER } from "./lib/eval-mode.mjs";
+import { SANDBOX_CALENDAR } from "./lib/life/bridge-path.mjs";
+import { gradeSchedule } from "./lib/eval/schedule-grade.mjs";
+
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const file = args.find((a, i) => !a.startsWith("--") && !["--model", "--only", "--out"].includes(args[i - 1]));
+if (!file) { console.error("usage: orion-eval-schedule <scenarios.json> [--model provider/model] [--only id,id] [--out file]"); process.exit(2); }
+const model = flag("--model");
+const only = flag("--only")?.split(",");
+const here = dirname(fileURLToPath(import.meta.url));
+const data = JSON.parse(readFileSync(file, "utf8"));
+// { base: { now, day }, scenarios: [...] } — a scenario without its own day uses the base day.
+const scenarios = (Array.isArray(data) ? data : data.scenarios)
+  .map((s) => ({ ...s, now: s.now ?? data.base?.now, day: s.day ?? data.base?.day }))
+  .filter((s) => !only || only.includes(s.id));
+if (existsSync(SANDBOX_CALENDAR)) { console.error(`a sandbox day is already there (${SANDBOX_CALENDAR}); is another evaluation running?`); process.exit(1); }
+
+const today = new Date().toLocaleDateString("en-CA");
+const iso = (hhmm) => new Date(`${today}T${hhmm}:00`).toISOString();
+const minute = (s) => { const d = new Date(s); return d.getHours() * 60 + d.getMinutes(); };
+const toMinute = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+const readDay = () => JSON.parse(readFileSync(SANDBOX_CALENDAR, "utf8")).events
+  .map((e) => ({ title: e.title, start: minute(e.start), end: minute(e.end) })).sort((a, b) => a.start - b.start);
+const lifeCopy = join(dirname(SANDBOX_CALENDAR), "eval-life-config.json");
+const realLife = join(dirname(SANDBOX_CALENDAR), "life-config.json");
+const stamp = new Date().toISOString().slice(0, 16).replace(/[:T-]/g, "");
+const results = [];
+
+mkdirSync(dirname(EVAL_MARKER), { recursive: true });
+writeFileSync(EVAL_MARKER, `orion-eval-schedule ${stamp}\n`);
+try {
+  for (const s of scenarios) {
+    utimesSync(EVAL_MARKER, new Date(), new Date());
+    const events = s.day.map((d, i) => ({ identifier: `seed-${i}`, title: d.title, start: iso(d.start), end: iso(d.end),
+      ...(d.fixed ? {} : { orion: d.kind ?? "other" }) }));
+    writeFileSync(SANDBOX_CALENDAR, JSON.stringify({ now: iso(s.now), events }, null, 2));
+    writeFileSync(lifeCopy, existsSync(realLife) ? readFileSync(realLife, "utf8") : "{}");
+    rmSync(join(dirname(SANDBOX_CALENDAR), "eval-reschedule-undo.json"), { force: true });
+    const before = readDay();
+    const session = `orion-eval-sched-${stamp}-${s.id}`;
+    const replies = [];
+    const started = Date.now();
+    for (const [i, say] of [s.say].flat().entries()) {
+      const run = spawnSync(process.execPath, [join(here, "orion-remote"), "handle", "--from", "phone", "--mode", "chat",
+        "--id", `${session}-${i}`, "--at", String(Date.now()), "--", say],
+        { encoding: "utf8", timeout: 300_000,
+          env: { ...process.env, ORION_REMOTE_ALLOW: "phone", ORION_BRAIN_SESSION: session, ...(model ? { ORION_BRAIN_MODEL: model } : {}) } });
+      replies.push((run.stdout ?? "").trim() || `(no reply, exit ${run.status}) ${(run.stderr ?? "").slice(0, 200)}`);
+    }
+    const after = readDay();
+    const grade = gradeSchedule({ after, before, expect: s.expect ?? {}, now: toMinute(s.now), reply: replies.at(-1) });
+    const row = { id: s.id, model: model ?? "default", ok: grade.ok, failures: grade.failures, secs: Math.round((Date.now() - started) / 1000),
+      replies, day: after.filter((b) => b.end > toMinute(s.now)) };
+    results.push(row);
+    console.log(`${grade.ok ? "PASS" : "FAIL"} ${s.id} (${row.secs}s)${grade.ok ? "" : `\n   ${grade.failures.join("\n   ")}`}\n   ORION: ${replies.at(-1).slice(0, 220).replace(/\n/g, " ")}`);
+    if (flag("--out")) writeFileSync(flag("--out"), JSON.stringify(results, null, 1));
+  }
+} finally {
+  rmSync(EVAL_MARKER, { force: true });
+  rmSync(SANDBOX_CALENDAR, { force: true });
+  rmSync(lifeCopy, { force: true });
+}
+const passed = results.filter((r) => r.ok).length;
+console.log(`\n${passed}/${results.length} passed${model ? ` with ${model}` : ""}.`);
+process.exit(passed === results.length ? 0 : 1);

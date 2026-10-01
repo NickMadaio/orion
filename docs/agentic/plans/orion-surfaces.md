@@ -65,7 +65,6 @@ Nick asked for all of the above on 1 October 2026 and asked that the local agent
   "context": "READ orion-surfaces.briefs/early-cli.md and orion-surfaces.briefs/common.md.",
   "scope": [
     "scripts/orion-reschedule",
-    "scripts/lib/life/calendar-write.mjs",
     "tests/surfaces-early-cli.test.mjs"
   ],
   "nonScope": [
@@ -136,16 +135,16 @@ Nick asked for all of the above on 1 October 2026 and asked that the local agent
 }
 ```
 
-### orion-focus tools
+### orion-ontask tools
 
 ```orion-task
 {
   "id": "focus-cli",
-  "title": "orion-focus tools",
-  "objective": "After this task, scripts/orion-focus gives ORION status, snooze, allow, wrong, act and log commands over one focus state file, with a dry mode for tests.",
+  "title": "orion-ontask tools",
+  "objective": "After this task, scripts/orion-ontask gives ORION status, snooze, allow, wrong, act and log commands over one focus state file, with a dry mode for tests.",
   "context": "READ orion-surfaces.briefs/focus-cli.md and orion-surfaces.briefs/common.md.",
   "scope": [
-    "scripts/orion-focus",
+    "scripts/orion-ontask",
     "scripts/lib/focus/state.mjs",
     "tests/surfaces-focus-cli.test.mjs"
   ],

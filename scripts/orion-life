@@ -2,9 +2,17 @@
 // orion-life — Nick's planning preferences.
 //   orion-life                       show them
 //   orion-life set <key> <value>     e.g. set sideProjectLabel "Edit the London vlog", set gymDays 1,3,5, set bedtime 00:30
-import { loadConfig, setConfig } from "./lib/life/config.mjs";
+//   orion-life min <name> <minutes>  "naps at least 75 minutes, always": min nap 75 (0 removes it)
+//   orion-life set autoShrink true|false   may low-priority blocks give up time when the day is full
+import { loadConfig, setConfig, setMinimum } from "./lib/life/config.mjs";
 const [cmd, key, ...value] = process.argv.slice(2);
-if (cmd === "set") {
+if (cmd === "min") {
+  try {
+    const minutes = value.at(-1); const name = [key, ...value.slice(0, -1)].join(" ");
+    const all = setMinimum(name, minutes);
+    console.log(Number(minutes) === 0 ? `No minimum for ${name} any more.` : `Saved: ${name} is always at least ${minutes} minutes. All minimums: ${JSON.stringify(all)}`);
+  } catch (e) { console.error(e.message); process.exit(2); }
+} else if (cmd === "set") {
   try { console.log(`${key} is now ${JSON.stringify(setConfig(key, value.join(" ")))}`); } catch (e) { console.error(e.message); process.exit(2); }
 } else {
   const c = loadConfig();

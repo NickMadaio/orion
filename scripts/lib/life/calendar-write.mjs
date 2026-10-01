@@ -1,24 +1,15 @@
 // Calendar writes for the planner, through the Mac bridge, with an undo record.
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { bridgeRequest, sandbox } from "./bridge-path.mjs";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
-const run = promisify(execFile);
-// ORION_BRIDGE_BIN: a stand-in bridge for tests.
-const BRIDGE = process.env.ORION_BRIDGE_BIN || ([join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridge"),
-                join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find((p) => existsSync(p))
-  ?? join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge"));
-export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO || join(homedir(), ".openclaw/orion-controlled/reschedule-undo.json");
+// An evaluation's undo history is its own, so "undo" during one never reaches his real calendar.
+export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
+  || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}reschedule-undo.json`);
 
 export async function bridge(action, payload) {
-  const request = JSON.stringify({ id: "life", action, payload }).replace(/'/g, "'\\''");
-  const { stdout } = await run("/bin/sh", ["-c", `printf '%s\\n' '${request}' | "${BRIDGE}"`], { timeout: 30000 });
-  const line = stdout.split("\n").find((l) => l.trim().startsWith("{"));
-  const parsed = line ? JSON.parse(line) : null;
-  if (!parsed?.ok) throw new Error(parsed?.error ?? "the calendar bridge did not answer");
-  return parsed.result;
+  return bridgeRequest(action, payload);
 }
 
 /** Local date + minute of day → ISO. Minutes past 1440 roll into the next day. */
@@ -69,8 +60,9 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
     for (const m of moves) {
       const block = blocksById.get(m.id);
       if (!block?.calendarId) continue;
-      const length = block.end - block.start;
-      await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, m.to + length) });
+      // A move may also change the length (extend, resize, shrink to fit): `toEnd`.
+      const end = Number.isInteger(m.toEnd) ? m.toEnd : m.to + (block.end - block.start);
+      await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, end) });
       undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
     }
     for (const c of created) {

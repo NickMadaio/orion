@@ -1,0 +1,403 @@
+{
+ "base": {
+  "now": "14:19",
+  "day": [
+   {
+    "title": "CS1800 Discrete Structures — Lecture",
+    "start": "09:00",
+    "end": "10:30",
+    "fixed": true
+   },
+   {
+    "title": "DS lab",
+    "start": "12:18",
+    "end": "13:48",
+    "kind": "study"
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": "13:58",
+    "end": "14:58",
+    "kind": "side_project"
+   },
+   {
+    "title": "Nap",
+    "start": "15:08",
+    "end": "15:53",
+    "kind": "rest"
+   },
+   {
+    "title": "Study",
+    "start": "16:03",
+    "end": "17:03",
+    "kind": "study"
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": "17:13",
+    "end": "17:58",
+    "kind": "other"
+   },
+   {
+    "title": "send internship applications",
+    "start": "18:08",
+    "end": "19:38",
+    "kind": "other"
+   },
+   {
+    "title": "Dinner",
+    "start": "19:48",
+    "end": "20:33",
+    "kind": "meal"
+   },
+   {
+    "title": "finish resume",
+    "start": "20:43",
+    "end": "22:13",
+    "kind": "other"
+   },
+   {
+    "title": "review CS lect 2",
+    "start": "22:23",
+    "end": "23:08",
+    "kind": "study"
+   },
+   {
+    "title": "Wind down",
+    "start": "23:30",
+    "end": "23:59",
+    "kind": "rest"
+   }
+  ]
+ },
+ "scenarios": [
+  {
+   "id": "extend-lab-nap-after-swap-youtube",
+   "say": "The DS lab is taking longer than expected. Extend it all the way to 3. I’ll take my nap after. And to make up for not doing the YouTube side project you can replace “apply somewhere with it.",
+   "expect": {
+    "has": [
+     {
+      "title": "DS lab",
+      "end": "15:00"
+     },
+     {
+      "title": "Nap",
+      "startAtLeast": "15:00"
+     }
+    ],
+    "count": {
+     "DS lab": 1,
+     "youtube": 1
+    },
+    "order": [
+     [
+      "DS lab",
+      "Nap"
+     ]
+    ],
+    "absent": [
+     "apply to SOMEWHERE"
+    ],
+    "mayDrop": [
+     "Side project"
+    ]
+   }
+  },
+  {
+   "id": "full-afternoon-replay",
+   "say": [
+    "The DS lab is taking longer than expected. Extend it all the way to 3. I’ll take my nap after. And to make up for not doing the YouTube side project you can replace “apply somewhere with it.",
+    "Just make it fit, shrink it. It’s not a priority item. Going forward remember that you can change how much time is allotted to non priority items",
+    "First, naps should be at least an hour and 15 minutes long ALWAYS. And with that being said that makes things even tighter. Make the nap longer, push study back, and now get rid of send internship applications"
+   ],
+   "expect": {
+    "count": {
+     "DS lab": 1,
+     "youtube": 1
+    },
+    "minLength": {
+     "Nap": 75
+    },
+    "order": [
+     [
+      "DS lab",
+      "Nap"
+     ],
+     [
+      "Nap",
+      "Study"
+     ]
+    ],
+    "absent": [
+     "send internship applications",
+     "apply to SOMEWHERE"
+    ],
+    "mayDrop": [
+     "Side project"
+    ]
+   }
+  },
+  {
+   "id": "still-in-lab-30-more",
+   "say": "still in the lab, I need like 30 more minutes",
+   "expect": {
+    "count": {
+     "DS lab": 1
+    },
+    "has": [
+     {
+      "title": "DS lab",
+      "endAtLeast": "14:44",
+      "endBefore": "14:56"
+     }
+    ]
+   }
+  },
+  {
+   "id": "past-time-trap",
+   "say": "put DS lab at 1pm for 2 hours",
+   "expect": {
+    "count": {
+     "DS lab": 1
+    }
+   }
+  },
+  {
+   "id": "resize-longer",
+   "say": "make study 90 minutes",
+   "expect": {
+    "minutes": {
+     "Study": 90
+    },
+    "unchanged": [
+     "finish resume",
+     "send internship applications"
+    ]
+   }
+  },
+  {
+   "id": "resize-shorter",
+   "say": "cut dinner down to 30 min",
+   "expect": {
+    "minutes": {
+     "Dinner": 30
+    }
+   }
+  },
+  {
+   "id": "move-study-6",
+   "say": "move study to 6pm",
+   "expect": {
+    "has": [
+     {
+      "title": "Study",
+      "start": "18:00"
+     }
+    ],
+    "minutes": {
+     "Study": 60
+    }
+   }
+  },
+  {
+   "id": "swap-even",
+   "say": "swap my nap and the apply to somewhere block",
+   "expect": {
+    "order": [
+     [
+      "apply to SOMEWHERE",
+      "Nap"
+     ]
+    ],
+    "minutes": {
+     "Nap": 45,
+     "apply to SOMEWHERE": 45
+    }
+   }
+  },
+  {
+   "id": "swap-uneven",
+   "say": "swap study and the internship applications",
+   "expect": {
+    "order": [
+     [
+      "send internship applications",
+      "Study"
+     ]
+    ],
+    "minutes": {
+     "Study": 60,
+     "send internship applications": 90
+    }
+   }
+  },
+  {
+   "id": "reorder-resume-before-dinner",
+   "say": "can I do the resume before dinner instead of after",
+   "expect": {
+    "order": [
+     [
+      "finish resume",
+      "Dinner"
+     ]
+    ],
+    "minutes": {
+     "finish resume": 90,
+     "Dinner": 45
+    }
+   }
+  },
+  {
+   "id": "standing-nap-rule",
+   "say": "naps should always be at least an hour and 15 minutes",
+   "expect": {
+    "minLength": {
+     "Nap": 75
+    }
+   }
+  },
+  {
+   "id": "drop-and-push",
+   "say": "get rid of send internship applications and push study back half an hour",
+   "expect": {
+    "absent": [
+     "send internship applications"
+    ],
+    "has": [
+     {
+      "title": "Study",
+      "startAtLeast": "16:33"
+     }
+    ]
+   }
+  },
+  {
+   "id": "two-changes",
+   "say": "make the nap 75 min and move dinner to 8",
+   "expect": {
+    "minutes": {
+     "Nap": 75
+    },
+    "has": [
+     {
+      "title": "Dinner",
+      "start": "20:00"
+     }
+    ]
+   }
+  },
+  {
+   "id": "eat-now",
+   "say": "just got home, eating now then a 15 min break before anything else",
+   "expect": {
+    "has": [
+     {
+      "title": "break",
+      "startAtLeast": "14:19"
+     }
+    ]
+   }
+  },
+  {
+   "id": "shrink-youtube-to-fit",
+   "now": "14:20",
+   "day": [
+    {
+     "title": "nap",
+     "start": "15:00",
+     "end": "15:45",
+     "kind": "rest"
+    },
+    {
+     "title": "study",
+     "start": "16:03",
+     "end": "17:03",
+     "kind": "study"
+    },
+    {
+     "title": "send internship applications",
+     "start": "18:08",
+     "end": "19:38",
+     "kind": "other"
+    },
+    {
+     "title": "dinner",
+     "start": "19:48",
+     "end": "20:33",
+     "kind": "meal"
+    },
+    {
+     "title": "finish resume",
+     "start": "20:43",
+     "end": "22:13",
+     "kind": "other"
+    },
+    {
+     "title": "YouTube side project",
+     "start": "22:23",
+     "end": "23:23",
+     "kind": "side_project"
+    },
+    {
+     "title": "wind down",
+     "start": "23:30",
+     "end": "23:59",
+     "kind": "rest"
+    }
+   ],
+   "say": "make the nap an hour and 15 and push study back. shrink the youtube thing if you need room, it's not a priority",
+   "expect": {
+    "minLength": {
+     "nap": 75
+    },
+    "order": [
+     [
+      "nap",
+      "study"
+     ]
+    ],
+    "unchanged": [
+     "finish resume",
+     "send internship applications",
+     "dinner"
+    ]
+   }
+  },
+  {
+   "id": "tidy-overlaps",
+   "day": [
+    {
+     "title": "Break",
+     "start": "14:30",
+     "end": "14:45",
+     "kind": "rest"
+    },
+    {
+     "title": "Study",
+     "start": "14:40",
+     "end": "15:40",
+     "kind": "study"
+    },
+    {
+     "title": "Dinner",
+     "start": "15:30",
+     "end": "16:15",
+     "kind": "meal"
+    },
+    {
+     "title": "finish resume",
+     "start": "16:00",
+     "end": "17:30",
+     "kind": "other"
+    }
+   ],
+   "say": "my schedule is all overlapping, fix it",
+   "expect": {
+    "unchanged": [
+     "finish resume",
+     "Study"
+    ]
+   }
+  }
+ ]
+}

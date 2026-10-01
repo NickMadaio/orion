@@ -133,7 +133,11 @@ enum OrionMacBridge {
             // it, and the planner could not see the end of the week (2026-09-29).
             let days = Int(request.payload?["days"] ?? "") ?? 7
             let limit = Int(request.payload?["limit"] ?? "") ?? 200
-            return try listUpcomingCalendarEvents(days: min(max(days, 1), 60), limit: min(max(limit, 1), 500))
+            // "from": "today" also returns what already happened today (2026-10-01:
+            // "extend the DS lab" — the lab had ended on the calendar, so ORION could
+            // not see it and booked a second one).
+            let fromToday = request.payload?["from"] == "today"
+            return try listUpcomingCalendarEvents(days: min(max(days, 1), 60), limit: min(max(limit, 1), 500), fromToday: fromToday)
         case "list_deadlines":
             return try listUpcomingCalendarEvents(days: 90, oneOffOnly: true, limit: 40)
         case "list_incomplete_reminders":
@@ -225,13 +229,14 @@ enum OrionMacBridge {
     /// scenario asked "when's my macro quiz?" and got "not on the calendar" --
     /// the quiz was 17 days out and the seven-day window never saw it. Weekly
     /// classes are skipped there because they would fill the whole list.
-    static func listUpcomingCalendarEvents(days: Int = 7, oneOffOnly: Bool = false, limit: Int = 25) throws -> [String: String] {
+    static func listUpcomingCalendarEvents(days: Int = 7, oneOffOnly: Bool = false, limit: Int = 25, fromToday: Bool = false) throws -> [String: String] {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
             throw BridgeError.unavailable("Allow Calendar access in Orion before asking it to read your schedule.")
         }
         let store = EKEventStore()
         let end = Calendar.current.date(byAdding: .day, value: days, to: Date())!
-        let events = store.events(matching: store.predicateForEvents(withStart: Date(), end: end, calendars: nil))
+        let start = fromToday ? Calendar.current.startOfDay(for: Date()) : Date()
+        let events = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
             .filter { !oneOffOnly || !$0.hasRecurrenceRules }
             .sorted { $0.startDate < $1.startDate }
             .prefix(limit)

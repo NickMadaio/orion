@@ -2,19 +2,9 @@
 // Mac bridge, classified into the kinds the planner reasons about. Calendar
 // events are fixed; only what ORION booked itself (study, side-project and
 // focus blocks it created) is movable. Read-only.
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { join } from "node:path";
-import { homedir } from "node:os";
-import { existsSync } from "node:fs";
 import { ignoredEvent } from "./config.mjs";
-
-const run = promisify(execFile);
-// The installed copy first (launchd- and app-started processes cannot read ~/Desktop), then the build.
-// ORION_BRIDGE_BIN: a stand-in bridge for tests (the same override calendar-write honours).
-const BRIDGE = process.env.ORION_BRIDGE_BIN || ([join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridge"),
-                join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find((p) => existsSync(p))
-  ?? join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge"));
+// The bridge (and, during a schedule evaluation, the sandbox calendar) lives in bridge-path.
+import { bridgeRequest } from "./bridge-path.mjs";
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -68,12 +58,8 @@ export function toBlocks(events, date) {
 }
 
 export async function calendarEvents() {
-  const request = JSON.stringify({ id: "life", action: "list_upcoming_calendar_events", payload: {} });
-  const { stdout } = await run("/bin/sh", ["-c", `printf '%s\\n' '${request}' | "${BRIDGE}"`], { timeout: 30000, maxBuffer: 8 << 20 });
-  const line = stdout.split("\n").find((l) => l.trim().startsWith("{"));
-  const parsed = line ? JSON.parse(line) : null;
-  if (!parsed?.ok) throw new Error(parsed?.error ?? "the calendar bridge did not answer");
-  return JSON.parse(parsed.result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title));
+  const result = await bridgeRequest("list_upcoming_calendar_events", { from: "today" });
+  return JSON.parse(result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title));
 }
 
 export async function liveDay(date) {

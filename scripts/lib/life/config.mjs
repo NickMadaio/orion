@@ -4,7 +4,10 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
-export const CONFIG_FILE = process.env.ORION_LIFE_CONFIG || join(homedir(), ".openclaw/orion-controlled/life-config.json");
+import { sandbox } from "./bridge-path.mjs";
+// During a schedule evaluation, a copy: a rule said in a test must not change his real settings.
+export const CONFIG_FILE = process.env.ORION_LIFE_CONFIG
+  || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}life-config.json`);
 export const DEFAULTS = Object.freeze({
   sideProjectMinutes: 60, sideProjectLabel: "Side project (YouTube)",
   gymDays: [1, 3, 5], gymMinutes: 60,
@@ -21,6 +24,10 @@ export const DEFAULTS = Object.freeze({
   // Family) are never planned from.
   todoList: "Orion",
   sweepLists: ["Reminders"],
+  // Least minutes for anything whose title contains the key (orion-life min nap 75).
+  minimums: {},
+  // When the day overflows, low-priority blocks give up time before any is dropped.
+  autoShrink: true,
 });
 
 /** True when ORION should act as if this calendar event did not exist. */
@@ -51,7 +58,24 @@ const VALIDATORS = {
   dinner: (v) => typeof v === "boolean",
   windDownMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 90,
   freeMinutesKept: (v) => Number.isInteger(v) && v >= 0 && v <= 240,
+  autoShrink: (v) => typeof v === "boolean",
 };
+
+/** "Naps at least 75 minutes, always": orion-life min nap 75 (0 removes it). */
+export function setMinimum(key, minutes, file = CONFIG_FILE) {
+  const name = String(key ?? "").trim().toLowerCase();
+  const n = Number(minutes);
+  if (!/^[a-z0-9][a-z0-9 '-]{1,39}$/.test(name)) throw new TypeError(`"${key}" is not a usable name`);
+  if (!Number.isInteger(n) || n < 0 || n > 600) throw new TypeError("minutes must be 0..600");
+  const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();
+  const minimums = { ...(current.minimums ?? {}) };
+  if (n === 0) delete minimums[name]; else minimums[name] = n;
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ ...current, minimums }, null, 2));
+  renameSync(tmp, file);
+  return minimums;
+}
 
 export function setConfig(key, raw, file = CONFIG_FILE) {
   if (!VALIDATORS[key]) throw new TypeError(`unknown setting ${key}`);

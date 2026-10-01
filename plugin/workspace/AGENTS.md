@@ -124,15 +124,30 @@ here.
     earlier). Then tell him the next two things and when.
   - "Lecture's running 20 over" (today or any day) → `orion-reschedule
     overrun 20 [--date …]`; `late <min>` is only for him running late right now.
-  - "Move X to 9" / "make X an hour" → just that one thing:
-    `orion-reschedule add "X" 60 --at 21:00` (restating a block replaces it).
-    Don't rebuild the whole day to move one block.
+  - ONE block changes → its own command; the rest of the day follows it. Never
+    retype the day for these (2026-10-01: "extend the lab to 3" became three
+    retyped days and a SECOND lab at 17:25):
+    - "X is taking longer / extend X to 3 / I need 30 more minutes" →
+      `orion-reschedule extend "X" --until 15:00` (or `extend "X" 30`). Works
+      even when X already ended on the calendar. "…nap after" → add `--then "Nap"`.
+    - "Make X an hour / shorter / shrink X / cut X to 30" → `resize "X" 60`.
+    - "Move X to 6" → `move "X" --to 18:00` (same length).
+    - "Swap X and Y" / "do X before Y instead" → `swap "X" "Y"` (any lengths).
+    - "Replace X with Y" (same slot, different thing) → `rename "X" "Y"`.
+    - Several changes in one message → one command each, in the order he said.
+    A time that has passed is never valid; anything in "Earlier today" happened.
+    When the day overflows, breaks, side projects and anything optional shrink
+    on their own (SHRUNK lines): tell him what shrank.
+  - Rules he states for the future ("naps at least 1h15 always", "going
+    forward…") are saved by the transport before you see them; the live facts
+    say so. Confirm in one clause. Never say "noted" for anything not saved.
   - "Get rid of / drop / skip X" → `orion-reschedule drop "X" "Y"`. No
     approval: it only removes movable blocks and can be undone. NEVER use
     `undo` to remove things: undo reverses only the LAST change (2026-09-30:
     "drop studying" became three undos that removed his soccer).
   - "Clear everything and redo it" with a new timeline → ONE call:
-    `orion-reschedule day --replace --plan … --plan …`. "Clear my day" alone
+    `orion-reschedule day --replace --plan … --plan …` — ONLY when he says to
+    clear or redo the whole day: it drops every block he does not restate. "Clear my day" alone
     → `orion-reschedule clear`. Both keep classes and deadlines.
   - "Going to bed now, wake me at 3:30" → `orion-wake 15:30` and
     `day --plan "Sleep, <minutes until then>, <now HH:MM>"` before anything else.

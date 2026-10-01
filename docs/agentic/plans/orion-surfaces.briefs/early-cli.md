@@ -4,15 +4,15 @@
 The button on the phone and Mac (built later by Claude) calls this command. It must write the change to his calendar through the same guarded path as every other reschedule: rules checked before writing, read back after, undoable.
 
 ## Files you own
-- `scripts/orion-reschedule` (EDIT only; 486 lines — add one `else if (command === "early")` branch next to the `now` branch, plus usage lines in the header comment).
-- `scripts/lib/life/calendar-write.mjs` (EDIT only): in `applyPlan`, a move may carry an optional `toEnd`; when present the event is moved to `[to, toEnd]` instead of `[to, to + length]`. Undo already records the original start and end — keep that.
+- `scripts/orion-reschedule` (EDIT only; ~640 lines — add one `else if (command === "early")` branch next to the `extend`/`resize`/`rename` branches, plus usage lines in the header comment and the command name in the usage `fail(...)` line).
 - `tests/surfaces-early-cli.test.mjs` (new).
+- Already at HEAD, do not change: `applyPlan` (calendar-write.mjs) and `projectDay` accept a move with `toEnd` (the event becomes `[to, toEnd]`). `ORION_RESCHEDULE_NOW=<ISO time>` replays a moment in tests (see `tests/life-reschedule-extend.test.mjs`, whose `world()` harness is the one to copy). The extend/resize helpers `writeShape` and `findBlock` show the house style for a one-block change.
 
 ## Command
 ```
 orion-reschedule early [block|out-of-class|home] [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
 ```
-- `--now HH:MM` replaces the current minute (tests use a future date, where "now" is otherwise midnight). Validate with the existing `minute()` helper; bad value → `fail(...)` exit 2.
+- `--now HH:MM` ("I finished at 3:10") replaces the current minute. Validate with the existing `minute()` helper; bad value → `fail(...)` exit 2. Tests set the clock with ORION_RESCHEDULE_NOW instead.
 - `--check`: print one line of JSON, `earlyContext(...)` of `scripts/lib/life/early.mjs`, and exit 0 without writing.
 - No mode: if the context is after-class print `ASK: out-of-class or home (just finished <classTitle>)` and exit 3; if it is block use mode block; if none print `Nothing is under way to finish.` and exit 1.
 - Otherwise call `finishEarly(blocks, { now, mode, commuteMinutes: config.commuteMinutes, buffer: config.bufferMinutes, dayEnd: window.end })` (errors → `fail(message, 1)`).

@@ -34,6 +34,7 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { classifyClaim } from "./lib/remote/claims.mjs";
 import { fixReply, lintReply } from "./lib/remote/reply-lint.mjs";
+import { readStandingRules } from "./lib/remote/standing-rules.mjs";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -551,12 +552,25 @@ const briefFor = (sender) => {
 async function todaySchedule() {
   try {
     const { liveDay, localDate } = await import("./lib/life/live-day.mjs");
-    const blocks = await liveDay(localDate(new Date()));
+    const { clockNow } = await import("./lib/life/bridge-path.mjs");
+    const now = clockNow();
+    const blocks = await liveDay(localDate(now));
     const t = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
     if (!blocks.length) return "- Today's calendar: nothing planned.";
     const lastClass = blocks.filter((b) => b.kind === "class").at(-1);
-    return `- Today's calendar: ${blocks.map((b) => `${b.title.replace(/ — .*$/, "").slice(0, 40)} ${t(b.start)}–${t(b.end)}${b.fixed ? "" : " (movable)"}`).join("; ")}.`
-      + (lastClass ? ` His last class ENDS at ${t(lastClass.end)} — "after class" means from ${t(lastClass.end)}.` : "");
+    // What already happened stays visible (2026-10-01: "extend the DS lab" — the
+    // lab had ended on the calendar, ORION could not see it, and booked a second).
+    const nowMinute = now.getHours() * 60 + now.getMinutes();
+    const line = (b) => `${b.title.replace(/ — .*$/, "").slice(0, 40)} ${t(b.start)}–${t(b.end)}${b.fixed ? "" : " (movable)"}`;
+    const earlier = blocks.filter((b) => b.end <= nowMinute);
+    const current = blocks.filter((b) => b.start <= nowMinute && b.end > nowMinute);
+    const ahead = blocks.filter((b) => b.start > nowMinute);
+    return [
+      earlier.length ? `- Earlier today (already over on the calendar): ${earlier.map(line).join("; ")}.` : null,
+      `- On the calendar now (${t(nowMinute)}): ${current.length ? current.map(line).join("; ") : "nothing"}.`,
+      `- Later today: ${ahead.length ? ahead.map(line).join("; ") : "nothing"}.`
+        + (lastClass ? ` His last class ENDS at ${t(lastClass.end)} — "after class" means from ${t(lastClass.end)}.` : ""),
+    ].filter(Boolean).join("\n");
   } catch { return null; }
 }
 
@@ -609,7 +623,10 @@ async function phoneContext() {
     `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
     "  \"Fix my schedule\" / overlaps → `tidy`. Every change obeys the day rules; NOTHING WAS CHANGED means ask him, never retry.",
     "  Doing something NOW (eating, a break, just got home) → `now \"Lunch, 25\" \"Break, 15\"` — it slides the rest in order; never retype the day to rearrange it.",
-    "  From his to-do list → `day --todos [--date …]` (one block per to-do; never paste the list). Get rid of X → `drop \"X\"` (never undo). Move one thing → `add \"X\" <min> --at HH:MM`. Class running over → `overrun <min>`. He is late right now → `late <min>`. New timeline for the rest of the day → `day --replace --plan …`.",
+    "  Change ONE block, never retype the day: X is taking longer / extend X to 3 → `extend \"X\" --until 15:00` (works even if X already ended on the calendar; add `--then \"Nap\"` when he says what comes straight after). Make X shorter/longer, shrink it → `resize \"X\" <min>`. Replace/swap X with Y in its slot → `rename \"X\" \"Y\"`. Two changes in one message → run them one after another, the block he named first first.",
+    "  From his to-do list → `day --todos [--date …]` (one block per to-do; never paste the list). Get rid of X → `drop \"X\"` (never undo). Move one thing → `add \"X\" <min> --at HH:MM`. Class running over → `overrun <min>`. He is late right now → `late <min>`. `day --replace` ONLY when he says to clear or redo the whole day; it drops everything he does not restate.",
+    "  Never re-plan something that is in \"Earlier today\": it happened. A time that has passed is never a valid --at or --plan time.",
+    "  When the day overflows, low-priority blocks (breaks, side projects, anything optional) shrink automatically; SHRUNK lines must be told to him.",
     "  Report only what the output says was written; SHIFTED / NOT BOOKED means tell him.",
     `- Closing the loop is your job. In THIS message, if he delays something with a reason → ${join(homedir(), "Desktop/ORION/scripts/orion-checkin")} add <min> "<what>" --because "<reason>";`,
     "  says he is starting → orion-checkin started (or started \"<what>\"); finished → done; plans changed → cancel.",
@@ -699,18 +716,47 @@ async function askBrain(text, sender) {
   return second.ok && second.reply.trim() ? { ...second, checked: check === CHECK_DONE ? "claimed-done" : "claimed-cant" } : first;
 }
 
+/*
+ Standing rules are saved from his own words before the model answers
+ (2026-10-01: "naps at least an hour and 15 ALWAYS" and "going forward…" both got
+ "Noted" and neither was saved). Durations become scheduling minimums the
+ planner enforces; every rule goes into USER.md, which every session loads.
+*/
+async function saveStandingRules(text) {
+  let rules;
+  try { rules = readStandingRules(String(text)); } catch { return null; }
+  if (!rules.standing) return null;
+  const saved = [];
+  const { setMinimum } = await import("./lib/life/config.mjs");
+  const { evalMode } = await import("./lib/eval-mode.mjs");
+  for (const m of rules.minimums) {
+    try { setMinimum(m.key, m.minutes); saved.push(`${m.key} is always at least ${m.minutes} minutes (the planner enforces it)`); } catch { /* not a usable rule */ }
+  }
+  const statement = rules.statement || rules.minimums.map((m) => `${m.key} at least ${m.minutes} minutes`).join("; ");
+  if (statement && evalMode()) saved.push(`his words would be saved to his profile: "${statement.slice(0, 160)}" (evaluation run: not written)`);
+  else if (statement) {
+    const remember = join(dirname(fileURLToPath(import.meta.url)), "orion-remember");
+    const r = spawnSync(process.execPath, [remember, "--user", `Standing rule (${new Date().toISOString().slice(0, 10)}, his words): ${statement}`], { encoding: "utf8", timeout: 15000 });
+    if (r.status === 0) saved.push(`his words saved to his profile: "${statement.slice(0, 160)}"`);
+  }
+  return saved.length ? saved : null;
+}
+
 async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
   await mkdir(CONTROLLED, { recursive: true });
   // Via a FILE, never argv. The message is untrusted text and this is the one
   // property from the original design that costs nothing to keep.
   const file = join(CONTROLLED, `brain-${randomBytes(6).toString("hex")}.txt`);
-  const live = sender === "phone" && !raw ? `${await phoneContext()}\n` : "";
+  const saved = raw ? null : await saveStandingRules(text);
+  const savedNote = saved ? `[orion-remote] Already saved from his message (by the transport, not by you): ${saved.join("; ")}. Tell him in one short clause that it is saved; do not save it again, and never say "noted" for anything that is not in this line.\n` : "";
+  const live = `${sender === "phone" && !raw ? `${await phoneContext()}\n` : ""}${savedNote}`;
   await writeFile(file, raw ? text : `${live}${briefFor(sender)}\n${text}`, { mode: 0o600 });
   try {
     const { stdout } = await run(
       BRAIN_BIN,
       ["agent", "--session-key", BRAIN_SESSION, "--timeout", String(BRAIN_TIMEOUT_S),
-       ...(model ? ["--model", model] : []),
+       // ORION_BRAIN_MODEL: the model a whole run uses (orion-eval-schedule compares them).
+       ...((model ?? process.env.ORION_BRAIN_MODEL) ? ["--model", model ?? process.env.ORION_BRAIN_MODEL] : []),
        "--json", "--message-file", file],
       { timeout: (BRAIN_TIMEOUT_S + 30) * 1000, maxBuffer: 32 * 1024 * 1024 },
     );

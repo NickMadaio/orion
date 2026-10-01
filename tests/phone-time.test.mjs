@@ -50,3 +50,11 @@ test("revoke removes the grant", (t) => {
   assert.equal(run("revoke").code, 0);
   assert.equal(existsSync(join(dir, "screen-grant.json")), false);
 });
+
+test("a grant to a phone that has never reported is sent, not claimed as done (2026-10-01)", (t) => {
+  const { run } = world(t);
+  const r = run("grant", "20", "--because", "text friends then bed");
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^SENT, NOT CONFIRMED/);
+  assert.match(r.out, /Do not say he is unlocked/);
+});

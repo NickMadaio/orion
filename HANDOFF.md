@@ -5,6 +5,19 @@
 - **Language/tooling:** `plan-parse` now carries must/high-priority/important/have-to language as importance 0 and maybe/optional/if-there-is-time language as importance 2 without polluting event titles. The phone context now explains incremental, automatic rebuild, explicit rebuild and full replacement as distinct choices.
 - **Verification/install:** `node --test tests/life-*.test.mjs tests/tighten-*.test.mjs` passes 207/207. The remote snapshot was reinstalled at fingerprint `2624cdc762f3`; `orion-remote-install --status` reports loaded/running with unchanged integrity and the installed `orion-remote` matches the repo. No live calendar rewrite was needed for this clarification; `orion-agenda today` still shows exactly the corrected six-block schedule from the prior entry.
 
+## 2026-10-01 01:02 BST — Qwen project unblocked and running; ORION truthful 2 queued; honest grants
+
+- **Block:** "ORION truthful" stopped at 15:51 on `trace`, three attempts gone in three seconds with "could not evict gpt-oss:20b before loading qwen3.6:27b". It was not Qwen's work. The ORION app keeps its fallback `gpt-oss:20b` loaded, `ensureExclusive` checked the unload once, instantly, and the error counted against the task.
+  - Fixed in `scripts/lib/agentic/models.mjs`: it polls for up to 20 s, re-asking for the unload, and a failure is `recoverableRuntime` (attempt refunded). Test: `tests/agentic-evict.test.mjs`.
+  - The escalation was resolved with the cause, and the project relaunched (`--until-stopped`, AC power). The model handoff was confirmed (qwen3.6:27b resident alone), and it is now on `reply-times`. `trace` gets its one extra attempt.
+- **New project "ORION truthful 2"** (project-2f12825d, `docs/agentic/plans/orion-truthful-2.md`), imported and not started (a started project cannot take new tasks):
+  - `grant-policy`: consistent extra-phone-time decisions;
+  - `reply-person`: rewrite "his apps" as "your apps";
+  - `day-review`: planned against done, as an evening message.
+- **Phone grant honesty:** Nick asked again at 23:47 and ORION granted 20 minutes, but the phone still runs the old build, so nothing unlocked, yet ORION said "Done". Now `orion-phone-time grant` prints "SENT, NOT CONFIRMED … Do not say he is unlocked" while the phone has never reported, and AGENTS says the same.
+- **The phone install is still pending:** devicectl reports the iPhone `unavailable`. It must be on the same Wi-Fi with the screen on, or on USB.
+- **Flaky:** two timing tests failed once under load (exterminate / reconcile); three later full runs passed (790).
+
 ## 2026-10-01 00:40 BST — ORION can see and ease the phone's app lock
 
 - **Why:** at 00:24 Nick asked ORION from the phone "can you pretty please unblock my apps just until 12:45". ORION checked `orion-focus` (the Mac's timer) and said nothing was locked. The lock lives on the phone (Screen Time), and the Mac had no view of it.

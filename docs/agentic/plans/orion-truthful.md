@@ -224,6 +224,7 @@ Independent: any task can be deferred without blocking another.
 - trace + expectTools into orion-eval-run; reply-times into orion-remote after any booking.
 - triage behind a Mac reader of mirrored iPhone notifications, pushed as ORION notifications; the ORION Focus mode on the phone.
 - Run the 150-scenario catalog and fix what fails.
+- Follow-on tasks are in orion-truthful-2.md (a started project cannot take new tasks).
 
 ## What Astra reviews
 Each module against its brief: interface, the Decisions list in order, and every named test. Failure strings are exact.

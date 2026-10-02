@@ -1,0 +1,8 @@
+anthropic/claude-haiku-4-5-20251001 (thinking medium): 6/16 passed with anthropic/claude-haiku-4-5-20251001. total 321 s, median 14 s per request
+anthropic/claude-sonnet-5 (thinking medium): 8/16 passed with anthropic/claude-sonnet-5. total 322 s, median 10 s per request
+ollama/qwen3.5:9b (thinking medium): 1/16 passed with ollama/qwen3.5:9b. total 12 s, median 0 s per request
+ollama/qwen3.6:27b (thinking medium): 1/16 passed with ollama/qwen3.6:27b. total 0 s, median 0 s per request
+done
+ollama/qwen3.5:9b (thinking off; OpenClaw allows no other level for Ollama): 5/16 passed with ollama/qwen3.5:9b. total 466 s, median 27 s per request
+ollama/qwen3.6:27b (thinking off; OpenClaw allows no other level for Ollama): 4/16 passed with ollama/qwen3.6:27b. total 1484 s, median 93 s per request
+local done

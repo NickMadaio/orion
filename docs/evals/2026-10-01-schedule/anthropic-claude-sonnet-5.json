@@ -1,0 +1,895 @@
+[
+ {
+  "id": "extend-lab-nap-after-swap-youtube",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "duplicate: 2 × \"side project youtube\"",
+   "count: 2 × \"youtube\", wanted 1",
+   "lost: finish resume"
+  ],
+  "secs": 93,
+  "replies": [
+   "Orion did not finish: aborted"
+  ],
+  "day": [
+   {
+    "title": "DS lab",
+    "start": 738,
+    "end": 900
+   },
+   {
+    "title": "Nap",
+    "start": 910,
+    "end": 955
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 965,
+    "end": 1025
+   },
+   {
+    "title": "Study",
+    "start": 1035,
+    "end": 1095
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 1105,
+    "end": 1150
+   },
+   {
+    "title": "send internship applications",
+    "start": 1160,
+    "end": 1250
+   },
+   {
+    "title": "Dinner",
+    "start": 1260,
+    "end": 1305
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "full-afternoon-replay",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "duplicate: 2 × \"side project youtube\"",
+   "count: 2 × \"youtube\", wanted 1",
+   "lost: finish resume"
+  ],
+  "secs": 112,
+  "replies": [
+   "I ran into a real problem and I'm stopping rather than guessing further. What happened: I extended DS lab to 3pm and moved the nap after it — that part worked. Then when I tried to swap \"apply to SOMEWHERE\" for the YouTube side project, a `drop` call rebuilt your whole day and dropped things it shouldn't have. I undid it twice to recover, but the undo chain left things inconsistent — `orion-agenda` now shows DS lab at 5:25 PM (not 3pm) and no \"apply to SOMEWHERE\" or \"send internship applications\" blocks at all, while the reschedule tool itself still thinks DS lab is 12:18–3:00 PM. Those two don't agree, and `tidy` is now blocked by an overlap between Study and \"apply to SOMEWHERE\" — a block my attempted undo says doesn't exist on the calendar. I don't trust the current state enough to keep patching it. Can you glance at Calendar (or tell me to) so I rebuild today correctly? If you confirm, I'll redo it as one clean call: DS lab 12:18–3:00, nap right after, then YouTube side project in place of \"apply to SOMEWHERE,\" and the rest following in order.",
+   "Saved — I'll flex non-priority block lengths to make the day fit from now on. But I have to stop here: the \"apply to SOMEWHERE\" drop I just ran still shows the same mismatch I flagged last message. The reschedule tool reports it rebuilt the day fine, but `orion-agenda` is showing DS lab at 5:25 PM with nap at 3 PM *before* it — not the 12:18–3:00 DS lab → nap-after order you actually asked for. The tool's internal calendar and what's showing have been out of sync since that bad `drop` call earlier, and I don't trust another command to fix it blind. Can you pull up Calendar on your end and tell me what DS lab's actual time block shows right now? Once I know the real ground truth I'll lay the rest of the day down correctly in one clean pass.",
+   "Nap rule (always ≥75 min) is saved. Done on the asks:\n\n- Nap: now 75 min, 3:10–4:25 PM\n- Study: pushed back to 5:45 PM (automatic knock-on from the longer nap)\n- Side project blocks and dinner also shifted later to absorb the extra nap time\n- \"send internship applications\" — dropped\n\nOne flag: `orion-agenda` is still showing me a stale version of today (DS lab at 5:25 PM, no sign of these last two changes) even though `orion-reschedule` confirms each write went through. The two tools disagree with each other, not just with what you asked for — worth you glancing at Calendar directly to confirm it actually looks right, since I can't fully trust my own read-back right now."
+  ],
+  "day": [
+   {
+    "title": "DS lab",
+    "start": 738,
+    "end": 900
+   },
+   {
+    "title": "Nap",
+    "start": 910,
+    "end": 985
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 995,
+    "end": 1055
+   },
+   {
+    "title": "Study",
+    "start": 1065,
+    "end": 1125
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 1135,
+    "end": 1180
+   },
+   {
+    "title": "Dinner",
+    "start": 1290,
+    "end": 1335
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1345,
+    "end": 1390
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "still-in-lab-30-more",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "wrong time: DS lab is 738-935, wanted {\"title\":\"DS lab\",\"endAtLeast\":\"14:44\",\"endBefore\":\"14:56\"}",
+   "lost: finish resume"
+  ],
+  "secs": 10,
+  "replies": [
+   "Lab now runs till 3:35, everything after it slid back — dinner's now 9:35, and \"finish resume\" doesn't fit today anymore, so flag that when you're out. I'll check back with you at 3:35."
+  ],
+  "day": [
+   {
+    "title": "DS lab",
+    "start": 738,
+    "end": 935
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 945,
+    "end": 1005
+   },
+   {
+    "title": "Nap",
+    "start": 1015,
+    "end": 1060
+   },
+   {
+    "title": "Study",
+    "start": 1070,
+    "end": 1130
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1140,
+    "end": 1185
+   },
+   {
+    "title": "send internship applications",
+    "start": 1195,
+    "end": 1285
+   },
+   {
+    "title": "Dinner",
+    "start": 1295,
+    "end": 1340
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1350,
+    "end": 1395
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "past-time-trap",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 10,
+  "replies": [
+   "It's past 3 PM now — 1 PM already happened, so I can't book the DS lab there. Want me to put it at the next open slot instead (say, right after the nap/study block, or wherever works best)?"
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "resize-longer",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "changed length: finish resume",
+   "lost: finish resume"
+  ],
+  "secs": 7,
+  "replies": [
+   "Study's now 90 min, 4:03–5:33 PM. That pushed everything after it back 30 min (apply to SOMEWHERE 5:43, internship apps 6:38, dinner 8:18) — but \"finish resume\" no longer fits today at all. Want me to drop it, shrink something else, or move it to another day?"
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1053
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1063,
+    "end": 1108
+   },
+   {
+    "title": "send internship applications",
+    "start": 1118,
+    "end": 1208
+   },
+   {
+    "title": "Dinner",
+    "start": 1218,
+    "end": 1263
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "resize-shorter",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 6,
+  "replies": [
+   "Dinner's now 8:18 PM, 30 min."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1218
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "move-study-6",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "lost: send internship applications",
+   "lost: finish resume"
+  ],
+  "secs": 8,
+  "replies": [
+   "Study moved to 6–7 PM. That pushed things: \"apply to SOMEWHERE\" slid to 7:10 PM, dinner to 8:05 PM — but internship applications and finishing your resume didn't fit anymore. Want me to drop one, or push a day another day?"
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 1080,
+    "end": 1140
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1150,
+    "end": 1195
+   },
+   {
+    "title": "Dinner",
+    "start": 1205,
+    "end": 1250
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "swap-even",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 6,
+  "replies": [
+   "Swapped — apply to SOMEWHERE is now 3:08–3:53, Nap moved to 5:13–5:58."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023
+   },
+   {
+    "title": "Nap",
+    "start": 1033,
+    "end": 1078
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "swap-uneven",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 6,
+  "replies": [
+   "Swapped — internship applications now 4:03, Study now 6:38 PM. \"Apply to SOMEWHERE\" shifted to 5:43 to make room."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "send internship applications",
+    "start": 963,
+    "end": 1053
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1063,
+    "end": 1108
+   },
+   {
+    "title": "Study",
+    "start": 1118,
+    "end": 1178
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "reorder-resume-before-dinner",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 8,
+  "replies": [
+   "Done — resume now 7:48–9:18 PM, dinner moved to 9:28–10:13 PM."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178
+   },
+   {
+    "title": "finish resume",
+    "start": 1188,
+    "end": 1278
+   },
+   {
+    "title": "Dinner",
+    "start": 1288,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "standing-nap-rule",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "too short: Nap is 45, wanted at least 75"
+  ],
+  "secs": 3,
+  "replies": [
+   "Got it — naps are always at least 75 minutes now, saved."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "drop-and-push",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 11,
+  "replies": [
+   "Dropped the internship applications block, and Study's now 4:33–5:33 (apply to SOMEWHERE shifted to 5:43)."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953
+   },
+   {
+    "title": "Study",
+    "start": 993,
+    "end": 1053
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1063,
+    "end": 1108
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "two-changes",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "lost: finish resume"
+  ],
+  "secs": 12,
+  "replies": [
+   "Nap's now 75 min (4:23 PM), dinner's at 8. That pushed internship applications to 8:55 PM and review lecture to 10:35 PM. Finish resume still doesn't fit today — want to drop it, shrink something, or push it to tomorrow?"
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 898
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 983
+   },
+   {
+    "title": "Study",
+    "start": 993,
+    "end": 1053
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1063,
+    "end": 1108
+   },
+   {
+    "title": "Dinner",
+    "start": 1200,
+    "end": 1245
+   },
+   {
+    "title": "send internship applications",
+    "start": 1255,
+    "end": 1345
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1355,
+    "end": 1400
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "eat-now",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": false,
+  "failures": [
+   "lost: finish resume"
+  ],
+  "secs": 12,
+  "replies": [
+   "Booked: lunch 2:19–2:44, break 2:44–2:59, everything else slid back — side project 3:09, nap 4:19, study 5:14, dinner 8:59, etc. Finish resume (90 min) no longer fits today — want to drop it or push it to another day? I'll check in on you at 3:47."
+  ],
+  "day": [
+   {
+    "title": "Lunch",
+    "start": 859,
+    "end": 884
+   },
+   {
+    "title": "Break",
+    "start": 884,
+    "end": 899
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 909,
+    "end": 969
+   },
+   {
+    "title": "Nap",
+    "start": 979,
+    "end": 1024
+   },
+   {
+    "title": "Study",
+    "start": 1034,
+    "end": 1094
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1104,
+    "end": 1149
+   },
+   {
+    "title": "send internship applications",
+    "start": 1159,
+    "end": 1249
+   },
+   {
+    "title": "Dinner",
+    "start": 1259,
+    "end": 1304
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1388
+   },
+   {
+    "title": "Wind down",
+    "start": 1410,
+    "end": 1439
+   }
+  ]
+ },
+ {
+  "id": "shrink-youtube-to-fit",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 11,
+  "replies": [
+   "Nap's now 4:15 PM, study pushed to 4:25–5:25. YouTube side project got shrunk to 30 min to make room (wind down shifted a few minutes too)."
+  ],
+  "day": [
+   {
+    "title": "nap",
+    "start": 900,
+    "end": 975
+   },
+   {
+    "title": "study",
+    "start": 985,
+    "end": 1045
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178
+   },
+   {
+    "title": "dinner",
+    "start": 1188,
+    "end": 1233
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333
+   },
+   {
+    "title": "YouTube side project",
+    "start": 1343,
+    "end": 1373
+   },
+   {
+    "title": "wind down",
+    "start": 1383,
+    "end": 1412
+   }
+  ]
+ },
+ {
+  "id": "tidy-overlaps",
+  "model": "anthropic/claude-sonnet-5",
+  "thinking": "medium",
+  "ok": true,
+  "failures": [],
+  "secs": 7,
+  "replies": [
+   "Fixed — Break stays 2:30, Study now 2:55–3:55, Dinner 4:05–4:50, resume 5:00–6:30. No more overlaps."
+  ],
+  "day": [
+   {
+    "title": "Break",
+    "start": 870,
+    "end": 885
+   },
+   {
+    "title": "Study",
+    "start": 895,
+    "end": 955
+   },
+   {
+    "title": "Dinner",
+    "start": 965,
+    "end": 1010
+   },
+   {
+    "title": "finish resume",
+    "start": 1020,
+    "end": 1110
+   }
+  ]
+ }
+]

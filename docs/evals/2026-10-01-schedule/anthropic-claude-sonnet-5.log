@@ -1,0 +1,49 @@
+FAIL extend-lab-nap-after-swap-youtube (93s)
+   duplicate: 2 × "side project youtube"
+   count: 2 × "youtube", wanted 1
+   lost: finish resume
+   ORION: Orion did not finish: aborted
+FAIL full-afternoon-replay (112s)
+   duplicate: 2 × "side project youtube"
+   count: 2 × "youtube", wanted 1
+   lost: finish resume
+   ORION: Nap rule (always ≥75 min) is saved. Done on the asks:  - Nap: now 75 min, 3:10–4:25 PM - Study: pushed back to 5:45 PM (automatic knock-on from the longer nap) - Side project blocks and dinner also shifted later to absor
+FAIL still-in-lab-30-more (10s)
+   wrong time: DS lab is 738-935, wanted {"title":"DS lab","endAtLeast":"14:44","endBefore":"14:56"}
+   lost: finish resume
+   ORION: Lab now runs till 3:35, everything after it slid back — dinner's now 9:35, and "finish resume" doesn't fit today anymore, so flag that when you're out. I'll check back with you at 3:35.
+PASS past-time-trap (10s)
+   ORION: It's past 3 PM now — 1 PM already happened, so I can't book the DS lab there. Want me to put it at the next open slot instead (say, right after the nap/study block, or wherever works best)?
+FAIL resize-longer (7s)
+   changed length: finish resume
+   lost: finish resume
+   ORION: Study's now 90 min, 4:03–5:33 PM. That pushed everything after it back 30 min (apply to SOMEWHERE 5:43, internship apps 6:38, dinner 8:18) — but "finish resume" no longer fits today at all. Want me to drop it, shrink som
+PASS resize-shorter (6s)
+   ORION: Dinner's now 8:18 PM, 30 min.
+FAIL move-study-6 (8s)
+   lost: send internship applications
+   lost: finish resume
+   ORION: Study moved to 6–7 PM. That pushed things: "apply to SOMEWHERE" slid to 7:10 PM, dinner to 8:05 PM — but internship applications and finishing your resume didn't fit anymore. Want me to drop one, or push a day another da
+PASS swap-even (6s)
+   ORION: Swapped — apply to SOMEWHERE is now 3:08–3:53, Nap moved to 5:13–5:58.
+PASS swap-uneven (6s)
+   ORION: Swapped — internship applications now 4:03, Study now 6:38 PM. "Apply to SOMEWHERE" shifted to 5:43 to make room.
+PASS reorder-resume-before-dinner (8s)
+   ORION: Done — resume now 7:48–9:18 PM, dinner moved to 9:28–10:13 PM.
+FAIL standing-nap-rule (3s)
+   too short: Nap is 45, wanted at least 75
+   ORION: Got it — naps are always at least 75 minutes now, saved.
+PASS drop-and-push (11s)
+   ORION: Dropped the internship applications block, and Study's now 4:33–5:33 (apply to SOMEWHERE shifted to 5:43).
+FAIL two-changes (12s)
+   lost: finish resume
+   ORION: Nap's now 75 min (4:23 PM), dinner's at 8. That pushed internship applications to 8:55 PM and review lecture to 10:35 PM. Finish resume still doesn't fit today — want to drop it, shrink something, or push it to tomorrow?
+FAIL eat-now (12s)
+   lost: finish resume
+   ORION: Booked: lunch 2:19–2:44, break 2:44–2:59, everything else slid back — side project 3:09, nap 4:19, study 5:14, dinner 8:59, etc. Finish resume (90 min) no longer fits today — want to drop it or push it to another day? I'
+PASS shrink-youtube-to-fit (11s)
+   ORION: Nap's now 4:15 PM, study pushed to 4:25–5:25. YouTube side project got shrunk to 30 min to make room (wind down shifted a few minutes too).
+PASS tidy-overlaps (7s)
+   ORION: Fixed — Break stays 2:30, Study now 2:55–3:55, Dinner 4:05–4:50, resume 5:00–6:30. No more overlaps.
+
+8/16 passed with anthropic/claude-sonnet-5.

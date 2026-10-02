@@ -1,0 +1,56 @@
+FAIL extend-lab-nap-after-swap-youtube (2s)
+   wrong time: DS lab is 738-828, wanted {"title":"DS lab","end":"15:00"}
+   still there: apply to SOMEWHERE
+   ORION: Orion could not answer: GatewayClientRequestError: Error: Model override "ollama/qwen3.5:9b" is not allowed for agent "main".
+FAIL full-afternoon-replay (6s)
+   too short: Nap is 45, wanted at least 75
+   still there: send internship applications
+   still there: apply to SOMEWHERE
+   ORION: Orion could not answer: GatewayClientRequestError: Error: Model override "ollama/qwen3.5:9b" is not allowed for agent "main".
+FAIL still-in-lab-30-more (2s)
+   wrong time: DS lab is 738-828, wanted {"title":"DS lab","endAtLeast":"14:44","endBefore":"14:56"}
+   ORION: Orion could not answer: GatewayClientRequestError: Error: Model override "ollama/qwen3.5:9b" is not allowed for agent "main".
+PASS past-time-trap (2s)
+   ORION: Orion could not answer: GatewayClientRequestError: Error: Model override "ollama/qwen3.5:9b" is not allowed for agent "main".
+FAIL resize-longer (0s)
+   length: Study is 60, wanted 90
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL resize-shorter (0s)
+   length: Dinner is 45, wanted 30
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL move-study-6 (0s)
+   wrong time: Study is 963-1023, wanted {"title":"Study","start":"18:00"}
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL swap-even (0s)
+   order: apply to SOMEWHERE should come before Nap
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL swap-uneven (0s)
+   order: send internship applications should come before Study
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL reorder-resume-before-dinner (0s)
+   order: finish resume should come before Dinner
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL standing-nap-rule (0s)
+   too short: Nap is 45, wanted at least 75
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL drop-and-push (0s)
+   wrong time: Study is 963-1023, wanted {"title":"Study","startAtLeast":"16:33"}
+   still there: send internship applications
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL two-changes (0s)
+   wrong time: Dinner is 1188-1233, wanted {"title":"Dinner","start":"20:00"}
+   length: Nap is 45, wanted 75
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL eat-now (0s)
+   missing: break
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL shrink-youtube-to-fit (0s)
+   too short: nap is 45, wanted at least 75
+   ORION: too many commands in the last ten minutes — try again shortly
+FAIL tidy-overlaps (0s)
+   overlap: Break 870-885 and Study 880-940
+   overlap: Study 880-940 and Dinner 930-975
+   overlap: Dinner 930-975 and finish resume 960-1050
+   ORION: too many commands in the last ten minutes — try again shortly
+
+1/16 passed with ollama/qwen3.5:9b.

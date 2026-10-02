@@ -69,6 +69,9 @@ public struct ChatSummary: Equatable, Identifiable, Sendable {
     public let updatedAt: Date
     public let preview: String
     public let count: Int
+    public init(id: String, title: String, updatedAt: Date, preview: String, count: Int) {
+        self.id = id; self.title = title; self.updatedAt = updatedAt; self.preview = preview; self.count = count
+    }
 }
 
 private let validIdPattern = "^[A-Za-z0-9-]{1,64}$"

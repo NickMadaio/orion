@@ -4,6 +4,7 @@ public struct ModelChoice: Equatable, Identifiable, Sendable {
     public let id: String
     public let label: String
     public let local: Bool
+    public init(id: String, label: String, local: Bool) { self.id = id; self.label = label; self.local = local }
 }
 
 private struct ModelRolesFile: Codable {

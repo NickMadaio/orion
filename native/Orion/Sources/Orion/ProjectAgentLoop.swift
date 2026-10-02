@@ -521,6 +521,7 @@ struct ProjectWorkflowSidebar: View {
 
     private var progressDetail: String {
         guard let run else { return "Progress begins when the first task is accepted." }
+        if run.finalReview { return "Finished · all tasks accepted and final review passed" }
         if run.awaitingFinalReview { return "All tasks accepted · waiting for final review" }
         return "\(run.acceptedCount) of \(run.tasks.count) tasks accepted · \(beat?.summary ?? "No heartbeat yet")"
     }

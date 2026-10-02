@@ -124,6 +124,7 @@ struct ProjectAgentPanel: View {
     }
 
     private var liveness: String {
+        if run.finalReview { return "Finished · final review passed" }
         guard let beat else { return "no heartbeat recorded" }
         return beat.isLive ? "supervisor live · \(Int(beat.age ?? 0))s ago" : beat.summary
     }

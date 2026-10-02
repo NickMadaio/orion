@@ -1,3 +1,11 @@
+## 2026-10-02 12:25 BST — Compact planning composer; Tasks renamed Plan (Codex)
+
+- `8dd68c4` replaces the embedded sidebar/thread/model-picker chat in Tasks with a small Home-style text box, waveform and send button. No fixed 280-point chat region. It grows only to three input lines; after sending it shows a two-line reply preview or Thinking, with **Open chat** for the retained full Home conversation.
+- The visible tab is **Plan**, reflecting calendar and daily planning as well as to-dos. Existing tasks/plan/calendar routing and persisted tab identity are preserved; the to-do section still correctly says Tasks.
+- Signed release and embedded Link helper build passed. Installed Mac **build 479** passes deep/strict codesign verification and exactly matches the prior 171a72ab designated requirement. Phone/scripts/gateway settings were untouched.
+- **Live UI:** Plan shows a single compact composer with no chat sidebar. Sent a harmless clock question, received its brief answer while staying on Plan, opened the full chat, and used Back to Home. Returned to Plan and left the app showing the clean composer. Release build plus actual input/send/navigation verification cover this reversible presentation change; no new mirrored implementation test was added.
+- **Rollback:** prior signed build 477 is `/Applications/.Orion-previous-477-compact-plan.app` and `.builds/compact-plan-2026-10-02/Orion-before.app`. Quit Orion/ORION Link, restore and relaunch; revert the feature commit for source rollback. Source and history secret scans are recorded under `.builds/compact-plan-*`.
+
 ## 2026-10-02 11:23 BST — Return from chat to the main Home view (Codex)
 
 - `499f02e` adds an explicit **Back to Home** control at the top left of Home chat. It exits chat mode and parks the morning brief, restoring the original hologram, app shortcuts and main composer. The active conversation, selected model and draft are retained.

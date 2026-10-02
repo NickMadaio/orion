@@ -57,7 +57,8 @@ access.
 | Phone backend (v1) | Python device-pairing and sync service with P-256 device identity; superseded by CloudKit, still covered by its tests | `backend/` |
 
 `OrionMobile` exposes shared `MobileCore`, `ThinkingOrbsKit` and `OrionViews`
-packages. The 2026-10-02 integration connects Home/planning chat, shared history
+packages. The 2026-10-02 integration connects Home chat and a compact composer
+in the Plan tab, shared history
 and model selection (with Back to Home retaining the conversation), the floating
 composer, persistent movable windows, orb
 phases, Flux turns with Apple fallback, finished-early actions, and schedule

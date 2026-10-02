@@ -493,7 +493,8 @@ struct DashboardView: View {
                          availableWidth: availableWidth ?? 1_180,
                          calendar: calendarModel(state),
                          todayPlan: todayPlan,
-                         refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() })
+                         refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() },
+                         onOpenChat: { state.chatMode = true; selectedTab = .home })
             case .project:
                 ProjectTab(agenda: agenda)
             case .health:
@@ -626,7 +627,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: "Home"
-        case .tasks: "Tasks"
+        case .tasks: "Plan"
         case .project: "Projects"
         case .health: "Health"
         case .finance: "Finances"

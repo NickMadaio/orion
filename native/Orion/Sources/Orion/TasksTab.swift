@@ -53,7 +53,10 @@ struct TasksTab: View {
     /// ORION's plan for the day: the tasks below, placed into the calendar's gaps.
     @ObservedObject var todayPlan: TodayPlanModel
     var refreshPlanSources: () -> Void
+    var onOpenChat: () -> Void
 
+    @FocusState private var planningComposerFocused: Bool
+    @State private var submittedPlanningMessage = false
     @State private var dueDate = Date().addingTimeInterval(3600)
     @State private var wantsDueDate = false
     @State private var newPriority: TaskPriority = .none
@@ -76,7 +79,7 @@ struct TasksTab: View {
                 OrionPanel(padding: 20) {
                     TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
                 }
-                OrionPanel(padding: 20) { SharedChatView(state: state).frame(height: 280) }
+                planningComposer
                 OrionPanel(padding: 20) {
                     tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
                 }
@@ -105,6 +108,69 @@ struct TasksTab: View {
                 }
             }
         }
+    }
+
+    private var canSendPlanningMessage: Bool {
+        state.phase != .thinking && !state.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func sendPlanningMessage() {
+        guard canSendPlanningMessage else { return }
+        submittedPlanningMessage = true
+        state.submitTyped()
+    }
+
+    private var planningComposer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(planningComposerFocused ? OrionTheme.accent : OrionTheme.textDim)
+                TextField("What do you need?", text: $state.composer, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14))
+                    .lineLimit(1...3)
+                    .foregroundStyle(OrionTheme.text)
+                    .focused($planningComposerFocused)
+                    .onSubmit(sendPlanningMessage)
+                Button(action: sendPlanningMessage) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(canSendPlanningMessage ? OrionTheme.ink : OrionTheme.textDim)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(canSendPlanningMessage ? OrionTheme.accent : Color.white.opacity(0.07)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSendPlanningMessage)
+                .accessibilityLabel("Send to ORION")
+            }
+            Rectangle()
+                .fill(planningComposerFocused ? OrionTheme.accent.opacity(0.65) : Color.white.opacity(0.12))
+                .frame(height: 1)
+            if submittedPlanningMessage {
+                HStack(alignment: .top, spacing: 12) {
+                    if state.phase == .thinking {
+                        Text("Thinking…").foregroundStyle(OrionTheme.textDim)
+                    } else if let reply = state.chatConversation?.messages.last, reply.role == .orion {
+                        Text(reply.text).foregroundStyle(OrionTheme.textSoft).lineLimit(2)
+                    } else {
+                        Text(state.statusLine).foregroundStyle(OrionTheme.textDim).lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                    Button("Open chat", action: onOpenChat).buttonStyle(.plain).foregroundStyle(OrionTheme.accent)
+                }.font(.system(size: 12))
+            }
+        }
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(planningComposerFocused ? OrionTheme.accent.opacity(0.45) : Color.white.opacity(0.10), lineWidth: 0.8)
+                }
+        }
+        .animation(.easeOut(duration: 0.18), value: planningComposerFocused)
     }
 
     // MARK: - The day

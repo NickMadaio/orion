@@ -2,7 +2,7 @@
 
 - Thinking Orion stays gold while thinking. Hybrid shell tint no longer targets purple; the shared orb painter uses the gold palette for solving/searching/weaving. Original Orion retains its legacy state colours.
 - While thinking, the solving orb draws in front of the filament shell, with scale0.95 instead of0.78, full intensity instead of0.65 and larger points. Its twisting-band motion now signals thinking. Slow45% motion, the single Canvas, batched particles and audio response remain.
-- Native source build passes. Signed deployment/UI checks follow. No inference/voice/scheduling settings changed; other session’s evaluation artifacts preserved.
+- Native debug/source and signed release builds pass. Installed Mac **build489**, deep/strict signature verified with unchanged171a72ab designated requirement and embedded Link present. Prior487 backup: `/Applications/.Orion-previous-487-gold-thinking.app`. Live harmless solar-panel question entered thinking; Back to Home exposed the primary hologram, visibly gold with larger foreground dots while the THINKING indicator remained active. Source/history secret scan clean (10961 reviewed fixtures). No inference/voice/scheduling settings changed; other session’s evaluation artifacts preserved.
 
 ## 2026-10-02 — Combined hologram lag repair (Codex)
 

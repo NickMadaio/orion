@@ -16,7 +16,6 @@ public struct OrionThinkingHologram: View {
     private static func accent(state: OrbState, isError: Bool) -> Color {
         if isError { return Color(red: 1, green: 0.22, blue: 0.20) }
         switch state {
-        case .solving, .searching, .weaving: return Color(red: 0.82, green: 0.60, blue: 1)
         case .listening: return Color(red: 1, green: 0.81, blue: 0.43)
         default: return Color(red: 1, green: 0.69, blue: 0.27)
         }
@@ -65,7 +64,7 @@ public struct OrionThinkingHologram: View {
         // All dots share a hue; quantized alpha keeps depth without a fill per dot.
         var dots = Array(repeating: Path(), count: 16)
         for dot in frame.dots {
-            let p = point(dot.x, dot.y), r = max(0.35, dot.r * zoom * 0.32)
+            let p = point(dot.x, dot.y), r = max(0.35, dot.r * zoom * (state == .solving ? 0.50 : 0.32))
             let alpha = max(0, min(1, (1-dot.white)*dot.a))
             guard alpha > 0.015 else { continue }
             let bin = min(15, Int(alpha * 16))

@@ -145,7 +145,8 @@ store and cannot produce live notification alerts.
 
 **Thinking Orion** combines Thinking Orbs geometry with the original hologram’s
 filament shell, latitude arcs, drifting chips, bright core and lens flare.
-Motion runs at 45% speed; audio response remains immediate. The combined
+Thinking stays gold and brings the larger, brighter twisting orb to the front
+of the shell. Motion runs at 45% speed; audio response remains immediate. The combined
 projection uses one Canvas with batched geometry, avoiding stacked blurred
 animation surfaces. Original Orion and
 Black Hole remain selectable. Thinking text is visible when available, including

@@ -589,7 +589,7 @@ final class HologramModel {
         spinRate += (spinTarget - spinRate) * min(1, dt * 1.7)
         spin += dt * spinRate * motionScale
 
-        let tintTarget: Double = (state == .listening || state == .thinking || state == .error) ? 1 : 0
+        let tintTarget: Double = (state == .listening || (state == .thinking && !batchGeometry) || state == .error) ? 1 : 0
         tint += (tintTarget - tint) * min(1, dt * 4)
     }
 
@@ -633,7 +633,7 @@ final class HologramModel {
             let alt: HoloRGB
             switch state {
             case .error: alt = HoloPalette.alarm
-            case .thinking: alt = HoloPalette.thinking
+            case .thinking: alt = batchGeometry ? HoloPalette.hot : HoloPalette.thinking
             default: alt = HoloPalette.cool
             }
             c = holoMix(c, alt, tint * 0.7)
@@ -662,7 +662,7 @@ final class HologramModel {
 
     // MARK: Draw
 
-    func draw(_ ctx: inout GraphicsContext, size: CGSize, cognitiveLayer: ((inout GraphicsContext) -> Void)? = nil) {
+    func draw(_ ctx: inout GraphicsContext, size: CGSize, cognitiveOnTop: Bool = false, cognitiveLayer: ((inout GraphicsContext) -> Void)? = nil) {
         let w = max(1, size.width)
         let h = max(1, size.height)
         cx = Double(w) / 2
@@ -707,9 +707,10 @@ final class HologramModel {
         // what makes it read as a volume instead of a flat disc.
         drawShell(&ctx, side: -1)
         drawCore(&ctx, bloom: bloom)
-        cognitiveLayer?(&ctx)
+        if !cognitiveOnTop { cognitiveLayer?(&ctx) }
         drawShell(&ctx, side: 1)
         drawStreak(&ctx, bloom: bloom)
+        if cognitiveOnTop { cognitiveLayer?(&ctx) }
 
         ctx.opacity = 1
         ctx.blendMode = .normal
@@ -932,7 +933,7 @@ final class HologramModel {
             let alt: HoloRGB
             switch state {
             case .error: alt = HoloPalette.alarm
-            case .thinking: alt = HoloPalette.thinking
+            case .thinking: alt = batchGeometry ? HoloPalette.hot : HoloPalette.thinking
             default: alt = HoloPalette.cool
             }
             hot = holoMix(HoloPalette.core, alt, tint * 0.5)

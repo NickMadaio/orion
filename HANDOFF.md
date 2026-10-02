@@ -1,3 +1,9 @@
+## 2026-10-02 — Gold thinking with prominent orb geometry (Codex)
+
+- Thinking Orion stays gold while thinking. Hybrid shell tint no longer targets purple; the shared orb painter uses the gold palette for solving/searching/weaving. Original Orion retains its legacy state colours.
+- While thinking, the solving orb draws in front of the filament shell, with scale0.95 instead of0.78, full intensity instead of0.65 and larger points. Its twisting-band motion now signals thinking. Slow45% motion, the single Canvas, batched particles and audio response remain.
+- Native source build passes. Signed deployment/UI checks follow. No inference/voice/scheduling settings changed; other session’s evaluation artifacts preserved.
+
 ## 2026-10-02 — Combined hologram lag repair (Codex)
 
 - User reported severe lag after the literal hybrid. Profile showed SwiftUI Canvas/display-list work; an eight-second visible-Home sample measured Orion20.5% of one CPU and WindowServer40.5%. The hybrid had two animated canvases plus opacity/additive compositing and a full-size blur, while the original shell emitted individual strokes for1500 filaments.

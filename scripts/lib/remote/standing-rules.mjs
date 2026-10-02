@@ -35,7 +35,7 @@ export function readStandingRules(message) {
   const minimums = [];
   for (const s of sentences) {
     // "<thing> should be at least <duration>" / "at least <duration> for <thing>"
-    const before = /\b([a-z][a-z ]{1,30}?)\s+(?:should|must|need to|has to|have to)?\s*(?:be|last|get)?\s*at least\s+(.+)/i.exec(s);
+    const before = /\b([a-z][a-z ]{1,30}?)\s+(?:should|must|need to|has to|have to)?\s*(?:always\s+)?(?:be|last|get)?\s*at least\s+(.+)/i.exec(s);
     const after = /\bat least\s+(.+?)\s+for\s+(?:my\s+|the\s+)?([a-z][a-z ]{1,30})/i.exec(s);
     const [rawKey, durationText] = after ? [after[2], after[1]] : before ? [before[1], before[2]] : [null, null];
     if (!rawKey) continue;

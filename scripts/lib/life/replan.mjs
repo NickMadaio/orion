@@ -120,7 +120,7 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   //    new items at or after where he wanted them, in the order he listed them.
   const flexible = [
     ...[...interrupted, ...movable.filter((b) => b.start >= floor && !stays.includes(b))].map((b, k) => ({ block: b, minutes: b.end - b.start,
-      after: Math.max(floor, b.start), before: end, seq: -1000 + k, fresh: false, pref: true })),
+      after: Math.max(floor, b.start, /\bdinner\b/i.test(b.title) ? 18 * 60 + 30 : 0), before: end, seq: -1000 + k, fresh: false, pref: true })),
     ...lostTime.map(({ a, i }) => ({ block: newBlock(a, i), minutes: a.minutes, after: Math.max(floor, a.at),
       before: Number.isInteger(a.before) ? a.before : end, seq: i, fresh: true, pref: true })),
     ...add.map((a, i) => ({ a, i })).filter(({ a }) => !Number.isInteger(a.at)).map(({ a, i }) => ({ block: newBlock(a, i), minutes: a.minutes,

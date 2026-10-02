@@ -79,7 +79,7 @@ export function applyShrink(blocks, shrunk, { now = 0 } = {}) {
   for (const b of [...blocks].sort((x, y) => x.start - y.start || x.end - y.end)) {
     if (b.fixed) { freed = 0; wallEnd = Math.max(wallEnd, b.end); continue; }
     const length = to.has(b.id) ? to.get(b.id) : b.end - b.start;
-    const start = b.start >= now && freed > 0 ? Math.max(b.start - freed, wallEnd) : b.start;
+    const start = b.start >= now && freed > 0 ? Math.max(b.start - freed, wallEnd, /\bdinner\b/i.test(b.title) ? 18 * 60 + 30 : 0) : b.start;
     moved.set(b.id, { ...b, start, end: start + length });
     if (to.has(b.id)) freed += b.end - b.start - length;
   }

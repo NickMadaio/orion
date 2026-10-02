@@ -33,3 +33,7 @@ test("durations in the ways he says them", () => {
 test("'at least X for Y' also works", () => {
   assert.deepEqual(readStandingRules("Always give me at least 30 minutes for dinner").minimums, [{ key: "dinner", minutes: 30 }]);
 });
+
+test("always between should and be preserves the minimum", () => {
+ assert.deepEqual(readStandingRules("naps should always be at least an hour and 15 minutes").minimums, [{ key: "nap", minutes: 75 }]);
+});

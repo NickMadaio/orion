@@ -76,14 +76,15 @@ test("restating the lab at a time already gone is refused and points at extend",
   assert.deepEqual(day(), before);
 });
 
-test("replace 'apply somewhere' with the YouTube project: same slot, new title", (t) => {
+test("replace 'apply somewhere' with the YouTube project: existing block moved, no duplicate", (t) => {
   const { run, day } = world(t);
   const r = run("rename", "apply to SOMEWHERE", "YouTube side project");
   assert.equal(r.code, 0, r.out);
   const d = day();
   assert.ok(!d.some((x) => /apply to/i.test(x.title)));
-  const yt = d.find((x) => x.title === "YouTube side project");
-  assert.deepEqual([yt.start, yt.end], [hm(17, 13), hm(17, 58)]);
+  const yt = d.find(x => /youtube/i.test(x.title));
+  assert.equal(d.filter(x => /youtube/i.test(x.title)).length, 1);
+  assert.deepEqual([yt.start, yt.end], [hm(17, 13), hm(18, 13)]);
 });
 
 test("naps are at least 75 minutes once he says so, and the low-priority work shrinks to fit", (t) => {
@@ -209,4 +210,48 @@ test("an uneven swap with work in between keeps every length and nothing overlap
 test("swapping something already under way is refused", (t) => {
   const { run } = world(t);
   assert.equal(run("swap", "Side project", "Study").code, 1);
+});
+
+
+test("explicit times persist across commands and undo", t => {
+  const { run, day } = world(t);
+  let r = run("move", "Dinner", "--to", "20:00"); assert.equal(r.code, 0, r.out);
+  r = run("resize", "Nap", "75"); assert.equal(r.code, 0, r.out);
+  assert.equal(day().find(b => b.title === "Dinner").start, hm(20));
+  r = run("move", "Dinner", "--by", "-15"); assert.equal(r.code, 0, r.out);
+  assert.equal(day().find(b => b.title === "Dinner").start, hm(19,45));
+  assert.equal(run("undo").code, 0); assert.equal(day().find(b => b.title === "Dinner").start, hm(20));
+});
+test("positive relative delay", t => {
+  const { run, day } = world(t); const r = run("move", "Study", "--by", "30");
+  assert.equal(r.code, 0, r.out); assert.equal(day().find(b => b.title === "Study").start, hm(16,33));
+});
+test("minimums lengthen today's nap", t => {
+  const { run, day } = world(t, { config: { minimums: { nap: 75 } } });
+  const r = run("minimums"); assert.equal(r.code, 0, r.out); assert.equal(lengthOf(day(), "Nap"), 75);
+});
+test("more minutes extends from now after the old end", t => {
+  const { run, day } = world(t); const r = run("extend", "DS lab", "30");
+  assert.equal(r.code, 0, r.out); assert.equal(day().find(b => b.title === "DS lab").end, hm(14,49));
+});
+test("dry runs do not persist pins", t => {
+  const { run, day } = world(t); const before = day();
+  assert.equal(run("move", "Study", "--to", "18:00", "--dry-run").code, 0); assert.deepEqual(day(), before);
+  const r = run("tidy"); assert.equal(r.code, 0, r.out); assert.equal(day().find(b => b.title === "Study").start, hm(16,3));
+});
+
+test("a timed sequence keeps reading between two distinct breaks instead of moving it to evening", t => {
+ const { run, day } = world(t, { now: [7,15], events: [] });
+ const r = run("day", "--plan", "Study, 60, 09:00", "--plan", "Morning break, 15", "--plan", "Reading, 45", "--plan", "Reading break, 15");
+ assert.equal(r.code, 0, r.out); const d = day();
+ const starts = ["Study","Morning break","Reading","Reading break"].map(title => d.find(b => b.title === title).start);
+ assert.ok(starts.every((s,i) => !i || s > starts[i-1]), JSON.stringify(d)); assert.ok(starts.at(-1) < hm(12));
+});
+test("now and explicit add remain pinned after resizing another block", t => {
+ const { run, day } = world(t);
+ let r = run("now", "Lunch, 25", "Break, 15"); assert.equal(r.code,0,r.out);
+ r = run("add", "Call", "20", "--at", "18:00"); assert.equal(r.code,0,r.out);
+ r = run("resize", "Nap", "75"); assert.equal(r.code,0,r.out);
+ assert.equal(day().find(b => b.title === "Call").start,hm(18));
+ assert.equal(day().find(b => b.title === "Lunch").start,hm(14,19));
 });

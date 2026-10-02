@@ -3,7 +3,7 @@
   "now": "14:19",
   "day": [
    {
-    "title": "CS1800 Discrete Structures — Lecture",
+    "title": "CS1800 Discrete Structures \u2014 Lecture",
     "start": "09:00",
     "end": "10:30",
     "fixed": true
@@ -17,7 +17,7 @@
    {
     "title": "Side project (YouTube)",
     "start": "13:58",
-    "end": "14:58",
+    "end": "14:43",
     "kind": "side_project"
    },
    {
@@ -59,12 +59,12 @@
    {
     "title": "review CS lect 2",
     "start": "22:23",
-    "end": "23:08",
+    "end": "22:38",
     "kind": "study"
    },
    {
     "title": "Wind down",
-    "start": "23:30",
+    "start": "23:45",
     "end": "23:59",
     "kind": "rest"
    }
@@ -73,7 +73,7 @@
  "scenarios": [
   {
    "id": "extend-lab-nap-after-swap-youtube",
-   "say": "The DS lab is taking longer than expected. Extend it all the way to 3. I’ll take my nap after. And to make up for not doing the YouTube side project you can replace “apply somewhere with it.",
+   "say": "The DS lab is taking longer than expected. Extend it all the way to 3. I\u2019ll take my nap after. And to make up for not doing the YouTube side project you can replace \u201capply somewhere with it.",
    "expect": {
     "has": [
      {
@@ -106,8 +106,8 @@
   {
    "id": "full-afternoon-replay",
    "say": [
-    "The DS lab is taking longer than expected. Extend it all the way to 3. I’ll take my nap after. And to make up for not doing the YouTube side project you can replace “apply somewhere with it.",
-    "Just make it fit, shrink it. It’s not a priority item. Going forward remember that you can change how much time is allotted to non priority items",
+    "The DS lab is taking longer than expected. Extend it all the way to 3. I\u2019ll take my nap after. And to make up for not doing the YouTube side project you can replace \u201capply somewhere with it.",
+    "Just make it fit, shrink it. It\u2019s not a priority item. Going forward remember that you can change how much time is allotted to non priority items",
     "First, naps should be at least an hour and 15 minutes long ALWAYS. And with that being said that makes things even tighter. Make the nap longer, push study back, and now get rid of send internship applications"
    ],
    "expect": {
@@ -397,6 +397,167 @@
      "finish resume",
      "Study"
     ]
+   }
+  },
+  {
+   "id": "move-plus-resize",
+   "say": "Push Study back half an hour, then make Dinner 30 minutes long.",
+   "expect": {
+    "has": [
+     {
+      "title": "Study",
+      "start": "16:33"
+     }
+    ],
+    "minutes": {
+     "Dinner": 30,
+     "Study": 60
+    }
+   }
+  },
+  {
+   "id": "swap-plus-drop",
+   "say": "Swap Nap and apply to SOMEWHERE, then drop send internship applications.",
+   "expect": {
+    "order": [
+     [
+      "apply",
+      "Nap"
+     ]
+    ],
+    "absent": [
+     "send internship"
+    ],
+    "minutes": {
+     "Nap": 45,
+     "apply": 45
+    }
+   }
+  },
+  {
+   "id": "three-edits-pinned-dinner",
+   "say": "Move Dinner to 8 PM, make Nap 75 minutes, and drop apply to SOMEWHERE.",
+   "expect": {
+    "has": [
+     {
+      "title": "Dinner",
+      "start": "20:00"
+     }
+    ],
+    "minutes": {
+     "Nap": 75
+    },
+    "absent": [
+     "apply"
+    ]
+   }
+  },
+  {
+   "id": "dinner-natural-tidy",
+   "now": "14:00",
+   "day": [
+    {
+     "title": "Study",
+     "start": "14:00",
+     "end": "15:00",
+     "kind": "study"
+    },
+    {
+     "title": "Dinner",
+     "start": "15:30",
+     "end": "16:15",
+     "kind": "meal"
+    }
+   ],
+   "say": "Fix my schedule and put dinner at a normal dinner time.",
+   "expect": {
+    "minutes": {
+     "Dinner": 45,
+     "Study": 60
+    },
+    "natural": [
+     {
+      "title": "Dinner",
+      "earliest": "18:00"
+     }
+    ]
+   }
+  },
+  {
+   "id": "short-sleep-nap-after-class",
+   "now": "11:00",
+   "day": [
+    {
+     "title": "Lecture",
+     "start": "11:00",
+     "end": "12:30",
+     "fixed": true
+    },
+    {
+     "title": "Nap",
+     "start": "20:00",
+     "end": "21:15",
+     "kind": "rest"
+    },
+    {
+     "title": "Study",
+     "start": "14:30",
+     "end": "15:30",
+     "kind": "study"
+    }
+   ],
+   "say": "I slept only 5 hours. Move my 75 minute nap to early afternoon after class and the trip home, and keep study after it.",
+   "expect": {
+    "natural": [
+     {
+      "title": "Nap",
+      "earliest": "13:00",
+      "latest": "15:00"
+     }
+    ],
+    "order": [
+     [
+      "Lecture",
+      "Nap"
+     ],
+     [
+      "Nap",
+      "Study"
+     ]
+    ],
+    "minutes": {
+     "Nap": 75,
+     "Study": 60
+    }
+   }
+  },
+  {
+   "id": "no-waking-or-stacked-breaks",
+   "now": "07:15",
+   "day": [],
+   "say": "I just woke at 7:15. Plan Study at 9 for 60 minutes, Morning break 15 minutes, Reading 45 minutes, and Reading break 15 minutes. Keep exactly that sequence in the morning.",
+   "expect": {
+    "order": [
+     [
+      "Study",
+      "Morning break"
+     ],
+     [
+      "Morning break",
+      "Reading"
+     ],
+     [
+      "Reading",
+      "Reading break"
+     ]
+    ],
+    "minutes": {
+     "Study": 60,
+     "Reading": 45
+    },
+    "breaks": {
+     "wake": "07:15"
+    }
    }
   }
  ]

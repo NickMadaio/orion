@@ -43,6 +43,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 
+import { sandbox } from "./lib/life/bridge-path.mjs";
 const run = promisify(execFile);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -51,8 +52,8 @@ const MISSIONS = join(CONTROLLED, "missions");
 const INBOX = join(CONTROLLED, "inbox.jsonl");
 const OUTBOX = join(CONTROLLED, "outbox.jsonl");
 const AUDIT = join(CONTROLLED, "remote-audit.jsonl");
-const INBOUND = join(CONTROLLED, "remote-inbound.json"); // cursor + rate limits
-const INBOUND_LOCK = join(CONTROLLED, "remote-inbound.lock");
+const INBOUND = join(CONTROLLED, `${sandbox() ? "eval-" : ""}remote-inbound.json`); // cursor + rate limits
+const INBOUND_LOCK = join(CONTROLLED, `${sandbox() ? "eval-" : ""}remote-inbound.lock`);
 const RUNNER_LOG = join(CONTROLLED, "remote-runner.log");
 const LOCK = join(CONTROLLED, "lock.json");
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
@@ -623,8 +624,8 @@ async function phoneContext() {
     `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
     "  \"Fix my schedule\" / overlaps → `tidy`. Every change obeys the day rules; NOTHING WAS CHANGED means ask him, never retry.",
     "  Doing something NOW (eating, a break, just got home) → `now \"Lunch, 25\" \"Break, 15\"` — it slides the rest in order; never retype the day to rearrange it.",
-    "  Change ONE block, never retype the day: X is taking longer / extend X to 3 → `extend \"X\" --until 15:00` (works even if X already ended on the calendar; add `--then \"Nap\"` when he says what comes straight after). Make X shorter/longer, shrink it → `resize \"X\" <min>`. Replace/swap X with Y in its slot → `rename \"X\" \"Y\"`. Two changes in one message → run them one after another, the block he named first first.",
-    "  From his to-do list → `day --todos [--date …]` (one block per to-do; never paste the list). Get rid of X → `drop \"X\"` (never undo). Move one thing → `add \"X\" <min> --at HH:MM`. Class running over → `overrun <min>`. He is late right now → `late <min>`. `day --replace` ONLY when he says to clear or redo the whole day; it drops everything he does not restate.",
+    "  Change ONE block, never retype the day: Still doing X / need N more minutes → `extend \"X\" N` (N minutes from now if its old end has passed); never use orion-checkin for ongoing scheduled work. X is taking longer / extend X to 3 → `extend \"X\" --until 15:00` (works even if X already ended on the calendar; add `--then \"Nap\"` when he says what comes straight after). Make X shorter/longer, shrink it → `resize \"X\" <min>`. Replace/swap X with Y in its slot → `rename \"X\" \"Y\"`. Two changes in one message → run them one after another, the block he named first first.",
+    "  From his to-do list → `day --todos [--date …]` (one block per to-do; never paste the list). Get rid of X → `drop \"X\"` (never undo). Move one thing → `move \"X\" --to HH:MM`; push back half an hour → `move \"X\" --by 30`; swap two blocks → `swap \"X\" \"Y\"`. Class running over → `overrun <min>`. He is late right now → `late <min>`. `day --replace` ONLY when he says to clear or redo the whole day; it drops everything he does not restate.",
     "  Never re-plan something that is in \"Earlier today\": it happened. A time that has passed is never a valid --at or --plan time.",
     "  When the day overflows, low-priority blocks (breaks, side projects, anything optional) shrink automatically; SHRUNK lines must be told to him.",
     "  Report only what the output says was written; SHIFTED / NOT BOOKED means tell him.",
@@ -731,6 +732,10 @@ async function saveStandingRules(text) {
   const { evalMode } = await import("./lib/eval-mode.mjs");
   for (const m of rules.minimums) {
     try { setMinimum(m.key, m.minutes); saved.push(`${m.key} is always at least ${m.minutes} minutes (the planner enforces it)`); } catch { /* not a usable rule */ }
+  }
+  if (saved.length) {
+    const result = spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "orion-reschedule"), "minimums"], { encoding: "utf8", timeout: 30000 });
+    saved.push(`Today minimums: ${result.status === 0 ? result.stdout.trim() : `could not apply: ${(result.stdout + result.stderr).trim()}`}`);
   }
   const statement = rules.statement || rules.minimums.map((m) => `${m.key} at least ${m.minutes} minutes`).join("; ");
   if (statement && evalMode()) saved.push(`his words would be saved to his profile: "${statement.slice(0, 160)}" (evaluation run: not written)`);

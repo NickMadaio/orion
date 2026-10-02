@@ -13,6 +13,7 @@ writeFileSync(fake, `#!/bin/sh\nread line\necho "$line" >> "${calls}"\nid=$(date
 chmodSync(fake, 0o755);
 process.env.ORION_BRIDGE_BIN = fake;
 process.env.ORION_RESCHEDULE_UNDO = join(dir, "undo.json");
+process.env.ORION_RESCHEDULE_PINS = join(dir, "pins.json");
 const { applyPlan, undoLast } = await import("../scripts/lib/life/calendar-write.mjs");
 const journal = () => JSON.parse(readFileSync(process.env.ORION_RESCHEDULE_UNDO, "utf8"));
 

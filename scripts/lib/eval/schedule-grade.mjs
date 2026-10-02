@@ -19,6 +19,8 @@ const named = (blocks, title) => blocks.filter((b) => norm(b.title).includes(nor
 export function gradeSchedule({ after, before, expect = {}, now = 0, reply = "" }) {
   if (!Array.isArray(after) || !Array.isArray(before)) throw new TypeError("after and before must be arrays");
   const failures = [];
+  const disclosedDrop = title => norm(reply).includes(norm(title)) && /\?/.test(reply) && /\b(drop|skip|tomorrow|another day|move|reschedule|fit|leave)\b/i.test(reply);
+  if (/\(no reply|did not finish|aborted/i.test(reply)) failures.push("transport did not finish with a reply");
   const ahead = after.filter((b) => b.end > now);
   for (const [i, a] of ahead.entries()) {
     for (const b of ahead.slice(i + 1)) {
@@ -65,12 +67,24 @@ export function gradeSchedule({ after, before, expect = {}, now = 0, reply = "" 
   for (const title of expect.absent ?? []) if (named(after, title).length) failures.push(`still there: ${title}`);
   for (const title of expect.unchanged ?? []) {
     const a = named(after, title)[0]; const b = named(before, title)[0];
-    if (!a || !b || a.end - a.start !== b.end - b.start) failures.push(`changed length: ${title}`);
+    if ((!a && !disclosedDrop(title)) || !b || (a && a.end - a.start !== b.end - b.start)) failures.push(`changed length: ${title}`);
   }
   // Untouched work he did not mention keeps existing.
   for (const b of before.filter((x) => x.end > now)) {
     const mentioned = [...(expect.absent ?? []), ...(expect.mayDrop ?? [])].some((t) => norm(b.title).includes(norm(t)));
-    if (!mentioned && !named(after, b.title).length && !(expect.renamed ?? []).some((t) => norm(b.title).includes(norm(t)))) failures.push(`lost: ${b.title}`);
+    if (!mentioned && !disclosedDrop(b.title) && !named(after, b.title).length && !(expect.renamed ?? []).some((t) => norm(b.title).includes(norm(t)))) failures.push(`lost: ${b.title}`);
+  }
+  for (const rule of expect.natural ?? []) {
+    const b = named(after, rule.title)[0];
+    if (!b || b.start < toMinute(rule.earliest) || (rule.latest && b.start > toMinute(rule.latest))) failures.push(`unnatural time: ${rule.title}`);
+  }
+  if (expect.breaks) {
+    const breaks = ahead.filter(b => /\bbreak\b/i.test(b.title));
+    const wake = toMinute(expect.breaks.wake ?? "07:15");
+    for (const b of breaks) {
+      if (b.start < wake + 60) failures.push(`break immediately after waking: ${b.title}`);
+      if (breaks.some(x => x !== b && Math.abs(x.end - b.start) <= 10)) failures.push(`stacked breaks: ${b.title}`);
+    }
   }
   if (/\bnoted\b/i.test(reply) && !/saved/i.test(reply)) failures.push('reply says "noted" without saying it was saved');
   return { ok: failures.length === 0, failures };

@@ -1,3 +1,9 @@
+## 2026-10-02 — Orb-first middle-ground hologram (Codex)
+
+- User found the literal original shell still overwhelmed Thinking Orbs. Hybrid now makes the orb the main foreground shape in every state (scale0.95 idle/1 thinking, intensity0.90/1). Idle dot size raised so the breathing geometry stays readable; thinking remains gold and prominent.
+- Original geometry becomes a light outer scaffold: shell radius enlarged, radial filaments shortened to an edge band and sampled at stride4, filament intensity25%, arcs/chips/motes32%, great circles45%. Core/flare/ambient bloom22%. Original-only renderer is unchanged. Retains actual original depth, shell and audio response without the old starburst. Single Canvas and batching preserved; fewer particles should reduce work further.
+- Native build passes. Signed installation and visual check follow. Other session's evaluation artifacts preserved.
+
 ## 2026-10-02 — Gold thinking with prominent orb geometry (Codex)
 
 - Thinking Orion stays gold while thinking. Hybrid shell tint no longer targets purple; the shared orb painter uses the gold palette for solving/searching/weaving. Original Orion retains its legacy state colours.

@@ -26,12 +26,12 @@ struct HologramView: View {
                         model.batchGeometry = true
                         model.motionScale = 0.45; model.targetFrameInterval = 1.0 / 30
                         model.tick(timeline.date)
-                        model.draw(&context, size: size, cognitiveOnTop: model.state == .thinking) { inner in
+                        model.draw(&context, size: size, cognitiveOnTop: true) { inner in
                             OrionThinkingHologram.draw(in: &inner, size: size, state: orbState,
                                 level: model.audioLevel, isError: model.state == .error,
                                 brightness: holoGain, time: timeline.date.timeIntervalSinceReferenceDate,
-                                reduceMotion: reduceMotion, geometryScale: model.state == .thinking ? 0.95 : 0.78,
-                                opacity: model.state == .thinking ? 1 : 0.65)
+                                reduceMotion: reduceMotion, geometryScale: model.state == .thinking ? 1 : 0.95,
+                                opacity: model.state == .thinking ? 1 : 0.90)
                         }
                     }
                 }

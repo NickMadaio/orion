@@ -143,8 +143,9 @@ early” shortens the current class/task in an undoable transaction, with travel
 home preserved after the final class. Evaluation check-ins have a separate
 store and cannot produce live notification alerts.
 
-**Thinking Orion** combines Thinking Orbs geometry with the original hologram’s
-filament shell, latitude arcs, drifting chips, bright core and lens flare.
+**Thinking Orion** puts the Thinking Orbs geometry in front, surrounded by a
+subtle original hologram shell: short edge filaments, latitude arcs, drifting
+chips and a restrained gold core/glow.
 Thinking stays gold and brings the larger, brighter twisting orb to the front
 of the shell. Motion runs at 45% speed; audio response remains immediate. The combined
 projection uses one Canvas with batched geometry, avoiding stacked blurred

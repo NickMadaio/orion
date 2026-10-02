@@ -64,7 +64,7 @@ public struct OrionThinkingHologram: View {
         // All dots share a hue; quantized alpha keeps depth without a fill per dot.
         var dots = Array(repeating: Path(), count: 16)
         for dot in frame.dots {
-            let p = point(dot.x, dot.y), r = max(0.35, dot.r * zoom * (state == .solving ? 0.50 : 0.32))
+            let p = point(dot.x, dot.y), r = max(0.35, dot.r * zoom * (state == .solving ? 0.50 : 0.42))
             let alpha = max(0, min(1, (1-dot.white)*dot.a))
             guard alpha > 0.015 else { continue }
             let bin = min(15, Int(alpha * 16))

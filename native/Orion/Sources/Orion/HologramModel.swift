@@ -672,11 +672,11 @@ final class HologramModel {
         // square of fully transparent corners as a result, which is what lets
         // clicks out there reach whatever is underneath.
         reach = Double(min(w, h)) * 0.5
-        baseR = reach * 0.60
+        baseR = reach * (batchGeometry ? 0.72 : 0.60)
 
         rebuildRamp(force: false)
 
-        let bloom = 0.55 + energy * 0.85 + pulse * 0.4 + onset * 0.25
+        let bloom = (0.55 + energy * 0.85 + pulse * 0.4 + onset * 0.25) * (batchGeometry ? 0.22 : 1)
 
         // Ambient wash behind the shell, in normal blend so it stays a wash.
         //
@@ -744,7 +744,7 @@ final class HologramModel {
         var i = 0
         while i < filaments.count {
             let f = filaments[i]
-            i += step
+            i += batchGeometry ? max(4, step) : step
             let mid = project(f.x, f.y, f.z, 1)
             if (mid.z > 0) != front { continue }
 
@@ -760,8 +760,10 @@ final class HologramModel {
             // Each filament breathes on its own phase; the pulse pushes outward.
             let wob = 1 + sin(t * f.speed + f.phase) * 0.030 + pulse * 0.08
                 + heard * 0.15 + lit * 0.05
-            let a = project(f.x, f.y, f.z, f.inner * breathe * wob)
-            let b = project(f.x, f.y, f.z, min(f.outer * breathe * wob, holoMaxUnitRadius))
+            let innerRadius = batchGeometry ? max(0.94, f.inner) : f.inner
+            let outerRadius = batchGeometry ? min(1.06, f.outer) : f.outer
+            let a = project(f.x, f.y, f.z, innerRadius * breathe * wob)
+            let b = project(f.x, f.y, f.z, min(outerRadius * breathe * wob, holoMaxUnitRadius))
 
             let depth = mid.z
             let flick = 0.72 + 0.28 * sin(t * f.speed * 1.7 + f.phase)
@@ -783,7 +785,7 @@ final class HologramModel {
                 var path = Path()
                 path.move(to: CGPoint(x: a.x, y: a.y))
                 path.addLine(to: CGPoint(x: b.x, y: b.y))
-                ctx.opacity = holoClamp(alpha * holoGain, 0, 1)
+                ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
                 ctx.stroke(path, with: rampShading[rampIndex(depth + lit * 0.8)],
                            style: StrokeStyle(lineWidth: CGFloat(f.width * mid.persp), lineCap: .round))
             }
@@ -791,7 +793,7 @@ final class HologramModel {
 
         for index in filamentPaths.indices where !filamentPaths[index].isEmpty {
             let opacity = index % 6, width = (index / 6) % 3, colour = index / 18
-            ctx.opacity = (Double(opacity) + 0.5) / 6
+            ctx.opacity = (Double(opacity) + 0.5) / 6 * 0.25
             ctx.stroke(filamentPaths[index], with: rampShading[colour * 8 + 4],
                        style: StrokeStyle(lineWidth: CGFloat(0.35 + Double(width) * 0.7), lineCap: .round))
         }
@@ -836,7 +838,7 @@ final class HologramModel {
 
             let alpha = holoClamp((0.16 + shimmer * 0.24) * backDim * (0.7 + energy * 0.5)
                                   * (1 + lit * 2.2), 0, 1)
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1)
+            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
             ctx.stroke(path,
                        with: lit > 0.01 ? rampShading[rampIndex(Double(side) * 0.5 + lit * 0.9)]
                                         : arcShading,
@@ -864,7 +866,7 @@ final class HologramModel {
 
             let cw = chip.w * p.persp
             let ch = chip.h * p.persp
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1)
+            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
             ctx.fill(
                 Path(CGRect(x: p.x - cw / 2, y: p.y - ch / 2, width: cw, height: ch)),
                 with: rampShading[rampIndex(p.z + lit * 0.8)]
@@ -907,7 +909,7 @@ final class HologramModel {
                 drawn += 1
             }
             if drawn == 0 { continue }
-            ctx.opacity = holoClamp(orb.alpha * backDim * (0.6 + energy * 0.6) * holoGain, 0, 1)
+            ctx.opacity = holoClamp(orb.alpha * backDim * (0.6 + energy * 0.6) * holoGain, 0, 1) * (batchGeometry ? 0.45 : 1)
             ctx.stroke(path, with: orbitShading, style: StrokeStyle(lineWidth: CGFloat(orb.width), lineCap: .round))
         }
 
@@ -921,7 +923,7 @@ final class HologramModel {
             if (p.z > 0) != front { continue }
             let alpha = holoClamp((0.10 + 0.30 * abs(sin(t * m.speed * 0.7 + m.phase))) * backDim, 0, 1)
             let s = m.size * p.persp
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1)
+            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
             ctx.fill(Path(CGRect(x: p.x, y: p.y, width: s, height: s)), with: hotShading)
         }
     }

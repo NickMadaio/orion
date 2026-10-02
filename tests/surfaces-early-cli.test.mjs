@@ -15,7 +15,7 @@ const at = (h, m = 0) => new Date(2030, 9, 5, h, m).toISOString().replace(/\.\d{
 const minute = (s) => { const d = new Date(s); return d.getHours() * 60 + d.getMinutes(); };
 const hm = (h, m = 0) => h * 60 + m;
 
-function world(t, events) {
+function world(t, events, overrides = {}) {
   const home = mkdtempSync(join(tmpdir(), "orion-early-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   mkdirSync(join(home, ".openclaw/orion-controlled"), { recursive: true });
@@ -25,6 +25,7 @@ function world(t, events) {
     usualWake: "08:00",
     minimums: {},
     freeMinutesKept: 60,
+    ...overrides,
   }));
   const calendar = join(home, "calendar.json");
   writeFileSync(calendar, JSON.stringify(events.map((e, i) => ({ identifier: `seed-${i}`, ...e }))));
@@ -66,28 +67,21 @@ test("early during a block shortens it and pulls the rest forward", (t) => {
   assert.ok(noOverlaps(d), JSON.stringify(d));
 });
 
-test("early right after class without a mode asks which", (t) => {
-  const { run, day } = world(t, afternoonEvents);
-  // Now is 11:00 — within commute window after CS1802 Lecture (ends 10:30).
-  // No mode given → should ask.
-  const r = run("early", "--now", "11:00");
-  assert.equal(r.code, 3, r.out);
-  assert.match(r.out, /ASK: out-of-class or home/);
+test("single early tap persists class end, protects commute and undo restores it", (t) => {
+  const {run,day} = world(t,afternoonEvents);
+  const before=day();
+  const r=run("early","--now","10:00");
+  assert.equal(r.code,0,r.out);
+  assert.equal(day().find(e=>e.title==="CS1802 Lecture").end,hm(10));
+  assert.ok(day().find(e=>e.title==="Study session").start >= hm(10,30)); // fixture's saved commute30
+  assert.equal(run("undo").code,0);
+  assert.deepEqual(day(),before);
 });
-
-test("early home after class pulls the afternoon to now", (t) => {
-  const { run, day } = world(t, afternoonEvents);
-  // Now is 11:00 — within commute window after CS1802 Lecture. Mode "home".
-  const r = run("early", "home", "--now", "11:00");
-  assert.equal(r.code, 0, r.out);
-  const d = day();
-  // Study session should have moved to start at or after 11:00
-  const study = d.find((e) => e.title === "Study session");
-  assert.ok(study.start >= hm(11), `study should start at or after 11:00: ${study.start}\n${r.out}`);
-  // Side project should also have moved earlier
-  const side = d.find((e) => e.title === "Side project");
-  assert.ok(side.start < hm(15, 40), `side project should move earlier: ${side.start}\n${r.out}`);
-  assert.ok(noOverlaps(d), JSON.stringify(d));
+test("past classes cannot be ended again; already-home route is removed", (t) => {
+  const {run,day}=world(t,afternoonEvents); const before=day();
+  assert.equal(run("early","--now","11:00").code,1);
+  assert.equal(run("early","home","--now","10:00").code,2);
+  assert.deepEqual(day(),before);
 });
 
 test("early --check prints the context as JSON and writes nothing", (t) => {
@@ -123,4 +117,13 @@ test("early then undo restores every block exactly", (t) => {
   const r2 = run("undo");
   assert.equal(r2.code, 0, r2.out);
   assert.deepEqual(day(), before, `undo should restore exactly:\nbefore: ${JSON.stringify(before)}\nafter:  ${JSON.stringify(day())}`);
+});
+
+test("leaving final class early retains 45-minute commute plus five-minute transition", t => {
+  const {run,day}=world(t,afternoonEvents,{commuteMinutes:45,bufferMinutes:5});
+  const r=run("early","--now","10:00");assert.equal(r.code,0,r.out);
+  const d=day();assert.equal(d.find(e=>e.title==="CS1802 Lecture").end,hm(10));
+  const study=d.find(e=>e.title==="Study session"),side=d.find(e=>e.title==="Side project");
+  assert.equal(study.start,hm(10,50));
+  assert.equal(side.start-study.end,5);
 });

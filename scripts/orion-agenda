@@ -45,6 +45,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { ignoredEvent, loadConfig } from "./lib/life/config.mjs";   // events he never goes to ("(optional)" workshops)
 
+import { sandbox, bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
 const run = promisify(execFile);
 
 const BRIDGE = join(
@@ -59,7 +60,7 @@ function fail(message, code = 2) {
   process.exit(code);
 }
 
-if (!existsSync(BRIDGE)) {
+if (!sandbox() && !existsSync(BRIDGE)) {
   fail("the bridge binary is missing — build it with `swift build -c release` in native/OrionMacBridge", 1);
 }
 
@@ -68,6 +69,7 @@ if (!existsSync(BRIDGE)) {
  stdout. It is not a daemon, so a call is a spawn.
 */
 async function ask(action, payload = {}) {
+  if (sandbox()) return bridgeRequest(action, payload);
   // Arguments go UNDER `payload` — the bridge decodes `request.payload["title"]`,
   // so spreading them at the top level silently loses every one of them and
   // comes back as "an event needs a title and valid start and end times".
@@ -153,7 +155,7 @@ const longDate = (at) =>
  to the past.
 */
 function resolveDay(when) {
-  const now = new Date();
+  const now = clockNow();
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const word = String(when ?? "").trim().toLowerCase();
 
@@ -180,7 +182,7 @@ function resolveDay(when) {
  it is. See the note at the top of this file for what happens when it does.
 */
 function printGrounding(target) {
-  const now = new Date();
+  const now = clockNow();
   console.log(`today is ${longDate(now)}`);
   if (!target) return;
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());

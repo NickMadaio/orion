@@ -26,7 +26,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$REPO/plugin/workspace"
 LIVE="${ORION_WORKSPACE:-$HOME/.openclaw/workspace}"
-FILES=(AGENTS.md SOUL.md SELF.md USER.md PLAYBOOK.md MEMORY.md)
+FILES=(AGENTS.md SOUL.md SELF.md USER.md PLAYBOOK.md MEMORY.md SCHEDULING.md)
 APPLY=0
 [ "${1:-}" = "--apply" ] && APPLY=1
 

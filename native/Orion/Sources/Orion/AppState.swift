@@ -85,9 +85,9 @@ final class AppState: ObservableObject {
         }
     }
     func finishEarly(_ mode: String) {
-        guard !earlyBusy, ["block", "out-of-class", "home"].contains(mode) else { return }; earlyBusy = true
+        guard !earlyBusy, ["auto", "block", "out-of-class"].contains(mode) else { return }; earlyBusy = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Self.runSchedule(["early", mode])
+            let result = Self.runSchedule(mode == "auto" ? ["early"] : ["early", mode])
             DispatchQueue.main.async { guard let self else { return }; self.earlyBusy = false; self.earlyFeedback = result.1; self.append(.system, result.1); self.refreshEarlyContext() }
         }
     }

@@ -94,7 +94,7 @@ enum GatewayClient {
         process.arguments = [
             "agent",
             "--session-key", session,
-            "--message", text,
+            "--message", SchedulingMemory.context(for: text) + text,
             "--json",
             "--timeout", String(Int(RunTimeouts.agentTimeout))
         ]

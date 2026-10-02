@@ -22,9 +22,13 @@ import { randomBytes } from "node:crypto";
 import { startLoop, step } from "./lib/life/follow-through.mjs";
 import { classifyDeferral } from "./lib/life/deferral.mjs";
 import { recordOutcome, loadPatterns, lateHabit } from "./lib/life/history.mjs";
+import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
+import { inClass, realClasses } from "./lib/life/class-reminders.mjs";
 import { classify } from "./lib/life/live-day.mjs";
 
-const FILE = process.env.ORION_CHECKIN_FILE || join(homedir(), ".openclaw/orion-controlled/checkins.json");
+import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
+const evaluating = evalMode();
+const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(homedir(), ".openclaw/orion-controlled/checkins.json");
 const MAX_ALERTS = 8;
 const nowMinute = () => Math.floor(Date.now() / 60000);
 const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };
@@ -63,7 +67,7 @@ export function message(c, now) {
   const late = Math.max(0, now - c.dueAt);
   const w = c.what;
   const W = w.charAt(0).toUpperCase() + w.slice(1);
-  if (c.loop.level <= 1 && c.returning) return `Okay, ${c.returning}. Now we're starting: ${w}.`;
+  if (c.loop.level <= 1 && c.returning) return `You asked me to check back about ${w}. Ready to start?`;
   const habit = lateHabit(loadPatterns(), classify(w));
   switch (c.loop.level) {
     case 1: return `Time to start: ${w}.${habit ? ` ${habit}` : ""}`;
@@ -105,7 +109,7 @@ switch (command) {
     }
     const c = pick(state, rest[0]);
     // Planned vs actual: the first time he starts it is the sample that counts.
-    if (command === "started" && c.loop.phase !== "active" && c.dueAt) recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: now * 60000 });
+    if (command === "started" && c.loop.phase !== "active" && c.dueAt) !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: now * 60000 });
     c.loop = step(c.loop, { type: command }, now);
     save(state);
     console.log(command === "started" ? `Noted: ${c.what} started. I'll check in ~25 min that it's still going.` : `Done: ${c.what}. Check-in closed.`);
@@ -145,22 +149,31 @@ switch (command) {
     break;
   }
   case "tick": {
+    if (evaluating) { console.log(args.includes("--json") ? "[]" : "No live notifications during evaluation."); break; }
     const alerts = [];
+    let duringClass = false, classes = [];
+    try { const blocks = toBlocks(await calendarEvents(), localDate(new Date())); classes = realClasses(blocks); duringClass = inClass(blocks, new Date().getHours()*60+new Date().getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
     for (const c of state.checkins.filter(open)) {
+      // A calendar class is self-timed; lack of a Started/Done tap isn't
+      // evidence of avoidance. Ordinary start nags wait until class is over.
+      if (/(class|lecture|seminar|lab|macro|marketing|ECON1115|MKTG2201)/i.test(c.what)) {
+        c.loop = step(c.loop, {type: "cancelled"}, now); continue;
+      }
+      if (duringClass) continue;
       const before = c.loop;
       const after = step(before, { type: "tick" }, now);
       if (after === before) {
         // An active block: confirm it is still going once, then leave him alone.
         if (before.phase === "active" && before.nextCheckAt !== null && now >= before.nextCheckAt) {
           c.loop = { ...before, nextCheckAt: null };
-          alerts.push({ id: c.id, level: 0, text: `Still on ${c.what}? Reply "done" when you finish.` });
+          alerts.push({ id: c.id, level: 0, text: `Checking in on ${c.what}. How is it going?` });
         }
         continue;
       }
       c.loop = after;
       c.alerts += 1;
       if (c.alerts > MAX_ALERTS) {
-        recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
+        !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
         c.loop = { ...after, phase: "given_up", nextCheckAt: null }; alerts.push({ id: c.id, level: 4, text: `I'll stop pinging about ${c.what}. Tell me when you want to pick it back up.` }); continue; }
       alerts.push({ id: c.id, level: after.level, text: message(c, now) });
       c.returning = null;

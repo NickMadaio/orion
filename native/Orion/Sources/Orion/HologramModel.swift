@@ -270,6 +270,7 @@ final class HologramModel {
 
     var quality: HologramQuality = .automatic
 
+    var audioLevel: Double { smooth }
     private var level: Double = 0   // instantaneous audio level, 0..1
     private var smooth: Double = 0  // smoothed level
     private var energy: Double = 0  // slow-moving envelope, drives global bloom

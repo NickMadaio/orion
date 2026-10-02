@@ -298,12 +298,13 @@ struct SettingsTab: View {
     private var core: some View {
         VStack(alignment: .leading, spacing: 14) {
                         Picker("Visual", selection: $coreStyle) {
+                Text("Thinking Orion").tag("thinkingOrion")
                 Text("Original Orion").tag("original")
                 Text("Black Hole").tag("blackHole")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            Text("The floating voice hologram always stays Original Orion; this changes the dashboard centrepiece only.")
+            Text("Choose the hologram for Home and the floating voice view. Thinking Orion combines the orb geometry with Orion’s gold projection and audio response.")
                 .font(OrionTheme.mono(10))
                 .foregroundStyle(OrionTheme.textDim)
                 .fixedSize(horizontal: false, vertical: true)

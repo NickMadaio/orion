@@ -423,7 +423,7 @@ public enum LinkLog: Codable, Equatable, Sendable {
             guard usedMinutes == nil || usedMinutes!.allSatisfy({ ["messaging", "feeds", "video", "games"].contains($0.key) && (0...1440).contains($0.value) }) else { throw LinkError.invalidCommand("invalid app-list usage") }
             return .screen(at: at, locked: locked, until: until, why: why, graceUntil: graceUntil, usedMinutes: usedMinutes)
         case .checkin(let action):
-            guard ["started", "snooze", "done", "early-block", "early-out-of-class", "early-home"].contains(action) else { throw LinkError.invalidCommand("not a check-in answer") }
+            guard ["started", "snooze", "done", "early-block", "early-out-of-class"].contains(action) else { throw LinkError.invalidCommand("not a check-in answer") }
             return self
         case let .sleep(event, at):
             guard ["bed", "up"].contains(event) else { throw LinkError.invalidCommand("sleep event is bed or up") }

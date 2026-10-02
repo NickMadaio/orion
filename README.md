@@ -134,3 +134,16 @@ docs/        vision, phase plans, agent work plans — see docs/README.md
 
 This repo leaves out build outputs, `node_modules/`, the vendored Ollama
 runtime, local state and databases, and all secrets.
+
+Scheduling preferences live in `plugin/workspace/SCHEDULING.md`, installed into
+ORION's workspace and supplied to scheduling chat turns. Whole-day planning
+combines `day --todos --plan …`. The shared controlled settings hold Nick's
+five-minute transitions, 45-minute commute and protected minimums. “I'm out
+early” shortens the current class/task in an undoable transaction, with travel
+home preserved after the final class. Evaluation check-ins have a separate
+store and cannot produce live notification alerts.
+
+**Thinking Orion** is a full-size gold hologram painted from Thinking Orbs'
+semantic geometry, with orbital projection and audio response. Select it in
+Settings → Orion core; Original Orion and Black Hole remain available. The
+same renderer is used on the phone.

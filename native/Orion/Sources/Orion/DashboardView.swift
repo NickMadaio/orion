@@ -83,7 +83,7 @@ struct DashboardView: View {
     /// the next launch.
     @AppStorage(SurfaceSettings.opacityKey) private var surfaceOpacity = SurfaceSettings.defaultOpacity
     @AppStorage(SurfaceSettings.blurKey) private var surfaceBlur = false
-    @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "blackHole"
+    @AppStorage("orion.dashboard.coreStyle") private var coreStyle = "thinkingOrion"
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
     @State private var briefClock = BriefClock(now: Date())
@@ -204,6 +204,7 @@ struct DashboardView: View {
             let current = BriefClock(now: instant)
             briefClock = current
             dayModel.refresh()
+            state.refreshEarlyContext()
             if current.needsSourceRefresh(after: previous) {
                 agenda.refresh(); reminders.refresh(); refreshPlanSources()
             }

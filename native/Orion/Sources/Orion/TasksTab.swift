@@ -69,10 +69,13 @@ struct TasksTab: View {
                 OrionPanel(padding: 20) {
                     VStack(alignment: .leading, spacing: 12) {
                         dayHeader
-                        if state.earlyFinish?.kind == "block" { Button("Finished early") { state.finishEarly("block"); refreshPlanSources() }.disabled(state.earlyBusy) }
-                        if state.earlyFinish?.kind == "after-class" {
-                            HStack { Button("Out of class early") { state.finishEarly("out-of-class"); refreshPlanSources() }; Button("Already home") { state.finishEarly("home"); refreshPlanSources() } }.disabled(state.earlyBusy)
-                        }
+                        Button { state.finishEarly("auto"); refreshPlanSources() } label: {
+                            Label("I'm out early", systemImage: "arrow.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(OrionTheme.textSoft)
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                        }.buttonStyle(.plain).disabled(state.earlyBusy || state.earlyFinish?.kind == "none" || state.earlyFinish == nil)
                         if let feedback = state.earlyFeedback { Text(feedback).font(.caption).foregroundStyle(OrionTheme.textSoft) }
                     }.onAppear { state.refreshEarlyContext() }.frame(maxWidth: .infinity, alignment: .topLeading)
                 }

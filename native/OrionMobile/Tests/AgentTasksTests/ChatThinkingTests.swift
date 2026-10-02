@@ -22,7 +22,8 @@ final class ChatThinkingTests: XCTestCase {
         XCTAssertNil(ChatThinking.read(home: home, session: "other", since: now.addingTimeInterval(-1)))
     }
     func testEarlyAndUsageAreBoundedAndOldScreenPayloadStillDecodes() throws {
-        XCTAssertNoThrow(try LinkLog.checkin(action: "early-home").validated())
+        XCTAssertThrowsError(try LinkLog.checkin(action: "early-home").validated())
+        XCTAssertNoThrow(try LinkLog.checkin(action: "early-out-of-class").validated())
         XCTAssertThrowsError(try LinkLog.checkin(action: "early-arbitrary").validated())
         let old = LinkLog.screen(at: "2030-10-03T09:00:00Z", locked: false, until: nil, why: nil, graceUntil: nil)
         XCTAssertEqual(try LinkLog.decode(old.encoded()), old)

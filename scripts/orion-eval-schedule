@@ -53,11 +53,12 @@ try {
     utimesSync(EVAL_MARKER, new Date(), new Date());
     const events = s.day.map((d, i) => ({ identifier: `seed-${i}`, title: d.title, start: iso(d.start), end: iso(d.end),
       ...(d.fixed ? {} : { orion: d.kind ?? "other" }) }));
-    writeFileSync(SANDBOX_CALENDAR, JSON.stringify({ now: iso(s.now), events }, null, 2));
+    writeFileSync(SANDBOX_CALENDAR, JSON.stringify({ now: iso(s.now), events, reminders: s.reminders ?? [] }, null, 2));
     writeFileSync(lifeCopy, existsSync(realLife) ? readFileSync(realLife, "utf8") : "{}");
     rmSync(join(dirname(SANDBOX_CALENDAR), "eval-reschedule-undo.json"), { force: true });
     rmSync(join(dirname(SANDBOX_CALENDAR), "eval-pins.json"), { force: true });
     rmSync(join(dirname(SANDBOX_CALENDAR), "eval-remote-inbound.json"), { force: true });
+    rmSync(join(dirname(SANDBOX_CALENDAR), "eval-checkins.json"), { force: true });
     const before = readDay();
     const session = `orion-eval-sched-${stamp}-${s.id}`;
     const replies = []; const transportFailures = [];
@@ -83,6 +84,7 @@ try {
   rmSync(EVAL_MARKER, { force: true });
   rmSync(SANDBOX_CALENDAR, { force: true });
   rmSync(lifeCopy, { force: true });
+  rmSync(join(dirname(SANDBOX_CALENDAR), "eval-checkins.json"), { force: true });
   rmSync(join(dirname(SANDBOX_CALENDAR), "eval-pins.json"), { force: true });
 }
 const passed = results.filter((r) => r.ok).length;

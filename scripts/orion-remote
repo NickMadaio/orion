@@ -598,7 +598,7 @@ function phoneLock() {
 
 function openCheckins() {
   try {
-    const state = JSON.parse(readFileSync(join(CONTROLLED, "checkins.json"), "utf8"));
+    const state = JSON.parse(readFileSync(join(CONTROLLED, `${sandbox() ? "eval-" : ""}checkins.json`), "utf8"));
     const open = (state.checkins ?? []).filter((c) => !["done", "cancelled", "given_up"].includes(c.loop?.phase));
     return open.length ? `- Open check-ins: ${open.map((c) => `${c.id} "${c.what}" (${c.loop.phase})`).join("; ")}.` : "- No open check-ins.";
   } catch { return "- No open check-ins."; }
@@ -609,6 +609,7 @@ async function phoneContext() {
   const names = apps?.ok ? apps.reply.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)) : [];
   return [
     "[orion-remote] Live facts for this message (read just now, not from Nick):",
+    (() => { try { return "[Scheduling preferences — read before planning]\n" + readFileSync(join(homedir(), ".openclaw/workspace/SCHEDULING.md"), "utf8").slice(0, 12000); } catch { return "Scheduling memory unavailable: read SCHEDULING.md before planning."; } })(),
     names.length ? `- Apps open on the Mac: ${names.join(", ")}.` : "- The list of open apps could not be read.",
     "- ORION's own app is the native Mac app Orion.app. It is not a website: never open a",
     "  localhost or http address for it. Its tabs are Home, Tasks (to-dos, calendar and",

@@ -27,6 +27,10 @@ import { sweep } from "./lib/life/todo-lists.mjs";
 import { nightMarkers, readWakeRequest, actualWake, actualSleep } from "./lib/life/night.mjs";
 import { summarize } from "./lib/life/history.mjs";
 
+import { evalMode } from "./lib/eval-mode.mjs";
+import { classReminders } from "./lib/life/class-reminders.mjs";
+// A watcher invoked by an evaluation must not mutate live state or queue alerts.
+if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
 const STATE = process.env.ORION_WATCH_FILE || join(CONTROLLED, "watch.json");
 const OUTBOX = join(CONTROLLED, "alerts-outbox.jsonl");
@@ -95,6 +99,9 @@ const freeLeft = () => freeGaps(blocks, { start: Math.max(minute, toMinute(confi
   .reduce((a, g) => a + g.end - g.start, 0);
 const fixed = blocks.filter((b) => b.fixed);
 const classes = fixed.filter((b) => b.kind === "class");
+const classAlerts = classReminders(blocks, {now: minute, sent: day.classReminded ?? []});
+for (const alert of classAlerts) alerts.push({id: `class-${alert.id}`, level: 0, text: alert.text});
+day.classReminded = [...(day.classReminded ?? []), ...classAlerts.map(a => a.id)];
 const lastClass = classes.at(-1);
 const short_ = (t) => t.replace(/ — .*$/, "").replace(/^[A-Z]{2,4}\d{3,4}\s+/, "");
 const plans = (list) => list.map((b) => `${short_(b.title)} at ${hhmm(b.start)}`).join(", ");

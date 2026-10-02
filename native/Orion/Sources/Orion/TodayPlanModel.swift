@@ -94,6 +94,7 @@ final class TodayPlanModel: ObservableObject {
             finished?(false)
             return
         }
+        if let minutes = SchedulingMemory.overrides["bufferMinutes"] as? Int, (0...30).contains(minutes) { preferences.transitionMinutes = minutes }
         let tasks = reminders.tasks
         let requestedZone = TimeZone.current.identifier
         let validate = { [weak agenda, weak reminders] in
@@ -185,7 +186,7 @@ final class TodayPlanModel: ObservableObject {
             }
             let tasks = inputs.tasks.map { task in
                 TodayPlanTask(id: task.id, title: task.title,
-                              minutes: durations[task.id] ?? old?.tasks.first(where: { $0.id == task.id })?.minutes ?? preferences.defaultTaskMinutes,
+                              minutes: max(SchedulingMemory.minimumMinutes(for: task.title), durations[task.id] ?? old?.tasks.first(where: { $0.id == task.id })?.minutes ?? preferences.defaultTaskMinutes),
                               priority: favored == task.id ? -100 : task.priority, due: task.due, completedInSource: task.completedInSource)
             }
             proposal = try TodayPlanScheduler.propose(now: now, timeZone: inputs.timeZone, preferences: preferences,

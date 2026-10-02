@@ -17,20 +17,14 @@ function isSleepBlock(b) {
  *           { kind: "block", id: string, title: string } |
  *           { kind: "none" }}
  */
-export function earlyContext(blocks, { now, commuteMinutes = 30 }) {
+export function earlyContext(blocks, { now, commuteMinutes = 45 }) {
   if (!Array.isArray(blocks)) throw new TypeError("blocks must be an array");
   if (!Number.isInteger(now) || now < 0 || now > 1439) throw new TypeError("now must be an integer 0..1439");
 
-  // Decision 2: find the real class with the latest end such that c.start <= now <= c.end + commuteMinutes + 30
-  let bestClass = null;
-  for (const b of blocks) {
-    if (!isRealClass(b)) continue;
-    if (b.start <= now && now <= b.end + commuteMinutes + 30) {
-      if (bestClass === null || b.end > bestClass.end) {
-        bestClass = b;
-      }
-    }
-  }
+  // Only the class currently under way. A past class must not steal the
+  // button from a later task, or make a second tap lengthen the commute.
+  const bestClass = blocks.filter(b => isRealClass(b) && b.start < now && now < b.end)
+    .sort((a, b) => b.start - a.start)[0] ?? null;
 
   if (bestClass !== null) {
     return { kind: "after-class", classId: bestClass.id, classTitle: bestClass.title, classEnd: bestClass.end };
@@ -64,22 +58,9 @@ function buildWalls(effectiveBlocks, mode, commuteMinutes, clippedClass) {
     }
   }
 
-  // Commute walls, excluding the "commute home" after the answered class in out-of-class/home mode
-  const cw = commuteWalls(effectiveBlocks, { commuteMinutes });
-
-  if ((mode === "out-of-class" || mode === "home") && clippedClass) {
-    // Exclude the commute-home wall that starts at this class's end
-    for (const w of cw) {
-      if (w.title === "commute home" && Math.abs(w.start - clippedClass.end) <= 1) {
-        continue;
-      }
-      walls.push({ start: w.start, end: w.end });
-    }
-  } else {
-    for (const w of cw) {
-      walls.push({ start: w.start, end: w.end });
-    }
-  }
+  // Keep the return journey after the shortened final class. If another
+  // class is ahead, stay on campus; its later return journey remains a wall.
+  for (const w of commuteWalls(effectiveBlocks, { commuteMinutes })) walls.push({ start: w.start, end: w.end });
 
   return walls;
 }
@@ -94,11 +75,11 @@ function intervalsOverlap(aStart, aEnd, bStart, bEnd) {
  * @param {{ now: number, mode: string, commuteMinutes?: number, buffer?: number, dayEnd?: number }} opts
  * @returns {{ mode: string, freeFrom: number, shortened: object|null, clipped: object|null, moves: Array<{id,title,from,to}>, unchanged: string[] }}
  */
-export function finishEarly(blocks, { now, mode, commuteMinutes = 30, buffer = 10, dayEnd = 1440 }) {
+export function finishEarly(blocks, { now, mode, commuteMinutes = 45, buffer = 5, dayEnd = 1440 }) {
   if (!Array.isArray(blocks)) throw new TypeError("blocks must be an array");
   if (!Number.isInteger(now) || now < 0 || now > 1439) throw new TypeError("now must be an integer 0..1439");
-  if (mode !== "block" && mode !== "out-of-class" && mode !== "home") {
-    throw new TypeError(`mode must be "block", "out-of-class" or "home", got ${JSON.stringify(mode)}`);
+  if (mode !== "block" && mode !== "out-of-class") {
+    throw new TypeError(`mode must be "block", "out-of-class" got ${JSON.stringify(mode)}`);
   }
 
   let shortened = null;
@@ -128,12 +109,8 @@ export function finishEarly(blocks, { now, mode, commuteMinutes = 30, buffer = 1
     cls = blocks.find((b) => b.id === ctx.classId);
     if (!cls) throw new Error("class block not found in blocks");
 
-    if (mode === "out-of-class") {
-      freeFrom = now + commuteMinutes;
-    } else {
-      // home
-      freeFrom = now;
-    }
+    const laterClass = blocks.some(b => isRealClass(b) && b.id !== cls.id && b.start >= now);
+    freeFrom = laterClass ? now : now + commuteMinutes;
 
     // If that class's end > now, set clipped
     if (cls.end > now) {
@@ -203,8 +180,8 @@ export function finishEarly(blocks, { now, mode, commuteMinutes = 30, buffer = 1
 
       // Check against already-placed candidates
       for (const p of placed) {
-        const pIntervalStart = p.start - buffer;
-        const pIntervalEnd = p.end + buffer;
+        const pIntervalStart = p.start;
+        const pIntervalEnd = p.end;
         if (intervalsOverlap(intervalStart, intervalEnd, pIntervalStart, pIntervalEnd)) {
           ok = false;
           break;

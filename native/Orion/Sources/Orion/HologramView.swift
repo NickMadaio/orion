@@ -1,31 +1,31 @@
 import SwiftUI
 import ThinkingOrbsKit
 
-/// The hologram surface.
-///
-/// `TimelineView(.animation)` ticks at the display refresh rate and is the only
-/// thing that drives the model forward — there is no timer and no Combine
-/// pipeline, so when the panel is hidden the whole thing costs nothing.
-///
-/// `Canvas` re-invokes the renderer on every tick, so advancing the simulation
-/// inside the closure is intentional: the model is a plain class SwiftUI does
-/// not observe, so this is not "mutating state during view update" in the sense
-/// SwiftUI warns about.
 struct HologramView: View {
     let model: HologramModel
-
+    var style: String? = nil
+    @AppStorage("orion.dashboard.coreStyle") private var chosenStyle = "thinkingOrion"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var orbState: OrbState {
-        switch model.state { case .idle: return .breathing; case .listening: return .listening; case .thinking: return .solving; case .speaking: return .composing; case .error: return .breathing }
+        switch model.state { case .idle: .breathing; case .listening: .listening; case .thinking: .solving; case .speaking: .composing; case .error: .breathing }
+    }
+    private var phase: OrionPhase {
+        switch model.state { case .idle: .idle; case .listening: .listening; case .thinking: .thinking; case .speaking: .speaking; case .error: .error }
     }
     var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-                model.tick(timeline.date)
-                model.draw(&context, size: size)
+        Group {
+            if (style ?? chosenStyle) == "original" {
+                TimelineView(.animation) { timeline in
+                    Canvas { context, size in model.tick(timeline.date); model.draw(&context, size: size) }
+                }
+            } else if (style ?? chosenStyle) == "blackHole" {
+                BlackHoleHologramView(phase: phase)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+                    let _ = model.tick(timeline.date)
+                    OrionThinkingHologram(state: orbState, level: model.audioLevel, isError: model.state == .error, brightness: holoGain, frameTime: timeline.date.timeIntervalSinceReferenceDate)
+                }
             }
-        }
-        .overlay { ThinkingOrb(state: orbState, size: .px64, theme: .dark).opacity(0.65).blendMode(.screen) }
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
+        }.accessibilityHidden(true).allowsHitTesting(false)
     }
 }

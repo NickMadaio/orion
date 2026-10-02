@@ -114,16 +114,17 @@ describe("surfaces-early", () => {
     checkLengthsPreserved(blocks, result);
   });
 
-  it("after a class the context asks which kind of early", () => {
+  it("current class has early-exit context; past classes do not", () => {
     const blocks = [
       makeBlock({ id: "class1", title: "CS101 Lecture", start: 300, end: 420, fixed: true, source: "calendar", kind: "class" }),
       makeBlock({ id: "b", title: "Study", start: 500, end: 600 }),
     ];
 
     // During the class + commute window
-    const ctx = earlyContext(blocks, { now: 430 });
+    const ctx = earlyContext(blocks, { now: 400 });
     assert.strictEqual(ctx.kind, "after-class");
     assert.strictEqual(ctx.classId, "class1");
+    assert.equal(earlyContext(blocks, {now:430}).kind, "none");
   });
 
   it("out of class early: the trip home starts now", () => {
@@ -133,10 +134,10 @@ describe("surfaces-early", () => {
       makeBlock({ id: "c", title: "Gym", start: 660, end: 780 }),
     ];
 
-    const result = finishEarly(blocks, { now: 420, mode: "out-of-class", commuteMinutes: 30 });
+    const result = finishEarly(blocks, { now: 400, mode: "out-of-class", commuteMinutes: 45 });
 
     assert.strictEqual(result.mode, "out-of-class");
-    assert.strictEqual(result.freeFrom, 420 + 30); // now + commuteMinutes
+    assert.strictEqual(result.freeFrom, 400 + 45); // now + commuteMinutes
     assert.strictEqual(result.shortened, null);
 
     const allResult = buildResultBlocks(blocks, result);
@@ -144,23 +145,17 @@ describe("surfaces-early", () => {
     checkLengthsPreserved(blocks, result);
   });
 
-  it("already home: the day starts now and the class is clipped", () => {
+  it("another class keeps him on campus and home mode is removed", () => {
     const blocks = [
-      makeBlock({ id: "class1", title: "CS101 Lecture", start: 300, end: 420, fixed: true, source: "calendar", kind: "class" }),
-      makeBlock({ id: "b", title: "Study", start: 500, end: 600 }),
+      makeBlock({id:"c1",title:"Macro",start:300,end:420,fixed:true,kind:"class"}),
+      makeBlock({id:"c2",title:"CS Lecture",start:480,end:540,fixed:true,kind:"class"}),
+      makeBlock({id:"study",start:600,end:630})
     ];
-
-    // now is before class end — class is still running
-    const result = finishEarly(blocks, { now: 400, mode: "home", commuteMinutes: 30 });
-
-    assert.strictEqual(result.mode, "home");
-    assert.strictEqual(result.freeFrom, 400);
-    assert.deepStrictEqual(result.clipped, { id: "class1", title: "CS101 Lecture", end: 400 });
-    assert.strictEqual(result.shortened, null);
-
-    const allResult = buildResultBlocks(blocks, result);
-    checkNoOverlaps(allResult);
-    checkLengthsPreserved(blocks, result);
+    const result = finishEarly(blocks, {now:400,mode:"out-of-class",commuteMinutes:45});
+    assert.equal(result.freeFrom,400);
+    assert.deepEqual(result.clipped,{id:"c1",title:"Macro",end:400});
+    assert.throws(()=>finishEarly(blocks,{now:400,mode:"home"}),TypeError);
+    for (const move of result.moves) assert.ok(move.to + 30 <= 475 || move.to >= 590);
   });
 
   it("pressing with nothing under way throws", () => {

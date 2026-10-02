@@ -29,7 +29,7 @@
 //   orion-reschedule rename "<old title>" "<new title>"               "replace apply somewhere with YouTube": same slot, new thing
 //   orion-reschedule move "<title>" --to HH:MM                        "move study to 4": same length, the rest cascades
 //   orion-reschedule swap "<title>" "<title>"                         "swap study and the side project" (any lengths)
-//   orion-reschedule early [block|out-of-class|home] [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
+//   orion-reschedule early [block|out-of-class] [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
 //        finished early: shorten what is under way (or clip a class that just ended), pull the rest of the day forward
 //   orion-reschedule undo                                             put the last change back
 //   add --dry-run to any of them to see the plan without touching the calendar.
@@ -432,7 +432,7 @@ if (command === "late") {
   for (const item of ordered) { if (item.minutes <= budget) { kept.push(item); budget -= item.minutes; } else noRoom.push(item.title); }
   add = kept;   // overdue and due-today first, so they get the earliest time
   if (noRoom.length) skipped.push(...noRoom.map((t) => `${t} (no room today)`));
-  if (!add.length) { console.log(`NOTHING TO PLAN: no open to-do fits on ${dayName}${skipped.length ? ` (left out: ${skipped.join(", ")})` : ""}.`); process.exit(0); }
+  if (!add.length && !planArgs.length) { console.log(`NOTHING TO PLAN: no open to-do fits on ${dayName}${skipped.length ? ` (left out: ${skipped.join(", ")})` : ""}.`); process.exit(0); }
   if (skipped.length) console.log(`Left out: ${skipped.join(", ")}.`);
 } else if (command === "day") {
   if (!planArgs.length && !said.length && !args.includes("--fill")) fail('usage: orion-reschedule day --say "<his words>" [--fill] [--replace]  (or --plan "<title>, <min>, HH:MM, fixed" …)');
@@ -442,23 +442,7 @@ if (command === "late") {
     add.push({ title, kind: classify(title), minutes: p.minutes, importance: p.importance,
       ...(p.start !== null ? { at: p.start } : {}), fixed });
   }
-  for (const raw of planArgs) {
-    // Commas, not "|": ORION's exec router reads a pipe as a shell operator and refuses the call.
-    const parts = raw.split(",").map((x) => x.trim()).filter(Boolean);
-    const fx = parts.some((p) => /^fixed$/i.test(p)) ? "fixed" : "";
-    const importance = parts.some((p) => /^(must|high|important)$/i.test(p)) ? 0
-      : parts.some((p) => /^(optional|low)$/i.test(p)) ? 2 : 1;
-    const at = parts.find((p) => /^\d{1,2}:\d{2}$/.test(p)) ?? null;
-    const m = (parts.find((p, i) => i > 0 && /^\d+\s*(min(ute)?s?)?$/i.test(p)) ?? "").replace(/\D/g, "");
-    const t = parts[0];
-    const title = clean(t ?? ""); const n = Number(m); const when = minute(at);
-    if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail(`bad --plan "${raw}" (want "<title>, <minutes>, HH:MM, fixed")`);
-    // Nick's rule: plans with people (and classes) stay put; what he does alone can move,
-    // even if the caller said "fixed" (a scenario run pinned "clean" over his meal prep).
-    const fixed = isSocial(title) || (fx === "fixed" && !movableTitle(title));
-    if (fixed && when === null) fail(`"${title}" is a fixed plan and needs a time`);
-    add.push({ title, kind: classify(title), minutes: n, importance, ...(when !== null ? { at: when } : {}), fixed });
-  }
+
 } else if (command === "drop") {
   if (!rest.length) fail('usage: orion-reschedule drop "<title>" ["<title>" …]');
 } else if (command === "tidy") {
@@ -499,16 +483,15 @@ if (command === "late") {
   // Determine mode
   let mode;
   if (modeArg) {
-    if (!["block", "out-of-class", "home"].includes(modeArg)) {
-      fail(`usage: orion-reschedule early [block|out-of-class|home]`, 2);
+    if (!["block", "out-of-class"].includes(modeArg)) {
+      fail(`usage: orion-reschedule early [block|out-of-class]`, 2);
     }
     mode = modeArg;
   } else {
     // No mode given: infer from context
     const ctx = earlyContext(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes });
     if (ctx.kind === "after-class") {
-      console.log(`ASK: out-of-class or home (just finished ${ctx.classTitle})`);
-      process.exit(3);
+      mode = "out-of-class";
     } else if (ctx.kind === "block") {
       mode = "block";
     } else {
@@ -543,6 +526,11 @@ if (command === "late") {
     moves.push({ id: shortened.id, title: shortened.title, from: blocks.find((b) => b.id === shortened.id).start, to: blocks.find((b) => b.id === shortened.id).start, toEnd: effectiveNow });
   }
 
+  // Persist the actual class end, not just the in-memory planning clip.
+  if (plan.clipped) {
+    const cls = blocks.find(b => b.id === plan.clipped.id);
+    moves.push({ id: cls.id, title: cls.title, from: cls.start, to: cls.start, toEnd: effectiveNow });
+  }
   // Judge first
   refuseIfBroken(projectDay(dayWithClip, { moves }), effectiveNow, "finishing early");
 
@@ -554,6 +542,7 @@ if (command === "late") {
 
   // Output
   console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
+  if (plan.clipped) console.log(`  left ${plan.clipped.title} at ${hhmm(effectiveNow)}; class shortened`);
   if (shortened) {
     console.log(`  finished ${shortened.title} at ${hhmm(effectiveNow)}`);
   }
@@ -568,6 +557,26 @@ if (command === "late") {
   process.exit(0);
 } else {
   fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|rename|early|add|day|drop|tidy|clear|fill|undo  (see the header)");
+}
+
+if (command === "day") {
+  for (const raw of planArgs) {
+    // Commas, not "|": ORION's exec router reads a pipe as a shell operator and refuses the call.
+    const parts = raw.split(",").map((x) => x.trim()).filter(Boolean);
+    const fx = parts.some((p) => /^fixed$/i.test(p)) ? "fixed" : "";
+    const importance = parts.some((p) => /^(must|high|important)$/i.test(p)) ? 0
+      : parts.some((p) => /^(optional|low)$/i.test(p)) ? 2 : args.includes("--todos") ? 0 : 1;
+    const at = parts.find((p) => /^\d{1,2}:\d{2}$/.test(p)) ?? null;
+    const m = (parts.find((p, i) => i > 0 && /^\d+\s*(min(ute)?s?)?$/i.test(p)) ?? "").replace(/\D/g, "");
+    const t = parts[0];
+    const title = clean(t ?? ""); const n = Number(m); const when = minute(at);
+    if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail(`bad --plan "${raw}" (want "<title>, <minutes>, HH:MM, fixed")`);
+    // Nick's rule: plans with people (and classes) stay put; what he does alone can move,
+    // even if the caller said "fixed" (a scenario run pinned "clean" over his meal prep).
+    const fixed = isSocial(title) || (fx === "fixed" && !movableTitle(title));
+    if (fixed && when === null) fail(`"${title}" is a fixed plan and needs a time`);
+    add.push({ title, kind: classify(title), minutes: n, importance, ...(when !== null ? { at: when } : {}), fixed });
+  }
 }
 
 // A time already over today is never booked: it almost always means he was

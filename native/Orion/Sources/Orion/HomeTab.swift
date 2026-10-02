@@ -46,7 +46,7 @@ struct HomeTab: View {
                         .buttonStyle(.plain)
                         .help("Return to the main Home view; keep this conversation")
                         Spacer()
-                        HologramView(model: state.hologram).frame(width: 100, height: 100).transition(.move(edge: .trailing))
+                        HologramView(model: state.hologram, style: coreStyle).frame(width: 100, height: 100).transition(.move(edge: .trailing))
                     }
                     SharedChatView(state: state).frame(height: max(420, availableHeight - 110))
                 }.transition(.opacity)
@@ -131,7 +131,7 @@ struct HomeTab: View {
                         // launcher reads as an event horizon.
                         BlackHoleHologramView(phase: state.phase)
                     } else {
-                        HologramView(model: state.hologram)
+                        HologramView(model: state.hologram, style: coreStyle)
                     }
                 }
                 .frame(width: coreSize, height: coreSize)

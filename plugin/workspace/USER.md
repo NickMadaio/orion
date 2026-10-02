@@ -2,9 +2,8 @@
 
 - Name: Nick Madaio
 - Default timezone: whatever `~/.openclaw/orion-controlled/location.json` records
-  as `home`. Today that is America/New_York, with a move to Europe/London
-  recorded for 2026-09-08. Do not infer the timezone from this file or from the
-  machine — read the record, and see the note dated 2026-09-01 below.
+  as `home`. Today that is Europe/London. Read the record rather than infer
+  the active timezone from this document or the machine.
 - Building Orion as a local-first, Jarvis-like personal Mac assistant.
 - Wants concise explanations, visible checkpoints for consequential work, and
   routine reversible actions completed without repeated approval.

@@ -406,7 +406,7 @@ final class LinkEngine: ObservableObject {
         switch action {
         case "started": process.arguments = [script, "started"]
         case "done": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", "block"]
-        case "early-block", "early-out-of-class", "early-home": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", String(action.dropFirst(6))]
+        case "early-block", "early-out-of-class": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", String(action.dropFirst(6))]
         default: process.arguments = [script, "defer", "10", "--snooze", "--because", "asked for ten more minutes from the phone"]
         }
         let pipe = Pipe()

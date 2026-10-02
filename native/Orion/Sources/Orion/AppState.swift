@@ -688,31 +688,21 @@ final class AppState: ObservableObject {
         reminders.start()
     }
 
-    /// A timer or alarm came due.
-    ///
-    /// Spoken, not just shown. A notification banner is a thing you find later;
-    /// the entire point of asking an assistant for a timer instead of setting
-    /// one on your phone is that you do not have to be looking at anything.
+    /// Reminders stay visible; only an answer to physical voice input may speak.
     private func announceReminder(_ reminder: StoredReminder) {
-        let spoken = reminder.kind == "alarm"
-            ? "\(reminder.label)."
-            : "\(reminder.label) is up."
-        append(.orion, spoken)
-        onWantsSummon?()
-
-        // Never cut off a reply in progress — queue behind it. Interrupting
-        // Orion mid-sentence to announce a timer loses whatever it was saying.
-        guard phase != .speaking, phase != .listening else {
-            pendingAnnouncement = spoken
-            return
-        }
-        speak(spoken)
+        let line = reminder.kind == "alarm" ? "\(reminder.label)." : "\(reminder.label) is up."
+        append(.orion, line)
     }
 
-    /// Said as soon as Orion is not busy. See `announceReminder`.
-    private var pendingAnnouncement: String?
+    private var activeReplyOrigin: ReplyOrigin = .typed
 
-    private func speak(_ text: String) {
+    private func speak(_ text: String, origin: ReplyOrigin) {
+        guard origin.allowsSpeech else {
+            conversationOpen = false
+            setPhase(.idle)
+            statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+            return
+        }
         setPhase(.speaking)
         statusLine = "Speaking…"
         speechOutput.speak(text)
@@ -804,47 +794,15 @@ final class AppState: ObservableObject {
         return fallbacks[index]
     }
 
-    /// What enforcement says out loud.
-    ///
-    /// Routed through `speak(...)` in Gate 6. Until then it is written to the
-    /// log rather than sent to `/usr/bin/say`, because a half-wired voice that
-    /// talks over Orion's real one is worse than one that is plainly not
-    /// connected yet.
+    /// Focus interventions are visible, never unsolicited audio.
     private func speakEnforcement(_ line: String) {
         _ = speakSession(line)
     }
 
-    /// Session and enforcement speech, through Orion's real voice.
-    ///
-    /// Replaces `/usr/bin/say`, which the earlier focus script used. Two reasons
-    /// that matters beyond it sounding right: `say` is a second, uncoordinated
-    /// audio source that talks over Orion's actual replies, and it bypasses
-    /// every barge-in and stall watchdog `SpeechOutput` already has.
-    ///
-    /// Returns whether it was handed off. False leaves the effect unacknowledged
-    /// so it is retried rather than silently lost — which is the whole reason
-    /// `SessionEffectHandler` returns a Bool.
+    /// Acknowledge the focus effect on screen without unsolicited speech.
     @discardableResult
     private func speakSession(_ line: String) -> Bool {
-        guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
-        OrionLog.write("[session] speaking: \(line)")
-
-        // Duck the clip for the sentence, and come back up after. Reference
-        // counted, so overlapping lines do not restore over each other.
-        audioCoordinator.beginSpeaking()
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.speechOutput.speak(line)
-        }
-        // The clip comes back up when speech finishes. `SpeechOutput.onFinished`
-        // is already wired for the conversational path, so a timed release is
-        // used here rather than competing for that callback — a fixed estimate
-        // is honest about being an estimate, and the worst case is the bed
-        // staying quiet a moment too long rather than talking over him.
-        let estimate = min(8.0, 1.0 + Double(line.count) / 14.0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + estimate) { [weak self] in
-            self?.audioCoordinator.endSpeaking()
-        }
+        if !line.trimmingCharacters(in: .whitespaces).isEmpty { append(.orion, line) }
         return true
     }
 
@@ -1005,13 +963,6 @@ final class AppState: ObservableObject {
             // Orion has finished answering. If this exchange began by voice,
             // reopen the ear instead of going quiet, so the reply can be
             // answered the way a person would answer it.
-            // A timer that came due mid-reply has been waiting; say it now,
-            // before deciding whether to reopen the ear.
-            if let queued = self.pendingAnnouncement {
-                self.pendingAnnouncement = nil
-                self.speak(queued)
-                return
-            }
             if self.conversationOpen, self.wakeWordEnabled {
                 self.setPhase(.idle)
                 self.statusLine = "Go ahead…"
@@ -1148,6 +1099,7 @@ final class AppState: ObservableObject {
     /// `BargeInMonitor` has already applied `BargeInPolicy` before calling
     /// this — nothing here re-checks the route or the energy.
     private func handleSpokenBargeIn(_ heardText: String) {
+        guard activeReplyOrigin.allowsSpeech else { return }
         // His own voice through the speakers is not Nick interrupting (2026-09-29:
         // he cut himself off mid-sentence and started listening to himself).
         let echo = phase == .speaking
@@ -1260,7 +1212,7 @@ final class AppState: ObservableObject {
         // Spoken barge-in: active only while there is something to interrupt.
         // `BargeInPolicy` (not this) decides whether a given phrase counts —
         // see `handleSpokenBargeIn` and `TurnTakingState.swift`.
-        bargeInMonitor.setActive(next == .speaking || next == .thinking)
+        bargeInMonitor.setActive(activeReplyOrigin.allowsSpeech && (next == .speaking || next == .thinking))
     }
 
     // MARK: The phase watchdogs
@@ -1429,14 +1381,7 @@ final class AppState: ObservableObject {
         // engine finds the phase already idle and is ignored by its own guard.
         speechOutput.stop(reason: "watchdog: \(reason)")
         hologram.setLevel(0)
-        // A reminder that queued behind the reply must not be lost with it.
-        let queued = pendingAnnouncement
-        pendingAnnouncement = nil
         setPhase(.idle)
-        if let queued {
-            speak(queued)
-            return
-        }
         // Reopen the ear on the same terms as a clean finish, so a recovered
         // turn is indistinguishable from a normal one from the user's side.
         if conversationOpen, wakeWordEnabled {
@@ -1733,14 +1678,12 @@ final class AppState: ObservableObject {
     /// question. Checked in THIS order: a still-running paused turn first (it
     /// is the freshest), then its answer if it already arrived, then a
     /// speaking-interruption's saved text.
-    private func handleResumeRequest() {
+    private func handleResumeRequest(origin: ReplyOrigin) {
         if let paused = pausedReplacementText {
             pausedReplacementText = nil
             pausedGeneration = nil
             append(.orion, paused)
-            setPhase(.speaking)
-            statusLine = "Speaking…"
-            speechOutput.speak(paused)
+            speak(paused, origin: origin)
             return
         }
         if pausedGeneration != nil {
@@ -1752,9 +1695,7 @@ final class AppState: ObservableObject {
         if let interrupted = interruptedReplyText {
             interruptedReplyText = nil
             append(.orion, interrupted)
-            setPhase(.speaking)
-            statusLine = "Speaking…"
-            speechOutput.speak(interrupted)
+            speak(interrupted, origin: origin)
             return
         }
         setPhase(.idle)
@@ -1834,6 +1775,8 @@ final class AppState: ObservableObject {
     }
 
     private func send(_ text: String, typed: Bool = false) {
+        let origin: ReplyOrigin = typed ? .typed : .voice
+        activeReplyOrigin = origin
         // "Continue" / "keep going" / "what were you saying" resumes an
         // interrupted or paused reply instead of asking the gateway a new
         // question. Checked here so every entry point — hands-free, a typed
@@ -1841,14 +1784,14 @@ final class AppState: ObservableObject {
         // one place.
         if AdaptiveEndpointModel.isResumeRequest(text) {
             append(.you, text)
-            handleResumeRequest()
+            handleResumeRequest(origin: origin)
             return
         }
         // The clock answers the clock questions, instantly (no brain round trip).
         if let quick = QuickAnswer.reply(to: text) {
             append(.you, text)
             askGeneration += 1
-            deliver(GatewayReply(text: quick, elapsedMs: 0))
+            deliver(GatewayReply(text: quick, elapsedMs: 0), origin: origin)
             return
         }
         append(.you, text)
@@ -1897,7 +1840,7 @@ final class AppState: ObservableObject {
                 self.stopProgressPolling()
                 switch result {
                 case .success(let reply):
-                    self.deliver(reply)
+                    self.deliver(reply, origin: origin)
                 case .failure(let error):
                     let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                     self.failThinking(message)
@@ -1919,7 +1862,9 @@ final class AppState: ObservableObject {
         let pollId = auditPollGeneration
 
         progressTickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tickProgress(generation: generation)
+            guard let self, self.askGeneration == generation else { return }
+            self.chatThinking = ChatThinking.read(home: FileManager.default.homeDirectoryForCurrentUser, session: session, since: Date(timeIntervalSince1970: Double(sinceMillis) / 1000))
+            self.tickProgress(generation: generation)
         }
         pollAuditOnce(generation: generation, pollId: pollId, session: session, sinceMillis: sinceMillis)
     }
@@ -2034,7 +1979,7 @@ final class AppState: ObservableObject {
         """
     }
 
-    private func deliver(_ reply: GatewayReply) {
+    private func deliver(_ reply: GatewayReply, origin: ReplyOrigin) {
         // A genuinely new reply retires whatever an earlier interruption was
         // keeping around -- "continue what you were saying" should never
         // resurrect a stale answer once a new one has actually arrived.
@@ -2042,9 +1987,7 @@ final class AppState: ObservableObject {
         chatThinking = reply.thinking
         saveChat(.orion, text: reply.text, thinking: reply.thinking)
         append(.orion, reply.text)
-        setPhase(.speaking)
-        statusLine = "Speaking…"
-        speechOutput.speak(reply.text)
+        speak(reply.text, origin: origin)
     }
 
     // MARK: Status and permissions

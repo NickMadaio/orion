@@ -21,7 +21,7 @@
     can be argued with, which is the point, and it cannot be no-oped.
 
  Nothing here needs a permission Nick has not already given. `lsappinfo` reads
- the frontmost app with no TCC prompt; `open -a` raises a window; `say` speaks.
+ the frontmost app with no TCC prompt; `open -a` raises a window; feedback stays in text.
 
    orion-focus start "finish the essay" 90 Zed Safari
    orion-focus start "fix the gate" 90 Zed --repo orion
@@ -91,7 +91,8 @@ async function frontmostApp() {
   }
 }
 
-const speak = (line) => run("/usr/bin/say", ["-r", "190", line]).catch(() => {});
+// Focus feedback is visible; speech is reserved for native voice replies.
+const announce = async (line) => { process.stdout.write(`ORION: ${line}\n`); };
 
 /*
  PHASE 60 — notification preferences, and what is actually possible.
@@ -238,7 +239,7 @@ switch (command) {
     console.log("preparing:");
     for (const line of await prepare(session)) console.log(line);
     console.log(await setFocusMode(true));
-    await speak(`Locked in. ${task.trim()}. ${minutes} minutes.`);
+    await announce(`Locked in. ${task.trim()}. ${minutes} minutes.`);
     break;
   }
 
@@ -301,7 +302,7 @@ switch (command) {
     console.log("preparing:");
     for (const line of await prepare(session)) console.log(line);
     console.log(await setFocusMode(true));
-    await speak(`Locked in on ${block.title}.`);
+    await announce(`Locked in on ${block.title}.`);
     break;
   }
 
@@ -322,7 +323,7 @@ switch (command) {
       // starts shouting again the next time anything calls check.
       if (state.session) {
         await writeState({ ...state, session: null });
-        await speak("Time's up. You're free.");
+        await announce("Time's up. You're free.");
         console.log("session ended");
       } else {
         console.log("no active session");
@@ -386,11 +387,11 @@ switch (command) {
      three seconds in the wrong window teaches you to turn the thing off.
     */
     if (strikes === 1) {
-      await speak(`${front}. You're meant to be on ${session.task}.`);
+      await announce(`${front}. You're meant to be on ${session.task}.`);
     } else if (strikes === 2) {
-      await speak(`Nick. ${session.task}. Not ${front}.`);
+      await announce(`Nick. ${session.task}. Not ${front}.`);
     } else {
-      await speak(
+      await announce(
         `Enough. ${session.task}. ${minutesLeft(session)} minutes left. ` +
           `Talk to me if you have an actual reason.`,
       );
@@ -474,7 +475,7 @@ JSON`,
     const granted = /^GRANT\s+(\d+)\s*(.*)$/i.exec(verdict);
     if (!granted) {
       const reason = verdict.replace(/^DENY\s*/i, "").trim() || "not good enough";
-      await speak(`No. ${reason}`);
+      await announce(`No. ${reason}`);
       console.log(`DENIED — ${reason}`);
       process.exit(1);
     }
@@ -484,7 +485,7 @@ JSON`,
     const grants = [...session.grants, { until: Date.now() + granting * 60000, reason, argument }];
 
     await writeState({ ...state, session: { ...session, grants, strikes: 0 } });
-    await speak(`Fine. ${granting} minutes.`);
+    await announce(`Fine. ${granting} minutes.`);
     console.log(`GRANTED ${granting} min — ${reason}`);
     break;
   }

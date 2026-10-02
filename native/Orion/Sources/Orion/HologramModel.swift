@@ -270,6 +270,8 @@ final class HologramModel {
 
     var quality: HologramQuality = .automatic
 
+    var motionScale: Double = 1
+    var targetFrameInterval: Double = 1.0 / 60
     var audioLevel: Double { smooth }
     private var level: Double = 0   // instantaneous audio level, 0..1
     private var smooth: Double = 0  // smoothed level
@@ -497,14 +499,14 @@ final class HologramModel {
         frameAccum += dt
         let counted = frameSamples - 120
         if counted >= 180 {
-            if frameAccum / Double(counted) > 0.020 { autoDowngraded = true }
+            if frameAccum / Double(counted) > targetFrameInterval * 1.2 { autoDowngraded = true }
             frameAccum = 0
             frameSamples = 120
         }
     }
 
     private func update(_ dt: Double) {
-        time += dt
+        time += dt * motionScale
         stateT = min(1, stateT + dt * 2.5)
         pulse = max(0, pulse - dt * 1.4)
 
@@ -584,7 +586,7 @@ final class HologramModel {
         // coasts back down over about a second of quiet.
         let spinTarget = base + energy * 0.34 + onset * 0.12
         spinRate += (spinTarget - spinRate) * min(1, dt * 1.7)
-        spin += dt * spinRate
+        spin += dt * spinRate * motionScale
 
         let tintTarget: Double = (state == .listening || state == .thinking || state == .error) ? 1 : 0
         tint += (tintTarget - tint) * min(1, dt * 4)

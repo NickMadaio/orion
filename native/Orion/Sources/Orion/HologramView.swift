@@ -16,14 +16,20 @@ struct HologramView: View {
         Group {
             if (style ?? chosenStyle) == "original" {
                 TimelineView(.animation) { timeline in
-                    Canvas { context, size in model.tick(timeline.date); model.draw(&context, size: size) }
+                    Canvas { context, size in model.motionScale = 1; model.targetFrameInterval = 1.0 / 60; model.tick(timeline.date); model.draw(&context, size: size) }
                 }
             } else if (style ?? chosenStyle) == "blackHole" {
                 BlackHoleHologramView(phase: phase)
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
-                    let _ = model.tick(timeline.date)
-                    OrionThinkingHologram(state: orbState, level: model.audioLevel, isError: model.state == .error, brightness: holoGain, frameTime: timeline.date.timeIntervalSinceReferenceDate)
+                    let _ = { model.motionScale = 0.45; model.targetFrameInterval = 1.0 / 30; model.tick(timeline.date) }()
+                    ZStack {
+                        // The real original projection: filaments, arcs, chips,
+                        // depth passes, audio waves, hot core and lens streak.
+                        Canvas { context, size in model.draw(&context, size: size) }
+                        OrionThinkingHologram(state: orbState, level: model.audioLevel, isError: model.state == .error, brightness: holoGain, frameTime: timeline.date.timeIntervalSinceReferenceDate)
+                            .scaleEffect(0.78).opacity(0.65).blendMode(.plusLighter)
+                    }
                 }
             }
         }.accessibilityHidden(true).allowsHitTesting(false)

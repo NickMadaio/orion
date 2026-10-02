@@ -28,7 +28,7 @@ public struct OrionThinkingHologram: View {
         }.accessibilityLabel("ORION \(state.label)").allowsHitTesting(false)
     }
     private func frame(at time: Double) -> some View {
-            let t = reduceMotion ? 1.2 : time
+            let t = reduceMotion ? 1.2 : time * 0.45
             let energy = level.isFinite ? min(1, max(0, level)) : 0
             return Canvas { context, size in
                 let side = min(size.width, size.height)
@@ -54,7 +54,7 @@ public struct OrionThinkingHologram: View {
                     context.stroke(path, with: .color(accent.opacity(max(0, min(1, (1-edge.white)*edge.a)))), lineWidth: max(0.4, edge.w * zoom))
                 }
                 for dot in frame.dots {
-                    let p = point(dot.x, dot.y), r = max(0.35, dot.r * zoom * 0.65)
+                    let p = point(dot.x, dot.y), r = max(0.35, dot.r * zoom * 0.32)
                     let alpha = max(0, min(1, (1-dot.white)*dot.a))
                     context.fill(Path(ellipseIn: CGRect(x:p.x-r,y:p.y-r,width:r*2,height:r*2)), with: .color(accent.opacity(alpha)))
                 }

@@ -82,7 +82,10 @@ public struct ChatModeView: View {
                             if message.role == .user { Spacer(minLength: 48) }
                             VStack(alignment: .leading, spacing: 8) {
                                 if let thinking = message.thinking, !thinking.isEmpty, message.role == .orion {
-                                    DisclosureGroup("Thinking") { thinkingText(thinking) }.font(.system(size: 12)).foregroundStyle(ViewTokens.dim)
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("Thinking").font(.system(size: 11, weight: .medium))
+                                        thinkingText(thinking)
+                                    }.foregroundStyle(ViewTokens.dim)
                                 }
                                 Text(message.text).textSelection(.enabled).foregroundStyle(message.role == .user ? ViewTokens.accent : ViewTokens.text)
                             }
@@ -92,7 +95,10 @@ public struct ChatModeView: View {
                     if waiting {
                         HStack(alignment: .top, spacing: 10) {
                             ThinkingOrb(state: .solving, size: .px20, theme: .dark)
-                            if let liveThinking, !liveThinking.isEmpty { thinkingText(liveThinking) }
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("Thinking…").font(.system(size: 12, weight: .medium))
+                                if let liveThinking, !liveThinking.isEmpty { thinkingText(liveThinking) }
+                            }
                         }
                     }
                     Color.clear.frame(height: 1).id("bottom")

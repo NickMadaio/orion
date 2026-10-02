@@ -38,6 +38,7 @@ final class TextWindowController: NSObject, NSWindowDelegate {
     init(state: AppState) {
         self.state = state
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
     // MARK: Window
@@ -52,10 +53,9 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         window.title = "Orion Command Center"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        // Home is deliberately a fixed desktop surface. A drag on its
-        // wallpaper should never move the hub a few pixels out of place.
-        window.isMovableByWindowBackground = false
-        window.isMovable = false
+        // Dragging the background moves the dashboard.
+        window.isMovableByWindowBackground = true
+        window.isMovable = true
         // The dashboard is a desktop overlay, not a black document window.
         // SwiftUI paints the tinted translucency; AppKit must leave the window
         // itself clear so the wallpaper can be felt underneath it.
@@ -80,13 +80,11 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         }
         window.contentView = NSHostingView(rootView: root)
 
-        window.setFrameAutosaveName(TextWindowController.frameAutosaveName)
-        // Home acts as the desktop hub, so it is fixed flush to the display's
-        // top-left corner. This is not a separate macOS full-screen Space.
-        if let screen = NSScreen.main {
-            window.setFrame(screen.frame, display: true)
-        } else {
-            window.center()
+        _ = window.setFrameAutosaveName(TextWindowController.frameAutosaveName)
+        // Restore the saved frame; first launch fits the usable display area.
+        if !window.setFrameUsingName(TextWindowController.frameAutosaveName), let screen = NSScreen.main {
+            let size = NSSize(width: min(Self.size.width, screen.visibleFrame.width), height: min(Self.size.height, screen.visibleFrame.height))
+            window.setFrame(NSRect(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.midY - size.height / 2, width: size.width, height: size.height), display: true)
         }
         return window
     }
@@ -97,6 +95,7 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         let window = self.window ?? makeWindow()
         self.window = window
 
+        recoverFrame(window)
         // `.accessory` apps do not come forward on their own; without this the
         // window appears behind whatever is frontmost and looks like nothing
         // happened.
@@ -105,6 +104,17 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         state.focusComposerToken &+= 1
         onShown?()
     }
+
+    @objc private func displaysChanged() { if let window { recoverFrame(window) } }
+
+    private func recoverFrame(_ window: NSWindow) {
+        guard !NSScreen.screens.contains(where: { $0.visibleFrame.intersection(window.frame).width >= 120 && $0.visibleFrame.intersection(window.frame).height >= 80 }), let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let width = min(window.frame.width, visible.width), height = min(window.frame.height, visible.height)
+        window.setFrame(NSRect(x: visible.midX - width / 2, y: visible.midY - height / 2, width: width, height: height), display: true)
+    }
+    func windowDidMove(_ notification: Notification) { window?.saveFrame(usingName: Self.frameAutosaveName) }
+    func windowDidResize(_ notification: Notification) { window?.saveFrame(usingName: Self.frameAutosaveName) }
 
     func hide() {
         window?.orderOut(nil)

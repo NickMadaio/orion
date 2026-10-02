@@ -31,7 +31,16 @@ enum AppList: String, CaseIterable, Identifiable {
     func block(_ lists: Set<AppList>) {
         blocked = lists; defaults?.set(lists.map(\.rawValue).sorted(), forKey: prefix + "blocked"); applyShields()
     }
-    func unblockAll() { block([]) }
+    func applyRemote(_ names: [String], now: Date = Date()) {
+        guard defaults?.bool(forKey: "orion.focuslock.enabled") == true,
+              (defaults?.double(forKey: "orion.screen.graceUntil") ?? 0) <= now.timeIntervalSince1970 else { unblockAll(); return }
+        let local = AppList.allCases.filter { (defaults?.double(forKey: prefix + "until." + $0.rawValue) ?? 0) > now.timeIntervalSince1970 }
+        block(Set(local).union(names.compactMap(AppList.init(rawValue:))))
+    }
+    func unblockAll() {
+        for list in AppList.allCases { defaults?.removeObject(forKey: prefix + "until." + list.rawValue) }
+        block([])
+    }
     func isEmpty(_ list: AppList) -> Bool {
         let value = selection(for: list)
         return value.applicationTokens.isEmpty && value.categoryTokens.isEmpty && value.webDomainTokens.isEmpty

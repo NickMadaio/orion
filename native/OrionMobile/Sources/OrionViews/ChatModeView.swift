@@ -110,7 +110,7 @@ public struct ChatModeView: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 10)
             .overlay(alignment: .leading) { Rectangle().fill(ViewTokens.hairline).frame(width: 2) }
     }
-    private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool { !waiting && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private func send() { if canSend { onSend() } }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -128,6 +128,7 @@ public struct ChatModeView: View {
                         }
                     }
                 } label: { Text(models.first { $0.id == selectedModel }?.label ?? "Default").font(.system(size: 12)).foregroundStyle(ViewTokens.soft) }
+                .disabled(waiting)
                 Spacer()
                 Button(action: send) { Image(systemName: "arrow.up").foregroundStyle(ViewTokens.accent) }.disabled(!canSend).accessibilityLabel("Send")
             }

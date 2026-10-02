@@ -125,12 +125,13 @@ public struct TrackingLog {
                 signals.append(sample)
                 log["phoneSignals"] = Array(signals.suffix(2000))
                 reply = "Noted."
-            case let .screen(at, locked, until, why, graceUntil):
+            case let .screen(at, locked, until, why, graceUntil, usedMinutes):
                 // The latest state (what ORION reads) plus a short history for patterns.
                 var state: [String: Any] = ["at": at, "locked": locked]
                 if let until { state["until"] = until }
                 if let why { state["why"] = why }
                 if let graceUntil { state["graceUntil"] = graceUntil }
+                if let usedMinutes { state["usedMinutes"] = usedMinutes }
                 log["phoneScreen"] = state
                 var history = log["screenLog"] as? [[String: Any]] ?? []
                 history.append(state)

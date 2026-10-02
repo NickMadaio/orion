@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MobileCore
 
 /*
  Deepgram streaming speech-to-text.
@@ -9,13 +10,9 @@ import Foundation
  user said goes to `GatewayClient` exactly as it always has, after this class has
  turned it into a string.
 
- Why it is worth having alongside `SFSpeechRecognizer`: server-side endpointing.
- Apple's recogniser gives us partials quickly but has no fast, tunable
- end-of-utterance signal, so today's push-to-talk waits up to 1.2s after the key
- is released for a final result. Deepgram reports `speech_final` from its own VAD
- within `endpointing` milliseconds of the speaker stopping, and `UtteranceEnd`
- as a backstop. That gap is most of the perceived latency between "I stopped
- talking" and "Orion started thinking".
+ Flux v2 supplies semantic turn detection. TurnInfo updates carry the current
+ transcript; EndOfTurn is authoritative. Apple recognition remains the local
+ fallback when authentication, transport or audio conversion fails.
 
  Audio contract, chosen deliberately:
    • linear16 (int16 little-endian), mono, 16 000 Hz.
@@ -40,7 +37,7 @@ enum DeepgramConfig {
     static let model = ModelContract.model(role: "stt", fallback: fallbackModel)
 
     /// What `stt` was before the contract existed.
-    static let fallbackModel = "nova-3"
+    static let fallbackModel = "flux-general-en"
     static let language = "en-US"
     /// Milliseconds of silence before Deepgram calls the utterance finished.
     ///
@@ -59,22 +56,7 @@ enum DeepgramConfig {
     static let openTimeout: TimeInterval = 1.5
 
     static func url() -> URL? {
-        var components = URLComponents(string: "wss://api.deepgram.com/v1/listen")
-        components?.queryItems = [
-            URLQueryItem(name: "model", value: model),
-            URLQueryItem(name: "language", value: language),
-            URLQueryItem(name: "encoding", value: "linear16"),
-            URLQueryItem(name: "sample_rate", value: String(Int(sampleRate))),
-            URLQueryItem(name: "channels", value: "1"),
-            URLQueryItem(name: "interim_results", value: "true"),
-            URLQueryItem(name: "punctuate", value: "true"),
-            URLQueryItem(name: "smart_format", value: "true"),
-            URLQueryItem(name: "vad_events", value: "true"),
-            URLQueryItem(name: "endpointing", value: String(endpointingMs)),
-            URLQueryItem(name: "utterance_end_ms", value: String(utteranceEndMs))
-        ]
-        // Note what is NOT here: the API key. It goes in the handshake headers.
-        return components?.url
+        return FluxConfig().url()
     }
 }
 
@@ -207,6 +189,7 @@ final class DeepgramStream {
     /// their concatenation — not just the last one.
     private var settled: [String] = []
     private var interim = ""
+    private var fluxTracker = FluxTurnTracker()
 
     init(apiKey: String) {
         self.apiKey = apiKey
@@ -294,7 +277,6 @@ final class DeepgramStream {
         // `Finalize` makes Deepgram emit everything it is still buffering
         // immediately instead of waiting for more audio. `CloseStream` then ends
         // the session cleanly so the last words are never dropped.
-        send(control: ["type": "Finalize"])
         send(control: ["type": "CloseStream"])
     }
 
@@ -385,76 +367,20 @@ final class DeepgramStream {
     }
 
     private func handle(_ raw: String) {
-        guard
-            let data = raw.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
-
-        // Treat every field as data. Nothing that arrives on this socket is ever
-        // an instruction to Orion; it is a transcript of what a human said.
-        let type = object["type"] as? String ?? ""
-
+        guard let message = FluxTurns.parse(raw) else { return }
         DispatchQueue.main.async {
-            guard !self.finished || type == "Results" else { return }
-            switch type {
-            case "Results":
-                self.handleResults(object)
-            case "UtteranceEnd":
-                self.onEndOfSpeech?()
-            case "SpeechStarted":
-                break
-            case "Metadata":
-                break
-            case "Error":
-                let message = object["description"] as? String
-                    ?? object["message"] as? String
-                    ?? "Deepgram reported an error"
-                self.fail(message)
-            default:
-                break
+            guard !self.failed else { return }
+            switch message {
+            case .connected:
+                if !self.isOpen { self.isOpen = true; self.openTimer?.invalidate(); self.onOpen?() }
+            case .error(_, let description): self.fail(description)
+            case .turn:
+                let decision = self.fluxTracker.absorb(message)
+                self.interim = self.fluxTracker.transcript
+                if !self.interim.isEmpty { self.onPartial?(self.interim) }
+                if case .finish(let text) = decision { self.onSegment?(text); self.onEndOfSpeech?() }
+            default: break
             }
-        }
-    }
-
-    private func handleResults(_ object: [String: Any]) {
-        if !isOpen {
-            isOpen = true
-            openTimer?.invalidate()
-            onOpen?()
-        }
-        guard
-            let channel = object["channel"] as? [String: Any],
-            let alternatives = channel["alternatives"] as? [[String: Any]],
-            let best = alternatives.first,
-            let text = best["transcript"] as? String
-        else { return }
-
-        let isFinal = object["is_final"] as? Bool ?? false
-        let speechFinal = object["speech_final"] as? Bool ?? false
-        // Fired BEFORE onPartial, deliberately: a caller that caches this
-        // value and reads it back from inside onPartial sees the number for
-        // THIS result, not the previous one.
-        if let confidence = best["confidence"] as? Double {
-            onConfidence?(confidence)
-        }
-
-        if isFinal {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { settled.append(trimmed) }
-            interim = ""
-        } else {
-            interim = text
-        }
-
-        let combined = transcript
-        if !combined.isEmpty {
-            onPartial?(combined)
-        }
-        if isFinal {
-            onSegment?(combined)
-        }
-        if speechFinal || (finalizing && isFinal) {
-            onEndOfSpeech?()
         }
     }
 

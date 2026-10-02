@@ -136,3 +136,11 @@ test("a corrupt state file reads as empty", () => {
   const out = result.stdout;
   assert.ok(out.includes("ladder:"), "should still show ladder");
 });
+
+test("act preserves a spaced app name as one argument", () => {
+ const dir=makeTmpDir();const bin=join(dir,'bin');mkdirSync(bin);
+ const output=join(dir,'argv.json');
+ writeFileSync(join(bin,'open'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.ARGV_OUT, JSON.stringify(process.argv.slice(2)));\n`,{mode:0o755});
+ const {result}=run(['act','front','--app','Visual Studio Code'], {ORION_FOCUS_DRY:'0',PATH:bin,ARGV_OUT:output});
+ assert.equal(result.status,0,result.stderr);assert.deepEqual(JSON.parse(readFileSync(output,'utf8')),['-a','Visual Studio Code']);
+});

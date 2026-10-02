@@ -84,7 +84,8 @@ let package = Package(
                 "SessionService",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "MobileCore", package: "OrionMobile"),
-                .product(name: "ThinkingOrbsKit", package: "OrionMobile")
+                .product(name: "ThinkingOrbsKit", package: "OrionMobile"),
+                .product(name: "OrionViews", package: "OrionMobile")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

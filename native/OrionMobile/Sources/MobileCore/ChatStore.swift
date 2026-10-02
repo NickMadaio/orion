@@ -142,15 +142,19 @@ public struct ChatStore {
 
     @discardableResult
     public func create(title: String? = nil, model: String? = nil, now: Date) throws -> ChatConversation {
+        return try coordinated {
         let id = UUID().uuidString
         let titleValue = title ?? "New chat"
         let conv = ChatConversation(id: id, title: titleValue, createdAt: now, updatedAt: now, model: model, messages: [])
         try write(conv)
         return conv
+
+        }
     }
 
     @discardableResult
     public func append(_ message: ChatMessage, to id: String) throws -> ChatConversation {
+        return try coordinated {
         try validateId(id)
         var conv = try load(id)
         if conv.title == "New chat" && message.role == .user {
@@ -161,10 +165,13 @@ public struct ChatStore {
         conv.updatedAt = newest
         try write(conv)
         return conv
+
+        }
     }
 
     @discardableResult
     public func merge(_ messages: [ChatMessage], into id: String) throws -> ChatConversation {
+        return try coordinated {
         try validateId(id)
         var conv = try load(id)
         let existingIds = Set(conv.messages.map(\.id))
@@ -182,26 +189,55 @@ public struct ChatStore {
         conv.updatedAt = newest
         try write(conv)
         return conv
+
+        }
     }
 
     public func rename(_ id: String, to title: String) throws {
+        try coordinated {
         try validateId(id)
         var conv = try load(id)
         conv.title = title
         try write(conv)
+
+        }
     }
 
     public func setModel(_ id: String, to model: String?) throws {
+        try coordinated {
         try validateId(id)
         var conv = try load(id)
         conv.model = model
         try write(conv)
+
+        }
+    }
+
+    public func save(_ conversation: ChatConversation) throws {
+        try coordinated {
+        try validateId(conversation.id); try write(conversation)
+
+        }
     }
 
     public func delete(_ id: String) throws {
+        try coordinated {
         try validateId(id)
         let url = fileURL(for: id)
         try FileManager.default.removeItem(at: url)
+
+        }
+    }
+
+    private func coordinated<T>(_ body: () throws -> T) throws -> T {
+        var coordinationError: NSError?
+        var result: Result<T, Error>?
+        NSFileCoordinator().coordinate(writingItemAt: directory, options: .forMerging, error: &coordinationError) { _ in
+            result = Result { try body() }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw NSError(domain: "ChatStore", code: 2) }
+        return try result.get()
     }
 
     private func write(_ conv: ChatConversation) throws {

@@ -202,8 +202,10 @@ function cmdAct(parsed) {
     console.log(cmdLine);
   } else {
     // actually run the command for non-dry mode
-    const [prog, ...args] = cmdLine.split(" ");
-    spawnSync(prog, args, { stdio: "inherit" });
+    const commands = { nudge: ["osascript", ["-e", 'display notification "Back to your scheduled work." with title "ORION"']], say: ["say", ["Back to your scheduled work."]], front: ["open", ["-a", app]], quit: ["osascript", ["-e", `tell application "${app}" to quit`]], lock: ["pmset", ["displaysleepnow"]] };
+    const [prog, commandArgs] = commands[step];
+    const result = spawnSync(prog, commandArgs, { stdio: "inherit" });
+    if (result.error || result.status !== 0) { console.error(result.error?.message ?? `Action failed: exit ${result.status}`); process.exit(1); }
   }
 
   if (parsed.flags.json) {

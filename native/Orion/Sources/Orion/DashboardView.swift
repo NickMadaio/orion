@@ -487,7 +487,7 @@ struct DashboardView: View {
                         onPreviewFocus: { sessionPreview = .focus },
                         onPreviewBreak: { sessionPreview = .breakTime })
             case .tasks:
-                TasksTab(reminders: reminders, agenda: agenda, newTask: $newFocusTask,
+                TasksTab(state: state, reminders: reminders, agenda: agenda, newTask: $newFocusTask,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
                          energyTitle: energyTitle, availableHeight: availableHeight,
                          availableWidth: availableWidth ?? 1_180,

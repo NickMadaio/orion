@@ -16,6 +16,8 @@ struct ConversationView: View {
     @ObservedObject var remote: RemoteStore
     @StateObject private var voice = PhoneVoice()
     @State private var draft = ""
+    @State private var conversationID: String?
+    @State private var selectedModel: String?
     @FocusState private var typing: Bool
 
     private let suggestions = [
@@ -33,7 +35,7 @@ struct ConversationView: View {
                     PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level, size: 56)
                         .frame(maxWidth: .infinity)
                     if remote.conversation.isEmpty { emptyState }
-                    ForEach(remote.conversation) { message in
+                    ForEach(remote.conversation.filter { conversationID == nil || $0.conversationID == conversationID }) { message in
                         exchange(message).id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -54,6 +56,20 @@ struct ConversationView: View {
         .safeAreaInset(edge: .bottom) { inputBar }
         .phoneScreen()
         .navigationTitle("ORION")
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { Menu("Chats") {
+                Button("New chat") { conversationID = UUID().uuidString }
+                Button("All history") { conversationID = nil }
+                ForEach(Array(Set(remote.conversation.compactMap(\.conversationID))).sorted(), id: \.self) { id in
+                    Button(remote.conversation.first { $0.conversationID == id }?.text.prefix(40).description ?? "Chat") { conversationID = id }
+                }
+            } }
+            ToolbarItem(placement: .topBarLeading) { Menu("Model") {
+                Button("Default") { selectedModel = nil }
+                ForEach(remote.snapshot?.chatModels ?? []) { model in Button(model.label) { selectedModel = model.id } }
+            } }
+        }
     }
 
     private var presenceLine: String {
@@ -95,6 +111,7 @@ struct ConversationView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(message.id.hasPrefix("local-") ? "ORION · ON YOUR IPHONE" : "ORION").font(Phone.mono(9, .semibold)).tracking(1.4)
                     .foregroundStyle(message.status == .failed ? Phone.orange : Phone.violet)
+                if let thinking = message.thinking, !thinking.isEmpty { DisclosureGroup("Thinking") { Text(thinking).font(.system(size: 12)).textSelection(.enabled) }.foregroundStyle(Phone.dim) }
                 Text(Self.rendered(message.reply ?? "No answer came back."))
                     .font(.system(size: 16)).lineSpacing(3)
                     .foregroundStyle(message.status == .failed ? Phone.orange : Phone.text)
@@ -148,7 +165,7 @@ struct ConversationView: View {
         typing = false
         Task {
             await voice.start { text in
-                remote.say(text) { id in voice.sent(id: id) }
+                remote.say(text, conversation: conversationID, model: selectedModel) { id in voice.sent(id: id) }
             }
         }
     }
@@ -197,7 +214,7 @@ struct ConversationView: View {
         guard canSend else { return }
         let text = draft
         draft = ""
-        remote.say(text)
+        remote.say(text, conversation: conversationID, model: selectedModel)
     }
 }
 

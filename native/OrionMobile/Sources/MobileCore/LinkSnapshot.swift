@@ -31,6 +31,9 @@ public enum LinkSchema {
     public static let commandDevice = "device"
     public static let commandStatus = "status"
     public static let commandReply = "reply"
+    public static let commandThinking = "thinking"
+    public static let commandConversation = "conversationID"
+    public static let commandModel = "model"
     public static let commandRepliedAt = "repliedAt"
     /// "chat" for conversation with ORION, "control" for buttons. The Mac runs
     /// both the same way; the phone keeps them in different places.
@@ -257,6 +260,9 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
         }
     }
     public var night: [NightDay]?
+    public var earlyFinish: EarlyFinishContext?
+    public var chatModels: [ModelChoice]?
+    public var focusLists: [String]?
     /// The follow-up ORION is running now, for the phone's lock screen and widgets.
     public var checkin: OrionGlance.Checkin?
     /// One-off deadlines ahead (quizzes, presentations), from the Mac's calendar export.
@@ -269,13 +275,13 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
                 running: [RunningAction] = [], attention: Attention? = nil, health: [HealthDay]? = nil,
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
-                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil) {
+                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
         self.tracking = tracking; self.plan = plan; self.planRequest = planRequest; self.wakeRequest = wakeRequest
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
-        self.screenGrant = screenGrant; self.night = night
+        self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists
     }
 
     public static let currentVersion = 1
@@ -364,7 +370,7 @@ public enum LinkLog: Codable, Equatable, Sendable {
     /// Whether the phone's Screen Time lock is on (2026-10-01: Nick asked ORION for
     /// 20 more minutes and ORION said nothing was locked; it could not see the phone).
     /// `why` is "night", "work" or "checkin"; `until` and `graceUntil` are ISO-8601.
-    case screen(at: String, locked: Bool, until: String?, why: String?, graceUntil: String?)
+    case screen(at: String, locked: Bool, until: String?, why: String?, graceUntil: String?, usedMinutes: [String: Int]? = nil)
     /// An answer to a check-in notification: "started", "snooze" (10 more min) or "done".
     case checkin(action: String)
     /// Something noted on the phone ("remember…", an idea, or an offline
@@ -410,13 +416,14 @@ public enum LinkLog: Codable, Equatable, Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty, cleaned.count <= 1200 else { throw LinkError.invalidCommand("a note is 1 to 1200 characters") }
             return .note(text: cleaned, at: at)
-        case let .screen(at, locked, until, why, graceUntil):
+        case let .screen(at, locked, until, why, graceUntil, usedMinutes):
             let time = { (value: String?) in value == nil || ISO8601DateFormatter().date(from: value!) != nil }
             guard ISO8601DateFormatter().date(from: at) != nil, time(until), time(graceUntil),
-                  why == nil || ["night", "work", "checkin"].contains(why!) else { throw LinkError.invalidCommand("not a screen state") }
-            return .screen(at: at, locked: locked, until: until, why: why, graceUntil: graceUntil)
+                  why == nil || ["night", "work", "checkin", "day"].contains(why!) else { throw LinkError.invalidCommand("not a screen state") }
+            guard usedMinutes == nil || usedMinutes!.allSatisfy({ ["messaging", "feeds", "video", "games"].contains($0.key) && (0...1440).contains($0.value) }) else { throw LinkError.invalidCommand("invalid app-list usage") }
+            return .screen(at: at, locked: locked, until: until, why: why, graceUntil: graceUntil, usedMinutes: usedMinutes)
         case .checkin(let action):
-            guard ["started", "snooze", "done"].contains(action) else { throw LinkError.invalidCommand("not a check-in answer") }
+            guard ["started", "snooze", "done", "early-block", "early-out-of-class", "early-home"].contains(action) else { throw LinkError.invalidCommand("not a check-in answer") }
             return self
         case let .sleep(event, at):
             guard ["bed", "up"].contains(event) else { throw LinkError.invalidCommand("sleep event is bed or up") }

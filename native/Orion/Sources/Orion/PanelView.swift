@@ -1,4 +1,5 @@
 import SwiftUI
+import OrionViews
 
 /// The summon surface: the hologram, and nothing else.
 ///
@@ -16,8 +17,8 @@ struct PanelView: View {
     @ObservedObject var state: AppState
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            HologramView(model: state.hologram)
+        VStack(spacing: 0) {
+            HologramView(model: state.hologram).allowsHitTesting(false)
 
             // The only text allowed, and only while it is the fastest way to
             // answer "did it hear me". Nothing while idle, and nothing while
@@ -38,10 +39,11 @@ struct PanelView: View {
                     .padding(.horizontal, 22)
                     .padding(.bottom, 14)
             }
+            SummonComposer(text: $state.composer, micMuted: state.summonMicMuted, onSend: state.submitTyped, onToggleMute: { state.toggleSummonMute() }, onClose: { state.hideSummon?() }, width: 260).padding(.bottom, 8)
         }
         // Never a hit target. What may be clicked is decided by the container
         // view in `PanelController`, which knows the shape of what was drawn.
-        .allowsHitTesting(false)
+
         .animation(.easeOut(duration: 0.16), value: state.heard)
     }
 }

@@ -89,7 +89,7 @@ export function judgeActivity(block, activity, { allow = [] } = {}) {
   }
 
   // YouTube special case.
-  if (appLower.includes("youtube")) {
+  if (appLower.includes("youtube") || titleLower.includes("youtube")) {
     // On task only when title shares a word of 4+ letters with block title.
     const blockWords = new Set(
       block.title.toLowerCase().split(/\W+/).filter(w => w.length >= 4)

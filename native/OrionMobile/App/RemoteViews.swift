@@ -30,7 +30,11 @@ final class RemoteStore: ObservableObject {
     init() {
         // Presence ages even when nothing new arrives.
         let clock = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.now = Date(); await self?.flushOutbox() }
+            Task { @MainActor in
+                self?.now = Date()
+                if let self { FocusLists.shared.applyRemote(self.snapshot.flatMap { Date().timeIntervalSince($0.generatedAt) < 90 ? $0.focusLists : nil } ?? []) }
+                await self?.flushOutbox()
+            }
         }
         RunLoop.main.add(clock, forMode: .common)
         self.clock = clock
@@ -40,6 +44,7 @@ final class RemoteStore: ObservableObject {
         link.$snapshot.receive(on: RunLoop.main).sink { [weak self] value in
             guard let self else { return }
             self.snapshot = value
+            if let names = value?.focusLists { FocusLists.shared.applyRemote(names) }
             // The widgets and lock screen follow the Mac even when no screen is showing.
             if !Self.fixture { GlanceWriter.publish(snapshot: value) }
             self.reconcile(self.link.messages)
@@ -211,7 +216,7 @@ final class RemoteStore: ObservableObject {
 
     /// A message to ORION, from the conversation tab.
     /// `sent` gets the message's id at once, so voice mode knows which reply to read.
-    func say(_ text: String, sent: ((String) -> Void)? = nil) {
+    func say(_ text: String, conversation: String? = nil, model: String? = nil, sent: ((String) -> Void)? = nil) {
         let id = UUID().uuidString
         #if targetEnvironment(simulator)
         if Self.fixture { sent?(id); return }
@@ -225,7 +230,7 @@ final class RemoteStore: ObservableObject {
         Task {
             // The lock state goes first, so ORION knows it before reading "unlock my apps".
             if let state = try? FocusLock.screenState().validated().encoded() { _ = await link.send(state, kind: .log) }
-            await link.send(text, kind: .chat, id: id)
+            await link.send(text, kind: .chat, id: id, conversation: conversation, model: model)
         }
     }
 
@@ -589,5 +594,13 @@ struct ProgressStrip: View {
             }
         }
         .accessibilityLabel("\(done) of \(total) done")
+    }
+}
+
+
+extension RemoteStore {
+    func finishEarly(_ choice: FinishEarlyChoice) {
+        guard let text = try? LinkLog.checkin(action: "early-" + choice.rawValue).encoded() else { return }
+        Task { _ = await link.send(text, kind: .log) }
     }
 }

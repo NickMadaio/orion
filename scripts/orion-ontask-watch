@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+// Schedule focus supervision, driven by the native app's current activity sample.
+import { readFileSync, writeFileSync, renameSync, appendFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
+import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
+import { evalMode } from "./lib/eval-mode.mjs";
+import { focusBlock, nextStep } from "./lib/focus/escalation.mjs";
+import { listsToBlock, LISTS } from "./lib/focus/phone-lists.mjs";
+import { readState, writeState, stateFile } from "./lib/focus/state.mjs";
+const root = join(homedir(), ".openclaw/orion-controlled");
+const read = (file, fallback) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return fallback; } };
+if (evalMode() || sandbox()) { console.log("Focus watcher paused during evaluation."); process.exit(0); }
+const now = clockNow(), minute = now.getHours() * 60 + now.getMinutes();
+const activity = read(join(root, "focus-activity.json"), null);
+if (!activity || Date.now() - Date.parse(activity.at) > 90_000) { console.log("No fresh native activity sample."); process.exit(0); }
+const blocks = toBlocks(await calendarEvents(), localDate(now)), block = focusBlock(blocks, minute);
+const file = stateFile(process.env), state = readState(file);
+const allow = state.allow.filter(a => a.date === localDate(now) && (a.until == null || a.until > minute)).map(a => a.match);
+const sample = read(join(root, "health-log.json"), {}).phoneScreen;
+const freshPhone = sample && Date.now() - Date.parse(sample.at) < 5 * 60_000;
+const usedToday = Object.fromEntries(LISTS.map(k => [k, freshPhone ? Number(sample.usedMinutes?.[k] ?? 0) : 0]));
+const ladder = { blockId: null, offSince: null, lastStep: "none", snoozeUntil: null, phoneWarnedAt: null, ...state.ladder };
+const step = nextStep(ladder, { now: minute, block, activity, phone: { minutesInUse: Math.max(...Object.values(usedToday)) }, allow });
+const lists = listsToBlock({ block, usedToday, current: null, escalation: step.phone });
+writeState(file, { ...state, ladder: step.state });
+const directive = { at: now.toISOString(), until: block ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, block.end).toISOString() : now.toISOString(), block: lists.block, why: lists.why };
+writeFileSync(join(root, "focus-phone.json.tmp"), JSON.stringify(directive)); renameSync(join(root, "focus-phone.json.tmp"), join(root, "focus-phone.json"));
+const alerts = [];
+if (step.phone === "warn") alerts.push(`Ten minutes on your phone during ${block?.title}. Put it down; distracting lists block at fifteen.`);
+if (["nudge", "say"].includes(step.mac) && step.mac !== ladder.lastStep) alerts.push(`You planned ${block.title}. Back to it — ${step.why}.`);
+for (const text of alerts) appendFileSync(join(root, "alerts-outbox.jsonl"), JSON.stringify({ at: now.toISOString(), kind: "checkin", text }) + "\n");
+if (["front", "quit", "lock"].includes(step.mac) && step.mac !== ladder.lastStep) {
+  // The existing consent switch still controls intrusive focus actions.
+  if (activity.enforcementAllowed) {
+    const script = join(dirname(fileURLToPath(import.meta.url)), "orion-ontask");
+    const target = step.mac === "front" ? activity.workApp : activity.app;
+    if (step.mac === "lock" || target) {
+      const result = spawnSync(process.execPath, [script, "act", step.mac, ...(target ? ["--app", target] : [])], { encoding: "utf8", timeout: 10000 });
+      if (result.status !== 0) console.error(result.stderr || result.stdout);
+    }
+  }
+}
+console.log(JSON.stringify({ block: block?.title ?? null, ...step, lists }));

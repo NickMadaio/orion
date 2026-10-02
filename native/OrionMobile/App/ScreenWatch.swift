@@ -27,18 +27,20 @@ enum ScreenWatch {
 
     static func sync(_ glance: OrionGlance, now: Date = Date()) {
         guard AuthorizationCenter.shared.authorizationStatus == .approved else { return }
+        let lists = FocusLists.shared
+        let selections = Dictionary(uniqueKeysWithValues: AppList.allCases.map { ($0, lists.selection(for: $0)) })
         let selection = FocusLock.shared.selection
-        guard !selection.applicationTokens.isEmpty || !selection.categoryTokens.isEmpty else { return }
+        guard selections.values.contains(where: { !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty }) else { return }
         let calendar = Calendar.current
-        let work = glance.blocks.filter { ["class", "study", "deadline", "side_project"].contains($0.kind) && $0.end > now && $0.minutes >= 15 }.prefix(8)
-        let key = work.map { "\($0.id)\($0.start)\($0.end)" }.joined() + "\(glance.night?.bed.timeIntervalSince1970 ?? 0)" + calendar.startOfDay(for: now).description
+        let work = glance.blocks.filter { ["study", "deadline", "side_project", "other"].contains($0.kind) && $0.end > now && $0.minutes >= 15 }.prefix(3)
+        let key = work.map { "\($0.id)\($0.start)\($0.end)" }.joined() + "\(glance.night?.bed.timeIntervalSince1970 ?? 0)" + calendar.startOfDay(for: now).description + selections.values.map { String(describing: $0) }.sorted().joined()
         guard key != lastKey else { return }
         lastKey = key
 
         let center = DeviceActivityCenter()
         center.stopMonitoring()
         var about: [String: [String: String]] = [:]
-        func events(_ steps: [(String, Int)]) -> [DeviceActivityEvent.Name: DeviceActivityEvent] {
+        func events(_ selection: FamilyActivitySelection, _ steps: [(String, Int)]) -> [DeviceActivityEvent.Name: DeviceActivityEvent] {
             Dictionary(uniqueKeysWithValues: steps.map { name, minutes in
                 (DeviceActivityEvent.Name(name), DeviceActivityEvent(applications: selection.applicationTokens,
                     categories: selection.categoryTokens, threshold: DateComponents(minute: minutes)))
@@ -48,27 +50,30 @@ enum ScreenWatch {
             DeviceActivitySchedule(intervalStart: calendar.dateComponents([.year, .month, .day, .hour, .minute], from: from),
                                    intervalEnd: calendar.dateComponents([.year, .month, .day, .hour, .minute], from: to), repeats: false)
         }
+        for list in AppList.allCases where list != .messaging && !lists.isEmpty(list) {
+        let selection = selections[list]!
         for (index, block) in work.enumerated() {
-            let name = "work.\(index)"
+            let name = "work.\(index).\(list.rawValue)"
             let start = max(block.start, now)
             guard block.end.timeIntervalSince(start) >= 15 * 60 else { continue }
             try? center.startMonitoring(DeviceActivityName(name), during: schedule(start, block.end),
-                                        events: events([("nudge1", 15), ("nudge2", 30), ("lock", 45)]))
-            about[name] = ["kind": "work", "title": block.title, "end": String(block.end.timeIntervalSince1970)]
+                                        events: events(selection, [("nudge1", 10), ("lock", 15)]))
+            about[name] = ["list": list.rawValue, "kind": "work", "title": block.title, "end": String(block.end.timeIntervalSince1970)]
         }
         if let night = glance.night, let alarm = night.alarm, alarm > now {
             let start = max(night.bed, now)
             if alarm.timeIntervalSince(start) >= 15 * 60 {
-                try? center.startMonitoring(DeviceActivityName("night"), during: schedule(start, alarm),
-                                            events: events([("nudge1", 10), ("nudge2", 20), ("lock", 30)]))
-                about["night"] = ["kind": "night", "title": "bedtime", "end": String(alarm.timeIntervalSince1970)]
+                try? center.startMonitoring(DeviceActivityName("night." + list.rawValue), during: schedule(start, alarm),
+                                            events: events(selection, [("nudge1", 10), ("lock", 15)]))
+                about["night." + list.rawValue] = ["list": list.rawValue, "kind": "night", "title": "bedtime", "end": String(alarm.timeIntervalSince1970)]
             }
         }
         let endOfDay = calendar.date(bySettingHour: 23, minute: 59, second: 0, of: now) ?? now
         if endOfDay.timeIntervalSince(now) >= 15 * 60 {
-            try? center.startMonitoring(DeviceActivityName("day"), during: schedule(now, endOfDay),
-                                        events: events([("long1", 60), ("long2", 120)]))
-            about["day"] = ["kind": "day", "title": "today", "end": String(endOfDay.timeIntervalSince1970)]
+            try? center.startMonitoring(DeviceActivityName("day." + list.rawValue), during: schedule(now, endOfDay),
+                                        events: events(selection, [("long1", list == .games ? 80 : 110), ("cap", list == .games ? 90 : 120)]))
+            about["day." + list.rawValue] = ["list": list.rawValue, "kind": "day", "title": "today", "end": String(endOfDay.timeIntervalSince1970)]
+        }
         }
         if let data = try? JSONSerialization.data(withJSONObject: about) { defaults?.set(data, forKey: "orion.screen.about") }
     }

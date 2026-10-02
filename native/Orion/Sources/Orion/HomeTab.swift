@@ -32,7 +32,12 @@ struct HomeTab: View {
 
     var body: some View {
         Group {
-            if presentation == .full, let brief {
+            if state.chatMode {
+                VStack(alignment: .trailing, spacing: 0) {
+                    HologramView(model: state.hologram).frame(width: 100, height: 100).transition(.move(edge: .trailing))
+                    SharedChatView(state: state).frame(height: max(420, availableHeight - 110))
+                }.transition(.opacity)
+            } else if presentation == .full, let brief {
                 MorningBriefPanel(facts: brief, writer: writer) {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                         presentation = .parked
@@ -43,6 +48,7 @@ struct HomeTab: View {
                 scene
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: state.chatMode)
         .onAppear { composerFocused = true }
         // Bumped every time the window is summoned, so a second click on the
         // menu bar re-focuses the field instead of doing nothing visible.

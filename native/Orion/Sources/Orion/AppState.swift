@@ -55,6 +55,7 @@ final class AppState: ObservableObject {
 
     /// Applies this requested visual lift once, rather than compounding it on
     /// every launch.
+    private let scheduleFocusWatcher = ScheduleFocusWatcher()
     private static let hologramBrightnessBoostKey = "OrionHologramBrightnessBoost20260801"
 
     // MARK: Published surface
@@ -64,6 +65,53 @@ final class AppState: ObservableObject {
     @Published private(set) var turns: [Turn] = []
     @Published private(set) var heard = ""
     @Published var composer = ""
+    @Published var earlyFinish: EarlyFinishContext?
+    @Published var earlyBusy = false
+    @Published var earlyFeedback: String?
+    @Published var chatMode = false
+    @Published var selectedChatModel: String?
+    @Published private(set) var chatSummaries: [ChatSummary] = []
+    @Published private(set) var chatConversation: ChatConversation?
+    @Published private(set) var chatThinking: String?
+    @Published var summonMicMuted = false
+    var hideSummon: (() -> Void)?
+    private let chatStore = try? ChatStore(directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/chats"))
+    var chatModels: [ModelChoice] { FileManager.default.contents(atPath: ModelContract.path).map(ChatModels.choices(fromModelRoles:)) ?? [] }
+    func refreshEarlyContext() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let output = Self.runSchedule(["early", "--check", "--dry-run"])
+            let context = try? JSONDecoder().decode(EarlyFinishContext.self, from: Data(output.1.utf8))
+            DispatchQueue.main.async { self?.earlyFinish = context }
+        }
+    }
+    func finishEarly(_ mode: String) {
+        guard !earlyBusy, ["block", "out-of-class", "home"].contains(mode) else { return }; earlyBusy = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runSchedule(["early", mode])
+            DispatchQueue.main.async { guard let self else { return }; self.earlyBusy = false; self.earlyFeedback = result.1; self.append(.system, result.1); self.refreshEarlyContext() }
+        }
+    }
+    private static func runSchedule(_ args: [String]) -> (Bool, String) {
+        let home = FileManager.default.homeDirectoryForCurrentUser, process = Process()
+        process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+        process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path] + args
+        let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
+        guard (try? process.run()) != nil else { return (false, "Could not reach the planner.") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+        return (process.terminationStatus == 0, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    func refreshChats() { chatSummaries = (try? chatStore?.list()) ?? []; if let id = chatConversation?.id { chatConversation = try? chatStore?.load(id) } }
+    func selectChat(_ id: String) { guard phase != .thinking else { return }; chatConversation = try? chatStore?.load(id); selectedChatModel = chatConversation?.model; chatMode = true }
+    func newChat() { guard phase != .thinking else { return }; chatConversation = try? chatStore?.create(model: selectedChatModel, now: Date()); chatMode = true; refreshChats() }
+    func renameChat(_ id: String, title: String) { try? chatStore?.rename(id, to: title); refreshChats() }
+    func deleteChat(_ id: String) { guard phase != .thinking else { return }; try? chatStore?.delete(id); if chatConversation?.id == id { chatConversation = nil }; refreshChats() }
+    private func saveChat(_ role: ChatRole, text: String, thinking: String? = nil) {
+        if chatConversation == nil { chatConversation = try? chatStore?.create(model: selectedChatModel, now: Date()) }
+        guard let id = chatConversation?.id else { return }
+        try? chatStore?.setModel(id, to: selectedChatModel)
+        chatConversation = try? chatStore?.append(ChatMessage(id: UUID().uuidString, role: role, text: text, thinking: thinking, at: Date(), device: "mac", model: selectedChatModel), to: id)
+        refreshChats()
+    }
 
     /// What Nick sees while `.thinking` runs — see `RunProgressModel`. Starts
     /// with the synthetic first line the moment a turn begins and is replaced
@@ -505,10 +553,13 @@ final class AppState: ObservableObject {
         // the configured ear is active would be the exact lie this pair of
         // properties exists to prevent. It becomes true on the first press.
         activeSTTProvider = .apple
+        refreshChats()
+        refreshEarlyContext()
         restoreDailyLog()
         wireSpeech()
         wireSession()
         refreshFocusConfiguration()
+        scheduleFocusWatcher.start { [weak self] in self?.focusExtras.quitDistractions ?? false }
     }
 
     /// Refresh away from SwiftUI's render pass, then publish the answer back
@@ -1414,6 +1465,7 @@ final class AppState: ObservableObject {
 
     private func append(_ role: Turn.Role, _ text: String) {
         turns.append(Turn(role: role, text: text))
+        if role == .you { saveChat(.user, text: text) }
         if turns.count > 60 {
             turns.removeFirst(turns.count - 60)
         }
@@ -1429,6 +1481,7 @@ final class AppState: ObservableObject {
     /// silence has to end it. That is the only difference between the two.
     func beginListening(handsFree wantsHandsFree: Bool = false,
                         followUp: Bool = false) {
+        guard !summonMicMuted else { return }
         // No permission guard here on purpose: without Accessibility the global
         // monitor never fires at all, so reaching this point means the press did
         // arrive. The missing-permission case is surfaced in the panel banner.
@@ -1576,6 +1629,7 @@ final class AppState: ObservableObject {
 
         // Don't cut anyone off in the first breath.
         guard now.timeIntervalSince(handsFreeStartedAt) >= AppState.handsFreeLeadIn else { return }
+        if activeSTTProvider == .deepgram { return }
 
         guard let endpoint = handsFreeEndpoint else { return }
         switch endpoint.verdict(at: now) {
@@ -1637,7 +1691,8 @@ final class AppState: ObservableObject {
         }
 
         let combined = AdaptiveEndpointModel.appendContinuation(text, to: preservedTranscript)
-        let looksCutOff = AdaptiveEndpointModel.hasContinuationCue(text)
+        stopHandsFree()
+        let looksCutOff = activeSTTProvider != .deepgram && AdaptiveEndpointModel.hasContinuationCue(text)
             && !AdaptiveEndpointModel.hasTerminalPunctuation(text)
 
         if looksCutOff, continuationChainRemaining > 0 {
@@ -1764,10 +1819,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    func toggleSummonMute() {
+        summonMicMuted.toggle()
+        if summonMicMuted { stopHandsFree(); speechInput.discardUtterance(); if phase == .listening { setPhase(.idle) } }
+    }
+
     func submitTyped() {
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, phase != .thinking else { return }
         composer = ""
+        chatMode = true
         if phase == .speaking { bargeIn() }
         send(text, typed: true)
     }
@@ -1798,20 +1859,23 @@ final class AppState: ObservableObject {
         let generation = askGeneration
         let request = agentRequest(userText: text, spoken: !typed)
 
+        chatThinking = nil
+        let chatSession = chatConversation.map { "orion-chat-" + $0.id } ?? GatewayClient.sessionKey
+        let chatModel = selectedChatModel
         let turnStartedAt = Date()
         runProgress = RunProgressModel(now: turnStartedAt)
         thinkingFeed = [RunProgressModel.syntheticFirstLine]
         thinkingElapsedSeconds = 0
         startProgressPolling(
             generation: generation,
-            session: GatewayClient.sessionKey,
+            session: chatSession,
             sinceMillis: Int(turnStartedAt.timeIntervalSince1970 * 1000)
         )
 
         agentQueue.async { [weak self] in
             let result: Result<GatewayReply, Error>
             do {
-                result = .success(try GatewayClient.ask(request))
+                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel))
             } catch {
                 result = .failure(error)
             }
@@ -1975,6 +2039,8 @@ final class AppState: ObservableObject {
         // keeping around -- "continue what you were saying" should never
         // resurrect a stale answer once a new one has actually arrived.
         interruptedReplyText = nil
+        chatThinking = reply.thinking
+        saveChat(.orion, text: reply.text, thinking: reply.thinking)
         append(.orion, reply.text)
         setPhase(.speaking)
         statusLine = "Speaking…"

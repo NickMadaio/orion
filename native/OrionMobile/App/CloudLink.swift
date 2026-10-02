@@ -22,6 +22,9 @@ final class CloudLink: ObservableObject {
         var status: LinkCommandStatus
         var reply: String?
         var repliedAt: Date?
+        var thinking: String? = nil
+        var conversationID: String? = nil
+        var model: String? = nil
     }
 
     @Published private(set) var snapshot: LinkSnapshot?
@@ -173,7 +176,7 @@ final class CloudLink: ObservableObject {
                 kind: kind,
                 status: (record[LinkSchema.commandStatus] as? String).flatMap(LinkCommandStatus.init(rawValue:)) ?? .pending,
                 reply: record[LinkSchema.commandReply] as? String,
-                repliedAt: record[LinkSchema.commandRepliedAt] as? Date)
+                repliedAt: record[LinkSchema.commandRepliedAt] as? Date, thinking: record[LinkSchema.commandThinking] as? String, conversationID: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String)
         default:
             break
         }
@@ -190,11 +193,13 @@ final class CloudLink: ObservableObject {
     /// Mac's reply arrives through the change feed.
     /// Returns the command's id once iCloud has it, or nil if it was not sent.
     @discardableResult
-    func send(_ text: String, kind: LinkCommandKind, id: String = UUID().uuidString) async -> String? {
+    func send(_ text: String, kind: LinkCommandKind, id: String = UUID().uuidString, conversation: String? = nil, model: String? = nil) async -> String? {
         let command: String
         do { command = try LinkCommand.validate(text) } catch { problem = "That message is empty or too long."; return nil }
         let now = Date()
         let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: id, zoneID: zoneID))
+        record[LinkSchema.commandConversation] = conversation as CKRecordValue?
+        record[LinkSchema.commandModel] = model as CKRecordValue?
         record[LinkSchema.commandText] = command as CKRecordValue
         record[LinkSchema.commandSentAt] = now as CKRecordValue
         record[LinkSchema.commandStatus] = LinkCommandStatus.pending.rawValue as CKRecordValue

@@ -1,4 +1,5 @@
 import SwiftUI
+import ThinkingOrbsKit
 
 /// The hologram surface.
 ///
@@ -13,6 +14,9 @@ import SwiftUI
 struct HologramView: View {
     let model: HologramModel
 
+    private var orbState: OrbState {
+        switch model.state { case .idle: return .breathing; case .listening: return .listening; case .thinking: return .solving; case .speaking: return .composing; case .error: return .breathing }
+    }
     var body: some View {
         TimelineView(.animation) { timeline in
             Canvas(opaque: false, rendersAsynchronously: false) { context, size in
@@ -20,6 +24,7 @@ struct HologramView: View {
                 model.draw(&context, size: size)
             }
         }
+        .overlay { ThinkingOrb(state: orbState, size: .px64, theme: .dark).opacity(0.65).blendMode(.screen) }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
     }

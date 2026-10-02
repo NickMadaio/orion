@@ -660,9 +660,11 @@ final class SpeechInput {
         }
         stream.onEndOfSpeech = { [weak self] in
             guard let self, self.deepgram === stream else { return }
-            // Only acted on once the key is up: while it is held, the user is
-            // still in charge of where the utterance ends.
-            if self.awaitingFinal { self.deliverFinal() }
+            // Flux EndOfTurn is authoritative for both hands-free and held-key input.
+            guard self.isRunning || self.awaitingFinal else { return }
+            self.isRunning = false; self.awaitingFinal = true
+            self.disarmStarvationWatchdog(); self.stopEngine(); self.onLevel?(0)
+            self.deliverFinal()
         }
         stream.onFailure = { [weak self] message in
             OrionLog.write("[deepgram] FAILED — falling back to Apple")

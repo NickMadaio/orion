@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ModelChoice: Equatable, Identifiable, Sendable {
+public struct ModelChoice: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let label: String
     public let local: Bool

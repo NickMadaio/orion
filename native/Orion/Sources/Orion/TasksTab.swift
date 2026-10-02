@@ -23,6 +23,7 @@ import SessionDomain
 */
 
 struct TasksTab: View {
+    @ObservedObject var state: AppState
     @ObservedObject var reminders: AppleRemindersSync
     @ObservedObject var agenda: AppleCalendarSync
     @Binding var newTask: String
@@ -63,11 +64,19 @@ struct TasksTab: View {
         HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 32) {
                 OrionPanel(padding: 20) {
-                    dayHeader.frame(maxWidth: .infinity, alignment: .topLeading)
+                    VStack(alignment: .leading, spacing: 12) {
+                        dayHeader
+                        if state.earlyFinish?.kind == "block" { Button("Finished early") { state.finishEarly("block"); refreshPlanSources() }.disabled(state.earlyBusy) }
+                        if state.earlyFinish?.kind == "after-class" {
+                            HStack { Button("Out of class early") { state.finishEarly("out-of-class"); refreshPlanSources() }; Button("Already home") { state.finishEarly("home"); refreshPlanSources() } }.disabled(state.earlyBusy)
+                        }
+                        if let feedback = state.earlyFeedback { Text(feedback).font(.caption).foregroundStyle(OrionTheme.textSoft) }
+                    }.onAppear { state.refreshEarlyContext() }.frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 OrionPanel(padding: 20) {
                     TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
                 }
+                OrionPanel(padding: 20) { SharedChatView(state: state).frame(height: 280) }
                 OrionPanel(padding: 20) {
                     tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
                 }

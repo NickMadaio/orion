@@ -81,9 +81,10 @@ private final class OrbContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // `point` arrives in the superview's coordinates.
         let local = convert(point, from: superview)
-        let radius = min(bounds.width, bounds.height) / 2
+        if local.y < 100 { return super.hitTest(point) }
+        let radius = min(bounds.width, bounds.height - 100) / 2
         let dx = local.x - bounds.midX
-        let dy = local.y - bounds.midY
+        let dy = local.y - (100 + (bounds.height - 100) / 2)
         let inside = dx * dx + dy * dy <= radius * radius
         // Deliberately never descends into the hosting view: nothing in the
         // SwiftUI tree is interactive, and claiming the hit here is what makes
@@ -210,7 +211,7 @@ final class PanelController {
     /// see `SummonSettings.orbSize`.
     private static var currentSize: NSSize {
         let edge = CGFloat(SummonSettings.orbSize)
-        return NSSize(width: edge, height: edge)
+        return NSSize(width: max(280, edge), height: edge + 100)
     }
 
     /// Intent, not the window's own `isVisible`: hiding fades first and orders
@@ -219,6 +220,7 @@ final class PanelController {
 
     init(state: AppState) {
         self.state = state
+        state.hideSummon = { [weak self] in self?.hide() }
     }
 
     // MARK: Build

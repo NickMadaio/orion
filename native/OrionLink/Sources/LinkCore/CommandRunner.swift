@@ -9,6 +9,7 @@ public struct CommandRunner {
     public struct Result: Equatable, Sendable {
         public let ok: Bool
         public let reply: String
+        public var thinking: String? = nil
         public init(ok: Bool, reply: String) { self.ok = ok; self.reply = reply }
     }
 
@@ -44,13 +45,18 @@ public struct CommandRunner {
 
     /// Blocking; call off the main thread. Exit 1 with a reply is a refusal and
     /// its reply is forwarded (the bridge does the same); no reply is a failure.
-    public func run(text: String, id: String, sentAt: Date, chat: Bool = false) -> Result {
+    public func run(text: String, id: String, sentAt: Date, chat: Bool = false, conversation: String? = nil, model: String? = nil) -> Result {
         let command: String
         do { command = try LinkCommand.validate(text) } catch { return Result(ok: false, reply: "That command was empty or too long.") }
         let process = Process()
         process.executableURL = node
         process.arguments = arguments(text: command, id: id, sentAt: sentAt, chat: chat)
-        process.environment = environment()
+        var env = environment()
+        let session = conversation.map { "orion-chat-" + $0 } ?? "orion-app-v2"
+        if chat { env["ORION_BRAIN_SESSION"] = session }
+        if let model { env["ORION_BRAIN_MODEL"] = model; env["ORION_BRAIN_THINKING"] = model.hasPrefix("ollama/") ? "off" : "low" }
+        process.environment = env
+        let began = Date()
         let out = Pipe(), err = Pipe()
         process.standardOutput = out; process.standardError = err
         let finished = DispatchSemaphore(value: 0)
@@ -65,7 +71,7 @@ public struct CommandRunner {
         }
         let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if process.terminationStatus == 0 { return Result(ok: true, reply: stdout.isEmpty ? "Done." : String(stdout.prefix(4000))) }
+        if process.terminationStatus == 0 { var result = Result(ok: true, reply: stdout.isEmpty ? "Done." : String(stdout.prefix(4000))); if chat { result.thinking = ChatThinking.read(home: FileManager.default.homeDirectoryForCurrentUser, session: session, since: began) }; return result }
         if !stdout.isEmpty { return Result(ok: false, reply: String(stdout.prefix(4000))) }
         return Result(ok: false, reply: "ORION refused or could not run that (exit \(process.terminationStatus)).")
     }

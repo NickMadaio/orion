@@ -48,6 +48,8 @@ final class FocusLock: ObservableObject {
     /// Copy the current choices where the extension can read them (on launch).
     func mirror() {
         Self.shared_defaults?.set(enabled, forKey: "orion.focuslock.enabled")
+        if FocusLists.shared.isEmpty(.feeds), hasApps { FocusLists.shared.set(selection, for: .feeds) }
+        store.clearAllSettings()
         if let data = try? PropertyListEncoder().encode(selection) { Self.shared_defaults?.set(data, forKey: "orion.focuslock.selection") }
     }
     /// Read from the app group: the Screen Time monitor locks while ORION is
@@ -84,8 +86,7 @@ final class FocusLock: ObservableObject {
     /// An ignored check-in at level 3+: lock the chosen apps for a while.
     func engage(minutes: Int) {
         guard enabled, hasApps, AuthorizationCenter.shared.authorizationStatus == .approved else { return }
-        store.shield.applications = selection.applicationTokens
-        store.shield.applicationCategories = .specific(selection.categoryTokens)
+        FocusLists.shared.block([.feeds, .video, .games])
         let until = Date().addingTimeInterval(Double(minutes * 60))
         lockedUntil = until
         Self.shared_defaults?.set(until.timeIntervalSince1970, forKey: "orion.focuslock.until")
@@ -94,6 +95,7 @@ final class FocusLock: ObservableObject {
 
     func release() {
         store.clearAllSettings()
+        FocusLists.shared.unblockAll()
         lockedUntil = nil
         for key in ["orion.focuslock.until", "orion.screen.lockWhy", "orion.screen.lockedBy"] { Self.shared_defaults?.removeObject(forKey: key) }
     }
@@ -129,7 +131,11 @@ final class FocusLock: ObservableObject {
         let grace = groupDate("orion.screen.graceUntil").flatMap { $0 > now ? $0 : nil }
         return .screen(at: iso.string(from: now), locked: until != nil && grace == nil,
                        until: until.map(iso.string), why: until == nil ? nil : shared_defaults?.string(forKey: "orion.screen.lockWhy"),
-                       graceUntil: grace.map(iso.string))
+                       graceUntil: grace.map(iso.string), usedMinutes: Dictionary(uniqueKeysWithValues: AppList.allCases.map { list in
+                           let usedAt = groupDate("orion.focuslists.usedAt." + list.rawValue)
+                           let fresh = usedAt.map { Calendar.current.isDate($0, inSameDayAs: now) && now.timeIntervalSince($0) < 300 } ?? false
+                           return (list.rawValue, fresh ? shared_defaults?.integer(forKey: "orion.focuslists.used." + list.rawValue) ?? 0 : 0)
+                       }))
     }
 
     /// Extra time ORION granted ("unblock my apps until 12:45"): lift the lock
@@ -140,6 +146,7 @@ final class FocusLock: ObservableObject {
         Self.shared_defaults?.set(grant.id, forKey: "orion.screen.grantApplied")
         Self.shared_defaults?.set(grant.until.timeIntervalSince1970, forKey: "orion.screen.graceUntil")
         store.clearAllSettings()
+        FocusLists.shared.unblockAll()
         // DeviceActivity intervals are at least 15 minutes; ending at `until` is what matters.
         let calendar = Calendar.current
         let start = min(now, grant.until.addingTimeInterval(-15 * 60))
@@ -175,6 +182,7 @@ struct FocusLockSection: View {
             }
             .tint(Phone.accent)
             if lock.enabled {
+                NavigationLink("Named app lists") { FocusListsView() }
                 Button { picking = true } label: {
                     Label(lock.hasApps ? "Change which apps (\(lock.selection.applicationTokens.count) apps, \(lock.selection.categoryTokens.count) categories)" : "Choose apps to lock", systemImage: "apps.iphone")
                 }

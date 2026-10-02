@@ -71,11 +71,11 @@
       "note": "Coding lane for scripts/orion-code. CORRECTS the 2026-09-06 note claiming the Qwens 'never answered' -- they did; num_predict was 900 and they spent it all thinking. A measurement bug, not a model failure. Re-measured 2026-09-07 at 6000+: qwen3.6:27b 48-61s (thinking off), gpt-oss:20b 58s, qwen3:30b 198s, all correct. 27b is primary: same 262144 context as the 30b, richer embedding, no thinking tax. Full account in PHASE_GOVERNED_SELF_DEVELOPMENT.md."
     },
     "stt": {
-      "primary": "deepgram/nova-3",
+      "primary": "deepgram/flux-general-en",
       "fallbacks": [],
       "timeout_seconds": 60,
       "max_retries": 1,
-      "note": "DeepgramSpeech.swift, streaming. Not in the manifest's role list; added because it is a model call with a credential, latency and cost."
+      "note": "Flux v2 streaming turn detection; EndOfTurn finalizes, Apple speech remains fallback."
     },
     "tts": {
       "primary": "mlx/Marvis-AI_marvis-tts-250m-v0.2-MLX-8bit",

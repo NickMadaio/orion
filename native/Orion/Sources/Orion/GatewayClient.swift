@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MobileCore
 
 /*
  The brain.
@@ -40,6 +41,7 @@ enum GatewayError: LocalizedError {
 struct GatewayReply {
     var text: String
     var elapsedMs: Int
+    var thinking: String? = nil
 }
 
 enum GatewayClient {
@@ -82,7 +84,7 @@ enum GatewayClient {
     // MARK: One agent turn
 
     /// Blocking. Always call from a background queue.
-    static func ask(_ text: String, session: String = GatewayClient.sessionKey) throws -> GatewayReply {
+    static func ask(_ text: String, session: String = GatewayClient.sessionKey, model: String? = nil) throws -> GatewayReply {
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
             throw GatewayError.missingBinary(binaryPath)
         }
@@ -96,6 +98,7 @@ enum GatewayClient {
             "--json",
             "--timeout", String(Int(RunTimeouts.agentTimeout))
         ]
+        if let model { process.arguments?.append(contentsOf: ["--model", model, "--thinking", model.hasPrefix("ollama/") ? "off" : "low"]) }
         // The CLI is a bash shim with a `/usr/bin/env` shebang. A GUI app
         // inherits a minimal environment, so give it a PATH it can resolve.
         var environment = ProcessInfo.processInfo.environment
@@ -238,7 +241,7 @@ enum GatewayClient {
             if (payload["status"] as? String) == "in_flight" { throw GatewayError.inFlight }
             throw GatewayError.unparseable
         }
-        return GatewayReply(text: reply, elapsedMs: elapsedMs)
+        return GatewayReply(text: reply, elapsedMs: elapsedMs, thinking: ChatThinking.read(home: FileManager.default.homeDirectoryForCurrentUser, session: session, since: started))
     }
 
     // MARK: Cancellation

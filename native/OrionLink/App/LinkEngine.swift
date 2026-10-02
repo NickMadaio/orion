@@ -1,6 +1,7 @@
 import CloudKit
 import Foundation
 import LinkCore
+import MobileCore
 import WidgetKit
 
 /*
@@ -82,6 +83,7 @@ final class LinkEngine: ObservableObject {
         defer { busy = false }
         ticks += 1
         await pollCommands()
+        await publishChats()
         handleWidgetRequests()
         // Check-ins: every ~30 s, advance ORION's follow-ups and send what is due.
         if ticks % 8 == 0 { await deliverCheckins() }
@@ -189,7 +191,7 @@ final class LinkEngine: ObservableObject {
                                     planRequest: reader.planRequest(now: now), wakeRequest: reader.wakeRequest(now: now),
                                     checkin: reader.checkin(now: now), deadlines: calendar?.deadlines,
                                     lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) },
-                                    screenGrant: reader.screenGrant(now: now), night: reader.night())
+                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusListsDirective())
         publishGlance(snapshot, now: now)
         // Compare without the clock, so an unchanged Mac is not re-sent every tick.
         var probe = snapshot; probe.generatedAt = .distantPast
@@ -342,7 +344,7 @@ final class LinkEngine: ObservableObject {
             switch kind {
             case .chat, .control:
                 let chat = kind == .chat
-                result = await Task.detached(priority: .userInitiated) { runner.run(text: text, id: id, sentAt: sentAt, chat: chat) }.value
+                result = await Task.detached(priority: .userInitiated) { runner.run(text: text, id: id, sentAt: sentAt, chat: chat, conversation: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String) }.value
             case .log where (try? LinkLog.decode(text)).map({ if case .note = $0 { return true }; return false }) == true:
                 if case .note(let body, let at)? = try? LinkLog.decode(text),
                    (try? MemoryNote().append(body, at: ISO8601DateFormatter().date(from: at) ?? sentAt)) != nil {
@@ -367,6 +369,8 @@ final class LinkEngine: ObservableObject {
             }
         }
         record[LinkSchema.commandStatus] = (result.ok ? LinkCommandStatus.done : .failed).rawValue as CKRecordValue
+        if kind == .chat { archiveChat(record, text: text, sentAt: sentAt, result: result) }
+        record[LinkSchema.commandThinking] = result.thinking as CKRecordValue?
         record[LinkSchema.commandReply] = result.reply as CKRecordValue
         record[LinkSchema.commandRepliedAt] = Date() as CKRecordValue
         do {
@@ -401,16 +405,91 @@ final class LinkEngine: ObservableObject {
         let script = home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-checkin").path
         switch action {
         case "started": process.arguments = [script, "started"]
-        case "done": process.arguments = [script, "done"]
+        case "done": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", "block"]
+        case "early-block", "early-out-of-class", "early-home": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", String(action.dropFirst(6))]
         default: process.arguments = [script, "defer", "10", "--snooze", "--because", "asked for ten more minutes from the phone"]
         }
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         guard (try? process.run()) != nil else { return .init(ok: false, reply: "Could not reach the check-ins.") }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let out = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if process.terminationStatus == 0 && (action == "done" || action == "early-block") {
+            let close = Process(); close.executableURL = process.executableURL
+            close.arguments = [script, "done"]
+            close.standardOutput = FileHandle.nullDevice; close.standardError = FileHandle.nullDevice
+            if (try? close.run()) != nil { close.waitUntilExit() }
+        }
         return .init(ok: process.terminationStatus == 0, reply: out.isEmpty ? "Noted." : String(out.prefix(300)))
+    }
+
+    private func focusListsDirective() -> [String]? {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/focus-phone.json")
+        guard let data = try? Data(contentsOf: file), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let at = object["at"] as? String, let date = ISO8601DateFormatter().date(from: at), Date().timeIntervalSince(date) < 90 else { return nil }
+        return object["block"] as? [String]
+    }
+    private var chatArchive: ChatStore? { try? ChatStore(directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/chats")) }
+    private func chatModelChoices() -> [ModelChoice] {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/model-roles.json")
+        return (try? Data(contentsOf: file)).map(ChatModels.choices(fromModelRoles:)) ?? []
+    }
+    private var lastEarlyContextAt = Date.distantPast
+    private var cachedEarlyContext: EarlyFinishContext?
+    private func earlyFinishContext() -> EarlyFinishContext? {
+        if Date().timeIntervalSince(lastEarlyContextAt) < 30 { return cachedEarlyContext }
+        lastEarlyContextAt = Date()
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let process = Process(); process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+        process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", "--check", "--dry-run"]
+        let pipe = Pipe(); process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+        cachedEarlyContext = try? JSONDecoder().decode(EarlyFinishContext.self, from: data)
+        return cachedEarlyContext
+    }
+    private func archiveChat(_ record: CKRecord, text: String, sentAt: Date, result: CommandRunner.Result) {
+        guard let store = chatArchive else { return }
+        let id = record[LinkSchema.commandConversation] as? String ?? "phone-history"
+        if (try? store.load(id)) == nil { try? store.save(ChatConversation(id: id, title: String(text.prefix(48)), createdAt: sentAt, updatedAt: sentAt, model: record[LinkSchema.commandModel] as? String, messages: [])) }
+        let user = ChatMessage(id: record.recordID.recordName, role: .user, text: text, at: sentAt, device: "phone", model: record[LinkSchema.commandModel] as? String)
+        let answer = ChatMessage(id: record.recordID.recordName + "-reply", role: .orion, text: result.reply, thinking: result.thinking, at: Date(), device: "mac", model: user.model)
+        _ = try? store.merge([user, answer], into: id)
+        record[LinkSchema.commandConversation] = id as CKRecordValue
+    }
+    private func publishChats() async {
+        guard let store = chatArchive, let summaries = try? store.list() else { return }
+        var fingerprints = defaults.dictionary(forKey: "link.chatExports") as? [String: String] ?? [:]
+        var records: [CKRecord] = []
+        for summary in summaries {
+            guard let conversation = try? store.load(summary.id) else { continue }
+            for (index, message) in conversation.messages.enumerated() where message.role == .user && message.device == "mac" {
+                let reply = conversation.messages.dropFirst(index + 1).prefix(while: { $0.role != .user }).first { $0.role == .orion }
+                let fingerprint = message.text + (reply?.text ?? "") + (reply?.thinking ?? "") + conversation.title
+                guard fingerprints[message.id] != fingerprint else { continue }
+                let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: message.id, zoneID: zoneID))
+                record[LinkSchema.commandText] = message.text as CKRecordValue
+                record[LinkSchema.commandSentAt] = message.at as CKRecordValue
+                record[LinkSchema.commandDevice] = "mac-chat" as CKRecordValue
+                record[LinkSchema.commandKind] = LinkCommandKind.chat.rawValue as CKRecordValue
+                record[LinkSchema.commandStatus] = (reply == nil ? LinkCommandStatus.running : .done).rawValue as CKRecordValue
+                record[LinkSchema.commandReply] = reply?.text as CKRecordValue?
+                record[LinkSchema.commandThinking] = reply?.thinking as CKRecordValue?
+                record[LinkSchema.commandConversation] = conversation.id as CKRecordValue
+                record[LinkSchema.commandModel] = conversation.model as CKRecordValue?
+                record["conversationTitle"] = conversation.title as CKRecordValue
+                records.append(record)
+            }
+        }
+        guard !records.isEmpty else { return }
+        do {
+            _ = try await save(Array(records.prefix(100)), policy: .changedKeys)
+            for record in records.prefix(100) {
+                fingerprints[record.recordID.recordName] = (record[LinkSchema.commandText] as? String ?? "") + (record[LinkSchema.commandReply] as? String ?? "") + (record[LinkSchema.commandThinking] as? String ?? "") + (record["conversationTitle"] as? String ?? "")
+            }
+            defaults.set(fingerprints, forKey: "link.chatExports")
+        } catch { problem = "Chat history sync will retry: " + error.localizedDescription }
     }
 
     /// Left for the ORION app, which owns the planner; it reports back through the same file.

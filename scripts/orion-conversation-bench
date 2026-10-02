@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { SYSTEM, grade, shuffled } from './lib/conversation-bench/core.mjs';
+const args = process.argv.slice(2), value = flag => args[args.indexOf(flag) + 1];
+const suite = JSON.parse(readFileSync(new URL('./lib/conversation-bench/suite.json', import.meta.url)));
+const repeats = args.includes('--repeats') ? Number(value('--repeats')) : 3;
+const seed = args.includes('--seed') ? Number(value('--seed')) : 42;
+if (!Number.isInteger(repeats) || repeats < 1 || repeats > 30 || !Number.isInteger(seed)) throw Error('Use --repeats 1..30 and an integer --seed');
+const candidates = args.includes('--model') ? suite.candidates.filter(c => c.id === value('--model')) : suite.candidates.filter(c => c.provider === 'ollama');
+if (!candidates.length) throw Error('Unknown model. See --dry-run for candidates.');
+const jobs = shuffled(candidates.flatMap(candidate => Array.from({length: repeats}, (_, repeat) => suite.cases.map(test => ({ candidate, repeat, test }))).flat()), seed);
+if (!args.includes('--run')) {
+  console.log(JSON.stringify({ dryRun: true, candidates: suite.candidates, selected: candidates, cases: suite.cases.length, calls: jobs.length, repeats, seed, contexts: ['short', 'long (use --long)'], note: 'No inference or tools executed. --run explicitly starts inference; hosted models require --model and ANTHROPIC_API_KEY.' }, null, 2));
+  process.exit(0);
+}
+if (!args.includes('--out') || !value('--out')) throw Error('--run requires --out <private results.json>');
+if (candidates.some(c => c.provider === 'anthropic') && !process.env.ANTHROPIC_API_KEY) throw Error('ANTHROPIC_API_KEY required for hosted run; credentials never saved in results.');
+const rows = [], seen = new Set();
+for (const { candidate, repeat, test } of jobs) {
+  const context = args.includes('--long') ? '\nBackground reference: ' + 'The fictional lighthouse is blue. Its keeper is Ada. The tide table is unavailable. '.repeat(100) : '';
+  const started = performance.now(), firstForModel = !seen.has(candidate.id); seen.add(candidate.id);
+  let row = { model: candidate.id, provider: candidate.provider, repeat, case: test.id, context: context ? 'long' : 'short', firstForModel, humanRubric: test.humanRubric ?? null };
+  try {
+    let body, url, headers = {'content-type':'application/json'};
+    if (candidate.provider === 'ollama') {
+      url = 'http://127.0.0.1:11434/api/chat'; body = {model:candidate.id, messages:[{role:'system',content:SYSTEM+context},...test.messages], stream:false, think:candidate.think, options:{temperature:0,num_ctx:8192,num_predict:512}};
+    } else {
+      url = 'https://api.anthropic.com/v1/messages'; headers['x-api-key'] = process.env.ANTHROPIC_API_KEY; headers['anthropic-version'] = '2023-06-01';
+      body = {model:candidate.id,system:SYSTEM+context,messages:test.messages,max_tokens:512,temperature:0};
+    }
+    const response = await fetch(url, {method:'POST',headers,body:JSON.stringify(body),signal:AbortSignal.timeout(180000)});
+    if (!response.ok) throw Error(`HTTP ${response.status}`);
+    const data = await response.json(); const text = candidate.provider === 'ollama' ? data.message?.content ?? '' : (data.content ?? []).filter(x=>x.type==='text').map(x=>x.text).join('');
+    row = {...row, latencyMs:performance.now()-started, response:text, grade:grade(test,text), usage:data.usage ?? {input:data.prompt_eval_count,output:data.eval_count}, loadMs:data.load_duration == null ? null : data.load_duration/1e6, generationTokensPerSecond:data.eval_duration > 0 ? data.eval_count/(data.eval_duration/1e9) : null, firstTokenMs:null, stopReason:data.stop_reason ?? data.done_reason ?? null};
+  } catch (error) { row = {...row,latencyMs:performance.now()-started,error:error.message,grade:{pass:false,reason:'runtime error',humanReview:!!test.humanRubric}}; }
+  rows.push(row);
+  const path = resolve(value('--out')); mkdirSync(dirname(path),{recursive:true});
+  writeFileSync(path, JSON.stringify({version:1,generatedAt:new Date().toISOString(),seed,repeats,protocol:SYSTEM,notes:['Tools disabled. Route is a proposal, never an executed escalation.','Non-streaming latency includes prompt and generation; time to first token unavailable.','First call for each model is marked; actual cold-load status is indicated by loadMs, not assumed.','Automated checks are necessary checks, not a full accuracy score; human rubrics require blind review.','API calls bypass gateway usage logs; provider usage here must be reported separately.'],rows},null,2));
+  console.log(`${candidate.id} ${test.id} #${repeat+1}: ${Math.round(row.latencyMs)}ms ${row.grade.pass?'checks pass':'FAIL'}${row.grade.humanReview?' / human review pending':''}`);
+}

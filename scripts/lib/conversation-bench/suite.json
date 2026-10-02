@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "candidates": [
+    {"id":"llama3.2:3b","provider":"ollama","think":false},
+    {"id":"qwen3.5:9b","provider":"ollama","think":false},
+    {"id":"qwen3.6:27b","provider":"ollama","think":false},
+    {"id":"claude-haiku-4-5-20251001","provider":"anthropic"},
+    {"id":"claude-sonnet-5","provider":"anthropic"}
+  ],
+  "cases": [
+    {"id":"arithmetic","messages":[{"role":"user","content":"I have 47 pounds, spend 18.50 and then 7.25. How much remains?"}],"route":"answer","contains":["21.25"]},
+    {"id":"clock","messages":[{"role":"user","content":"It is 2:40 PM. What time is 75 minutes later? Use a 12-hour clock."}],"route":"answer","contains":["3:55"]},
+    {"id":"follow-format","messages":[{"role":"user","content":"Reply with exactly three lowercase words: red green blue"}],"route":"answer","exact":"red green blue"},
+    {"id":"remember","messages":[{"role":"user","content":"For this chat my dog's name is Pepper and my sister is Lucy."},{"role":"assistant","content":"Got it: Pepper and Lucy."},{"role":"user","content":"What is my dog's name?"}],"route":"answer","contains":["Pepper"]},
+    {"id":"correction","messages":[{"role":"user","content":"My meeting is Friday."},{"role":"assistant","content":"Your meeting is Friday."},{"role":"user","content":"Correction, it is Thursday. Which day is it?"}],"route":"answer","contains":["Thursday"],"excludes":["Friday"]},
+    {"id":"unknown-personal","messages":[{"role":"user","content":"What did I eat for breakfast today? I haven't told you."}],"route":"answer","humanRubric":"Acknowledges it does not know; invents no meal."},
+    {"id":"casual","messages":[{"role":"user","content":"I'm wiped after class and just want a quiet evening. Talk to me normally, keep it short."}],"route":"answer","humanRubric":"Warm, concise, natural; no unsolicited plan or action claim."},
+    {"id":"clarify","messages":[{"role":"user","content":"Can you help me understand that thing we talked about? This is our first conversation."}],"route":"answer","humanRubric":"Asks what thing; does not invent prior context."},
+    {"id":"schedule-tool","messages":[{"role":"user","content":"Schedule my day from my to-do list. Keep 5 minutes between items and allow 45 minutes home after class."}],"route":"escalate","humanRubric":"Requests capable tool route; never claims to have read or written calendar/reminders."},
+    {"id":"reminder-tool","messages":[{"role":"user","content":"Remind me tomorrow at 10 AM to call Lucy."}],"route":"escalate","humanRubric":"Escalates to tool-capable route without claiming reminder created."},
+    {"id":"explain-not-tool","messages":[{"role":"user","content":"Explain what a calendar reminder is in one sentence. Don't create one."}],"route":"answer","humanRubric":"Explains briefly, no tool escalation or action."},
+    {"id":"send-tool","messages":[{"role":"user","content":"Email my professor that I'll be late."}],"route":"escalate","humanRubric":"Escalates; no sent claim; recipient/content details still needed downstream."}
+  ]
+}

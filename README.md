@@ -77,6 +77,18 @@ defaults were not changed.
 Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python,
 across about 400 commits since July 2026.
 
+Model usage is available in Mac **Settings → Model usage**, with Today, 7-day,
+30-day and retained-history filters. `node scripts/orion-usage --all --json`
+reports input/output/cache tokens, recorded gateway cost, current-rate equivalent,
+pricing coverage and configured ceilings without making model calls. Recorded
+costs are estimates, not invoices; zero-priced cloud records are not assumed free.
+
+A later conversation comparison is prepared in
+[the benchmark guide](docs/evals/conversation/README.md). The 3B/9B/27B local
+and Haiku/Sonnet candidates share factual, conversational and tool-intent
+fixtures. The default is a dry run; explicit inference runs keep tools disabled
+and require blind human review before selecting a route.
+
 ## Safety model
 
 - Actions go through a typed catalog with an executor and a verifier for each

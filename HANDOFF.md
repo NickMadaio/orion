@@ -1,3 +1,11 @@
+## 2026-10-02 14:26 BST — Model usage and later conversation benchmark (Codex)
+
+- Added read-only `orion-usage`: retained current/archive usage, exact-entry deduplication, London calendar windows, model/day/inferred-lane breakdowns, separate recorded and current-rate equivalent costs, unpriced cloud coverage, current budgets and explicit accounting limits. Corrected the legacy budget command's unsupported zero-cost/subscription assertion. Pricing is a separate documented snapshot; no provider configuration or budget values changed.
+- Mac Settings gains **Model usage**, date filters and Refresh. It reads installed local metadata without inference or credentials. Private actual-usage and scheduling review reports live in the current Codex task outputs, not in Git.
+- `orion-conversation-bench` defaults to dry run; 12 calibration cases and local 3B/9B/27B plus hosted Haiku/Sonnet candidates. Serial, seeded repeated short/long-context trials record latency, load/generation statistics, tokens, errors, objective checks and explicit pending human review. Tools never execute. Guide requires expanded held-out data, blind review, cold/warm controls and gateway validation. TTFT is intentionally unavailable until a streaming adapter is added. No model inference benchmark ran for this setup.
+- Scheduling review found the actual 13:32 BST Mac request read only calendar, then booked food/club via day --plan; no to-do read. Active override is only readyMinutes:105; defaults are buffer10/commute30, differing from Nick's buffer5/commute45. Nap75 exists episodically but not as an enforced minimum. Native/Node planners use separate preferences and commute walls have no en-route task representation. Personal rules/calendar were not edited; review and live files opened for Nick.
+- Validation/install evidence follows after signed deployment. Preserve the other session's uncommitted schedule-eval SUMMARY and Qwen-medium results.
+
 ## 2026-10-02 12:25 BST — Compact planning composer; Tasks renamed Plan (Codex)
 
 - `8dd68c4` replaces the embedded sidebar/thread/model-picker chat in Tasks with a small Home-style text box, waveform and send button. No fixed 280-point chat region. It grows only to three input lines; after sending it shows a two-line reply preview or Thinking, with **Open chat** for the retained full Home conversation.

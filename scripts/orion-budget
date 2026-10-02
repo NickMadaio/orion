@@ -9,15 +9,11 @@
  cacheWrite, totalTokens, and a `cost` object. This reads those. It counts
  nothing itself and estimates nothing it can measure.
 
- ONE HONEST GAP, STATED UP FRONT: the `cost.total` the gateway records is
- ZERO on this machine, on every call. That is not a bug in the gateway and it
- is not something this script should paper over -- these calls are billed
- through a subscription, so there is no per-call price to record. Every dollar
- figure below is therefore an ESTIMATE derived from a rate table, and it is
- labelled as one everywhere it appears. A number that looks measured but was
- guessed is worse than no number, and this program has been bitten by exactly
- that in `orion-standing`, which refuses to print a recovery figure it was not
- given.
+ Gateway cost records have mixed coverage: some calls carry nonzero costs,
+ others carry zero. Zero does not establish that a call was free or billed
+ through a subscription. This legacy ceiling checker keeps recordedCost and
+ rate-table estimatedCost separate; use orion-usage for per-model costs and
+ explicit missing-price coverage.
 
  The rate table is in `budgets.json` and is meant to be edited. It ships with
  the rates left at zero rather than with numbers made up here: a wrong price
@@ -395,10 +391,8 @@ for (const [model, count] of [...models.entries()].sort((a, b) => b[1] - a[1])) 
 }
 if (!ratesSet) {
   console.log("");
-  console.log("  No dollar figures: the gateway records cost 0 on every call (these are");
-  console.log("  billed through a subscription), and the rate table in budgets.json is");
-  console.log("  still zero. Fill it in and every figure above becomes an estimate —");
-  console.log(`  labelled as one. ${BUDGETS.replace(homedir(), "~")}`);
+  console.log("  Rate-table estimates unavailable: budgets.json rates are zero.");
+  console.log("  Use orion-usage for recorded costs, current model rates and missing-price coverage.");
 }
 if (unparseable > 0) {
   console.log("");

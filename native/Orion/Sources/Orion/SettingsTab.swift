@@ -50,6 +50,7 @@ struct SettingsTab: View {
             .fixedSize(horizontal: true, vertical: false)
 
             VStack(alignment: .leading, spacing: 18) {
+                section("Model usage") { ModelUsageView() }
                 section("iPhone") { PhoneLinkView() }
                 section("Calendars") { calendars }
                 section("Connections") { ConnectionsView(connections: connections) }

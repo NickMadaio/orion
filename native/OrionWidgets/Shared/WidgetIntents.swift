@@ -120,6 +120,6 @@ enum WidgetSender {
         case .snooze: glance.checkin?.phase = "deferred"
         case .done: glance.checkin = nil
         }
-        try? GlanceFile.write(glance, to: url)
+        _ = try? GlanceFile.write(glance, to: url)
     }
 }

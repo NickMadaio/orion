@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+
+import { spawnSync } from "node:child_process";
+import { readState, writeState, stateFile } from "./lib/focus/state.mjs";
+
+const argv = process.argv.slice(2);
+const env = process.env;
+
+function parseArgs(args) {
+  const result = { _ : [], flags: {} };
+  let i = 0;
+  while (i < args.length) {
+    const a = args[i];
+    if (a.startsWith("--")) {
+      const key = a.slice(2);
+      if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+        result.flags[key] = args[i + 1];
+        i += 2;
+      } else {
+        result.flags[key] = true;
+        i++;
+      }
+    } else {
+      result._.push(a);
+      i++;
+    }
+  }
+  return result;
+}
+
+function nowMinute() {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function todayISO() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+
+function isoNow() {
+  return new Date().toISOString();
+}
+
+function exitUsage(msg) {
+  process.stderr.write(msg + "\n");
+  process.exit(2);
+}
+
+function resolveNow(flags) {
+  if (flags.now) {
+    const [h, m] = flags.now.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) exitUsage("--now must be HH:MM");
+    return h * 60 + m;
+  }
+  return nowMinute();
+}
+
+function addLog(log, event, detail = "") {
+  const entry = { at: isoNow(), event, detail };
+  const updated = [...log, entry].slice(-500);
+  return updated;
+}
+
+function cmdStatus(flags) {
+  const sf = stateFile(env);
+  const st = readState(sf);
+  const today = flags.now ? (() => {
+    const [h] = flags.now.split(":").map(Number);
+    // derive date from --now is not possible; use real today
+    return new Date().toISOString().slice(0, 10);
+  })() : isoNow().slice(0, 10);
+
+  const todayAllows = st.allow.filter(a => a.date === today);
+  const last5 = st.log.slice(-5);
+
+  if (flags.json) {
+    console.log(JSON.stringify({ ladder: st.ladder, allows: todayAllows, log: last5 }, null, 2));
+  } else {
+    console.log("ladder:", JSON.stringify(st.ladder));
+    console.log("allows today:", todayAllows.length);
+    for (const a of todayAllows) {
+      console.log(`  ${a.match} until ${a.until ?? "end of day"}`);
+    }
+    console.log("last log:");
+    for (const l of last5) {
+      console.log(`  [${l.at}] ${l.event}${l.detail ? ": " + l.detail : ""}`);
+    }
+  }
+}
+
+function cmdSnooze(parsed) {
+  const minutes = parseInt(parsed._[0], 10);
+  if (Number.isNaN(minutes) || minutes < 1 || minutes > 120) {
+    exitUsage("snooze requires minutes 1..120");
+  }
+  const why = parsed.flags.why ?? "";
+  const now = resolveNow(parsed.flags);
+  const sf = stateFile(env);
+  const st = readState(sf);
+
+  const snoozeUntil = now + minutes;
+  st.ladder = { ...st.ladder, snoozeUntil };
+  st.log = addLog(st.log, "snooze", why || `${minutes}m`);
+  writeState(sf, st);
+
+  if (parsed.flags.json) {
+    console.log(JSON.stringify({ snoozeUntil }, null, 2));
+  } else {
+    console.log(`Snoozed until minute ${snoozeUntil} (${minutes}m)`);
+  }
+}
+
+function cmdAllow(parsed) {
+  const match = parsed._[0];
+  if (!match) exitUsage("allow requires an app or site name");
+  const isBlock = parsed.flags.block === true;
+  const isToday = parsed.flags.today === true;
+  const untilFlag = parsed.flags.until;
+
+  let until = null;
+  if (isBlock && untilFlag) {
+    const [h, m] = untilFlag.split(":").map(Number);
+    until = h * 60 + m;
+  } else if (!isToday && !isBlock) {
+    // default --block without --until: end of day = 1440
+    until = 1440;
+  }
+
+  const sf = stateFile(env);
+  const st = readState(sf);
+  const today = isoNow().slice(0, 10);
+
+  st.allow = [...st.allow, { match, until, date: today }];
+  st.log = addLog(st.log, "allow", `${match} until ${until ?? "end of day"}`);
+  writeState(sf, st);
+
+  if (parsed.flags.json) {
+    console.log(JSON.stringify({ match, until, date: today }, null, 2));
+  } else {
+    console.log(`Allowed ${match} until ${until ?? "end of day"}`);
+  }
+}
+
+function cmdWrong(parsed) {
+  const why = parsed.flags.why ?? "";
+  const now = resolveNow(parsed.flags);
+  const sf = stateFile(env);
+  const st = readState(sf);
+
+  st.ladder = { ...st.ladder, offSince: null, lastStep: "none", snoozeUntil: now + 15 };
+  st.log = addLog(st.log, "wrong", why || "ORION misjudged");
+  writeState(sf, st);
+
+  if (parsed.flags.json) {
+    console.log(JSON.stringify({ ladder: st.ladder }, null, 2));
+  } else {
+    console.log("Ladder reset, snoozed 15 minutes");
+  }
+}
+
+const APP_NAME_RE = /^[A-Za-z0-9 .&-]{1,40}$/;
+
+function cmdAct(parsed) {
+  const step = parsed._[0];
+  if (!step) exitUsage("act requires a step name");
+  const app = parsed.flags.app;
+  if (app && !APP_NAME_RE.test(app)) {
+    exitUsage("app name contains invalid characters");
+  }
+
+  const sf = stateFile(env);
+  const st = readState(sf);
+  let cmdLine = "";
+
+  switch (step) {
+    case "nudge":
+      cmdLine = "nudge";
+      break;
+    case "say":
+      cmdLine = "say";
+      break;
+    case "front":
+      if (!app) exitUsage("act front requires --app");
+      cmdLine = `open -a ${app}`;
+      break;
+    case "quit":
+      if (!app) exitUsage("act quit requires --app");
+      cmdLine = `osascript -e 'tell application "${app}" to quit'`;
+      break;
+    case "lock":
+      cmdLine = "pmset displaysleepnow";
+      break;
+    default:
+      exitUsage(`unknown step: ${step}`);
+  }
+
+  st.log = addLog(st.log, "act", `${step}${app ? ` on ${app}` : ""}`);
+  writeState(sf, st);
+
+  if (env.ORION_FOCUS_DRY === "1") {
+    console.log(cmdLine);
+  } else {
+    // actually run the command for non-dry mode
+    const [prog, ...args] = cmdLine.split(" ");
+    spawnSync(prog, args, { stdio: "inherit" });
+  }
+
+  if (parsed.flags.json) {
+    console.log(JSON.stringify({ step, app, dry: env.ORION_FOCUS_DRY === "1" }, null, 2));
+  } else {
+    console.log(`Acted: ${step}${app ? ` on ${app}` : ""}`);
+  }
+}
+
+function cmdLog(parsed) {
+  const limit = parsed.flags.limit ? parseInt(parsed.flags.limit, 10) : 20;
+  const sf = stateFile(env);
+  const st = readState(sf);
+  const entries = st.log.slice(-limit);
+
+  if (parsed.flags.json) {
+    console.log(JSON.stringify(entries, null, 2));
+  } else {
+    for (const e of entries) {
+      console.log(`[${e.at}] ${e.event}${e.detail ? ": " + e.detail : ""}`);
+    }
+  }
+}
+
+function main() {
+  if (argv.length === 0) {
+    exitUsage("Usage: orion-ontask <command> [options]");
+  }
+
+  const command = argv[0];
+  const rest = argv.slice(1);
+  const parsed = parseArgs(rest);
+
+  switch (command) {
+    case "status": cmdStatus(parsed.flags); break;
+    case "snooze": cmdSnooze(parsed); break;
+    case "allow": cmdAllow(parsed); break;
+    case "wrong": cmdWrong(parsed); break;
+    case "act": cmdAct(parsed); break;
+    case "log": cmdLog(parsed); break;
+    default: exitUsage(`Unknown command: ${command}`);
+  }
+}
+
+main();

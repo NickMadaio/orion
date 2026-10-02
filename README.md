@@ -56,11 +56,21 @@ access.
 | Policy & registry | Python policy engine, v2 schemas and capability registry — checked in CI never to be more permissive than the live gate | `orion/core/`, `scripts/orion_v2_*` |
 | Phone backend (v1) | Python device-pairing and sync service with P-256 device identity; superseded by CloudKit, still covered by its tests | `backend/` |
 
-`OrionMobile` also provides shared `OrionViews` chat and floating-composer
-components, a durable chat store and a pure Flux turn reader. The surfaces plan
-builds these components plus phone orb, finished-early and app-list controls;
-placing them in the live Mac/phone flows and connecting Flux or Screen Time
-remains a separate integration pass.
+`OrionMobile` exposes shared `MobileCore`, `ThinkingOrbsKit` and `OrionViews`
+packages. The 2026-10-02 integration connects Home/planning chat, shared history
+and model selection, the floating composer, persistent movable windows, orb
+phases, Flux turns with Apple fallback, finished-early actions, and schedule
+focus with named phone lists. Actual OpenClaw thinking is retained after the
+answer. Intrusive Mac actions still require the existing focus enforcement
+switch; phone restrictions require its Screen Time consent and opaque app
+selections. See `HANDOFF.md` for installed proof and checks still outstanding.
+
+Schedule edits preserve explicit per-date times through cascades, reuse existing
+replacement tasks, apply saved minimums today, and support relative moves.
+`docs/evals/2026-10-02-schedule/SUMMARY.txt` records Sonnet's latest 15/16 core
+(21/22 overall), Haiku's 16/16 core, and Qwen 3.5 9B's 8/16 core. Sonnet is
+recommended for complex edits; Qwen has not passed the schedule gate. Provider
+defaults were not changed.
 
 Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python,
 across about 400 commits since July 2026.

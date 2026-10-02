@@ -1,0 +1,48 @@
+PASS extend-lab-nap-after-swap-youtube (16s)
+   ORION: Lab now runs to 3, nap right after at 3:10. Dropped the YouTube slot and renamed "apply to SOMEWHERE" to Side project (YouTube) in its place, 6:10–6:55 PM — same slot, same length. Rest of the evening shifted to fit.
+PASS full-afternoon-replay (23s)
+   ORION: That's saved too — naps are a 75-min minimum from now on. Nap's already at 75 min (3:10–4:25) and study pushed to 5:00. Dropped "send internship applications."
+PASS still-in-lab-30-more (9s)
+   ORION: Extended the lab to 2:49, and slid everything after it back to match — side project now starts 2:59.
+PASS past-time-trap (7s)
+   ORION: 1 PM has already passed — it's 2:19 now, and the DS lab already happened (12:18–1:48 on the calendar). I can't move it into the past. Want it resized or moved to a time still ahead today instead?
+PASS resize-longer (7s)
+   ORION: Study's now 90 min (4:03–5:33), and everything after it shifted 30 min later — apply to SOMEWHERE, internship apps, dinner, resume, and CS review all moved back.
+PASS resize-shorter (7s)
+   ORION: Dinner's now 30 min, 7:48–8:18 PM.
+PASS move-study-6 (7s)
+   ORION: Study's at 6–7 PM now, which pushed everything after it later — dinner's at 9:45 PM. Finish resume (90 min) no longer fits today. Want to drop it, shrink something, or push it to tomorrow?
+PASS swap-even (6s)
+   ORION: Swapped — apply to SOMEWHERE is now 3:08–3:53, Nap moved to 5:13–5:58.
+PASS swap-uneven (5s)
+   ORION: Swapped — internship applications now 4:03–5:33 PM, study now 6:38–7:38 PM. Apply to SOMEWHERE shifted to 5:43 PM to make room.
+PASS reorder-resume-before-dinner (8s)
+   ORION: Done — resume is now 7:48–9:18 PM, dinner moved after it to 9:28–10:13 PM.
+PASS standing-nap-rule (26s)
+   ORION: Got it — nap minimum's saved at 1h15, every day going forward.
+PASS drop-and-push (10s)
+   ORION: Dropped internship applications, and Study's now 4:33–5:33 PM (apply to SOMEWHERE slid to 5:43 after it).
+PASS two-changes (9s)
+   ORION: Nap's now 75 min (4:23 PM) and dinner's at 8:00–8:45. But moving dinner earlier pushed internship applications to 8:55 PM, and finish resume no longer fits tonight — drop it, shrink something, or push it to another day?
+PASS eat-now (9s)
+   ORION: Lunch till 2:44, then a break till 2:59. After that: side project at 3:09, nap at 4:04, study at 4:59.
+PASS shrink-youtube-to-fit (10s)
+   ORION: Nap's now 3:00 PM–4:15, study bumped to 4:25, and YouTube shrank to 30 min to make room.
+PASS tidy-overlaps (5s)
+   ORION: Fixed. Study now 2:55–3:55, Break 2:30–2:45, finish resume 4:05–5:35, dinner moved to 6:30–7:15.
+PASS move-plus-resize (10s)
+   ORION: Study moved to 4:33–5:33 PM, and the rest after it slid 30 min later. Dinner's now 30 min, 8:18–8:48 PM.
+PASS swap-plus-drop (8s)
+   ORION: Swapped — apply to SOMEWHERE is now 3:08–3:53, Nap moved to 5:13–5:58. Dropped send internship applications.
+FAIL three-edits-pinned-dinner (18s)
+   lost: finish resume
+   ORION: Done. Dinner → 8:00–8:45 PM (finish resume and review CS lect shifted later too), Nap now 75 min (3:08–4:23 PM), and "apply to SOMEWHERE" dropped. One thing: after the nap resize, "finish resume" (90 min) didn't fit and 
+PASS dinner-natural-tidy (15s)
+   ORION: Fixed: tidy cleared the overlap with your Macro lecture and put dinner at 6:30 PM. Day's clean.
+PASS short-sleep-nap-after-class (18s)
+   ORION: Nap moved to 1:00–2:15 PM, Study right after at 2:15–3:15. Rest of the day unaffected.
+FAIL no-waking-or-stacked-breaks (40s)
+   duplicate: 2 × "break"
+   ORION: Study 9–10, break 10–10:15, reading 10:15–11, break 11–11:15. Booked in that order.
+
+20/22 passed with anthropic/claude-sonnet-5.

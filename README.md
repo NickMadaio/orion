@@ -56,6 +56,12 @@ access.
 | Policy & registry | Python policy engine, v2 schemas and capability registry — checked in CI never to be more permissive than the live gate | `orion/core/`, `scripts/orion_v2_*` |
 | Phone backend (v1) | Python device-pairing and sync service with P-256 device identity; superseded by CloudKit, still covered by its tests | `backend/` |
 
+`OrionMobile` also provides shared `OrionViews` chat and floating-composer
+components, a durable chat store and a pure Flux turn reader. The surfaces plan
+builds these components plus phone orb, finished-early and app-list controls;
+placing them in the live Mac/phone flows and connecting Flux or Screen Time
+remains a separate integration pass.
+
 Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python,
 across about 400 commits since July 2026.
 

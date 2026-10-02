@@ -1,3 +1,10 @@
+## 2026-10-02 11:23 BST — Return from chat to the main Home view (Codex)
+
+- `499f02e` adds an explicit **Back to Home** control at the top left of Home chat. It exits chat mode and parks the morning brief, restoring the original hologram, app shortcuts and main composer. The active conversation, selected model and draft are retained.
+- Signed Mac release build **477** and its embedded Link helper succeed; deep/strict signature verifies and the designated requirement exactly matches the installed 171a72ab identity. Installed and relaunched `/Applications/Orion.app`.
+- **UI proof:** opened retained chat from planning, selected Home, verified Back to Home is present, and clicked it. The installed app restored QUICK OPEN, app shortcuts, TODAY'S BRIEF and the “What do you need?” composer. No new test was added for this reversible presentation change; the release build and real button interaction verify it.
+- **Rollback:** prior signed build 475 is `/Applications/.Orion-previous-475-home-return.app` and `.builds/home-return-2026-10-02/Orion-before.app`. Quit Orion/ORION Link, restore that bundle and relaunch; revert the feature commit for source rollback. No scripts, gateway/provider settings or phone app changed in this follow-up.
+
 ## 2026-10-02 11:20 BST — Schedule repairs and live Mac surfaces wired (Codex)
 
 - **Schedule:** `0a0aa7e` persists explicit calendar IDs per date in pins.json (eval-pins.json in the sandbox), restores pins through undo, reuses an existing replacement task, applies standing minimums to today's future blocks, and implements signed `move --by`. Still-doing guidance uses extend. The final calendar writer compares against the original day so shrink-to-fit writes all cascaded moves; dinner floors and sequential additions keep sensible order. Regression coverage includes relative shifts, existing rename, minimums, pins, undo, shrink cascades and morning sequence. Calendar unit tests now isolate pin files as well as undo history.

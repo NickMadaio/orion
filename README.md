@@ -58,7 +58,8 @@ access.
 
 `OrionMobile` exposes shared `MobileCore`, `ThinkingOrbsKit` and `OrionViews`
 packages. The 2026-10-02 integration connects Home/planning chat, shared history
-and model selection, the floating composer, persistent movable windows, orb
+and model selection (with Back to Home retaining the conversation), the floating
+composer, persistent movable windows, orb
 phases, Flux turns with Apple fallback, finished-early actions, and schedule
 focus with named phone lists. Actual OpenClaw thinking is retained after the
 answer. Intrusive Mac actions still require the existing focus enforcement

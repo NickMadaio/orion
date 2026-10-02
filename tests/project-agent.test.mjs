@@ -141,3 +141,17 @@ test('initialization cannot overwrite a run; corrupt state never becomes a fresh
   await assert.rejects(init(root, tasks())); assert.equal(await readFile(join(root, 'state.json'), 'utf8'), before);
   await writeFile(join(root, 'state.json'), '{broken'); await assert.rejects(run(root, host())); await assert.rejects(read(root));
 });
+
+test('invalid host transactions preserve the previous durable snapshot and journal', async t => {
+  const { mutateProjectAgent } = await import('../scripts/lib/orion-project-agent.mjs');
+  const root = await fixture(t);
+  const before = await readFile(join(root, 'state.json'), 'utf8');
+  const journal = await readFile(join(root, 'journal.jsonl'), 'utf8');
+  const state = await read(root);
+  for (const update of [s => { s.status = 'queued'; }, s => { s.status = 'completed'; s.finalReview = true; }]) {
+    await assert.rejects(mutateProjectAgent(root, state.revision, update), /invalid controller state|inconsistent controller lifecycle/);
+    assert.equal(await readFile(join(root, 'state.json'), 'utf8'), before);
+    assert.equal(await readFile(join(root, 'journal.jsonl'), 'utf8'), journal);
+    assert.equal((await read(root)).revision, state.revision);
+  }
+});

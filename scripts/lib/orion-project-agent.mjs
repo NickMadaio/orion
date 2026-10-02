@@ -142,6 +142,10 @@ function validateRuntimeFields(state) {
 
 export async function readProjectAgent(root) {
   const state = JSON.parse(await readFile(join(root, 'state.json'), 'utf8'));
+  return validateProjectAgent(state);
+}
+
+function validateProjectAgent(state) {
   validateRuntimeFields(state);
   if (state.runtimeRecoveries !== undefined && (!Array.isArray(state.runtimeRecoveries) ||
       state.runtimeRecoveries.length > 20 || state.runtimeRecoveries.some(r =>
@@ -293,6 +297,8 @@ async function transaction(root, expected, update) {
     if (expected !== undefined && state.revision !== expected) throw new Error('state revision changed; refresh first');
     await update(state);
     state.revision++;
+    // Reject invalid host updates before replacing the last readable snapshot.
+    validateProjectAgent(state);
     await publish(root, state);
     // After publish, inside the lock. A crash here loses one audit line and
     // leaves state correct; `auditJournal` reports the resulting revision gap.

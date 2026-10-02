@@ -149,7 +149,9 @@ chips and a restrained gold core/glow.
 Thinking stays gold and brings the larger, brighter twisting orb to the front
 of the shell. Motion runs at 45% speed; audio response remains immediate. The combined
 projection uses one Canvas with batched geometry, avoiding stacked blurred
-animation surfaces. Original Orion and
+animation surfaces. The phone’s Talk button opens this same shared projection
+in a full-screen voice view, with live state/audio response and Back to chat
+and End conversation controls. Original Orion and
 Black Hole remain selectable. Thinking text is visible when available, including
 while a turn is pending. Typed replies, timers and focus feedback stay in text;
 only replies to wake-word or push-to-talk voice input are spoken.

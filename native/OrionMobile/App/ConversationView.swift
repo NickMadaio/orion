@@ -16,6 +16,7 @@ struct ConversationView: View {
     @ObservedObject var remote: RemoteStore
     @StateObject private var voice = PhoneVoice()
     @State private var draft = ""
+    @State private var showingTalk = false
     @State private var conversationID: String?
     @State private var selectedModel: String?
     @FocusState private var typing: Bool
@@ -50,11 +51,14 @@ struct ConversationView: View {
                     voice.replyArrived(id: message.id, text: message.reply ?? "No answer came back.")
                 }
             }
-            .onDisappear { voice.stop() }
+            .onDisappear { if !showingTalk { voice.stop() } }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
         .safeAreaInset(edge: .bottom) { inputBar }
         .phoneScreen()
+        .fullScreenCover(isPresented: $showingTalk, onDismiss: { voice.stop() }) {
+            talkingView
+        }
         .navigationTitle("ORION")
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
@@ -163,10 +167,57 @@ struct ConversationView: View {
 
     private func talk() {
         typing = false
+        showingTalk = true
         Task {
             await voice.start { text in
                 remote.say(text, conversation: conversationID, model: selectedModel) { id in voice.sent(id: id) }
             }
+        }
+    }
+
+    private var talkingView: some View {
+        GeometryReader { geometry in
+        VStack(spacing: 20) {
+            HStack {
+                Text("ORION").font(Phone.mono(12, .semibold)).tracking(2).foregroundStyle(Phone.accent)
+                Spacer()
+                Button { voice.stop(); showingTalk = false } label: {
+                    Label("Back to chat", systemImage: "chevron.down")
+                        .font(.system(size: 14, weight: .medium)).foregroundStyle(Phone.soft)
+                }.accessibilityIdentifier("closeTalkingMode")
+            }
+            Spacer(minLength: 20)
+            PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: false), level: voice.level, size: min(300, geometry.size.width - 48), fullProjection: true)
+                .accessibilityIdentifier("talkingHologram")
+            Text(talkingStatus).font(Phone.mono(12, .medium)).tracking(1.5).foregroundStyle(Phone.accent)
+            Text(voice.heard.isEmpty ? "Speak, then pause when you’re done." : voice.heard)
+                .font(.system(size: 17)).foregroundStyle(Phone.soft)
+                .multilineTextAlignment(.center).lineLimit(4).frame(minHeight: 80)
+            if case .unavailable(let reason) = voice.phase {
+                Text(reason).font(.system(size: 14)).foregroundStyle(Phone.orange).multilineTextAlignment(.center)
+                Button("Try again", action: talk).foregroundStyle(Phone.accent)
+            }
+            Spacer(minLength: 20)
+            Button("End conversation") { voice.stop(); showingTalk = false }
+                .font(.system(size: 15, weight: .medium)).foregroundStyle(Phone.text)
+                .padding(.horizontal, 24).padding(.vertical, 14)
+                .background(Color.white.opacity(0.08), in: Capsule())
+                .accessibilityIdentifier("endTalkingMode")
+        }
+        .padding(24).background(Phone.ink.ignoresSafeArea())
+        .onChange(of: voice.phase) { _, phase in
+            if phase == .off { showingTalk = false }
+        }
+        }
+    }
+
+    private var talkingStatus: String {
+        switch voice.phase {
+        case .off: "GETTING READY"
+        case .listening: "LISTENING"
+        case .sending, .waiting: "THINKING"
+        case .speaking: "SPEAKING"
+        case .unavailable: "MICROPHONE UNAVAILABLE"
         }
     }
 

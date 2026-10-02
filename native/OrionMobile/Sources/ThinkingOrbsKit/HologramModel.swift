@@ -82,11 +82,11 @@ func holoMix(_ a: HoloRGB, _ b: HoloRGB, _ t: Double) -> HoloRGB {
 /// sites that draw the particles and orbits. Shading built with `holoColor(…,
 /// 1)` is already opaque and clamps, so it is unaffected either way.
 ///
-/// Read from `SummonSettings` rather than fixed, so it can be moved with a
+/// Set by the host app rather than fixed, so it can be moved with a
 /// slider while looking at the result instead of by rebuilding. Cached in a
 /// `var` the model refreshes, because this is read thousands of times per frame
 /// and `UserDefaults` is not free at that rate.
-var holoGain: Double = SummonSettings.brightness
+public var holoGain: Double = 2.6
 
 func holoColor(_ c: HoloRGB, _ opacity: Double) -> Color {
     Color(.sRGB,
@@ -98,7 +98,7 @@ func holoColor(_ c: HoloRGB, _ opacity: Double) -> Color {
 
 // MARK: - States and quality
 
-enum HologramState: String {
+public enum HologramState: String {
     case idle
     case listening
     case thinking
@@ -109,14 +109,14 @@ enum HologramState: String {
 /// `automatic` starts at the faithful element counts and steps down only if the
 /// measured frame interval says it cannot hold them. Fidelity first, degrade on
 /// evidence.
-enum HologramQuality: String, CaseIterable, Identifiable {
+public enum HologramQuality: String, CaseIterable, Identifiable {
     case automatic
     case high
     case balanced
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var label: String {
+    public var label: String {
         switch self {
         case .automatic: return "Automatic"
         case .high: return "High (full detail)"
@@ -261,19 +261,19 @@ private struct SeededRandom {
 /// whole panel for values only the canvas cares about.
 ///
 /// Everything on this class is touched from the main thread only.
-final class HologramModel {
+public final class HologramModel {
 
     // Live state -----------------------------------------------------------
 
-    private(set) var state: HologramState = .idle
-    private(set) var autoDowngraded = false
+    public private(set) var state: HologramState = .idle
+    public private(set) var autoDowngraded = false
 
-    var quality: HologramQuality = .automatic
+    public var quality: HologramQuality = .automatic
 
-    var batchGeometry = false
-    var motionScale: Double = 1
-    var targetFrameInterval: Double = 1.0 / 60
-    var audioLevel: Double { smooth }
+    public var batchGeometry = false
+    public var motionScale: Double = 1
+    public var targetFrameInterval: Double = 1.0 / 60
+    public var audioLevel: Double { smooth }
     private var level: Double = 0   // instantaneous audio level, 0..1
     private var smooth: Double = 0  // smoothed level
     private var energy: Double = 0  // slow-moving envelope, drives global bloom
@@ -361,7 +361,7 @@ final class HologramModel {
     private var rampState: HologramState = .idle
     private var hotShading: GraphicsContext.Shading = .color(holoColor(HoloPalette.hot, 1))
 
-    init() {
+    public init() {
         build()
         rebuildRamp(force: true)
     }
@@ -446,20 +446,20 @@ final class HologramModel {
 
     // MARK: Inputs
 
-    func setState(_ name: HologramState) {
+    public func setState(_ name: HologramState) {
         guard name != state else { return }
         state = name
         stateT = 0
         ping()
     }
 
-    func setLevel(_ v: Double) {
+    public func setLevel(_ v: Double) {
         level = holoClamp(v, 0, 1)
         levelAge = 0
     }
 
     /// One-shot outward ripple — fired on state changes and on wake.
-    func ping() {
+    public func ping() {
         pulse = 1
         // The same event in the other axis: a bright band leaves the top of the
         // shell and runs down it. The radial pulse alone reads as a flash; the
@@ -481,7 +481,7 @@ final class HologramModel {
         }
     }
 
-    func tick(_ now: Date) {
+    public func tick(_ now: Date) {
         let t = now.timeIntervalSinceReferenceDate
         if lastTick == 0 { lastTick = t }
         let dt = holoClamp(t - lastTick, 0, 0.05)
@@ -662,7 +662,7 @@ final class HologramModel {
 
     // MARK: Draw
 
-    func draw(_ ctx: inout GraphicsContext, size: CGSize, cognitiveOnTop: Bool = false, cognitiveLayer: ((inout GraphicsContext) -> Void)? = nil) {
+    public func draw(_ ctx: inout GraphicsContext, size: CGSize, cognitiveOnTop: Bool = false, cognitiveLayer: ((inout GraphicsContext) -> Void)? = nil) {
         let w = max(1, size.width)
         let h = max(1, size.height)
         cx = Double(w) / 2

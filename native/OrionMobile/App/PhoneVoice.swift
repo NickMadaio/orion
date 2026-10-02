@@ -45,6 +45,7 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     private var waitTimer: Timer?
     /// Recognition failures in a row with nothing heard; stops a tight retry loop.
     private var failures = 0
+    private var startGeneration = UUID()
     /// Fall back to server recognition when the on-device model is missing.
     private var onDeviceFailed = false
 
@@ -58,8 +59,12 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
 
     /// Start a voice conversation. `send` posts a chat message and returns its id.
     func start(send: @escaping (String) -> Void) async {
+        let generation = UUID()
+        startGeneration = generation
         self.send = send
-        guard await authorized() else {
+        let permitted = await authorized()
+        guard startGeneration == generation else { return }
+        guard permitted else {
             phase = .unavailable("Allow Microphone and Speech Recognition for ORION in Settings to talk to him.")
             return
         }
@@ -67,6 +72,7 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     }
 
     func stop() {
+        startGeneration = UUID()
         silenceTimer?.invalidate()
         waitTimer?.invalidate()
         earlyReplies = [:]

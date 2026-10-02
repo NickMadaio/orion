@@ -1,3 +1,4 @@
+import ThinkingOrbsKit
 import AppKit
 import SwiftUI
 

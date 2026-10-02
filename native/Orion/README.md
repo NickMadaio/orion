@@ -114,7 +114,7 @@ No credentials are read, logged or copied by this app. The CLI holds its own.
 
 ## Hologram
 
-`HologramModel.swift` is a port of `orion/interface/hologram.js` and keeps its
+The shared `ThinkingOrbsKit/HologramModel.swift` is a port of `orion/interface/hologram.js` and keeps its
 choices intact: Fibonacci-sphere point distribution, two-pass depth rendering
 with the core glow drawn between the far and near hemispheres, additive
 blending, ~1500 radial filaments (14% of them spikes), 46 broken latitude arcs,
@@ -149,7 +149,7 @@ Sources/Orion/
   PanelController.swift       the non-activating floating NSPanel
   PanelView.swift             the panel's SwiftUI content
   PreferencesWindow.swift     preferences window + view
-  HologramModel.swift         geometry, simulation, draw
+  (shared ThinkingOrbsKit)   hologram geometry, simulation, draw
   HologramView.swift          TimelineView(.animation) + Canvas
   PushToTalk.swift            global + local Right Option monitors
   SpeechInput.swift           SFSpeechRecognizer + mic tap

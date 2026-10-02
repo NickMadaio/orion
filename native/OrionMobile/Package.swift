@@ -46,7 +46,8 @@ let package = Package(
         .testTarget(name: "AgentTasksTests", dependencies: ["MobileCore", "OrionViews"]),
         .target(name: "OrionViews", dependencies: ["MobileCore", "ThinkingOrbsKit"],
                 swiftSettings: [.swiftLanguageMode(.v5)]),
-        .target(name: "ThinkingOrbsKit", exclude: ["LICENSE"]),
+        .target(name: "ThinkingOrbsKit", exclude: ["LICENSE"],
+                swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(
             name: "MobileCore",
             swiftSettings: [.swiftLanguageMode(.v5)]

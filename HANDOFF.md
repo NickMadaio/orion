@@ -1,3 +1,10 @@
+## 2026-10-02 — Shared phone talking-mode hologram (Codex)
+
+- Phone Talk previously started speech with a small chat orb/voice strip. It now presents a full-screen balanced gold projection with real PhoneVoice state and microphone level, transcript/status, Back to chat and End conversation. Closing stops recognition/playback; cancelling during permission authorization cannot start a hidden microphone afterward. The projection sizes to the available phone width.
+- Moved the actual original HologramModel into ThinkingOrbsKit and extracted BalancedOrionHologram. Both Mac and phone use the exact approved orb-first, lightly scaffolded, 45%-speed, single-Canvas renderer. Mac keeps its brightness setting and Original/Black Hole choices. Small chat orbs remain lightweight; full shell geometry is created only for the voice presentation.
+- Proven: Mac Swift tests247/247; iPhone simulator interaction test opens the shared hologram, returns to chat, reopens and ends voice mode (1/1). Signed Release iPhone build completed and deep/strict signature verifies at `.builds/phone-hologram/device/Build/Products/Release-iphoneos/OrionPhone.app`. Source/history secret scan clean (11051 allowlisted fixtures). Simulator screenshot/test evidence lives under `.builds/phone-hologram/`.
+- Physical iPhone16 still reports unavailable in devicectl. User was asked to connect/unlock; installation and real voice/phone rendering remain unproven until it is reachable. Mac installed state currently remains the approved build491; shared-source signed Mac build/install is the next verification step. Preserve other session's schedule-eval artifacts. Source rollback: revert this feature commit; device rollback requires reinstalling the retained previous signed phone bundle.
+
 ## 2026-10-02 — Orb-first middle-ground hologram (Codex)
 
 - User found the literal original shell still overwhelmed Thinking Orbs. Hybrid now makes the orb the main foreground shape in every state (scale0.95 idle/1 thinking, intensity0.90/1). Idle dot size raised so the breathing geometry stays readable; thinking remains gold and prominent.

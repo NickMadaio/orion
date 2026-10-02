@@ -1,6 +1,34 @@
 import XCTest
 
 final class PhoneShellTests: XCTestCase {
+    func testTalkingModeShowsSharedHologramAndReturnsToChat() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--tab", "orion"]
+        addUIInterruptionMonitor(withDescription: "Voice permissions") { alert in
+            for label in ["Don’t Allow", "Don't Allow", "OK", "Allow"] {
+                if alert.buttons[label].exists { alert.buttons[label].tap(); return true }
+            }
+            return false
+        }
+        app.launch()
+        XCTAssertTrue(app.buttons["talk"].waitForExistence(timeout: 15))
+        app.buttons["talk"].tap()
+        XCTAssertTrue(app.buttons["closeTalkingMode"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.otherElements["talkingHologram"].exists)
+        app.tap() // Handle a first-run speech/microphone prompt, if present.
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Phone talking mode — shared balanced hologram"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["closeTalkingMode"].tap()
+        XCTAssertTrue(app.buttons["talk"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["endTalkingMode"].exists)
+        app.buttons["talk"].tap()
+        XCTAssertTrue(app.buttons["endTalkingMode"].waitForExistence(timeout: 10))
+        app.buttons["endTalkingMode"].tap()
+        XCTAssertTrue(app.buttons["talk"].waitForExistence(timeout: 10))
+    }
+
     private func openApproval() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--pairing-approval-test"]

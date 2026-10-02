@@ -143,7 +143,9 @@ early” shortens the current class/task in an undoable transaction, with travel
 home preserved after the final class. Evaluation check-ins have a separate
 store and cannot produce live notification alerts.
 
-**Thinking Orion** is a full-size gold hologram painted from Thinking Orbs'
-semantic geometry, with orbital projection and audio response. Select it in
-Settings → Orion core; Original Orion and Black Hole remain available. The
-same renderer is used on the phone.
+**Thinking Orion** combines Thinking Orbs geometry with the original hologram’s
+filament shell, latitude arcs, drifting chips, bright core and lens flare.
+Motion runs at 45% speed; audio response remains immediate. Original Orion and
+Black Hole remain selectable. Thinking text is visible when available, including
+while a turn is pending. Typed replies, timers and focus feedback stay in text;
+only replies to wake-word or push-to-talk voice input are spoken.

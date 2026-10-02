@@ -34,7 +34,20 @@ struct HomeTab: View {
         Group {
             if state.chatMode {
                 VStack(alignment: .trailing, spacing: 0) {
-                    HologramView(model: state.hologram).frame(width: 100, height: 100).transition(.move(edge: .trailing))
+                    HStack {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                state.chatMode = false
+                                presentation = .parked
+                            }
+                        } label: {
+                            Label("Back to Home", systemImage: "arrow.left")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Return to the main Home view; keep this conversation")
+                        Spacer()
+                        HologramView(model: state.hologram).frame(width: 100, height: 100).transition(.move(edge: .trailing))
+                    }
                     SharedChatView(state: state).frame(height: max(420, availableHeight - 110))
                 }.transition(.opacity)
             } else if presentation == .full, let brief {

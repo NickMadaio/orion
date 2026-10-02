@@ -30,12 +30,15 @@ struct ConversationView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     PhoneHeader(eyebrow: presenceLine, title: "ORION")
+                    PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level, size: 56)
+                        .frame(maxWidth: .infinity)
                     if remote.conversation.isEmpty { emptyState }
                     ForEach(remote.conversation) { message in
                         exchange(message).id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
+                .background(Color.clear.contentShape(Rectangle()).onTapGesture { typing = false })
                 .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 20)
             }
             .scrollDismissesKeyboard(.interactively)
@@ -84,7 +87,7 @@ struct ConversationView: View {
         switch message.status {
         case .pending, .running:
             HStack(spacing: 10) {
-                PhoneThinkingDots()
+                PhoneOrb(mood: .thinking, size: 20)
                 Text(message.status == .pending ? waitingText : "ORION is thinking…")
                     .font(.system(size: 14)).foregroundStyle(Phone.dim)
             }
@@ -152,30 +155,41 @@ struct ConversationView: View {
 
     private var typingBar: some View {
         HStack(alignment: .bottom, spacing: 12) {
+            if typing {
+                Button { typing = false } label: {
+                    Image(systemName: "chevron.down").foregroundStyle(Phone.dim).frame(width: 28, height: 28)
+                }.buttonStyle(.plain).accessibilityLabel("Hide keyboard")
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
             TextField("Message ORION", text: $draft, axis: .vertical)
-                .lineLimit(1...5).font(.system(size: 16)).focused($typing)
-                .padding(.horizontal, 16).padding(.vertical, 11)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .lineLimit(1...4).font(.system(size: 15)).focused($typing)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(typing ? Phone.accent.opacity(0.5) : Phone.hairline, lineWidth: 1))
+                .animation(.easeOut(duration: 0.2), value: typing)
                 .submitLabel(.send)
                 .onSubmit(send)
             if canSend || voice.active {
                 Button(action: send) {
-                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.black)
-                        .frame(width: 40, height: 40)
+                    Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold)).foregroundStyle(.black)
+                        .frame(width: 34, height: 34)
                         .background(canSend ? Phone.accent : Color.white.opacity(0.15), in: Circle())
                 }
                 .buttonStyle(.plain).disabled(!canSend).accessibilityLabel("Send")
             } else {
                 Button(action: talk) {
-                    Image(systemName: "waveform").font(.system(size: 17, weight: .bold)).foregroundStyle(.black)
-                        .frame(width: 40, height: 40)
+                    Image(systemName: "waveform").font(.system(size: 14, weight: .bold)).foregroundStyle(.black)
+                        .frame(width: 34, height: 34)
                         .background(Phone.accent, in: Circle())
                 }
                 .buttonStyle(.plain).accessibilityLabel("Talk to ORION").accessibilityIdentifier("talk")
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .animation(.easeOut(duration: 0.2), value: typing)
     }
+
+    private var waiting: Bool { remote.conversation.contains { $0.status == .pending || $0.status == .running } }
 
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 

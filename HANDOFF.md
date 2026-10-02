@@ -1,3 +1,9 @@
+## 2026-10-02 — Combined hologram lag repair (Codex)
+
+- User reported severe lag after the literal hybrid. Profile showed SwiftUI Canvas/display-list work; an eight-second visible-Home sample measured Orion20.5% of one CPU and WindowServer40.5%. The hybrid had two animated canvases plus opacity/additive compositing and a full-size blur, while the original shell emitted individual strokes for1500 filaments.
+- Replaced the stacked views with one Canvas. The shared orb renderer exposes a direct drawing API, inserted between the original back/core/front depth passes. Removed the extra orb shadow/offscreen layer; the original core/bloom still provides projected light. Batched hybrid filaments into108 colour/width/alpha paths per depth pass and orb dots into16 alpha paths. Geometry, audio deformation, 45% speed and visual alternatives remain. Original uses its unchanged per-element painter.
+- Swift247 tests pass. Signed deployment and matching before/after measurement follow. No voice/scheduling changes; other session's schedule-eval files are preserved.
+
 ## 2026-10-02 — Slower combined hologram and voice-only speech (Codex)
 
 - Thinking Orion now literally renders the original HologramModel shell (filaments, latitude arcs, chips, back/front depth passes, hot core, lens streak and audio deformation) together with Thinking Orbs geometry across the same volume. Both motion clocks run at45% speed; waveform attack/decay remains real-time. Finer orb points leave the original geometry visible. Intentional30fps rendering now uses the matching adaptive-quality budget rather than treating30fps as a performance failure. Original and Black Hole remain separate options.

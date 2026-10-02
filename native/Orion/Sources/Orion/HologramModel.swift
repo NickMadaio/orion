@@ -270,6 +270,7 @@ final class HologramModel {
 
     var quality: HologramQuality = .automatic
 
+    var batchGeometry = false
     var motionScale: Double = 1
     var targetFrameInterval: Double = 1.0 / 60
     var audioLevel: Double { smooth }
@@ -661,7 +662,7 @@ final class HologramModel {
 
     // MARK: Draw
 
-    func draw(_ ctx: inout GraphicsContext, size: CGSize) {
+    func draw(_ ctx: inout GraphicsContext, size: CGSize, cognitiveLayer: ((inout GraphicsContext) -> Void)? = nil) {
         let w = max(1, size.width)
         let h = max(1, size.height)
         cx = Double(w) / 2
@@ -706,6 +707,7 @@ final class HologramModel {
         // what makes it read as a volume instead of a flat disc.
         drawShell(&ctx, side: -1)
         drawCore(&ctx, bloom: bloom)
+        cognitiveLayer?(&ctx)
         drawShell(&ctx, side: 1)
         drawStreak(&ctx, bloom: bloom)
 
@@ -735,6 +737,9 @@ final class HologramModel {
         let rimLit = rim
 
         // --- radial filaments -------------------------------------------
+        // Batch like-coloured filaments in the hybrid, preserving the same sphere
+        // geometry and audio deformation without thousands of Canvas strokes.
+        var filamentPaths = Array(repeating: Path(), count: batchGeometry ? 108 : 0)
         var i = 0
         while i < filaments.count {
             let f = filaments[i]
@@ -766,15 +771,28 @@ final class HologramModel {
             )
             if alpha < 0.012 { continue }
 
-            var path = Path()
-            path.move(to: CGPoint(x: a.x, y: a.y))
-            path.addLine(to: CGPoint(x: b.x, y: b.y))
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1)
-            // Depth decides the colour; the band biases it hotter, which costs a
-            // different index into the ramp and not a new `Color`.
-            ctx.stroke(path,
-                       with: rampShading[rampIndex(depth + lit * 0.8)],
-                       style: StrokeStyle(lineWidth: CGFloat(f.width * mid.persp), lineCap: .round))
+            if batchGeometry {
+                let colour = min(5, rampIndex(depth + lit * 0.8) / 8)
+                let width = min(2, Int(f.width * mid.persp / 0.7))
+                let opacity = min(5, Int(holoClamp(alpha * holoGain, 0, 1) * 6))
+                let index = (colour * 3 + width) * 6 + opacity
+                filamentPaths[index].move(to: CGPoint(x: a.x, y: a.y))
+                filamentPaths[index].addLine(to: CGPoint(x: b.x, y: b.y))
+            } else {
+                var path = Path()
+                path.move(to: CGPoint(x: a.x, y: a.y))
+                path.addLine(to: CGPoint(x: b.x, y: b.y))
+                ctx.opacity = holoClamp(alpha * holoGain, 0, 1)
+                ctx.stroke(path, with: rampShading[rampIndex(depth + lit * 0.8)],
+                           style: StrokeStyle(lineWidth: CGFloat(f.width * mid.persp), lineCap: .round))
+            }
+        }
+
+        for index in filamentPaths.indices where !filamentPaths[index].isEmpty {
+            let opacity = index % 6, width = (index / 6) % 3, colour = index / 18
+            ctx.opacity = (Double(opacity) + 0.5) / 6
+            ctx.stroke(filamentPaths[index], with: rampShading[colour * 8 + 4],
+                       style: StrokeStyle(lineWidth: CGFloat(0.35 + Double(width) * 0.7), lineCap: .round))
         }
 
         // --- latitude arcs ------------------------------------------------

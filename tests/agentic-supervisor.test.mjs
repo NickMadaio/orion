@@ -1741,3 +1741,33 @@ test('a worker that has written nothing by half its exchanges is told to write n
   assert.ok(nudged >= 6, `not before half the exchanges were spent (first at exchange ${nudged + 1})`);
   assert.ok(prompts.slice(0, 6).every(text => !text.includes('written nothing yet')), 'no nudge in the first half');
 });
+
+// Regression: ORION surfaces stopped while independent tasks remained because
+// a deferred Flux failure was counted once per unrelated supervisor iteration.
+test('watchdog counts failed executions once and ignores deferred blockers', async () => {
+  const { watchdog } = await import('../scripts/lib/agentic/supervisor.mjs');
+  const guard = watchdog({ limits: { iterationStallLimit: 3, maxConsecutiveFailures: 2 } });
+  const task = { id: 'flux', status: 'blocked', blocker: 'worker_stuck', attempts: 1, corrections: 0, repairsUsed: 0 };
+  for (let revision = 1; revision <= 12; revision++) {
+    assert.equal(guard.observe({ revision, tasks: [task], escalations: [] }, { progressed: true }).trip, false);
+  }
+  for (let attempts = 2; attempts <= 4; attempts++) {
+    const verdict = guard.observe({ revision: 12 + attempts, tasks: [{ ...task, attempts }], escalations: [] }, { progressed: true });
+    assert.equal(verdict.trip, attempts === 4, 'distinct recurring failures still trip');
+  }
+  const parked = watchdog({ limits: { iterationStallLimit: 3, maxConsecutiveFailures: 2 } });
+  for (let attempts = 1; attempts <= 12; attempts++) {
+    assert.equal(parked.observe({ revision: attempts, tasks: [{ ...task, attempts }],
+      escalations: [{ taskId: 'flux', resolvedAt: null }] }, { progressed: true }).trip, false);
+  }
+});
+
+test('ambiguous reviewer repair edits return diagnostics rather than declining repair', async t => {
+  const { repairCheckpoint, ReviewUnusable } = await import('../scripts/lib/agentic/reviewer.mjs');
+  const f = await repository(t);
+  const task = { id: 'widget', scope: ['sandbox/widget.mjs'], checks: ['node-syntax'], objective: 'version is 2', acceptance: [] };
+  await writeFile(join(f.worktree, 'sandbox/widget.mjs'), 'export const a = 1;\nexport const b = 1;\n');
+  const runtime = new FakeRuntime({ reviewer: ['### EDIT: sandbox/widget.mjs\n<<<<<<< SEARCH\n= 1;\n=======\n= 2;\n>>>>>>> REPLACE'] });
+  await assert.rejects(repairCheckpoint({ runtime, worktree: f.worktree, task, baseRef: f.baseRef, checkResults: [], history: '' }),
+    error => error instanceof ReviewUnusable && /matches 2 places/.test(error.message));
+});

@@ -186,9 +186,10 @@ export async function recoverRun(root, { worktree, emit, baseRef = null }) {
   return { state: current, head: await currentHead(worktree), reclaimed: lease.held && lease.dead };
 }
 
-function watchdog({ limits }) {
+export function watchdog({ limits }) {
   let lastRevision = null, stalled = 0, consecutiveFailures = 0;
   const blockerCounts = new Map();
+  const observedFailures = new Set();
   return {
     observe(state, { progressed }) {
       if (state.revision === lastRevision && !progressed) stalled += 1; else stalled = 0;
@@ -196,7 +197,12 @@ function watchdog({ limits }) {
       if (progressed) consecutiveFailures = 0;
       for (const task of state.tasks) {
         if (task.status !== 'blocked' || !task.blocker) continue;
+        // Count distinct failed executions, not observations of a parked task.
+        if (state.escalations?.some(item => !item.resolvedAt && item.taskId === task.id)) continue;
         const key = `${task.id}:${task.blocker}`;
+        const execution = `${key}:${task.attempts}:${task.corrections}:${task.repairsUsed}`;
+        if (observedFailures.has(execution)) continue;
+        observedFailures.add(execution);
         blockerCounts.set(key, (blockerCounts.get(key) ?? 0) + 1);
       }
       return this.verdict();

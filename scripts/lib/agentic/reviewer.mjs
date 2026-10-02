@@ -190,6 +190,12 @@ export async function repairCheckpoint({ runtime, worktree, task, baseRef, check
   const edited = await materializeEdits(worktree, parseWorkerReply(response.text));
   const writes = edited.actions.filter(action => action.kind === 'FILE');
   for (const failure of edited.failures) emit({ kind: 'repair_edit_failed', taskId: task.id, data: failure });
+  if (!writes.length && edited.failures.length) {
+    // A rejected edit is a failed repair invocation, not a judgement refusal.
+    // The supervisor's bounded failure path returns its diagnostics to the worker.
+    throw new ReviewUnusable('the reviewer repair edits could not be applied: ' +
+      edited.failures.map(item => `${item.path}: ${item.reason}`).join('; '), { failures: edited.failures });
+  }
   if (!writes.length) {
     return { repaired: false, escalate: { kind: 'judgement', reason: 'the reviewer neither repaired anything nor explained why it could not' }, model: response.model };
   }

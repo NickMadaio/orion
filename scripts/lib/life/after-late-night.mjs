@@ -1,16 +1,18 @@
 // Reshape tomorrow after a short night (life-late-night): classes stay, a nap
 // goes in after the first class past noon, early heavy work moves later.
 import { freeGaps } from "./gaps.mjs";
+import { minimumFor } from "./lengths.mjs";
 
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const byStart = (a, b) => a.start - b.start;
 
-export function adjustForShortSleep(blocks, { sleptMinutes, wake, window }) {
+export function adjustForShortSleep(blocks, { sleptMinutes, wake, window, minimums = {} }) {
   if (sleptMinutes >= 420) return { blocks: blocks.map((b) => ({ ...b })), changes: [] };
   let working = blocks.map((b) => ({ ...b }));
   const changes = [];
   const date = blocks[0]?.date;
-  const napLength = sleptMinutes < 300 ? 45 : 30;
+  // His own minimum wins ("naps at least an hour and 15, always").
+  const napLength = Math.max(sleptMinutes < 300 ? 45 : 30, minimumFor("Nap", minimums));
   const afterNoonFixed = working.filter((b) => b.fixed && b.end > 720).sort(byStart)[0];
   const from = afterNoonFixed ? afterNoonFixed.end : 720;
   const napGap = freeGaps(working, { start: Math.max(from, window.start), end: window.end }).find((g) => g.end - g.start >= napLength);

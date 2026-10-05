@@ -29,3 +29,25 @@ test("ORION's own blocks make no travel time, even one called a lab (2026-10-01)
   const lab = [{ id: "d", title: "DS lab", kind: "class", date: "2026-10-01", start: 728, end: 818, fixed: false, source: "orion" }];
   assert.deepEqual(commuteWalls(lab, { commuteMinutes: 30 }), []);
 });
+
+test("a long gap between classes means going home and back (2026-10-05)", () => {
+  const monday = [
+    { id: "a", title: "CS1800 Lecture", kind: "class", date: "2026-10-05", start: 660, end: 750, fixed: true, source: "calendar" },
+    { id: "b", title: "CS2101 Lab", kind: "class", date: "2026-10-05", start: 930, end: 1020, fixed: true, source: "calendar" },
+  ];
+  const walls = commuteWalls(monday, { commuteMinutes: 45 }).map((w) => [w.start, w.end]);
+  assert.ok(walls.some(([s, e]) => s === 750 && e === 795), JSON.stringify(walls));
+  assert.ok(walls.some(([s, e]) => s === 885 && e === 930), JSON.stringify(walls));
+  const r = adjustForShortSleep([...monday, ...commuteBlocks(monday, { commuteMinutes: 45 })],
+    { sleptMinutes: 280, wake: 480, window: { start: 480, end: 1440 }, minimums: { nap: 75 } });
+  const nap = r.blocks.find((b) => b.title === "Nap");
+  assert.deepEqual([nap.start, nap.end], [795, 870]);
+});
+
+test("a short gap between classes stays on campus", () => {
+  const two = [
+    { id: "a", title: "Lecture", kind: "class", date: "2026-10-05", start: 540, end: 630, fixed: true, source: "calendar" },
+    { id: "b", title: "Lecture 2", kind: "class", date: "2026-10-05", start: 660, end: 750, fixed: true, source: "calendar" },
+  ];
+  assert.equal(commuteWalls(two, { commuteMinutes: 45 }).length, 2);
+});

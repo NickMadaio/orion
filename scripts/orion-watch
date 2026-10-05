@@ -116,7 +116,7 @@ if (awake && short && !day.adjusted && minute < 780 && blocks.length) {
   // The commute home after class is not nap time: gaps are found around it, and
   // the pseudo-blocks never reach the calendar.
   const withCommute = [...blocks, ...commuteBlocks(blocks, config)];
-  const reshaped = adjustForShortSleep(withCommute, { sleptMinutes, wake: minute, window: { start: minute, end: bed } });
+  const reshaped = adjustForShortSleep(withCommute, { sleptMinutes, wake: minute, window: { start: minute, end: bed }, minimums: config.minimums });
   const r = { ...reshaped, blocks: reshaped.blocks.filter((b) => !String(b.id).startsWith("commute-")) };
   const before = new Map(blocks.map((b) => [b.id, b]));
   const moves = r.blocks.filter((b) => before.has(b.id) && before.get(b.id).start !== b.start)

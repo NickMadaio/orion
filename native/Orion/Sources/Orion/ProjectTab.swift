@@ -15,6 +15,10 @@ struct ProjectTab: View {
     @State private var spin = false
     /// The project whose run view is open (see ProjectRunFocus.swift).
     @State private var focusedProjectID: String?
+    /// "Run several in order" (2026-10-05): tapping a project adds it to the order.
+    @State private var queueMode = false
+    @State private var queueOrder: [String] = []
+    @State private var queueMessage: String?
     private var inFocus: Bool { focusedProjectID != nil && focusedProjectID == selected?.id }
     private var projects: [SavedProject] { library.projects }
     private var selected: SavedProject? { projects.first { $0.id == selectedID } ?? projects.first }
@@ -35,6 +39,14 @@ struct ProjectTab: View {
                     }
                     .buttonStyle(.plain).help("Refresh projects now (they also refresh on their own every few seconds)")
                     .accessibilityLabel("Refresh projects")
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { queueMode.toggle(); queueOrder = [] }
+                    } label: {
+                        Image(systemName: queueMode ? "list.number" : "list.bullet").font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(queueMode ? Color.indigo : .secondary)
+                    }
+                    .buttonStyle(.plain).help("Run several projects in order: tap them in the order you want")
+                    .accessibilityLabel("Run projects in order")
                     Button(action: importPlan) { Image(systemName: "plus").font(.system(size: 15, weight: .medium)) }
                         .buttonStyle(.plain).help("Import a Markdown or JSON project plan").disabled(importing)
                         .accessibilityLabel("Import project")
@@ -45,7 +57,11 @@ struct ProjectTab: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { project in
-                            Button { selectedID = project.id } label: {
+                            Button {
+                                if queueMode {
+                                    if let i = queueOrder.firstIndex(of: project.id) { queueOrder.remove(at: i) } else { queueOrder.append(project.id) }
+                                } else { selectedID = project.id }
+                            } label: {
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: "folder").foregroundStyle(selected?.id == project.id ? Color.indigo : .secondary).padding(.top, 2)
                                     VStack(alignment: .leading, spacing: 7) {
@@ -55,6 +71,11 @@ struct ProjectTab: View {
                                     }
                                     Spacer(minLength: 0)
                                     if project.heartbeat?.isLive == true { Circle().fill(.green).frame(width: 6, height: 6).padding(.top, 5) }
+                                    if queueMode, let i = queueOrder.firstIndex(of: project.id) {
+                                        Text("\(i + 1)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                                            .frame(width: 20, height: 20).background(Color.indigo, in: Circle())
+                                            .transition(.scale.combined(with: .opacity))
+                                    }
                                 }
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(selected?.id == project.id ? Color.white.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
@@ -62,7 +83,17 @@ struct ProjectTab: View {
                             }.buttonStyle(.plain)
                         }
                     }
-                }.frame(height: 520)
+                }.frame(height: queueMode ? 460 : 520)
+                if queueMode {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(queueOrder.isEmpty ? "Tap projects in the order to run them." : "Each starts when the one before it finishes. Stopping one stops the queue.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                        Button("Run \(queueOrder.count) in order", action: startQueue)
+                            .buttonStyle(.borderedProminent).tint(.indigo).disabled(queueOrder.count < 2)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                if let line = queueMessage ?? Self.queueLine() { Text(line).font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft).lineLimit(3) }
                 Spacer(minLength: 12)
                 Label("Saved on this Mac", systemImage: "internaldrive").font(.system(size: 11)).foregroundStyle(.secondary)
                 if let problem = error ?? library.error { Text(problem).font(.system(size: 12)).foregroundStyle(.orange) }
@@ -95,6 +126,32 @@ struct ProjectTab: View {
         .animation(.spring(response: 0.5, dampingFraction: 0.88), value: inFocus)
     }
     private func refresh() { library.refresh() }
+    private func startQueue() {
+        let ids = queueOrder
+        queueMessage = "Starting the queue…"
+        ProjectAgentControl.execute(["start"] + ids, executable: ProjectAgentControl.repository + "/scripts/orion-project-queue") { output, failure in
+            queueMessage = failure ?? output
+            if failure == nil { queueMode = false; queueOrder = []; if let first = ids.first { selectedID = first } }
+            refresh()
+        }
+    }
+    /// One line about a running queue, read from the queue file the script keeps.
+    static func queueLine() -> String? {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/project-agent/queue.json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["status"] as? String == "running",
+              let items = object["items"] as? [[String: Any]] else { return nil }
+        let names = items.map { item -> String in
+            let name = item["name"] as? String ?? "?"
+            switch item["state"] as? String {
+            case "running": return "▶ \(name)"
+            case "finished": return "✓ \(name)"
+            default: return name
+            }
+        }
+        return "Queue: " + names.joined(separator: " → ")
+    }
     private func importPlan() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.plainText, .json, UTType(filenameExtension: "md") ?? .plainText]
         panel.allowsMultipleSelection = false; panel.canChooseDirectories = false; panel.prompt = "Add project"

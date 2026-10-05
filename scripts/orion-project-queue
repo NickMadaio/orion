@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+/*
+ orion-project-queue — run several local-agent projects one after another
+ (2026-10-05). Only one project runs at a time (active-project.lock), so a night
+ with two plans used to need a hand-written chain script.
+
+   orion-project-queue start <id|name> [<id|name> …]   queue them; the first starts now
+   orion-project-queue status [--json]                 what is queued, running, done
+   orion-project-queue cancel                          start nothing more (the running
+                                                       project keeps going; stop it as usual)
+
+ The next project starts when the previous one's run ends. If Nick stopped,
+ paused or exterminated the previous one, the queue stops there: a stop means
+ stop, not "skip to the next".
+*/
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = process.env.ORION_PROJECT_AGENT_ROOT || join(homedir(), ".openclaw/orion-controlled/project-agent");
+const QUEUE = join(ROOT, "queue.json");
+const PROJECTS_CLI = process.env.ORION_PROJECTS_BIN || join(HERE, "orion-projects");
+const POLL_MS = Number(process.env.ORION_QUEUE_POLL_MS ?? 30000);
+const [command, ...rest] = process.argv.slice(2);
+const fail = (m, code = 2) => { console.error(m); process.exit(code); };
+
+const readQueue = () => { try { return JSON.parse(readFileSync(QUEUE, "utf8")); } catch { return null; } };
+function writeQueue(q) {
+  mkdirSync(dirname(QUEUE), { recursive: true });
+  writeFileSync(`${QUEUE}.tmp`, JSON.stringify(q, null, 2));
+  renameSync(`${QUEUE}.tmp`, QUEUE);
+}
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const projects = () => {
+  const r = spawnSync(process.execPath, [PROJECTS_CLI, "list"], { encoding: "utf8" });
+  try { return JSON.parse(r.stdout).projects ?? []; } catch { return []; }
+};
+/** Operator stop, pause or exterminate on that project's last run. */
+function halted(id) {
+  try {
+    const s = JSON.parse(readFileSync(join(ROOT, "projects", id, "state.json"), "utf8"));
+    return Boolean(s.stopRequested || s.pauseRequested || s.exterminateRequested || s.status === "paused" || s.status === "stopped");
+  } catch { return false; }
+}
+const stamp = () => new Date().toISOString();
+
+if (command === "start") {
+  if (!rest.length) fail("usage: orion-project-queue start <id|name> [<id|name> …]");
+  const current = readQueue();
+  if (current?.runnerPid && alive(current.runnerPid) && current.status === "running") fail("a queue is already running: orion-project-queue status", 1);
+  const known = projects();
+  const ids = rest.map((want) => {
+    const hit = known.find((p) => p.id === want || p.name?.toLowerCase() === want.toLowerCase());
+    if (!hit) fail(`no project "${want}". Known: ${known.map((p) => p.name).join(", ")}`, 1);
+    return hit.id;
+  });
+  const names = Object.fromEntries(known.map((p) => [p.id, p.name]));
+  writeQueue({ status: "running", startedAt: stamp(), items: ids.map((id) => ({ id, name: names[id], state: "queued" })), log: [] });
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "run"], { detached: true, stdio: "ignore", env: process.env });
+  child.unref();
+  writeQueue({ ...readQueue(), runnerPid: child.pid });
+  console.log(`Queued ${ids.length}: ${ids.map((id) => names[id]).join(" → ")}. The first starts now.`);
+} else if (command === "run") {
+  for (;;) {
+    const q = readQueue();
+    if (!q || q.status !== "running") break;
+    const next = q.items.findIndex((i) => i.state === "queued");
+    if (next < 0) { writeQueue({ ...q, status: "done", endedAt: stamp() }); break; }
+    const item = q.items[next];
+    const launch = spawnSync(process.execPath, [PROJECTS_CLI, "launch", item.id, "--until-stopped"], { encoding: "utf8" });
+    let pid = null;
+    try { pid = JSON.parse(launch.stdout).pid ?? null; } catch { /* not JSON */ }
+    const set = (state, note) => {
+      const now = readQueue();
+      writeQueue({ ...now, items: now.items.map((x, i) => (i === next ? { ...x, state, at: stamp() } : x)),
+        log: [...(now.log ?? []), `${stamp()} ${item.name}: ${note}`].slice(-100) });
+    };
+    if (launch.status !== 0 || !pid) {
+      set("failed", `launch refused: ${(launch.stderr || launch.stdout || "").trim().slice(0, 300)}`);
+      writeQueue({ ...readQueue(), status: "stopped", endedAt: stamp() });
+      break;
+    }
+    set("running", `started (pid ${pid})`);
+    while (alive(pid)) await new Promise((r) => setTimeout(r, POLL_MS));
+    if (halted(item.id)) {
+      set("halted", "stopped by Nick; the queue stops here");
+      writeQueue({ ...readQueue(), status: "stopped", endedAt: stamp() });
+      break;
+    }
+    set("finished", "run ended");
+    await new Promise((r) => setTimeout(r, Math.min(POLL_MS, 20000)));   // let the lock release
+  }
+} else if (command === "status") {
+  const q = readQueue();
+  if (rest.includes("--json")) { console.log(JSON.stringify(q ?? { status: "empty" })); process.exit(0); }
+  if (!q) { console.log("No queue."); process.exit(0); }
+  console.log(`Queue ${q.status}${q.runnerPid && q.status === "running" && !alive(q.runnerPid) ? " (runner gone; start again to resume)" : ""}:`);
+  for (const [i, x] of q.items.entries()) console.log(`  ${i + 1}. ${x.name} — ${x.state}`);
+  for (const l of (q.log ?? []).slice(-5)) console.log(`  ${l}`);
+} else if (command === "cancel") {
+  const q = readQueue();
+  if (!q || q.status !== "running") { console.log("No running queue."); process.exit(0); }
+  if (q.runnerPid && alive(q.runnerPid)) { try { process.kill(q.runnerPid); } catch { /* gone */ } }
+  writeQueue({ ...q, status: "cancelled", endedAt: stamp(), items: q.items.map((x) => (x.state === "queued" ? { ...x, state: "cancelled" } : x)) });
+  console.log("Queue cancelled. A project already running keeps going; stop it as usual.");
+} else {
+  fail("usage: orion-project-queue start|status|cancel (see the header)");
+}

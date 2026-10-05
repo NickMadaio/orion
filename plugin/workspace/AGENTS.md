@@ -269,6 +269,19 @@ Do not start with generic tool discovery for these maintained services:
   keywords; load one best result. Use session search only for exact past wording,
   and ignore doctor, probe, test, smoke, benchmark, cron and mission sessions
   unless Nick names one. Never shell-search the memory tree.
+- **The brain** (Basic Memory over Nick's Obsidian vault ~/Documents/orionBrain):
+  notes about Nick, his classes, habits, projects, places and every day you
+  talked, linked with [[wikilinks]]. Use `/Users/nickmadaio/Desktop/ORION/scripts/orion-brain`:
+  - Before answering anything about him, his preferences, his past or his plans:
+    `orion-brain search "<words>"` (or `orion-brain context "<note>"`), then
+    answer from what it says. Start points: "Nick", "Brain Map".
+  - When he tells you something lasting about himself (a like, a habit, a goal, a
+    person, how he wants something done): `orion-brain learn "<note>" "<category>"
+    "<what he said>"` — the note for that thing ("Gym", "Food", "Nick", a person's
+    name); a new name creates a note linked to Nick. Never for a one-off; never
+    invent facts.
+  - Rules he states for the future are saved for you automatically (live facts say
+    so); do not duplicate them.
 - Explicit “remember this” may use
   `/Users/nickmadaio/Desktop/ORION/scripts/orion-remember`; durable facts about
   Nick use `--user`. Ordinary durable preferences are captured automatically.

@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+/*
+ orion-brain — ORION's way into his brain (Basic Memory over the Obsidian vault
+ ~/Documents/orionBrain), allowlisted like orion-recall (2026-10-05).
+
+ OpenClaw's embedded runner does not receive MCP servers, so the brain's MCP
+ tools never reached ORION; this wraps Basic Memory's own CLI instead.
+
+   orion-brain search "<words>"                 notes and facts that match
+   orion-brain read "<note title>"              one note
+   orion-brain context "<note title>"           a note plus the notes linked to it
+   orion-brain learn "<note title>" "<category>" "<fact>"
+        add what he told you to a note's "## Learned" section (the note is
+        created, linked to [[Nick]], if it does not exist yet)
+   orion-brain recent                            what changed in the last week
+
+ Nothing here deletes or overwrites a note.
+*/
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const BM = join(homedir(), ".local/bin/basic-memory");
+const [command, ...rest] = process.argv.slice(2);
+const fail = (m, code = 2) => { console.error(m); process.exit(code); };
+const bm = (args) => execFileSync(BM, ["tool", ...args, "--project", "orion"], { encoding: "utf8", timeout: 60000, maxBuffer: 8 << 20 });
+const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
+
+try {
+  if (command === "search") {
+    const q = clean(rest.join(" "), 200); if (!q) fail('usage: orion-brain search "<words>"');
+    const results = JSON.parse(bm(["search-notes", q])).results ?? [];
+    if (!results.length) { console.log(`Nothing in the brain matches "${q}".`); process.exit(0); }
+    for (const r of results.slice(0, 6)) console.log(`## ${r.title}  (${r.file_path})\n${String(r.matched_chunk ?? r.content ?? "").slice(0, 700)}\n`);
+  } else if (command === "read" || command === "context") {
+    const title = clean(rest[0], 120); if (!title) fail(`usage: orion-brain ${command} "<note title>"`);
+    process.stdout.write(command === "read" ? bm(["read-note", title]) : bm(["build-context", `memory://${title}`, "--plain"]));
+  } else if (command === "learn") {
+    const [rawTitle, rawCategory, ...fact] = rest;
+    const title = clean(rawTitle, 80); const category = clean(rawCategory, 30).toLowerCase().replace(/[^a-z -]/g, "");
+    const text = clean(fact.join(" "), 400);
+    if (!title || !category || !text) fail('usage: orion-brain learn "<note title>" "<category>" "<fact>"');
+    const line = `- [${category}] ${text} (${new Date().toISOString().slice(0, 10)})`;
+    let existing = null;
+    try { existing = bm(["read-note", title]); } catch { /* new note */ }
+    if (!existing || /not found/i.test(existing)) {
+      bm(["write-note", "--title", title, "--folder", "20 Areas/Learned", "--type", "note",
+        "--content", `## Learned\n${line}\n\n## Relations\n- about [[Nick]]\n`]);
+      console.log(`New note "${title}" (linked to Nick) with: ${line}`);
+    } else {
+      if (!/^## Learned/m.test(existing)) bm(["edit-note", title, "--operation", "append", "--content", "\n## Learned\n"]);
+      bm(["edit-note", title, "--operation", "append", "--content", `${line}\n`]);
+      console.log(`Added to "${title}": ${line}`);
+    }
+  } else if (command === "recent") {
+    process.stdout.write(bm(["recent-activity", "--timeframe", "7d"]));
+  } else {
+    fail("usage: orion-brain search|read|context|learn|recent (see the header)");
+  }
+} catch (e) {
+  fail(`orion-brain: ${String(e.stderr || e.message).slice(0, 300)}`, 1);
+}

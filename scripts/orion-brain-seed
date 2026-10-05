@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+/*
+ orion-brain-seed [--dry-run] — build ORION's Obsidian brain from what he already
+ knows (2026-10-05).
+
+ Nick: "the entire obsidian brain sucks … maybe 10 or 20 files … I check the
+ graph and see basically nothing." The vault held ~40 notes, nearly all about
+ ORION's own internals; nothing about Nick, and recall had not been used since
+ early September. The brain is now Basic Memory (AGPL, local, Markdown that
+ Obsidian graphs), connected to the brain as the "brain" MCP server.
+
+ This seeds it from real sources only — USER.md, SCHEDULING.md, life-config,
+ his calendar's classes, the project list and the daily memory files — as
+ Basic Memory notes: observations ("- [category] fact") and relations
+ ("- relation [[Note]]"). Daily notes link every entity they mention, which is
+ what fills the graph. Re-running rewrites the seeded notes (marked
+ `seeded: true`); notes ORION or Nick wrote are never touched.
+*/
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { execFileSync } from "node:child_process";
+
+const VAULT = process.env.ORION_BRAIN_VAULT || join(homedir(), "Documents/orionBrain");
+const WORKSPACE = join(homedir(), ".openclaw/workspace");
+const dry = process.argv.includes("--dry-run");
+const written = [];
+
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+function note(folder, title, { type = "note", tags = [], observations = [], relations = [], body = "" }) {
+  const file = join(VAULT, folder, `${title.replace(/[\/:]/g, "-")}.md`);
+  const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (before && !/^seeded: true$/m.test(before)) return;   // his or ORION's own note
+  // What ORION learned (orion-brain learn) survives a re-seed.
+  const learned = (/\n## Learned\n[\s\S]*?(?=\n## |$)/.exec(before) ?? [""])[0];
+  const text = [
+    "---", `title: ${title}`, `type: ${type}`, `permalink: ${slug(folder)}/${slug(title)}`,
+    `tags: [${tags.join(", ")}]`, "seeded: true", "---", "", `# ${title}`, "",
+    ...(body ? [body, ""] : []),
+    ...(observations.length ? ["## Observations", ...observations.map(([c, f]) => `- [${c}] ${f}`), ""] : []),
+    ...(relations.length ? ["## Relations", ...relations.map(([r, t]) => `- ${r} [[${t}]]`), ""] : []),
+  ].join("\n") + learned;
+  written.push(`${folder}/${title}`);
+  if (dry) return;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+}
+const read = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
+const bullets = (text, heading) => {
+  const part = text.split(/\n(?=## )/).find((s) => s.startsWith(`## ${heading}`)) ?? "";
+  return part.split("\n").filter((l) => /^- /.test(l)).map((l) => l.slice(2).trim());
+};
+
+// ---- Who he is -----------------------------------------------------------
+const user = read(join(WORKSPACE, "USER.md"));
+const config = JSON.parse(read(join(homedir(), ".openclaw/orion-controlled/life-config.json")) || "{}");
+const COURSES = {
+  CS2100: ["Program Design & Implementation 1", "Portsoken"], CS2101: ["Lab for Program Design & Implementation 1", "Portsoken"],
+  CS1800: ["Discrete Structures", "Portsoken"], CS1802: ["Seminar for CS1800", "Portsoken"],
+  ECON1115: ["Principles of Macroeconomics", "Devon House"], MKTG2201: ["Introduction to Marketing", "Devon House"],
+};
+const ENTITIES = {   // words in his own text → the note they link to
+  Nick: /\b(nick)\b/i, ORION: /\borion\b/i, Atlas: /\batlas\b/i, Nap: /\bnaps?\b/i, Gym: /\bgym|workout\b/i,
+  "Side Project (YouTube)": /\byoutube|side project|video\b/i, Sleep: /\bsleep|bed(time)?\b/i, Study: /\bstudy|homework|quiz|exam\b/i,
+  "Northeastern University London": /\bnortheastern|class(es)?|lecture|lab\b/i, London: /\blondon\b/i, "Internship Search": /\binternship/i,
+  "Phone Lock": /\bunblock|locked|lock(ed)? (my )?phone|screen time\b/i, Resume: /\bresume\b/i, Food: /\beat(ing)?|lunch|dinner|breakfast\b/i,
+  ...Object.fromEntries(Object.keys(COURSES).map((c) => [c, new RegExp(`\\b${c.replace(/(\D+)(\d+)/, "$1\\s?$2")}\\b`, "i")])),
+};
+const linkify = (text) => Object.entries(ENTITIES).filter(([, re]) => re.test(text)).map(([t]) => t);
+
+note("20 Areas/Me", "Nick", {
+  type: "person", tags: ["me"],
+  body: "Who ORION works for. Seeded from USER.md; ORION adds what he learns in conversation.",
+  observations: [
+    ["identity", "Nick Madaio, American, studying at Northeastern University London (autumn term to about 11 December 2026)"],
+    ["purpose", "Wants ORION to be his external executive function: plan → remind → observe → intervene → follow up → adapt"],
+    ["priorities", "Classes (fixed) → sleep → gym → deadlines and study → at least an hour of side project daily → other responsibilities → rest"],
+    ["style", "Times in 12-hour form (8:11 PM), concise answers, talk like someone who knows him, never a motivational chatbot"],
+    ["budget", "Keeps cloud AI spend around $0–10 a month; prefers local models"],
+    ["tech", "M5 Pro MacBook with 48 GB unified memory; iPhone with the ORION app"],
+    ...bullets(user, "Durable personal context").slice(0, 25).map((l) => ["context", l.replace(/\*\*/g, "")]),
+  ],
+  relations: [["studies_at", "Northeastern University London"], ["lives_in", "London"], ["builds", "ORION"], ["builds", "Atlas"],
+    ["makes", "Side Project (YouTube)"], ["trains_at", "Gym"], ["follows", "Scheduling Rules"], ["looking_for", "Internship Search"]],
+});
+note("20 Areas/School", "Northeastern University London", {
+  type: "place", tags: ["school"],
+  observations: [["term", "Autumn term from 7 September to about 11 December 2026"], ["campuses", "DS and CS classes at Portsoken; Marketing and Macro at Devon House"]],
+  relations: [...Object.keys(COURSES).map((c) => ["teaches", c]), ["has_campus", "Portsoken"], ["has_campus", "Devon House"], ["in", "London"]],
+});
+for (const [code, [name, campus]] of Object.entries(COURSES)) {
+  note("20 Areas/School/Courses", code, {
+    type: "course", tags: ["class"],
+    observations: [["name", name], ["campus", campus], ["rank", "fixed: never moved unless Nick says so for that occurrence"],
+      ["reminder", "One reminder about ten minutes before; no nagging during class"]],
+    relations: [["part_of", "Northeastern University London"], ["held_at", campus], ["taken_by", "Nick"]],
+  });
+}
+for (const place of ["Portsoken", "Devon House"]) note("30 Resources/Places", place, { type: "place", tags: ["campus"], relations: [["campus_of", "Northeastern University London"]] });
+note("30 Resources/Places", "London", { type: "place", tags: ["city"], observations: [["move", "Moved from Montvale, New Jersey to London in early September 2026 for university"]], relations: [["home_of", "Nick"]] });
+
+// ---- How his days work ---------------------------------------------------
+const sched = read(join(WORKSPACE, "SCHEDULING.md"));
+note("20 Areas/Routine", "Scheduling Rules", {
+  type: "rules", tags: ["schedule"],
+  body: "The rules ORION plans by. The planner enforces the numbers from life-config; this note explains them.",
+  observations: [
+    ["travel", `${config.commuteMinutes ?? 45} minutes before his first class and after his last; a gap of ${(config.homeGapMinutes ?? 150) / 60} hours or more between classes means home and back`],
+    ["buffer", `${config.bufferMinutes ?? 10} minutes between activities`],
+    ...Object.entries(config.minimums ?? {}).map(([k, v]) => ["minimum", `${k}: at least ${v} minutes`]),
+    ...Object.entries(config.ranks ?? {}).map(([k, v]) => ["rank", `${k}: ${v} priority (his words)`]),
+    ...sched.split("\n").filter((l) => /^- /.test(l)).slice(0, 20).map((l) => ["rule", l.slice(2).replace(/\*\*/g, "")]),
+  ],
+  relations: [["applies_to", "Nick"], ["protects", "Nap"], ["protects", "Sleep"], ["protects", "Gym"], ["protects", "Side Project (YouTube)"], ["schedules_around", "Northeastern University London"]],
+});
+note("20 Areas/Health", "Nap", { type: "habit", tags: ["sleep"], observations: [["minimum", `At least ${config.minimums?.nap ?? 75} minutes, always (his rule, 1 October 2026)`], ["placement", "After he is home from class, never in travel time; after a short night ORION books one"]], relations: [["part_of", "Sleep"], ["habit_of", "Nick"]] });
+note("20 Areas/Health", "Sleep", { type: "habit", tags: ["sleep"], observations: [["priority", "Second only to classes"], ["wake", "Usually up around 7:15 for a 9:00 class; ORION's alarm and WHOOP mark the real wake time"], ["wind down", "Wind-down ends at the asleep-by line"]], relations: [["habit_of", "Nick"]] });
+note("20 Areas/Health", "Gym", { type: "habit", tags: ["fitness"], observations: [["priority", "High: protected, moved rather than dropped"], ["days", `Planned days (life-config): ${(config.gymDays ?? [1, 3, 5]).join(", ")} (1 = Monday)`]], relations: [["habit_of", "Nick"]] });
+note("20 Areas/Health", "Food", { type: "habit", tags: ["routine"], observations: [["dinner", "Dinner stays in the evening, never pulled into the afternoon"], ["pauses", "A meal is about 25 minutes when he says he is eating now"]], relations: [["habit_of", "Nick"]] });
+note("20 Areas/Routine", "Study", { type: "habit", tags: ["school"], observations: [["priority", "High when it is for a deadline"]], relations: [["for", "Northeastern University London"], ["habit_of", "Nick"]] });
+note("20 Areas/Routine", "Phone Lock", { type: "system", tags: ["focus"], observations: [["what", "ORION's Screen Time lock on his iPhone; grants up to 60 minutes; resets each morning"]], relations: [["used_by", "ORION"], ["for", "Nick"]] });
+
+// ---- What he is building -------------------------------------------------
+note("10 Projects", "ORION", { type: "project", tags: ["project", "ai"], observations: [["what", "His personal assistant: Mac app, iPhone app and a brain that knows his schedule"], ["repo", "github.com/NickMadaio/orion (on his resume)"]], relations: [["built_by", "Nick"], ["remembers_in", "Nick"], ["follows", "Scheduling Rules"]] });
+note("10 Projects", "Atlas", { type: "project", tags: ["project"], observations: [["what", "His lecture capture and knowledge app"], ["repo", "github.com/NickMadaio/atlas (private, on his resume)"]], relations: [["built_by", "Nick"], ["for", "Northeastern University London"]] });
+note("10 Projects", "Side Project (YouTube)", { type: "project", tags: ["project", "youtube"], observations: [["minimum", "At least an hour a day"], ["rank", "Medium; can shrink when the day overflows and he says it is not a priority"]], relations: [["made_by", "Nick"]] });
+note("10 Projects", "Internship Search", { type: "project", tags: ["career"], observations: [["status", "Sending internship applications and finishing his resume (October 2026)"]], relations: [["for", "Nick"], ["needs", "Resume"]] });
+note("10 Projects", "Resume", { type: "document", tags: ["career"], relations: [["part_of", "Internship Search"], ["features", "ORION"], ["features", "Atlas"]] });
+
+// ---- Every day he talked to ORION ------------------------------------------
+const days = readdirSync(join(WORKSPACE, "memory")).filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f));
+for (const file of days) {
+  const text = read(join(WORKSPACE, "memory", file));
+  const lines = text.split("\n").filter((l) => /^- /.test(l)).map((l) => l.slice(2).trim()).filter(Boolean);
+  if (!lines.length) continue;
+  const date = file.slice(0, 10);
+  const mentioned = [...new Set(lines.flatMap(linkify))];
+  note("40 Daily", date, { type: "daily", tags: ["daily"], body: "What Nick and ORION talked about (from ORION's daily memory).",
+    observations: lines.slice(0, 60).map((l) => ["said", l.replace(/\s+/g, " ").slice(0, 400)]),
+    relations: mentioned.map((t) => ["mentions", t]) });
+}
+
+note("Home", "Brain Map", { type: "index", tags: ["index"], body: "Start here. Areas: [[Nick]], [[Scheduling Rules]], [[Northeastern University London]]. Projects: [[ORION]], [[Atlas]], [[Side Project (YouTube)]], [[Internship Search]]. Health: [[Sleep]], [[Nap]], [[Gym]], [[Food]]. Daily notes live in 40 Daily." });
+
+console.log(`${dry ? "Would write" : "Wrote"} ${written.length} notes into ${VAULT}`);
+if (!dry) {
+  try { execFileSync(join(homedir(), ".local/bin/basic-memory"), ["reindex"], { stdio: "ignore", timeout: 300000 }); console.log("Reindexed Basic Memory."); }
+  catch { console.log("Reindex did not finish; run: basic-memory reindex"); }
+}

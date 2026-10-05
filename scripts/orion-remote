@@ -746,6 +746,18 @@ async function saveStandingRules(text) {
     saved.push(`Today minimums: ${result.status === 0 ? result.stdout.trim() : `could not apply: ${(result.stdout + result.stderr).trim()}`}`);
   }
   const statement = rules.statement || rules.minimums.map((m) => `${m.key} at least ${m.minutes} minutes`).join("; ");
+  if (statement && !evalMode()) {
+    // Into the brain too (Basic Memory vault): one running note seeding never overwrites.
+    try {
+      const vaultNote = join(homedir(), "Documents/orionBrain/20 Areas/Me/Learned about Nick.md");
+      if (!existsSync(vaultNote)) {
+        await mkdir(dirname(vaultNote), { recursive: true });
+        await writeFile(vaultNote, "---\ntitle: Learned about Nick\ntype: person-notes\npermalink: 20-areas-me/learned-about-nick\ntags: [me, learned]\n---\n\n# Learned about Nick\n\nWhat he told ORION, in his words, newest last.\n\n## Relations\n- about [[Nick]]\n\n## Observations\n");
+      }
+      await appendFile(vaultNote, `- [rule] ${statement.replace(/\s+/g, " ").slice(0, 300)} (said ${new Date().toISOString().slice(0, 10)})\n`);
+      saved.push("added to his brain note \"Learned about Nick\"");
+    } catch { /* the profile save above still stands */ }
+  }
   if (statement && evalMode()) saved.push(`his words would be saved to his profile: "${statement.slice(0, 160)}" (evaluation run: not written)`);
   else if (statement) {
     const remember = join(dirname(fileURLToPath(import.meta.url)), "orion-remember");

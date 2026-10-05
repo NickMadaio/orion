@@ -64,3 +64,24 @@ export function movable(block) {
   if (block.kind === "sleep") return false;
   return true;
 }
+
+/**
+ * How much a block matters to Nick, in words ORION can say and reason with
+ * (2026-10-05): "fixed" (a real class: never moved unless he says so),
+ * "high", "medium" or "low". His own words in config.ranks win, then the
+ * importance he gave it, then the kind.
+ */
+export function rankOf(block, { ranks = {} } = {}) {
+  const title = String(block.title ?? "").toLowerCase();
+  if (block.kind === "class" && block.fixed && block.source !== "orion") return "fixed";
+  const mine = Object.entries(ranks ?? {}).find(([word]) => word && title.includes(word.toLowerCase()));
+  if (mine) return mine[1];
+  if (block.fixed) return "fixed";
+  const importance = importanceOf(block);
+  if (importance === 0) return "high";
+  if (importance === 2) return "low";
+  if (/\b(nap|wind down|sleep|bed)\b/.test(title)) return "high";
+  if (["gym", "deadline", "study"].includes(block.kind)) return "high";
+  if (["side_project", "meal", "other"].includes(block.kind)) return "medium";
+  return "low";
+}

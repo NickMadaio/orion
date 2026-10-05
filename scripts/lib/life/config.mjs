@@ -14,6 +14,11 @@ export const DEFAULTS = Object.freeze({
   bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
   studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
   commuteMinutes: 30,
+  // A gap between two classes at least this long means he goes home and back
+  // (commute both ways); shorter, he stays on campus (Nick, 2026-10-05: 2.5 h).
+  homeGapMinutes: 150,
+  // His own priority words: { "gym": "high", "youtube": "medium" } (orion-life rank).
+  ranks: {},
   readyMinutes: 105,
   bufferMinutes: 10,         // between planned blocks (2026-10-01: "things are smooshed")         // up before his first commitment: 7:15 for a 9:00 class (the phone uses the same)
   // Events he never goes to (2026-09-30: "get rid of that optional workshop, i
@@ -42,6 +47,7 @@ export function loadConfig(file = CONFIG_FILE) {
 
 const VALIDATORS = {
   commuteMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 180,
+  homeGapMinutes: (v) => Number.isInteger(v) && v >= 60 && v <= 600,
   bufferMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 30,
   readyMinutes: (v) => Number.isInteger(v) && v >= 15 && v <= 180,
   todoList: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,
@@ -93,3 +99,17 @@ export function setConfig(key, raw, file = CONFIG_FILE) {
 }
 
 export const toMinute = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+
+/** "The gym is high priority": orion-life rank gym high (none removes it). */
+export function setRank(key, rank, file = CONFIG_FILE) {
+  const name = String(key ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9 '-]{1,39}$/.test(name)) throw new TypeError(`"${key}" is not a usable name`);
+  if (!["high", "medium", "low", "none"].includes(rank)) throw new TypeError("rank must be high, medium, low or none");
+  const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();
+  const ranks = { ...(current.ranks ?? {}) };
+  if (rank === "none") delete ranks[name]; else ranks[name] = rank;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(`${file}.tmp`, JSON.stringify({ ...current, ranks }, null, 2));
+  renameSync(`${file}.tmp`, file);
+  return ranks;
+}

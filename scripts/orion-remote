@@ -562,7 +562,12 @@ async function todaySchedule() {
     // What already happened stays visible (2026-10-01: "extend the DS lab" — the
     // lab had ended on the calendar, ORION could not see it, and booked a second).
     const nowMinute = now.getHours() * 60 + now.getMinutes();
-    const line = (b) => `${b.title.replace(/ — .*$/, "").slice(0, 40)} ${t(b.start)}–${t(b.end)}${b.fixed ? "" : " (movable)"}`;
+    const { loadConfig } = await import("./lib/life/config.mjs");
+    const { rankOf } = await import("./lib/life/priority.mjs");
+    const { commuteWalls } = await import("./lib/life/commute.mjs");
+    const config = loadConfig();
+    const line = (b) => `${b.title.replace(/ — .*$/, "").slice(0, 40)} ${t(b.start)}–${t(b.end)} [${rankOf(b, config)}${b.fixed ? "" : ", movable"}]`;
+    const travel = commuteWalls(blocks, config).filter((w) => w.end > nowMinute);
     const earlier = blocks.filter((b) => b.end <= nowMinute);
     const current = blocks.filter((b) => b.start <= nowMinute && b.end > nowMinute);
     const ahead = blocks.filter((b) => b.start > nowMinute);
@@ -571,6 +576,8 @@ async function todaySchedule() {
       `- On the calendar now (${t(nowMinute)}): ${current.length ? current.map(line).join("; ") : "nothing"}.`,
       `- Later today: ${ahead.length ? ahead.map(line).join("; ") : "nothing"}.`
         + (lastClass ? ` His last class ENDS at ${t(lastClass.end)} — "after class" means from ${t(lastClass.end)}.` : ""),
+      travel.length ? `- Travel (not free time, nothing goes here): ${travel.map((w) => `${w.title} ${t(w.start)}–${t(w.end)}`).join("; ")}. Rule: ${config.commuteMinutes} min before his first class and after his last; a gap of ${Math.round(config.homeGapMinutes / 6) / 10} h or more between classes means home and back.` : null,
+      "- [fixed] never moves unless he says so; [high] is protected; [medium] can move; [low] moves or shrinks first. His own ranks: orion-life rank <thing> high|medium|low.",
     ].filter(Boolean).join("\n");
   } catch { return null; }
 }

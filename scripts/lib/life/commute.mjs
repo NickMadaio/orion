@@ -4,10 +4,7 @@ import { isSocial } from "./live-day.mjs";
 // his lab ended — "which he should know i need to commute back to my room for
 // that first." On a day with classes, nothing is planned in the commute before
 // the first one or after the last one.
-// Shortest stretch at home worth the round trip between two classes.
-const HOME_AT_LEAST = 45;
-
-export function commuteWalls(blocks, { commuteMinutes = 30 } = {}) {
+export function commuteWalls(blocks, { commuteMinutes = 30, homeGapMinutes = 150 } = {}) {
   if (commuteMinutes <= 0) return [];
   // Real classes only: an ORION block filed as "class" (the to-do "DS lab") made
   // its own travel time and pushed itself two hours later (2026-10-01).
@@ -16,12 +13,13 @@ export function commuteWalls(blocks, { commuteMinutes = 30 } = {}) {
     { start: Math.max(0, classes[0].start - commuteMinutes), end: classes[0].start, title: "commute to class" },
     { start: classes.at(-1).end, end: Math.min(1440, classes.at(-1).end + commuteMinutes), title: "commute home" },
   ] : [];
-  // A gap between classes long enough to go home goes home and back
-  // (2026-10-05: lecture until 12:30, lab at 15:30; the short-night nap was
-  // booked at 12:30, the minute the lecture ended).
+  // The class day is wrapped: travel before the first class and after the last.
+  // A gap of homeGapMinutes (2.5 h) or more between two classes means he goes
+  // home and back, so that gap is wrapped too (2026-10-05: lecture until 12:30,
+  // lab at 15:30; the short-night nap was booked at 12:30).
   for (const [i, prev] of classes.slice(0, -1).entries()) {
     const next = classes[i + 1];
-    if (next.start - prev.end >= 2 * commuteMinutes + HOME_AT_LEAST) {
+    if (next.start - prev.end >= homeGapMinutes) {
       walls.push({ start: prev.end, end: prev.end + commuteMinutes, title: "commute home" },
         { start: next.start - commuteMinutes, end: next.start, title: "commute to class" });
     }

@@ -44,6 +44,15 @@ test("a long gap between classes means going home and back (2026-10-05)", () => 
   assert.deepEqual([nap.start, nap.end], [795, 870]);
 });
 
+test("2.5 hours is the line between staying on campus and going home", () => {
+  const at = (gap) => [
+    { id: "a", title: "Lecture", kind: "class", date: "d", start: 540, end: 630, fixed: true, source: "calendar" },
+    { id: "b", title: "Lab", kind: "class", date: "d", start: 630 + gap, end: 720 + gap, fixed: true, source: "calendar" },
+  ];
+  assert.equal(commuteWalls(at(149), { commuteMinutes: 45, homeGapMinutes: 150 }).length, 2);
+  assert.equal(commuteWalls(at(150), { commuteMinutes: 45, homeGapMinutes: 150 }).length, 4);
+});
+
 test("a short gap between classes stays on campus", () => {
   const two = [
     { id: "a", title: "Lecture", kind: "class", date: "2026-10-05", start: 540, end: 630, fixed: true, source: "calendar" },

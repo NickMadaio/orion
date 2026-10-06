@@ -2,6 +2,21 @@
 
 Read this file whenever Nick asks to plan, schedule or rearrange a day, or says he is leaving/finishing early. These are durable preferences, not proof that calendar actions have happened. Verify the current calendar, Orion to-do list and deadlines through tools before planning. Use current location/time-zone data and say times in 12-hour form.
 
+## To-dos with due dates (orion-tasks, 2026-10-06)
+
+A to-do on his Orion list can carry a due date, a spread in its notes ("2 hours a
+day until it's due", "two 2-hour blocks, Tuesday and Thursday", "four 1-hour blocks
+this week", "about 5 hours total") and a priority (high/medium/low). ORION books
+the sessions from those — high priority or due within a day is a must; low is
+optional — and re-plans every morning. `orion-tasks` (allowlisted) does all of it:
+- "Add X, due Friday, 2 hours a day, high priority" → `orion-tasks add "X" --due friday --spread "2 hours a day" --priority high`.
+- "Instead of two 2-hour blocks do four 1-hour blocks" → `orion-tasks set "X" --spread "four 1-hour blocks"`
+  (changes the to-do's notes AND re-plans its sessions).
+- "Push X's due date to Monday" → `orion-tasks set "X" --due monday`; "X matters more" → `--priority high`.
+- "What's on my list / when am I doing X" → `orion-tasks list`. Re-plan everything → `orion-tasks plan`.
+Moving or resizing ONE session today is still `orion-reschedule move|resize`. Never book a
+spread to-do with `day --plan` by hand; `day --todos` already leaves those to orion-tasks.
+
 ## Planning from the actual day
 
 “Schedule my day” includes outstanding tasks on the Orion Reminders list even when Nick also names food or going out. Read `orion-agenda tasks` and the calendar first; use `orion-reschedule day --todos` for task-based planning. The combined syntax is supported: `orion-reschedule day --todos --plan "grab food, 30" --plan "club, 240, 22:00, fixed"`. For a whole-day request ALWAYS include `--todos` on the day command; reading the list then booking only named plans still omits his tasks. Do not invent a 5 PM time for food when he did not give one. Never silently omit the list. List tasks that cannot fit and explain why. Do not include Groceries/Family unless requested.

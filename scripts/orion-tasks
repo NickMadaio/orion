@@ -1,0 +1,159 @@
+#!/usr/bin/env node
+/*
+ orion-tasks — his to-dos with due dates, spread across his days (2026-10-06).
+
+ A to-do lives on his Orion Reminders list: its due date is when it must be done,
+ its notes say how to spread it ("2 hours a day until it's due", "two 2-hour
+ blocks, Tuesday and Thursday", "four 1-hour blocks this week") and its priority
+ (high/medium/low) says how much it matters. ORION books the sessions; when the
+ due date, the spread or the priority changes, the sessions are re-planned.
+
+   orion-tasks list                                         to-dos, due dates, spreads, booked sessions
+   orion-tasks add "<title>" [--due <when>] [--spread "<how>"] [--priority high|medium|low]
+   orion-tasks set "<task>" [--due <when>|--no-due] [--spread "<how>"] [--priority …] [--title "<new>"]
+   orion-tasks plan ["<task>"] [--days 7] [--dry-run]       (re)book the sessions for the next days
+   <when>: YYYY-MM-DD, today, tomorrow, or a weekday (the next one).
+
+ Sessions are ordinary ORION blocks named after the to-do, booked with
+ orion-reschedule (so every day rule, the travel walls and undo apply); its
+ importance comes from the priority and how close the due date is.
+*/
+import { spawnSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
+import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
+import { parseSpread, planSessions, taskImportance } from "./lib/life/task-spread.mjs";
+import { parseTodos } from "./lib/life/todo-parse.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const VALUED = ["--due", "--spread", "--priority", "--title", "--days"];
+const positional = args.filter((a, i) => !a.startsWith("--") && !VALUED.includes(args[i - 1]));
+const [command, name] = positional;
+const dry = args.includes("--dry-run");
+const fail = (m, code = 2) => { console.error(m); process.exit(code); };
+const config = loadConfig();
+const now = clockNow();
+const today = localDate(now);
+const addDays = (date, n) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + n); return localDate(d); };
+const words = (t) => String(t).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length >= 3);
+const same = (a, b) => { const x = words(a), y = words(b); return x.length > 0 && x.every((w) => y.includes(w)); };
+
+function dueFrom(text) {
+  if (!text) return undefined;
+  const t = text.trim().toLowerCase();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  if (t === "today") return today;
+  if (t === "tomorrow") return addDays(today, 1);
+  const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const i = days.findIndex((d) => d.startsWith(t.slice(0, 3)));
+  if (i >= 0) return addDays(today, ((i - new Date(`${today}T12:00:00`).getDay() + 7) % 7) || 7);
+  fail(`orion-tasks: "${text}" is not a date (YYYY-MM-DD, today, tomorrow or a weekday)`);
+}
+const endOfDay = (date) => new Date(`${date}T23:59:00`).toISOString();
+
+async function tasks() {
+  const r = await bridgeRequest("list_incomplete_reminders", { list: config.todoList });
+  return JSON.parse(r.reminders_json ?? "[]").map((t) => ({ ...t, dueDate: t.due ? localDate(new Date(t.due)) : null }));
+}
+function find(list, wanted) {
+  const hits = list.filter((t) => same(wanted, t.title));
+  if (!hits.length) fail(`orion-tasks: no to-do called "${wanted}" on ${config.todoList}. To-dos: ${list.map((t) => t.title).join(", ") || "none"}`, 1);
+  return hits[0];
+}
+/** The spread to plan from: his notes, else (with a due date) the to-do's own estimate as a total. */
+function spreadOf(task) {
+  const fromNotes = parseSpread(task.notes ?? "");
+  if (fromNotes) return fromNotes;
+  if (!task.dueDate) return null;
+  let minutes = 60;
+  try { const parsed = parseTodos(task.title, { now: { date: today, minute: 0 } }).tasks; if (parsed.length === 1) minutes = parsed[0].minutes; } catch { /* default */ }
+  return { kind: "total", minutes };
+}
+const reschedule = (...a) => spawnSync(process.execPath, [join(HERE, "orion-reschedule"), ...a], { encoding: "utf8" });
+
+/** Book (or re-book) the sessions of these to-dos for the next `days` days. */
+async function plan(list, days) {
+  const events = await calendarEvents();
+  const horizon = Array.from({ length: days }, (_, i) => addDays(today, i));
+  const perDate = new Map(horizon.map((d) => [d, { book: [], drop: [] }]));
+  const report = [];
+  for (const task of list) {
+    const spread = spreadOf(task);
+    if (!spread) { report.push(`${task.title}: no due date and no spread in its notes — not planned (add one with orion-tasks set)`); continue; }
+    const sessions = planSessions(spread, { today, due: task.dueDate }).filter((s) => perDate.has(s.date));
+    const importance = taskImportance(task, today);
+    for (const date of horizon) {
+      const nowMinute = now.getHours() * 60 + now.getMinutes();
+      const mine = toBlocks(events, date).filter((b) => b.source === "orion" && same(task.title, b.title));
+      // Today's session already started or happened: today is done for this to-do.
+      if (date === today && mine.some((b) => b.start < nowMinute)) continue;
+      const want = sessions.find((s) => s.date === date)?.minutes ?? 0;
+      const have = mine.filter((b) => date > today || b.end > nowMinute);
+      const haveMinutes = have.reduce((s, b) => s + b.end - b.start, 0);
+      if (want && haveMinutes !== want) perDate.get(date).book.push(`${task.title}, ${want}${importance === 0 ? ", must" : importance === 2 ? ", optional" : ""}`);
+      if (!want && have.length) perDate.get(date).drop.push(task.title);
+    }
+    report.push(`${task.title}: ${sessions.map((s) => `${s.date} ${s.minutes} min`).join(", ") || "nothing in the next days"}${task.dueDate ? ` (due ${task.dueDate})` : ""}`);
+  }
+  for (const [date, { book, drop }] of perDate) {
+    if (drop.length) {
+      const r = dry ? null : reschedule("drop", ...drop, "--date", date);
+      report.push(`${date}: ${dry ? "would remove" : "removed"} ${drop.join(", ")}${r && r.status ? ` (${r.stdout.trim().split("\n")[0]})` : ""}`);
+    }
+    if (book.length) {
+      const r = reschedule("day", "--date", date, ...book.flatMap((p) => ["--plan", p]), ...(dry ? ["--dry-run"] : []));
+      report.push(`${date}:\n${(r.stdout + r.stderr).trim().split("\n").map((l) => `  ${l}`).join("\n")}`);
+    }
+  }
+  return report;
+}
+
+try {
+  if (command === "list") {
+    const list = await tasks();
+    if (!list.length) { console.log(`Nothing on ${config.todoList}.`); process.exit(0); }
+    const events = await calendarEvents();
+    for (const t of list) {
+      const booked = Array.from({ length: 7 }, (_, i) => addDays(today, i)).flatMap((d) => toBlocks(events, d)
+        .filter((b) => b.source === "orion" && same(t.title, b.title)).map((b) => `${d.slice(5)} ${b.end - b.start} min`));
+      console.log(`- ${t.title}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${t.notes ? ` · "${t.notes.slice(0, 80)}"` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
+    }
+  } else if (command === "add") {
+    if (!name) fail('usage: orion-tasks add "<title>" [--due <when>] [--spread "<how>"] [--priority high|medium|low]');
+    const due = dueFrom(flag("--due")); const spread = flag("--spread"); const priority = flag("--priority");
+    if (spread && !parseSpread(spread)) console.log(`(note: "${spread}" was saved, but it does not say how to spread the work — e.g. "2 hours a day" or "two 2-hour blocks, Tuesday and Thursday")`);
+    if (!dry) await bridgeRequest("create_reminder", { title: name, list: config.todoList, ...(due ? { due_at: endOfDay(due) } : {}), ...(spread ? { notes: spread } : {}), ...(priority ? { priority } : {}) });
+    console.log(`${dry ? "Would add" : "Added"} "${name}" to ${config.todoList}${due ? `, due ${due}` : ""}${priority ? `, ${priority} priority` : ""}.`);
+    if (due || spread) for (const l of await plan([{ title: name, dueDate: due ?? null, notes: spread, priority }], Number(flag("--days") ?? 7))) console.log(l);
+  } else if (command === "set") {
+    if (!name) fail('usage: orion-tasks set "<task>" [--due <when>|--no-due] [--spread "<how>"] [--priority …] [--title "<new>"]');
+    const task = find(await tasks(), name);
+    const change = {};
+    if (args.includes("--no-due")) change.due_at = "";
+    else if (flag("--due")) change.due_at = endOfDay(dueFrom(flag("--due")));
+    if (flag("--spread") !== undefined) change.notes = flag("--spread");
+    if (flag("--priority")) change.priority = flag("--priority");
+    if (flag("--title")) change.title = flag("--title");
+    if (!Object.keys(change).length) fail("orion-tasks set: nothing to change");
+    if (!dry) await bridgeRequest("update_reminder", { identifier: task.identifier, ...change });
+    const updated = { ...task, ...(change.title ? { title: change.title } : {}), ...(change.notes !== undefined ? { notes: change.notes } : {}),
+      ...(change.priority ? { priority: change.priority } : {}), ...(change.due_at !== undefined ? { dueDate: change.due_at ? localDate(new Date(change.due_at)) : null } : {}) };
+    console.log(`${dry ? "Would change" : "Changed"} "${task.title}": ${Object.entries(change).map(([k, v]) => `${k.replace("_at", "")} → ${v || "none"}`).join(", ")}.`);
+    // A renamed to-do's old sessions go; the new ones are booked under the new name.
+    if (change.title && !dry) for (let i = 0; i < 7; i += 1) reschedule("drop", task.title, "--date", addDays(today, i));
+    for (const l of await plan([updated], Number(flag("--days") ?? 7))) console.log(l);
+  } else if (command === "plan") {
+    const list = await tasks();
+    const chosen = name ? [find(list, name)] : list.filter((t) => t.dueDate || parseSpread(t.notes ?? ""));
+    if (!chosen.length) { console.log("No to-do has a due date or a spread yet; nothing to plan."); process.exit(0); }
+    for (const l of await plan(chosen, Number(flag("--days") ?? 7))) console.log(l);
+  } else {
+    fail("usage: orion-tasks list|add|set|plan (see the header)");
+  }
+} catch (e) {
+  fail(`orion-tasks: ${e.message}`, 1);
+}

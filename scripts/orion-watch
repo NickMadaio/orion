@@ -16,6 +16,8 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
 import { adjustForShortSleep } from "./lib/life/after-late-night.mjs";
@@ -130,6 +132,16 @@ if (awake && short && !day.adjusted && minute < 780 && blocks.length) {
     } catch { /* leave the day alone if the calendar refuses */ }
   }
   day.adjusted = true;
+}
+
+// 2b. To-dos with due dates and spreads (orion-tasks): re-planned once each
+// morning, so a due date or spread he changed in Reminders shows up in his days.
+if (awake && !day.tasksPlanned && minute < 780) {
+  if (!dry) {
+    const r = spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "orion-tasks"), "plan"], { encoding: "utf8", timeout: 120000 });
+    day.tasksPlannedNote = (r.stdout || r.stderr || "").trim().slice(0, 500);
+  }
+  day.tasksPlanned = true;
 }
 
 // 0. The morning brief (tighten-orion/morning-brief, 2026-09-30): once, when

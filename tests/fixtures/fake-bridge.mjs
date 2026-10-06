@@ -21,6 +21,22 @@ switch (request.action) {
     reply({ reminders_json: JSON.stringify(all.filter((r) => !wanted.length || wanted.includes(String(r.list).toLowerCase()))) });
     break;
   }
+  case "create_reminder": case "update_reminder": {
+    // $FAKE_REMINDERS is rewritten so a test can read what changed.
+    const file = process.env.FAKE_REMINDERS;
+    const all = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return []; } })();
+    const due = p.due_at === "" ? undefined : p.due_at;
+    if (request.action === "create_reminder") {
+      const identifier = `rem-${all.length}`;
+      writeFileSync(file, JSON.stringify([...all, { identifier, title: p.title, list: p.list ?? "Orion", ...(due ? { due } : {}), ...(p.notes ? { notes: p.notes } : {}), ...(p.priority ? { priority: p.priority } : {}) }]));
+      reply({ status: "created", identifier }); break;
+    }
+    if (!all.some((r) => r.identifier === p.identifier)) { process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: "no such reminder" })}\n`); break; }
+    writeFileSync(file, JSON.stringify(all.map((r) => (r.identifier !== p.identifier ? r : { ...r,
+      ...(p.title ? { title: p.title } : {}), ...(p.notes !== undefined ? { notes: p.notes } : {}), ...(p.priority ? { priority: p.priority } : {}),
+      ...(p.due_at !== undefined ? { due } : {}) }))));
+    reply({ status: "updated", identifier: p.identifier }); break;
+  }
   case "create_calendar_event": {
     const identifier = `ev-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
     save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.orionKind ? { orion: p.orionKind } : {}) }]);

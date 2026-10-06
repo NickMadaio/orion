@@ -148,6 +148,8 @@ enum OrionMacBridge {
             return try moveReminder(payload: request.payload ?? [:])
         case "complete_reminder":
             return try completeReminder(payload: request.payload ?? [:])
+        case "update_reminder":
+            return try updateReminder(payload: request.payload ?? [:])
         case "create_reminder":
             return try createReminder(payload: request.payload ?? [:])
         case "create_calendar_event":
@@ -280,6 +282,9 @@ enum OrionMacBridge {
                     var item = ["title": reminder.title ?? "Untitled", "identifier": reminder.calendarItemIdentifier,
                                 "list": reminder.calendar?.title ?? ""]
                     if let due = reminder.dueDateComponents.flatMap({ Calendar.current.date(from: $0) }) { item["due"] = iso.string(from: due) }
+                    // How he wants it spread, and how much it matters (2026-10-06).
+                    if let notes = reminder.notes, !notes.isEmpty { item["notes"] = notes }
+                    if let level = OrionMacBridge.priorityWord(reminder.priority) { item["priority"] = level }
                     return item
                 }
                 continuation.resume(returning: mapped)
@@ -348,8 +353,48 @@ enum OrionMacBridge {
         if let dueAt = payload["due_at"], let date = ISO8601DateFormatter().date(from: dueAt) {
             reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
         }
+        if let notes = payload["notes"], !notes.isEmpty { reminder.notes = notes }
+        if let level = payload["priority"], let value = OrionMacBridge.priorityValue(level) { reminder.priority = value }
         try store.save(reminder, commit: true)
         return ["status": "created", "identifier": reminder.calendarItemIdentifier]
+    }
+
+    /// Change a to-do in place (2026-10-06): its due date, how he wants it spread
+    /// (the notes), its priority or its title. A key left out is left alone;
+    /// "due_at": "" clears the due date.
+    static func updateReminder(payload: [String: String]) throws -> [String: String] {
+        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
+            throw BridgeError.unavailable("Allow Reminders access in Orion before changing a reminder.")
+        }
+        guard let identifier = payload["identifier"], !identifier.isEmpty else {
+            throw BridgeError.invalidRequest("A reminder identifier is required.")
+        }
+        let store = EKEventStore()
+        guard let reminder = store.calendarItem(withIdentifier: identifier) as? EKReminder else {
+            throw BridgeError.invalidRequest("No reminder has that identifier.")
+        }
+        if let title = payload["title"], !title.isEmpty { reminder.title = title }
+        if let dueAt = payload["due_at"] {
+            if dueAt.isEmpty { reminder.dueDateComponents = nil }
+            else if let date = ISO8601DateFormatter().date(from: dueAt) {
+                reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+            } else { throw BridgeError.invalidRequest("due_at must be an ISO-8601 time.") }
+        }
+        if let notes = payload["notes"] { reminder.notes = notes.isEmpty ? nil : notes }
+        if let level = payload["priority"] {
+            guard let value = OrionMacBridge.priorityValue(level) else { throw BridgeError.invalidRequest("priority must be high, medium, low or none.") }
+            reminder.priority = value
+        }
+        try store.save(reminder, commit: true)
+        return ["status": "updated", "identifier": identifier, "title": reminder.title ?? ""]
+    }
+
+    /// Reminders' 1–4 is high, 5 medium, 6–9 low, 0 none.
+    static func priorityWord(_ value: Int) -> String? {
+        switch value { case 1...4: return "high"; case 5: return "medium"; case 6...9: return "low"; default: return nil }
+    }
+    static func priorityValue(_ word: String) -> Int? {
+        switch word.lowercased() { case "high": return 1; case "medium": return 5; case "low": return 9; case "none", "": return 0; default: return nil }
     }
 
     /// Tick one reminder off by identifier (2026-09-29). "I finished the MSF

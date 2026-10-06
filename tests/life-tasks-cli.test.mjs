@@ -1,0 +1,96 @@
+// orion-tasks end to end on a fake calendar and fake Reminders (2026-10-06):
+// due dates, spreads and priorities planned into sessions, and re-planned when
+// he (or ORION) changes them.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const TASKS = join(ROOT, "scripts/orion-tasks");
+const RESCHEDULE = join(ROOT, "scripts/orion-reschedule");
+const BRIDGE = join(ROOT, "tests/fixtures/fake-bridge.mjs");
+const TODAY = "2030-10-08";   // a Tuesday
+const local = (s) => { const d = new Date(s); return { date: d.toLocaleDateString("en-CA"), minutes: (new Date(d) - new Date(d).setHours(0, 0, 0, 0)) / 60000, weekday: d.getDay() }; };
+
+function world(t, { reminders = [], events = [], at = [9, 0] } = {}) {
+  const home = mkdtempSync(join(tmpdir(), "orion-tasks-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  mkdirSync(join(home, ".openclaw/orion-controlled"), { recursive: true });
+  writeFileSync(join(home, "life.json"), "{}");
+  writeFileSync(join(home, "calendar.json"), JSON.stringify(events));
+  writeFileSync(join(home, "reminders.json"), JSON.stringify(reminders));
+  const env = { ...process.env, HOME: home, ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "calendar.json"),
+    FAKE_REMINDERS: join(home, "reminders.json"), ORION_LIFE_CONFIG: join(home, "life.json"), ORION_RESCHEDULE_UNDO: join(home, "undo.json"),
+    ORION_RESCHEDULE_NOW: new Date(2030, 9, 8, ...at).toISOString() };
+  const run = (script, ...a) => { const r = spawnSync(process.execPath, [script, ...a], { encoding: "utf8", env }); return { code: r.status, out: `${r.stdout}${r.stderr}` }; };
+  const sessions = (title) => JSON.parse(readFileSync(join(home, "calendar.json"), "utf8"))
+    .filter((e) => e.title === title).map((e) => ({ ...local(e.start), length: (new Date(e.end) - new Date(e.start)) / 60000 }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const reminder = (title) => JSON.parse(readFileSync(join(home, "reminders.json"), "utf8")).find((r) => r.title === title);
+  return { tasks: (...a) => run(TASKS, ...a), reschedule: (...a) => run(RESCHEDULE, ...a), sessions, reminder };
+}
+
+test("a to-do due Friday at 2 hours a day gets a 2-hour session every day before Friday", (t) => {
+  const w = world(t);
+  const r = w.tasks("add", "Marketing project", "--due", "2030-10-11", "--spread", "2 hours a day until it's due", "--priority", "high");
+  assert.equal(r.code, 0, r.out);
+  const s = w.sessions("Marketing project");
+  assert.deepEqual(s.map((x) => x.date), ["2030-10-08", "2030-10-09", "2030-10-10"], r.out);
+  assert.ok(s.every((x) => x.length === 120));
+  const rem = w.reminder("Marketing project");
+  assert.equal(rem.notes, "2 hours a day until it's due"); assert.equal(rem.priority, "high"); assert.ok(rem.due);
+});
+
+test("two 2-hour blocks on Tuesday and Thursday land on those days", (t) => {
+  const w = world(t);
+  assert.equal(w.tasks("add", "Macro problem set", "--due", "2030-10-14", "--spread", "two 2-hour blocks, tuesday and thursday").code, 0);
+  const s = w.sessions("Macro problem set");
+  assert.deepEqual(s.map((x) => [x.weekday, x.length]), [[2, 120], [4, 120]]);
+});
+
+test("changing the spread re-plans: two 2-hour blocks become four 1-hour blocks", (t) => {
+  const w = world(t);
+  w.tasks("add", "Macro problem set", "--due", "2030-10-14", "--spread", "two 2-hour blocks, tuesday and thursday");
+  const r = w.tasks("set", "macro problem set", "--spread", "four 1-hour blocks this week");
+  assert.equal(r.code, 0, r.out);
+  const s = w.sessions("Macro problem set");
+  assert.equal(s.length, 4, JSON.stringify(s));
+  assert.ok(s.every((x) => x.length === 60 && x.date <= "2030-10-13"), JSON.stringify(s));
+  assert.equal(w.reminder("Macro problem set").notes, "four 1-hour blocks this week");
+});
+
+test("moving the due date earlier removes the sessions after it", (t) => {
+  const w = world(t);
+  w.tasks("add", "Essay", "--due", "2030-10-12", "--spread", "1 hour a day");
+  assert.equal(w.sessions("Essay").length, 4);
+  const r = w.tasks("set", "Essay", "--due", "2030-10-10");
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(w.sessions("Essay").map((x) => x.date), ["2030-10-08", "2030-10-09"]);
+});
+
+test("today's session that already happened is not booked again", (t) => {
+  const iso = (h) => new Date(2030, 9, 8, h).toISOString();
+  const w = world(t, { at: [15, 0],
+    reminders: [{ identifier: "r1", title: "Essay", list: "Orion", due: new Date(2030, 9, 11, 23, 59).toISOString(), notes: "1 hour a day" }],
+    events: [{ identifier: "e1", title: "Essay", start: iso(10), end: iso(11), orion: "other" }] });
+  const r = w.tasks("plan");
+  assert.equal(r.code, 0, r.out);
+  assert.equal(w.sessions("Essay").filter((x) => x.date === TODAY).length, 1, r.out);
+});
+
+test("planning the day from the to-do list leaves spread to-dos to orion-tasks", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "Essay", list: "Orion", notes: "1 hour a day" }, { identifier: "r2", title: "call the bank", list: "Orion" }] });
+  const r = w.reschedule("day", "--todos", "--date", "2030-10-09");
+  assert.match(r.out, /Essay \(spread across days by orion-tasks\)/);
+  assert.equal(w.sessions("Essay").length, 0);
+});
+
+test("an unknown to-do is refused with the list", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "Essay", list: "Orion" }] });
+  const r = w.tasks("set", "Nope", "--priority", "low");
+  assert.equal(r.code, 1); assert.match(r.out, /To-dos: Essay/);
+});

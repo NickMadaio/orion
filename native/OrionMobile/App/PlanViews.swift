@@ -218,7 +218,11 @@ struct TodoListView: View {
             }
             if !open.isEmpty {
                 SectionLabel("To do · \(open.count)", tint: Phone.accent)
-                ForEach(open) { row($0) }
+                ForEach(open) { todo in
+                    row(todo)
+                    // Its parts, dropped below it like to-dos of their own (2026-10-06).
+                    ForEach(TaskNotes.parse(todo.notes).subtasks) { sub in subRow(sub, of: todo) }
+                }
             }
             if !done.isEmpty {
                 SectionLabel("Done today · \(done.count)", tint: Phone.green)
@@ -226,6 +230,36 @@ struct TodoListView: View {
             }
         }
         .sheet(item: $editing) { todo in TodoEditor(todo: todo, planner: planner) }
+    }
+
+    private func subRow(_ sub: TaskNotes.Subtask, of todo: PlannerStore.Todo) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                var notes = TaskNotes.parse(todo.notes)
+                guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
+                notes.subtasks[i].percent = sub.done ? 0 : 100
+                var updated = todo; updated.notes = notes.text
+                withAnimation(.spring(response: 0.3)) { planner.update(updated) }
+            } label: {
+                ZStack {
+                    Circle().stroke(sub.done ? Phone.green : Phone.soft, lineWidth: 1.2).frame(width: 18, height: 18)
+                    if sub.done { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Phone.green) }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(sub.done ? "Mark \(sub.title) not done" : "Complete \(sub.title)")
+            Button { editing = todo } label: {
+                HStack {
+                    Text(sub.title).font(.system(size: 14)).foregroundStyle(sub.done ? Phone.dim : Phone.soft)
+                        .strikethrough(sub.done, color: Phone.dim)
+                    Spacer()
+                    Text("\(sub.percent)%").font(Phone.mono(11, .medium)).foregroundStyle(sub.percent > 0 && !sub.done ? Phone.accent : Phone.dim)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 34)
+        .padding(.vertical, 2)
     }
 
     private func row(_ todo: PlannerStore.Todo) -> some View {

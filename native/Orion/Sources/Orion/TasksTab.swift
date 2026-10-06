@@ -245,6 +245,15 @@ struct TasksTab: View {
                                 sheetMode = .create(start: task.dueDate ?? nextFreeHour())
                             }
                         )
+                        // Its parts, dropped below it like to-dos of their own (2026-10-06).
+                        ForEach(TaskNotes.parse(task.notes).subtasks) { sub in
+                            SubtaskRow(sub: sub) {
+                                var notes = TaskNotes.parse(task.notes)
+                                guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
+                                notes.subtasks[i].percent = sub.done ? 0 : 100
+                                reminders.setNotes(task.id, notes.text)
+                            }
+                        }
                         if task.id != reminders.tasks.last?.id {
                             Rectangle().fill(OrionTheme.line).frame(height: 1)
                         }
@@ -708,5 +717,36 @@ private struct TaskPlanEditor: View {
         guard !title.isEmpty, !notes.subtasks.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) else { return }
         notes.subtasks.append(.init(title: title))
         newSubtask = ""
+    }
+}
+
+
+/// One part of a to-do, drawn under it like a smaller to-do: tick it to mark
+/// the part done (100%), untick to reopen it; the percent is set in Edit.
+private struct SubtaskRow: View {
+    let sub: TaskNotes.Subtask
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onToggle) {
+                Image(systemName: sub.done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(sub.done ? OrionTheme.green : OrionTheme.textDim)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            Text(sub.title)
+                .font(.system(size: 12))
+                .foregroundStyle(sub.done ? OrionTheme.textDim : OrionTheme.textSoft)
+                .strikethrough(sub.done, color: OrionTheme.textDim)
+            Spacer(minLength: 12)
+            Text("\(sub.percent)%")
+                .font(OrionTheme.mono(10))
+                .foregroundStyle(sub.percent > 0 && !sub.done ? OrionTheme.accent : OrionTheme.textDim)
+                .frame(width: 34, alignment: .trailing)
+        }
+        .padding(.leading, 42)
+        .padding(.vertical, 5)
     }
 }

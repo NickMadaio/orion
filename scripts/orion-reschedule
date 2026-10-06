@@ -14,7 +14,7 @@
 //        future non-class/deadline block is replaced in the same reversible transaction
 //        add --rebuild to keep the tasks but lay the remaining day out again, must-haves first;
 //        day also falls back to this automatically when an incremental change cannot fit
-//   orion-reschedule day --todos [--date YYYY-MM-DD] [--fill]          plan the day from his to-do list (the Orion
+//   orion-reschedule day --todos [--date YYYY-MM-DD] [--until HH:MM] [--fill]   (--until: "until around 8 PM")          plan the day from his to-do list (the Orion
 //        Reminders list): one movable block per to-do, real titles, estimates from todo-parse
 //   orion-reschedule tidy [--date YYYY-MM-DD]                         "fix my schedule": separate overlaps, space blocks out
 //   orion-reschedule clear [--date YYYY-MM-DD]                        clear future movable blocks
@@ -49,7 +49,7 @@ import { addSkip } from "./lib/life/skips.mjs";
 import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
-import { parseSpread } from "./lib/life/task-spread.mjs";
+import { parseSpread, minutesIn } from "./lib/life/task-spread.mjs";
 import { parseTaskNotes } from "./lib/life/task-notes.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { homeFrom, preferredStart } from "./lib/life/sensible-time.mjs";
@@ -60,12 +60,23 @@ import { clockNow } from "./lib/life/bridge-path.mjs";
 import { pinBlocks } from "./lib/life/pins.mjs";
 import { minimumFor } from "./lib/life/lengths.mjs";
 import { earlyContext, finishEarly } from "./lib/life/early.mjs";
+import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--by", "--now"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
+// An option this tool does not have is an error, never silently ignored
+// (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
+// was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
+const KNOWN = new Set(["--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--now", "--plan",
+  "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--why"]);
+const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
+if (unknown.length) {
+  console.error(`NOTHING WAS CHANGED: orion-reschedule has no ${unknown.join(", ")} option. Options: ${[...KNOWN].join(" ")}. See the header for which command takes which.`);
+  process.exit(2);
+}
 // A bare date is a date (2026-09-30 eval: "day 2026-10-01 --plan …" without --date
 // wrote tomorrow's soccer onto today, at a time already over).
 const DAY_WORD = /^(\d{4}-\d{2}-\d{2}|today|tomorrow)$/i;
@@ -165,7 +176,11 @@ const blocks = pinBlocks(toBlocks(events, date), date);
 // The day ends at the "asleep by" line his phone alarm is set from (night.mjs),
 // so wind-down, the last thing planned, ends exactly on it (2026-09-30).
 const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest() });
-const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy) };
+// "Plan things until around 8 PM": --until HH:MM ends the planning window there
+// (for extend, --until is the block's new end instead).
+const untilMinute = command === "extend" ? null : minute(flag("--until"));
+if (flag("--until") !== undefined && command !== "extend" && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
+const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
 const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5)).filter((x) => x.length >= 3);
   const x = w(a), y = w(b); return x.length > 0 && x.every((q) => y.includes(q)); };
@@ -290,6 +305,7 @@ if (command === "late") {
     return { title: clean(m[1]), minutes: Number(m[2]) };
   });
   if (!items.length) fail('usage: orion-reschedule now "<title>, <minutes>" ["<title>, <minutes>" …] [--at HH:MM]');
+  if (planArgs.length) fail('NOTHING WAS CHANGED: now takes only what he is doing now ("title, minutes" items), not --plan. Book those with now, then plan the rest with: day --todos [--until HH:MM]', 2);
   const startAt = minute(flag("--at")) ?? nowMinute;
   if (today && (startAt > nowMinute + 30 || startAt < nowMinute - 240)) fail("--at must be when he started: within the last 4 hours, or now", 2);
   let cursor = startAt;
@@ -338,7 +354,7 @@ if (command === "late") {
   const name = rest[0]; const n = Number(rest[1]);
   if (!name || !Number.isInteger(n) || n < 5 || n > 480) fail('usage: orion-reschedule resize "<title>" <minutes>');
   const target = findBlock(name, { allowPast: false }) ?? notFound(name);
-  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his fixed plans; ask him`, 1);
+  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
   await writeShape("resizing it", [{ block: target, start: target.start, end: target.start + n }], [`${target.title} is now ${n} min: ${hhmm(target.start)}–${hhmm(target.start + n)} (was ${target.end - target.start} min)`]);
 } else if (command === "move") {
   // "Move study to 4": same length, new start; the rest cascades around it.
@@ -348,7 +364,7 @@ if (command === "late") {
   const by = flag("--by");
   const to = by === undefined ? minute(flag("--to")) : /^-?\d+$/.test(by) ? target.start + Number(by) : null;
   if (to === null || to < 0 || to + target.end - target.start > 1440) fail("invalid move time or offset");
-  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his fixed plans; ask him`, 1);
+  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
   const length = target.end - target.start;
   await writeShape("moving it", [{ block: target, start: to, end: to + length }], [`${target.title} moved: ${hhmm(target.start)} → ${hhmm(to)}–${hhmm(to + length)}`]);
 } else if (command === "swap") {
@@ -363,7 +379,7 @@ if (command === "late") {
   const two = findBlock(y, { allowPast: false }) ?? notFound(y);
   if (one.id === two.id) fail(`NOTHING WAS CHANGED: "${x}" and "${y}" are the same block`, 1);
   const fixedOne = [one, two].find((b) => b.fixed && !b.pinned);
-  if (fixedOne) fail(`NOTHING WAS CHANGED: "${fixedOne.title}" is one of his fixed plans; ask him`, 1);
+  if (fixedOne) fail(`NOTHING WAS CHANGED: "${fixedOne.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
   const [early, late] = one.start <= two.start ? [one, two] : [two, one];
   if (early.start < nowMinute && today) fail(`NOTHING WAS CHANGED: ${early.title} has already started; swap only things that have not`, 1);
   const lateLen = late.end - late.start; const earlyLen = early.end - early.start;
@@ -407,7 +423,7 @@ if (command === "late") {
   const [from, to] = rest;
   if (!from || !clean(to ?? "")) fail('usage: orion-reschedule rename "<old title>" "<new title>"');
   const target = findBlock(from, { allowPast: false }) ?? notFound(from);
-  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his fixed plans; ask him`, 1);
+  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
   const existing = blocks.find(b => b.id !== target.id && sameThingEarly(to, b.title) && sameThingEarly(b.title, to));
   if (existing) {
     if (existing.fixed && !existing.pinned) fail("NOTHING WAS CHANGED: replacement is a fixed commitment", 1);
@@ -449,9 +465,12 @@ if (command === "late") {
     if (parseSpread(parseTaskNotes(r.notes).spread)) { skipped.push(`${title} (spread across days by orion-tasks)`); continue; }
     if (onCalendar.some((b) => sameThingEarly(title, b.title))) { skipped.push(`${title} (already on the calendar)`); continue; }
     let estimate = { minutes: 45, optional: false };
+    // A length in the to-do itself wins ("do 20 minutes of marketing work" is 20, not 45).
+    const stated = minutesIn(title);
+    if (stated) estimate = { ...estimate, minutes: stated };
     try {
       const tasks = parseTodos(title, { now: { date, minute: nowMinute } }).tasks;
-      estimate = { minutes: tasks.length === 1 ? tasks[0].minutes : 45, optional: tasks.some((t) => t.optional) };
+      estimate = { minutes: stated ?? (tasks.length === 1 ? tasks[0].minutes : 45), optional: tasks.some((t) => t.optional) };
     } catch { /* keep the default */ }
     // A to-do is work he does, never a class or a deadline ("DS lab" is homework).
     const todoKind = ["class", "deadline"].includes(classify(title)) ? "study" : classify(title);
@@ -537,9 +556,15 @@ if (command === "late") {
   }
 
   // Call finishEarly
+  // Finished something early (not just class): the freed time goes to a break if
+  // he has just worked an hour or more, then to whatever later is short of time,
+  // and the rest pulls the day forward (2026-10-06).
+  const underWay = mode === "block" ? blocks.find((b) => !b.fixed && b.start <= effectiveNow && b.end > effectiveNow) : null;
+  const breakSlot = underWay ? breakFor({ day: blocks, finished: underWay, now: effectiveNow, freed: underWay.end - effectiveNow }) : null;
+  const breakBlock = breakSlot ? { id: "early-break", title: "Break", kind: "rest", date, ...breakSlot, fixed: true, source: "orion" } : null;
   let plan;
   try {
-    plan = finishEarly(blocks, { now: effectiveNow, mode, commuteMinutes: config.commuteMinutes, buffer: config.bufferMinutes, dayEnd: window.end });
+    plan = finishEarly(breakBlock ? [...blocks, breakBlock] : blocks, { now: effectiveNow, mode, commuteMinutes: config.commuteMinutes, buffer: config.bufferMinutes, dayEnd: window.end });
   } catch (e) {
     fail(`orion-reschedule: ${e.message}`, 1);
   }
@@ -567,12 +592,35 @@ if (command === "late") {
     const cls = blocks.find(b => b.id === plan.clipped.id);
     moves.push({ id: cls.id, title: cls.title, from: cls.start, to: cls.start, toEnd: effectiveNow });
   }
+  // Time still free after the break: give it to something that was short.
+  const created = breakBlock ? [{ ...breakBlock, fixed: false }] : [];
+  let gave = null;
+  if (underWay) {
+    const freedLeft = underWay.end - effectiveNow - (breakBlock ? breakBlock.end - breakBlock.start : 0);
+    const projected = [...projectDay(dayWithClip, { moves }).filter((b) => b.id !== "early-break"), ...(breakBlock ? [breakBlock] : [])];
+    const short = freedLeft >= 10 ? shortBlock(projected, { now: effectiveNow, minimums: config.minimums }) : null;
+    if (short) {
+      const ext = extendWithin(projected, short.block, Math.min(short.deficit, freedLeft), { buffer: config.bufferMinutes, dayEnd: window.end });
+      if (ext.by > 0) {
+        gave = { title: short.block.title, by: ext.by };
+        for (const b of ext.day) {
+          const was = projected.find((x) => x.id === b.id);
+          if (!was || b.id === "early-break" || (was.start === b.start && was.end === b.end)) continue;
+          const original = blocks.find((x) => x.id === b.id);
+          const i = moves.findIndex((m) => m.id === b.id);
+          const move = { id: b.id, title: b.title, from: original.start, to: b.start, ...(b.end - b.start !== original.end - original.start ? { toEnd: b.end } : {}) };
+          if (i >= 0) moves[i] = move; else moves.push(move);
+        }
+      }
+    }
+  }
+
   // Judge first
-  refuseIfBroken(projectDay(dayWithClip, { moves }), effectiveNow, "finishing early");
+  refuseIfBroken(projectDay(dayWithClip, { moves, created }), effectiveNow, "finishing early");
 
   if (!dry) {
     const byId = new Map(blocks.map((b) => [b.id, b]));
-    await applyPlan({ date, moves, created: [], removed: [], blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+    await applyPlan({ date, moves, created, removed: [], blocksById: byId }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
     await verifyWritten(date, effectiveNow);
   }
 
@@ -582,6 +630,8 @@ if (command === "late") {
   if (shortened) {
     console.log(`  finished ${shortened.title} at ${hhmm(effectiveNow)}`);
   }
+  if (breakBlock) console.log(`  added a break ${hhmm(breakBlock.start)}–${hhmm(breakBlock.end)} (he had worked ${effectiveNow - underWay.start} min)`);
+  if (gave) console.log(`  gave ${gave.title} ${gave.by} more min (it was short of time)`);
   const realMoves = moves.filter((m) => !shortened || m.id !== shortened.id);
   for (const m of realMoves) {
     if (m.to !== m.from) console.log(`  moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`);
@@ -762,7 +812,8 @@ if (rebuilt) {
   // The day overflows: low-priority blocks give up time before any is dropped.
   if (result.unplaced.length && config.autoShrink !== false) {
     const deficit = result.unplaced.reduce((sum, u) => sum + (u.minutes ?? 0) + config.bufferMinutes, 0);
-    const plan = shrinkPlan(rebuildBlocks.filter((b) => b.start >= nowMinute), deficit, { now: nowMinute, minimums: config.minimums });
+    // Never a block already under way (it starts now or earlier).
+    const plan = shrinkPlan(rebuildBlocks.filter((b) => b.start > nowMinute), deficit, { now: nowMinute + 1, minimums: config.minimums });
     if (plan.length) {
       const shrunkDay = applyShrink(rebuildBlocks, plan, { now: nowMinute });
       const second = replan(shrunkDay, { now: nowMinute, window, blocked, soft, add, rebuild: true, buffer: config.bufferMinutes, keepFree: config.freeMinutesKept });

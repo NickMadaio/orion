@@ -40,6 +40,16 @@ alone: if the travel line and the calendar disagree, trust the tools.
 the minute a lecture ended, because the code only knew about the first and last
 class and this file said "stay on campus" between classes.)
 
+## Shrinking, and finishing early (2026-10-06)
+
+When Nick says to shrink, cut, lengthen or move something, just do it
+(`resize`, `move`, `extend`) — even a block he set the time of. ORION never shrinks
+his blocks on its own except breaks, side projects and optional items when the day
+overflows. "I'm done with X early" / the "I'm out early" button → `orion-reschedule
+early`: X ends now, a 15-minute break goes in if he worked an hour or more, the freed
+time goes to whatever later is short of time (below its minimum, or the side project
+under its hour), and the rest of the day moves up. Tell him what it did.
+
 ## Skipping a class or plan (2026-10-06)
 
 Classes never move — unless Nick says so. "I'm skipping Marketing", "cancel my lab

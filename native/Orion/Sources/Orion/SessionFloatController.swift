@@ -34,7 +34,7 @@ final class SessionFloatController {
     private func hide() { panel?.orderOut(nil) }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 160),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 74),
                             styleMask: [.nonactivatingPanel, .borderless],
                             backing: .buffered, defer: false)
         panel.isFloatingPanel = true
@@ -53,78 +53,96 @@ final class SessionFloatController {
         let hosting = NSHostingView(rootView: view)
         panel.contentView = hosting
         panel.setContentSize(hosting.fittingSize)
-        panel.setFrameAutosaveName("OrionSessionFloat")
-        if !panel.setFrameUsingName("OrionSessionFloat"), let screen = NSScreen.main {
+        // Bottom middle of the screen to start; wherever he drags it after that.
+        panel.setFrameAutosaveName("OrionSessionFloatBar")
+        if !panel.setFrameUsingName("OrionSessionFloatBar"), let screen = NSScreen.main {
             let v = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: v.maxX - 440, y: v.maxY - 140))
+            panel.setFrameOrigin(NSPoint(x: v.midX - panel.frame.width / 2, y: v.minY + 28))
         }
         return panel
     }
 }
 
-/// The floating session: the circle timer he likes, the block, pause and the
-/// way back in, and his music.
+/// The floating session: one long, thin bar (Nick, 2026-10-06: "I liked the
+/// longer view … on the bottom middle of my screen"), with the progress ring he
+/// likes, the block, his music, pause and the way back in.
 struct SessionFloatView: View {
     let hologram: HologramModel
     @ObservedObject var model: SessionTabModel
     let onExpand: () -> Void
 
+    private let cyan = Color(red: 0.36, green: 0.83, blue: 0.93)
+
     var body: some View {
-        // Its own once-a-second redraw: the panel is not inside the dashboard,
-        // whose re-renders drive the full session screen's clock.
-        TimelineView(.periodic(from: .now, by: 1)) { _ in content }
+        // Its own once-a-second redraw: the panel is not inside the dashboard.
+        TimelineView(.periodic(from: .now, by: 1)) { _ in bar }
     }
 
-    private var content: some View {
-        HStack(spacing: 14) {
-            FocusTimerDial(diameter: 118, progress: min(1, max(0.012, model.phaseProgress)),
-                           remaining: remaining, phase: model.focusBlockLabel)
-                .frame(width: 118, height: 118)
-                .contentShape(Circle())
-                .onTapGesture { model.toggleSessionPause() }
-                .help(model.headline == "Paused" ? "Resume session" : "Pause session")
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    HologramView(model: hologram).frame(width: 22, height: 22).clipShape(Circle())
-                    Text(model.headline.uppercased()).font(OrionTheme.mono(8, .semibold)).tracking(1.6)
-                        .foregroundStyle(Color(red: 0.36, green: 0.83, blue: 0.93))
-                    Spacer(minLength: 6)
-                    Button { model.toggleSessionPause() } label: {
-                        Image(systemName: model.headline == "Paused" ? "play.fill" : "pause.fill")
-                    }.help(model.headline == "Paused" ? "Resume" : "Pause")
-                    Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                        .help("Back to the focus session")
-                }
-                if model.audioSource != .none {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(model.mediaTitle).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        Text(model.mediaArtist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    HStack(spacing: 18) {
-                        Button { model.mediaPrevious() } label: { Image(systemName: "backward.fill") }.help("Previous")
-                        Button { model.mediaPlayPause() } label: { Image(systemName: model.mediaIsPlaying ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 20)) }
-                            .help(model.mediaIsPlaying ? "Pause music" : "Play music")
-                        Button { model.mediaNext() } label: { Image(systemName: "forward.fill") }.help("Next")
-                    }
-                } else {
-                    Text("No music playing").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
+    private var bar: some View {
+        HStack(spacing: 16) {
+            ring
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.focusBlockLabel.uppercased()).font(OrionTheme.mono(8, .semibold)).tracking(1.4)
+                    .foregroundStyle(cyan).lineLimit(1)
+                Text(model.task ?? model.headline).font(.system(size: 13, weight: .medium)).lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.9))
-            .frame(width: 190, alignment: .leading)
+            .frame(width: 150, alignment: .leading)
+
+            if model.audioSource != .none {
+                Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.mediaTitle).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    Text(model.mediaArtist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(width: 120, alignment: .leading)
+                HStack(spacing: 12) {
+                    Button { model.mediaPrevious() } label: { Image(systemName: "backward.fill") }.help("Previous")
+                    Button { model.mediaPlayPause() } label: { Image(systemName: model.mediaIsPlaying ? "pause.fill" : "play.fill") }
+                        .help(model.mediaIsPlaying ? "Pause music" : "Play music")
+                    Button { model.mediaNext() } label: { Image(systemName: "forward.fill") }.help("Next")
+                }
+                .font(.system(size: 11, weight: .semibold))
+            }
+
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 28)
+            Button { model.toggleSessionPause() } label: {
+                Image(systemName: model.headline == "Paused" ? "play.fill" : "pause.fill")
+                    .frame(width: 26, height: 26).background(Circle().fill(Color.white.opacity(0.08)))
+            }.help(model.headline == "Paused" ? "Resume session" : "Pause session")
+            Button(action: onExpand) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .frame(width: 26, height: 26).background(Circle().fill(cyan.opacity(0.16)))
+            }.foregroundStyle(cyan).help("Back to the focus session")
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
-        .padding(8)
+        .buttonStyle(.plain)
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.92))
+        .padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .padding(6)
         .preferredColorScheme(.dark)
         .fixedSize()
     }
 
+    /// The circle: time left inside a progress ring, sized for the bar.
+    private var ring: some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.1), lineWidth: 3)
+            Circle().trim(from: 0, to: min(1, max(0.012, model.phaseProgress)))
+                .stroke(AngularGradient(colors: [cyan, Color(red: 0.95, green: 0.82, blue: 0.45)], center: .center),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text(remaining).font(.system(size: 11, weight: .medium, design: .rounded)).monospacedDigit()
+        }
+        .frame(width: 46, height: 46)
+        .contentShape(Circle())
+        .onTapGesture { model.toggleSessionPause() }
+        .help(model.headline == "Paused" ? "Resume session" : "Pause session")
+    }
+
     private var remaining: String {
         let total = max(0, Int(model.phaseRemainingSeconds.rounded(.down)))
-        return String(format: "%02d:%02d", total / 60, total % 60)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

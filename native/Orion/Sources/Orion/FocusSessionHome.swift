@@ -52,8 +52,6 @@ struct FocusSessionHome: View {
                     .frame(width: leftWidth, height: height * 0.12, alignment: .topLeading)
                     .position(x: leftX + leftWidth / 2, y: height * 0.505)
 
-                if !isPreview { playlistPicker.position(x: leftX + leftWidth / 2, y: height * 0.75 - mediaHeight / 2 - 16) }
-
                 musicSurface
                     .frame(width: leftWidth, height: mediaHeight)
                     .position(x: leftX + leftWidth / 2, y: height * 0.75)
@@ -146,18 +144,21 @@ struct FocusSessionHome: View {
             if model.musicPlaylists.isEmpty { Text("Open Music to see your playlists") }
             ForEach(model.musicPlaylists, id: \.self) { name in Button(name) { model.playPlaylist(name) } }
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "music.note.list")
-                Text("PLAYLIST").tracking(1.6)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            HStack(spacing: 5) {
+                Image(systemName: "music.note.list").font(.system(size: 8, weight: .semibold))
+                Text("PLAYLIST")
+                Image(systemName: "chevron.down").font(.system(size: 6, weight: .bold)).opacity(0.7)
             }
-            .font(OrionTheme.mono(9, .semibold))
+            .font(OrionTheme.mono(7, .semibold))
+            .tracking(1.2)
             .foregroundStyle(FocusPalette.cyan)
-            .padding(.horizontal, 12).padding(.vertical, 7)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
             .background(Capsule().fill(FocusPalette.cyan.opacity(0.08)))
-            .overlay(Capsule().strokeBorder(FocusPalette.cyan.opacity(0.28), lineWidth: 1))
+            .overlay(Capsule().stroke(FocusPalette.cyan.opacity(0.24), lineWidth: 1))
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .onAppear { model.loadPlaylists() }
         .help("Play one of your playlists")
@@ -245,7 +246,7 @@ struct FocusSessionHome: View {
                         .foregroundStyle(FocusPalette.warmWhite)
                 }
                 Spacer()
-                mediaStateBadge("CHOOSE")
+                if !isPreview { playlistPicker }
             }
 
             Text("Choose what should carry this block. Orion starts only the source you select.")
@@ -331,6 +332,7 @@ struct FocusSessionHome: View {
                         audioSourceMenu
                     }
                     Spacer()
+                    if !isPreview { playlistPicker }
                     mediaStateBadge(isPreview ? "PLAYING" : model.mediaStateLabel)
                 }
                 .padding(.bottom, 14)

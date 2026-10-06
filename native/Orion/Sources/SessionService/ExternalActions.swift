@@ -253,6 +253,15 @@ public final class AppleMusicControl {
         return tell("set shuffle enabled to not shuffle enabled")
     }
 
+    /// Set shuffle to a known value. Music reports a change a moment late, so
+    /// "toggle, then read back" read the old value and the button never moved
+    /// (2026-10-06: "the shuffle doesn't work").
+    @discardableResult
+    public func setShuffle(_ on: Bool) -> ExternalOutcome {
+        guard isRunning() else { return .notConfigured("Music is not running.") }
+        return tell("set shuffle enabled to \(on ? "true" : "false")")
+    }
+
     @discardableResult
     public func cycleRepeat() -> ExternalOutcome {
         guard isRunning() else { return .notConfigured("Music is not running.") }

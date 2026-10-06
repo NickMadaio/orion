@@ -566,7 +566,12 @@ final class SessionTabModel: ObservableObject {
         case .none:
             return
         case .appleMusic:
-            performMusic { $0.toggleShuffle() }
+            // Show the new state at once; read Music back after it has caught up.
+            let target = !mediaShuffleEnabled
+            mediaShuffleEnabled = target
+            performMusic { $0.setShuffle(target) }
+            refreshMedia(after: 1.5)
+            return
         case .binaural:
             clipShuffleEnabled.toggle()
         }

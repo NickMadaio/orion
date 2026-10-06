@@ -42,11 +42,19 @@ public struct SessionRequest: Codable, Sendable {
     public let allow: [String]?
     /// "gentle", "guided", "firm", or "shield".
     public let level: String?
+    /// `start-sequence`: the phases in order, e.g. [{kind:"focus",seconds:1200}, {kind:"rest",seconds:300}].
+    public let phases: [WirePhase]?
+
+    public struct WirePhase: Codable, Sendable, Equatable {
+        public let kind: String
+        public let seconds: Double
+        public init(kind: String, seconds: Double) { self.kind = kind; self.seconds = seconds }
+    }
 
     public init(op: String, requestId: String? = nil, task: String? = nil,
                 focusBlocks: Int? = nil, focusMinutes: Double? = nil,
                 restMinutes: Double? = nil, clips: [String]? = nil, minutes: Double? = nil,
-                allow: [String]? = nil, level: String? = nil) {
+                allow: [String]? = nil, level: String? = nil, phases: [WirePhase]? = nil) {
         self.op = op
         self.requestId = requestId
         self.task = task
@@ -57,6 +65,7 @@ public struct SessionRequest: Codable, Sendable {
         self.minutes = minutes
         self.allow = allow
         self.level = level
+        self.phases = phases
     }
 }
 
@@ -486,6 +495,22 @@ public final class SessionIPC {
                 clips: (request.clips ?? []).map { ClipAssignment(name: $0) },
                 task: task
             ))
+        case "start-sequence":
+            guard let task = request.task, !task.trimmingCharacters(in: .whitespaces).isEmpty else {
+                return .failure("starting a session needs a task to name it")
+            }
+            let wire = request.phases ?? []
+            let parsed = wire.compactMap { phase -> (kind: PhaseKind, seconds: TimeInterval)? in
+                guard let kind = PhaseKind(rawValue: phase.kind) else { return nil }
+                return (kind, phase.seconds)
+            }
+            guard parsed.count == wire.count,
+                  let plan = SessionPlanBuilder.sequence(
+                    session: SessionID("s-\(requestId)"), phases: parsed,
+                    clips: (request.clips ?? []).map { ClipAssignment(name: $0) }, task: task) else {
+                return .failure("start-sequence needs 1–12 phases of kind focus or rest, each 1 second to 4 hours, with at least one focus")
+            }
+            kind = .start(plan: plan)
         case "pause":   kind = .pause
         case "resume":  kind = .resume
         case "skip":    kind = .skipRest

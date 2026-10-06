@@ -145,6 +145,34 @@ final class SessionCycleTests: XCTestCase {
                        "the later command wins")
     }
 
+    /// Regression, 6 Oct 2026: "I tried to end the break with two minutes left
+    /// and it went to six" — ending sent the time served as the time to LEAVE,
+    /// so every press lengthened the break. Shortening can never lengthen.
+    func testShorteningNeverLengthensABreak() {
+        let harness = Harness()
+        harness.start()
+        harness.advance(minutes: 2)
+        harness.send(.shortenRest(to: 5))
+
+        let result = harness.send(.shortenRest(to: 30))
+
+        XCTAssertFalse(result.applied)
+        XCTAssertEqual(harness.now().remainingInPhase, 5, accuracy: 0.001)
+    }
+
+    func testEndingABreakNowLeavesNothingAndKeepsTheTimeRested() {
+        let harness = Harness()
+        harness.start()
+        harness.advance(minutes: 2)
+        harness.advance(seconds: 10)
+
+        harness.send(.shortenRest(to: 0))
+        harness.advance(seconds: 1)
+
+        XCTAssertEqual(harness.status, .running(.focus))
+        XCTAssertEqual(harness.now().servedRest, 10, accuracy: 0.5)
+    }
+
     func testShorteningIsRejectedDuringAFocusBlock() {
         let harness = Harness()
         harness.start()

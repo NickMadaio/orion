@@ -1,6 +1,6 @@
 # Task focus-cli — `orion-session` starts sequences and recovers sessions
 
-Depends on focus-sequence. The Mac app does not yet support the new op; Claude adds it afterwards. Until then the app answers `unknown command`, which is safe.
+Depends on focus-sequence and focus-today. The Mac app already supports the start-sequence op (see common.md).
 
 ## Files
 - `scripts/orion-session` (edit).

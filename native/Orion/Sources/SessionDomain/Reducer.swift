@@ -211,7 +211,13 @@ public enum SessionReducer {
             return .no(.notApplicable("There is no break running to shorten."), keeping: state)
         }
 
-        let newTotal = now.servedInPhase + max(0, remaining)
+        // Never longer than what is left: "shorten" that lengthens is how ending
+        // a break turned two minutes into six (6 Oct 2026).
+        let leave = max(0, remaining)
+        guard leave < now.remainingInPhase else {
+            return .no(.notApplicable("The break already has less than that left."), keeping: state)
+        }
+        let newTotal = now.servedInPhase + leave
         return .ok(state.appending(LifecycleEvent(
             id: command.requestID.raw,
             stamp: stamp,

@@ -501,10 +501,11 @@ final class SessionTabModel: ObservableObject {
     /// A week of short-but-real breaks is a different problem from a week of
     /// skipped ones and should not look the same in the history.
     func endActiveBreak() {
-        let served = max(1, phaseElapsedSeconds)
+        // `shortenRest(to:)` is the time to LEAVE. Passing the time served here
+        // doubled the break on every press (6 Oct 2026). Leave nothing.
         let request = RequestID(from: UUID())
         let outcome = service.send(Command(requestID: request, origin: .dashboard,
-                                           issuedAt: Date(), kind: .shortenRest(to: served)))
+                                           issuedAt: Date(), kind: .shortenRest(to: 0)))
         adopt(outcome.snapshot)
     }
 

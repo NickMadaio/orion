@@ -204,6 +204,33 @@ public enum SessionPlanBuilder {
         return SessionPlan(sessionID: session, phases: phases, task: task)
     }
 
+    /// Any order of work and breaks, as asked: "20 work, 5 break, 40 work",
+    /// a session that opens on a break, or only the unfinished part of one that
+    /// ended by accident (6 Oct 2026). Nil when the list cannot be a session:
+    /// empty, more than 12 phases, no focus at all, or a phase outside
+    /// 1 second...4 hours. Clips cycle over the focus phases, as in `alternating`.
+    public static func sequence(
+        session: SessionID,
+        phases requested: [(kind: PhaseKind, seconds: TimeInterval)],
+        clips: [ClipAssignment] = [],
+        task: String
+    ) -> SessionPlan? {
+        guard !requested.isEmpty, requested.count <= 12,
+              requested.contains(where: { $0.kind == .focus }),
+              requested.allSatisfy({ $0.seconds >= 1 && $0.seconds <= 4 * 3600 }) else { return nil }
+        var focusSeen = 0
+        let phases = requested.enumerated().map { index, item -> PhaseDefinition in
+            var clip: ClipAssignment? = nil
+            if item.kind == .focus {
+                clip = clips.isEmpty ? nil : clips[focusSeen % clips.count]
+                focusSeen += 1
+            }
+            return PhaseDefinition(id: PhaseID(session: session, index: index), index: index,
+                                   kind: item.kind, requestedDuration: item.seconds, clip: clip)
+        }
+        return SessionPlan(sessionID: session, phases: phases, task: task)
+    }
+
     /// `useClipLength` is the only way media length may change the requested
     /// duration.
     ///

@@ -202,12 +202,31 @@ export class ActionExecutionError extends Error {
 
 const execFileAsync = promisify(execFile);
 
-async function resolveApplication(application: string): Promise<{
+/*
+ Where an app may live. Finder is not in /Applications at all — it is in
+ /System/Library/CoreServices — so "open Finder" failed with "not installed"
+ (6 Oct 2026). Opening an app is low-risk; looking in every place macOS keeps
+ apps is the fix, not a wider permission.
+*/
+export const APPLICATION_ROOTS = Object.freeze([
+  "/Applications",
+  "/Applications/Utilities",
+  "/System/Applications",
+  "/System/Applications/Utilities",
+  "/System/Library/CoreServices",
+  "/System/Library/CoreServices/Applications",
+  path.join(os.homedir(), "Applications"),
+]);
+
+export async function resolveApplication(application: string, roots: readonly string[] = APPLICATION_ROOTS): Promise<{
   path: string;
   bundleId: string;
 }> {
+  if (!application || application.includes("/") || application.includes("..")) {
+    throw new ActionExecutionError("Application name must be a plain app name.");
+  }
   let lastFailure: string | undefined;
-  for (const root of ["/Applications", "/System/Applications"]) {
+  for (const root of roots) {
     const candidate = path.join(root, `${application}.app`);
     try {
       const stats = await lstat(candidate);
@@ -235,7 +254,7 @@ async function resolveApplication(application: string): Promise<{
   throw new ActionExecutionError(
     lastFailure
       ? `Application could not be resolved (${lastFailure}).`
-      : "Application was not found in /Applications or /System/Applications.",
+      : `Application "${application}" was not found in ${roots.join(", ")}.`,
   );
 }
 

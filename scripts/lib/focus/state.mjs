@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
-const DEFAULT_FILE = join(homedir(), ".openclaw/orion-controlled/focus-state.json");
+// Its OWN file. It used focus-state.json, which is the Mac app's session file,
+// overwrote it, and the app could no longer start or show a focus session (2026-10-06).
+const DEFAULT_FILE = join(homedir(), ".openclaw/orion-controlled/ontask-state.json");
 
 export function stateFile(env) {
   return env?.ORION_FOCUS_STATE ?? DEFAULT_FILE;

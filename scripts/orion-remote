@@ -599,7 +599,7 @@ function phoneLock() {
   try {
     const r = spawnSync(process.execPath, [join(homedir(), "Desktop/ORION/scripts/orion-phone-time"), "status"], { encoding: "utf8", timeout: 5000 });
     const line = (r.stdout ?? "").trim();
-    return line ? `- His phone's app lock: ${line} Extra time: orion-phone-time grant <minutes|HH:MM> --because "<his reason>" (max 60 min; it re-locks by itself). orion-focus is the Mac's timer, not the phone.` : null;
+    return line ? `- His phone's app lock: ${line} Extra time: orion-phone-time grant <minutes|HH:MM> --because "<his reason>" (max 60 min; it re-locks by itself). Mac focus sessions are orion-session, not the phone.` : null;
   } catch { return null; }
 }
 

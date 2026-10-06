@@ -17,6 +17,7 @@
 
    orion-session status
    orion-session start "finish the essay" [--blocks 3] [--focus 50] [--rest 10]
+   orion-session start "finish the essay" --minutes 150 | --until 20:00   (blocks worked out for him)
                                           [--clips rain,forest,rain]
    orion-session pause | resume | back | idle
    orion-session skip                 end the current break now
@@ -211,6 +212,26 @@ async function main() {
       request.focusBlocks = Number(flag("blocks", 3));
       request.focusMinutes = Number(flag("focus", 50));
       request.restMinutes = Number(flag("rest", 10));
+      // "A focus session for 2.5 hours" / "until 8 PM": the blocks are worked out
+      // from the length he gave — about 50-minute blocks, 10-minute breaks, the
+      // whole thing ending when he said (2026-10-06).
+      const untilText = flag("until", "");
+      let total = Number(flag("minutes", 0));
+      if (untilText) {
+        const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(untilText);
+        if (!m) fail("--until must be HH:MM (24-hour), e.g. --until 20:00");
+        const now = new Date();
+        total = Number(m[1]) * 60 + Number(m[2]) - (now.getHours() * 60 + now.getMinutes());
+        if (total < 10) fail(`${untilText} is less than 10 minutes away`);
+      }
+      if (total) {
+        if (!Number.isFinite(total) || total < 10 || total > 600) fail("--minutes must be 10..600");
+        const rest = total >= 70 ? 10 : 0;
+        const blocks = Math.max(1, Math.round((total + rest) / (50 + rest)));
+        request.focusBlocks = blocks;
+        request.restMinutes = blocks > 1 ? rest : 0;
+        request.focusMinutes = Math.floor((total - request.restMinutes * (blocks - 1)) / blocks);
+      }
       const clips = flag("clips", "");
       if (clips) request.clips = clips.split(",").map((name) => name.trim()).filter(Boolean);
       break;

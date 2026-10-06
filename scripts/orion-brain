@@ -13,12 +13,21 @@
         add what he told you to a note's "## Learned" section (the note is
         created, linked to [[Nick]], if it does not exist yet)
    orion-brain recent                            what changed in the last week
+   orion-brain canvas-courses                    current Canvas courses, honouring Nick's exclusions
+   orion-brain canvas-refresh <id> <course note> [--apply]
+        preview/refresh source facts in an existing course and assessment notes
 
- Nothing here deletes or overwrites a note.
+ Canvas refresh replaces only its marked source section and Canvas properties,
+ with conflict checks and local backups. Other commands append or read.
 */
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+import { loadCourseVault, applyCourseRefresh } from "./lib/connect/course-vault.mjs";
+import { planCourseRefresh, excludedCourses, previewCourseRefresh } from "./lib/connect/course-notes.mjs";
+import { canvasId } from "./lib/connect/canvas.mjs";
 
 const BM = join(homedir(), ".local/bin/basic-memory");
 const [command, ...rest] = process.argv.slice(2);
@@ -27,7 +36,41 @@ const bm = (args) => execFileSync(BM, ["tool", ...args, "--project", "orion"], {
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 
 try {
-  if (command === "search") {
+  if (command === "canvas-courses" || command === "canvas-refresh") {
+    const vault = join(homedir(), 'Documents/orionBrain');
+    const loaded = loadCourseVault(vault);
+    const connector = join(dirname(fileURLToPath(import.meta.url)), 'orion-connect');
+    const readCanvas = args => JSON.parse(execFileSync(process.execPath, [connector, ...args], {encoding:'utf8', timeout:180000, maxBuffer:8<<20}));
+    if (command === 'canvas-courses') {
+      if (rest.length) fail('usage: orion-brain canvas-courses');
+      const result = readCanvas(['canvas-courses']);
+      if (result.status !== 'available') fail('Canvas courses unavailable; no current-course list', 1);
+      const excluded = excludedCourses(loaded.schoolNote);
+      console.log(JSON.stringify({ ...result, data:result.data.filter(c => !excluded.has(String(c.id))), excluded_course_ids:[...excluded], exclusion_source:'Northeastern University London note (Nick-confirmed)' }, null, 2));
+    } else {
+      if (rest.length < 2 || rest.length > 3 || (rest[2] !== undefined && rest[2] !== '--apply')) fail('usage: orion-brain canvas-refresh <course_id> <existing course note> [--apply]');
+      const courseId = canvasId(rest[0]);
+      if (excludedCourses(loaded.schoolNote).has(courseId)) fail('This course is excluded by Nick; Canvas was not queried', 1);
+      const snapshot = readCanvas(['canvas-course', courseId]);
+      const plan = planCourseRefresh(snapshot, rest[1], loaded.notes, loaded.schoolNote);
+      if (rest[2] === '--apply') {
+        const result = applyCourseRefresh(vault, plan, join(homedir(), '.openclaw/orion-controlled/canvas-backups'), loaded.schoolNote);
+        let indexing;
+        try {
+          // Direct-file readback is not index proof. Request one local full-text
+          // pass for this project so Basic Memory can read the new source facts.
+          // A failure does not undo verified files or pretend the index is fresh.
+          execFileSync(BM, ['reindex','--project','orion','--search'], {encoding:'utf8',timeout:60000,maxBuffer:2<<20,stdio:['ignore','pipe','pipe']});
+          indexing = {status:'fulltext_refreshed', semantic_index:'OpenClaw embeddings/search freshness not independently verified'};
+        } catch {
+          indexing = {status:'pending', message:'Files verified and backed up; Basic Memory full-text indexing failed or timed out. Read the direct files or retry indexing before using cached facts.'};
+        }
+        console.log(JSON.stringify({ status:'applied', course_note:plan.course_note, retrieved_at:plan.retrieved_at, ...result, indexing }, null, 2));
+      } else {
+        console.log(JSON.stringify({ status:'preview', course_note:plan.course_note, retrieved_at:plan.retrieved_at, files:previewCourseRefresh(plan), instruction:'Use --apply when Nick requested this course import/refresh.' }, null, 2));
+      }
+    }
+  } else if (command === "search") {
     const q = clean(rest.join(" "), 200); if (!q) fail('usage: orion-brain search "<words>"');
     const results = JSON.parse(bm(["search-notes", q])).results ?? [];
     if (!results.length) { console.log(`Nothing in the brain matches "${q}".`); process.exit(0); }
@@ -55,7 +98,7 @@ try {
   } else if (command === "recent") {
     process.stdout.write(bm(["recent-activity", "--timeframe", "7d"]));
   } else {
-    fail("usage: orion-brain search|read|context|learn|recent (see the header)");
+    fail("usage: orion-brain search|read|context|learn|recent|canvas-courses|canvas-refresh (see the header)");
   }
 } catch (e) {
   fail(`orion-brain: ${String(e.stderr || e.message).slice(0, 300)}`, 1);

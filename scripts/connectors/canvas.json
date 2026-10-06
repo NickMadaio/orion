@@ -2,48 +2,246 @@
   "name": "canvas",
   "title": "Canvas (Northeastern courses)",
   "baseUrl": "https://{{domain}}",
-  "settings": { "domain": { "description": "the Canvas address he logs into, e.g. northeastern.instructure.com" } },
-  "auth": { "type": "bearer", "keychain": "ORION Canvas", "howToGet": "Canvas ▸ Account ▸ Settings ▸ + New Access Token" },
+  "settings": {
+    "domain": {
+      "description": "the Canvas address he logs into, e.g. northeastern.instructure.com"
+    }
+  },
+  "auth": {
+    "type": "bearer",
+    "keychain": "ORION Canvas",
+    "howToGet": "Canvas \u25b8 Account \u25b8 Settings \u25b8 + New Access Token"
+  },
   "operations": {
     "courses": {
       "description": "His current courses (ids for the other operations)",
       "path": "/api/v1/courses",
-      "query": { "enrollment_state": "active", "per_page": "30" },
-      "keep": ["id", "name", "course_code"],
-      "limit": 30
+      "query": {
+        "enrollment_state": "active",
+        "per_page": "100"
+      },
+      "keep": [
+        "id",
+        "name",
+        "course_code",
+        "time_zone",
+        "enrollments.type"
+      ],
+      "limit": 100
     },
     "upcoming": {
       "description": "Upcoming assignments and events across all courses",
       "path": "/api/v1/users/self/upcoming_events",
-      "keep": ["title", "start_at", "assignment.due_at", "assignment.points_possible", "context_name", "html_url"],
+      "keep": [
+        "title",
+        "start_at",
+        "assignment.due_at",
+        "assignment.points_possible",
+        "context_name",
+        "html_url"
+      ],
       "limit": 15
     },
     "todo": {
       "description": "Canvas's to-do list: assignments he still needs to submit",
       "path": "/api/v1/users/self/todo",
-      "keep": ["assignment.name", "assignment.due_at", "context_name", "html_url"],
+      "keep": [
+        "assignment.name",
+        "assignment.due_at",
+        "context_name",
+        "html_url"
+      ],
       "limit": 15
     },
     "assignments": {
-      "description": "A course's upcoming assignments (course_id from courses)",
+      "description": "All visible course assignments, including past and future assessments; due and availability are distinct",
       "path": "/api/v1/courses/{{course_id}}/assignments",
-      "query": { "bucket": "upcoming", "order_by": "due_at", "per_page": "20" },
-      "keep": ["name", "due_at", "points_possible", "submission_types", "html_url"],
-      "limit": 20
+      "query": {
+        "order_by": "due_at",
+        "per_page": "100"
+      },
+      "keep": [
+        "id",
+        "course_id",
+        "name",
+        "description",
+        "due_at",
+        "unlock_at",
+        "lock_at",
+        "points_possible",
+        "submission_types",
+        "html_url",
+        "assignment_group_id",
+        "quiz_id",
+        "is_quiz_assignment",
+        "is_new_quiz",
+        "published",
+        "locked_for_user",
+        "lock_explanation",
+        "has_overrides",
+        "allowed_attempts",
+        "allowed_extensions",
+        "updated_at"
+      ],
+      "limit": 100
     },
     "grades": {
       "description": "Current grade in each course",
       "path": "/api/v1/users/self/enrollments",
-      "query": { "type[]": "StudentEnrollment", "state[]": "active" },
-      "keep": ["course_id", "grades.current_score", "grades.current_grade"],
+      "query": {
+        "type[]": "StudentEnrollment",
+        "state[]": "active"
+      },
+      "keep": [
+        "course_id",
+        "grades.current_score",
+        "grades.current_grade"
+      ],
       "limit": 20
     },
     "announcements": {
       "description": "Recent announcements in a course (course_id from courses)",
       "path": "/api/v1/announcements",
-      "query": { "context_codes[]": "course_{{course_id}}", "per_page": "10" },
-      "keep": ["title", "posted_at", "message"],
+      "query": {
+        "context_codes[]": "course_{{course_id}}",
+        "per_page": "10"
+      },
+      "keep": [
+        "title",
+        "posted_at",
+        "message"
+      ],
       "limit": 5
+    },
+    "course": {
+      "description": "Course details and syllabus when visible (course_id from courses)",
+      "path": "/api/v1/courses/{{course_id}}",
+      "query": {
+        "include[]": "syllabus_body"
+      },
+      "keep": [
+        "id",
+        "name",
+        "course_code",
+        "time_zone",
+        "syllabus_body",
+        "public_description",
+        "apply_assignment_group_weights",
+        "start_at",
+        "end_at",
+        "html_url",
+        "enrollments.type"
+      ],
+      "limit": 100
+    },
+    "assignment": {
+      "description": "One assignment with description and user-effective dates",
+      "path": "/api/v1/courses/{{course_id}}/assignments/{{assignment_id}}",
+      "keep": [
+        "id",
+        "course_id",
+        "name",
+        "description",
+        "due_at",
+        "unlock_at",
+        "lock_at",
+        "points_possible",
+        "submission_types",
+        "html_url",
+        "assignment_group_id",
+        "quiz_id",
+        "is_quiz_assignment",
+        "is_new_quiz",
+        "published",
+        "locked_for_user",
+        "lock_explanation",
+        "has_overrides",
+        "allowed_attempts",
+        "allowed_extensions",
+        "updated_at"
+      ],
+      "limit": 100
+    },
+    "quizzes": {
+      "description": "Visible classic quiz metadata only; never quiz questions or attempts",
+      "path": "/api/v1/courses/{{course_id}}/quizzes",
+      "query": {
+        "per_page": "100"
+      },
+      "keep": [
+        "id",
+        "assignment_id",
+        "title",
+        "description",
+        "html_url",
+        "quiz_type",
+        "time_limit",
+        "question_count",
+        "points_possible",
+        "allowed_attempts",
+        "scoring_policy",
+        "shuffle_answers",
+        "one_question_at_a_time",
+        "cant_go_back",
+        "due_at",
+        "unlock_at",
+        "lock_at",
+        "published",
+        "locked_for_user",
+        "lock_explanation",
+        "has_access_code",
+        "require_lockdown_browser",
+        "require_lockdown_browser_for_results",
+        "show_correct_answers",
+        "hide_results"
+      ],
+      "limit": 100
+    },
+    "quiz": {
+      "description": "One classic quiz and its visible timing/attempt settings; no questions or attempts",
+      "path": "/api/v1/courses/{{course_id}}/quizzes/{{quiz_id}}",
+      "keep": [
+        "id",
+        "assignment_id",
+        "title",
+        "description",
+        "html_url",
+        "quiz_type",
+        "time_limit",
+        "question_count",
+        "points_possible",
+        "allowed_attempts",
+        "scoring_policy",
+        "shuffle_answers",
+        "one_question_at_a_time",
+        "cant_go_back",
+        "due_at",
+        "unlock_at",
+        "lock_at",
+        "published",
+        "locked_for_user",
+        "lock_explanation",
+        "has_access_code",
+        "require_lockdown_browser",
+        "require_lockdown_browser_for_results",
+        "show_correct_answers",
+        "hide_results"
+      ],
+      "limit": 100
+    },
+    "assignment_groups": {
+      "description": "Assignment group weights and drop rules; group weight is not individual assignment weight",
+      "path": "/api/v1/courses/{{course_id}}/assignment_groups",
+      "query": {
+        "per_page": "100"
+      },
+      "keep": [
+        "id",
+        "name",
+        "group_weight",
+        "rules"
+      ],
+      "limit": 100
     }
   }
 }

@@ -5721,6 +5721,16 @@
         "layer": "Local agentic development runtime (scripts/lib/agentic/, scripts/orion-agent) plus the durable controller and Projects view; see docs/agentic/ARCHITECTURE.md for the design and docs/handoffs/CLAUDE_TO_ASTRA_AGENTIC_RUNTIME_HANDOFF.md for state and open questions.",
         "wouldBelongNear": "Existing governed self-development capability and Projects UI; preserve numbered manifest ordering.",
         "status": "registered"
+      },
+      {
+        "id": "canvas_course_brain_refresh",
+        "raisedBy": "Nick, 2026-10-06: improve Canvas access and request-based course/assessment import into the existing Obsidian brain",
+        "manifestCoverage": "No numbered phase specifies Canvas syllabus/quiz metadata retrieval and scoped Markdown parent/assessment refresh. Extends the existing read connector and brain wrappers under CAP-SCHOOL-DAY; closes no numbered phase.",
+        "alreadyLive": "Built-in Canvas GET connector and Basic Memory brain wrapper existed; new complete snapshots, source sections, stable id mapping, exclusions, backups and conflict checks validated against ECON1115/7434 and CS2100/7419. Installed/runtime proof recorded in HANDOFF.md.",
+        "layer": "Request-based connector metadata reader and scoped local knowledge writer. No new secret custody, capability tier, Canvas mutation, polling or calendar automation.",
+        "wouldBelongNear": "Phase 32.5 CAP-SCHOOL-DAY and CAP-MODELS-MEMORY; preserve numbered manifest ordering.",
+        "status": "registered",
+        "residualRisk": "Only visible API records are known. Classic quiz settings may be unavailable; configuration can conflict with syllabus plans. Due times do not prove in-person exam appointments. Multi-file crash atomicity and a natural-language model turn are not claimed."
       }
     ]
   },

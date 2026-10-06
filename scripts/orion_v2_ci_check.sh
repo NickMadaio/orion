@@ -64,6 +64,11 @@ else
 fi
 
 step "2. unit and integration tests"
+if node --test "$REPO/tests/connect.test.mjs" "$REPO/tests/canvas-brain.test.mjs" >"$LOGS"/orion-ci-canvas.log 2>&1; then
+    ok "Canvas connector and scoped brain refresh checks"
+else
+    bad "Canvas brain checks failed"; tail -25 "$LOGS"/orion-ci-canvas.log
+fi
 if (cd "$PLUGIN" && npm test >"$LOGS"/orion-ci-test.log 2>&1); then
     ok "$(grep -oE 'Tests  [0-9]+ passed' "$LOGS"/orion-ci-test.log | tail -1)"
 else

@@ -180,6 +180,17 @@ Before scheduling or rescheduling, read `SCHEDULING.md`. Whole-day planning alwa
   (id "web_search"), not exec. Money → `orion-finance`. London transport,
   "when should I leave", "is the tube running" → `orion-connect run tfl …`.
   Classes, assignments, grades → `orion-connect run canvas …` (once set up).
+  For the current course list use `orion-brain canvas-courses`; this honours
+  Nick's exclusions in the university note even if Canvas still lists active
+  enrollment. Course/assessment metadata and syllabus: `orion-connect
+  canvas-course <course_id>` (complete paginated GET snapshot; no quiz attempts
+  or questions). On Nick's request to import/refresh a named course, use
+  `orion-brain canvas-refresh <course_id> <existing course note> --apply`.
+  Omit --apply to preview. It preserves local notes/timetables, refreshes only
+  marked Canvas facts/properties, links assessment children and records source
+  URLs/retrieval times with backups. Do not poll automatically. Due and lock
+  are different; a due time is not an exam appointment. Null/empty/denied fields
+  and quiz configuration conflicting with syllabus plans stay explicit.
   Home, playlists, Focus modes, anything on the Mac/iPhone that Shortcuts can
   do → `orion-shortcut list` / `run`; if none fits, say which Shortcut to make.
 - Changing a list is not only adding. "Combine X and Y into one" / "replace" /

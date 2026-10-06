@@ -8,6 +8,8 @@
    orion-connect create <name> --json '<spec>' | --file <path>   add a connector (see "how" below)
    orion-connect set <name> <setting>=<value> a non-secret setting (e.g. canvas domain=…)
    orion-connect how                          how to write a connector
+   orion-connect canvas-courses              complete active enrollment metadata (source truth)
+   orion-connect canvas-course <course_id>   complete syllabus/assessment metadata with provenance
 
  A connector is a JSON spec (lib/connect/spec.mjs), not code: one https host,
  GET operations, fields to keep. Secrets live in the login Keychain (account
@@ -20,6 +22,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateSpec, buildRequest, keepFields } from "./lib/connect/spec.mjs";
+import { canvasCourseSnapshot, canvasRead } from "./lib/connect/canvas.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOME = homedir();
@@ -166,6 +169,38 @@ if (command === "create") {
   writeFileSync(join(DIR, `${name}.json`), JSON.stringify({ ...spec, createdAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
   const missing = needs(spec);
   console.log(`Created ${name} (${Object.keys(spec.operations).length} operation(s)).${missing.length ? ` Still needs: ${missing.join("; ")}.` : ""} Test it: orion-connect run ${name} ${Object.keys(spec.operations)[0]} …`);
+  process.exit(0);
+}
+
+if (command === "canvas-course" || command === "canvas-courses") {
+  // Composite reads use the shipped Canvas spec, not a user-created substitute.
+  // The only secret reader stays here. Output is complete JSON for the brain
+  // importer; ordinary `run` retains its compact human-readable output.
+  const spec = readJSON(join(BUILTIN, 'canvas.json'), null);
+  if (!spec || validateSpec(spec).length) fail('Invalid built-in Canvas connector');
+  const missing = needs(spec);
+  if (missing.length) fail(`Canvas is not set up yet. Needs: ${missing.join('; ')}`);
+  const settings = readJSON(SETTINGS, {}).canvas ?? {};
+  const key = secret(spec.auth.keychain);
+  const fetchJSON = async url => {
+    let response;
+    try { response = await fetch(url, { headers: { accept: 'application/json', authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000), redirect: 'error' }); }
+    catch { throw new Error('Canvas request failed (network or redirect); no partial import'); }
+    if (!response.ok) return { ok: false, status: response.status };
+    const raw = await response.text();
+    if (raw.length > 2 << 20) throw new Error('Canvas response exceeds 2 MiB; no partial import');
+    let body;
+    try { body = JSON.parse(raw); } catch { throw new Error('Canvas returned invalid JSON'); }
+    return { ok: true, body, link: response.headers.get('link') };
+  };
+  try {
+    const snapshot = command === 'canvas-course'
+      ? await canvasCourseSnapshot(spec, rest[0]?.replace(/^course_id=/, ''), settings, fetchJSON)
+      : await canvasRead(spec, 'courses', {}, settings, fetchJSON);
+    const output = JSON.stringify(snapshot);
+    if (output.length > 4 << 20) throw new Error('Canvas snapshot exceeds 4 MiB; no partial import');
+    console.log(output);
+  } catch (error) { fail(`Canvas: ${error.message}`); }
   process.exit(0);
 }
 

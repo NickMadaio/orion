@@ -89,6 +89,18 @@ and Haiku/Sonnet candidates share factual, conversational and tool-intent
 fixtures. The default is a dry run; explicit inference runs keep tools disabled
 and require blind human review before selecting a route.
 
+Canvas has request-based course snapshots and a scoped Obsidian refresh:
+`orion-brain canvas-courses` lists current courses using Nick's recorded
+exclusions; `orion-connect canvas-course <id>` reads syllabus and visible
+assessment/quiz settings with source URLs and retrieval times. On a course
+refresh request, `orion-brain canvas-refresh <id> <existing course note> --apply`
+updates the indexed `~/Documents/orionBrain` course and linked assessment notes.
+Omit `--apply` for a preview. Local timetables/study notes remain intact; source
+blocks are replaced with conflict checks and recoverable local backups. Due,
+unlock and lock times stay separate, missing fields remain unknown, and exam
+appointments are never inferred. No recurring polling or Canvas writes.
+See [the Canvas brain guide](docs/CANVAS_BRAIN.md) for limits and rollback.
+
 ## Safety model
 
 - Actions go through a typed catalog with an executor and a verifier for each

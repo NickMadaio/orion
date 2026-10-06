@@ -214,6 +214,22 @@ describe("orion-control plugin", () => {
     expect(hook?.({ ...event, toolCallId: "call-4" }, { runId: "loop-run" })).toBeUndefined();
   });
 
+  it("a run the guard keeps blocking gets no more tools at all, so it has to answer", () => {
+    const harness = hostHarness({});
+    const hook = harness.hooks.get("before_tool_call");
+    const call = (i: number, command = "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today") =>
+      hook?.({ toolName: "exec", params: { command }, runId: "stuck-run", toolCallId: `c${i}` }, { runId: "stuck-run" });
+    for (let i = 0; i < 2; i += 1) expect(call(i)).toBeUndefined();
+    for (let i = 2; i < 5; i += 1) expect(call(i)).toMatchObject({ block: true });
+    // Three blocks in: even a DIFFERENT call is refused, with the instruction to reply.
+    expect(call(9, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("Reply to Nick NOW"),
+    });
+    harness.hooks.get("agent_end")?.({ runId: "stuck-run", messages: [], success: true }, {});
+    expect(call(10, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toBeUndefined();
+  });
+
   it("routes a doomed exec on the FIRST call, before the repeat guard ever sees it", () => {
     const harness = hostHarness({});
     const hook = harness.hooks.get("before_tool_call");

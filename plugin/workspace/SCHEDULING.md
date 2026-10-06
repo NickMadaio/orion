@@ -50,6 +50,12 @@ early`: X ends now, a 15-minute break goes in if he worked an hour or more, the 
 time goes to whatever later is short of time (below its minimum, or the side project
 under its hour), and the rest of the day moves up. Tell him what it did.
 
+## Clearing the day
+
+"Delete/clear all my scheduled tasks for today", "wipe my plan" → `orion-reschedule clear`
+(every block ORION planned that is still ahead today; classes and plans with people stay).
+Another day: `clear --date YYYY-MM-DD`. Undo puts them back.
+
 ## Skipping a class or plan (2026-10-06)
 
 Classes never move — unless Nick says so. "I'm skipping Marketing", "cancel my lab

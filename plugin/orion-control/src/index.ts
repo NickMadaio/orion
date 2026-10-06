@@ -1510,8 +1510,10 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
   const store = provenance;
   const repeatState = new Map<
     string,
-    { lastSignature?: string; consecutive: number; totals: Map<string, number> }
+    { lastSignature?: string; consecutive: number; totals: Map<string, number>; guardHits: number }
   >();
+  /** Blocked repeats after which a run gets no more tools and must answer. */
+  const REPEAT_LOCKOUT = 3;
   if (typeof api.on !== "function") {
     api.logger?.warn?.(
       "[orion-control] host hook API unavailable; no user turn can be authenticated and all gated actions will fail closed.",
@@ -1566,7 +1568,19 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       const state = repeatState.get(runKey) ?? {
         consecutive: 0,
         totals: new Map<string, number>(),
+        guardHits: 0,
       };
+      // After the guard has had to block several times, the run is stuck: every
+      // further tool call in it is refused, so the only thing left is to answer.
+      // (2026-10-06: "delete all scheduled tasks for today" spun for two minutes on
+      // one malformed call, blocked 30 times, until the turn timed out.)
+      if (state.guardHits >= REPEAT_LOCKOUT) {
+        return {
+          block: true,
+          blockReason:
+            "Orion repeat guard: this turn is stuck, so no more tools run in it. Reply to Nick NOW in one or two sentences: what you tried, that it did not work, and the one thing he can say or do next. Do not call any tool.",
+        };
+      }
       state.consecutive = state.lastSignature === signature ? state.consecutive + 1 : 1;
       state.lastSignature = signature;
       const total = (state.totals.get(signature) ?? 0) + 1;
@@ -1580,6 +1594,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       // honest retry. A third consecutive attempt, or fifth anywhere in the
       // same run, is a loop until the model changes its approach.
       if (state.consecutive >= 3 || total >= 5) {
+        state.guardHits += 1;
         return {
           block: true,
           blockReason:

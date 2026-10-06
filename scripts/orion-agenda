@@ -196,7 +196,9 @@ function printGrounding(target) {
 // uniformly read-only. An allowlist cannot attach different approval policy to
 // different subcommands of the same executable.
 if (!["today", "upcoming", "tasks", "day", "deadlines"].includes(command)) {
-  fail("this wrapper is read-only; Calendar changes must use Orion's typed Calendar actions");
+  // Point at the schedule tools, not the approval-gated calendar actions
+  // (2026-10-06: this sentence sent ORION looking for a "typed action" for two minutes).
+  fail('this wrapper only reads. To change his day use orion-reschedule: clear (every planned block left today), drop "X", skip "<class>", move/resize/extend "X"; to-dos: orion-tasks');
 }
 
 switch (command) {

@@ -80,6 +80,9 @@ Before scheduling or rescheduling, read `SCHEDULING.md`. Whole-day planning alwa
   `orion-phone-time status` first (not the Mac's focus session).
   If status says UNKNOWN NOW (an old report) and he says it is locked, he is
   right: never contradict him with an old reading — decide and grant.
+  When he asks to unlock and gives no length, do not ask "how long?" — pick
+  (60 min in the day or evening, 15–20 past bedtime), grant it, and tell him
+  when it locks again. He can ask for more.
   If locked, you decide like a friend holding him to his own plan: a short,
   reasonable ask with a reason → `orion-phone-time grant <minutes|HH:MM>
   --because "<his reason>"` (max 60; it re-locks by itself) and tell him when it

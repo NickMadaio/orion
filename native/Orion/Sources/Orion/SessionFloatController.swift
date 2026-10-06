@@ -22,8 +22,8 @@ final class SessionFloatController {
     }
 
     private func update(minimized: Bool) {
-        if minimized && state.sessionTabModel.isActiveFocus { show() } else { hide() }
-        if !state.sessionTabModel.isActiveFocus && state.sessionMinimized { state.sessionMinimized = false }
+        if minimized && state.sessionTabModel.hasLiveSession { show() } else { hide() }
+        if !state.sessionTabModel.hasLiveSession && state.sessionMinimized { state.sessionMinimized = false }
     }
 
     private func show() {
@@ -34,7 +34,7 @@ final class SessionFloatController {
     private func hide() { panel?.orderOut(nil) }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 74),
+        let panel = SessionFloatPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 74),
                             styleMask: [.nonactivatingPanel, .borderless],
                             backing: .buffered, defer: false)
         panel.isFloatingPanel = true
@@ -45,12 +45,13 @@ final class SessionFloatController {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
+        panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
         let view = SessionFloatView(hologram: state.hologram, model: state.sessionTabModel) { [weak self] in
             self?.state.sessionMinimized = false
             self?.onExpand()
         }
-        let hosting = NSHostingView(rootView: view)
+        let hosting = FirstClickHostingView(rootView: view)
         panel.contentView = hosting
         panel.setContentSize(hosting.fittingSize)
         // Bottom middle of the screen to start; wherever he drags it after that.
@@ -145,4 +146,19 @@ struct SessionFloatView: View {
         let total = max(0, Int(model.phaseRemainingSeconds.rounded(.down)))
         return String(format: "%d:%02d", total / 60, total % 60)
     }
+}
+
+
+/// A borderless panel that can take a click. Borderless panels refuse key
+/// status by default, and AppKit then drops clicks on its buttons (the float's
+/// pause, expand and music buttons "aren't really working", 2026-10-06).
+/// Non-activating still: clicking it never pulls focus away from his work app.
+final class SessionFloatPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+/// Buttons answer the first click, even when ORION is not the frontmost app.
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

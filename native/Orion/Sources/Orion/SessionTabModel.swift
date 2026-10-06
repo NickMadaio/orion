@@ -220,6 +220,16 @@ final class SessionTabModel: ObservableObject {
         return false
     }
 
+    /// A session exists and is not over: focusing, on a break, paused, or
+    /// waiting for him. The floating bar stays up for all of these — it used to
+    /// follow isActiveFocus and vanished the moment he pressed pause (2026-10-06).
+    var hasLiveSession: Bool {
+        switch status {
+        case .running, .paused, .waitingForReturn: return true
+        default: return false
+        }
+    }
+
     /// The service publishes durable snapshots every 30 seconds. The dashboard
     /// interpolates between them for a live clock, then snaps back to the next
     /// authoritative value. Paused and waiting states never accrue display time.

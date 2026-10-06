@@ -76,7 +76,7 @@ final class TextWindowController: NSObject, NSWindowDelegate {
             DashboardView(state: state) { [weak self] in
                 self?.hide()
             }
-            WindowDragStrip().frame(height: 26).padding(.leading, 80)
+            WindowDragStrip().frame(height: 14).padding(.leading, 80)   // thin: the session header's buttons sit just below
         }
         window.contentView = NSHostingView(rootView: root)
 

@@ -164,7 +164,7 @@ struct DashboardView: View {
                 }
             }
         }
-        .onChange(of: state.sessionTabModel.isActiveFocus) { _, active in if !active { state.sessionMinimized = false } }
+        .onChange(of: state.sessionTabModel.hasLiveSession) { _, live in if !live { state.sessionMinimized = false } }
         .overlay {
             if (state.sessionTabModel.isActiveFocus && !state.sessionMinimized) || sessionPreview == .focus {
                 FocusSessionHome(

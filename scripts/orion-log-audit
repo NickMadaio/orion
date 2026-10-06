@@ -1,0 +1,61 @@
+#!/usr/bin/env node
+/*
+ orion-log-audit — what keeps going wrong in real ORION chats (6 Oct 2026).
+
+   orion-log-audit [--dir PATH] [--archive] [--since YYYY-MM-DD] [--include-evals] [--json] [--out FILE]
+
+ Read-only over the session transcripts; writes nothing except --out. Each
+ finding is a candidate regression/eval case, not a verdict: read the example.
+*/
+import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, basename } from "node:path";
+import { readTurns, findIssues, summarize } from "./lib/audit/chat-log.mjs";
+
+const args = process.argv.slice(2);
+const flag = (name, fallback) => { const at = args.indexOf(`--${name}`); return at === -1 || at === args.length - 1 ? fallback : args[at + 1]; };
+const fail = (message, code = 2) => { console.error(`orion-log-audit: ${message}`); process.exit(code); };
+
+const base = join(homedir(), ".openclaw/agents/main");
+const dirs = [flag("dir", join(base, "sessions")), ...(args.includes("--archive") ? [join(base, "sessions-archive")] : [])];
+const since = flag("since", "");
+if (since && !/^\d{4}-\d{2}-\d{2}$/.test(since)) fail("--since must be YYYY-MM-DD");
+const sinceMs = since ? Date.parse(`${since}T00:00:00`) : 0;
+
+// Eval runs (orion-eval-schedule and friends) replay scripted requests; they are
+// not Nick. Their session key, in the sibling trajectory file, says so.
+const isEval = path => {
+  const trace = path.replace(/\.jsonl$/, ".trajectory.jsonl");
+  if (!existsSync(trace)) return false;
+  const first = readFileSync(trace, "utf8").slice(0, 2000);
+  return /"sessionKey":"[^"]*eval/.test(first);
+};
+const withEvals = args.includes("--include-evals");
+const files = dirs.filter(existsSync).flatMap(dir => readdirSync(dir)
+  .filter(name => name.endsWith(".jsonl") && !name.endsWith(".trajectory.jsonl"))
+  .map(name => join(dir, name))
+  .filter(path => statSync(path).mtimeMs >= sinceMs)
+  .filter(path => withEvals || !isEval(path)));
+if (!files.length) fail("no transcripts found", 1);
+
+const turns = files.flatMap(path => readTurns(readFileSync(path, "utf8").split("\n"), { file: basename(path) }))
+  .filter(turn => !sinceMs || !turn.at || Date.parse(turn.at) >= sinceMs || turn.at >= sinceMs);
+const issues = findIssues(turns);
+const summary = summarize(issues);
+
+function markdown() {
+  const lines = [`# ORION chat-log audit`, ``, `${files.length} transcripts, ${turns.length} turns, ${issues.length} findings${since ? ` since ${since}` : ""}.`, ``, `## By category`];
+  for (const [category, n] of Object.entries(summary.byCategory).sort((a, b) => b[1] - a[1])) lines.push(`- ${category}: ${n}`);
+  for (const [kind, n] of Object.entries(summary.byKind).sort((a, b) => b[1] - a[1])) {
+    lines.push(``, `## ${kind} (${n})`);
+    for (const e of summary.examples[kind]) {
+      const when = e.at ? new Date(typeof e.at === "number" ? e.at : Date.parse(e.at)).toISOString().slice(0, 16) : "?";
+      lines.push(`- ${e.file.slice(0, 8)} ${when}${e.model ? ` [${e.model}]` : ""}: ${e.excerpt}`);
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
+const output = args.includes("--json") ? JSON.stringify({ summary, issues }, null, 2) + "\n" : markdown();
+if (flag("out", "")) writeFileSync(flag("out", ""), output);
+else process.stdout.write(output);

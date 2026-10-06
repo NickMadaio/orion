@@ -31,6 +31,8 @@
 //   orion-reschedule swap "<title>" "<title>"                         "swap study and the side project" (any lengths)
 //   orion-reschedule early [block|out-of-class] [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
 //        finished early: shorten what is under way (or clip a class that just ended), pull the rest of the day forward
+//   orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]   he is not going to it: just that occurrence comes
+//        off his calendar (no approval; undo puts it back). A class never moves unless he says so — this is him saying so.
 //   orion-reschedule undo                                             put the last change back
 //   add --dry-run to any of them to see the plan without touching the calendar.
 // Only movable things move (study, gym, games, rest, groceries, chores, side
@@ -42,7 +44,8 @@ import { freeGaps } from "./lib/life/gaps.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
-import { applyPlan, undoLast, bridge, clean } from "./lib/life/calendar-write.mjs";
+import { applyPlan, undoLast, bridge, clean, iso, recordUndo } from "./lib/life/calendar-write.mjs";
+import { addSkip } from "./lib/life/skips.mjs";
 import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
@@ -371,6 +374,35 @@ if (command === "late") {
   const targets = blocks.filter(b => (!b.fixed || b.pinned) && b.start >= nowMinute && minimumFor(b.title, config.minimums) > b.end - b.start);
   if (!targets.length) { console.log("Today already meets his saved minimums."); process.exit(0); }
   await writeShape("applying minimums", targets.map(block => ({ block, start: block.start, end: block.start + minimumFor(block.title, config.minimums) })), targets.map(b => `${b.title} raised to ${minimumFor(b.title, config.minimums)} min (saved minimum)`), false);
+} else if (command === "skip") {
+  /*
+   "I'm skipping Marketing, work on ORION instead" (2026-10-06). drop refused
+   classes, so ORION reached for the generic calendar delete, which needs his
+   approval and, on a repeating class, removed the series' FIRST occurrence.
+   This removes just that day's occurrence and records an undo. A read-only class
+   calendar cannot be changed, so then the occurrence is skipped in ORION's own
+   planning instead (lib/life/skips.mjs) and every view of his day leaves it out.
+  */
+  const name = rest[0];
+  if (!name) fail('usage: orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]');
+  const target = blocks.filter((b) => b.fixed && sameThingEarly(name, b.title) && b.end > nowMinute).sort((a, b) => a.start - b.start)[0];
+  if (!target) fail(`NOTHING WAS CHANGED: no class or fixed plan called "${name}" left on ${dayName}. Fixed today: ${blocks.filter((b) => b.fixed).map((b) => `${b.title} ${hhmm(b.start)}`).join(", ") || "none"}.`, 1);
+  const start = iso(date, target.start); const end = iso(date, target.end);
+  if (dry) { console.log(`Would skip ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} on ${dayName}.`); process.exit(0); }
+  let how;
+  try {
+    await bridge("delete_calendar_event", { identifier: target.calendarId, start });
+    recordUndo([{ op: "delete", title: target.title, start, end }]);
+    how = "removed from his calendar";
+  } catch (e) {
+    if (!/read-only/i.test(String(e.message))) fail(`orion-reschedule: ${e.message}`, 1);
+    addSkip(target.title, start);
+    recordUndo([{ op: "unskip", title: target.title, start }]);
+    how = "skipped in ORION's planning (that calendar is read-only, so it still shows in Apple Calendar)";
+  }
+  console.log(`Changed ${dayName} ${date}:\n  skipped ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} — ${how}. That time is free now.`);
+  console.log('Written. "orion-reschedule undo" puts it back.');
+  process.exit(0);
 } else if (command === "rename") {
   const [from, to] = rest;
   if (!from || !clean(to ?? "")) fail('usage: orion-reschedule rename "<old title>" "<new title>"');
@@ -560,7 +592,7 @@ if (command === "late") {
   if (!dry) console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
   process.exit(0);
 } else {
-  fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|rename|early|add|day|drop|tidy|clear|fill|undo  (see the header)");
+  fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|skip|rename|early|add|day|drop|tidy|clear|fill|undo  (see the header)");
 }
 
 if (command === "day") {
@@ -665,7 +697,7 @@ if (command === "drop" && !dropped.length && !flag("--date")) {
   }
 }
 if (command === "drop" && !dropped.length) {
-  console.log(`NOTHING WAS DROPPED on ${dayName}: no movable block matches ${rest.map((r) => `"${r}"`).join(", ")}. Movable blocks today: ${blocks.filter((b) => !b.fixed && b.end > nowMinute).map((b) => b.title).join(", ") || "none"}.`);
+  console.log(`NOTHING WAS DROPPED on ${dayName}: no movable block matches (a class or a plan with people? he is not going: use skip "<it>") ${rest.map((r) => `"${r}"`).join(", ")}. Movable blocks today: ${blocks.filter((b) => !b.fixed && b.end > nowMinute).map((b) => b.title).join(", ") || "none"}.`);
   process.exit(1);
 }
 const replaceDay = command === "day" && args.includes("--replace");

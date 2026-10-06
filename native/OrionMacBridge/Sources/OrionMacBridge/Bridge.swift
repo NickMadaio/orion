@@ -523,6 +523,21 @@ enum OrionMacBridge {
             try store.remove(occurrence, span: .futureEvents, commit: true)
             return ["status": "deleted", "span": "future", "title": title]
         }
+        // payload "start" alone: just that occurrence ("skip Marketing today",
+        // 2026-10-06). Without it a repeating event's identifier names the
+        // series, and .thisEvent removed its FIRST occurrence, not today's.
+        if let startText = payload["start"], let start = ISO8601DateFormatter().date(from: startText) {
+            let window = store.predicateForEvents(withStart: start.addingTimeInterval(-60), end: start.addingTimeInterval(60), calendars: [event.calendar])
+            guard let occurrence = store.events(matching: window).first(where: { $0.calendarItemIdentifier == event.calendarItemIdentifier }) else {
+                throw BridgeError.invalidRequest("No occurrence of that event starts at \(startText).")
+            }
+            guard occurrence.calendar.allowsContentModifications else {
+                throw BridgeError.invalidRequest("read-only calendar: \(occurrence.calendar.title)")
+            }
+            let title = occurrence.title ?? "(untitled)"
+            try store.remove(occurrence, span: .thisEvent, commit: true)
+            return ["status": "deleted", "span": "this", "title": title]
+        }
         let title = event.title ?? "(untitled)"
         try store.remove(event, span: .thisEvent, commit: true)
         return ["status": "deleted", "title": title]

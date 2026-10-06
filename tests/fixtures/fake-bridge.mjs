@@ -43,6 +43,10 @@ switch (request.action) {
     reply({ identifier }); break;
   }
   case "delete_calendar_event":
+    // $FAKE_READONLY: titles containing it live on a read-only calendar.
+    if (process.env.FAKE_READONLY && String(find(p.identifier)?.title ?? "").includes(process.env.FAKE_READONLY)) {
+      process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: "read-only calendar: Northeastern" })}\n`); break;
+    }
     if (!find(p.identifier)) { process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: "no such event" })}\n`); break; }
     save(events.filter((e) => e.identifier !== p.identifier)); reply({ deleted: true }); break;
   case "move_calendar_event":

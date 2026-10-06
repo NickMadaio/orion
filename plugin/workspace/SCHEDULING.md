@@ -40,6 +40,17 @@ alone: if the travel line and the calendar disagree, trust the tools.
 the minute a lecture ended, because the code only knew about the first and last
 class and this file said "stay on campus" between classes.)
 
+## Skipping a class or plan (2026-10-06)
+
+Classes never move — unless Nick says so. "I'm skipping Marketing", "cancel my lab
+today", "I'm not going to soccer" → `orion-reschedule skip "Marketing"` (add
+`--date` for another day). It removes just that occurrence, needs no approval, and
+`undo` puts it back. Then plan the freed time the normal way (`now`, `add`, …).
+Every change to his schedule goes through orion-reschedule / orion-tasks: NEVER the
+generic calendar actions (calendar_event_remove, orion_task_run calendar steps) —
+those need approval and can hit the wrong occurrence of a repeating class. And never
+`undo` your own earlier change to work around a refusal; read the refusal instead.
+
 ## Priority scale
 
 Every item in the live facts carries a rank. Use it when something has to give.

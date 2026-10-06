@@ -133,6 +133,17 @@ if (!result.ok) {
   process.exit(1);
 }
 console.log(`approved ${result.ticket.id} — ${result.ticket.summary}`);
+// The approval is a permission slip; ORION must re-run the call for anything to
+// happen, and nothing used to tell him (2026-10-06: "I approved and nothing
+// happened"). He is asked to, in the conversation that asked; the outcome
+// arrives as a notification. ORION_APPROVE_NO_RESUME=1 turns it off (tests).
+if (!process.env.ORION_APPROVE_NO_RESUME) {
+  const { spawn } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const resume = fileURLToPath(new URL("./orion-approve-resume", import.meta.url));
+  spawn(process.execPath, [resume, result.ticket.id, result.ticket.summary, result.ticket.sessionKey ?? "orion-app-v2"],
+    { detached: true, stdio: "ignore" }).unref();
+}
 console.log(forChat
   ? "Orion may run terminal commands for the rest of this chat without asking again (up to 8 hours).\nThe chat is ORION's one conversation -- the app, voice and Discord share it. Withdraw with: orion-approve revoke-chat (orion-lock also withdraws it)."
-  : "Orion may now do that once. Tell him to go ahead.");
+  : process.env.ORION_APPROVE_NO_RESUME ? "Orion may now do that once. Tell him to go ahead." : "ORION is doing it now; you will get a notification with the result.");

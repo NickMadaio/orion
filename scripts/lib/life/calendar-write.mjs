@@ -40,6 +40,11 @@ async function reverseSteps(steps) {
       await bridge("delete_calendar_event", { identifier: step.identifier }).catch(() => null);
       done.push(`removed ${step.title}`);
     }
+    if (step.op === "unskip") {
+      const { removeSkip } = await import("./skips.mjs");
+      removeSkip(step.title, step.start);
+      done.push(`put ${step.title} back`);
+    }
     if (step.op === "delete") {
       const payload = { title: step.title, start: step.start, end: step.end };
       if (step.orionKind) payload.orionKind = step.orionKind;
@@ -105,4 +110,13 @@ export async function undoLast() {
   if (last.pinsBefore) savePins(Object.fromEntries(Object.entries(last.pinsBefore).map(([date, ids]) => [date, ids.map(id => restored.get(id) ?? id)])));
   writeFileSync(UNDO_FILE, JSON.stringify(history, null, 2));
   return done;
+}
+
+/** Record steps made outside applyPlan (skipping one class occurrence) so "undo" reverses them. */
+export function recordUndo(steps) {
+  if (!steps.length) return;
+  mkdirSync(dirname(UNDO_FILE), { recursive: true });
+  const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
+  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify([...history, { at: new Date().toISOString(), steps }].slice(-10), null, 2));
+  renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
 }

@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+/*
+ orion-approve-resume <ticket id> <summary> [session key] — started by
+ orion-approve right after Nick says yes (2026-10-06).
+
+ An approval is a permission slip: ORION has to re-run the exact call for
+ anything to happen. Nothing told him the slip existed, so "I approved and
+ nothing happened". This asks him, in the conversation that asked for it, to
+ run it now, and shows Nick the outcome as a notification. It cannot approve
+ anything itself — the grant was already written by orion-approve.
+*/
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const run = promisify(execFile);
+const [id, summary, session = "orion-app-v2"] = process.argv.slice(2);
+if (!id) process.exit(2);
+const message = `[orion-approve] Nick just approved ${id} (${summary}). Re-run that exact call now with the same arguments, then tell him in one line what happened. If it fails, say so plainly.`;
+let reply = "";
+try {
+  const { stdout } = await run(join(homedir(), ".openclaw/bin/openclaw"),
+    ["agent", "--session-key", session, "--json", "--message", message, "--timeout", "240"], { timeout: 300000, maxBuffer: 16 << 20 });
+  const parsed = JSON.parse(stdout.slice(stdout.indexOf("{")));
+  reply = JSON.stringify(parsed).match(/"finalAssistantRawText":"((?:[^"\\]|\\.)*)"/)?.[1] ?? "";
+  reply = JSON.parse(`"${reply}"`);
+} catch (error) {
+  reply = `ORION could not run ${id}: ${String(error.message).slice(0, 150)}`;
+}
+const text = (reply || `ORION ran ${id}.`).replace(/[\\"]/g, "'").slice(0, 220);
+await run("/usr/bin/osascript", ["-e", `display notification "${text}" with title "ORION — approved ${id}"`]).catch(() => {});

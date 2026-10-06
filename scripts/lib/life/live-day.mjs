@@ -5,6 +5,7 @@
 import { ignoredEvent } from "./config.mjs";
 // The bridge (and, during a schedule evaluation, the sandbox calendar) lives in bridge-path.
 import { bridgeRequest } from "./bridge-path.mjs";
+import { isSkipped } from "./skips.mjs";
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -59,7 +60,7 @@ export function toBlocks(events, date) {
 
 export async function calendarEvents() {
   const result = await bridgeRequest("list_upcoming_calendar_events", { from: "today" });
-  return JSON.parse(result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title));
+  return JSON.parse(result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title) && !isSkipped(e));
 }
 
 export async function liveDay(date) {

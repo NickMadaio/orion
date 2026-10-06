@@ -51,12 +51,17 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         // window, sliders included — so it jumped around under ordinary clicks.
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: TextWindowController.size),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "ORION"
         window.appearance = NSAppearance(named: .darkAqua)
+        // No grey title bar: the dashboard runs to the top edge and the standard
+        // buttons sit on it; a thin strip along the top drags the window (Nick:
+        // "I hate the top bar thing", 2026-10-06).
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false
         window.isMovable = true
         // The dashboard still paints its own tinted translucency below the title bar.
@@ -67,8 +72,11 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         window.minSize = NSSize(width: 760, height: 520)
         window.collectionBehavior = [.fullScreenPrimary]
 
-        let root = DashboardView(state: state) { [weak self] in
-            self?.hide()
+        let root = ZStack(alignment: .top) {
+            DashboardView(state: state) { [weak self] in
+                self?.hide()
+            }
+            WindowDragStrip().frame(height: 26).padding(.leading, 80)
         }
         window.contentView = NSHostingView(rootView: root)
 
@@ -125,4 +133,18 @@ final class TextWindowController: NSObject, NSWindowDelegate {
         hide()
         return false
     }
+}
+
+
+/// The top 26 points of the window: drag to move, double-click to zoom, like
+/// the title bar it replaces. Everything below it belongs to the dashboard.
+struct WindowDragStrip: NSViewRepresentable {
+    final class StripView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 { window?.zoom(nil) } else { window?.performDrag(with: event) }
+        }
+        override var mouseDownCanMoveWindow: Bool { true }
+    }
+    func makeNSView(context: Context) -> NSView { StripView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

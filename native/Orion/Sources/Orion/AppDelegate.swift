@@ -14,12 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the Sparkle updater. Constructed here, STARTED late — see
     /// `UpdateController.start`, and the launch-path note in its header.
     private let updates = UpdateController()
+    private var sessionFloatController: SessionFloatController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Resolve the voice keys now, off the main thread, so pressing talk never waits on the keychain.
         Secrets.prefetch()
         panelController = PanelController(state: state)
         textWindowController = TextWindowController(state: state)
+        sessionFloatController = SessionFloatController(state: state) { [weak self] in self?.textWindowController.show() }
         preferencesController = PreferencesWindowController(state: state)
         menuBarController = MenuBarController(
             state: state,

@@ -75,6 +75,9 @@ final class AppState: ObservableObject {
     @Published private(set) var chatConversation: ChatConversation?
     @Published private(set) var chatThinking: String?
     @Published var summonMicMuted = false
+    /// The focus session moved out of the main window into its own floating
+    /// panel (SessionFloatController), which stays when the window closes.
+    @Published var sessionMinimized = false
     var hideSummon: (() -> Void)?
     private let chatStore = try? ChatStore(directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/chats"))
     var chatModels: [ModelChoice] { FileManager.default.contents(atPath: ModelContract.path).map(ChatModels.choices(fromModelRoles:)) ?? [] }

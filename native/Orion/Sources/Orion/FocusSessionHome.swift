@@ -814,7 +814,7 @@ struct FocusSessionHome: View {
 
 // MARK: - Dial
 
-private struct FocusTimerDial: View {
+struct FocusTimerDial: View {
     let diameter: CGFloat
     let progress: Double
     let remaining: String

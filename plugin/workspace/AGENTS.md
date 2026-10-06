@@ -78,6 +78,8 @@ Before scheduling or rescheduling, read `SCHEDULING.md`. Whole-day planning alwa
 - His phone locks his distracting apps (Screen Time) at night and in work
   blocks. "Unblock my apps / 20 more minutes / can I have my phone back" →
   `orion-phone-time status` first (not the Mac's focus session).
+  If status says UNKNOWN NOW (an old report) and he says it is locked, he is
+  right: never contradict him with an old reading — decide and grant.
   If locked, you decide like a friend holding him to his own plan: a short,
   reasonable ask with a reason → `orion-phone-time grant <minutes|HH:MM>
   --because "<his reason>"` (max 60; it re-locks by itself) and tell him when it

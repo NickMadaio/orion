@@ -58,3 +58,16 @@ test("a grant to a phone that has never reported is sent, not claimed as done (2
   assert.match(r.out, /^SENT, NOT CONFIRMED/);
   assert.match(r.out, /Do not say he is unlocked/);
 });
+
+test("an old 'not locked' report is not passed off as now (2026-10-06: 'my phone is locked')", (t) => {
+  // Reported at 22:39 (106 minutes before NOW); the lock came on after.
+  const r = world(t, { at: "2026-09-30T21:39:00Z", locked: false }).run("status");
+  assert.match(r.out, /^UNKNOWN NOW/);
+  assert.match(r.out, /106 min ago/);
+  assert.match(r.out, /believe him/i);
+  assert.doesNotMatch(r.out, /^Not locked/);
+});
+
+test("a fresh 'not locked' report is still a plain answer", (t) => {
+  assert.match(world(t, { at: "2026-09-30T23:20:00Z", locked: false }).run("status").out, /^Not locked — as of 12:20 AM\./);
+});

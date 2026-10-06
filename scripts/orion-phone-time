@@ -17,6 +17,7 @@ const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".opencla
 const HEALTH = process.env.ORION_HEALTH_LOG || join(CONTROLLED, "health-log.json");
 const GRANT = join(CONTROLLED, "screen-grant.json");
 const MAX_MINUTES = 60;
+const STALE_MINUTES = 15;
 const read = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
 const fail = (message, code = 2) => { console.error(message); process.exit(code); };
 const clock = (date) => date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -40,6 +41,13 @@ function describe() {
   if (state.locked && state.until && new Date(state.until) > now) {
     const why = { night: "past bedtime", work: "during a planned work block", checkin: "an ignored check-in" }[state.why] ?? "focus lock";
     return `LOCKED: his distracting apps are locked until ${clock(new Date(state.until))} (${why}) — ${as}.${extra}`;
+  }
+  // The phone reports only when he messages from the phone app; a voice turn on
+  // the Mac sends nothing. A two-hour-old "not locked" said as now is how ORION
+  // told him his locked phone was free (6 Oct 2026). Past STALE_MINUTES it is
+  // history, not the answer.
+  if (age > STALE_MINUTES) {
+    return `UNKNOWN NOW: the phone last reported at ${clock(at)} (${age} min ago) and was not locked then; it may have locked since (bedtime, a work block, a focus session). If he says it is locked, believe him — never tell him it isn't. A grant works either way.${extra}`;
   }
   return `Not locked — ${as}.${extra}`;
 }

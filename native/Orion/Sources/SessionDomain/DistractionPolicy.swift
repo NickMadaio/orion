@@ -142,6 +142,10 @@ public enum DistractionFloor {
     public static let neverQuit: Set<String> = [
         // Orion, and the machine
         "com.nickmadaio.orion.app",
+        // His music is never a distraction to close (2026-10-06: the reviewer
+        // judged Music "not part of certification work" and quit it mid-song).
+        "com.apple.Music",
+        "com.spotify.client",
         "com.apple.finder",
         "com.apple.loginwindow",
         "com.apple.SecurityAgent",

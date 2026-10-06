@@ -644,6 +644,29 @@ final class SessionTabModel: ObservableObject {
         return clipInventory?.clips.first?.name
     }
 
+    /// His Music playlists for the picker; loaded when the session screen opens (2026-10-06).
+    @Published private(set) var musicPlaylists: [String] = []
+
+    func loadPlaylists() {
+        let controller = music
+        mediaQueue.async { [weak self] in
+            let names = controller.playlists()
+            DispatchQueue.main.async { self?.musicPlaylists = names }
+        }
+    }
+
+    func playPlaylist(_ name: String) {
+        if audioSource != .appleMusic { audioSource = .appleMusic }
+        let controller = music
+        mediaQueue.async { [weak self] in
+            let outcome = controller.play(playlist: name)
+            DispatchQueue.main.async {
+                self?.report(outcome)
+                self?.refreshMedia(after: 0.4)
+            }
+        }
+    }
+
     private func moveMedia(by offset: Int) {
         switch audioSource {
         case .none:

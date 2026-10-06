@@ -38,6 +38,8 @@ struct DashboardView: View {
     @StateObject private var todayPlan = TodayPlanModel()
     /// Plan requests from the phone, and plan changes saved by it, every few seconds.
     @StateObject private var phoneTicker = RefreshTicker(interval: 3)
+    /// The focus session tucked into the floating bar while he uses the rest of ORION.
+    @State private var sessionMinimized = false
     @State private var phonePlans = PhonePlanRequests()
     @State private var lifeWatch = LifeWatch()
     @State private var glanceExport = GlanceExport()
@@ -164,14 +166,26 @@ struct DashboardView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if state.sessionTabModel.isActiveFocus && sessionMinimized {
+                SessionMiniBar(hologram: state.hologram, model: state.sessionTabModel) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) { sessionMinimized = false }
+                }
+                .padding(.bottom, 22)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(9)
+            }
+        }
+        .onChange(of: state.sessionTabModel.isActiveFocus) { _, active in if !active { sessionMinimized = false } }
         .overlay {
-            if state.sessionTabModel.isActiveFocus || sessionPreview == .focus {
+            if (state.sessionTabModel.isActiveFocus && !sessionMinimized) || sessionPreview == .focus {
                 FocusSessionHome(
                     hologram: state.hologram,
                     model: state.sessionTabModel,
                     isPreview: sessionPreview == .focus,
                     onExitPreview: sessionPreview == .focus ? { sessionPreview = nil } : nil,
-                    onDismiss: onDismiss
+                    onDismiss: onDismiss,
+                    onMinimize: sessionPreview == .focus ? nil : { withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) { sessionMinimized = true } }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()

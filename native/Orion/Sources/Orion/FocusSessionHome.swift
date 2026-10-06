@@ -1,6 +1,7 @@
 import ThinkingOrbsKit
 import AppKit
 import SwiftUI
+import EventKit
 import SessionService
 
 /// The Home page during a focus block. It keeps Orion's restrained instrument
@@ -12,6 +13,8 @@ struct FocusSessionHome: View {
     var isPreview = false
     var onExitPreview: (() -> Void)?
     var onDismiss: (() -> Void)?
+    /// Tuck the session into the floating bar and use the rest of ORION (2026-10-06).
+    var onMinimize: (() -> Void)?
     @State private var pendingGuard: GuardProposal?
 
     var body: some View {
@@ -22,7 +25,7 @@ struct FocusSessionHome: View {
             let leftWidth = min(470, width * 0.31)
             let rightCenter = width * 0.67
             let rightWidth = min(790, width * 0.51)
-            let constellationSize = min(leftWidth * 0.94, height * 0.43)
+            let constellationSize = min(leftWidth * 0.78, height * 0.30)
             let dialSize = min(575, height * 0.57, rightWidth * 0.76)
             let mediaHeight = min(380, height * 0.42)
 
@@ -36,9 +39,20 @@ struct FocusSessionHome: View {
                     .frame(width: leftWidth, alignment: .leading)
                     .position(x: leftX + leftWidth / 2, y: height * 0.12)
 
-                SessionConstellation(model: hologram)
-                    .frame(width: constellationSize, height: constellationSize)
-                    .position(x: leftX + leftWidth * 0.53, y: height * 0.31)
+                // ORION's own hologram (the orb-centred one), not a stand-in.
+                ZStack {
+                    Circle().fill(RadialGradient(colors: [FocusPalette.cyan.opacity(0.16), .clear],
+                                                 center: .center, startRadius: 0, endRadius: constellationSize * 0.6))
+                    HologramView(model: hologram)
+                }
+                .frame(width: constellationSize, height: constellationSize)
+                .position(x: leftX + leftWidth * 0.5, y: height * 0.29)
+
+                SessionDayStrip()
+                    .frame(width: leftWidth, height: height * 0.12, alignment: .topLeading)
+                    .position(x: leftX + leftWidth / 2, y: height * 0.505)
+
+                if !isPreview { playlistPicker.position(x: leftX + leftWidth / 2, y: height * 0.75 - mediaHeight / 2 - 16) }
 
                 musicSurface
                     .frame(width: leftWidth, height: mediaHeight)
@@ -126,8 +140,35 @@ struct FocusSessionHome: View {
         }
     }
 
+    /// Any of his Music playlists, started in one click; Music otherwise works as normal.
+    private var playlistPicker: some View {
+        Menu {
+            if model.musicPlaylists.isEmpty { Text("Open Music to see your playlists") }
+            ForEach(model.musicPlaylists, id: \.self) { name in Button(name) { model.playPlaylist(name) } }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "music.note.list")
+                Text("PLAYLIST").tracking(1.6)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            }
+            .font(OrionTheme.mono(9, .semibold))
+            .foregroundStyle(FocusPalette.cyan)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Capsule().fill(FocusPalette.cyan.opacity(0.08)))
+            .overlay(Capsule().strokeBorder(FocusPalette.cyan.opacity(0.28), lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .onAppear { model.loadPlaylists() }
+        .help("Play one of your playlists")
+    }
+
     private var sessionControls: some View {
         HStack(spacing: 18) {
+            if let onMinimize {
+                Button { onMinimize() } label: { Label("MINIMIZE", systemImage: "rectangle.bottomthird.inset.filled") }
+                    .help("Keep the session running and go back to ORION")
+            }
             Button(model.headline == "Paused" ? "RESUME" : "PAUSE") {
                 model.toggleSessionPause()
             }
@@ -1190,4 +1231,91 @@ private enum FocusPalette {
     static let brightGold = Color(red: 1.00, green: 0.91, blue: 0.43)
     static let gold = Color(red: 1.00, green: 0.74, blue: 0.27)
     static let orange = Color(red: 1.00, green: 0.48, blue: 0.09)
+}
+
+
+/// The rest of today beside the timer: what is on now and what is next
+/// (calendar, read directly; 2026-10-06 "maybe it should include the schedule").
+private struct SessionDayStrip: View {
+    @State private var items: [(title: String, start: Date, end: Date)] = []
+    // RefreshTicker, not Timer.publish: a child timer here never fires (see RefreshTicker).
+    @StateObject private var clock = RefreshTicker(interval: 60)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("REST OF TODAY").font(OrionTheme.mono(9, .semibold)).tracking(2.4).foregroundStyle(FocusPalette.cyan)
+            if items.isEmpty {
+                Text("Nothing else on the calendar today").font(.system(size: 12, weight: .light)).foregroundStyle(OrionTheme.textDim)
+            }
+            ForEach(Array(items.prefix(4).enumerated()), id: \.offset) { _, item in
+                let now = Date()
+                let current = item.start <= now && item.end > now
+                HStack(spacing: 10) {
+                    Circle().fill(current ? FocusPalette.cyan : Color.white.opacity(0.25)).frame(width: 5, height: 5)
+                    Text(item.start.formatted(date: .omitted, time: .shortened))
+                        .font(OrionTheme.mono(10, .medium)).foregroundStyle(OrionTheme.textDim).frame(width: 64, alignment: .leading)
+                    Text(item.title).font(.system(size: 12, weight: current ? .medium : .light))
+                        .foregroundStyle(current ? FocusPalette.warmWhite : OrionTheme.textSoft).lineLimit(1)
+                }
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: clock.tick) { _, _ in load() }
+    }
+
+    private func load() {
+        let store = EKEventStore()
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return }
+        let now = Date()
+        let end = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: now) ?? now
+        let events = store.events(matching: store.predicateForEvents(withStart: now, end: end, calendars: nil))
+            .filter { !$0.isAllDay }
+            .sorted { $0.startDate < $1.startDate }
+        items = events.map { (title: $0.title ?? "Untitled", start: $0.startDate, end: $0.endDate) }
+    }
+}
+
+/// The session, tucked away: a floating bar over the rest of ORION with the
+/// hologram, the block and the time left, pause, and the way back in (2026-10-06).
+struct SessionMiniBar: View {
+    let hologram: HologramModel
+    @ObservedObject var model: SessionTabModel
+    let onExpand: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HologramView(model: hologram)
+                .frame(width: 34, height: 34)
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.focusBlockLabel.uppercased())
+                    .font(OrionTheme.mono(8, .semibold)).tracking(1.6).foregroundStyle(FocusPalette.cyan)
+                Text(remaining).font(.system(size: 18, weight: .light, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(FocusPalette.warmWhite)
+            }
+            ProgressView(value: min(1, max(0, model.phaseProgress)))
+                .progressViewStyle(.linear).tint(FocusPalette.cyan).frame(width: 90)
+            Button { model.toggleSessionPause() } label: {
+                Image(systemName: model.headline == "Paused" ? "play.fill" : "pause.fill").font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 28).background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain).foregroundStyle(FocusPalette.warmWhite)
+            .help(model.headline == "Paused" ? "Resume" : "Pause")
+            Button(action: onExpand) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 28).background(Circle().fill(FocusPalette.cyan.opacity(0.16)))
+            }
+            .buttonStyle(.plain).foregroundStyle(FocusPalette.cyan)
+            .help("Back to the focus session")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(FocusPalette.cyan.opacity(0.28), lineWidth: 1))
+        .shadow(color: FocusPalette.cyan.opacity(0.18), radius: 18)
+    }
+
+    private var remaining: String {
+        let total = max(0, Int(model.phaseRemainingSeconds.rounded(.down)))
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
 }

@@ -200,6 +200,28 @@ public final class AppleMusicControl {
         return outcome
     }
 
+    /// His playlists, by name, for the session's playlist picker (2026-10-06).
+    public func playlists() -> [String] {
+        guard isRunning() else { return [] }
+        guard case .success(let list) = execute("tell application \"Music\" to get name of every user playlist") else { return [] }
+        guard list.numberOfItems > 0 else { return list.stringValue.map { [$0] } ?? [] }
+        return (1...list.numberOfItems).compactMap { list.atIndex($0)?.stringValue }
+    }
+
+    /// Start one of his playlists by name; it opens Music first if needed.
+    @discardableResult
+    public func play(playlist name: String) -> ExternalOutcome {
+        if !isRunning() { _ = open() }
+        let escaped = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        switch execute("tell application \"Music\" to play user playlist \"\(escaped)\"") {
+        case .success:
+            stateLock.lock(); pausedByOrion = false; stateLock.unlock()
+            return .done
+        case .failure(let error):
+            return error.outcome
+        }
+    }
+
     @discardableResult
     public func previousTrack() -> ExternalOutcome {
         guard isRunning() else { return .notConfigured("Music is not running.") }

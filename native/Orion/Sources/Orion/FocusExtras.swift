@@ -176,10 +176,13 @@ final class FocusExtrasCoordinator {
             }
         }
 
-        let sessionPlayerUsesMusic = UserDefaults.standard.string(
+        // Only when the session plays its OWN sound does Music get paused; with
+        // no session sound, or Apple Music chosen, his music keeps playing
+        // (2026-10-06: a session paused his music, then the reviewer quit Music).
+        let sessionPlaysOwnSound = UserDefaults.standard.string(
             forKey: "orion.focus.audioSource"
-        ) == "appleMusic"
-        if extras.pauseMusic && !sessionPlayerUsesMusic {
+        ) == "binaural"
+        if extras.pauseMusic && sessionPlaysOwnSound {
             let outcome = music.pauseForSession()
             // "Music is not running" is not a problem worth reporting; a refused
             // Automation consent is.

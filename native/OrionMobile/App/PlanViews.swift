@@ -233,33 +233,13 @@ struct TodoListView: View {
     }
 
     private func subRow(_ sub: TaskNotes.Subtask, of todo: PlannerStore.Todo) -> some View {
-        HStack(spacing: 10) {
-            Button {
-                var notes = TaskNotes.parse(todo.notes)
-                guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
-                notes.subtasks[i].percent = sub.done ? 0 : 100
-                var updated = todo; updated.notes = notes.text
-                withAnimation(.spring(response: 0.3)) { planner.update(updated) }
-            } label: {
-                ZStack {
-                    Circle().stroke(sub.done ? Phone.green : Phone.soft, lineWidth: 1.2).frame(width: 18, height: 18)
-                    if sub.done { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Phone.green) }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(sub.done ? "Mark \(sub.title) not done" : "Complete \(sub.title)")
-            Button { editing = todo } label: {
-                HStack {
-                    Text(sub.title).font(.system(size: 14)).foregroundStyle(sub.done ? Phone.dim : Phone.soft)
-                        .strikethrough(sub.done, color: Phone.dim)
-                    Spacer()
-                    Text("\(sub.percent)%").font(Phone.mono(11, .medium)).foregroundStyle(sub.percent > 0 && !sub.done ? Phone.accent : Phone.dim)
-                }
-            }
-            .buttonStyle(.plain)
+        PhoneSubtaskRow(sub: sub) { percent in
+            var notes = TaskNotes.parse(todo.notes)
+            guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
+            notes.subtasks[i].percent = percent
+            var updated = todo; updated.notes = notes.text
+            withAnimation(.spring(response: 0.3)) { planner.update(updated) }
         }
-        .padding(.leading, 34)
-        .padding(.vertical, 2)
     }
 
     private func row(_ todo: PlannerStore.Todo) -> some View {
@@ -466,5 +446,63 @@ struct OrionBlockSheet: View {
         }
         .preferredColorScheme(.dark)
         .presentationDetents([.medium])
+    }
+}
+
+
+/// A part of a to-do, drawn like a to-do (same circle, title and colours),
+/// indented under its parent, with a drag-to-set progress track that saves
+/// once when the drag ends (2026-10-06).
+struct PhoneSubtaskRow: View {
+    let sub: TaskNotes.Subtask
+    let onSet: (Int) -> Void
+    @State private var draft: Double?
+    private var shown: Double { draft ?? Double(sub.percent) / 100 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                Button { onSet(sub.done ? 0 : 100) } label: {
+                    ZStack {
+                        Circle().stroke(sub.done ? Phone.green : Phone.soft, lineWidth: 1.4).frame(width: 22, height: 22)
+                        if sub.done { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Phone.green) }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(sub.done ? "Mark \(sub.title) not done" : "Complete \(sub.title)")
+                Text(sub.title).font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(sub.done ? Phone.dim : Phone.text).strikethrough(sub.done, color: Phone.dim)
+                Spacer(minLength: 8)
+                Text("\(Int((shown * 100).rounded()))%").font(Phone.mono(12, .semibold))
+                    .foregroundStyle(shown > 0 && !sub.done ? Phone.accent : Phone.dim)
+            }
+            if !sub.done {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.08)).frame(height: 4)
+                        Capsule().fill(Phone.accent).frame(width: max(4, geo.size.width * shown), height: 4)
+                    }
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { draft = min(1, max(0, $0.location.x / max(1, geo.size.width))) }
+                        .onEnded { value in
+                            let v = min(1, max(0, value.location.x / max(1, geo.size.width)))
+                            onSet(Int((v * 100 / 5).rounded()) * 5); draft = nil
+                        })
+                }
+                .frame(height: 18)
+                .padding(.leading, 34)
+                .accessibilityElement()
+                .accessibilityLabel("\(sub.title) progress")
+                .accessibilityValue("\(sub.percent) percent")
+                .accessibilityAdjustableAction { direction in
+                    onSet(min(100, max(0, sub.percent + (direction == .increment ? 10 : -10))))
+                }
+            }
+        }
+        .padding(.leading, 30)
+        .padding(.vertical, 4)
+        .onChange(of: sub.percent) { _, _ in draft = nil }
     }
 }

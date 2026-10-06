@@ -247,10 +247,10 @@ struct TasksTab: View {
                         )
                         // Its parts, dropped below it like to-dos of their own (2026-10-06).
                         ForEach(TaskNotes.parse(task.notes).subtasks) { sub in
-                            SubtaskRow(sub: sub) {
+                            SubtaskRow(sub: sub) { percent in
                                 var notes = TaskNotes.parse(task.notes)
                                 guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
-                                notes.subtasks[i].percent = sub.done ? 0 : 100
+                                notes.subtasks[i].percent = percent
                                 reminders.setNotes(task.id, notes.text)
                             }
                         }
@@ -630,6 +630,8 @@ private struct ProgressTrack: View {
     let progress: Double
     let tint: Color
     let onChange: (Double) -> Void
+    /// Called once when the drag ends (parts save to Reminders then, not on every pixel).
+    var onCommit: ((Double) -> Void)? = nil
 
     var body: some View {
         GeometryReader { geometry in
@@ -648,6 +650,9 @@ private struct ProgressTrack: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         onChange(min(1, max(0, value.location.x / max(1, geometry.size.width))))
+                    }
+                    .onEnded { value in
+                        onCommit?(min(1, max(0, value.location.x / max(1, geometry.size.width))))
                     }
             )
         }
@@ -721,32 +726,45 @@ private struct TaskPlanEditor: View {
 }
 
 
-/// One part of a to-do, drawn under it like a smaller to-do: tick it to mark
-/// the part done (100%), untick to reopen it; the percent is set in Edit.
+/// One part of a to-do, drawn exactly like a to-do (same circle, text,
+/// percent and drag-to-set track), indented under its parent. The track moves
+/// live and saves once when the drag ends; the tick sets 100% / reopens at 0%.
 private struct SubtaskRow: View {
     let sub: TaskNotes.Subtask
-    let onToggle: () -> Void
+    let onSet: (Int) -> Void
+    @State private var draft: Double?
+
+    private var shown: Double { draft ?? Double(sub.percent) / 100 }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onToggle) {
-                Image(systemName: sub.done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12))
-                    .foregroundStyle(sub.done ? OrionTheme.green : OrionTheme.textDim)
-                    .contentShape(Circle())
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 11) {
+                Button { onSet(sub.done ? 0 : 100) } label: {
+                    Image(systemName: sub.done ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(sub.done ? OrionTheme.green : OrionTheme.textDim)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                Text(sub.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(sub.done ? OrionTheme.textDim : OrionTheme.text)
+                    .strikethrough(sub.done, color: OrionTheme.textDim)
+                Spacer(minLength: 12)
+                Text("\(Int((shown * 100).rounded()))%")
+                    .font(OrionTheme.mono(10, .semibold))
+                    .foregroundStyle(shown > 0 ? OrionTheme.accent : OrionTheme.textDim)
+                    .frame(width: 34, alignment: .trailing)
             }
-            .buttonStyle(.plain)
-            Text(sub.title)
-                .font(.system(size: 12))
-                .foregroundStyle(sub.done ? OrionTheme.textDim : OrionTheme.textSoft)
-                .strikethrough(sub.done, color: OrionTheme.textDim)
-            Spacer(minLength: 12)
-            Text("\(sub.percent)%")
-                .font(OrionTheme.mono(10))
-                .foregroundStyle(sub.percent > 0 && !sub.done ? OrionTheme.accent : OrionTheme.textDim)
-                .frame(width: 34, alignment: .trailing)
+            if !sub.done {
+                ProgressTrack(progress: shown, tint: OrionTheme.accent,
+                              onChange: { draft = $0 },
+                              onCommit: { value in onSet(Int((value * 100 / 5).rounded()) * 5); draft = nil })
+                    .padding(.leading, 26)
+            }
         }
-        .padding(.leading, 42)
-        .padding(.vertical, 5)
+        .padding(.vertical, 7)
+        .padding(.leading, 28)
+        .onChange(of: sub.percent) { _, _ in draft = nil }
     }
 }

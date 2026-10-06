@@ -19,6 +19,12 @@
    orion-session start "finish the essay" [--blocks 3] [--focus 50] [--rest 10]
    orion-session start "finish the essay" --minutes 150 | --until 20:00   (blocks worked out for him)
                                           [--clips rain,forest,rain]
+   orion-session start "task" --sequence "20 work, 5 break, 40 work" [--from-phase N --elapsed M]
+                                      any order, may open on a break; part-way in
+   orion-session recover [--sequence "20 left, 5 break, 40 block"] [--task "..."]
+                                      restart what was left of the last session
+   orion-session today [--day YYYY-MM-DD]   focus time for the whole day
+   (start and recover take --dry-run: print the request, send nothing)
    orion-session pause | resume | back | idle
    orion-session skip                 end the current break now
    orion-session shorten 3            leave three minutes of the break
@@ -45,7 +51,9 @@
 
 import { connect } from "node:net";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { parseSequence, remainingFrom, recoverFromHistory, describeSequence, toRequestPhases } from "./lib/focus/sequence.mjs";
+import { focusToday, formatFocusToday } from "./lib/focus/day-total.mjs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -54,6 +62,20 @@ const SOCKET =
 
 const [command, ...rest] = process.argv.slice(2);
 const wantsJSON = rest.includes("--json");
+const dryRun = rest.includes("--dry-run");
+const HISTORY =
+  process.env.ORION_FOCUS_HISTORY || join(homedir(), ".openclaw/orion-controlled/focus-history.jsonl");
+
+function historyRecords() {
+  if (!existsSync(HISTORY)) return [];
+  return readFileSync(HISTORY, "utf8").split("\n").flatMap((line) => {
+    try { return line.trim() ? [JSON.parse(line)] : []; } catch { return []; }
+  });
+}
+
+function sequenceOrFail(text) {
+  try { return parseSequence(text); } catch (error) { fail(error.message); }
+}
 
 function fail(message, code = 2) {
   console.error(`orion-session: ${message}`);
@@ -195,7 +217,7 @@ function describe(reply) {
 
 async function main() {
   if (!command || command === "--help" || command === "-h") {
-    fail("usage: orion-session status|start|pause|resume|skip|shorten|finish|abandon", 0);
+    fail("usage: orion-session status|start|recover|today|pause|resume|skip|shorten|finish|abandon", 0);
   }
 
   const request = { op: command, requestId: randomUUID() };
@@ -205,10 +227,61 @@ async function main() {
       delete request.requestId; // status asks nothing of the writer
       break;
 
+    case "today": {
+      const day = flag("day", new Date().toLocaleDateString("en-CA"));
+      try {
+        console.log(formatFocusToday(focusToday(historyRecords(), { dayKey: day })));
+      } catch (error) {
+        fail(error.message);
+      }
+      return;
+    }
+
+    case "recover": {
+      const last = historyRecords().at(-1);
+      const task = flag("task", last?.task ?? "focus");
+      const said = flag("sequence", "");
+      const phases = said ? sequenceOrFail(said) : last ? recoverFromHistory(last) : null;
+      if (!phases) {
+        console.log(last ? `Nothing to recover: the last session (${last.task}) finished normally.`
+          : "Nothing to recover: there is no session in the history.");
+        return;
+      }
+      request.op = "start-sequence";
+      request.task = task;
+      request.phases = toRequestPhases(phases);
+      console.log(`Recovering "${task}": ${describeSequence(phases)}`);
+      break;
+    }
+
     case "start": {
       const task = rest[0];
       if (!task || task.startsWith("--")) fail('start needs a task: orion-session start "the thing"');
       request.task = task;
+      const sequenceText = flag("sequence", "");
+      if (sequenceText) {
+        if (["blocks", "focus", "rest", "minutes", "until"].some((name) => rest.includes(`--${name}`))) {
+          fail("--sequence cannot be combined with --blocks, --focus, --rest, --minutes or --until");
+        }
+        let phases = sequenceOrFail(sequenceText);
+        if (rest.includes("--from-phase") || rest.includes("--elapsed")) {
+          try {
+            phases = remainingFrom(phases, {
+              phaseIndex: Number(flag("from-phase", 1)) - 1,
+              elapsedMinutes: Number(flag("elapsed", 0)),
+            });
+          } catch (error) {
+            fail(error.message);
+          }
+          if (phases.length === 0) fail("nothing is left of that sequence from there");
+        }
+        request.op = "start-sequence";
+        request.phases = toRequestPhases(phases);
+        const clipList = flag("clips", "");
+        if (clipList) request.clips = clipList.split(",").map((name) => name.trim()).filter(Boolean);
+        console.log(`Sequence: ${describeSequence(phases)}`);
+        break;
+      }
       request.focusBlocks = Number(flag("blocks", 3));
       request.focusMinutes = Number(flag("focus", 50));
       request.restMinutes = Number(flag("rest", 10));
@@ -273,6 +346,11 @@ async function main() {
 
     default:
       fail(`unknown command: ${command}`);
+  }
+
+  if (dryRun) {
+    console.log(`DRY RUN ${JSON.stringify(request)}`);
+    return;
   }
 
   let reply;

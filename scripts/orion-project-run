@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+/*
+ orion-project-run — start, check and stop the local Qwen projects from a chat
+ (2026-10-06). Nick: "running a project from my phone remotely". The phone talks
+ to ORION, ORION runs this; it is the same launch the Mac's Projects tab does.
+
+   orion-project-run list                     registered projects and how far each got
+   orion-project-run start <name> [<name>…]   one starts now; several run in order
+   orion-project-run status                   what is running, queued, done
+   orion-project-run stop | pause | resume    the running project
+
+ Boundaries: only projects Nick already registered (no new plans from here),
+ never --enable (if local execution was switched off on the Mac, it stays off
+ until he turns it on there), and the run is until-stopped like the Mac default.
+*/
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const bin = name => process.env[`ORION_${name.toUpperCase().replace(/-/g, "_")}_BIN`] || join(HERE, name);
+const [command, ...rest] = process.argv.slice(2);
+const fail = (message, code = 2) => { console.error(message); process.exit(code); };
+
+function run(name, args) {
+  const result = spawnSync(process.execPath, [bin(name), ...args], { encoding: "utf8", timeout: 60_000 });
+  if (result.error) fail(`${name} failed: ${result.error.message}`, 1);
+  return { code: result.status ?? 1, out: (result.stdout || "").trim(), err: (result.stderr || "").trim() };
+}
+
+function projects() {
+  const listed = run("orion-projects", ["list"]);
+  try { return JSON.parse(listed.out).projects ?? []; } catch { fail("Could not read the project library.", 1); }
+}
+
+function progress(project) {
+  const file = join(project.root, "state.json");
+  if (!existsSync(file)) return { status: "not started", done: 0, total: project.taskCount ?? 0 };
+  try {
+    const state = JSON.parse(readFileSync(file, "utf8"));
+    const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+    return { status: state.status ?? "unknown", done: tasks.filter(t => ["accepted", "done", "completed"].includes(t.status)).length, total: tasks.length };
+  } catch { return { status: "unreadable", done: 0, total: project.taskCount ?? 0 }; }
+}
+
+function resolve(all, wanted) {
+  const needle = wanted.trim().toLowerCase();
+  const exact = all.filter(p => p.id === wanted || p.name.toLowerCase() === needle);
+  if (exact.length === 1) return exact[0];
+  const partial = all.filter(p => p.name.toLowerCase().includes(needle));
+  if (partial.length === 1) return partial[0];
+  if (partial.length === 0) fail(`No project matches "${wanted}". Run: orion-project-run list`);
+  fail(`"${wanted}" matches ${partial.length} projects: ${partial.map(p => p.name).join(", ")}. Use the full name.`);
+}
+
+const line = p => { const g = progress(p); return `${p.name} — ${g.status}, ${g.done}/${g.total} tasks`; };
+const running = all => all.find(p => ["running", "paused", "starting", "awaiting_review", "waiting_for_review"].includes(progress(p).status));
+
+const all = projects();
+if (command === "list") {
+  if (!all.length) console.log("No projects registered.");
+  for (const p of all) console.log(line(p));
+} else if (command === "start" && rest.length) {
+  const chosen = rest.map(name => resolve(all, name));
+  const finished = chosen.filter(p => progress(p).status === "completed");
+  if (finished.length) fail(`Already complete: ${finished.map(p => p.name).join(", ")}.`);
+  const busy = running(all);
+  if (busy) fail(`${busy.name} is running. Stop it first, or wait for it to finish.`);
+  const result = chosen.length === 1
+    ? run("orion-projects", ["launch", chosen[0].id, "--until-stopped"])
+    : run("orion-project-queue", ["start", ...chosen.map(p => p.id)]);
+  if (result.code !== 0) fail(`Not started: ${result.err || result.out}`, 1);
+  console.log(chosen.length === 1 ? `Started ${chosen[0].name} (${progress(chosen[0]).total || chosen[0].taskCount} tasks).`
+    : `Queued in order: ${chosen.map(p => p.name).join(" → ")}. The first is starting now.`);
+} else if (command === "status" && !rest.length) {
+  const busy = running(all);
+  console.log(busy ? `Running: ${line(busy)}` : "Nothing is running.");
+  const queue = run("orion-project-queue", ["status"]);
+  if (queue.out && queue.out !== "No queue.") console.log(queue.out);
+} else if (["stop", "pause", "resume"].includes(command) && !rest.length) {
+  const target = command === "resume" ? all.find(p => progress(p).status === "paused") : running(all);
+  if (!target) fail(command === "resume" ? "Nothing is paused." : "Nothing is running.");
+  const result = run("orion-project-agent", ["--project", target.id, command]);
+  if (result.code !== 0) fail(`${command} failed: ${result.err || result.out}`, 1);
+  console.log(`${command[0].toUpperCase()}${command.slice(1)} sent to ${target.name}.`);
+} else {
+  fail("usage: orion-project-run list | start <name> [<name>…] | status | stop | pause | resume");
+}

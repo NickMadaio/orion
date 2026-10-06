@@ -336,6 +336,7 @@ const WRAPPER_BLURB = {
   "orion-gmail-search": "search mail with a Gmail query (read-only)",
   "orion-discord-alert": "send Nick a short Discord alert (he must have approved the alert policy)",
   "orion-show": "show a tab of YOUR Mac app (Orion.app is a native app, never a website or localhost) — `home|tasks|projects|health|finances|brand|settings`; plan and calendar live on tasks",
+  "orion-project-run": "HIS QWEN CODING PROJECTS (the local agent loop): `list` (registered projects and progress), `start \"<name>\" [\"<name>\" …]` (one starts now; several run one after another), `status`, `stop|pause|resume`. Use it when he says \"start/run/queue the <name> project\" — from the phone too. It only starts projects already registered; it cannot create one",
   "orion-runs": "what the development loop (coding agent) is doing right now — read-only; use it before saying you can't see a run",
 };
 

@@ -44,36 +44,28 @@ final class TextWindowController: NSObject, NSWindowDelegate {
     // MARK: Window
 
     private func makeWindow() -> NSWindow {
+        // A normal Mac window (Nick, 2026-10-06: "just make it like a normal app"):
+        // a real title bar to drag it by, the three standard buttons, resizable,
+        // and it stays on the desktop it was opened on. It used to move when any
+        // part of its background was dragged — in SwiftUI that is most of the
+        // window, sliders included — so it jumped around under ordinary clicks.
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: TextWindowController.size),
-            styleMask: [.titled, .closable, .fullSizeContentView, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Orion Command Center"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        // Dragging the background moves the dashboard.
-        window.isMovableByWindowBackground = true
+        window.title = "ORION"
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.isMovableByWindowBackground = false
         window.isMovable = true
-        // The dashboard is a desktop overlay, not a black document window.
-        // SwiftUI paints the tinted translucency; AppKit must leave the window
-        // itself clear so the wallpaper can be felt underneath it.
+        // The dashboard still paints its own tinted translucency below the title bar.
         window.isOpaque = false
         window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.minSize = NSSize(width: 980, height: 640)
-
-        // The dashboard supplies its own controls, so document-window traffic
-        // lights are visual noise on this desktop-like surface.
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-
-        // Follow the user across Spaces rather than yanking them back to
-        // whichever desktop Orion happened to be opened on.
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.minSize = NSSize(width: 760, height: 520)
+        window.collectionBehavior = [.fullScreenPrimary]
 
         let root = DashboardView(state: state) { [weak self] in
             self?.hide()

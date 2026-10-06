@@ -1708,6 +1708,15 @@ final class AppState: ObservableObject {
     }
 
     /// Right Option released.
+    /// Escape, or "Done", while he is talking: the turn is over now. No waiting
+    /// out the silence window (6 Oct 2026: "let me hit escape or something").
+    func finishTurnNow() {
+        guard phase == .listening, speechInput.isRunning else { return }
+        OrionLog.write("[turn] finished now by Escape/Done")
+        stopHandsFree()
+        endListening()
+    }
+
     func endListening() {
         guard speechInput.isRunning else { return }
         statusLine = "Thinking…"

@@ -218,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // is working or wedged -- was the one moment the key did nothing.
         pushToTalk.setGlobalEscapeWatch(
             panelController.isVisible || state.phase == .speaking || state.phase == .thinking
+                || state.phase == .listening
         )
     }
 
@@ -225,6 +226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `bargeIn()` sorts the two cases itself: it stops the voice when Orion
         // is speaking and cancels the turn when he is thinking. Both are "stop",
         // which is the only thing Escape has ever meant.
+        if state.phase == .listening {
+            state.finishTurnNow()
+            return
+        }
         if state.phase == .speaking || state.phase == .thinking {
             state.bargeIn()
             return

@@ -39,7 +39,8 @@ struct PanelView: View {
                     .padding(.horizontal, 22)
                     .padding(.bottom, 14)
             }
-            SummonComposer(text: $state.composer, micMuted: state.summonMicMuted, onSend: state.submitTyped, onToggleMute: { state.toggleSummonMute() }, onClose: { state.hideSummon?() }, width: 260).padding(.bottom, 8)
+            SummonComposer(text: $state.composer, micMuted: state.summonMicMuted, onSend: state.submitTyped, onToggleMute: { state.toggleSummonMute() }, onClose: { state.hideSummon?() }, width: 260,
+                           onDone: state.phase == .listening ? { state.finishTurnNow() } : nil).padding(.bottom, 8)
         }
         // Never a hit target. What may be clicked is decided by the container
         // view in `PanelController`, which knows the shape of what was drawn.

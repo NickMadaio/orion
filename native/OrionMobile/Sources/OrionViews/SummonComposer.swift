@@ -7,8 +7,11 @@ public struct SummonComposer: View {
     var onToggleMute: () -> Void
     var onClose: () -> Void
     var width: CGFloat
-    public init(text: Binding<String>, micMuted: Bool, onSend: @escaping () -> Void, onToggleMute: @escaping () -> Void, onClose: @escaping () -> Void, width: CGFloat = 260) {
-        _text = text; self.micMuted = micMuted; self.onSend = onSend; self.onToggleMute = onToggleMute; self.onClose = onClose; self.width = width
+    /// Set while he is talking: "I'm done", so his turn ends now instead of
+    /// after the silence wait (6 Oct 2026). Escape does the same.
+    var onDone: (() -> Void)?
+    public init(text: Binding<String>, micMuted: Bool, onSend: @escaping () -> Void, onToggleMute: @escaping () -> Void, onClose: @escaping () -> Void, width: CGFloat = 260, onDone: (() -> Void)? = nil) {
+        _text = text; self.micMuted = micMuted; self.onSend = onSend; self.onToggleMute = onToggleMute; self.onClose = onClose; self.width = width; self.onDone = onDone
     }
     private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     public var body: some View {
@@ -28,6 +31,15 @@ public struct SummonComposer: View {
                     if key.modifiers.contains(.shift) { return .ignored }
                     send(); return .handled
                 }
+            if let onDone {
+                Button(action: onDone) {
+                    Label("Done", systemImage: "checkmark").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(ViewTokens.text).padding(.horizontal, 9).frame(height: 22)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain).accessibilityLabel("I'm done talking").help("Done talking (Esc)")
+                .transition(.scale.combined(with: .opacity))
+            }
             icon(micMuted ? "mic.slash.fill" : "mic.fill", label: micMuted ? "Unmute microphone" : "Mute microphone", color: micMuted ? ViewTokens.warning : ViewTokens.dim, action: onToggleMute)
         }
         .padding(10).frame(width: width, alignment: .bottom)
@@ -35,7 +47,8 @@ public struct SummonComposer: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
         .animation(.easeOut(duration: 0.15), value: canSend)
-        .onKeyPress(.escape) { onClose(); return .handled }
+        .animation(.easeOut(duration: 0.15), value: onDone != nil)
+        .onKeyPress(.escape) { if let onDone { onDone() } else { onClose() }; return .handled }
     }
     private func send() { if canSend { onSend() } }
     private func icon(_ symbol: String, label: String, color: Color = ViewTokens.dim, action: @escaping () -> Void) -> some View {

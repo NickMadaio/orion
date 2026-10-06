@@ -181,6 +181,19 @@ struct HomeTab: View {
                     .foregroundStyle(OrionTheme.text)
                     .onSubmit(submit)
 
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) { state.chatMode = true }
+                } label: {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(OrionTheme.textDim)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Open chat")
+                .accessibilityLabel("Open chat")
+
                 Button(action: submit) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 11, weight: .bold))

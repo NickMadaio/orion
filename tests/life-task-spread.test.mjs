@@ -57,3 +57,13 @@ test("priority and closeness decide how much it matters", () => {
   assert.equal(taskImportance({ priority: "low", due: "2026-10-20" }, TUESDAY), 2);
   assert.equal(taskImportance({ due: "2026-10-20" }, TUESDAY), 1);
 });
+
+test("his real notes: a to-do waits for another until that one is done", async () => {
+  const { waitsFor } = await import("../scripts/lib/life/task-spread.mjs");
+  const open = ["finish resume", "send internship applications", "do cert courses", "study for macro"];
+  assert.equal(waitsFor('only schedule this once i have fully completed the "do cert courses" task.', open), "do cert courses");
+  assert.equal(waitsFor('Dont schedule unless "finish resume" is completed', open), "finish resume");
+  assert.equal(waitsFor('Dont schedule unless "finish resume" is completed', ["send internship applications"]), null, "done once it is no longer open");
+  assert.equal(waitsFor("2.5 hours a day", open), null);
+  assert.equal(waitsFor("finish it within the week, when i have extra time", open), null);
+});

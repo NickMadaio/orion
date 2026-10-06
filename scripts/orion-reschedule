@@ -18,7 +18,7 @@
 //        Reminders list): one movable block per to-do, real titles, estimates from todo-parse
 //   orion-reschedule tidy [--date YYYY-MM-DD]                         "fix my schedule": separate overlaps, space blocks out
 //   orion-reschedule clear [--date YYYY-MM-DD]                        clear future movable blocks
-//   orion-reschedule drop "<title>" ["<title>" …] [--date YYYY-MM-DD]  remove the named movable blocks
+//   orion-reschedule drop "<title>" ["<title>" …] [--date YYYY-MM-DD]   or  drop --after "<title>" (everything planned after it)  remove the named movable blocks
 //        ("get rid of studying and the Orion stuff"); classes and plans with people are never dropped
 //   A time he states is kept exactly ("nap 90 at 13:00"): ORION's own blocks move out of its way.
 //   Untimed plans follow the timed plan listed before them, and "gym after soccer" / "resume
@@ -49,7 +49,7 @@ import { addSkip } from "./lib/life/skips.mjs";
 import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
-import { parseSpread, minutesIn } from "./lib/life/task-spread.mjs";
+import { parseSpread, minutesIn, waitsFor } from "./lib/life/task-spread.mjs";
 import { parseTaskNotes } from "./lib/life/task-notes.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { homeFrom, preferredStart } from "./lib/life/sensible-time.mjs";
@@ -64,13 +64,13 @@ import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--by", "--now"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -462,6 +462,8 @@ if (command === "late") {
     const dueDate = r.due ? localDate(new Date(r.due)) : null;
     if (dueDate && dueDate > date) { skipped.push(`${title} (due ${dueDate})`); continue; }
     // A to-do with a spread in its notes is orion-tasks's to plan, session by session.
+    const blocker = waitsFor(r.notes, reminders.filter((x) => x !== r).map((x) => clean(x.title ?? "")));
+    if (blocker) { skipped.push(`${title} (waits until "${blocker}" is done)`); continue; }
     if (parseSpread(parseTaskNotes(r.notes).spread)) { skipped.push(`${title} (spread across days by orion-tasks)`); continue; }
     if (onCalendar.some((b) => sameThingEarly(title, b.title))) { skipped.push(`${title} (already on the calendar)`); continue; }
     let estimate = { minutes: 45, optional: false };
@@ -499,7 +501,7 @@ if (command === "late") {
   }
 
 } else if (command === "drop") {
-  if (!rest.length) fail('usage: orion-reschedule drop "<title>" ["<title>" …]');
+  if (!rest.length && !flag("--after")) fail('usage: orion-reschedule drop "<title>" ["<title>" …] | drop --after "<title>"');
 } else if (command === "tidy") {
   // "Fix my schedule": nothing added; the day rules applied to the day as it is
   // (overlaps separated, ORION's blocks spaced out, free time kept).
@@ -729,7 +731,17 @@ if (command === "day" || command === "add") {
 const droppable = (list, from) => list.filter((block) => block.end > from && (!block.fixed || block.pinned) && block.kind !== "class" && block.kind !== "deadline"
   && rest.some((name) => sameThing(name, block.title)));
 if (command === "day" || command === "add") add = sensible(add);
-let dropped = command === "drop" ? droppable(blocks, nowMinute) : [];
+// "Delete everything after finishing the resume": every planned block that
+// starts after that one ends (classes and plans with people stay), 2026-10-06.
+const afterAnchor = command === "drop" && flag("--after")
+  ? (blocks.filter((b) => sameThingEarly(flag("--after"), b.title)).sort((a, b) => a.start - b.start)[0]
+    ?? fail(`NOTHING WAS DROPPED: no block called "${flag("--after")}" on ${dayName}`, 1))
+  : null;
+let dropped = command === "drop"
+  ? (afterAnchor
+    ? blocks.filter((b) => b.start >= afterAnchor.end && (!b.fixed || b.pinned) && b.kind !== "class" && b.kind !== "deadline")
+    : droppable(blocks, nowMinute))
+  : [];
 // "get rid of the resume work tomorrow" arrived twice without --date (2026-09-30
 // eval). With no date given and nothing today, look at tomorrow before refusing.
 if (command === "drop" && !dropped.length && !flag("--date")) {

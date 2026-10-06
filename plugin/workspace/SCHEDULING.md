@@ -50,6 +50,20 @@ early`: X ends now, a 15-minute break goes in if he worked an hour or more, the 
 time goes to whatever later is short of time (below its minimum, or the side project
 under its hour), and the rest of the day moves up. Tell him what it did.
 
+## Removing things
+
+Remove exactly what he names: "delete finish resume and send internship applications" →
+`orion-reschedule drop "finish resume" "send internship applications"` (one call).
+"Delete everything after the resume" → `drop --after "finish resume"`.
+Only "clear/wipe everything" means `clear`.
+
+## To-dos that wait for another
+
+A to-do whose notes say to wait for another ("only schedule this once … \"do cert
+courses\" is complete", "don't schedule unless \"finish resume\" is completed") is not
+scheduled until that one is ticked off; orion-tasks and day --todos both enforce it and
+say "waits until X is done". When X is done, `orion-tasks plan` picks it up.
+
 ## Clearing the day
 
 "Delete/clear all my scheduled tasks for today", "wipe my plan" → `orion-reschedule clear`

@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
-import { parseSpread, planSessions, taskImportance } from "./lib/life/task-spread.mjs";
+import { parseSpread, planSessions, taskImportance, waitsFor } from "./lib/life/task-spread.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
 import { parseTaskNotes, formatTaskNotes, progressOf } from "./lib/life/task-notes.mjs";
 
@@ -80,12 +80,20 @@ function spreadOf(task) {
 const reschedule = (...a) => spawnSync(process.execPath, [join(HERE, "orion-reschedule"), ...a], { encoding: "utf8" });
 
 /** Book (or re-book) the sessions of these to-dos for the next `days` days. */
-async function plan(list, days) {
+async function plan(list, days, open = list) {
   const events = await calendarEvents();
   const horizon = Array.from({ length: days }, (_, i) => addDays(today, i));
   const perDate = new Map(horizon.map((d) => [d, { book: [], drop: [] }]));
   const report = [];
   for (const task of list) {
+    // "Only schedule this once X is complete": nothing until X is ticked off;
+    // sessions already booked for it come off (2026-10-06).
+    const blocker = waitsFor(task.notes, open.filter((t) => t.title !== task.title).map((t) => t.title));
+    if (blocker) {
+      for (const date of horizon) if (toBlocks(events, date).some((b) => b.source === "orion" && same(task.title, b.title))) perDate.get(date).drop.push(task.title);
+      report.push(`${task.title}: waiting until "${blocker}" is done — not scheduled`);
+      continue;
+    }
     const spread = spreadOf(task);
     if (!spread) { report.push(`${task.title}: no due date and no spread in its notes — not planned (add one with orion-tasks set)`); continue; }
     const sessions = planSessions(spread, { today, due: task.dueDate }).filter((s) => perDate.has(s.date));
@@ -125,8 +133,9 @@ try {
       const booked = Array.from({ length: 7 }, (_, i) => addDays(today, i)).flatMap((d) => toBlocks(events, d)
         .filter((b) => b.source === "orion" && same(t.title, b.title)).map((b) => `${d.slice(5)} ${b.end - b.start} min`));
       const n = parseTaskNotes(t.notes);
+      const blocker = waitsFor(t.notes, list.filter((x) => x.title !== t.title).map((x) => x.title));
       const progress = progressOf(n.subtasks);
-      console.log(`- ${t.title}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${n.spread ? ` · "${n.spread}"` : ""}${progress !== null ? ` · ${progress}% overall` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
+      console.log(`- ${t.title}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${n.spread ? ` · "${n.spread}"` : ""}${progress !== null ? ` · ${progress}% overall` : ""}${blocker ? ` · waits for "${blocker}"` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
       for (const sub of n.subtasks) console.log(`    ${sub.done ? "✓" : "·"} ${sub.title} — ${sub.percent}%`);
     }
   } else if (command === "add") {
@@ -178,9 +187,10 @@ try {
     console.log(`${dry ? "Would update" : "Updated"} ${task.title}: ${subtasks.map((s) => `${s.title} ${s.percent}%`).join(", ") || "no subtasks"}${progress !== null ? ` — ${progress}% overall` : ""}.`);
   } else if (command === "plan") {
     const list = await tasks();
-    const chosen = name ? [find(list, name)] : list.filter((t) => t.dueDate || parseSpread(parseTaskNotes(t.notes).spread));
+    const openTitles = list.map((t) => t.title);
+    const chosen = name ? [find(list, name)] : list.filter((t) => t.dueDate || parseSpread(parseTaskNotes(t.notes).spread) || waitsFor(t.notes, openTitles.filter((x) => x !== t.title)));
     if (!chosen.length) { console.log("No to-do has a due date or a spread yet; nothing to plan."); process.exit(0); }
-    for (const l of await plan(chosen, Number(flag("--days") ?? 7))) console.log(l);
+    for (const l of await plan(chosen, Number(flag("--days") ?? 7), list)) console.log(l);
   } else {
     fail("usage: orion-tasks list|add|set|plan (see the header)");
   }

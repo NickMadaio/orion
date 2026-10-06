@@ -111,3 +111,35 @@ test("cert courses: the parent is scheduled 2.5 hours a day, the courses are sub
   w.tasks("set", "Complete cert courses", "--spread", "3 hours a day");
   assert.match(w.reminder("Complete cert courses").notes, /^3 hours a day\n- \[ \] Google Data Analytics/);
 });
+
+test("a to-do that waits for another is not scheduled, and planning the day leaves it out", (t) => {
+  const w = world(t, { reminders: [
+    { identifier: "c", title: "do cert courses", list: "Orion", due: new Date(2030, 9, 20, 23, 59).toISOString(), notes: "2.5 hours a day" },
+    { identifier: "r", title: "finish resume", list: "Orion", notes: 'only schedule this once i have fully completed the "do cert courses" task.' },
+    { identifier: "i", title: "send internship applications", list: "Orion", notes: 'Dont schedule unless "finish resume" is completed' },
+  ] });
+  const r = w.tasks("plan");
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /finish resume: waiting until "do cert courses" is done/);
+  assert.ok(w.sessions("do cert courses").length > 0);
+  assert.equal(w.sessions("finish resume").length, 0);
+  const d = w.reschedule("day", "--todos", "--date", "2030-10-09");
+  assert.match(d.out, /send internship applications \(waits until "finish resume" is done\)/);
+  assert.equal(w.sessions("send internship applications").length, 0);
+});
+
+test("delete everything after the resume, or just the two named ones", (t) => {
+  const iso = (h, m = 0) => new Date(2030, 9, 8, h, m).toISOString();
+  const evening = [["finish resume", 17, 18], ["send internship applications", 18, 19], ["research backpacking stuff", 19, 20], ["Dinner", 20, 21]]
+    .map(([title, a, b], i) => ({ identifier: `e${i}`, title, start: iso(a), end: iso(b), orion: "other" }));
+  const w = world(t, { events: evening, at: [16, 0] });
+  const r = w.reschedule("drop", "--after", "finish resume");
+  assert.equal(r.code, 0, r.out);
+  assert.equal(w.sessions("finish resume").length, 1);
+  for (const gone of ["send internship applications", "research backpacking stuff", "Dinner"]) assert.equal(w.sessions(gone).length, 0, gone);
+  w.reschedule("undo");
+  const two = w.reschedule("drop", "finish resume", "send internship applications");
+  assert.equal(two.code, 0, two.out);
+  assert.equal(w.sessions("finish resume").length, 0);
+  assert.equal(w.sessions("research backpacking stuff").length, 1);
+});

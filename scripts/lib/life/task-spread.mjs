@@ -112,3 +112,19 @@ export function taskImportance({ priority, due }, today) {
   if (priority === "low") return 2;
   return 1;
 }
+
+/**
+ * Which still-open to-do this one waits for, from his notes (2026-10-06):
+ * 'only schedule this once i have fully completed the "do cert courses" task',
+ * 'Dont schedule unless "finish resume" is completed'. A to-do is named in
+ * quotes or by its title, next to a condition (once/unless/until/after/only/
+ * when … complete/done/finished). Returns the open title, or null.
+ */
+export function waitsFor(notes, openTitles) {
+  const text = String(notes ?? "");
+  if (!/\b(once|unless|until|after|only|when|before)\b/i.test(text) || !/\b(complete[ds]?|completed|done|finish(ed)?|over)\b/i.test(text)) return null;
+  const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const said = [...text.matchAll(/["“”']([^"“”']{3,80})["“”']/g)].map((m) => norm(m[1]));
+  const body = norm(text);
+  return openTitles.find((title) => said.includes(norm(title)) || (norm(title).length >= 6 && body.includes(norm(title)))) ?? null;
+}

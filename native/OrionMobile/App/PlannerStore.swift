@@ -130,6 +130,7 @@ final class PlannerStore: ObservableObject {
         reminder.notes = todo.notes.isEmpty ? nil : todo.notes
         reminder.dueDateComponents = todo.due.map { Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: $0) }
         reminder.isCompleted = todo.done
+        reminder.priority = todo.priority
         save(reminder)
     }
 

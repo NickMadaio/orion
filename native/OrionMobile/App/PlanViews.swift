@@ -247,6 +247,16 @@ struct TodoListView: View {
                             .font(Phone.mono(11, .medium))
                             .foregroundStyle(!todo.done && due < Date() ? Phone.orange : Phone.dim)
                     }
+                    let parsed = TaskNotes.parse(todo.notes)
+                    if let progress = parsed.progress {
+                        HStack(spacing: 8) {
+                            ProgressView(value: Double(progress), total: 100).tint(Phone.accent).frame(maxWidth: 120)
+                            Text("\(progress)% · \(parsed.subtasks.count) parts").font(Phone.mono(10, .medium)).foregroundStyle(Phone.dim)
+                        }
+                    }
+                    if !parsed.spread.isEmpty {
+                        Text(parsed.spread).font(.system(size: 12)).foregroundStyle(Phone.soft).lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -265,16 +275,65 @@ struct TodoEditor: View {
     let planner: PlannerStore
     @Environment(\.dismiss) private var dismiss
     @State private var hasDue = false
+    /// The notes, read as spread + subtasks + other lines (MobileCore.TaskNotes).
+    @State private var notes = TaskNotes()
+    @State private var newSubtask = ""
+
+    private static let priorities: [(String, Int)] = [("None", 0), ("Low", 9), ("Medium", 5), ("High", 1)]
+    private var priorityChoice: Binding<Int> {
+        Binding(get: { todo.priority == 0 ? 0 : todo.priority <= 4 ? 1 : todo.priority == 5 ? 5 : 9 },
+                set: { todo.priority = $0 })
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Title", text: $todo.title)
-                Toggle("Due", isOn: $hasDue)
-                if hasDue {
-                    DatePicker("When", selection: Binding(get: { todo.due ?? Date() }, set: { todo.due = $0 }))
+                Section {
+                    TextField("Title", text: $todo.title)
+                    Picker("Priority", selection: priorityChoice) {
+                        ForEach(Self.priorities, id: \.1) { Text($0.0).tag($0.1) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                TextField("Notes", text: $todo.notes, axis: .vertical).lineLimit(2...6)
+                Section {
+                    Toggle("Due date", isOn: $hasDue.animation())
+                    if hasDue {
+                        DatePicker("Done by", selection: Binding(get: { todo.due ?? Date() }, set: { todo.due = $0 }))
+                    }
+                    TextField("How to spread it", text: $notes.spread, axis: .vertical).lineLimit(1...3)
+                } header: { Text("Plan") } footer: {
+                    Text("ORION books the work before the due date, e.g. \"2.5 hours a day\", \"two 2-hour blocks, Tuesday and Thursday\", \"four 1-hour blocks this week\".")
+                }
+                Section {
+                    ForEach($notes.subtasks) { $sub in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(sub.title).strikethrough(sub.done, color: Phone.dim)
+                                Spacer()
+                                Text("\(sub.percent)%").font(Phone.mono(12, .semibold)).foregroundStyle(sub.done ? Phone.green : Phone.accent)
+                            }
+                            Slider(value: Binding(get: { Double(sub.percent) }, set: { sub.percent = Int($0.rounded()) }), in: 0...100, step: 5)
+                        }
+                    }
+                    .onDelete { notes.subtasks.remove(atOffsets: $0) }
+                    HStack {
+                        TextField("Add a subtask", text: $newSubtask).onSubmit(addSubtask)
+                        Button(action: addSubtask) { Image(systemName: "plus.circle.fill") }
+                            .disabled(newSubtask.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .accessibilityLabel("Add subtask")
+                    }
+                } header: {
+                    HStack {
+                        Text("Subtasks")
+                        Spacer()
+                        if let progress = notes.progress { Text("\(progress)% overall").foregroundStyle(Phone.accent) }
+                    }
+                } footer: { Text("Only this to-do goes on your schedule; subtasks track how far along each part is.") }
+                Section("Notes") {
+                    TextField("Anything else", text: Binding(get: { notes.other.joined(separator: "\n") },
+                                                           set: { notes.other = $0.components(separatedBy: "\n") }), axis: .vertical)
+                        .lineLimit(1...5)
+                }
                 Toggle("Done", isOn: $todo.done)
                 Section { Text("Saved to the \(todo.listName) list in Reminders.").font(.footnote).foregroundStyle(Phone.dim) }
                 Section { Button("Delete to-do", role: .destructive) { planner.deleteTodo(todo); dismiss() } }
@@ -284,13 +343,25 @@ struct TodoEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { if !hasDue { todo.due = nil }; planner.update(todo); dismiss() }
+                    Button("Save") {
+                        if !hasDue { todo.due = nil }
+                        notes.other = notes.other.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                        todo.notes = notes.text
+                        planner.update(todo); dismiss()
+                    }
                 }
             }
-            .onAppear { hasDue = todo.due != nil }
+            .onAppear { hasDue = todo.due != nil; notes = TaskNotes.parse(todo.notes) }
         }
         .preferredColorScheme(.dark)
         .tint(Phone.accent)
+    }
+
+    private func addSubtask() {
+        let title = newSubtask.trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty, !notes.subtasks.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) else { return }
+        withAnimation { notes.subtasks.append(.init(title: title)) }
+        newSubtask = ""
     }
 }
 

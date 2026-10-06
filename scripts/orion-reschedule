@@ -47,6 +47,7 @@ import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
 import { parseSpread } from "./lib/life/task-spread.mjs";
+import { parseTaskNotes } from "./lib/life/task-notes.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { homeFrom, preferredStart } from "./lib/life/sensible-time.mjs";
 import { bedOn, readWakeRequest } from "./lib/life/night.mjs";
@@ -413,7 +414,7 @@ if (command === "late") {
     const dueDate = r.due ? localDate(new Date(r.due)) : null;
     if (dueDate && dueDate > date) { skipped.push(`${title} (due ${dueDate})`); continue; }
     // A to-do with a spread in its notes is orion-tasks's to plan, session by session.
-    if (parseSpread(r.notes ?? "")) { skipped.push(`${title} (spread across days by orion-tasks)`); continue; }
+    if (parseSpread(parseTaskNotes(r.notes).spread)) { skipped.push(`${title} (spread across days by orion-tasks)`); continue; }
     if (onCalendar.some((b) => sameThingEarly(title, b.title))) { skipped.push(`${title} (already on the calendar)`); continue; }
     let estimate = { minutes: 45, optional: false };
     try {

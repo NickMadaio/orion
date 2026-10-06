@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import SessionDomain
+import MobileCore
 
 /*
  Tasks, and the day they have to fit into.
@@ -238,6 +239,7 @@ struct TasksTab: View {
                             onDelete: { reminders.remove(task.id) },
                             onPriority: { reminders.setPriority(task.id, task.priority.next) },
                             onProgress: { reminders.setProgress(task.id, $0) },
+                            onSave: { notes, due in reminders.setNotes(task.id, notes); if due != task.dueDate { reminders.setDue(task.id, due) } },
                             onSchedule: {
                                 composerTitle = task.title
                                 sheetMode = .create(start: task.dueDate ?? nextFreeHour())
@@ -511,9 +513,11 @@ private struct TaskRow: View {
     let onDelete: () -> Void
     let onPriority: () -> Void
     let onProgress: (Double) -> Void
+    let onSave: (String, Date?) -> Void
     let onSchedule: () -> Void
 
     @State private var hovering = false
+    @State private var editing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -545,6 +549,12 @@ private struct TaskRow: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(task.isComplete ? OrionTheme.textDim : OrionTheme.text)
                         .strikethrough(task.isComplete, color: OrionTheme.textDim)
+                    let plan = TaskNotes.parse(task.notes)
+                    if !plan.spread.isEmpty || !plan.subtasks.isEmpty {
+                        Text([plan.spread.isEmpty ? nil : plan.spread,
+                              plan.subtasks.isEmpty ? nil : "\(plan.subtasks.count) parts"].compactMap { $0 }.joined(separator: " · "))
+                            .font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft).lineLimit(1)
+                    }
                     if let due = task.dueDate {
                         HStack(spacing: 5) {
                             Image(systemName: task.hasAlarm ? "bell.fill" : "calendar")
@@ -572,7 +582,11 @@ private struct TaskRow: View {
                         .frame(width: 34, alignment: .trailing)
                 }
 
-                if hovering {
+                if hovering || editing {
+                    InlineAction(title: "Edit", tint: OrionTheme.accent) { editing = true }
+                        .popover(isPresented: $editing, arrowEdge: .trailing) {
+                            TaskPlanEditor(task: task) { notes, due in onSave(notes, due); editing = false }
+                        }
                     InlineAction(title: "Schedule", tint: OrionTheme.violet, action: onSchedule)
                     Button(action: onDelete) {
                         Image(systemName: "xmark")
@@ -629,5 +643,70 @@ private struct ProgressTrack: View {
             )
         }
         .frame(height: 14)
+    }
+}
+
+
+/// Due date, how to spread it, and its parts (2026-10-06). The spread and the
+/// subtasks are saved in the to-do's notes (MobileCore.TaskNotes), which syncs
+/// to the phone and which ORION's planner reads: only this to-do is scheduled,
+/// the subtasks record how far along each part is.
+private struct TaskPlanEditor: View {
+    let task: SyncedTask
+    let onSave: (String, Date?) -> Void
+    @State private var notes = TaskNotes()
+    @State private var hasDue = false
+    @State private var due = Date()
+    @State private var newSubtask = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(task.title).font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Due date", isOn: $hasDue.animation()).toggleStyle(.switch).controlSize(.small)
+                if hasDue { DatePicker("Done by", selection: $due).labelsHidden() }
+                TextField("How to spread it — e.g. 2.5 hours a day", text: $notes.spread)
+                    .textFieldStyle(.roundedBorder)
+                Text("ORION books the work before the due date from this.").font(.system(size: 10)).foregroundStyle(OrionTheme.textDim)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Parts").font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    if let progress = notes.progress { Text("\(progress)% overall").font(OrionTheme.mono(10, .semibold)).foregroundStyle(OrionTheme.accent) }
+                }
+                ForEach($notes.subtasks) { $sub in
+                    HStack(spacing: 8) {
+                        Text(sub.title).font(.system(size: 12)).frame(width: 150, alignment: .leading).lineLimit(1)
+                        Slider(value: Binding(get: { Double(sub.percent) }, set: { sub.percent = Int($0.rounded()) }), in: 0...100, step: 5)
+                        Text("\(sub.percent)%").font(OrionTheme.mono(10)).frame(width: 34, alignment: .trailing)
+                        Button { notes.subtasks.removeAll { $0.title == sub.title } } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.plain).foregroundStyle(OrionTheme.textDim).help("Remove this part")
+                    }
+                }
+                HStack {
+                    TextField("Add a part (a course, a chapter…)", text: $newSubtask).textFieldStyle(.roundedBorder).onSubmit(add)
+                    Button("Add", action: add).disabled(newSubtask.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Save") { onSave(notes.text, hasDue ? due : nil) }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 380)
+        .onAppear {
+            notes = TaskNotes.parse(task.notes)
+            hasDue = task.dueDate != nil
+            due = task.dueDate ?? Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+        }
+    }
+
+    private func add() {
+        let title = newSubtask.trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty, !notes.subtasks.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) else { return }
+        notes.subtasks.append(.init(title: title))
+        newSubtask = ""
     }
 }

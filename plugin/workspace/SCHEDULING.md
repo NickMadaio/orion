@@ -14,6 +14,11 @@ optional — and re-plans every morning. `orion-tasks` (allowlisted) does all of
   (changes the to-do's notes AND re-plans its sessions).
 - "Push X's due date to Monday" → `orion-tasks set "X" --due monday`; "X matters more" → `--priority high`.
 - "What's on my list / when am I doing X" → `orion-tasks list`. Re-plan everything → `orion-tasks plan`.
+- Groups: one to-do can hold parts (subtasks) — "complete cert courses" with its three courses.
+  ONLY the parent is scheduled (e.g. 2.5 hours a day); the parts record progress.
+  "Add AWS to the cert courses" → `orion-tasks sub "cert courses" add "AWS Cloud Practitioner"`;
+  "I'm 40% through AWS" → `orion-tasks sub "cert courses" set "AWS" 40`; remove → `… remove "AWS"`.
+  Never schedule the parts separately; use their progress to suggest which part to work on.
 Moving or resizing ONE session today is still `orion-reschedule move|resize`. Never book a
 spread to-do with `day --plan` by hand; `day --todos` already leaves those to orion-tasks.
 

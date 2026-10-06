@@ -12,6 +12,9 @@
    orion-tasks add "<title>" [--due <when>] [--spread "<how>"] [--priority high|medium|low]
    orion-tasks set "<task>" [--due <when>|--no-due] [--spread "<how>"] [--priority …] [--title "<new>"]
    orion-tasks plan ["<task>"] [--days 7] [--dry-run]       (re)book the sessions for the next days
+   orion-tasks sub "<task>" add "<subtask>" | set "<subtask>" <percent> | remove "<subtask>"
+        subtasks ("complete cert courses" → its 3 courses, each with a % done). Only the
+        parent is scheduled; the subtasks track progress.
    <when>: YYYY-MM-DD, today, tomorrow, or a weekday (the next one).
 
  Sessions are ordinary ORION blocks named after the to-do, booked with
@@ -26,6 +29,7 @@ import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { parseSpread, planSessions, taskImportance } from "./lib/life/task-spread.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
+import { parseTaskNotes, formatTaskNotes, progressOf } from "./lib/life/task-notes.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -66,7 +70,7 @@ function find(list, wanted) {
 }
 /** The spread to plan from: his notes, else (with a due date) the to-do's own estimate as a total. */
 function spreadOf(task) {
-  const fromNotes = parseSpread(task.notes ?? "");
+  const fromNotes = parseSpread(parseTaskNotes(task.notes).spread);
   if (fromNotes) return fromNotes;
   if (!task.dueDate) return null;
   let minutes = 60;
@@ -120,7 +124,10 @@ try {
     for (const t of list) {
       const booked = Array.from({ length: 7 }, (_, i) => addDays(today, i)).flatMap((d) => toBlocks(events, d)
         .filter((b) => b.source === "orion" && same(t.title, b.title)).map((b) => `${d.slice(5)} ${b.end - b.start} min`));
-      console.log(`- ${t.title}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${t.notes ? ` · "${t.notes.slice(0, 80)}"` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
+      const n = parseTaskNotes(t.notes);
+      const progress = progressOf(n.subtasks);
+      console.log(`- ${t.title}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${n.spread ? ` · "${n.spread}"` : ""}${progress !== null ? ` · ${progress}% overall` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
+      for (const sub of n.subtasks) console.log(`    ${sub.done ? "✓" : "·"} ${sub.title} — ${sub.percent}%`);
     }
   } else if (command === "add") {
     if (!name) fail('usage: orion-tasks add "<title>" [--due <when>] [--spread "<how>"] [--priority high|medium|low]');
@@ -135,7 +142,7 @@ try {
     const change = {};
     if (args.includes("--no-due")) change.due_at = "";
     else if (flag("--due")) change.due_at = endOfDay(dueFrom(flag("--due")));
-    if (flag("--spread") !== undefined) change.notes = flag("--spread");
+    if (flag("--spread") !== undefined) change.notes = formatTaskNotes({ ...parseTaskNotes(task.notes), spread: flag("--spread") });
     if (flag("--priority")) change.priority = flag("--priority");
     if (flag("--title")) change.title = flag("--title");
     if (!Object.keys(change).length) fail("orion-tasks set: nothing to change");
@@ -146,9 +153,32 @@ try {
     // A renamed to-do's old sessions go; the new ones are booked under the new name.
     if (change.title && !dry) for (let i = 0; i < 7; i += 1) reschedule("drop", task.title, "--date", addDays(today, i));
     for (const l of await plan([updated], Number(flag("--days") ?? 7))) console.log(l);
+  } else if (command === "sub") {
+    const [, , action, subName, value] = positional;
+    if (!name || !["add", "set", "remove"].includes(action) || !subName) fail('usage: orion-tasks sub "<task>" add "<subtask>" | set "<subtask>" <percent> | remove "<subtask>"');
+    const task = find(await tasks(), name);
+    const notes = parseTaskNotes(task.notes);
+    const at = notes.subtasks.findIndex((s) => same(subName, s.title));
+    let subtasks = notes.subtasks;
+    if (action === "add") {
+      if (at >= 0) fail(`"${notes.subtasks[at].title}" is already a subtask of ${task.title}`, 1);
+      subtasks = [...subtasks, { title: subName.trim(), percent: Number(value ?? 0) || 0 }];
+    } else {
+      if (at < 0) fail(`${task.title} has no subtask "${subName}". Subtasks: ${notes.subtasks.map((s) => s.title).join(", ") || "none"}`, 1);
+      if (action === "remove") subtasks = subtasks.filter((_, i) => i !== at);
+      else {
+        const percent = Number(String(value ?? "").replace("%", ""));
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100) fail("percent must be 0..100");
+        subtasks = subtasks.map((s, i) => (i === at ? { ...s, percent: Math.round(percent) } : s));
+      }
+    }
+    const text = formatTaskNotes({ ...notes, subtasks });
+    if (!dry) await bridgeRequest("update_reminder", { identifier: task.identifier, notes: text });
+    const progress = progressOf(subtasks);
+    console.log(`${dry ? "Would update" : "Updated"} ${task.title}: ${subtasks.map((s) => `${s.title} ${s.percent}%`).join(", ") || "no subtasks"}${progress !== null ? ` — ${progress}% overall` : ""}.`);
   } else if (command === "plan") {
     const list = await tasks();
-    const chosen = name ? [find(list, name)] : list.filter((t) => t.dueDate || parseSpread(t.notes ?? ""));
+    const chosen = name ? [find(list, name)] : list.filter((t) => t.dueDate || parseSpread(parseTaskNotes(t.notes).spread));
     if (!chosen.length) { console.log("No to-do has a due date or a spread yet; nothing to plan."); process.exit(0); }
     for (const l of await plan(chosen, Number(flag("--days") ?? 7))) console.log(l);
   } else {

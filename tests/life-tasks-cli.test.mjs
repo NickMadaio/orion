@@ -94,3 +94,20 @@ test("an unknown to-do is refused with the list", (t) => {
   const r = w.tasks("set", "Nope", "--priority", "low");
   assert.equal(r.code, 1); assert.match(r.out, /To-dos: Essay/);
 });
+
+test("cert courses: the parent is scheduled 2.5 hours a day, the courses are subtasks with progress", (t) => {
+  const w = world(t);
+  assert.equal(w.tasks("add", "Complete cert courses", "--due", "2030-10-15", "--spread", "2.5 hours a day until it's due", "--priority", "high").code, 0);
+  for (const c of ["Google Data Analytics", "AWS Cloud Practitioner", "CompTIA ITF+"]) assert.equal(w.tasks("sub", "Complete cert courses", "add", c).code, 0);
+  const r = w.tasks("sub", "Complete cert courses", "set", "aws cloud", "40");
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /AWS Cloud Practitioner 40%/);
+  const notes = w.reminder("Complete cert courses").notes;
+  assert.match(notes, /^2\.5 hours a day until it's due\n- \[ \] Google Data Analytics · 0%\n- \[ \] AWS Cloud Practitioner · 40%/);
+  const s = w.sessions("Complete cert courses");
+  assert.ok(s.length >= 6 && s.every((x) => x.length === 150), JSON.stringify(s));
+  assert.equal(w.sessions("AWS Cloud Practitioner").length, 0, "subtasks are never scheduled");
+  // changing the spread keeps the subtasks
+  w.tasks("set", "Complete cert courses", "--spread", "3 hours a day");
+  assert.match(w.reminder("Complete cert courses").notes, /^3 hours a day\n- \[ \] Google Data Analytics/);
+});

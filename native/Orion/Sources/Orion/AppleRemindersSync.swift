@@ -1,5 +1,6 @@
 import EventKit
 import Foundation
+import MobileCore
 
 /*
  The task list, kept in Apple Reminders.
@@ -47,8 +48,11 @@ struct SyncedTask: Identifiable, Equatable {
     var hasAlarm: Bool
     /// Real, and syncs — `EKReminder.priority`. See TaskPriority.
     var priority: TaskPriority = .none
-    /// 0...1, and LOCAL — EventKit has no percent-complete field.
+    /// 0...1, and LOCAL — EventKit has no percent-complete field. A to-do with
+    /// subtasks takes its progress from them instead (their percents live in the notes).
     var progress: Double = 0
+    /// Spread, subtasks and his own notes (MobileCore.TaskNotes, 2026-10-06).
+    var notes: String = ""
 
     /// What the list sorts by. Overdue first because it is the only category
     /// that is actually urgent, then priority, then when it is due. Sorting by
@@ -255,7 +259,9 @@ final class AppleRemindersSync: ObservableObject {
                         dueHasTime: reminder.dueDateComponents?.hour != nil,
                         hasAlarm: !(reminder.alarms ?? []).isEmpty,
                         priority: TaskPriority.from(reminder.priority),
-                        progress: reminder.isCompleted ? 1 : TaskProgressStore.shared.progress(for: id)
+                        progress: reminder.isCompleted ? 1
+                            : TaskNotes.parse(reminder.notes).progress.map { Double($0) / 100 } ?? TaskProgressStore.shared.progress(for: id),
+                        notes: reminder.notes ?? ""
                     )
                 }
                 // Completed sink to the bottom; above that, overdue, then
@@ -322,6 +328,14 @@ final class AppleRemindersSync: ObservableObject {
                 reminder.dueDateComponents = nil
             }
         }
+    }
+
+    /// The spread and subtasks are the notes; ORION's planner re-plans from them.
+    func setNotes(_ id: String, _ notes: String) {
+        mutate(id) { $0.notes = notes.isEmpty ? nil : notes }
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[index].notes = notes
+        if let progress = TaskNotes.parse(notes).progress { tasks[index].progress = Double(progress) / 100 }
     }
 
     func setPriority(_ id: String, _ priority: TaskPriority) {

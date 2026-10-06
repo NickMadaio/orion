@@ -1,4 +1,5 @@
 import AVFoundation
+import MobileCore
 import Speech
 import SwiftUI
 
@@ -27,6 +28,13 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     @Published private(set) var phase: Phase = .off
     @Published private(set) var heard = ""
     @Published private(set) var level: Float = 0
+    /// Why the last conversation ended, when it ended on its own or by "stop".
+    @Published private(set) var endedBecause: String?
+
+    /// The hard limits (6 Oct 2026): idle, 15 minutes, 30 turns, noise only.
+    /// Nil whenever no conversation is live — nothing may listen or send then.
+    private var sessionGuard: VoiceSessionGuard?
+    private var guardTimer: Timer?
 
     /// Silence after speech that ends Nick's turn.
     private let endOfTurn: TimeInterval = 1.6
@@ -68,10 +76,39 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
             phase = .unavailable("Allow Microphone and Speech Recognition for ORION in Settings to talk to him.")
             return
         }
+        sessionGuard = VoiceSessionGuard(startedAt: Date())
+        endedBecause = nil
+        guardTimer?.invalidate()
+        guardTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.enforceLimits() }
+        }
         listen()
     }
 
+    /// Ends the conversation and says why.
+    func end(_ reason: VoiceStopReason) {
+        let limits = sessionGuard?.limits ?? VoiceSessionLimits()
+        let wasLive = sessionGuard != nil
+        stop()
+        if wasLive { endedBecause = VoiceSessionGuard.message(for: reason, limits: limits) }
+    }
+
+    /// Waiting for ORION or hearing him is not idleness; only the lifetime can
+    /// end a conversation then.
+    private func enforceLimits() {
+        guard let current = sessionGuard else { return }
+        let now = Date()
+        let busy = phase == .sending || phase == .waiting || phase == .speaking
+        let checked = busy ? current.markingActivity(at: now) : current
+        sessionGuard = checked
+        if let reason = checked.check(now: now) { end(reason) }
+    }
+
     func stop() {
+        guardTimer?.invalidate()
+        guardTimer = nil
+        sessionGuard = nil
+        send = nil
         startGeneration = UUID()
         silenceTimer?.invalidate()
         waitTimer?.invalidate()
@@ -152,6 +189,9 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         guard phase == .listening else { return }
         if let result {
             heard = result.bestTranscription.formattedString
+            if !heard.trimmingCharacters(in: .whitespaces).isEmpty {
+                sessionGuard = sessionGuard?.markingActivity(at: Date())
+            }
             // Every new word restarts the end-of-turn clock.
             silenceTimer?.invalidate()
             if !heard.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -175,7 +215,8 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
             let delay = Double(failures) * 0.8
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(delay))
-                if self.phase == .listening { self.listen() }
+                self.enforceLimits()
+                if self.phase == .listening, self.sessionGuard != nil { self.listen() }
             }
         }
     }
@@ -185,13 +226,18 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         silenceTimer?.invalidate()
         let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
         endRecognition()
-        guard !text.isEmpty else { listen(); return }
-        let lowered = text.lowercased()
-        if ["stop", "that's all", "thats all", "goodbye", "bye orion", "end conversation"].contains(where: { lowered == $0 || lowered == $0 + "." }) {
-            stop(); return
+        guard let current = sessionGuard else { stop(); return }
+        let (next, verdict) = current.judging(text, at: Date())
+        sessionGuard = next
+        switch verdict {
+        case .send(let message):
+            phase = .sending
+            send?(message)
+        case .discard:
+            listen()
+        case .stop(let reason):
+            end(reason)
         }
-        phase = .sending
-        send?(text)
     }
 
     private func endRecognition() {
@@ -214,7 +260,12 @@ final class PhoneVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in if self.phase == .speaking { self.listen() } }
+        Task { @MainActor in
+            // Never re-listen after the conversation ended (the runaway).
+            guard self.phase == .speaking, self.sessionGuard != nil else { return }
+            self.sessionGuard = self.sessionGuard?.markingActivity(at: Date())
+            self.listen()
+        }
     }
 
     /// Markdown and links read badly aloud; say the words.
@@ -264,7 +315,9 @@ struct VoiceBar: View {
     var body: some View {
         switch voice.phase {
         case .off:
-            EmptyView()
+            if let why = voice.endedBecause {
+                Text(why).font(.system(size: 13)).foregroundStyle(Phone.dim).padding(.horizontal, 16)
+            }
         case .unavailable(let why):
             Text(why).font(.system(size: 13)).foregroundStyle(Phone.orange).padding(.horizontal, 16)
         default:

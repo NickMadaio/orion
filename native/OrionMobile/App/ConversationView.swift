@@ -15,6 +15,7 @@ import MobileCore
 struct ConversationView: View {
     @ObservedObject var remote: RemoteStore
     @StateObject private var voice = PhoneVoice()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     @State private var showingTalk = false
     @State private var conversationID: String?
@@ -52,6 +53,7 @@ struct ConversationView: View {
                 }
             }
             .onDisappear { if !showingTalk { voice.stop() } }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { voice.end(.background) } }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
         .safeAreaInset(edge: .bottom) { inputBar }

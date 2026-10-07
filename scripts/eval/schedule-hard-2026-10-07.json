@@ -188,27 +188,13 @@
    }
   },
   {
-   "id": "nap-ends-at-time-he-said",
+   "id": "impossible-nap-before-home",
    "now": "12:35",
    "say": "after class i'm gonna nap so i'm up by 1:30, then do the cs lab",
    "expect": {
-    "has": [
-     {
-      "title": "Nap",
-      "endAtLeast": "13:25",
-      "endBefore": "13:36"
-     }
-    ],
-    "order": [
-     [
-      "Nap",
-      "CS lab"
-     ]
-    ],
-    "count": {
-     "Nap": 1
-    }
-   }
+    "saysNo": true
+   },
+   "note": "He is not home until 13:15 (travel) and naps are at least 75 min: waking by 13:30 cannot be done; he should say so."
   },
   {
    "id": "frustrated-correction",

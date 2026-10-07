@@ -1,0 +1,1487 @@
+[
+ {
+  "id": "extend-lab-nap-after-swap-youtube",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 30,
+  "replies": [
+   "Done. DS lab extended to 3 PM, nap follows at 3:05 PM. YouTube now takes the 5:50 PM slot where \"apply to somewhere\" was—both blocks consolidated into one."
+  ],
+  "day": [
+   {
+    "title": "DS lab",
+    "start": 738,
+    "end": 900,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 905,
+    "end": 950,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 1005,
+    "end": 1065,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 1070,
+    "end": 1115,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1120,
+    "end": 1210,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1215,
+    "end": 1260,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1265,
+    "end": 1355,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1360,
+    "end": 1375,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "full-afternoon-replay",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 71,
+  "replies": [
+   "Done. DS lab extends to 3 PM—everything shifts back to fit. Your nap lands at 3:55 (75 min), then study, then the side project at 5:50 instead of applying somewhere. YouTube work is back on the books.",
+   "Saved—you can flex non-priority time as needed. Schedule rebuilt: fixed blocks and high-priority items first, medium/low shrunk to fit. You're set.",
+   "Done. Nap is now 75 minutes (5:10 PM), study pushed to 5:15 PM. Internship applications dropped. Your 1-hour-15-minute nap minimum is saved."
+  ],
+  "day": [
+   {
+    "title": "DS lab",
+    "start": 738,
+    "end": 900,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 905,
+    "end": 950,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 955,
+    "end": 1030,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 1035,
+    "end": 1095,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Side project",
+    "start": 1100,
+    "end": 1145,
+    "id": "sb-10-uu4e7c",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1215,
+    "end": 1260,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1265,
+    "end": 1355,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1360,
+    "end": 1375,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "still-in-lab-30-more",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 14,
+  "replies": [
+   "Extended DS lab to 2:49 PM. Your YouTube and nap both shifted back—you'll wrap up around 11 PM instead of 10:15. Tell me when you're actually leaving."
+  ],
+  "day": [
+   {
+    "title": "DS lab",
+    "start": 738,
+    "end": 889,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 894,
+    "end": 939,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 944,
+    "end": 989,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 994,
+    "end": 1054,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1059,
+    "end": 1104,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1109,
+    "end": 1199,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1204,
+    "end": 1249,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1254,
+    "end": 1344,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1349,
+    "end": 1364,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "past-time-trap",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 17,
+  "replies": [
+   "The DS lab already ended at 1:48 PM (it was 12:18–1:48 PM, and it's 2:19 PM now). I can't move something that's already over."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "resize-longer",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 8,
+  "replies": [
+   "Study is now 90 minutes. Everything after it shifted forward by 30 minutes."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1053,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1058,
+    "end": 1103,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1108,
+    "end": 1198,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1203,
+    "end": 1248,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1253,
+    "end": 1343,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1348,
+    "end": 1363,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "resize-shorter",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 8,
+  "replies": [
+   "Done. Dinner is now 8:18 PM. That frees up 15 minutes; the rest of your day slides back."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1218,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "move-study-6",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 13,
+  "replies": [
+   "Study moved to 6 PM. Things pushed back, but \"finish resume\" (90 min) won't fit—it would run past wind-down. Drop it, shrink something, or move it to another day?"
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 1080,
+    "end": 1140,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1145,
+    "end": 1190,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1195,
+    "end": 1285,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1290,
+    "end": 1335,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "swap-even",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 13,
+  "replies": [
+   "Swapped. Apply to SOMEWHERE is now 3:53 PM, nap moved to 5:58 PM."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 908,
+    "end": 953,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1033,
+    "end": 1078,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "swap-uneven",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 14,
+  "replies": [
+   "Done. Swapped them — you're sending applications at 4:03 PM, applying to somewhere at 5:38 PM, then study at 6:38 PM. Undo puts them back if you want."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 963,
+    "end": 1053,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1058,
+    "end": 1103,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 1118,
+    "end": 1178,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "reorder-resume-before-dinner",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 15,
+  "replies": [
+   "Done. Resume is now 9:18 PM, dinner after at 10:13 PM."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1033,
+    "end": 1078,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1188,
+    "end": 1278,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1288,
+    "end": 1333,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "standing-nap-rule",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 7,
+  "replies": [
+   "Nap minimum saved to your profile — that's 75 minutes from now on."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 983,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 988,
+    "end": 1048,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1053,
+    "end": 1098,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1103,
+    "end": 1193,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1198,
+    "end": 1243,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1248,
+    "end": 1338,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "drop-and-push",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 16,
+  "replies": [
+   "Done. Dropped \"send internship applications\" and moved Study back 30 minutes to 4:33 PM—5:33 PM. The rest of the day shifted after it."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 993,
+    "end": 1053,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1058,
+    "end": 1103,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1203,
+    "end": 1248,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1253,
+    "end": 1343,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1348,
+    "end": 1363,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "two-changes",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 14,
+  "replies": [
+   "Nap is now 75 min (4:23 PM). Dinner moved to 8 PM. Study, applications, and the resume shifted down to fit."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 983,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 988,
+    "end": 1048,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1053,
+    "end": 1098,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1103,
+    "end": 1193,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1200,
+    "end": 1245,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1250,
+    "end": 1340,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1345,
+    "end": 1360,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "eat-now",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 16,
+  "replies": [
+   "Done. You're eating until 2:44 PM, break 'til 2:59 PM, then YouTube at 3:04 PM. Rest of the day shifted down — everything still fits."
+  ],
+  "day": [
+   {
+    "title": "Eating",
+    "start": 859,
+    "end": 884,
+    "id": "sb-11-82p66n",
+    "fixed": false
+   },
+   {
+    "title": "Break",
+    "start": 884,
+    "end": 899,
+    "id": "sb-12-csoxw6",
+    "fixed": false
+   },
+   {
+    "title": "Side project (YouTube)",
+    "start": 904,
+    "end": 949,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 954,
+    "end": 999,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 1004,
+    "end": 1064,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1069,
+    "end": 1114,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1119,
+    "end": 1209,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1214,
+    "end": 1259,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1264,
+    "end": 1354,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1359,
+    "end": 1374,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "shrink-youtube-to-fit",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 31,
+  "replies": [
+   "Nap is now 1h 15m (4:15 PM). Study pushed to 5:20 PM. Rest of your day shifted down the line — YouTube has room to shrink if it needs to fit."
+  ],
+  "day": [
+   {
+    "title": "nap",
+    "start": 900,
+    "end": 975,
+    "id": "seed-0",
+    "fixed": false
+   },
+   {
+    "title": "study",
+    "start": 980,
+    "end": 1040,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1088,
+    "end": 1178,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "dinner",
+    "start": 1188,
+    "end": 1233,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "YouTube side project",
+    "start": 1343,
+    "end": 1403,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "wind down",
+    "start": 1410,
+    "end": 1439,
+    "id": "seed-6",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "tidy-overlaps",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 13,
+  "replies": [
+   "Fixed. Moved Study later (2:40 PM → 2:50 PM) and Dinner much later (6:30 PM), so now it's Break → Study → Resume work → Dinner. Send \"undo\" if you'd rather keep the old way."
+  ],
+  "day": [
+   {
+    "title": "Break",
+    "start": 870,
+    "end": 885,
+    "id": "seed-0",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 890,
+    "end": 950,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 960,
+    "end": 1050,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1110,
+    "end": 1155,
+    "id": "seed-2",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "move-plus-resize",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 13,
+  "replies": [
+   "Study moved to 5:33 PM (back 30 min). Dinner is now 30 min, ending at 8:18 PM. But pushing Study back squeezed the day: \"finish resume\" (90 min) no longer fits today. Drop it, shorten something else you name, or move it to another day?"
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 993,
+    "end": 1053,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1058,
+    "end": 1103,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1218,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1223,
+    "end": 1313,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "swap-plus-drop",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 13,
+  "replies": [
+   "Swapped them—apply to SOMEWHERE at 3:08 PM, nap at 5:13 PM. Dropped send internship applications. Your day's rebuilt; run `undo` if you want it back."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 908,
+    "end": 953,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1023,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1033,
+    "end": 1078,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1188,
+    "end": 1233,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1243,
+    "end": 1333,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1343,
+    "end": 1358,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "three-edits-pinned-dinner",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 20,
+  "replies": [
+   "Done. Dinner is now at 8 PM, Nap is 75 minutes (ends 4:23 PM), and \"apply to SOMEWHERE\" is dropped. Study and send internship applications shifted earlier to fit the longer nap."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 983,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 988,
+    "end": 1048,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1103,
+    "end": 1193,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1200,
+    "end": 1245,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1250,
+    "end": 1340,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1345,
+    "end": 1360,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "dinner-natural-tidy",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 15,
+  "replies": [
+   "Schedule fixed. Dinner moved to 6:30 PM—a proper dinner time. Study stays at 2:00 PM."
+  ],
+  "day": [
+   {
+    "title": "Study",
+    "start": 840,
+    "end": 900,
+    "id": "seed-0",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1110,
+    "end": 1155,
+    "id": "seed-1",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "short-sleep-nap-after-class",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 18,
+  "replies": [
+   "Done. Nap moved to 2:30 PM (right after you get home), study starts at 2:35 PM. That's the 75-minute nap early afternoon with study after it, as you asked."
+  ],
+  "day": [
+   {
+    "title": "Lecture",
+    "start": 660,
+    "end": 750,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "Nap",
+    "start": 795,
+    "end": 870,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 875,
+    "end": 935,
+    "id": "seed-2",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "no-waking-or-stacked-breaks",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 14,
+  "replies": [
+   "Morning booked: Study 9–10, Morning break 10:05–10:20, Reading 10:25–11:10, Reading break 11:15–11:30. You have 1 hour 45 min before Study starts."
+  ],
+  "day": [
+   {
+    "title": "Study",
+    "start": 540,
+    "end": 600,
+    "id": "sb-0-palv0n",
+    "fixed": false
+   },
+   {
+    "title": "Morning break",
+    "start": 605,
+    "end": 620,
+    "id": "sb-1-eldtat",
+    "fixed": false
+   },
+   {
+    "title": "Reading",
+    "start": 625,
+    "end": 670,
+    "id": "sb-2-es6zrd",
+    "fixed": false
+   },
+   {
+    "title": "Reading break",
+    "start": 675,
+    "end": 690,
+    "id": "sb-3-0er38m",
+    "fixed": false
+   }
+  ]
+ }
+]

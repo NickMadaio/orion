@@ -1,0 +1,20 @@
+FAIL skip-class-work-instead (57s)
+   wrong time: orion is 795-885, wanted {"title":"orion","start":"11:00","end":"12:30"}
+   still there: CS2100
+   lost: CS lab
+   ORION: Dropped the CS lab. Added 90 minutes of Orion work from 1:15 PM–2:45 PM (after you get home). Rest of your day shifts in after that.
+FAIL nap-ends-at-time-he-said (40s)
+   wrong time: Nap is 1185-1230, wanted {"title":"Nap","endAtLeast":"13:25","endBefore":"13:36"}
+   order: Nap should come before CS lab
+   ORION: Nap added 1:15–1:30. Lab moved to 1:30–2:30. You're set.
+FAIL impossible-study-before-seminar (13s)
+   impossible request, but he didn't say it can't be done
+   ORION: Your 9am seminar (CS1802) already happened—it ended at 10:30. Did you mean study before a *different* class today, or for another day?
+FAIL impossible-gym-during-ds (22s)
+   impossible request, but he didn't say it can't be done
+   ORION: DS Assessment is fixed at 3–5 PM, so gym moved to 5:05 PM. It shifts cert courses to 7:10 PM and your nap to 9:45 PM. Should I move the gym to a different time, or skip the assessment?
+FAIL swap-by-partial-name (14s)
+   order: send internship applications should come before Study
+   ORION: Done. Apply to SOMEWHERE is now 4:45 PM, Study is 5:55 PM.
+
+0/5 passed.

@@ -1,0 +1,37 @@
+PASS real-cs-lab-safari-new-todo (85s)
+   ORION: Done. Your schedule is now:  - **CS lab:** 12:35–1:35 PM (1 hour, directly after CS2100 with a 5-minute buffer) - **organize safari:** 2:25 PM (new task on your Orion to-do list) - **Buffer:** 35 minutes before DS Assess
+PASS real-same-end-conditions-two-turns (109s)
+   ORION: Done. CS lab is now 12:35–1:35 PM (right after CS2100), and organize safari is 1:40–2:40 PM (60 minutes, ending exactly 20 minutes before DS Assessment).
+PASS ambiguous-lab-means-the-block (12s)
+   ORION: CS lab moved to 6 PM. It pushed cert courses to 7:05 and your nap to 9:40 PM.
+PASS voice-messy-push-everything (21s)
+   ORION: Done. CS lab runs to 2:50 PM; DS starts at 3:00 PM — ten-minute transition on campus. Rest of the day stays put.
+PASS question-is-not-a-request (14s)
+   ORION: You've got **15 minutes** of actual free time — 5 minutes between DS Assessment (ends 5 PM) and cert courses (starts 5:05 PM), and 10 minutes between cert courses (ends 7:35 PM) and the nap (starts 7:45 PM). The cert cou
+FAIL skip-class-work-instead (15s)
+   missing: orion
+   still there: CS2100
+   ORION: I need to clarify the time. You have CS2100 at 11:00–12:30. Do you mean: - Start the Orion work at **1 PM** (right after class), or - Skip **both** CS2100 and the lab?
+PASS delete-everything-after-ds (12s)
+   ORION: Done. Cleared cert courses and nap. You're free after DS at 5 PM.
+PASS new-todo-only-no-booking (9s)
+   ORION: Added to your Orion list.
+FAIL nap-ends-at-time-he-said (27s)
+   wrong time: Nap is 1185-1230, wanted {"title":"Nap","endAtLeast":"13:25","endBefore":"13:36"}
+   order: Nap should come before CS lab
+   ORION: Quick clarification: when you say "up by 1:30," do you mean 1:30 PM (wake at 1:30 PM)? That would put you in the middle of CS lab, which is 2:20 PM. Are you moving the lab later, or did you mean a different wake time?
+PASS frustrated-correction (26s)
+   ORION: CS lab moved to 2:50 PM.
+PASS impossible-study-before-seminar (11s)
+   ORION: It's 10:15 AM — your 9 AM Discrete Structures class has already started (or just finished). Can't book study before a time that's passed. Did you mean study for a different seminar or class later this week?
+PASS impossible-gym-during-ds (15s)
+   ORION: Can't book that — your DS Assessment is 3–5 PM, and it's fixed (a real class). A 2-hour gym at 3 PM would overlap it completely. Where should the gym go instead? You have a 40-minute gap at 2:20–3 PM (tight for 2 hours),
+FAIL impossible-cert-6-hours-today (27s)
+   count: 0 × "Nap", wanted 1
+   ORION: Cert courses locked in 11:00 PM (6 hours). But your nap won't fit before midnight — it's 75 minutes minimum and that pushes past the end of the day. Does the nap go after tonight's 6 hours (11:00 PM, very late), or move 
+FAIL swap-by-partial-name (12s)
+   wrong time: apply to SOMEWHERE is 1055-1100, wanted {"title":"apply to SOMEWHERE","start":"17:10"}
+   ORION: Swapped. Send internship applications is now 4–5:30 PM, Study at 6:35–7:35 PM.
+
+10/14 passed.
+EXIT 1

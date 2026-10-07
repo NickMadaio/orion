@@ -1,0 +1,717 @@
+[
+ {
+  "id": "real-cs-lab-safari-new-todo",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 32,
+  "replies": [
+   "Done. CS lab is now 12:30–1:30 PM (directly after CS2100, no commute), \"organize safari\" is added and scheduled 2:00 PM, and you've got a 60-minute buffer before DS Assessment at 3:00 PM (well over the 20 minutes you wanted)."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 750,
+    "end": 810,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "organize safari",
+    "start": 810,
+    "end": 840,
+    "id": "sb-6-jmy2n8",
+    "fixed": true
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1260,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "real-same-end-conditions-two-turns",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 123,
+  "replies": [
+   "Can't add \"organize safari\" directly—the system needs it on your calendar first before the scheduler can move it to meet your constraints. I can either:\n\n1. You approve adding it now (I'd create a 20-minute block 2:40 PM, which exactly fits: right after CS lab, ending 20 min before DS Assessment at 3:00 PM)\n2. You give it a slightly different name if \"organize safari\" is not quite the right phrasing for the title\n\nWhat would you prefer?",
+   "Done. CS lab is now 12:30–1:30 PM (right after CS2100), organize safari runs 2:40 PM (directly after, ends 20 min before DS Assessment), and your nap boosted to 75 min tonight (8:55 PM)."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 750,
+    "end": 810,
+    "id": "sb-3-qkd98g",
+    "fixed": false
+   },
+   {
+    "title": "organize safari",
+    "start": 810,
+    "end": 880,
+    "id": "sb-4-u82rlw",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "sb-5-vkon8c",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1180,
+    "end": 1255,
+    "id": "sb-6-vgaxol",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "ambiguous-lab-means-the-block",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 13,
+  "replies": [
+   "CS lab is now at 6 PM. Cert courses shifted to 7:05 PM, nap to 9:40 PM."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 1080,
+    "end": 1140,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "do cert courses",
+    "start": 1145,
+    "end": 1295,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1300,
+    "end": 1345,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "voice-messy-push-everything",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 14,
+  "replies": [
+   "CS lab extended to 2:50 PM. DS Assessment and cert courses stay in place."
+  ],
+  "day": [
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 890,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "question-is-not-a-request",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 11,
+  "replies": [
+   "Between your DS assessment (ends 5:00 PM) and your nap (starts 7:45 PM), you have \"do cert courses\" booked from 7:35 PM. So effectively no free time — the cert courses take 2.5 hours, with 5-minute buffers before and after. If you need a break or to eat before the nap, that block would have to move or shrink."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 860,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "skip-class-work-instead",
+  "model": "default",
+  "thinking": "default",
+  "ok": false,
+  "failures": [
+   "wrong time: orion is 800-890, wanted {\"title\":\"orion\",\"start\":\"11:00\",\"end\":\"12:30\"}",
+   "still there: CS2100",
+   "lost: CS lab"
+  ],
+  "secs": 42,
+  "replies": [
+   "CS lab dropped. Orion work is booked 1:20–2:50 PM (right after you get home) — CS2100 blocks 11 AM. Confirm that works, or tell me when to put it instead."
+  ],
+  "day": [
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "work on orion",
+    "start": 800,
+    "end": 890,
+    "id": "sb-5-i4x1nn",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "delete-everything-after-ds",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 15,
+  "replies": [
+   "Done. Removed cert courses and the nap—your day ends at 5 PM when the DS Assessment finishes."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 860,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   }
+  ]
+ },
+ {
+  "id": "new-todo-only-no-booking",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 10,
+  "replies": [
+   "Added to your Orion list."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 860,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "nap-ends-at-time-he-said",
+  "model": "default",
+  "thinking": "default",
+  "ok": false,
+  "failures": [
+   "wrong time: Nap is 1185-1230, wanted {\"title\":\"Nap\",\"endAtLeast\":\"13:25\",\"endBefore\":\"13:36\"}",
+   "order: Nap should come before CS lab"
+  ],
+  "secs": 25,
+  "replies": [
+   "The commute ends at 1:15, but the CS lab starts at 1:20 — only 5 minutes. That's not enough for a nap (minimum 75 minutes). Do you want me to move the lab to 1:30, or does \"nap so I'm up by 1:30\" mean something else?"
+  ],
+  "day": [
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 860,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "frustrated-correction",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 36,
+  "replies": [
+   "Where to? CS Assessment starts at 3:00 PM. After it ends at 5:00 PM, cert courses is at 7:35 PM. I can move the lab to 2:30 PM (between class and Assessment), or after cert courses would need to shift your nap.",
+   "Done. Lab's at 1:50 PM now."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 830,
+    "end": 890,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "impossible-study-before-seminar",
+  "model": "default",
+  "thinking": "default",
+  "ok": false,
+  "failures": [
+   "impossible request, but he didn't say it can't be done"
+  ],
+  "secs": 11,
+  "replies": [
+   "It's 11:05 AM — your 9am class (CS1802) already finished at 10:30. Which day do you mean: tomorrow, or another date?"
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 860,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "impossible-gym-during-ds",
+  "model": "default",
+  "thinking": "default",
+  "ok": false,
+  "failures": [
+   "impossible request, but he didn't say it can't be done"
+  ],
+  "secs": 15,
+  "replies": [
+   "Gym booked 5:05 PM–7:05 PM instead — your DS Assessment is 3–5 PM. Cert courses moved to 7:10 PM, nap to 9:45 PM."
+  ],
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": 540,
+    "end": 630,
+    "id": "seed-0",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": 660,
+    "end": 750,
+    "id": "seed-1",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": 800,
+    "end": 860,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "gym",
+    "start": 1025,
+    "end": 1145,
+    "id": "sb-6-4dyjlk",
+    "fixed": false
+   },
+   {
+    "title": "do cert courses",
+    "start": 1150,
+    "end": 1300,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1305,
+    "end": 1350,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "impossible-cert-6-hours-today",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 12,
+  "replies": [
+   "Your DS Assessment is on now (ends 5:00 PM). Cert courses are blocked 7:35 PM — that's 2.5 hours before the nap at 7:45 PM. Six hours won't fit. What do you want to do: skip the nap, shorten it, do cert courses *after* the nap, or spread them over multiple days?"
+  ],
+  "day": [
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": 900,
+    "end": 1020,
+    "id": "seed-3",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": 1025,
+    "end": 1175,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 1185,
+    "end": 1230,
+    "id": "seed-5",
+    "fixed": false
+   }
+  ]
+ },
+ {
+  "id": "swap-by-partial-name",
+  "model": "default",
+  "thinking": "default",
+  "ok": false,
+  "failures": [
+   "order: send internship applications should come before Study"
+  ],
+  "secs": 12,
+  "replies": [
+   "Done. You're applying to SOMEWHERE at 4–4:45 PM, then studying 4:55–5:55 PM. Undo if you need it back."
+  ],
+  "day": [
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 960,
+    "end": 1005,
+    "id": "seed-1",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 1015,
+    "end": 1075,
+    "id": "seed-0",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1085,
+    "end": 1175,
+    "id": "seed-2",
+    "fixed": false
+   }
+  ]
+ }
+]

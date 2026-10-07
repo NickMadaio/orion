@@ -1,0 +1,14 @@
+PASS real-same-end-conditions-two-turns (103s)
+   ORION: Done. CS lab is now right after CS2100, and organize safari runs from 2:40 PM (1 hour, up from 20 minutes)—ends 20 min before your 3 PM DS Assessment.
+FAIL skip-class-work-instead (83s)
+   lost: CS lab
+   ORION: Booked. Orion 11:00–12:30, then home. You're free of both the lecture and lab.
+FAIL nap-ends-at-time-he-said (21s)
+   wrong time: Nap is 1185-1230, wanted {"title":"Nap","endBefore":"14:06"}
+   order: Nap should come before CS lab
+   impossible request, but he neither said no nor said where it went and why
+   ORION: Your last class ends at 12:30, and travel home is 12:30–1:15 PM. A nap to wake up by 1:30 PM would be only 15 minutes — way under the 75-minute minimum. The CS lab is already scheduled 1:20–2:20 PM. Do you want to: 1. Mo
+PASS impossible-cert-6-hours-today (18s)
+   ORION: Looking at your calendar now: DS Assessment ends at 5:00 PM (5 PM), and your nap starts at 7:45 PM — that's 2 hours 45 minutes for cert courses. Six hours won't fit before the nap. What should I do? 1. **Push the nap lat
+
+2/4 passed.

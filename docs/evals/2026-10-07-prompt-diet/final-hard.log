@@ -1,0 +1,38 @@
+PASS real-cs-lab-safari-new-todo (32s)
+   ORION: Done. CS lab is now 12:30–1:30 PM (directly after CS2100, no commute), "organize safari" is added and scheduled 2:00 PM, and you've got a 60-minute buffer before DS Assessment at 3:00 PM (well over the 20 minutes you wan
+PASS real-same-end-conditions-two-turns (123s)
+   ORION: Done. CS lab is now 12:30–1:30 PM (right after CS2100), organize safari runs 2:40 PM (directly after, ends 20 min before DS Assessment), and your nap boosted to 75 min tonight (8:55 PM).
+PASS ambiguous-lab-means-the-block (13s)
+   ORION: CS lab is now at 6 PM. Cert courses shifted to 7:05 PM, nap to 9:40 PM.
+PASS voice-messy-push-everything (14s)
+   ORION: CS lab extended to 2:50 PM. DS Assessment and cert courses stay in place.
+PASS question-is-not-a-request (11s)
+   ORION: Between your DS assessment (ends 5:00 PM) and your nap (starts 7:45 PM), you have "do cert courses" booked from 7:35 PM. So effectively no free time — the cert courses take 2.5 hours, with 5-minute buffers before and aft
+FAIL skip-class-work-instead (42s)
+   wrong time: orion is 800-890, wanted {"title":"orion","start":"11:00","end":"12:30"}
+   still there: CS2100
+   lost: CS lab
+   ORION: CS lab dropped. Orion work is booked 1:20–2:50 PM (right after you get home) — CS2100 blocks 11 AM. Confirm that works, or tell me when to put it instead.
+PASS delete-everything-after-ds (15s)
+   ORION: Done. Removed cert courses and the nap—your day ends at 5 PM when the DS Assessment finishes.
+PASS new-todo-only-no-booking (10s)
+   ORION: Added to your Orion list.
+FAIL nap-ends-at-time-he-said (25s)
+   wrong time: Nap is 1185-1230, wanted {"title":"Nap","endAtLeast":"13:25","endBefore":"13:36"}
+   order: Nap should come before CS lab
+   ORION: The commute ends at 1:15, but the CS lab starts at 1:20 — only 5 minutes. That's not enough for a nap (minimum 75 minutes). Do you want me to move the lab to 1:30, or does "nap so I'm up by 1:30" mean something else?
+PASS frustrated-correction (36s)
+   ORION: Done. Lab's at 1:50 PM now.
+FAIL impossible-study-before-seminar (11s)
+   impossible request, but he didn't say it can't be done
+   ORION: It's 11:05 AM — your 9am class (CS1802) already finished at 10:30. Which day do you mean: tomorrow, or another date?
+FAIL impossible-gym-during-ds (15s)
+   impossible request, but he didn't say it can't be done
+   ORION: Gym booked 5:05 PM–7:05 PM instead — your DS Assessment is 3–5 PM. Cert courses moved to 7:10 PM, nap to 9:45 PM.
+PASS impossible-cert-6-hours-today (12s)
+   ORION: Your DS Assessment is on now (ends 5:00 PM). Cert courses are blocked 7:35 PM — that's 2.5 hours before the nap at 7:45 PM. Six hours won't fit. What do you want to do: skip the nap, shorten it, do cert courses *after* t
+FAIL swap-by-partial-name (12s)
+   order: send internship applications should come before Study
+   ORION: Done. You're applying to SOMEWHERE at 4–4:45 PM, then studying 4:55–5:55 PM. Undo if you need it back.
+
+9/14 passed.

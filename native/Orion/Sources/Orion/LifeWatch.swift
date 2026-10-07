@@ -34,6 +34,14 @@ final class LifeWatch {
             process.standardError = FileHandle.nullDevice
             try? process.run()
             process.waitUntilExit()
+            // Watches: weather, important texts and mail (orion-watches, 2026-10-07).
+            let watches = Process()
+            watches.executableURL = node
+            watches.arguments = [script.deletingLastPathComponent().appendingPathComponent("orion-watches").path, "tick"]
+            watches.standardOutput = FileHandle.nullDevice
+            watches.standardError = FileHandle.nullDevice
+            try? watches.run()
+            watches.waitUntilExit()
             await MainActor.run { self.running = false }
         }
     }

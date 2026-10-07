@@ -151,8 +151,30 @@ final class MessagesReader: ObservableObject {
                 self.conversations = grouped
                 self.lastSyncedAt = Date()
                 OrionLog.write("[messages] \(rows.count) message(s) across \(grouped.count) conversation(s)")
+                Self.exportIncoming(rows, conversations: grouped)
             }
         }
+    }
+
+    /// The text gate (orion-watches, 2026-10-07): incoming texts from the last
+    /// day, for a script that cannot read chat.db itself (Full Disk Access
+    /// belongs to this app). Private to his account; text only, newest last.
+    static func exportIncoming(_ rows: [Message], conversations: [Conversation]) {
+        let names = Dictionary(conversations.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+        let cutoff = Date().addingTimeInterval(-86_400)
+        let iso = ISO8601DateFormatter()
+        let items: [[String: Any]] = rows.filter { !$0.isFromMe && $0.date > cutoff && !$0.text.isEmpty }
+            .sorted { $0.date < $1.date }.suffix(60)
+            .map { m in
+                let chat = names[m.chatID] ?? m.handle
+                let group = !m.chatName.isEmpty
+                return ["id": m.id, "sender": group ? "\(m.handle) in \(m.chatName)" : chat, "handle": m.handle,
+                        "text": String(m.text.prefix(500)), "date": iso.string(from: m.date), "group": group]
+            }
+        guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/messages-recent.json")
+        try? data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     // MARK: - Reading

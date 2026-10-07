@@ -1,0 +1,309 @@
+{
+ "note": "Hard, realistic scenarios from Nick's real messages (2026-10-06/07), typos and voice transcripts kept. The 2 October suite had saturated at 22/22.",
+ "base": {
+  "now": "08:08",
+  "day": [
+   {
+    "title": "CS1802 Discrete Structures — Seminar",
+    "start": "09:00",
+    "end": "10:30",
+    "fixed": true
+   },
+   {
+    "title": "CS2100 Program Design & Implementation 1 — Lab",
+    "start": "11:00",
+    "end": "12:30",
+    "fixed": true
+   },
+   {
+    "title": "CS lab",
+    "start": "13:20",
+    "end": "14:20",
+    "kind": "study"
+   },
+   {
+    "title": "DS Assesment W comp sci group",
+    "start": "15:00",
+    "end": "17:00",
+    "fixed": true
+   },
+   {
+    "title": "do cert courses",
+    "start": "17:05",
+    "end": "19:35",
+    "kind": "other"
+   },
+   {
+    "title": "Nap",
+    "start": "19:45",
+    "end": "20:30",
+    "kind": "rest"
+   }
+  ]
+ },
+ "scenarios": [
+  {
+   "id": "real-cs-lab-safari-new-todo",
+   "say": "get rid of the time block for commuting between CS lab and CS2100 class. extend thge cs lab to one hour. make the cs lab one hour, directly after my CS2100 class, and then after that put \"organize safari\", which you should make a new todo task for as one does not exist right now. there should be at least 20 minutes between the safari task and the DS assesment w comp sci group event",
+   "expect": {
+    "has": [
+     {
+      "title": "CS lab",
+      "startAtLeast": "12:30",
+      "startBefore": "12:46"
+     },
+     {
+      "title": "organize safari",
+      "startAtLeast": "13:30",
+      "endBefore": "14:41"
+     }
+    ],
+    "minutes": {
+     "CS lab": 60
+    },
+    "count": {
+     "organize safari": 1,
+     "CS lab": 1
+    },
+    "order": [
+     [
+      "CS lab",
+      "organize safari"
+     ]
+    ],
+    "todos": [
+     "organize safari"
+    ]
+   }
+  },
+  {
+   "id": "real-same-end-conditions-two-turns",
+   "say": [
+    "put organize safari right after CS lab and make sure it ends at least 20 minutes before the DS assesment",
+    "actually move CS lab to right after my CS2100 class, and start organize safari directly after CS lab, same end conditions so the event will become significantly longer but thats OK"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "CS lab",
+      "startAtLeast": "12:30",
+      "startBefore": "12:46"
+     },
+     {
+      "title": "organize safari",
+      "startAtLeast": "13:30",
+      "startBefore": "13:46",
+      "endAtLeast": "14:30",
+      "endBefore": "14:41"
+     }
+    ],
+    "count": {
+     "organize safari": 1
+    }
+   }
+  },
+  {
+   "id": "ambiguous-lab-means-the-block",
+   "say": "move the cs lab to 6pm",
+   "expect": {
+    "has": [
+     {
+      "title": "CS lab",
+      "start": "18:00"
+     }
+    ],
+    "minutes": {
+     "CS lab": 60
+    },
+    "mayDrop": [
+     "Nap"
+    ]
+   }
+  },
+  {
+   "id": "voice-messy-push-everything",
+   "now": "13:40",
+   "say": "uh so the — the cs lab, um, it's gonna run like another half hour so just like push whatever's after it, but obviously not the DS thing",
+   "expect": {
+    "has": [
+     {
+      "title": "CS lab",
+      "endAtLeast": "14:45",
+      "endBefore": "14:56"
+     }
+    ],
+    "count": {
+     "CS lab": 1
+    }
+   }
+  },
+  {
+   "id": "question-is-not-a-request",
+   "say": "how much free time do i actually have between my DS assesment and my nap?",
+   "expect": {
+    "unchangedDay": true
+   }
+  },
+  {
+   "id": "skip-class-work-instead",
+   "now": "10:45",
+   "say": "im not going to my CS2100 lab today, work on orion for 90 minutes instead starting at 11",
+   "expect": {
+    "absent": [
+     "CS2100"
+    ],
+    "has": [
+     {
+      "title": "orion",
+      "start": "11:00",
+      "end": "12:30"
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete-everything-after-ds",
+   "say": "get rid of everything after the DS assesment today, im going out",
+   "expect": {
+    "absent": [
+     "do cert courses",
+     "Nap"
+    ],
+    "has": [
+     {
+      "title": "DS Assesment",
+      "start": "15:00"
+     }
+    ]
+   }
+  },
+  {
+   "id": "new-todo-only-no-booking",
+   "say": "add buy printer paper to my to do list, dont schedule it",
+   "expect": {
+    "todos": [
+     "printer paper"
+    ],
+    "unchangedDay": true
+   }
+  },
+  {
+   "id": "nap-ends-at-time-he-said",
+   "now": "12:35",
+   "say": "after class i'm gonna nap so i'm up by 1:30, then do the cs lab",
+   "expect": {
+    "has": [
+     {
+      "title": "Nap",
+      "endAtLeast": "13:25",
+      "endBefore": "13:36"
+     }
+    ],
+    "order": [
+     [
+      "Nap",
+      "CS lab"
+     ]
+    ],
+    "count": {
+     "Nap": 1
+    }
+   }
+  },
+  {
+   "id": "frustrated-correction",
+   "say": [
+    "move the cs lab later",
+    "no i said like half an hour later, not whatever you did"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "CS lab",
+      "startAtLeast": "13:45",
+      "startBefore": "13:56"
+     }
+    ],
+    "count": {
+     "CS lab": 1
+    }
+   }
+  },
+  {
+   "id": "impossible-study-before-seminar",
+   "say": "schedule 3 hours of study before my 9am seminar",
+   "expect": {
+    "saysNo": true,
+    "unchangedDay": true
+   }
+  },
+  {
+   "id": "impossible-gym-during-ds",
+   "say": "put a 2 hour gym session at 3pm today",
+   "expect": {
+    "saysNo": true,
+    "has": [
+     {
+      "title": "DS Assesment",
+      "start": "15:00",
+      "end": "17:00"
+     }
+    ]
+   }
+  },
+  {
+   "id": "impossible-cert-6-hours-today",
+   "now": "16:30",
+   "say": "i need to get 6 hours of cert courses done today, before i nap",
+   "expect": {
+    "saysNo": true,
+    "count": {
+     "Nap": 1
+    }
+   }
+  },
+  {
+   "id": "swap-by-partial-name",
+   "day": [
+    {
+     "title": "Study",
+     "start": "16:00",
+     "end": "17:00",
+     "kind": "study"
+    },
+    {
+     "title": "apply to SOMEWHERE",
+     "start": "17:10",
+     "end": "17:55",
+     "kind": "other"
+    },
+    {
+     "title": "send internship applications",
+     "start": "18:05",
+     "end": "19:35",
+     "kind": "other"
+    }
+   ],
+   "now": "14:00",
+   "say": "swap study and the internship applications",
+   "expect": {
+    "order": [
+     [
+      "send internship applications",
+      "Study"
+     ]
+    ],
+    "minutes": {
+     "Study": 60,
+     "send internship applications": 90
+    },
+    "has": [
+     {
+      "title": "apply to SOMEWHERE",
+      "start": "17:10"
+     }
+    ]
+   }
+  }
+ ]
+}

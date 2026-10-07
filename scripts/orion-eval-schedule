@@ -40,7 +40,8 @@ const iso = (hhmm) => new Date(`${today}T${hhmm}:00`).toISOString();
 const minute = (s) => { const d = new Date(s); return d.getHours() * 60 + d.getMinutes(); };
 const toMinute = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 const readDay = () => JSON.parse(readFileSync(SANDBOX_CALENDAR, "utf8")).events
-  .map((e) => ({ title: e.title, start: minute(e.start), end: minute(e.end) })).sort((a, b) => a.start - b.start);
+  .map((e) => ({ title: e.title, start: minute(e.start), end: minute(e.end), id: e.identifier, fixed: !e.orion })).sort((a, b) => a.start - b.start);
+const readTodos = () => (JSON.parse(readFileSync(SANDBOX_CALENDAR, "utf8")).reminders ?? []).map((r) => r.title);
 const lifeCopy = join(dirname(SANDBOX_CALENDAR), "eval-life-config.json");
 const realLife = join(dirname(SANDBOX_CALENDAR), "life-config.json");
 const stamp = new Date().toISOString().slice(0, 23).replace(/[:T-]/g, "");
@@ -72,7 +73,7 @@ try {
       replies.push((run.stdout ?? "").trim() || `(no reply, exit ${run.status}) ${(run.stderr ?? "").slice(0, 200)}`);
     }
     const after = readDay();
-    const grade = gradeSchedule({ after, before, expect: s.expect ?? {}, now: toMinute(s.now), reply: replies.at(-1) });
+    const grade = gradeSchedule({ after, before, expect: s.expect ?? {}, now: toMinute(s.now), reply: replies.at(-1), todos: readTodos() });
     grade.failures.push(...transportFailures); grade.ok = grade.failures.length === 0;
     const row = { id: s.id, model: model ?? "default", thinking: thinking ?? "default", ok: grade.ok, failures: grade.failures, secs: Math.round((Date.now() - started) / 1000),
       replies, day: after.filter((b) => b.end > toMinute(s.now)) };

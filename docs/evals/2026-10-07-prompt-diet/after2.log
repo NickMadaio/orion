@@ -1,0 +1,48 @@
+PASS extend-lab-nap-after-swap-youtube (26s)
+   ORION: Done. DS lab runs to 3 PM, nap at 3:55, and side project (YouTube) takes the 5:50 slot. Everything after shifts up accordingly.
+PASS full-afternoon-replay (70s)
+   ORION: Nap's 90 minutes now; study's pushed back. Internship applications gone. Your nap rule is saved.
+PASS still-in-lab-30-more (18s)
+   ORION: Extended the lab to 2:49 PM. Everything slides back in order—your nap is now 4:19 PM.
+PASS past-time-trap (24s)
+   ORION: DS lab already finished at 1:48 PM (it's 2:19 now). Can't reschedule something that's already over.
+PASS resize-longer (8s)
+   ORION: Study is now 90 minutes, 5:33 PM. Everything after it shifted down 30 minutes.
+PASS resize-shorter (8s)
+   ORION: Done. Dinner is now 8:18 PM (30 min). The rest of your day shifted up 15 minutes — "finish resume" now starts at 8:28 PM instead of 8:43 PM.
+PASS move-study-6 (12s)
+   ORION: Study moved to 6pm. That pushed dinner back to 9:30 PM, but finish resume (90 min) no longer fits on your day — it's a time crunch at night. Drop it, shrink something else, or move it to another day?
+PASS swap-even (11s)
+   ORION: Done — nap's now at 5:13 PM, apply to SOMEWHERE moved up to 3:08 PM.
+FAIL swap-uneven (9s)
+   order: send internship applications should come before Study
+   ORION: Done. Internship applications 4:48 PM, Study 5:58 PM.
+PASS reorder-resume-before-dinner (13s)
+   ORION: Done. Resume is now 7:48 to 9:18 PM, then dinner at 9:28 to 10:13 PM.
+PASS standing-nap-rule (6s)
+   ORION: Nap minimum saved: 75 minutes from now on.
+PASS drop-and-push (16s)
+   ORION: Done. Dropped "send internship applications" and moved Study back to 5:33 PM. Everything after it shifted to fill the gap.
+PASS two-changes (14s)
+   ORION: Nap is 75 min, ends 4:23 PM. Dinner moved to 8 PM. Everything after adjusted.
+PASS eat-now (17s)
+   ORION: Lunch 2:44 PM, break 2:59 PM. YouTube picks up at 3:04 PM when the break ends. Nap shifts to 3:54 PM.
+PASS shrink-youtube-to-fit (20s)
+   ORION: Nap extended to 75 minutes, study pushed back to 4:20 PM. Everything fits without shrinking YouTube.
+PASS tidy-overlaps (12s)
+   ORION: Fixed: moved Study to 2:50 PM and Dinner to 6:30 PM. Your day is clear now.
+PASS move-plus-resize (13s)
+   ORION: Done. Study is now 4:33–5:33 PM, and Dinner is 30 minutes (8:03–8:33 PM).
+PASS swap-plus-drop (18s)
+   ORION: Done. Swapped Nap and apply to SOMEWHERE—you're doing that at 3:08 PM now, nap moves to 5:13 PM. Dropped send internship applications entirely.
+PASS three-edits-pinned-dinner (19s)
+   ORION: Done. Dinner at 8 PM, nap 75 minutes, "apply to SOMEWHERE" dropped.
+PASS dinner-natural-tidy (17s)
+   ORION: Done. Moved Dinner to 6:30 PM — that's a normal dinner time. Study stays at 2 PM.
+PASS short-sleep-nap-after-class (23s)
+   ORION: Nap is now 2:30 PM, right after you get home. Study starts at 2:30 PM—both are set.
+PASS no-waking-or-stacked-breaks (20s)
+   ORION: Morning sequence locked in: Plan Study 9–10 AM, Morning break 10:05–10:20, Reading 10:25–11:10, Reading break 11:15–11:30. Rest of the day is clear. Need anything else?
+
+21/22 passed.
+EXIT 1

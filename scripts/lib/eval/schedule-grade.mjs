@@ -16,7 +16,7 @@ const named = (blocks, title) => blocks.filter((b) => norm(b.title).includes(nor
  * @param reply   ORION's final reply text
  * @returns { ok, failures: string[] }
  */
-export function gradeSchedule({ after, before, expect = {}, now = 0, reply = "" }) {
+export function gradeSchedule({ after, before, expect = {}, now = 0, reply = "", todos = [] }) {
   if (!Array.isArray(after) || !Array.isArray(before)) throw new TypeError("after and before must be arrays");
   const failures = [];
   const disclosedDrop = title => norm(reply).includes(norm(title)) && /\?/.test(reply) && /\b(drop|skip|tomorrow|another day|move|reschedule|fit|leave)\b/i.test(reply);
@@ -85,6 +85,21 @@ export function gradeSchedule({ after, before, expect = {}, now = 0, reply = "" 
       if (b.start < wake + 60) failures.push(`break immediately after waking: ${b.title}`);
       if (breaks.some(x => x !== b && Math.abs(x.end - b.start) <= 10)) failures.push(`stacked breaks: ${b.title}`);
     }
+  }
+  // 2026-10-07: a to-do he asked for must really exist (orion-tasks failed for days unnoticed).
+  for (const title of expect.todos ?? []) if (!todos.some((t) => norm(t).includes(norm(title)))) failures.push(`to-do not created: ${title}`);
+  // 2026-10-07: ORION deleted his class and re-created it. A class he did not
+  // ask to skip keeps its own calendar event.
+  for (const b of before.filter((x) => x.fixed && x.id && x.end > now)) {
+    if ((expect.absent ?? []).some((t) => norm(b.title).includes(norm(t)))) continue;
+    if (!after.some((a) => a.id === b.id)) failures.push(`class re-created or removed: ${b.title}`);
+  }
+  // An impossible request: he says so plainly instead of pretending.
+  if (expect.saysNo && !/\b(can'?t|cannot|won'?t fit|doesn'?t fit|not enough|no room|isn'?t (enough|possible|room)|impossible|there'?s only|only \d+ ?(min|minutes|hours?)|clash|overlap|conflict)/i.test(reply)) failures.push("impossible request, but he didn't say it can't be done");
+  // A question is not a request: the day stays exactly as it was.
+  if (expect.unchangedDay) {
+    const key = (d) => d.filter((b) => b.end > now).map((b) => `${norm(b.title)}@${b.start}-${b.end}`).sort().join("|");
+    if (key(after) !== key(before)) failures.push("the day changed, but he only asked a question");
   }
   if (/\bnoted\b/i.test(reply) && !/saved/i.test(reply)) failures.push('reply says "noted" without saying it was saved');
   return { ok: failures.length === 0, failures };

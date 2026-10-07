@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+/*
+ orion-help — the full usage of one of ORION's tools (2026-10-07, cost).
+
+   orion-help <tool>      e.g. orion-help orion-reschedule
+
+ TOOLS.md lists every tool with a one-line purpose so it stays small (it is
+ re-sent on every model call); the full description it was cut from lives in
+ workspace/tools-detail.json, written by orion-selfdoc. Falls back to the
+ tool's own usage text.
+*/
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const name = (process.argv[2] ?? "").replace(/^.*\//, "");
+if (!/^orion-[a-z0-9-]+$/.test(name)) { console.error("usage: orion-help <tool>   e.g. orion-help orion-reschedule"); process.exit(2); }
+let detail = {};
+try { detail = JSON.parse(readFileSync(process.env.ORION_TOOLS_DETAIL || join(homedir(), ".openclaw/workspace/tools-detail.json"), "utf8")); } catch {}
+if (detail[name]) { console.log(`${name} — ${detail[name]}`); process.exit(0); }
+const script = join(import.meta.dirname, name);
+const run = spawnSync(process.execPath, [script, "--help"], { encoding: "utf8", timeout: 5000 });
+const text = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
+if (text) { console.log(text.slice(0, 3000)); process.exit(0); }
+console.error(`No help for ${name}. It may not exist: check TOOLS.md.`); process.exit(1);

@@ -51,6 +51,15 @@ import {
 const home = homedir();
 const OPENCLAW = join(home, ".openclaw");
 const OUT = join(OPENCLAW, "workspace/TOOLS.md");
+const DETAIL = join(OPENCLAW, "workspace/tools-detail.json");
+const INDEX_CHARS = 150;
+/** The purpose, short: up to the first " — " or about 150 characters on a word. */
+function indexLine(blurb, name) {
+  if (blurb.length <= INDEX_CHARS) return blurb;
+  const dash = blurb.indexOf(" — ");
+  const cut = dash >= 25 && dash <= INDEX_CHARS ? blurb.slice(0, dash) : blurb.slice(0, blurb.lastIndexOf(" ", INDEX_CHARS));
+  return `${cut} … (\`orion-help ${name}\`)`;
+}
 
 const readJson = (path, fallback) => {
   try {
@@ -306,6 +315,7 @@ if (unresolved.length > 0) {
  removed from the allowlist it disappears from here on the next run.
 */
 const WRAPPER_BLURB = {
+  "orion-help": "the full usage of any tool on this list — `orion-help <tool>`",
   "orion-shortcut": "run Nick's Shortcuts named \"ORION …\" (lights, playlists, Focus, anything he builds) — `list`, `run \"ORION <name>\" [text]`; if what he wants needs a Shortcut, tell him to make one and name it \"ORION …\"",
   "orion-connect": "EVERY CONNECTION, live, and new ones you build — `list` (what works right now: calendar, gmail, whoop, bank, phone, discord, voice, and connectors); `run <name> <op> k=v` (built in: `tfl` line/status/journey/stop_search/arrivals, `canvas` courses/upcoming/todo/assignments/grades/announcements); `show <name>`; `how`; `create <name> --json '<spec>'` to add a service yourself; `set <name> key=value`",
   "orion-finance": "his bank balances, spending this week/month, top categories, subscriptions — read-only; `recent` for the last 25 transactions",
@@ -364,10 +374,14 @@ if (wrappers.length > 0) {
   lines.push(`Every wrapper below means \`${join(home, "Desktop/ORION/scripts")}/<name>\` exactly.`);
   lines.push("Use that absolute path, never a bare name or `~`. A miss is a final refusal.");
   lines.push("");
+  // An index, not a manual (2026-10-07, cost): every wrapper stays listed, with
+  // its purpose; the full usage is one `orion-help <name>` away. The full text
+  // was re-sent on every model call.
   for (const name of wrappers) {
     const blurb = WRAPPER_BLURB[name];
-    lines.push(`- \`${name}\`${blurb ? ` — ${blurb}` : ""}`);
+    lines.push(`- \`${name}\`${blurb ? ` — ${indexLine(blurb, name)}` : ""}`);
   }
+  writeFileSync(DETAIL, JSON.stringify(Object.fromEntries(wrappers.filter((n) => WRAPPER_BLURB[n]).map((n) => [n, WRAPPER_BLURB[n]])), null, 1));
   lines.push("");
   lines.push("`exec` runs a program, not a tool id, action name, subcommand, or English instruction.");
   lines.push("");

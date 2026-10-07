@@ -1,29 +1,59 @@
 #!/usr/bin/env node
-// Read-only model usage. Recorded gateway costs are not a provider invoice.
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
-import { readUsage, summarizeUsage, PRICES, priceSources } from './lib/usage/report.mjs';
-const args = process.argv.slice(2), flag = name => args[args.indexOf(name) + 1];
-if (args.includes('--help')) { console.log('orion-usage [--days 1..3650 | --all] [--json] — read-only retained gateway usage'); process.exit(0); }
-const home = process.env.ORION_USAGE_HOME || homedir();
-const days = args.includes('--all') ? null : args.includes('--days') ? Number(flag('--days')) : 30;
-if (days != null && (!Number.isInteger(days) || days < 1 || days > 3650)) { console.error('--days must be 1–3650, or use --all'); process.exit(2); }
-let budgets = null; try { budgets = JSON.parse(readFileSync(join(home, '.openclaw/orion-controlled/budgets.json'), 'utf8')); } catch {}
-const { entries, unreadable } = readUsage(home);
-const result = { generatedAt: new Date().toISOString(), timezone: 'Europe/London', windowDays: days, ...summarizeUsage(entries, { days }), unreadable, budgets, pricesPerMillionUsd: PRICES, priceSources, priceCheckedOn: '2026-10-02', notes: [
-  'Recorded cost is the gateway estimate stored on each call, not an invoice or account balance.',
-  'Current-rate equivalent reprices tokens at today’s standard USD rates with 5-minute cache writes. It is not historical spending; older discounts and 1-hour cache writes may differ.',
-  'Zero-cost cloud calls have unknown billing coverage; they are not assumed free. Ollama has no per-token API charge; electricity and hardware are excluded.',
-  'Claude/Codex subscriptions, other accounts, Deepgram/audio billing and calls missing from these retained logs are not included.',
-  'Native inference-ledger is a separate legacy source and is not added: overlapping records would double count.',
-  'Daily and task budgets are diagnostic ceilings, not a monthly dollar cap. Lane labels are inferred from retained session names.',
-] };
-if (args.includes('--json')) console.log(JSON.stringify(result, null, 2));
-else {
-  console.log(`ORION model usage — ${days == null ? 'all retained history' : days + ' calendar days'} (${result.timezone})`);
-  console.log(`${result.totals.calls} calls · ${result.totals.totalTokens.toLocaleString()} tokens · $${result.totals.recordedCost.toFixed(4)} recorded gateway cost`);
-  console.log(`$${result.totals.currentRateEquivalent.toFixed(4)} current-rate equivalent · ${result.totals.unpricedCloudCalls} unpriced cloud calls`);
-  for (const [model, value] of Object.entries(result.byModel).sort((a,b) => b[1].recordedCost-a[1].recordedCost)) console.log(`${model}: ${value.calls} calls; in ${value.input}; out ${value.output}; cache read ${value.cacheRead}; cache write ${value.cacheWrite}; $${value.recordedCost.toFixed(4)} recorded`);
-  for (const note of result.notes) console.log(note);
+/*
+ orion-usage — what ORION's models used and cost: today, this week, this month,
+ by model (Claude and local), by where it came from, and a monthly projection
+ (2026-10-07). Read-only.
+
+   orion-usage [--json] [--budget 15]
+
+ Sources: OpenClaw trajectories (every agent model call) and
+ ~/.openclaw/orion-controlled/local-usage.jsonl (ORION's direct local-model
+ calls, e.g. the overheard-speech check). Parsed files are cached by size and
+ mtime so the Mac app can call this on every open.
+*/
+import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { rowFromTrajectory, report } from "./lib/usage/usage.mjs";
+
+const args = process.argv.slice(2);
+const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
+const DIR = process.env.ORION_SESSIONS_DIR || join(homedir(), ".openclaw/agents/main/sessions");
+const LOCAL = process.env.ORION_LOCAL_USAGE || join(homedir(), ".openclaw/orion-controlled/local-usage.jsonl");
+const CACHE = process.env.ORION_USAGE_CACHE || join(homedir(), ".openclaw/orion-controlled/usage-cache.json");
+const now = process.env.ORION_NOW ? new Date(process.env.ORION_NOW) : new Date();
+const cutoff = new Date(now.getFullYear(), now.getMonth(), 1).getTime() - 15 * 86400000;
+
+let cache = {};
+try { cache = JSON.parse(readFileSync(CACHE, "utf8")); } catch {}
+const fresh = {};
+const rows = [];
+for (const name of existsSync(DIR) ? readdirSync(DIR).filter((f) => f.endsWith(".trajectory.jsonl")) : []) {
+  const path = join(DIR, name); const s = statSync(path);
+  if (s.mtimeMs < cutoff) continue;
+  const key = `${s.size}:${s.mtimeMs}`;
+  let fileRows = cache[name]?.key === key ? cache[name].rows : null;
+  if (!fileRows) {
+    fileRows = readFileSync(path, "utf8").split("\n")
+      .filter((l) => l.includes('"model.completed"'))
+      .flatMap((l) => { try { const r = rowFromTrajectory(JSON.parse(l)); return r ? [r] : []; } catch { return []; } });
+  }
+  fresh[name] = { key, rows: fileRows };
+  rows.push(...fileRows);
 }
+try { writeFileSync(CACHE, JSON.stringify(fresh)); } catch {}
+if (existsSync(LOCAL)) {
+  for (const line of readFileSync(LOCAL, "utf8").split("\n")) {
+    try { const r = JSON.parse(line); rows.push({ at: r.at, model: r.model, local: true, source: r.source ?? "local check",
+      input: r.input ?? 0, output: r.output ?? 0, cacheRead: 0, cacheWrite: 0, cost: 0 }); } catch {}
+  }
+}
+const out = report(rows, { now, budget: Number(flag("--budget", 15)) });
+if (args.includes("--json")) { console.log(JSON.stringify(out)); process.exit(0); }
+const $ = (n) => `$${n.toFixed(2)}`;
+console.log(`Today ${$(out.today.cost)} · 7 days ${$(out.week.cost)} · this month ${$(out.month.cost)} (budget ${$(out.budget)})`);
+console.log(`Month at this rate: ${$(out.projection.monthReal)} from real use (${$(out.projection.monthAll)} with tests)`);
+for (const [m, v] of Object.entries(out.month.byModel).sort((a, b) => b[1].cost - a[1].cost)) {
+  console.log(`  ${m}${v.local ? " (local)" : ""}: ${v.calls} calls, ${v.input + v.cacheRead + v.cacheWrite} in, ${v.output} out, ${$(v.cost)}`);
+}
+for (const [s, v] of Object.entries(out.month.bySource).sort((a, b) => b[1].cost - a[1].cost)) console.log(`  from ${s}: ${$(v.cost)} (${v.calls} calls)`);

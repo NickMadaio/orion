@@ -40,7 +40,21 @@ enum AddressGate {
                   let answer = (json["response"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
                 completion(nil); return
             }
+            log(model: model, input: json["prompt_eval_count"] as? Int ?? 0, output: json["eval_count"] as? Int ?? 0)
             completion(answer.hasPrefix("no") ? false : answer.hasPrefix("yes") ? true : nil)
         }.resume()
+    }
+
+    /// Local calls ORION makes itself never pass through OpenClaw, so the usage
+    /// view (scripts/orion-usage) reads them from here.
+    static func log(model: String, input: Int, output: Int) {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/local-usage.jsonl")
+        let line = "{\"at\":\"\(ISO8601DateFormatter().string(from: Date()))\",\"model\":\"\(model)\",\"source\":\"overheard check\",\"input\":\(input),\"output\":\(output)}\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile(); handle.write(data); try? handle.close()
+        } else {
+            try? data.write(to: url)
+        }
     }
 }

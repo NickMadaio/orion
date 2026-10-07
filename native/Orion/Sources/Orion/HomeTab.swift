@@ -114,6 +114,8 @@ struct HomeTab: View {
                 .padding(.top, 10)
         }
         .frame(maxWidth: .infinity)
+        // Usage: a small line in the corner that opens into the full picture.
+        .overlay(alignment: .topLeading) { UsageCorner().padding(.leading, 6).padding(.top, 4) }
     }
 
     private var orbField: some View {

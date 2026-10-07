@@ -2388,9 +2388,14 @@ async function manageReminder(
     }
   }
 
+  // Short and speakable: the user may have to say it back to cancel it. Two set
+  // in the same millisecond (one batch) used to share an id, and cancelling one
+  // removed both (2026-10-07) — bump until it is free.
+  const prefix = policy.operation === "alarm_set" ? "a" : "t";
+  let stamp = now;
+  while (live.some((entry) => entry.id === `${prefix}${stamp.toString(36).slice(-5)}`)) stamp += 1;
   const reminder: Reminder = {
-    // Short and speakable: the user may have to say it back to cancel it.
-    id: `${policy.operation === "alarm_set" ? "a" : "t"}${now.toString(36).slice(-5)}`,
+    id: `${prefix}${stamp.toString(36).slice(-5)}`,
     kind: policy.operation === "alarm_set" ? "alarm" : "timer",
     label,
     dueAt,

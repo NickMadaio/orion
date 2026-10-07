@@ -506,15 +506,16 @@ describe("orion-control plugin", () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "orion-timers-"));
     const store = path.join(directory, "reminders.json");
     const ctx = { roots: {} as never, simulatedState: new Map(), remindersPath: store };
+    // A distinct step id each: ids are derived from the step, and three set in one millisecond would collide.
     const set = (label: string) => executeAction(ACTION_CATALOG.timer_set!,
-      step({ action: "timer_set", arguments: { seconds: 600, label }, verify: "reminder_stored" }), ctx);
+      step({ id: `set-${label}`, action: "timer_set", arguments: { seconds: 600, label }, verify: "reminder_stored" }), ctx);
     await set("call the bank");
     await set("stretch");
     await set("stretch again");
     const cancel = (id: string) => executeAction(ACTION_CATALOG.reminder_cancel!,
       step({ action: "reminder_cancel", arguments: { id }, verify: "reminder_absent", reversible: false }), ctx);
     expect((await cancel("call the bank")).mode).toBe("cancelled");
-    expect(JSON.parse(await readFile(store, "utf8")).map((r: { label: string }) => r.label)).toEqual(["stretch", "stretch again"]);
+    expect(JSON.parse(await readFile(store, "utf8")).map((r: { label: string }) => r.label).sort()).toEqual(["stretch", "stretch again"]);
     await expect(cancel("stretch")).rejects.toThrow(/matches 2 reminders/);
     await expect(cancel("dentist")).rejects.toThrow(/no timer or alarm "dentist"/);
   });

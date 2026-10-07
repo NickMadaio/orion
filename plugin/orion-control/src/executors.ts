@@ -2350,12 +2350,21 @@ async function manageReminder(
   }
 
   if (policy.operation === "reminder_cancel") {
-    const id = String(step.arguments.id);
-    const remaining = live.filter((entry) => entry.id !== id);
-    if (remaining.length === live.length) {
-      throw new ActionExecutionError(`There is no timer or alarm with id ${id}.`);
+    // By id, or by what it is for ("cancel the bank reminder", 2026-10-07):
+    // a label works when exactly one reminder matches it.
+    const asked = String(step.arguments.id).trim();
+    const byLabel = (entry: { label: string }) =>
+      entry.label.toLowerCase().includes(asked.toLowerCase()) || asked.toLowerCase().includes(entry.label.toLowerCase());
+    const exact = live.find((entry) => entry.id === asked);
+    const named = exact ? [exact] : live.filter(byLabel);
+    if (named.length === 0) {
+      throw new ActionExecutionError(`There is no timer or alarm "${asked}". Live: ${live.map((e) => `${e.id} (${e.label})`).join(", ") || "none"}.`);
     }
-    await writeReminders(file, remaining);
+    if (named.length > 1) {
+      throw new ActionExecutionError(`"${asked}" matches ${named.length} reminders: ${named.map((e) => `${e.id} (${e.label})`).join(", ")}. Cancel one by its id.`);
+    }
+    const id = named[0].id;
+    await writeReminders(file, live.filter((entry) => entry.id !== id));
     return { mode: "cancelled", idempotencyKey, target: id };
   }
 

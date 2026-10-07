@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 
-import { sandbox } from "./lib/life/bridge-path.mjs";
+import { sandbox, clockNow } from "./lib/life/bridge-path.mjs";
 const run = promisify(execFile);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -617,6 +617,9 @@ async function phoneContext() {
   const names = apps?.ok ? apps.reply.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)) : [];
   return [
     "[orion-remote] Live facts for this message (read just now, not from Nick):",
+    // Evaluation only: the message's own timestamp is the real clock, the
+    // sandbox day runs on its own (2026-10-07: "your 9am already happened").
+    ...(sandbox() ? [`- TEST CLOCK: this is a schedule evaluation; it is ${(() => { const n = clockNow(); return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`; })()} now. Ignore any other time or timestamp.`] : []),
     (() => { try { return "[Scheduling preferences — read before planning]\n" + readFileSync(join(homedir(), ".openclaw/workspace/SCHEDULING.md"), "utf8").slice(0, 12000); } catch { return "Scheduling memory unavailable: read SCHEDULING.md before planning."; } })(),
     names.length ? `- Apps open on the Mac: ${names.join(", ")}.` : "- The list of open apps could not be read.",
     "- ORION's own app is the native Mac app Orion.app. It is not a website: never open a",
@@ -633,6 +636,7 @@ async function phoneContext() {
     `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
     "  \"Fix my schedule\" / overlaps → `tidy`. Every change obeys the day rules; NOTHING WAS CHANGED means ask him, never retry.",
     "  Doing something NOW (eating, a break, just got home) → `now \"Lunch, 25\" \"Break, 15\"` — it slides the rest in order; never retype the day to rearrange it.",
+    "  Name blocks with HIS words (\"swap study and the internship applications\" → `swap \"study\" \"internship applications\"`): the tool picks the block whose title matches them best. Never translate his words into a different block's title.",
     "  Change ONE block, never retype the day: Still doing X / need N more minutes → `extend \"X\" N` (N minutes from now if its old end has passed); never use orion-checkin for ongoing scheduled work. X is taking longer / extend X to 3 → `extend \"X\" --until 15:00` (works even if X already ended on the calendar; add `--then \"Nap\"` when he says what comes straight after). Make X shorter/longer, shrink it → `resize \"X\" <min>`. Replace/swap X with Y in its slot → `rename \"X\" \"Y\"`. Two changes in one message → run them one after another, the block he named first first.",
     "  To-dos with due dates and spreads (\"due Friday, 2 hours a day\", \"four 1-hour blocks instead\", \"push it to Monday\", \"high priority\") → orion-tasks add|set|list|plan (it updates the to-do AND re-plans its sessions). A group (\"cert courses\" with its courses as parts): only the parent is scheduled; parts and their % → orion-tasks sub \"<task>\" add|set|remove. See SCHEDULING.md.",
     "  From his to-do list → `day --todos [--date …]` (one block per to-do; never paste the list). Get rid of X → `drop \"X\"` (never undo). Move one thing → `move \"X\" --to HH:MM`; push back half an hour → `move \"X\" --by 30`; swap two blocks → `swap \"X\" \"Y\"`. Class running over → `overrun <min>`. He is late right now → `late <min>`. `day --replace` ONLY when he says to clear or redo the whole day; it drops everything he does not restate.",

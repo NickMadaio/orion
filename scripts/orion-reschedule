@@ -79,6 +79,33 @@ if (unknown.length) {
   console.error(`NOTHING WAS CHANGED: orion-reschedule has no ${unknown.join(", ")} option. Options: ${[...KNOWN].join(" ")}. See the header for which command takes which.`);
   process.exit(2);
 }
+/*
+ One command per call, and only its own options (2026-10-07). ORION sent
+ `drop "send internship applications" move "Study" --by 30`: drop took "move"
+ and "Study" as more titles to remove, ignored --by, and ORION reported both
+ changes as done. Refuse the whole call instead of doing part of it.
+*/
+const COMMANDS = new Set(["add", "busy", "clear", "day", "drop", "early", "extend", "fill", "late", "minimums", "move", "now",
+  "overrun", "rename", "resize", "skip", "swap", "tidy", "undo"]);
+const glued = restRaw.find((w) => COMMANDS.has(String(w).toLowerCase()));
+if (COMMANDS.has(command) && glued) {
+  console.error(`NOTHING WAS CHANGED: one command per call — "${glued}" is a separate command. Run \`${command} …\` and then \`${glued} …\` as two calls, one after the other.`);
+  process.exit(2);
+}
+const OWN_OPTIONS = {
+  drop: ["--after", "--date", "--dry-run"],
+  resize: ["--date", "--dry-run"],
+  swap: ["--date", "--dry-run"],
+  rename: ["--date", "--dry-run"],
+  skip: ["--date", "--dry-run"],
+  move: ["--to", "--by", "--after", "--before", "--gap", "--until", "--date", "--dry-run"],
+  extend: ["--until", "--then", "--date", "--dry-run"],
+};
+const foreign = OWN_OPTIONS[command] ? args.filter((a) => a.startsWith("--") && !OWN_OPTIONS[command].includes(a)) : [];
+if (foreign.length) {
+  console.error(`NOTHING WAS CHANGED: ${command} does not take ${foreign.join(", ")} (it takes ${OWN_OPTIONS[command].join(" ")}). If he asked for two changes, run them as two calls.`);
+  process.exit(2);
+}
 // A bare date is a date (2026-09-30 eval: "day 2026-10-01 --plan …" without --date
 // wrote tomorrow's soccer onto today, at a time already over).
 const DAY_WORD = /^(\d{4}-\d{2}-\d{2}|today|tomorrow)$/i;

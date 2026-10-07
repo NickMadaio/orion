@@ -352,3 +352,24 @@ test("an extend that clashes says extend ADDS minutes and how to set an end inst
   assert.match(r.out, /adds 70 minutes/i);
   assert.match(r.out, /--until/);
 });
+
+// 2026-10-07: `drop "send internship applications" move "Study" --by 30` dropped
+// Study too (every word after drop was a title) and ignored --by; ORION then
+// reported both changes as done. Two commands in one call is refused, whole.
+test("two commands glued into one call change nothing (2026-10-07)", (t) => {
+  const { run, day } = world(t, morning);
+  const r = run("drop", "send internship applications", "move", "Study", "--by", "30");
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /NOTHING WAS CHANGED/);
+  assert.match(r.out, /one command per call/i);
+  assert.ok(day().some((e) => e.title === "send internship applications"), "nothing was dropped");
+  assert.ok(day().some((e) => e.title === "study (if there's time)"));
+});
+
+test("an option that belongs to another command is refused (2026-10-07)", (t) => {
+  const { run, day } = world(t, morning);
+  const r = run("drop", "Gym", "--by", "30");
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /--by/);
+  assert.ok(day().some((e) => e.title === "Gym"));
+});

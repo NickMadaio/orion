@@ -196,6 +196,7 @@ Whole-day planning always reads the Orion to-do list as well as calendar; named 
     - "Swap X and Y" / "do X before Y instead" → `swap "X" "Y"` (any lengths).
     - "Replace X with Y" (same slot, different thing) → `rename "X" "Y"`.
     - Several changes in one message → one command each, in the order he said.
+      Name blocks with HIS words ("swap study and the internship applications" → `swap "study" "internship applications"`): the tool picks the block whose title matches them best. Never translate his words into a different block's title.
     A time that has passed is never valid; anything in "Earlier today" happened.
     When the day overflows, breaks, side projects and anything optional shrink
     on their own (SHRUNK lines): tell him what shrank.

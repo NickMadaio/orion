@@ -47,6 +47,13 @@ const realLife = join(dirname(SANDBOX_CALENDAR), "life-config.json");
 const stamp = new Date().toISOString().slice(0, 23).replace(/[:T-]/g, "");
 const results = [];
 
+// Stopped part-way (Ctrl-C, kill): the marker would keep live ORION writing to
+// the sandbox for two hours (2026-10-07). Clean up on the way out.
+const cleanUp = () => {
+  for (const f of [EVAL_MARKER, SANDBOX_CALENDAR, lifeCopy, join(dirname(SANDBOX_CALENDAR), "eval-checkins.json"),
+    join(dirname(SANDBOX_CALENDAR), "eval-pins.json"), join(dirname(SANDBOX_CALENDAR), "eval-remote-inbound.json")]) rmSync(f, { force: true });
+};
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => { cleanUp(); process.exit(130); });
 mkdirSync(dirname(EVAL_MARKER), { recursive: true });
 writeFileSync(EVAL_MARKER, `orion-eval-schedule ${stamp}\n`);
 try {
@@ -82,11 +89,7 @@ try {
     if (flag("--out")) writeFileSync(flag("--out"), JSON.stringify(results, null, 1));
   }
 } finally {
-  rmSync(EVAL_MARKER, { force: true });
-  rmSync(SANDBOX_CALENDAR, { force: true });
-  rmSync(lifeCopy, { force: true });
-  rmSync(join(dirname(SANDBOX_CALENDAR), "eval-checkins.json"), { force: true });
-  rmSync(join(dirname(SANDBOX_CALENDAR), "eval-pins.json"), { force: true });
+  cleanUp();
 }
 const passed = results.filter((r) => r.ok).length;
 console.log(`\n${passed}/${results.length} passed${model ? ` with ${model}` : ""}.`);

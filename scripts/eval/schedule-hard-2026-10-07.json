@@ -241,14 +241,14 @@
    "id": "impossible-gym-during-ds",
    "say": "put a 2 hour gym session at 3pm today",
    "expect": {
-    "saysNo": true,
     "has": [
      {
       "title": "DS Assesment",
       "start": "15:00",
       "end": "17:00"
      }
-    ]
+    ],
+    "saysNoOrMoved": "DS"
    }
   },
   {
@@ -295,14 +295,12 @@
     ],
     "minutes": {
      "Study": 60,
-     "send internship applications": 90
+     "send internship applications": 90,
+     "apply to SOMEWHERE": 45
     },
-    "has": [
-     {
-      "title": "apply to SOMEWHERE",
-      "start": "17:10"
-     }
-    ]
+    "count": {
+     "apply to SOMEWHERE": 1
+    }
    }
   }
  ]

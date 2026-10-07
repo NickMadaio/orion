@@ -150,6 +150,27 @@ final class NightRoutine: ObservableObject {
     var log: ((LinkLog) -> Void)? { didSet { flush() } }
     private let center = UNUserNotificationCenter.current()
     private static let prefix = "orion.night."
+
+    /*
+     The fixed ladder (wind down, bedtime, +15, +30 …) is blind: it fired "go to
+     bed" while Nick was out and inside a focus session (2026-10-07). The Mac
+     knows where he is and what he's doing (scripts/orion-proactive), so while
+     it is online it sends bedtime messages and the phone's ladder stands down;
+     the ladder is the fallback for when the Mac is off.
+    */
+    static let macFreshSeconds: TimeInterval = 15 * 60
+    private static let macAtKey = "orion.night.macAt"
+    static var macIsHandlingNight: Bool {
+        Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: macAtKey) < macFreshSeconds
+    }
+    static func macTookOver(at moment: Date) {
+        UserDefaults.standard.set(moment.timeIntervalSince1970, forKey: macAtKey)
+        let center = UNUserNotificationCenter.current()
+        Task {
+            let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(prefix) }
+            center.removePendingNotificationRequests(withIdentifiers: pending)
+        }
+    }
     private static let alarmKey = "orion.routine.alarmID"
     private static let queueKey = "orion.routine.queued"
     private static let bedKey = "orion.routine.bedAt"
@@ -228,7 +249,7 @@ final class NightRoutine: ObservableObject {
     private func scheduleNudges(_ plan: NightPlan, now: Date) async {
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Self.prefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
-        guard settings.nudges, !inBed else { return }
+        guard settings.nudges, !inBed, !Self.macIsHandlingNight else { return }
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         // Out tonight: no "wind down" while he's at the club; start at the new bedtime.
         var moments: [(Date, Int)] = plan.nightOut == nil

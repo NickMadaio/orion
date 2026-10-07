@@ -42,6 +42,14 @@ final class LifeWatch {
             watches.standardError = FileHandle.nullDevice
             try? watches.run()
             watches.waitUntilExit()
+            // Speaking first, with context: session ends, bedtime only when it fits (orion-proactive).
+            let proactive = Process()
+            proactive.executableURL = node
+            proactive.arguments = [script.deletingLastPathComponent().appendingPathComponent("orion-proactive").path, "tick"]
+            proactive.standardOutput = FileHandle.nullDevice
+            proactive.standardError = FileHandle.nullDevice
+            try? proactive.run()
+            proactive.waitUntilExit()
             await MainActor.run { self.running = false }
         }
     }

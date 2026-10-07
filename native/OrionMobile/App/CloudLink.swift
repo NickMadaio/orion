@@ -166,6 +166,10 @@ final class CloudLink: ObservableObject {
         case LinkSchema.stateType:
             if let json = record[LinkSchema.stateJSON] as? String, let decoded = try? LinkSnapshot.decode(Data(json.utf8)) {
                 snapshot = decoded
+                // The Mac is alive: it sends bedtime messages with context (2026-10-07).
+                if Date().timeIntervalSince(decoded.generatedAt) < NightRoutine.macFreshSeconds {
+                    NightRoutine.macTookOver(at: decoded.generatedAt)
+                }
             }
         case LinkSchema.commandType:
             let kind = (record[LinkSchema.commandKind] as? String).flatMap(LinkCommandKind.init(rawValue:)) ?? .control

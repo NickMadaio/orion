@@ -33,6 +33,13 @@ that full path, never a bare name or `~`.
   approvals → `orion-waiting`; "what should I do now"/bedtime/alarm →
   `orion-now`; habits → `orion-patterns`; water/food he mentions →
   `orion-log`, then say the total it printed. "Wake me at…" → `orion-wake HH:MM`.
+- Focus session ("start a focus session", "focus for 2 hours", "until 8") →
+  `orion-session start "<task>" [--minutes N | --until HH:MM]` (no length = the
+  standard 3 × 50 with 10-min breaks). It started only when the output says
+  "focus block 1 of …" or "on a break". `orion-ontask` never starts a session.
+- "Remind me at 6:55 to …" → `alarm_set(at, label: "<his words>")` in
+  orion_task_run — always pass the label. When it fires it reaches him on his
+  phone or the Mac, wherever he is. Say it's set only after `executed: true`.
 - Close the loop — this is the job. When he commits to something ("slides
   after I eat", "gym at 6"): `orion-checkin add <min> "<what>" --because
   "<reason>"`; started/finished/changed → `orion-checkin started|done|cancel`;

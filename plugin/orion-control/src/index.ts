@@ -752,20 +752,26 @@ const STEP_ENVELOPE_KEYS = new Set([
  * not authority differences. Normalize them before the ordinary provenance,
  * catalog, approval, taint, execution and verification gates run.
  */
-function normalizeModelGraphShape(graph: ModelTaskGraph): ModelTaskGraph {
+export function normalizeModelGraphShape(graph: ModelTaskGraph): ModelTaskGraph {
   const steps = (Array.isArray(graph.steps) ? graph.steps : []).map((step, index) => {
     const record = step as unknown as Record<string, unknown>;
     const explicitArguments =
       record.arguments && typeof record.arguments === "object"
         ? (record.arguments as Record<string, unknown>)
         : {};
+    // `{ action: "reminder_cancel", id: "an2s34" }`: in the flattened form an
+    // `id` is the ACTION's argument when the action needs one, not the step's
+    // name (2026-10-07: every cancel failed with "id must name a reminder").
+    const definition = (ACTION_CATALOG as Record<string, { requiredArguments?: readonly string[] }>)[String(record.action)];
+    const idIsArgument = !record.arguments && typeof record.id === "string"
+      && (definition?.requiredArguments ?? []).includes("id");
     const looseArguments = Object.fromEntries(
-      Object.entries(record).filter(([key]) => !STEP_ENVELOPE_KEYS.has(key)),
+      Object.entries(record).filter(([key]) => !STEP_ENVELOPE_KEYS.has(key) || (idIsArgument && key === "id")),
     );
     return {
       ...record,
       id:
-        typeof record.id === "string" && record.id.trim().length > 0
+        !idIsArgument && typeof record.id === "string" && record.id.trim().length > 0
           ? record.id
           : `step-${index + 1}`,
       action: typeof record.action === "string" ? record.action : "",

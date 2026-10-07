@@ -246,7 +246,9 @@ function main() {
     case "wrong": cmdWrong(parsed); break;
     case "act": cmdAct(parsed); break;
     case "log": cmdLog(parsed); break;
-    default: exitUsage(`Unknown command: ${command}`);
+    default: exitUsage(/^(start|begin|run|session|focus|pause|resume|finish|stop|end)$/.test(String(command))
+      ? `orion-ontask only watches for distraction; it never starts or stops a focus session. Use /Users/nickmadaio/Desktop/ORION/scripts/orion-session start "<task>" [--minutes N | --until HH:MM] (status|pause|resume|finish).`
+      : `Unknown command: ${command}`);
   }
 }
 

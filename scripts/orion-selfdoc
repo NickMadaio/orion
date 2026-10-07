@@ -315,6 +315,8 @@ if (unresolved.length > 0) {
  removed from the allowlist it disappears from here on the next run.
 */
 const WRAPPER_BLURB = {
+  "orion-session": "THE FOCUS SESSION he sees in the app: `start \"<task>\" [--minutes N | --until HH:MM | --sequence \"20 work, 5 break, 40 work\"]` (no length = the standard 3 × 50 min with 10-min breaks), `status`, `pause`, `resume`, `skip` (end the break), `finish`, `recover`, `today`; apps he allows → `preflight` then `arm --level firm --allow <bundle ids>`",
+  "orion-ontask": "only WATCHES for distraction during his planned blocks (status, snooze, allow, act) — it never starts or stops a focus session; that is orion-session",
   "orion-help": "the full usage of any tool on this list — `orion-help <tool>`",
   "orion-shortcut": "run Nick's Shortcuts named \"ORION …\" (lights, playlists, Focus, anything he builds) — `list`, `run \"ORION <name>\" [text]`; if what he wants needs a Shortcut, tell him to make one and name it \"ORION …\"",
   "orion-connect": "EVERY CONNECTION, live, and new ones you build — `list` (what works right now: calendar, gmail, whoop, bank, phone, discord, voice, and connectors); `run <name> <op> k=v` (built in: `tfl` line/status/journey/stop_search/arrivals, `canvas` courses/upcoming/todo/assignments/grades/announcements); `show <name>`; `how`; `create <name> --json '<spec>'` to add a service yourself; `set <name> key=value`",

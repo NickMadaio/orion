@@ -727,10 +727,25 @@ final class AppState: ObservableObject {
         reminders.start()
     }
 
-    /// Reminders stay visible; only an answer to physical voice input may speak.
+    /// A reminder he asked for has to reach him wherever he is (2026-10-07:
+    /// "remind me at 6:55 for the drop" fired as a silent line in this window).
+    /// orion-reach picks the phone when he is away, the Mac when he is here.
     private func announceReminder(_ reminder: StoredReminder) {
-        let line = reminder.kind == "alarm" ? "\(reminder.label)." : "\(reminder.label) is up."
+        let generic = ["alarm", "reminder", "timer", ""].contains(reminder.label.lowercased().trimmingCharacters(in: .whitespaces))
+        let time = reminder.dueDate.formatted(date: .omitted, time: .shortened)
+        let line = generic ? "Reminder — it's \(time), the time you asked me to remind you."
+            : reminder.kind == "alarm" ? "Reminder: \(reminder.label)." : "\(reminder.label) is up."
         append(.orion, line)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+            process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reach").path,
+                                 line, "--kind", "reminder", "--urgent", "--why", "a reminder he asked for"]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            do { try process.run(); process.waitUntilExit() } catch { OrionLog.write("[reminder] could not reach him: \(error.localizedDescription)") }
+        }
     }
 
     private var activeReplyOrigin: ReplyOrigin = .typed

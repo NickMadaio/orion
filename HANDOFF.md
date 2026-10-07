@@ -1,3 +1,11 @@
+## 2026-10-07 — Cost, harder evals, outreach and the reminder/focus fixes (Claude)
+
+- Cost: 1-hour prompt cache for Haiku/Sonnet (openclaw.json `params.cacheRetention: "long"`), trimmed always-on workspace files (56k → ~40k chars, nothing removed), thinking only on schedule/to-do turns (ThinkingPolicy), a local qwen3.5:9b check drops overheard speech before Claude, usage view on Home (`orion-usage`). Measured: moving rules out of the cached system prompt costs MORE and moving the phone's per-message rules into it made Haiku worse — both reverted. See memory note orion-cost-model and docs/evals/2026-10-07-prompt-diet.
+- Evals: `scripts/eval/schedule-hard-2026-10-07.json` (14 real/impossible requests) beside the 22 core; TEST CLOCK line; Ctrl-C cleanup; to-do/class/unchanged/says-no graders. Last clean run 22/22 core, 13/14 hard.
+- Outreach: `orion-reach` (phone / silent Mac bubble / aloud by presence), `orion-presence`, `orion-watches` (weather, text gate, important mail; local model only when plugged in). The link turns outreach into phone chat + notification; the app runs watches every 5 min and exports incoming texts for the gate.
+- Fixes: focus sessions use orion-session (orion-ontask redirects); reminders fire through orion-reach with their label; reminder_cancel's id survives the flattened step form; phone voice no longer cancelled by scenePhase .inactive.
+- Open: Gmail needs re-auth (invalid_grant); phone build waiting for an unlocked phone; Gated Focus is Nick's to set up.
+
 ## 2026-10-06 17:01 BST — Request-based Canvas course facts in the Obsidian brain (Codex)
 
 - Found Canvas configured and live despite the older handoff saying it needed a token. Existing `assignments` filtered `bucket=upcoming` and returned an empty list for macro; projection also dropped descriptions, ids, unlock/lock fields and quiz settings. Existing brain access was Basic Memory CLI over `~/Documents/orionBrain`, not the repository mirror. Preserved pre-existing schedule-eval dirt and another session's contemporaneous class-skipping changes.

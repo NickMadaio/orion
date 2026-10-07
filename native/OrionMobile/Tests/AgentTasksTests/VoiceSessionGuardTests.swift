@@ -39,6 +39,11 @@ final class VoiceSessionGuardTests: XCTestCase {
         XCTAssertEqual(next.turnsSent, 1)
     }
 
+    func test_a_one_word_answer_is_sent() {
+        XCTAssertEqual(VoiceSessionGuard(startedAt: t0).judging("Yes.", at: t0.addingTimeInterval(1)).1, .send("Yes."))
+        XCTAssertEqual(VoiceSessionGuard(startedAt: t0).judging("Friday", at: t0.addingTimeInterval(1)).1, .send("Friday"))
+    }
+
     func test_stop_alone_ends_the_conversation() {
         XCTAssertEqual(VoiceSessionGuard(startedAt: t0).judging("Stop.", at: t0).1, .stop(.user))
     }

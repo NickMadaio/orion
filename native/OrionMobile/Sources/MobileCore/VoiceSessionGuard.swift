@@ -64,7 +64,8 @@ public struct VoiceSessionGuard: Equatable, Sendable {
         if Self.stopPhrases.contains(normal) { return (self, .stop(.user)) }
         let words = normal.split(separator: " ").map(String.init).filter { !Self.filler.contains($0) }
         var copy = self
-        if words.count < 2 {
+        // One real word is an answer ("yes", "Friday"); only pure filler is noise.
+        if words.isEmpty {
             copy.consecutiveDiscards += 1
             let verdict: VoiceTurnVerdict = copy.consecutiveDiscards >= limits.maxConsecutiveDiscards ? .stop(.strayAudio) : .discard
             return (copy, verdict)

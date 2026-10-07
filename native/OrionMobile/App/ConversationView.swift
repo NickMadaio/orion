@@ -53,7 +53,10 @@ struct ConversationView: View {
                 }
             }
             .onDisappear { if !showingTalk { voice.stop() } }
-            .onChange(of: scenePhase) { _, phase in if phase != .active { voice.end(.background) } }
+            // Only a real trip to the background ends voice. `.inactive` also fires for a
+            // banner, Control Center or a permission check — ending on it cancelled
+            // every conversation as it started (2026-10-07: "it didn't even hear me").
+            .onChange(of: scenePhase) { _, phase in if phase == .background { voice.end(.background) } }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
         .safeAreaInset(edge: .bottom) { inputBar }

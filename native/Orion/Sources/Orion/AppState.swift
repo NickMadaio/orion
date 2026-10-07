@@ -875,6 +875,24 @@ final class AppState: ObservableObject {
         messagesReader.start()
 
         console.onLog = { OrionLog.write($0) }
+        console.actions = ConsoleActions(
+            ask: { [weak self] text in
+                guard let self else { return }
+                NSWorkspace.shared.open(URL(string: "orion://show/home")!)
+                self.composer = text
+                self.submitTyped()
+            },
+            listen: { [weak self] in self?.beginListening(handsFree: true, followUp: true) },
+            openChat: { [weak self] in
+                self?.chatMode = true
+                NSWorkspace.shared.open(URL(string: "orion://show/home")!)
+            },
+            openTab: { tab in NSWorkspace.shared.open(URL(string: "orion://show/\(tab.rawValue)")!) },
+            finishEarly: { [weak self] in self?.finishEarly("auto") },
+            toggleMute: { [weak self] in self?.toggleSummonMute() },
+            isMuted: { [weak self] in self?.summonMicMuted ?? false },
+            say: { [weak self] text in self?.append(.system, text) }
+        )
         console.install()
 
         sessionIPC.onLog = { OrionLog.write($0) }

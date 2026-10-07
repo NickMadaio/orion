@@ -1,14 +1,15 @@
 //
-//  One gesture, one line, one typed command.
+//  ⌥Tab — ORION's quick menu (revamped 7 Oct 2026). One gesture: what is on
+//  now, what is next, and the handful of things worth doing about it, typed or
+//  arrowed to. Anything that is not a command is asked of ORION.
 //
 //  Two rules shape this, both from the plan and both about not lying.
 //
 //  PROVENANCE IS TYPED, NOT INFERRED. A sentence produced by a keystroke is not
-//  automatically trusted user speech. The Console sends a `Command` with
-//  `origin: .console` and its own request id, and that origin travels through
-//  authorization and into the ledger unchanged. Deriving prose for the model to
-//  read is fine; letting the prose become the provenance is not, because then
-//  anything that can put words in front of the gateway can impersonate Nick.
+//  automatically trusted user speech. Session commands carry `origin: .console`
+//  and their own request id, and that origin travels through authorization and
+//  into the ledger unchanged. Text sent to ORION goes the typed route, never
+//  as voice.
 //
 //  NEVER A ONE-KEYSTROKE BUTTON FOR SOMETHING THAT NEEDS APPROVAL. The capability
 //  tiers are AUTO, NOTIFY, APPROVAL and NEVER (see `scripts/orion-authority`).
@@ -40,31 +41,86 @@ struct ConsoleCommand: Identifiable, Equatable {
     let id: String
     let title: String
     let hint: String
+    let symbol: String
+    let section: Section
     let tier: ConsoleTier
     let kind: Kind
+    /// Extra words a search should match ("pomodoro" finds focus).
+    var keywords: String = ""
+
+    enum Section: String { case typed = "", session = "SESSION", orion = "ORION", goTo = "GO TO" }
 
     enum Kind: Equatable {
         case session(CommandKind)
         case releaseEnforcement
+        case ask(String)
+        case listen
+        case openChat
+        case openTab(DashboardTab)
+        case finishEarly
+        case addTodo(String)
+        case toggleMute
+        case openApp(URL)
     }
+}
+
+/// What the menu shows above the field, from `scripts/orion-quick`.
+struct QuickGlance: Decodable, Equatable {
+    struct Now: Decodable, Equatable { let title: String; let until: String }
+    struct Next: Decodable, Equatable { let title: String; let at: String; let inMinutes: Int }
+    let now: Now?
+    let next: Next?
+    let focusToday: String?
+    let phone: String?
+}
+
+/// The live session, as one line of facts.
+struct QuickSession: Equatable {
+    let running: Bool
+    let paused: Bool
+    let onBreak: Bool
+    let remaining: TimeInterval
+    /// When the phase ends, for a clock that counts down; nil while paused.
+    let endsAt: Date?
+    let label: String
+
+    func remaining(at date: Date) -> TimeInterval { endsAt.map { $0.timeIntervalSince(date) } ?? remaining }
+}
+
+/// What the menu may ask the rest of the app to do. Set by `AppState`.
+struct ConsoleActions {
+    var ask: (String) -> Void = { _ in }
+    var listen: () -> Void = {}
+    var openChat: () -> Void = {}
+    var openTab: (DashboardTab) -> Void = { _ in }
+    var finishEarly: () -> Void = {}
+    var toggleMute: () -> Void = {}
+    var isMuted: () -> Bool = { false }
+    var say: (String) -> Void = { _ in }
 }
 
 final class ConsoleController: ObservableObject {
 
     @Published private(set) var isVisible = false
-    @Published var query = ""
+    @Published var query = "" { didSet { selection = 0 } }
+    @Published var selection = 0
+    @Published private(set) var glance: QuickGlance?
+    @Published private(set) var session: QuickSession?
 
     /// What the hotkey registration had to say. Shown in the Console itself,
     /// because a shortcut that silently does nothing reads as Orion being broken.
     @Published private(set) var hotKeyProblem: String?
 
+    var actions = ConsoleActions()
+    var onLog: ((String) -> Void)?
+
     private var panel: NSPanel?
     private let hotKey = GlobalHotKey()
     private var previousApp: NSRunningApplication?
+    private var apps: [(name: String, url: URL)] = []
 
     private let service: SessionService
     private let enforcer: Enforcer
-    var onLog: ((String) -> Void)?
 
     init(service: SessionService, enforcer: Enforcer) {
         self.service = service
@@ -93,9 +149,12 @@ final class ConsoleController: ObservableObject {
     func show() {
         guard panel == nil else { return }
         previousApp = NSWorkspace.shared.frontmostApplication
+        refreshSession()
+        loadGlance()
+        if apps.isEmpty { apps = Self.installedApps() }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: QuickMenuView.width, height: 420),
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered, defer: false
         )
@@ -105,12 +164,18 @@ final class ConsoleController: ObservableObject {
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.contentView = NSHostingView(rootView: ConsoleView(controller: self))
+        let host = NSHostingController(rootView: QuickMenuView(controller: self))
+        host.sizingOptions = [.preferredContentSize]
+        host.view.wantsLayer = true
+        host.view.layer?.backgroundColor = .clear
+        panel.contentViewController = host
 
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: frame.midX - 280, y: frame.midY - 40))
+            panel.setFrameTopLeftPoint(NSPoint(x: frame.midX - QuickMenuView.width / 2,
+                                               y: frame.maxY - frame.height * 0.22))
         }
 
         // The Console DOES take key focus, unlike the break surface: it has a
@@ -137,56 +202,102 @@ final class ConsoleController: ObservableObject {
         previousApp = nil
     }
 
+    // MARK: Live facts
+
+    private func refreshSession() {
+        let wire = SessionWire.describe(service.snapshot())
+        switch wire.status {
+        case "running", "paused", "waiting-for-return":
+            let block = wire.phase == "focus"
+                ? "focus \(wire.blockNumber ?? 1) of \(wire.totalBlocks ?? 1)" : "break"
+            session = QuickSession(running: true, paused: wire.status == "paused",
+                                   onBreak: wire.phase != "focus",
+                                   remaining: wire.remainingSeconds ?? 0,
+                                   endsAt: wire.status == "running"
+                                       ? Date().addingTimeInterval(wire.remainingSeconds ?? 0) : nil,
+                                   label: [block, wire.task].compactMap { $0 }.joined(separator: " · "))
+        default:
+            session = nil
+        }
+    }
+
+    private func loadGlance() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let output = Self.runScript("orion-quick", [])
+            let decoded = output.flatMap { try? JSONDecoder().decode(QuickGlance.self, from: Data($0.utf8)) }
+            DispatchQueue.main.async { self?.glance = decoded }
+        }
+    }
+
+    /// Runs one of ORION's scripts with the bundled node; nil when it fails.
+    static func runScript(_ name: String, _ arguments: [String]) -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let process = Process()
+        process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+        process.arguments = [home.appendingPathComponent("Desktop/ORION/scripts/\(name)").path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do { try process.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return process.terminationStatus == 0 ? text : nil
+    }
+
+    private static func installedApps() -> [(name: String, url: URL)] {
+        let roots = ["/Applications", "/Applications/Utilities", "/System/Applications",
+                     "/System/Applications/Utilities", "/System/Library/CoreServices",
+                     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
+        return roots.flatMap { root -> [(name: String, url: URL)] in
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+            return names.filter { $0.hasSuffix(".app") }.map {
+                (String($0.dropLast(4)), URL(fileURLWithPath: root).appendingPathComponent($0))
+            }
+        }
+    }
+
     // MARK: Commands
 
     /// Only AUTO and NOTIFY, filtered here rather than at the call site so
     /// there is exactly one place the rule lives.
-    var commands: [ConsoleCommand] {
-        let all: [ConsoleCommand] = [
-            ConsoleCommand(id: "start", title: "Start focus session",
-                           hint: "three 50-minute blocks with 10-minute breaks", tier: .auto,
-                           kind: .session(.start(plan: SessionPlanBuilder.alternating(
-                               session: SessionID(from: UUID()),
-                               focusBlocks: 3,
-                               focus: 50 * 60,
-                               rest: 10 * 60,
-                               clips: [],
-                               task: "Focus"
-                           )))),
-            ConsoleCommand(id: "pause", title: "Pause the session",
-                           hint: "stops the clock", tier: .auto,
-                           kind: .session(.pause)),
-            ConsoleCommand(id: "resume", title: "Resume the session",
-                           hint: "starts it again", tier: .auto,
-                           kind: .session(.resume)),
-            ConsoleCommand(id: "skip", title: "Skip the break",
-                           hint: "straight to the next block", tier: .auto,
-                           kind: .session(.skipRest)),
-            ConsoleCommand(id: "finish", title: "Finish the session",
-                           hint: "archived as a success", tier: .notify,
-                           kind: .session(.finishEarly)),
-            ConsoleCommand(id: "release", title: "Stop enforcing",
-                           hint: "Orion stops mentioning drift", tier: .auto,
-                           kind: .releaseEnforcement)
-        ]
-        return all.filter(\.tier.mayAppearInConsole)
+    var matches: [ConsoleCommand] {
+        let typed = query.trimmingCharacters(in: .whitespaces)
+        let all = typed.isEmpty
+            ? QuickCommands.everyday(session: session, glance: glance, muted: actions.isMuted())
+            : QuickCommands.forQuery(typed, session: session, glance: glance,
+                                     muted: actions.isMuted(), apps: apps)
+        return Array(all.filter(\.tier.mayAppearInConsole).prefix(9))
     }
 
-    var matches: [ConsoleCommand] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !trimmed.isEmpty else { return commands }
-        return commands.filter {
-            $0.title.lowercased().contains(trimmed) || $0.id.contains(trimmed)
-        }
+    func moveSelection(_ step: Int) {
+        let count = matches.count
+        guard count > 0 else { return }
+        selection = (selection + step + count) % count
+    }
+
+    func runSelected() {
+        let list = matches
+        guard list.indices.contains(selection) else { return }
+        run(list[selection])
+    }
+
+    /// ⌘↩: whatever is typed goes to ORION, even when it matches a command.
+    func askTyped() {
+        let typed = query.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty else { return }
+        run(ConsoleCommand(id: "ask", title: typed, hint: "", symbol: "sparkle", section: .typed,
+                           tier: .auto, kind: .ask(typed)))
     }
 
     /// Run one, with typed provenance.
     func run(_ command: ConsoleCommand) {
+        guard command.tier.mayAppearInConsole else { return }
+        hide()
         switch command.kind {
         case .releaseEnforcement:
             enforcer.release()
             onLog?("[console] released enforcement")
-
         case .session(let kind):
             // `origin: .console` — typed, and carried through unchanged. This is
             // not speech and must never be recorded as speech.
@@ -198,82 +309,25 @@ final class ConsoleController: ObservableObject {
             ))
             if let rejection = outcome.rejection, !outcome.wasDuplicate {
                 onLog?("[console] \(command.title): \(rejection.message)")
+                actions.say(rejection.message)
             } else {
                 onLog?("[console] \(command.title)")
             }
-        }
-        hide()
-    }
-}
-
-// MARK: - The view
-
-struct ConsoleView: View {
-    @ObservedObject var controller: ConsoleController
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TextField("What do you want?", text: $controller.query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .light))
-                .foregroundStyle(OrionTheme.text)
-                .focused($focused)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 18)
-                .onSubmit {
-                    if let first = controller.matches.first { controller.run(first) }
-                }
-
-            if let problem = controller.hotKeyProblem {
-                Text(problem)
-                    .font(.system(size: 11))
-                    .foregroundStyle(OrionTheme.orange)
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 10)
-                    .fixedSize(horizontal: false, vertical: true)
+        case .ask(let text): actions.ask(text)
+        case .listen: actions.listen()
+        case .openChat: actions.openChat()
+        case .openTab(let tab): actions.openTab(tab)
+        case .finishEarly: actions.finishEarly()
+        case .toggleMute: actions.toggleMute()
+        case .openApp(let url):
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            onLog?("[console] opened \(url.lastPathComponent)")
+        case .addTodo(let title):
+            onLog?("[console] add to-do")
+            DispatchQueue.global(qos: .userInitiated).async { [actions] in
+                let result = Self.runScript("orion-tasks", ["add", title])
+                DispatchQueue.main.async { actions.say(result ?? "Could not add \"\(title)\" to your to-dos.") }
             }
-
-            FadingRule()
-
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(controller.matches) { command in
-                    Button { controller.run(command) } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(command.title)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(OrionTheme.text)
-                                Text(command.hint)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(OrionTheme.textDim)
-                            }
-                            Spacer()
-                            Text(command.tier.rawValue)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(OrionTheme.textDim)
-                        }
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 8)
-
-            Spacer(minLength: 0)
         }
-        .frame(width: 560, height: 320, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(OrionTheme.ink.opacity(0.97))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(OrionTheme.line, lineWidth: 1)
-                )
-        )
-        .onAppear { focused = true }
-        .onExitCommand { controller.hide() }
     }
 }

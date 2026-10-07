@@ -65,6 +65,16 @@ final class ConsoleRuleTests: XCTestCase {
         XCTAssertFalse(text.contains("tier: .never"))
     }
 
+    /// The ⌥Tab menu's command list (7 Oct 2026) lives in its own file; the
+    /// same rule holds there, and the controller still filters before showing.
+    func testTheQuickMenuCatalogOffersNoGatedCommand() throws {
+        let text = code(try source("QuickCommands.swift"))
+        XCTAssertFalse(text.contains("tier: .approval"))
+        XCTAssertFalse(text.contains("tier: .never"))
+        XCTAssertTrue(code(try source("Console.swift")).contains("guard command.tier.mayAppearInConsole"),
+                      "run() refuses a gated command even if one is ever listed")
+    }
+
     /// Provenance is typed and carried, never inferred from the words.
     func testConsoleCommandsCarryTheirOwnOrigin() throws {
         let text = code(try source("Console.swift"))

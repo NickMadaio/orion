@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+/*
+ orion-quick — the facts the ⌥Tab quick menu shows, in one JSON line (7 Oct 2026).
+
+   orion-quick            {"now":{title,until}|null,"next":{title,at,inMinutes}|null,"focusToday":"…","phone":"…"}
+
+ Read-only and fast: today's calendar, the focus history, the phone's last
+ lock report. Anything that fails comes back null rather than failing the menu.
+*/
+import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { liveDay, localDate } from "./lib/life/live-day.mjs";
+import { focusToday, formatFocusToday } from "./lib/focus/day-total.mjs";
+
+const here = import.meta.dirname;
+const now = process.env.ORION_NOW ? new Date(process.env.ORION_NOW) : new Date();
+const minute = now.getHours() * 60 + now.getMinutes();
+const hhmm = m => `${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, "0")} ${m >= 720 ? "PM" : "AM"}`;
+
+async function day() {
+  try {
+    const blocks = (await liveDay(localDate(now))).filter(b => !b.allDay).sort((a, b) => a.start - b.start);
+    const current = blocks.filter(b => b.start <= minute && b.end > minute).at(-1);
+    const upcoming = blocks.find(b => b.start > minute);
+    return {
+      now: current ? { title: current.title, until: hhmm(current.end) } : null,
+      next: upcoming ? { title: upcoming.title, at: hhmm(upcoming.start), inMinutes: upcoming.start - minute } : null,
+    };
+  } catch { return { now: null, next: null }; }
+}
+
+function focus() {
+  const file = process.env.ORION_FOCUS_HISTORY || join(homedir(), ".openclaw/orion-controlled/focus-history.jsonl");
+  if (!existsSync(file)) return null;
+  const records = readFileSync(file, "utf8").split("\n").flatMap(l => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } });
+  return formatFocusToday(focusToday(records, { dayKey: localDate(now) })).replace(/^Focused today: /, "").replace(/\.$/, "");
+}
+
+function phone() {
+  try {
+    const line = execFileSync(process.execPath, [join(here, "orion-phone-time"), "status"], { encoding: "utf8", timeout: 5000 }).trim();
+    if (line.startsWith("LOCKED")) return line.match(/until ([0-9:]+ [AP]M)/)?.[1] ? `Locked until ${line.match(/until ([0-9:]+ [AP]M)/)[1]}` : "Locked";
+    if (line.startsWith("UNLOCKED")) return line.match(/until ([0-9:]+ [AP]M)/)?.[1] ? `Extra time until ${line.match(/until ([0-9:]+ [AP]M)/)[1]}` : "Extra time";
+    if (line.startsWith("Not locked")) return "Not locked";
+    return "Unknown";
+  } catch { return null; }
+}
+
+const { now: current, next } = await day();
+console.log(JSON.stringify({ now: current, next, focusToday: focus(), phone: phone() }));

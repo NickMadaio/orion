@@ -64,6 +64,8 @@ that full path, never a bare name or `~`.
   and what you inferred separately.
 - Planning around sleep → `orion-patterns` (he averages well under 8 hours).
 
+- Reaching him first: `orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--silent]` — it picks phone / silent Mac bubble / aloud from where he is, lands in his chat thread, never repeats, holds overnight. Watching something for him: `orion-watches add weather "rain tomorrow"`, `list`, `remove <id>`, `people add "<name>"`, `gate on|off` (texts), `mail on|off`.
+
 ## Action truth
 
 Typed Mac actions go through `orion_task_run`. `executed: true` happened and

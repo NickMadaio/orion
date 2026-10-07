@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Summoned by name. Always arrives in the configured corner on the
         // screen the user is looking at, and never takes focus — you can say
         // "Orion" mid-sentence in another app and keep typing.
+        state.dashboardVisible = { [weak self] in self?.textWindowController.isVisible ?? false }
         state.onWantsSummon = { [weak self] in
             guard let self else { return }
             guard !self.textWindowController.isVisible else { return }
@@ -168,6 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             // orion://listen — start a hands-free turn, as if he had said the wake
             // word: the Mac hologram widget's tap, a Shortcut, or a voice self-test.
+            // orion://reach?id=… — ORION starting the conversation (scripts/orion-reach).
+            if url.scheme == "orion", url.host == "reach",
+               let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "id" })?.value,
+               let entry = Self.outreach(id: id) {
+                state.deliverReach(entry.text, aloud: entry.channel == "mac-voice", headphones: entry.headphones)
+                continue
+            }
             if url.scheme == "orion", url.host == "listen" {
                 // As a follow-up: a tap is not speech, so wait (up to the follow-up
                 // grace) for him to start before timing pauses. Started as an ordinary
@@ -180,6 +188,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             textWindowController.show()
             state.requestedTab = tab
         }
+    }
+
+    /// The outreach entry orion-reach recorded for this id.
+    static func outreach(id: String) -> (text: String, channel: String, headphones: Bool)? {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach.jsonl")
+        // orion-reach opens the URL before it appends the line; give it a moment.
+        for _ in 0..<10 {
+            if let text = try? String(contentsOf: file, encoding: .utf8) {
+                for line in text.split(separator: "\n").reversed() {
+                    guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                          row["id"] as? String == id, let message = row["text"] as? String else { continue }
+                    return (message, row["channel"] as? String ?? "mac-bubble", row["headphones"] as? Bool ?? false)
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return nil
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

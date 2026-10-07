@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+/*
+ orion-presence — where Nick is and how ORION should reach him right now
+ (2026-10-07). Read-only.
+
+   orion-presence [--json]
+
+ Away from the Mac (idle 5+ min or locked) → phone. At the Mac and out (a class
+ or plan is on, or travel) → silent hologram bubble. At the Mac at home or with
+ headphones → aloud. Quiet hours (his planned night) hold everything.
+*/
+import { presence } from "./lib/reach/presence.mjs";
+
+const p = await presence();
+if (process.argv.includes("--json")) console.log(JSON.stringify(p));
+else console.log(`${p.channel}: ${p.reason}. Idle ${Math.round(p.idleSeconds ?? 0)}s, ${p.where}, ${p.pluggedIn ? "plugged in" : "on battery"}${p.headphones ? ", headphones" : ""}.`);

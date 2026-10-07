@@ -94,7 +94,8 @@ struct ConversationView: View {
 
     private func exchange(_ message: CloudLink.Message) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            // ORION started this one (orion-reach): no words from Nick to show.
+            if !message.text.isEmpty { HStack {
                 Spacer(minLength: 48)
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(message.text).font(.system(size: 16, weight: .medium)).foregroundStyle(Phone.accent)
@@ -102,7 +103,7 @@ struct ConversationView: View {
                     Text(message.sentAt.formatted(date: .omitted, time: .shortened))
                         .font(Phone.mono(10, .medium)).foregroundStyle(Phone.dim)
                 }
-            }
+            } }
             reply(message)
         }
     }

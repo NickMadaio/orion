@@ -583,6 +583,16 @@ async function todaySchedule() {
   } catch { return null; }
 }
 
+// What ORION said to him first (orion-reach) in the last 6 hours: this message may be his answer.
+function recentOutreach() {
+  try {
+    const rows = readFileSync(join(CONTROLLED, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l))
+      .filter((r) => r.channel !== "hold" && Date.now() - Date.parse(r.at) < 6 * 3600000).slice(-3);
+    if (!rows.length) return null;
+    return `- You messaged him first (most recent last): ${rows.map((r) => `${new Date(r.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} "${r.text.slice(0, 200)}"`).join("; ")} — this message may be his answer.`;
+  } catch { return null; }
+}
+
 function watchQuestion() {
   try {
     const day = new Date(Date.now() - 4 * 3600000).toLocaleDateString("en-CA");
@@ -633,6 +643,7 @@ async function phoneContext() {
     openCheckins(),
     ...[phoneLock()].filter(Boolean),
     ...[watchQuestion()].filter(Boolean),
+    ...[recentOutreach()].filter(Boolean),
     `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
     "  \"Fix my schedule\" / overlaps → `tidy`. Every change obeys the day rules; NOTHING WAS CHANGED means ask him, never retry.",
     "  Doing something NOW (eating, a break, just got home) → `now \"Lunch, 25\" \"Break, 15\"` — it slides the rest in order; never retype the day to rearrange it.",

@@ -94,6 +94,21 @@ enum GatewayClient {
         boosts[session] = Date().addingTimeInterval(ThinkingPolicy.boostSeconds)
     }
 
+    /// What ORION said to him first (orion-reach) in the last 6 hours, so a
+    /// reply like "yeah do that" has its question (2026-10-07).
+    static func recentOutreach(now: Date = Date()) -> String {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach.jsonl")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return "" }
+        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let recent = text.split(separator: "\n").compactMap { line -> String? in
+            guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  row["channel"] as? String != "hold", let said = row["text"] as? String,
+                  let at = (row["at"] as? String).flatMap(iso.date(from:)), now.timeIntervalSince(at) < 6 * 3600 else { return nil }
+            return "\(at.formatted(date: .omitted, time: .shortened)) \"\(said.prefix(200))\""
+        }.suffix(3)
+        return recent.isEmpty ? "" : "[ORION context: you messaged him first — \(recent.joined(separator: "; ")). This message may be his answer.]\n"
+    }
+
     // MARK: One agent turn
 
     /// Blocking. Always call from a background queue.
@@ -107,7 +122,7 @@ enum GatewayClient {
         process.arguments = [
             "agent",
             "--session-key", session,
-            "--message", SchedulingMemory.context(for: text) + text,
+            "--message", recentOutreach() + SchedulingMemory.context(for: text) + text,
             "--json",
             "--timeout", String(Int(RunTimeouts.agentTimeout))
         ]

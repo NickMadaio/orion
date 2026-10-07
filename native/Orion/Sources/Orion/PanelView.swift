@@ -39,6 +39,20 @@ struct PanelView: View {
                     .padding(.horizontal, 22)
                     .padding(.bottom, 14)
             }
+            // ORION started this one (orion-reach): a readable bubble, no sound unless he chose aloud.
+            if let message = state.reachMessage {
+                Text(message)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.92))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(8)
+                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .frame(width: 260, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             SummonComposer(text: $state.composer, micMuted: state.summonMicMuted, onSend: state.submitTyped, onToggleMute: { state.toggleSummonMute() }, onClose: { state.hideSummon?() }, width: 260,
                            onDone: state.phase == .listening ? { state.finishTurnNow() } : nil).padding(.bottom, 8)
         }
@@ -46,5 +60,6 @@ struct PanelView: View {
         // view in `PanelController`, which knows the shape of what was drawn.
 
         .animation(.easeOut(duration: 0.16), value: state.heard)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: state.reachMessage)
     }
 }

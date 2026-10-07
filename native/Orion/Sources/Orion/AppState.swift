@@ -477,6 +477,38 @@ final class AppState: ObservableObject {
     /// wherever the panel was last put by hand.
     var onWantsSummon: (() -> Void)?
 
+    // MARK: ORION reaching out (orion-reach, 2026-10-07)
+
+    /// What ORION started saying, shown as a bubble on the summoned hologram.
+    @Published var reachMessage: String?
+    private var reachClear: DispatchWorkItem?
+
+    /// He is at the Mac: pop the hologram with the message; aloud when he is at
+    /// home or has headphones in (volume brought to a sensible level first).
+    /// Set by the app delegate: the dashboard window is on screen.
+    var dashboardVisible: (() -> Bool)?
+
+    func deliverReach(_ text: String, aloud: Bool, headphones: Bool) {
+        append(.orion, text)
+        if dashboardVisible?() == true {
+            // The pop-up never layers over the open dashboard: put it in its chat.
+            saveChat(.orion, text: text)
+            chatMode = true
+        } else {
+            reachMessage = text
+            onWantsSummon?()
+        }
+        reachClear?.cancel()
+        let clear = DispatchWorkItem { [weak self] in self?.reachMessage = nil }
+        reachClear = clear
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: clear)
+        OrionLog.write("[reach] \(aloud ? "aloud" : "silent bubble") — \(text.count) chars")
+        guard aloud else { return }
+        ReachVolume.prepare(headphones: headphones)
+        activeReplyOrigin = .voice
+        speak(text, origin: .voice)
+    }
+
     // MARK: Wake word
 
     /// Start or stop always-on listening to match the preference, and keep the

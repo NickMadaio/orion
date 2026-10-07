@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+/*
+ orion-watches — things ORION keeps an eye on for Nick, and tells him about
+ through orion-reach (2026-10-07).
+
+   orion-watches add weather "rain tomorrow" | "below 3" | "snow" | "wind" | "above 25 today"
+   orion-watches list
+   orion-watches remove <id>
+   orion-watches people [add|remove "<name or number>"]   who always gets through
+   orion-watches gate on|off       texts: while ON, ORION reads new texts and tells him
+                                   only the ones that matter (his phone's Gated Focus
+                                   silences the rest)
+   orion-watches mail on|off       email: important new mail (on by default)
+   orion-watches tick [--dry-run]  run by the ORION app every ~5 minutes
+
+ Plugged in: the local model (qwen3.5:9b, free) decides what matters. On battery:
+ only his important people and plainly urgent words — never Claude, never a guess.
+*/
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
+import { parseWeatherWatch, weatherHit, judge } from "./lib/reach/triage.mjs";
+import { parsePluggedIn } from "./lib/reach/facts.mjs";
+import { sandbox } from "./lib/life/bridge-path.mjs";
+
+const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const FILE = join(DIR, "watches.json");
+const args = process.argv.slice(2);
+const [command, ...rest] = args.filter((a) => !a.startsWith("--"));
+const dry = args.includes("--dry-run");
+const fail = (m, c = 2) => { console.error(m); process.exit(c); };
+
+const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { watches: [], people: [], gate: false, mail: true, seen: {} }; } };
+const save = (s) => { mkdirSync(DIR, { recursive: true }); writeFileSync(`${FILE}.tmp`, JSON.stringify(s, null, 2), { mode: 0o600 }); renameSync(`${FILE}.tmp`, FILE); };
+let state = load();
+
+if (command === "add") {
+  if (rest[0] !== "weather" || !rest[1]) fail('usage: orion-watches add weather "rain tomorrow"');
+  let watch; try { watch = parseWeatherWatch(rest[1]); } catch (e) { fail(e.message); }
+  const id = `w-${randomUUID().slice(0, 6)}`;
+  state = { ...state, watches: [...state.watches, { id, ...watch, said: rest[1], added: new Date().toISOString() }] };
+  save(state); console.log(`Watching: ${rest[1]} (${id}). He'll hear about it once, when it shows up in the forecast.`);
+} else if (command === "list") {
+  console.log(state.watches.length ? state.watches.map((w) => `${w.id}  weather: ${w.said}${w.firedOn ? ` (told him ${w.firedOn})` : ""}`).join("\n") : "No watches.");
+  console.log(`Texts gate: ${state.gate ? "ON" : "off"} · Important mail: ${state.mail ? "on" : "off"} · Always gets through: ${state.people.join(", ") || "nobody yet"}`);
+} else if (command === "remove") {
+  const before = state.watches.length; state = { ...state, watches: state.watches.filter((w) => w.id !== rest[0]) };
+  if (state.watches.length === before) fail(`No watch ${rest[0]}.`, 1); save(state); console.log(`Stopped watching ${rest[0]}.`);
+} else if (command === "people") {
+  const who = rest[1];
+  if (rest[0] === "add" && who) state = { ...state, people: [...new Set([...state.people, who])] };
+  else if (rest[0] === "remove" && who) state = { ...state, people: state.people.filter((p) => p !== who) };
+  else if (rest[0]) fail('usage: orion-watches people [add|remove "<name or number>"]');
+  save(state); console.log(`Always gets through: ${state.people.join(", ") || "nobody yet"}`);
+} else if (command === "gate" || command === "mail") {
+  if (!["on", "off"].includes(rest[0])) fail(`usage: orion-watches ${command} on|off`);
+  state = { ...state, [command]: rest[0] === "on" }; save(state);
+  console.log(command === "gate" ? `Texts gate ${rest[0].toUpperCase()}.${rest[0] === "on" ? " ORION reads new texts and tells him only what matters." : ""}` : `Important-mail alerts ${rest[0]}.`);
+} else if (command === "tick") {
+  if (sandbox()) process.exit(0);
+  await tick();
+} else {
+  fail("usage: orion-watches add|list|remove|people|gate|mail|tick (see the header)");
+}
+
+async function tick() {
+  const now = new Date();
+  const plugged = parsePluggedIn(sh("/usr/bin/pmset", ["-g", "batt"]));
+  const model = plugged ? localModel : null;
+  const lines = [];
+  // Weather, at most hourly per watch, told once a day.
+  const today = now.toLocaleDateString("en-CA");
+  const due = state.watches.filter((w) => w.firedOn !== today && (!w.checkedAt || now - Date.parse(w.checkedAt) > 55 * 60000));
+  if (due.length) {
+    const forecast = await weather().catch(() => null);
+    state = { ...state, watches: state.watches.map((w) => {
+      if (!due.includes(w) || !forecast) return w;
+      const hit = weatherHit(w, forecast);
+      if (hit) lines.push({ text: hit, kind: "warning", why: `weather watch: ${w.said}` });
+      return { ...w, checkedAt: now.toISOString(), ...(hit ? { firedOn: today } : {}) };
+    }) };
+  }
+  // Texts, only while the gate is on (his phone shows them normally otherwise).
+  if (state.gate) {
+    const recent = readJson(join(DIR, "messages-recent.json")) ?? [];
+    const seen = new Set(state.seen.texts ?? []);
+    for (const m of recent.filter((x) => !seen.has(String(x.id))).slice(-15)) {
+      const v = await judge({ from: m.sender, text: m.text }, { people: state.people, model, about: { channel: "text messages", context: "texts arriving while his phone is in a quiet Focus" } });
+      if (v.verdict === "important") lines.push({ text: `Text from ${m.sender}: “${String(m.text).slice(0, 160)}”`, kind: "update", why: `text gate: ${v.why}` });
+    }
+    state = { ...state, seen: { ...state.seen, texts: [...seen, ...recent.map((x) => String(x.id))].slice(-500) } };
+  }
+  // Mail, every ~10 minutes.
+  if (state.mail && (!state.mailCheckedAt || now - Date.parse(state.mailCheckedAt) > 9 * 60000)) {
+    const mail = gmail();
+    if (mail.ok) {
+      const seen = new Set(state.seen.mail ?? []);
+      const fresh = mail.results.filter((r) => r.threadId && !seen.has(r.threadId));
+      // The first run only learns what is already there.
+      if (state.seen.mail) for (const r of fresh.slice(0, 8)) {
+        const v = await judge({ from: r.from, subject: r.subject, text: r.snippet }, { people: state.people, model, about: { channel: "email", context: "Northeastern University London, classes and internships" } });
+        if (v.verdict === "important") lines.push({ text: `Email from ${r.from}: ${r.subject}${r.snippet ? ` — ${r.snippet.slice(0, 120)}` : ""}`, kind: "update", why: `mail: ${v.why}` });
+      }
+      state = { ...state, mailCheckedAt: now.toISOString(), mailProblem: null, seen: { ...state.seen, mail: [...seen, ...mail.results.map((r) => r.threadId)].slice(-500) } };
+    } else state = { ...state, mailCheckedAt: now.toISOString(), mailProblem: mail.problem };
+  }
+  if (!dry) save(state);
+  for (const l of lines) {
+    if (dry) { console.log(`DRY RUN would tell him: ${l.text}`); continue; }
+    spawnSync(process.execPath, [join(import.meta.dirname, "orion-reach"), l.text, "--kind", l.kind, "--why", l.why], { stdio: "inherit", timeout: 30000 });
+  }
+  if (!lines.length) console.log(`Nothing to tell him.${state.mailProblem ? ` (Mail: ${state.mailProblem})` : ""}`);
+}
+
+function sh(cmd, a) { try { return execFileSync(cmd, a, { encoding: "utf8", timeout: 5000 }); } catch { return ""; } }
+function readJson(p) { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } }
+
+async function localModel(prompt) {
+  try {
+    const r = await fetch("http://127.0.0.1:11434/api/generate", { method: "POST", signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({ model: "qwen3.5:9b", prompt, stream: false, think: false, keep_alive: "30m", options: { temperature: 0, num_predict: 3 } }) });
+    const j = await r.json();
+    try { writeFileSync(join(DIR, "local-usage.jsonl"), `${JSON.stringify({ at: new Date().toISOString(), model: "qwen3.5:9b", source: "watch triage", input: j.prompt_eval_count ?? 0, output: j.eval_count ?? 0 })}\n`, { flag: "a" }); } catch {}
+    return j.response ?? null;
+  } catch { return null; }
+}
+
+function gmail() {
+  const r = spawnSync(process.execPath, [join(import.meta.dirname, "orion-gmail-search"), "--json", "--max", "10", "in:inbox newer_than:1d -category:promotions -category:social -category:forums"], { encoding: "utf8", timeout: 30000 });
+  if (r.status !== 0) return { ok: false, problem: /invalid_grant/.test(r.stdout + r.stderr) ? "Gmail needs signing in again" : "could not read Gmail" };
+  try { return { ok: true, results: JSON.parse(r.stdout).results ?? [] }; } catch { return { ok: false, problem: "could not read Gmail" }; }
+}
+
+async function weather() {
+  const place = readJson(join(DIR, "location.json"))?.place ?? "London";
+  const geo = await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(place)}`, { signal: AbortSignal.timeout(10000) })).json();
+  const g = geo.results?.[0]; if (!g) return null;
+  const f = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${g.latitude}&longitude=${g.longitude}&hourly=temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,wind_speed_10m&forecast_days=2&timezone=auto`, { signal: AbortSignal.timeout(10000) })).json();
+  const h = f.hourly; const todayKey = h.time[0].slice(0, 10);
+  const nowHour = new Date().getHours();
+  return { hours: h.time.map((t, i) => ({ time: t, day: t.slice(0, 10) === todayKey ? "today" : "tomorrow", tempC: h.temperature_2m[i], rainChance: h.precipitation_probability[i] ?? 0,
+    rainMm: h.precipitation[i] ?? 0, snowCm: h.snowfall[i] ?? 0, code: h.weather_code[i] ?? 0, windKph: h.wind_speed_10m[i] ?? 0 }))
+    .filter((x) => x.day === "tomorrow" || Number(x.time.slice(11, 13)) >= nowHour) };
+}

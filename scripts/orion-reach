@@ -1,0 +1,70 @@
+#!/usr/bin/env node
+/*
+ orion-reach — ORION starts the conversation (2026-10-07).
+
+   orion-reach "<message>" [--kind reminder|warning|update|question|info]
+               [--why "<what prompted it>"] [--urgent] [--silent] [--channel auto|phone|mac]
+               [--dry-run] [--json]
+
+ Every message lands in his ORION chat thread (phone and Mac), so he can answer
+ normally, by typing or voice. How it reaches him (orion-presence):
+   away from the Mac            → phone notification
+   at the Mac, out (class…)     → hologram + silent chat bubble on the Mac
+   at the Mac at home/headphones→ hologram, said aloud at a sensible volume
+   his planned night            → held until morning (unless --urgent)
+ No repeats within 2 hours, at most 6 an hour. Never during an evaluation.
+*/
+import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { allowed, chooseChannel } from "./lib/reach/route.mjs";
+import { presence } from "./lib/reach/presence.mjs";
+import { refuseDuringEval } from "./lib/eval-mode.mjs";
+
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const text = args.find((a, i) => !a.startsWith("--") && !["--kind", "--why", "--channel"].includes(args[i - 1]));
+const fail = (m, c = 2) => { console.error(m); process.exit(c); };
+if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent] [--channel auto|phone|mac] [--dry-run]');
+const kind = flag("--kind") ?? "info";
+if (!["reminder", "warning", "update", "question", "info"].includes(kind)) fail("--kind must be reminder, warning, update, question or info");
+const dry = args.includes("--dry-run");
+if (!dry) refuseDuringEval("reaching Nick");
+
+const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const LOG = join(DIR, "outreach.jsonl");
+const OUTBOX = join(DIR, "outreach-outbox.jsonl");
+mkdirSync(DIR, { recursive: true });
+const history = existsSync(LOG) ? readFileSync(LOG, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : [];
+
+const gate = allowed(text, history);
+if (!gate.ok) { console.log(`NOT SENT: ${gate.reason}.`); process.exit(0); }
+
+const urgent = args.includes("--urgent");
+const here = await presence();
+const forced = flag("--channel");
+let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
+  : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false }, { urgent })
+  : chooseChannel(here, { urgent });
+// --silent: never aloud (he said he's in class, or anything else that needs quiet).
+if (args.includes("--silent") && decision.channel === "mac-voice") decision = { channel: "mac-bubble", reason: `${decision.reason}; silent was asked for` };
+const id = `reach-${Date.now()}-${randomUUID().slice(0, 6)}`;
+const entry = { id, at: new Date().toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, headphones: !!here.headphones };
+
+if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
+
+// Mac channels need the ORION app; if it isn't running, the phone is the way.
+appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
+if (decision.channel.startsWith("mac")) {
+  try { execFileSync("/usr/bin/open", ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); }
+  catch { entry.channel = "phone"; entry.reason = "the ORION app isn't running"; appendFileSync(LOG, `${JSON.stringify(entry)}\n`); }
+}
+// Into his chat thread everywhere; a phone notification only when that is how he is reached.
+if (entry.channel !== "hold") appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: entry.channel === "phone" })}\n`);
+console.log(args.includes("--json") ? JSON.stringify(entry) : `Sent — ${describe(entry)}`);
+
+function describe(e) {
+  return { phone: "his phone (notification + chat)", "mac-bubble": "the Mac, silent bubble", "mac-voice": "the Mac, aloud", hold: "held until morning" }[e.channel] + ` (${e.reason}).`;
+}

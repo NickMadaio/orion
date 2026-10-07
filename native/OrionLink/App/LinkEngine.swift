@@ -87,6 +87,7 @@ final class LinkEngine: ObservableObject {
         handleWidgetRequests()
         // Check-ins: every ~30 s, advance ORION's follow-ups and send what is due.
         if ticks % 8 == 0 { await deliverCheckins() }
+        await deliverOutreach()
         // Publish when state changed, and at least every 30 seconds as the heartbeat.
         await publishState(force: ticks % 8 == 1)
         writeStatusFile()
@@ -176,6 +177,47 @@ final class LinkEngine: ObservableObject {
             return record
         }
         do { try await save(records, policy: .allKeys) } catch { problem = "Could not send a check-in: \(error.localizedDescription)" }
+    }
+
+    // MARK: - Outreach
+
+    /// ORION starting the conversation (scripts/orion-reach, 2026-10-07): each
+    /// line of outreach-outbox.jsonl becomes a message in his ORION chat thread
+    /// (a LinkCommand with no words from him, already answered), and a
+    /// notification on his phone when the phone is how he is being reached.
+    private func deliverOutreach() async {
+        let outbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach-outbox.jsonl")
+        guard let text = try? String(contentsOf: outbox, encoding: .utf8), !text.isEmpty else { return }
+        try? "".write(to: outbox, atomically: true, encoding: .utf8)
+        let items = text.split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        var records: [CKRecord] = []
+        for item in items {
+            guard let id = item["id"] as? String, let message = item["text"] as? String else { continue }
+            let chat = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: id, zoneID: zoneID))
+            chat[LinkSchema.commandText] = "" as CKRecordValue
+            chat[LinkSchema.commandSentAt] = Date() as CKRecordValue
+            chat[LinkSchema.commandDevice] = "orion" as CKRecordValue
+            chat[LinkSchema.commandKind] = LinkCommandKind.chat.rawValue as CKRecordValue
+            chat[LinkSchema.commandStatus] = LinkCommandStatus.done.rawValue as CKRecordValue
+            chat[LinkSchema.commandReply] = message as CKRecordValue
+            records.append(chat)
+            if item["push"] as? Bool == true {
+                let alert = CKRecord(recordType: LinkSchema.alertType,
+                                     recordID: CKRecord.ID(recordName: "reach-\(id)", zoneID: zoneID))
+                alert[LinkSchema.alertText] = String(message.prefix(240)) as CKRecordValue
+                alert[LinkSchema.alertKind] = "orion" as CKRecordValue
+                alert["level"] = 1 as CKRecordValue
+                alert[LinkSchema.alertAt] = Date() as CKRecordValue
+                records.append(alert)
+            }
+        }
+        guard !records.isEmpty else { return }
+        do { _ = try await save(records, policy: .allKeys) }
+        catch {
+            // Put them back so the next tick retries rather than losing what ORION said.
+            if let handle = try? FileHandle(forWritingTo: outbox) { handle.seekToEndOfFile(); handle.write(Data(text.utf8)); try? handle.close() }
+            problem = "Could not send ORION's message: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - State

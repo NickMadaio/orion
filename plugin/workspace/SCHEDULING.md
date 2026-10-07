@@ -36,6 +36,10 @@ stays on campus between them. Nothing (a nap, work, food at home) goes into trav
 time. The live facts list today's travel lines; the planner enforces them from
 life-config (`commuteMinutes`, `homeGapMinutes`). Never plan from this paragraph
 alone: if the travel line and the calendar disagree, trust the tools.
+When he gives anchors instead of times ("directly after X", "ending 20 minutes
+before Y", "same end as before"), use `move "<it>" --after "X" --before "Y" --gap 20`
+in ONE call — never work out the times yourself first. "Same end conditions"
+means the constraint he gave earlier in the conversation, not the next event's start.
 Travel is not a block, so `drop` cannot remove it. It is worked out from
 where his classes are: "get rid of the commute between X and Y" means he is
 staying on campus, so move the next thing to start right after the class (the

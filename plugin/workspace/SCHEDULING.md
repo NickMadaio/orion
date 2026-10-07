@@ -36,6 +36,10 @@ stays on campus between them. Nothing (a nap, work, food at home) goes into trav
 time. The live facts list today's travel lines; the planner enforces them from
 life-config (`commuteMinutes`, `homeGapMinutes`). Never plan from this paragraph
 alone: if the travel line and the calendar disagree, trust the tools.
+Travel is not a block, so `drop` cannot remove it. It is worked out from
+where his classes are: "get rid of the commute between X and Y" means he is
+staying on campus, so move the next thing to start right after the class (the
+travel goes away by itself). Never skip or re-create a class to get rid of travel.
 (Why this is written down: on 2026-10-05 the short-night nap was booked at 12:30,
 the minute a lecture ended, because the code only knew about the first and last
 class and this file said "stay on campus" between classes.)

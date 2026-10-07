@@ -282,3 +282,38 @@ test("an overlap already on the calendar is separated by the next change, with a
   const d = day().sort((a, b) => a.start - b.start);
   for (let i = 1; i < d.length; i++) assert.ok(d[i].start >= d[i - 1].end + 10, `${d[i - 1].title} → ${d[i].title}\n${r.out}`);
 });
+
+// 2026-10-07: "make the cs lab one hour, directly after my CS2100 class".
+// "CS lab" matched the CS2100 *Lab* (the class) first: move/resize refused, and
+// skip "CS lab" deleted his class. The closest title must win.
+const labDay = [
+  { title: "CS1802 Discrete Structures — Seminar", start: iso(9), end: iso(10, 30) },
+  { title: "CS2100 Program Design & Implementation 1 — Lab", start: iso(11), end: iso(12, 30) },
+  { title: "CS lab", start: iso(13, 20), end: iso(14, 20), orion: "study" },
+  { title: "DS Assesment W comp sci group", start: iso(15), end: iso(16) },
+];
+
+test("move \"CS lab\" moves the CS lab block, not the CS2100 Lab class (2026-10-07)", (t) => {
+  const { run, day } = world(t, labDay);
+  const r = run("move", "CS lab", "--to", "12:30");
+  assert.equal(r.code, 0, r.out);
+  const d = day();
+  assert.ok(d.some((e) => e.title === "CS lab" && e.start === hm(12, 30)), r.out);
+  assert.ok(d.some((e) => /CS2100/.test(e.title) && e.start === hm(11)), "the class is untouched");
+});
+
+test("resize \"CS lab\" resizes the CS lab block (2026-10-07)", (t) => {
+  const { run, day } = world(t, labDay);
+  const r = run("resize", "CS lab", "45");
+  assert.equal(r.code, 0, r.out);
+  assert.ok(day().some((e) => e.title === "CS lab" && e.end - e.start === 45), r.out);
+});
+
+test("skip \"CS lab\" never deletes the CS2100 Lab class (2026-10-07)", (t) => {
+  const { run, day } = world(t, labDay);
+  const r = run("skip", "CS lab");
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /NOTHING WAS CHANGED/);
+  assert.match(r.out, /CS lab/);
+  assert.ok(day().some((e) => /CS2100/.test(e.title)), "the class is still there");
+});

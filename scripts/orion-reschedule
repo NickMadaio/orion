@@ -184,6 +184,23 @@ const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asle
 const blocked = []; let add = [];
 const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5)).filter((x) => x.length >= 3);
   const x = w(a), y = w(b); return x.length > 0 && x.every((q) => y.includes(q)); };
+/*
+ How closely a title is the thing he named (2026-10-07). sameThingEarly drops
+ words under three letters, so "CS lab" was just "lab" and matched the CS2100
+ Lab class before the CS lab block: move refused, and skip deleted the class.
+ 3 = the same title; 2 = the same words both ways; 1 = his words are in it.
+*/
+const closeness = (name, title) => {
+  const norm = (t) => clean(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (norm(name) === norm(title)) return 3;
+  if (!sameThingEarly(name, title)) return 0;
+  return sameThingEarly(title, name) ? 2 : 1;
+};
+const closest = (name, list) => {
+  const ranked = list.map((b) => ({ b, rank: closeness(name, b.title) })).filter((x) => x.rank > 0);
+  const top = Math.max(0, ...ranked.map((x) => x.rank));
+  return ranked.filter((x) => x.rank === top).map((x) => x.b);
+};
 // Untimed plans wait until he is home and prefer their natural time of day
 // (sensible-time). Times he states, and "before X" that ends before he is home,
 // are left alone.
@@ -250,7 +267,7 @@ async function writeShape(label, pins, firstLines, persist = true) {
 }
 /** The block he means: the one under way, else the latest that already happened today, else the next one. */
 function findBlock(name, { allowPast = true } = {}) {
-  const matches = blocks.filter((b) => sameThingEarly(name, b.title));
+  const matches = closest(name, blocks);
   return matches.find((b) => b.start <= nowMinute && b.end > nowMinute)
     ?? (allowPast ? matches.filter((b) => b.end <= nowMinute).sort((a, b) => b.end - a.end)[0] : undefined)
     ?? matches.filter((b) => b.start > nowMinute).sort((a, b) => a.start - b.start)[0];
@@ -401,7 +418,11 @@ if (command === "late") {
   */
   const name = rest[0];
   if (!name) fail('usage: orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]');
-  const target = blocks.filter((b) => b.fixed && sameThingEarly(name, b.title) && b.end > nowMinute).sort((a, b) => a.start - b.start)[0];
+  // A movable block that IS what he named means he did not mean a class.
+  const nearest = closest(name, blocks.filter((b) => b.end > nowMinute));
+  const loose = nearest.find((b) => !b.fixed);
+  if (loose) fail(`NOTHING WAS CHANGED: "${loose.title}" is one of ORION's movable blocks, not a class — skip is only for classes and plans with people. Use move/resize/drop "${loose.title}". Classes today stay as they are.`, 1);
+  const target = nearest.filter((b) => b.fixed).sort((a, b) => a.start - b.start)[0];
   if (!target) fail(`NOTHING WAS CHANGED: no class or fixed plan called "${name}" left on ${dayName}. Fixed today: ${blocks.filter((b) => b.fixed).map((b) => `${b.title} ${hhmm(b.start)}`).join(", ") || "none"}.`, 1);
   const start = iso(date, target.start); const end = iso(date, target.end);
   if (dry) { console.log(`Would skip ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} on ${dayName}.`); process.exit(0); }

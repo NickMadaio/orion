@@ -444,6 +444,9 @@ final class AppState: ObservableObject {
     /// The listening window currently open is a follow-up, so nothing has been
     /// said in it yet and the ordinary hangover must not close it immediately.
     private var awaitingFollowUp = false
+    /// This turn opened without his wake word or key (a follow-up, or speech
+    /// that interrupted ORION): check it was said to ORION before paying for it.
+    private var turnUnaddressed = false
 
     /// How long to wait for a follow-up before deciding the exchange is over.
     /// Long enough to think about the answer, short enough that Orion is not
@@ -1140,6 +1143,7 @@ final class AppState: ObservableObject {
             conversationOpen = true
             setPhase(.idle)
             beginListening(handsFree: true)
+            turnUnaddressed = true
             // Set AFTER beginListening returns: a fresh, non-follow-up press
             // clears `preservedTranscript` at its own top, and this is the one
             // path that has to survive that clear — see `beginListening`.
@@ -1182,6 +1186,7 @@ final class AppState: ObservableObject {
         conversationOpen = true
         setPhase(.idle)
         beginListening(handsFree: true)
+        turnUnaddressed = true
         preservedTranscript = heardSeed
     }
 
@@ -1480,6 +1485,7 @@ final class AppState: ObservableObject {
             preservedTranscript = ""
             continuationChainRemaining = AppState.maxContinuationChain
         }
+        turnUnaddressed = followUp
         setPhase(.listening)
         statusLine = followUp
             ? "Go ahead…"
@@ -1678,7 +1684,27 @@ final class AppState: ObservableObject {
 
         preservedTranscript = ""
         continuationChainRemaining = AppState.maxContinuationChain
-        send(combined)
+        sendHeard(combined)
+    }
+
+    /// Voice that may not have been for ORION goes past `AddressGate` first.
+    private func sendHeard(_ text: String) {
+        guard turnUnaddressed else { send(text); return }
+        turnUnaddressed = false
+        AddressGate.check(heard: text, lastReply: speechOutput.lastSpokenText) { [weak self] addressed in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard addressed == false else { self.send(text); return }
+                OrionLog.write("[gate] not said to ORION — not sent (\(text.count) chars)")
+                self.endConversation()
+                if self.pausedGeneration != nil || self.pausedReplacementText != nil {
+                    self.handleResumeRequest(origin: .voice)
+                } else {
+                    self.setPhase(.idle)
+                    self.statusLine = self.wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+                }
+            }
+        }
     }
 
     /// Whatever was preserved is sent now rather than lost — used when the
@@ -1692,7 +1718,7 @@ final class AppState: ObservableObject {
             statusLine = "Nothing heard"
             return
         }
-        send(text)
+        sendHeard(text)
     }
 
     /// "Continue" / "keep going" / "what were you saying" — resume an

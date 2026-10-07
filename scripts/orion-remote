@@ -32,6 +32,7 @@
 */
 
 import { execFile, spawn, spawnSync } from "node:child_process";
+import { thinkingLevel } from "./lib/thinking-policy.mjs";
 import { classifyClaim } from "./lib/remote/claims.mjs";
 import { fixReply, lintReply } from "./lib/remote/reply-lint.mjs";
 import { readStandingRules } from "./lib/remote/standing-rules.mjs";
@@ -788,7 +789,9 @@ async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
        // ORION_BRAIN_THINKING: off | minimal | low | medium | high for a whole run.
        // Thinking was off for every message (openclaw thinkingDefault "off", chosen for
        // voice speed); text messages that change his day need it (2026-10-01).
-       "--thinking", process.env.ORION_BRAIN_THINKING ?? "low",
+       // Otherwise per message (lib/thinking-policy.mjs, 2026-10-07): off for talk,
+       // low for anything that changes his day.
+       "--thinking", process.env.ORION_BRAIN_THINKING ?? thinkingLevel(text.split("--- Nick's message follows ---").pop(), { model: model ?? process.env.ORION_BRAIN_MODEL }),
        "--json", "--message-file", file],
       { timeout: (BRAIN_TIMEOUT_S + 30) * 1000, maxBuffer: 32 * 1024 * 1024 },
     );

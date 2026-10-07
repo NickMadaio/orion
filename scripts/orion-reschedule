@@ -28,6 +28,8 @@
 //   orion-reschedule resize "<title>" <minutes>                       "make the YouTube block smaller": its new length
 //   orion-reschedule rename "<old title>" "<new title>"               "replace apply somewhere with YouTube": same slot, new thing
 //   orion-reschedule move "<title>" --to HH:MM                        "move study to 4": same length, the rest cascades
+//        also --after "<block>" (starts after it), --until HH:MM or --before "<block>" [--gap N] (where it ends; changes its length):
+//        "directly after CS lab, ending 20 before DS" = move "X" --after "CS lab" --before "DS" --gap 20 — one call, no arithmetic
 //   orion-reschedule swap "<title>" "<title>"                         "swap study and the side project" (any lengths)
 //   orion-reschedule early [block|out-of-class] [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
 //        finished early: shorten what is under way (or clip a class that just ended), pull the rest of the day forward
@@ -64,13 +66,13 @@ import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--gap", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -178,8 +180,9 @@ const blocks = pinBlocks(toBlocks(events, date), date);
 const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest() });
 // "Plan things until around 8 PM": --until HH:MM ends the planning window there
 // (for extend, --until is the block's new end instead).
-const untilMinute = command === "extend" ? null : minute(flag("--until"));
-if (flag("--until") !== undefined && command !== "extend" && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
+// extend and move read --until as the END of the block they change, not the day's window.
+const untilMinute = ["extend", "move"].includes(command) ? null : minute(flag("--until"));
+if (flag("--until") !== undefined && !["extend", "move"].includes(command) && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
 const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
 const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5)).filter((x) => x.length >= 3);
@@ -361,6 +364,9 @@ if (command === "late") {
   if (target.fixed && !target.pinned) fail(`"${target.title}" is a class: use overrun <minutes> --what "${target.title}"`, 2);
   const end = until ?? Math.max(target.end, nowMinute) + more;
   if (end <= target.start || end > 1440) fail(`NOTHING WAS CHANGED: ${target.title} starts at ${hhmm(target.start)}, so it cannot end at ${hhmm(end)}`, 1);
+  // 2026-10-07: ORION read "extend 70" as "make it 70 minutes long" twice.
+  const clash = until === null && blocks.find((b) => b.id !== target.id && b.fixed && b.start < end && b.end > target.end);
+  if (clash) fail(`NOTHING WAS CHANGED: extend ADDS ${more} minutes to the end (${hhmm(target.start)}–${hhmm(end)}), which runs into ${clash.title} at ${hhmm(clash.start)}. To set when it ends use extend "${target.title}" --until HH:MM, or move "${target.title}" --to HH:MM --until HH:MM (or --before "${clash.title}" --gap N).`, 1);
   const thenName = flag("--then");
   const next = thenName ? (blocks.find((b) => b.id !== target.id && (!b.fixed || b.pinned) && b.end > nowMinute && sameThingEarly(thenName, b.title)) ?? notFound(thenName)) : null;
   // "I'll take my nap after": the block he names goes straight after this one.
@@ -378,12 +384,34 @@ if (command === "late") {
   const name = rest[0];
   if (!name) fail('usage: orion-reschedule move "<title>" --to HH:MM | --by <minutes>');
   const target = findBlock(name, { allowPast: false }) ?? notFound(name);
-  const by = flag("--by");
-  const to = by === undefined ? minute(flag("--to")) : /^-?\d+$/.test(by) ? target.start + Number(by) : null;
-  if (to === null || to < 0 || to + target.end - target.start > 1440) fail("invalid move time or offset");
   if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
+  /*
+   2026-10-07: "start organize safari directly after CS lab, ending 20 minutes
+   before the DS assessment" took two messages and four failed calls because
+   ORION did the arithmetic. Anchors do it here, in one call:
+     --to HH:MM | --by N | --after "<block>"      where it starts
+     --until HH:MM | --before "<block>" [--gap N] where it ends (default: same length)
+  */
+  const anchor = (n) => closest(n, blocks.filter((b) => b.id !== target.id)).sort((a, b) => a.start - b.start)
+    .find((b) => b.end > nowMinute) ?? notFound(n);
+  const gapText = flag("--gap");
+  const gap = gapText === undefined ? config.bufferMinutes : /^\d{1,3}$/.test(gapText) ? Number(gapText) : fail("--gap must be minutes, e.g. --gap 20");
   const length = target.end - target.start;
-  await writeShape("moving it", [{ block: target, start: to, end: to + length }], [`${target.title} moved: ${hhmm(target.start)} → ${hhmm(to)}–${hhmm(to + length)}`]);
+  const by = flag("--by");
+  const after = flag("--after") !== undefined ? anchor(flag("--after")) : null;
+  const before = flag("--before") !== undefined ? anchor(flag("--before")) : null;
+  const untilEnd = flag("--until") !== undefined ? minute(flag("--until")) : undefined;
+  if (untilEnd === null) fail("--until must be HH:MM (24-hour), e.g. --until 14:40");
+  const end0 = untilEnd ?? (before ? before.start - gap : null);
+  const start = by !== undefined ? (/^-?\d+$/.test(by) ? target.start + Number(by) : null)
+    : flag("--to") !== undefined ? minute(flag("--to"))
+    : after ? after.end + config.bufferMinutes
+    : end0 !== null ? end0 - length : null;
+  if (start === null) fail('usage: orion-reschedule move "<title>" --to HH:MM | --by <minutes> | --after "<block>"  [--until HH:MM | --before "<block>" [--gap N]]');
+  const end = end0 ?? start + length;
+  if (start < 0 || end > 1440 || end - start < 5) fail(`NOTHING WAS CHANGED: ${target.title} would run ${hhmm(start)}–${hhmm(end)}, which is not a real block`, 1);
+  const lengthNote = end - start === length ? "" : ` (now ${end - start} min, was ${length})`;
+  await writeShape("moving it", [{ block: target, start, end }], [`${target.title} moved: ${hhmm(target.start)} → ${hhmm(start)}–${hhmm(end)}${lengthNote}`]);
 } else if (command === "swap") {
   /*
    "Swap study and the side project": the later one takes the earlier one's start,

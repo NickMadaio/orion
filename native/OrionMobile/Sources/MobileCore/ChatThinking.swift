@@ -1,12 +1,17 @@
 import Foundation
 public enum ChatThinking {
-    public static func read(home: URL, session: String, since: Date) -> String? {
+    /// The session's transcript, only from inside the sessions folder.
+    public static func transcript(home: URL, session: String) -> String? {
         let base = home.appendingPathComponent(".openclaw/agents/main/sessions")
         guard let data = try? Data(contentsOf: base.appendingPathComponent("sessions.json")),
               let index = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]],
               let entry = index[("agent:main:" + session).lowercased()], let file = entry["sessionFile"] as? String,
-              URL(fileURLWithPath: file).standardizedFileURL.deletingLastPathComponent() == base.standardizedFileURL,
-              let text = try? String(contentsOfFile: file, encoding: .utf8) else { return nil }
+              URL(fileURLWithPath: file).standardizedFileURL.deletingLastPathComponent() == base.standardizedFileURL else { return nil }
+        return try? String(contentsOfFile: file, encoding: .utf8)
+    }
+
+    public static func read(home: URL, session: String, since: Date) -> String? {
+        guard let text = transcript(home: home, session: session) else { return nil }
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let plain = ISO8601DateFormatter()
         let thoughts = text.split(separator: "\n").compactMap { line -> String? in

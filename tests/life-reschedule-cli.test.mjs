@@ -317,3 +317,38 @@ test("skip \"CS lab\" never deletes the CS2100 Lab class (2026-10-07)", (t) => {
   assert.match(r.out, /CS lab/);
   assert.ok(day().some((e) => /CS2100/.test(e.title)), "the class is still there");
 });
+
+// 2026-10-07: "start organize safari directly after CS lab, same end conditions"
+// (end 20 minutes before the DS assessment) took two messages and four failed
+// calls: extend adds minutes, and ORION did the arithmetic. One call now.
+const safariDay = [
+  { title: "CS2100 Lab", start: iso(11), end: iso(12, 30) },
+  { title: "CS lab", start: iso(12, 30), end: iso(13, 30), orion: "study" },
+  { title: "organize safari", start: iso(14, 15), end: iso(14, 40), orion: "other" },
+  { title: "DS Assesment W comp sci group", start: iso(15), end: iso(17) },
+];
+
+test("move --after X --before Y --gap 20 sets both ends in one call (2026-10-07)", (t) => {
+  const { run, day } = world(t, safariDay);
+  const r = run("move", "organize safari", "--after", "CS lab", "--before", "DS Assesment", "--gap", "20");
+  assert.equal(r.code, 0, r.out);
+  const safari = day().find((e) => e.title === "organize safari");
+  assert.equal(safari.start, hm(13, 40), r.out);   // CS lab end + the usual buffer
+  assert.equal(safari.end, hm(14, 40), r.out);     // 20 minutes before 15:00
+});
+
+test("move --to with --until sets an exact window (2026-10-07)", (t) => {
+  const { run, day } = world(t, safariDay);
+  const r = run("move", "organize safari", "--to", "13:30", "--until", "14:40");
+  assert.equal(r.code, 0, r.out);
+  const safari = day().find((e) => e.title === "organize safari");
+  assert.deepEqual([safari.start, safari.end], [hm(13, 30), hm(14, 40)], r.out);
+});
+
+test("an extend that clashes says extend ADDS minutes and how to set an end instead (2026-10-07)", (t) => {
+  const { run } = world(t, safariDay);
+  const r = run("extend", "organize safari", "70");
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /adds 70 minutes/i);
+  assert.match(r.out, /--until/);
+});

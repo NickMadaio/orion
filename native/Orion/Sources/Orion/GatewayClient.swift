@@ -81,6 +81,19 @@ enum GatewayClient {
         GatewayHealthProbe.check(port: port(), timeout: timeout).availability == .ready
     }
 
+    // MARK: Thinking boost — after a turn where ORION struggled
+
+    private static var boosts: [String: Date] = [:]
+    private static let boostLock = NSLock()
+    private static func boostedUntil(_ session: String) -> Date? {
+        boostLock.lock(); defer { boostLock.unlock() }
+        return boosts[session]
+    }
+    private static func boost(_ session: String) {
+        boostLock.lock(); defer { boostLock.unlock() }
+        boosts[session] = Date().addingTimeInterval(ThinkingPolicy.boostSeconds)
+    }
+
     // MARK: One agent turn
 
     /// Blocking. Always call from a background queue.
@@ -98,7 +111,11 @@ enum GatewayClient {
             "--json",
             "--timeout", String(Int(RunTimeouts.agentTimeout))
         ]
-        if let model { process.arguments?.append(contentsOf: ["--model", model, "--thinking", model.hasPrefix("ollama/") ? "off" : "low"]) }
+        // Thinking only when the message needs it, or right after ORION struggled
+        // (ThinkingPolicy, 2026-10-07). It was off for every turn without a picked model.
+        let thinking = ThinkingPolicy.level(for: text, model: model, boostedUntil: boostedUntil(session))
+        if let model { process.arguments?.append(contentsOf: ["--model", model]) }
+        process.arguments?.append(contentsOf: ["--thinking", thinking])
         // The CLI is a bash shim with a `/usr/bin/env` shebang. A GUI app
         // inherits a minimal environment, so give it a PATH it can resolve.
         var environment = ProcessInfo.processInfo.environment
@@ -241,7 +258,13 @@ enum GatewayClient {
             if (payload["status"] as? String) == "in_flight" { throw GatewayError.inFlight }
             throw GatewayError.unparseable
         }
-        return GatewayReply(text: reply, elapsedMs: elapsedMs, thinking: ChatThinking.read(home: FileManager.default.homeDirectoryForCurrentUser, session: session, since: started))
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        if ThinkingPolicy.struggled(home: home, session: session, since: started) {
+            boost(session)
+            OrionLog.write("[thinking] tool calls kept failing — thinking on for the next 10 minutes")
+        }
+        OrionLog.write("[thinking] \(thinking) for this turn")
+        return GatewayReply(text: reply, elapsedMs: elapsedMs, thinking: ChatThinking.read(home: home, session: session, since: started))
     }
 
     // MARK: Cancellation

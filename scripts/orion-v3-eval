@@ -106,13 +106,14 @@ function build() {
   console.log(JSON.stringify({ cases: all.length, practice: count("practice"), heldout: count("heldout") }, null, 1));
 }
 
+// Prompt lookup: private per-model (may hold Nick's words), repo per-model, then the job's shared prompt.
 function promptFor(job, name, model) {
   const slug = model.replace(/[:/]/g, "-");
-  const specific = join(here, `eval/v3/prompts/${job.toLowerCase()}/${slug}/${name}.md`);
-  const path = existsSync(specific) ? specific : join(here, `eval/v3/prompts/${job.toLowerCase()}/${name}.md`);
+  const candidates = [join(V3_DIR, `prompts/${job.toLowerCase()}/${slug}/${name}.md`), join(here, `eval/v3/prompts/${job.toLowerCase()}/${slug}/${name}.md`), join(here, `eval/v3/prompts/${job.toLowerCase()}/${name}.md`)];
+  const path = candidates.find((p) => existsSync(p)) ?? candidates.at(-1);
   if (!existsSync(path)) fail(`no prompt ${name} for ${job} (${path})`);
   const text = readFileSync(path, "utf8");
-  return { text, path: path.replace(`${here}/`, "scripts/"), hash: createHash("sha256").update(text).digest("hex").slice(0, 12) };
+  return { text, path: path.replace(`${here}/`, "scripts/").replace(V3_DIR, "~/v3"), hash: createHash("sha256").update(text).digest("hex").slice(0, 12) };
 }
 
 async function run(part) {
@@ -140,7 +141,8 @@ async function run(part) {
     ? summariseTools(await runScheduleJob(picked, { model, template: prompt.text, menu, ...settings, onTrial }))
     : TOOL_JOBS.has(job)
     ? summariseTools(await runToolJob(picked, { model, template: prompt.text, menu, iface, ...settings, onTrial }))
-    : (await runFrontDesk(picked, { model, template: prompt.text, menu, ...settings, oracle: has("--oracle"), onTrial })).summary;
+    : (await runFrontDesk(picked, { model, template: prompt.text, menu, ...settings, oracle: has("--oracle"), onTrial,
+      schema: schemaFor({ schemaAll: has("--schema-all") }), historyTurns: Number(flag("--history", 4)) })).summary;
   if (TOOL_JOBS.has(job)) settings.iface = iface;
   process.stderr.write("\n");
   const entry = { phase: label === "final" ? "6" : label === "baseline" ? "4" : "5", kind: label, runId, job, part, model, digest: info.digest ?? null, quantization: info.quantization ?? null,

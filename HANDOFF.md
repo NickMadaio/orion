@@ -1,3 +1,8 @@
+## 2026-10-08 — ORION V3: local-first evaluation plan (Claude)
+
+- Start here for the next phase: `ORION_V3_HANDOFF.md` (repo root). One consolidated plan to tune and evaluate local models (Llama 3.2 3B, Qwen 3.5 4B/9B, Qwen 3.6 27B, optional 2B / 35B-A3B / gpt-oss) per job, with reliability, speed and battery gates, honesty checking, real-log regression cases and end-to-end validation. Nothing in it has been run yet; downloads, battery sessions and any Claude spend need Nick's yes.
+- Same day: AGENTS/SOUL/USER/MEMORY restored to the pre-trim versions (`0691dc4`) after the trim made ORION worse.
+
 ## 2026-10-08 07:30 — Morning fixes: wake gate, weather, alarms, cut-off speech (Claude)
 
 - The 7:15 unplug was judged "too early" against the planner's 09:00; `alarmClock()` (morning.mjs, tested) now takes the earlier of his own wake-up and the planner's.

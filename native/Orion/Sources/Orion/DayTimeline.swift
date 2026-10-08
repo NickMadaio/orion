@@ -240,9 +240,13 @@ struct DayTimeline: View {
             ForEach(timed) { event in
                 let lane = lanes[event.id] ?? (0, 1)
                 let laneWidth = width / CGFloat(lane.total)
-                let blockHeight = max(20, height(for: event))
+                // True height only: a second 20-pt floor here undid the fix in
+                // height(for:) and drew a 15-minute block over the next one
+                // (2026-10-08: 1:15–1:30 travel over 1:30 cert courses).
+                let blockHeight = height(for: event)
                 EventBlock(event: event, isNow: event.isNow, height: blockHeight)
                     .frame(width: max(40, laneWidth - 4), height: blockHeight)
+                    .clipped()
                     .offset(x: gutter + CGFloat(lane.index) * laneWidth,
                             y: offset(for: event.start))
                     .onTapGesture { onSelect(event) }

@@ -48,7 +48,8 @@ public enum DayLayout {
                 let start = max(entry.slot.start, rangeStart), end = min(entry.slot.end, rangeEnd)
                 placements.append(DayPlacement(id: entry.slot.id,
                     top: start.timeIntervalSince(rangeStart) / 60,
-                    height: max(15, end.timeIntervalSince(start) / 60),
+                    // True length: a 15-minute floor drew a 10-minute block over the next one.
+                    height: max(1, end.timeIntervalSince(start) / 60),
                     column: entry.column, columns: count))
             }
             cluster = []; columnEnds = []

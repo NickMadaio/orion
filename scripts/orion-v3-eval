@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { normaliseCase, validateCase, makeSplit, selectCases } from "./lib/eval/v3/cases.mjs";
 import { runFrontDesk, summarise } from "./lib/eval/v3/run-j1.mjs";
 import { runToolJob } from "./lib/eval/v3/run-tools.mjs";
+import { runScheduleJob } from "./lib/eval/v3/run-schedule.mjs";
 import { modelInfo } from "./lib/eval/v3/ollama.mjs";
 import { appendLedger, V3_DIR } from "./lib/eval/v3/ledger.mjs";
 
@@ -35,15 +36,28 @@ const menu = JSON.parse(readFileSync(join(here, "eval/v3/front-desk-menu.json"),
 const readJson = (p, d) => (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : d);
 const writePrivate = (p, data) => { mkdirSync(dirname(p), { recursive: true, mode: 0o700 }); writeFileSync(p, JSON.stringify(data, null, 1)); chmodSync(p, 0o600); };
 
+// The existing schedule scenarios (scripts/eval) become J3 cases: core = constructed, hard "real-*" = observed.
+function scheduleScenarios() {
+  const load = (file, prefix) => {
+    const data = readJson(join(here, "eval", file), { scenarios: [] });
+    return (Array.isArray(data) ? data : data.scenarios).map((s) => ({
+      id: `j3-${prefix}-${s.id}`, job: "J3", provenance: String(s.id).startsWith("real-") ? "observed-failure" : "synthetic-edge", source: `scripts/eval/${file}#${s.id}`,
+      clock: s.now ?? data.base?.now, state: { day: s.day ?? data.base?.day ?? [], todos: (s.reminders ?? data.base?.reminders ?? []).map((r) => r.title ?? r) },
+      turns: [s.say].flat(), say: [s.say].flat()[0], expect: s.expect ?? {}, notes: s.note ?? null }));
+  };
+  return [...load("schedule-scenarios.json", "core"), ...load("schedule-hard-2026-10-07.json", "hard")];
+}
+
 function sources(job) {
   const lower = job.toLowerCase();
+  if (job === "J3") return [...scheduleScenarios(), ...readJson(join(CASES, "real/j3.json"), { cases: [] }).cases.map((c) => ({ ...c, say: c.turns[0] }))];
   const synthetic = readJson(join(here, `eval/v3/synthetic/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: "synthetic-edge" }));
   const real = readJson(join(CASES, `real/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: c.provenance }));
   return [...real, ...synthetic];
 }
 
-const TOOL_JOBS = new Set(["J2", "J4"]);
-const JOBS = ["J1", "J2", "J4"];
+const TOOL_JOBS = new Set(["J2", "J4", "J3"]);
+const JOBS = ["J1", "J2", "J3", "J4"];
 
 // Tool-job cases: every expected or forbidden pattern must compile; fixtures need a match list.
 const validateToolCase = (c) => {
@@ -51,7 +65,7 @@ const validateToolCase = (c) => {
   if (!String(c.say ?? "").trim()) errors.push(`${c.id}: missing say`);
   for (const set of [...(c.expect?.calls ?? []), ...(c.expect?.forbid ?? [])]) for (const p of set) { try { new RegExp(p, "i"); } catch { errors.push(`${c.id}: bad pattern ${p}`); } }
   for (const f of c.fixtures ?? []) if (!Array.isArray(f.match) || typeof f.stdout !== "string") errors.push(`${c.id}: bad fixture`);
-  if (!Array.isArray(c.expect?.calls)) errors.push(`${c.id}: expect.calls missing`);
+  if (c.job === "J3" ? !c.state?.day || !c.turns?.length : !Array.isArray(c.expect?.calls)) errors.push(`${c.id}: ${c.job === "J3" ? "state.day or turns missing" : "expect.calls missing"}`);
   return errors;
 };
 
@@ -96,7 +110,9 @@ async function run(part) {
   const started = Date.now();
   const onTrial = (t) => { appendFileSync(trialsFile, `${JSON.stringify(t)}\n`, { mode: 0o600 }); if (part === "practice") process.stderr.write(t.pass ? "." : "x"); };
   const iface = flag("--iface", "T1");
-  const summary = TOOL_JOBS.has(job)
+  const summary = job === "J3"
+    ? summariseTools(await runScheduleJob(picked, { model, template: prompt.text, menu, ...settings, onTrial }))
+    : TOOL_JOBS.has(job)
     ? summariseTools(await runToolJob(picked, { model, template: prompt.text, menu, iface, ...settings, onTrial }))
     : (await runFrontDesk(picked, { model, template: prompt.text, menu, ...settings, oracle: has("--oracle"), onTrial })).summary;
   if (TOOL_JOBS.has(job)) settings.iface = iface;

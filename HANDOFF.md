@@ -1,3 +1,10 @@
+## 2026-10-08 07:30 — Morning fixes: wake gate, weather, alarms, cut-off speech (Claude)
+
+- The 7:15 unplug was judged "too early" against the planner's 09:00; `alarmClock()` (morning.mjs, tested) now takes the earlier of his own wake-up and the planner's.
+- Phone: AlarmKit scheduling is serialized and cancels every stray ORION alarm (overlapping refreshes had orphaned alarms; he had to snooze "20 million").
+- Weather: the briefing and screen say sky, high/low, and rain window + chance; `weather_now` now always returns today's high/low (°C and °F), hourly `rainHours`, and a summary with the rain window; a drizzle code at <30% reads "mostly dry". `orion-weather-alert` removed from ORION's exec allowlist (he used it as a fallback and it sent a Discord message).
+- Voice: speech during thinking (finishing a cut-off sentence) is no longer sent through AddressGate; it is sent as the rest of the last message and the stale half-answer is dropped. A gate-dropped turn with a paused answer keeps the ear open after it.
+
 ## 2026-10-08 — Morning briefing when Nick is actually up (Claude)
 
 - Nick's rule: he is up when the phone comes off the charger OR he uses it for a few minutes. Then ORION says the day aloud at full volume on the Mac, listens a few seconds, and closes if nothing is said.

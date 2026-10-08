@@ -1256,7 +1256,11 @@ final class AppState: ObservableObject {
         conversationOpen = true
         setPhase(.idle)
         beginListening(handsFree: true)
-        turnUnaddressed = true
+        // He is finishing his own sentence (2026-10-08: "after class, I want to"
+        // was cut by the endpoint, he kept talking, and AddressGate threw the
+        // rest away as "not said to ORION"). Voice ID already accepted him; the
+        // continuation of an addressed turn is addressed.
+        turnUnaddressed = false
         preservedTranscript = heardSeed
     }
 
@@ -1766,10 +1770,13 @@ final class AppState: ObservableObject {
                 guard let self else { return }
                 guard addressed == false else { self.send(text); return }
                 OrionLog.write("[gate] not said to ORION — not sent (\(text.count) chars)")
-                self.endConversation()
                 if self.pausedGeneration != nil || self.pausedReplacementText != nil {
+                    // The paused answer still plays, and the exchange stays open so
+                    // he can answer it (it often ends in a question).
+                    self.conversationOpen = true
                     self.handleResumeRequest(origin: .voice)
                 } else {
+                    self.endConversation()
                     self.setPhase(.idle)
                     self.statusLine = self.wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
                 }
@@ -1925,9 +1932,18 @@ final class AppState: ObservableObject {
         setPhase(.thinking)
         statusLine = "Thinking…"
 
+        // The rest of a sentence the endpoint cut off: the half-answer to the
+        // fragment is stale, and ORION is told this finishes his last message.
+        var userText = text
+        if pausedGeneration != nil, !typed {
+            pausedGeneration = nil
+            pausedReplacementText = nil
+            userText = "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) " + text
+        }
+
         askGeneration += 1
         let generation = askGeneration
-        let request = agentRequest(userText: text, spoken: !typed)
+        let request = agentRequest(userText: userText, spoken: !typed)
 
         chatThinking = nil
         let chatSession = chatConversation.map { "orion-chat-" + $0.id } ?? GatewayClient.sessionKey

@@ -58,6 +58,22 @@ async function fetchJson(url) {
         clearTimeout(timer);
     }
 }
+const toF = (c) => Math.round((c * 9) / 5 + 32);
+function hourLabel(iso) {
+    const hour = Number(iso.slice(11, 13));
+    return `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? "AM" : "PM"}`;
+}
+/** "Rain likely 2 PM–5 PM (up to 70%)" / "No rain expected", for the summary. */
+export function rainPhrase(hours) {
+    const real = hours.filter((h) => h.chance >= 30);
+    if (!real.length) {
+        const peak = hours.reduce((top, h) => Math.max(top, h.chance), 0);
+        return peak >= 20 ? `only a slight chance of rain (up to ${peak}%)` : "no rain expected";
+    }
+    const peak = Math.max(...real.map((h) => h.chance));
+    const span = real.length === 1 ? `around ${real[0].at}` : `${real[0].at} to ${real.at(-1).at}`;
+    return `rain ${peak >= 60 ? "likely" : "possible"} ${span} (up to ${peak}%)`;
+}
 function round(value, fallback = 0) {
     return typeof value === "number" && Number.isFinite(value)
         ? Math.round(value)
@@ -90,11 +106,26 @@ export async function readWeather(options) {
         current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
         timezone: "auto",
     });
-    if (days > 0) {
-        parameters.set("daily", "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max");
-        parameters.set("forecast_days", String(days + 1));
-    }
+    // Always today's high/low and hourly rain (2026-10-08: "maybe light drizzle"
+    // with no time, and "what time?" had nothing to answer from).
+    parameters.set("daily", "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max");
+    parameters.set("hourly", "precipitation_probability,precipitation");
+    parameters.set("forecast_days", String(days + 1));
     const body = (await fetchJson(`${FORECAST_URL}?${parameters}`));
+    const currentHour = typeof body.current?.time === "string" ? String(body.current.time).slice(0, 13) : "";
+    const hourly = body.hourly;
+    const rainFor = (date) => {
+        if (!hourly || !Array.isArray(hourly.time))
+            return [];
+        return hourly.time.flatMap((t, i) => {
+            const time = String(t);
+            if (!time.startsWith(date) || (currentHour && time.slice(0, 13) < currentHour))
+                return [];
+            const chance = round(hourly.precipitation_probability?.[i]);
+            const mm = typeof hourly.precipitation?.[i] === "number" ? Number(hourly.precipitation[i]) : 0;
+            return chance >= 20 || mm >= 0.2 ? [{ at: hourLabel(time), chance, mm: Math.round(mm * 10) / 10 }] : [];
+        });
+    };
     const current = body.current ?? {};
     const temperatureC = round(current.temperature_2m);
     const conditions = describeCode(current.weather_code);
@@ -102,20 +133,32 @@ export async function readWeather(options) {
     const forecast = [];
     if (daily && Array.isArray(daily.time)) {
         for (let i = 0; i < daily.time.length && i <= days; i++) {
+            const highC = round(daily.temperature_2m_max?.[i]);
+            const lowC = round(daily.temperature_2m_min?.[i]);
             forecast.push({
                 date: String(daily.time[i]),
-                highC: round(daily.temperature_2m_max?.[i]),
-                lowC: round(daily.temperature_2m_min?.[i]),
-                conditions: describeCode(daily.weather_code?.[i]),
+                highC,
+                lowC,
+                highF: toF(highC),
+                lowF: toF(lowC),
+                // The day's code is its WORST hour: "light drizzle" at a 17% chance was
+                // read out as "maybe light drizzle". Say how unlikely it is.
+                conditions: ((code, chance) => /drizzle|rain|shower|snow|thunder/i.test(code) && chance < 30
+                    ? `mostly dry (${code} only ${chance}% likely)` : code)(describeCode(daily.weather_code?.[i]), round(daily.precipitation_probability_max?.[i])),
                 precipitationChance: round(daily.precipitation_probability_max?.[i]),
+                rainHours: rainFor(String(daily.time[i])),
             });
         }
     }
+    const today = forecast[0];
+    const summary = today
+        ? `${conditions}, ${temperatureC}°C (${toF(temperatureC)}°F) in ${place.name} now. Today: high ${today.highC}°C (${today.highF}°F), low ${today.lowC}°C (${today.lowF}°F), ${rainPhrase(today.rainHours)}.`
+        : `${conditions}, ${temperatureC} degrees in ${place.name}`;
     return {
         place: place.name,
-        summary: `${conditions}, ${temperatureC} degrees in ${place.name}`,
+        summary,
         temperatureC,
-        temperatureF: Math.round((temperatureC * 9) / 5 + 32),
+        temperatureF: toF(temperatureC),
         feelsLikeC: round(current.apparent_temperature, temperatureC),
         conditions,
         windKph: round(current.wind_speed_10m),

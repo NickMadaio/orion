@@ -11,10 +11,23 @@ export interface WeatherReport {
         date: string;
         highC: number;
         lowC: number;
+        highF: number;
+        lowF: number;
         conditions: string;
         precipitationChance: number;
+        /** Hours (from now, for today) with a 20%+ chance of rain: "3 PM" and the chance. */
+        rainHours: Array<{
+            at: string;
+            chance: number;
+            mm: number;
+        }>;
     }>;
 }
+/** "Rain likely 2 PM–5 PM (up to 70%)" / "No rain expected", for the summary. */
+export declare function rainPhrase(hours: Array<{
+    at: string;
+    chance: number;
+}>): string;
 export declare function readWeather(options: {
     location: string;
     days?: number;

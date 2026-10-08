@@ -33,3 +33,10 @@ test("budget and early stop: at most 8 iterations, stop after 3 non-improving", 
   assert.equal(rising.history.length, 8);
   assert.equal(rising.stopped, "budget");
 });
+
+test("a step that changes nothing for this model is skipped and does not use the budget", async () => {
+  const ladder = [step("think", "think", "on"), step("a", "a", 1)];
+  const r = await tune({ start: {}, ladder, evaluate: async (c) => ({ pass: c.a ? 11 : 10, critical: 0, falseClaims: 0 }), isNoop: (c) => c.think === "on" });
+  assert.deepEqual(r.history.map((h) => h.change), ["a"]);
+  assert.deepEqual(r.skipped, ["think"]);
+});

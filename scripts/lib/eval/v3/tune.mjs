@@ -15,16 +15,20 @@ export const keeps = (candidate, best) => candidate.pass >= best.pass + 1
 
 /**
  * start: config; ladder: [{ name, hypothesis, apply(config) → config }]; evaluate(config) → { pass, critical, falseClaims, … }.
- * onStep(record) is called after every iteration (for the ledger).
+ * onStep(record) is called after every iteration (for the ledger); isNoop(next, current) skips a step
+ * that changes nothing for this model.
  */
-export async function tune({ start, ladder, evaluate, baseline = null, onStep = () => {} }) {
+export async function tune({ start, ladder, evaluate, baseline = null, onStep = () => {}, isNoop = () => false }) {
   let best = { config: start, result: baseline ?? (await evaluate(start)) };
   const history = [];
+  const skipped = [];
   let misses = 0;
   for (const step of ladder) {
-    if (history.length >= BUDGET) return { best, history, stopped: "budget" };
-    if (misses >= PATIENCE) return { best, history, stopped: "plateau" };
+    if (history.length >= BUDGET) return { best, history, skipped, stopped: "budget" };
+    if (misses >= PATIENCE) return { best, history, skipped, stopped: "plateau" };
     const config = step.apply(best.config);
+    // A change that means nothing for this model (thinking on a model without it) costs no budget.
+    if (isNoop(config, best.config)) { skipped.push(step.name); continue; }
     const result = await evaluate(config);
     const kept = keeps(result, best.result);
     const record = { iteration: history.length + 1, change: step.name, hypothesis: step.hypothesis, config, result, kept, bestBefore: best.result.pass };
@@ -32,5 +36,5 @@ export async function tune({ start, ladder, evaluate, baseline = null, onStep = 
     onStep(record);
     if (kept) { best = { config, result }; misses = 0; } else misses += 1;
   }
-  return { best, history, stopped: history.length >= BUDGET ? "budget" : misses >= PATIENCE ? "plateau" : "ladder-end" };
+  return { best, history, skipped, stopped: history.length >= BUDGET ? "budget" : misses >= PATIENCE ? "plateau" : "ladder-end" };
 }

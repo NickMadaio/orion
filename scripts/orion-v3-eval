@@ -24,8 +24,14 @@ import { runToolJob } from "./lib/eval/v3/run-tools.mjs";
 import { runScheduleJob } from "./lib/eval/v3/run-schedule.mjs";
 import { modelInfo } from "./lib/eval/v3/ollama.mjs";
 import { appendLedger, V3_DIR } from "./lib/eval/v3/ledger.mjs";
-import { renderFrontDesk, schemaFor } from "./lib/eval/v3/prompts.mjs";
+import { renderFrontDesk, schemaFor, renderToolPrompt } from "./lib/eval/v3/prompts.mjs";
+import { thinkFor } from "./lib/eval/v3/presets.mjs";
 import { tune } from "./lib/eval/v3/tune.mjs";
+import { generateReplies, judgeReplies, summariseJudged } from "./lib/eval/v3/run-j7.mjs";
+import { readBattery } from "./lib/eval/v3/battery.mjs";
+
+// Timings are only comparable on mains power (handoff §15); every run records where it ran.
+const powerNow = () => { try { const b = readBattery(); return b.onBattery ? `battery ${b.percent}%` : "ac"; } catch { return "unknown"; } };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const [command, ...rest] = process.argv.slice(2);
@@ -58,14 +64,14 @@ function sources(job) {
     return data.cases.map((c) => ({ id: c.id, job: "J6", provenance: "synthetic-edge", source: null, clock: c.clock ?? data.base.clock,
       state: { day: c.day ?? data.base.day, todos: c.todos ?? data.base.todos ?? [] }, history: c.history ?? [], turns: c.turns, say: c.turns[0], expect: c.expect ?? {}, notes: c.notes ?? null }));
   }
-  const synthetic = readJson(join(here, `eval/v3/synthetic/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: "synthetic-edge" }));
-  const real = readJson(join(CASES, `real/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: c.provenance }));
+  const synthetic = readJson(join(here, `eval/v3/synthetic/${lower}.json`), { cases: [] }).cases.map((c) => ({ ...normaliseCase(c, { job, provenance: "synthetic-edge" }), ...(job === "J7" ? { facts: c.facts ?? [], key: c.key ?? null } : {}) }));
+  const real = readJson(join(CASES, `real/${lower}.json`), { cases: [] }).cases.map((c) => ({ ...normaliseCase(c, { job, provenance: c.provenance }), ...(job === "J7" ? { facts: c.facts ?? [], key: c.key ?? null } : {}) }));
   return [...real, ...synthetic];
 }
 
 const TOOL_JOBS = new Set(["J2", "J4", "J3", "J5", "J6"]);
 const SCHEDULE_JOBS = new Set(["J3", "J6"]);
-const JOBS = ["J1", "J2", "J3", "J4", "J5", "J6"];
+const JOBS = ["J1", "J2", "J3", "J4", "J5", "J6", "J7"];
 
 // Tool-job cases: every expected or forbidden pattern must compile; fixtures need a match list.
 const validateToolCase = (c) => {
@@ -80,7 +86,7 @@ const validateToolCase = (c) => {
 function build() {
   const jobs = JOBS;
   const all = jobs.flatMap(sources);
-  const errors = all.flatMap((c) => (TOOL_JOBS.has(c.job) ? validateToolCase(c) : validateCase(c, { menu: new Set(menu.tools.map((t) => t.name)) })));
+  const errors = all.flatMap((c) => (c.job === "J7" ? (String(c.say ?? "").trim() ? [] : [`${c.id}: missing say`]) : TOOL_JOBS.has(c.job) ? validateToolCase(c) : validateCase(c, { menu: new Set(menu.tools.map((t) => t.name)) })));
   const dupes = all.map((c) => c.id).filter((id, i, a) => a.indexOf(id) !== i);
   if (errors.length || dupes.length) fail(`invalid cases:\n  ${[...errors, ...dupes.map((d) => `duplicate id ${d}`)].join("\n  ")}`, 1);
   const previous = readJson(SPLIT, { seed: 20261008, assignment: {} });
@@ -116,9 +122,12 @@ async function run(part) {
   const trialsFile = join(dir, "trials.jsonl");
   const info = has("--oracle") ? { model: "oracle" } : await modelInfo(model);
   const started = Date.now();
+  const powerAtStart = powerNow();
   const onTrial = (t) => { appendFileSync(trialsFile, `${JSON.stringify(t)}\n`, { mode: 0o600 }); if (part === "practice") process.stderr.write(t.pass ? "." : "x"); };
   const iface = flag("--iface", "T1");
-  const summary = SCHEDULE_JOBS.has(job)
+  const summary = job === "J7"
+    ? { ...(await generateReplies(picked, { model, system: prompt.text.trim(), think: settings.think, temp: settings.temp, onTrial })).cfg, n: picked.length, pass: null, note: "replies generated; score with: orion-v3-eval judge --run <runId> --judge <model>" }
+    : SCHEDULE_JOBS.has(job)
     ? summariseTools(await runScheduleJob(picked, { model, template: prompt.text, menu, ...settings, onTrial }))
     : TOOL_JOBS.has(job)
     ? summariseTools(await runToolJob(picked, { model, template: prompt.text, menu, iface, ...settings, onTrial }))
@@ -127,7 +136,7 @@ async function run(part) {
   process.stderr.write("\n");
   const entry = { phase: label === "final" ? "6" : label === "baseline" ? "4" : "5", kind: label, runId, job, part, model, digest: info.digest ?? null, quantization: info.quantization ?? null,
     config: { prompt: prompt.path, promptHash: prompt.hash, ...settings, thinkApplied: summary.thinkApplied }, cases: picked.length, oracle: has("--oracle"),
-    change: flag("--change", null), hypothesis: flag("--hypothesis", null), minutes: Math.round((Date.now() - started) / 6000) / 10,
+    change: flag("--change", null), hypothesis: flag("--hypothesis", null), power: { start: powerAtStart, end: powerNow() }, minutes: Math.round((Date.now() - started) / 6000) / 10,
     result: part === "heldout" ? { n: summary.n, pass: summary.pass, validJson: summary.validJson, criticalMisroutes: summary.criticalMisroutes, honesty: summary.honesty ?? null } : summary };
   writePrivate(join(dir, "summary.json"), { ...entry, summary });
   appendLedger(entry);
@@ -162,7 +171,7 @@ async function tuneJ1(model) {
     const { summary } = await runFrontDesk(practice, { model, menu, system, schema: schemaFor(config), historyTurns: config.historyTurns ?? 4, think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384,
       onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) });
     writePrivate(join(dir, "prompt.json"), { config, system });
-    return { pass: summary.pass, n: summary.n, critical: summary.criticalMisroutes, falseClaims: 0, validJson: summary.validJson, promptHash: hash, speed: summary.speed, failureReasons: summary.failureReasons };
+    return { pass: summary.pass, n: summary.n, critical: summary.criticalMisroutes, falseClaims: 0, validJson: summary.validJson, promptHash: hash, speed: summary.speed, failureReasons: summary.failureReasons, power: powerNow() };
   };
   const start = { style: "p0", temp: "card", think: "off" };
   const baseline = await evaluate(start);
@@ -174,6 +183,83 @@ async function tuneJ1(model) {
   writePrivate(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), frozen);
   appendLedger({ phase: "5", kind: "freeze", job: "J1", model, tuneId, config: frozen.config, promptHash: result.best.result.promptHash, practice: frozen.practice, stopped: frozen.stopped, iterations: frozen.iterations });
   console.log(JSON.stringify({ model, baseline: `${baseline.pass}/${baseline.n}`, best: `${result.best.result.pass}/${result.best.result.n}`, config: frozen.config, stopped: frozen.stopped }, null, 1));
+}
+
+
+// Score a J7 run's replies with a local judge (never the candidate's own model alone).
+async function judgeRun() {
+  const runId = flag("--run") ?? fail("--run <runId> is required");
+  const judge = flag("--judge") ?? fail("--judge <model> is required");
+  const dir = join(V3_DIR, "runs", runId);
+  const meta = readJson(join(dir, "summary.json"), null) ?? fail(`no run ${runId}`);
+  if (meta.model === judge) fail(`refusing self-grading: ${judge} produced this run; use the other judge`);
+  const trials = readFileSync(join(dir, "trials.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const cases = new Map([...readJson(join(CASES, "practice/j7.json"), []), ...readJson(join(CASES, "heldout/j7.json"), [])].map((c) => [c.id, c]));
+  const out = join(dir, `judged-${judge.replace(/[:/]/g, "_")}.jsonl`);
+  const rows = await judgeReplies(trials, cases, { judge, onScored: (r) => appendFileSync(out, `${JSON.stringify(r)}\n`, { mode: 0o600 }) });
+  const summary = summariseJudged(rows);
+  appendLedger({ phase: meta.phase, kind: "judge", job: "J7", runId, model: meta.model, judge, result: summary });
+  console.log(JSON.stringify({ runId, model: meta.model, judge, ...summary }, null, 1));
+}
+
+
+// Tool and scheduling ladders (handoff §7, §9): honesty and procedure first (the failures that broke
+// Nick's trust), then interface and settings. Same steps, same order, every model.
+const step = (name, hypothesis, patch) => ({ name, hypothesis, apply: (c) => ({ ...c, ...patch }) });
+const TOOL_LADDER = [
+  step("P1 honesty and procedure rules", "replies claim success after failed tools", { rules: true }),
+  step("P9 self-check before replying", "claims are not compared with tool output", { selfcheck: true }),
+  step("P2 numbered procedure", "wrong or extra calls", { procedure: true }),
+  step("T2 one function per tool", "exec command syntax trips small models", { base: "p0t2", iface: "T2" }),
+  step("S2 temperature 0", "sampling noise changes the call", { temp: 0 }),
+  step("P3 worked examples", "call shape and honest failure replies are unclear", { examples: true }),
+  step("P4 key rule restated at the end", "rules in the middle are lost", { restate: true }),
+  step("S1 thinking on", "the model needs to reason before acting", { think: "on" }),
+];
+const SCHEDULE_LADDER = [
+  step("P1 honesty and procedure rules", "replies claim success after NOTHING WAS BOOKED", { rules: true }),
+  step("P2 numbered procedure", "wrong or repeated reschedule calls", { procedure: true }),
+  step("P9 self-check before replying", "claims are not compared with tool output", { selfcheck: true }),
+  step("S1 thinking on", "multi-step day changes need reasoning", { think: "on" }),
+  step("S2 temperature 0", "sampling noise changes the plan", { temp: 0 }),
+  step("P3 worked examples", "command shape and honest refusals are unclear", { examples: true }),
+  step("P4 key rule restated at the end", "rules in the middle are lost", { restate: true }),
+  step("S3 context 32k", "long tool loops are truncated", { ctx: 32768 }),
+];
+
+async function tuneTools(job, model) {
+  const lower = job.toLowerCase();
+  const practice = readJson(join(CASES, `practice/${lower}.json`), null) ?? fail("no cases — run orion-v3-eval build first");
+  const read = (f) => (existsSync(join(here, `eval/v3/prompts/${lower}/${f}`)) ? readFileSync(join(here, `eval/v3/prompts/${lower}/${f}`), "utf8") : null);
+  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")]].filter(([, v]) => v));
+  const blocks = readJson(join(here, "eval/v3/prompts/blocks.json"), {});
+  const examples = read("examples.md") ?? "";
+  const schedule = SCHEDULE_JOBS.has(job);
+  const ladder = (schedule ? SCHEDULE_LADDER : TOOL_LADDER).filter((st) => st.name !== "T2 one function per tool" || bases.p0t2);
+  const info = await modelInfo(model);
+  const tuneId = `${new Date().toISOString().replace(/[:.]/g, "-")}-tune-${job}-${model.replace(/[:/]/g, "_")}`;
+  const evaluate = async (config) => {
+    const system = renderToolPrompt(config, { bases, blocks, examples });
+    const hash = createHash("sha256").update(system).digest("hex").slice(0, 12);
+    const dir = join(V3_DIR, "runs", tuneId, `${hash}-${config.iface ?? "T1"}-${config.think ?? "off"}-${config.temp ?? "card"}`);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const opts = { model, template: system, menu, iface: config.iface ?? "T1", think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384,
+      onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) };
+    const sum = summariseTools(schedule ? await runScheduleJob(practice, opts) : await runToolJob(practice, opts));
+    writePrivate(join(dir, "prompt.json"), { config, system });
+    return { pass: sum.pass, n: sum.n, critical: sum.honesty.omittedFailures, falseClaims: sum.honesty.falseClaims, honesty: sum.honesty, promptHash: hash, speed: sum.speed, failureReasons: sum.failureReasons, power: powerNow() };
+  };
+  const applied = (c) => JSON.stringify({ ...c, think: thinkFor(model, c.think ?? "off").applied });
+  const start = { base: "p0", iface: "T1", think: "off", temp: "card" };
+  const baseline = await evaluate(start);
+  appendLedger({ phase: "5", kind: "tune-start", job, model, digest: info.digest ?? null, tuneId, config: start, practice: baseline });
+  const result = await tune({ start, ladder, evaluate, baseline, isNoop: (next, cur) => applied(next) === applied(cur),
+    onStep: (r) => { appendLedger({ phase: "5", kind: "tune", job, model, digest: info.digest ?? null, tuneId, iteration: r.iteration, change: r.change, hypothesis: r.hypothesis, config: r.config, practice: r.result, kept: r.kept, bestBefore: r.bestBefore }); process.stderr.write(`${r.kept ? "KEEP" : "drop"} ${r.change}: ${r.result.pass}/${r.result.n} (best was ${r.bestBefore})\n`); } });
+  const frozen = { job, model, digest: info.digest ?? null, config: result.best.config, practice: result.best.result, stopped: result.stopped, iterations: result.history.length, skipped: result.skipped, tuneId,
+    system: renderToolPrompt(result.best.config, { bases, blocks, examples }) };
+  writePrivate(join(V3_DIR, "configs", lower, `${model.replace(/[:/]/g, "_")}.json`), frozen);
+  appendLedger({ phase: "5", kind: "freeze", job, model, tuneId, config: frozen.config, promptHash: result.best.result.promptHash, practice: frozen.practice, stopped: frozen.stopped, iterations: frozen.iterations, skipped: frozen.skipped });
+  console.log(JSON.stringify({ job, model, baseline: `${baseline.pass}/${baseline.n}`, best: `${result.best.result.pass}/${result.best.result.n}`, config: frozen.config, stopped: frozen.stopped }, null, 1));
 }
 
 // Tool-job summary: the J1 summary plus the honesty counts the gates use.
@@ -188,7 +274,9 @@ try {
   if (command === "build") build();
   else if (command === "run") await run("practice");
   else if (command === "final") await run("heldout");
+  else if (command === "judge") await judgeRun();
   else if (command === "tune" && flag("--job", "J1") === "J1") await tuneJ1(flag("--model") ?? fail("--model is required"));
+  else if (command === "tune" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await tuneTools(flag("--job"), flag("--model") ?? fail("--model is required"));
   else fail("usage: orion-v3-eval build | run --job J1 --model M … | final --job J1 --model M …");
 } catch (error) {
   console.error(`orion-v3-eval failed: ${error.stack ?? error.message}`);

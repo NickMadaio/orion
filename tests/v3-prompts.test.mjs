@@ -37,3 +37,12 @@ test("schemaAll makes every field required so an 'answer' move cannot come back 
   assert.deepEqual(schemaFor({}).required, ["move"]);
   assert.deepEqual(schemaFor({ schemaAll: true }).required, ["move", "tool", "args", "tier", "think", "say", "answer"]);
 });
+
+import { renderToolPrompt } from "../scripts/lib/eval/v3/prompts.mjs";
+
+test("tool prompts: base, then each switched-on block, examples, restate last", () => {
+  const blocks = { rules: "RULES", procedure: "PROC", selfcheck: "CHECK", restate: "REMEMBER" };
+  const p = renderToolPrompt({ base: "p0", rules: true, selfcheck: true, examples: true, restate: true }, { bases: { p0: "BASE" }, blocks, examples: "EXAMPLES" });
+  assert.deepEqual(p.split("\n\n"), ["BASE", "RULES", "CHECK", "EXAMPLES", "REMEMBER"]);
+  assert.equal(renderToolPrompt({ base: "p0" }, { bases: { p0: "BASE" }, blocks, examples: "" }), "BASE");
+});

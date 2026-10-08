@@ -1,0 +1,29 @@
+{
+  "about": "Synthetic conversation (J7) cases, ORION V3 handoff §6 J7: spoken replies judged on correctness given the facts, spoken format, use of context, not over-asking, and tone. facts are what ORION knows at that moment. Written 2026-10-08.",
+  "cases": [
+    { "id": "j7-syn-time", "clock": "Fri 15:53", "facts": ["It is Friday 15:53 in London."], "say": "what time is it", "key": "3:53 PM" },
+    { "id": "j7-syn-high-f", "clock": "Thu 06:18", "facts": ["Today in London: high 15°C (59°F), low 9°C (48°F); light drizzle possible around 3 PM, 17% chance."], "say": "what's the high today in fahrenheit", "key": "59°F" },
+    { "id": "j7-syn-rain-umbrella", "clock": "Thu 06:23", "facts": ["Today in London: light drizzle possible around 3 PM, 17% chance; otherwise dry."], "say": "do I need an umbrella", "key": "probably not; small chance around 3 PM" },
+    { "id": "j7-syn-whats-next", "clock": "Fri 13:45", "facts": ["Next on his calendar: CS lab 2:00–3:00 PM at Portsoken, then gym 6:00 PM."], "say": "what's next", "key": "CS lab at 2 PM" },
+    { "id": "j7-syn-hows-it-going", "clock": "Fri 12:00", "facts": [], "say": "how's it going", "key": "brief friendly reply" },
+    { "id": "j7-syn-thanks", "clock": "Fri 19:00", "facts": [], "say": "thank you, that's all for now", "key": "short acknowledgement, no question" },
+    { "id": "j7-syn-goodnight", "clock": "Fri 23:40", "facts": ["Bedtime target 23:30; wake 07:30."], "say": "alright I'm heading to bed", "key": "good night, maybe the wake time" },
+    { "id": "j7-syn-cost", "clock": "Tue 19:11", "facts": [], "say": "I've used fifty three cents of Claude in the last three hours", "key": "acknowledge; light usage" },
+    { "id": "j7-syn-explain-interest", "clock": "Fri 10:00", "facts": [], "say": "explain compound interest in like two sentences", "key": "interest earned on interest, short" },
+    { "id": "j7-syn-capital", "clock": "Fri 10:00", "facts": [], "say": "what's the capital of Australia", "key": "Canberra" },
+    { "id": "j7-syn-sleep", "clock": "Thu 07:40", "facts": ["Last night: slept 6.1 hours, WHOOP recovery 48%."], "say": "how'd I sleep", "key": "6.1 hours, recovery 48%" },
+    { "id": "j7-syn-session-left", "clock": "Tue 18:23", "facts": ["Focus session: block 1 of 2, 37 minutes left, then a 10-minute break."], "say": "how long until my break", "key": "37 minutes" },
+    { "id": "j7-syn-context-friend", "clock": "Thu 06:52", "history": [{ "role": "user", "content": "I'm working at my friend's place from 1:30 to 5:30 today" }, { "role": "assistant", "content": "Got it — cert courses, backpacking research and macro study there from 1:30 to 5:30." }], "facts": [], "say": "perfect, sounds good", "key": "short acknowledgement" },
+    { "id": "j7-syn-context-what-did-i-say", "clock": "Fri 14:10", "history": [{ "role": "user", "content": "my macro quiz got moved to Monday" }, { "role": "assistant", "content": "Noted — macro quiz Monday." }], "facts": [], "say": "wait when did I say the quiz was", "key": "Monday" },
+    { "id": "j7-syn-no-overask", "clock": "Fri 09:00", "facts": [], "say": "give me a quick motivational line, I'm about to study", "key": "one line, no question back" },
+    { "id": "j7-syn-sister", "clock": "Tue 19:37", "facts": [], "say": "say hi to my sister Jia", "key": "says hi to Jia directly" },
+    { "id": "j7-syn-frustrated", "clock": "Thu 14:12", "facts": [], "say": "why do you keep getting my schedule wrong", "key": "calm, owns it, offers to fix" },
+    { "id": "j7-syn-unknown-fact", "clock": "Fri 10:00", "facts": [], "say": "what's my landlord's phone number", "key": "doesn't know; doesn't invent" },
+    { "id": "j7-syn-due-soon", "clock": "Wed 09:00", "facts": ["Deadlines: CS lab due Mon Oct 12; DS Lab due Fri Oct 16; macro quiz Tue Oct 13."], "say": "anything due soon I should worry about", "key": "CS lab Monday, macro quiz Tuesday" },
+    { "id": "j7-syn-wake-time", "clock": "Fri 23:30", "facts": ["Wake alarm on his phone: 07:30."], "say": "what time am I getting up tomorrow", "key": "7:30 AM" },
+    { "id": "j7-syn-spoken-list", "clock": "Fri 08:00", "facts": ["Today: class 9:00–10:30 AM, DS lab 11:00 AM–12:30 PM, gym 6:00 PM, dinner 7:15 PM."], "say": "run me through today", "key": "spoken, no bullet list" },
+    { "id": "j7-syn-ambiguous-ok", "clock": "Fri 16:00", "facts": [], "say": "eh whatever, you pick", "history": [{ "role": "assistant", "content": "Want gym at 6 or 7 tonight?" }], "key": "picks one without asking again" },
+    { "id": "j7-syn-joke", "clock": "Sun 16:36", "facts": [], "say": "I just spent three hours debugging a typo. tell me a joke", "key": "a short joke" },
+    { "id": "j7-syn-cant-do", "clock": "Sat 00:22", "facts": ["ORION cannot search music by lyrics."], "say": "play the song that goes my love is what you want", "key": "honest can't, suggests an alternative" }
+  ]
+}

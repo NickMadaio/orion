@@ -42,3 +42,11 @@ export function renderFrontDesk(config, { templates, menu, examplesPool = [] }) 
 export function schemaFor(config) {
   return config.schemaAll ? { ...FRONT_DESK_SCHEMA, required: Object.keys(FRONT_DESK_SCHEMA.properties) } : FRONT_DESK_SCHEMA;
 }
+
+/** Tool and scheduling jobs: config { base, rules, procedure, selfcheck, examples, restate } → system prompt. */
+export function renderToolPrompt(config, { bases, blocks, examples }) {
+  const base = bases[config.base ?? "p0"];
+  if (!base) throw new Error(`no base prompt ${config.base}`);
+  return [base.trim(), config.rules && blocks.rules, config.procedure && blocks.procedure, config.selfcheck && blocks.selfcheck,
+    config.examples && examples?.trim(), config.restate && blocks.restate].filter(Boolean).join("\n\n");
+}

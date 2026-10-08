@@ -149,34 +149,38 @@ final class DisplayBrightness {
 struct MorningScreenView: View {
     let view: MorningView
     let onClose: () -> Void
+    @State private var shown = false
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 background
                 HStack(alignment: .top, spacing: 0) {
-                    day.frame(width: geo.size.width * 0.58, alignment: .topLeading)
-                    LinearGradient(colors: [.clear, Color.white.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom)
+                    day.frame(width: geo.size.width * 0.56, alignment: .topLeading)
+                    LinearGradient(colors: [.clear, Color.white.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom)
                         .frame(width: 1)
                         .padding(.vertical, 90)
                     sky.frame(maxWidth: .infinity, alignment: .topLeading)
                         .padding(.top, 70)   // offset, not aligned: the two halves are not a grid
                 }
-                .padding(.horizontal, 90)
-                .frame(maxHeight: geo.size.height * 0.78)
+                .padding(.horizontal, 96)
+                .frame(maxHeight: geo.size.height * 0.80)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .opacity(shown ? 1 : 0)
+                .offset(y: shown ? 0 : 18)
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        Text("esc to close").font(OrionTheme.mono(10, .medium)).tracking(1.5).foregroundStyle(OrionTheme.textDim)
+                        Text("ESC OR CLICK TO CLOSE").font(OrionTheme.mono(10, .medium)).tracking(1.8).foregroundStyle(OrionTheme.textDim)
                     }
                 }
-                .padding(28)
+                .padding(30)
             }
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onClose)
+        .onAppear { withAnimation(.easeOut(duration: 1.1)) { shown = true } }
     }
 
     private var background: some View {
@@ -196,19 +200,28 @@ struct MorningScreenView: View {
 
     private var day: some View {
         VStack(alignment: .leading, spacing: 0) {
-            label(view.date.uppercased())
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                HStack(alignment: .firstTextBaseline, spacing: 18) {
+                    Text(context.date.formatted(.dateTime.hour(.defaultDigits(amPM: .omitted)).minute()))
+                        .font(.system(size: 30, weight: .ultraLight, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(OrionTheme.textSoft)
+                    label(view.date.uppercased())
+                }
+            }
             Text(view.greeting)
-                .font(.system(size: 46, weight: .light))
+                .font(.system(size: 52, weight: .light))
                 .foregroundStyle(OrionTheme.text)
-                .padding(.top, 10)
-                .padding(.bottom, 44)
+                .padding(.top, 8)
+                .padding(.bottom, 46)
             if view.events.isEmpty {
                 Text("Nothing on the calendar.")
                     .font(.system(size: 64, weight: .ultraLight))
                     .foregroundStyle(OrionTheme.text)
             } else {
-                ForEach(Array(view.events.enumerated()), id: \.offset) { index, event in
-                    eventRow(event, first: index == 0)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(view.events.prefix(5).enumerated()), id: \.offset) { index, event in
+                        eventRow(event, first: index == 0, last: index == min(view.events.count, 5) - 1)
+                    }
                 }
             }
             if let leave = view.leaveBy {
@@ -218,35 +231,72 @@ struct MorningScreenView: View {
                 }
                 .font(.system(size: 24, weight: .regular))
                 .foregroundStyle(OrionTheme.orange)
-                .padding(.top, 34)
+                .padding(.top, 30)
+                .padding(.leading, 40)
             }
             let list = view.due.isEmpty ? view.top : view.due
             if !list.isEmpty {
-                label(view.due.isEmpty ? "ON YOUR LIST" : "DUE TODAY").padding(.top, 40).padding(.bottom, 10)
-                ForEach(list, id: \.self) { item in
-                    Text(item).font(.system(size: 22, weight: .light)).foregroundStyle(OrionTheme.textSoft).padding(.vertical, 3)
+                label(view.due.isEmpty ? "ON YOUR LIST" : "DUE TODAY").padding(.top, 40).padding(.bottom, 12).padding(.leading, 40)
+                ForEach(list.prefix(4), id: \.self) { item in
+                    HStack(spacing: 12) {
+                        Circle().strokeBorder(OrionTheme.textDim, lineWidth: 1).frame(width: 10, height: 10)
+                        Text(item).font(.system(size: 22, weight: .light)).foregroundStyle(OrionTheme.textSoft)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.leading, 40)
                 }
             }
             Spacer(minLength: 0)
         }
     }
 
-    private func eventRow(_ event: MorningView.Event, first: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 26) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(event.start).font(.system(size: first ? 92 : 54, weight: .ultraLight, design: .rounded)).monospacedDigit()
-                Text(event.half).font(OrionTheme.mono(first ? 15 : 12, .medium)).foregroundStyle(OrionTheme.textDim)
-            }
-            .foregroundStyle(OrionTheme.text)
-            .frame(width: 320, alignment: .leading)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(event.title).font(.system(size: first ? 34 : 26, weight: .regular)).foregroundStyle(OrionTheme.text).lineLimit(2)
-                Text("until \(event.end)").font(.system(size: 14)).foregroundStyle(OrionTheme.textDim)
-            }
+    private func tint(_ kind: String) -> Color {
+        switch kind {
+        case "class": return OrionTheme.accent
+        case "deadline": return OrionTheme.orange
+        case "study": return OrionTheme.violet
+        default: return OrionTheme.textSoft
         }
-        .padding(.vertical, first ? 6 : 10)
-        .overlay(alignment: .bottom) {
-            LinearGradient(colors: [Color.white.opacity(0.10), .clear], startPoint: .leading, endPoint: .trailing).frame(height: 1)
+    }
+
+    /// "in 1 h 10 min" until a "9:00" "AM" start today; nil once it has begun.
+    private func countdown(_ event: MorningView.Event) -> String? {
+        let parts = event.start.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        let hour = parts[0] % 12 + (event.half == "PM" ? 12 : 0)
+        guard let start = Calendar.current.date(bySettingHour: hour, minute: parts[1], second: 0, of: Date()) else { return nil }
+        let minutes = Int(start.timeIntervalSinceNow / 60)
+        guard minutes > 0 else { return nil }
+        return minutes >= 60 ? "in \(minutes / 60) h \(minutes % 60) min" : "in \(minutes) min"
+    }
+
+    // A timeline: a hairline down the left with a dot per event; the next one is the big one.
+    private func eventRow(_ event: MorningView.Event, first: Bool, last: Bool) -> some View {
+        HStack(alignment: .top, spacing: 24) {
+            ZStack(alignment: .top) {
+                Rectangle().fill(Color.white.opacity(last ? 0 : 0.12)).frame(width: 1).padding(.top, first ? 40 : 26)
+                Circle().fill(tint(event.kind)).frame(width: first ? 14 : 9, height: first ? 14 : 9)
+                    .shadow(color: tint(event.kind).opacity(first ? 0.8 : 0), radius: 10)
+                    .padding(.top, first ? 34 : 22)
+            }
+            .frame(width: 16)
+            HStack(alignment: .firstTextBaseline, spacing: 26) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(event.start).font(.system(size: first ? 96 : 50, weight: .ultraLight, design: .rounded)).monospacedDigit()
+                    Text(event.half).font(OrionTheme.mono(first ? 15 : 12, .medium)).foregroundStyle(OrionTheme.textDim)
+                }
+                .foregroundStyle(first ? OrionTheme.text : OrionTheme.text.opacity(0.85))
+                .frame(width: first ? 330 : 230, alignment: .leading)
+                VStack(alignment: .leading, spacing: 5) {
+                    if first, let soon = countdown(event) {
+                        Text("NEXT · \(soon.uppercased())").font(OrionTheme.mono(11, .semibold)).tracking(1.8).foregroundStyle(tint(event.kind))
+                    }
+                    Text(event.title).font(.system(size: first ? 36 : 25, weight: first ? .regular : .light))
+                        .foregroundStyle(OrionTheme.text).lineLimit(2)
+                    Text("until \(event.end)").font(.system(size: 14)).foregroundStyle(OrionTheme.textDim)
+                }
+            }
+            .padding(.vertical, first ? 8 : 12)
         }
     }
 

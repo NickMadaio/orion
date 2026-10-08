@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+/*
+ orion-v3-logs [--since YYYY-MM-DD] [--out-dir DIR]
+
+ Phase 1 of the ORION V3 evaluation (ORION_V3_HANDOFF.md §5): flatten every real
+ turn Nick had with ORION — sessions (including reset ones) and chat threads —
+ into one JSON line each, flag the likely failures, and count requests by job.
+ Read-only on every source. Writes only to DIR (default
+ ~/.openclaw/orion-controlled/evals/v3/logs, files 0600) because the output is
+ his life: it never goes in Git, so a DIR inside the repository is refused.
+ Prints counts only.
+ (Written by Claude on 2026-10-08 for the V3 local-first evaluation.)
+*/
+import { readFileSync, readdirSync, writeFileSync, renameSync, mkdirSync, existsSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
+import { join, dirname, resolve, relative, isAbsolute } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { flattenSession, flattenChat, flagTurns } from "./lib/eval/v3/logs.mjs";
+import { evalAuditIndex, judgeSessions, dropEvalChatTurns } from "./lib/eval/v3/exclude.mjs";
+import { markDuplicates, assignJobs, count, hasTime } from "./lib/eval/v3/turns.mjs";
+
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const home = homedir();
+const here = dirname(fileURLToPath(import.meta.url));
+const REPO = resolve(here, "..");
+const SESSIONS = join(home, ".openclaw/agents/main/sessions");
+const CHATS = join(home, ".openclaw/orion-controlled/chats");
+const AUDIT = join(home, ".openclaw/orion-controlled/remote-audit.jsonl");
+const OUT = resolve(flag("--out-dir") ?? join(home, ".openclaw/orion-controlled/evals/v3/logs"));
+const DAY_MS = 86400000;
+
+const fail = (message) => { console.error(`orion-v3-logs: ${message}`); process.exit(2); };
+const since = flag("--since") === undefined ? 0 : Date.parse(flag("--since"));
+if (!Number.isFinite(since)) fail(`--since ${flag("--since")} is not a date (YYYY-MM-DD)`);
+const insideRepo = (p) => { const r = relative(REPO, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
+if (insideRepo(OUT)) fail(`refusing --out-dir inside the repository (${OUT}): this output is personal and must stay out of Git`);
+
+const readLines = (file) => readFileSync(file, "utf8").split("\n").filter(Boolean).flatMap((l) => {
+  try { return [JSON.parse(l)]; } catch { return []; }
+});
+
+// Every scenario line ever replayed through the live route (to spot reset eval sessions).
+const scenarioSays = () => new Set(readdirSync(join(here, "eval")).filter((f) => f.endsWith(".json")).flatMap((f) => {
+  try {
+    const data = JSON.parse(readFileSync(join(here, "eval", f), "utf8"));
+    return (Array.isArray(data) ? data : data.scenarios ?? []).flatMap((s) => [s.say].flat()).filter((x) => typeof x === "string").map((x) => x.trim());
+  } catch { return []; }
+}));
+
+// The session key is on the trajectory's first line; read only that much.
+const sessionKeyOf = (id) => {
+  const trajectory = join(SESSIONS, `${id}.trajectory.jsonl`);
+  if (!existsSync(trajectory)) return null;
+  const fd = openSync(trajectory, "r");
+  try {
+    const buf = Buffer.alloc(8192);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return JSON.parse(buf.subarray(0, n).toString("utf8").split("\n", 1)[0]).sessionKey ?? null;
+  } catch { return null; } finally { closeSync(fd); }
+};
+
+function sessionTurns(says, audit) {
+  const files = readdirSync(SESSIONS).filter((f) => /^[0-9a-f-]{36}\.jsonl(\.deleted\..*)?$/.test(f));
+  const sessions = files.map((file) => {
+    const key = sessionKeyOf(file.slice(0, 36));
+    return { file, key, turns: flagTurns(flattenSession(readLines(join(SESSIONS, file)), { file, sessionKey: key })) };
+  });
+  const judged = judgeSessions(sessions, { says, audit });
+  const kept = judged.filter((s) => !s.excluded);
+  return {
+    turns: kept.flatMap((s) => s.turns),
+    excludedTurns: judged.filter((s) => s.excluded).flatMap((s) => s.turns),
+    tally: { files: judged.length, real: kept.length, excluded: Object.fromEntries(count(judged.filter((s) => s.excluded), (s) => s.excluded)) },
+  };
+}
+
+function chatTurns() {
+  if (!existsSync(CHATS)) return [];
+  return readdirSync(CHATS).filter((f) => f.endsWith(".json")).flatMap((file) => {
+    try { return flagTurns(flattenChat(JSON.parse(readFileSync(join(CHATS, file), "utf8")), { file })); } catch { return []; }
+  });
+}
+
+function summarise(all, tally) {
+  const unique = all.filter((t) => !t.dupOf);
+  const last30 = unique.filter((t) => Date.parse(t.at) >= Date.now() - 30 * DAY_MS);
+  const tallyOf = (items, keyOf) => Object.fromEntries(count(items, keyOf));
+  return {
+    generatedAt: new Date().toISOString(), since: flag("--since") ?? null, sessions: tally,
+    turns: { total: all.length, unique: unique.length, chatDuplicates: all.length - unique.length },
+    range: { first: unique[0]?.at ?? null, last: unique.at(-1)?.at ?? null },
+    byChannel: tallyOf(unique, (t) => t.channel), bySource: tallyOf(unique, (t) => t.source),
+    byModel: tallyOf(unique.filter((t) => t.models.length), (t) => t.models.join("+")),
+    flagged: unique.filter((t) => t.flags.length).length,
+    byFlag: tallyOf(unique.flatMap((t) => t.flags), (f) => f),
+    jobsLast30Days: tallyOf(last30, (t) => t.job), byDay: tallyOf(unique, (t) => t.at.slice(0, 10)),
+  };
+}
+
+// Written to a 0600 temp file, then renamed, so the data is never readable by others.
+const writePrivate = (name, text) => {
+  const path = join(OUT, name);
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, text, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, path);
+};
+
+function main() {
+  const audit = evalAuditIndex(existsSync(AUDIT) ? readLines(AUDIT) : []);
+  const { turns: sessions, excludedTurns, tally } = sessionTurns(scenarioSays(), audit);
+  const chats = markDuplicates(sessions, dropEvalChatTurns(chatTurns(), excludedTurns, audit));
+  const all = assignJobs([...sessions, ...chats]
+    .filter((t) => t.userText && hasTime(t) && Date.parse(t.at) >= since)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at)));
+  const summary = summarise(all, tally);
+  mkdirSync(OUT, { recursive: true, mode: 0o700 });
+  chmodSync(OUT, 0o700);
+  writePrivate("turns.jsonl", all.map((t) => JSON.stringify(t)).join("\n") + "\n");
+  writePrivate("summary.json", JSON.stringify(summary, null, 2) + "\n");
+  console.log(JSON.stringify(summary, null, 2));
+}
+
+try { main(); } catch (error) {
+  console.error(`orion-v3-logs failed: ${error.message}`);
+  process.exit(1);
+}

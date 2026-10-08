@@ -177,6 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    loud: entry.loud, listen: entry.listen)
                 continue
             }
+            // orion://morning-screen — the day and the weather, full screen (scripts/orion-morning).
+            if url.scheme == "orion", url.host == "morning-screen" {
+                MorningScreen.shared.show()
+                continue
+            }
             // orion://lights?do=on&brightness=100 — the LED strip (scripts/orion-lights).
             if url.scheme == "orion", url.host == "lights" {
                 StripLight.shared.run(StripLight.commands(from: url))

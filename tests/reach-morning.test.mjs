@@ -55,3 +55,23 @@ test("weather and clock wording", () => {
   assert.equal(spokenClock(m(13, 15)), "1:15");
   assert.equal(spokenClock(m(0)), "12");
 });
+
+test("the morning screen: the day on one side, the weather on the other", async () => {
+  const { buildView, weatherSymbol } = await import("../scripts/lib/reach/morning.mjs");
+  const view = buildView({
+    now: at(7, 50), today: "2026-10-08",
+    day: [{ title: "CS2100 Lecture", start: m(9), end: m(10), fixed: true, kind: "class" }, { title: "commute to class", start: m(8, 30), end: m(9), fixed: true }],
+    travel: [{ title: "commute to class", start: m(8, 30), end: m(9) }],
+    todos: [{ title: "Macro quiz prep", dueDate: "2026-10-08" }],
+    weather: { hours: [7, 8, 9, 10].map((h) => ({ time: `2026-10-08T${String(h).padStart(2, "0")}:00`, day: "today", tempC: 8 + h - 7, rainChance: h === 10 ? 60 : 0, rainMm: 0, snowCm: 0, code: h === 10 ? 61 : 1 })) },
+  });
+  assert.deepEqual(view.events, [{ title: "CS2100 Lecture", start: "9:00", half: "AM", end: "10:00", kind: "class", fixed: true }]);
+  assert.equal(view.leaveBy, "8:30 AM");
+  assert.deepEqual(view.due, ["Macro quiz prep"]);
+  assert.equal(view.weather.now, 8);
+  assert.equal(view.weather.high, 11);
+  assert.equal(view.weather.symbol, "cloud.sun");
+  assert.equal(view.weather.hours.length, 2);
+  assert.equal(weatherSymbol(0, 3), "moon.stars");
+  assert.equal(weatherSymbol(95), "cloud.bolt.rain");
+});

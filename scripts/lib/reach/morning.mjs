@@ -98,3 +98,51 @@ export function composeBriefing({ now, day = [], travel = [], todos = [], today,
   parts.push("Anything you want to change?");
   return parts.join(" ");
 }
+
+/** An SF Symbol for an open-meteo weather code, with a moon at night. */
+export function weatherSymbol(code, hour = 12) {
+  const night = hour < 7 || hour >= 20;
+  if (code === 0) return night ? "moon.stars" : "sun.max";
+  if (code <= 2) return night ? "cloud.moon" : "cloud.sun";
+  if (code === 3) return "cloud";
+  if (code === 45 || code === 48) return "cloud.fog";
+  if (code >= 51 && code <= 57) return "cloud.drizzle";
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return code >= 65 ? "cloud.heavyrain" : "cloud.rain";
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "cloud.snow";
+  if (code >= 95) return "cloud.bolt.rain";
+  return "cloud";
+}
+
+/**
+ * What the Mac's morning screen shows (2026-10-08: "a nicer view of my day BIG
+ * on one side of the screen, and on the other side the weather").
+ */
+export function buildView({ now, day = [], travel = [], todos = [], today, weather = null }) {
+  const nowMinute = minuteOf(now);
+  const clock = (minute) => { const h = Math.floor(minute / 60) % 24; return `${h % 12 === 0 ? 12 : h % 12}:${String(minute % 60).padStart(2, "0")}`; };
+  const half = (minute) => (Math.floor(minute / 60) % 24 < 12 ? "AM" : "PM");
+  const events = day.filter((b) => b.end > nowMinute && !/^commute|^getting (to|back)/i.test(b.title))
+    .slice(0, 7).map((b) => ({ title: cleanTitle(b.title), start: clock(b.start), half: half(b.start), end: clock(b.end), kind: b.kind ?? "other", fixed: !!b.fixed }));
+  const leave = travel.filter((w) => /^(commute to|getting to)/i.test(w.title) && w.start >= nowMinute).sort((a, b) => a.start - b.start)[0];
+  const due = todos.filter((t) => t.dueDate === today && !t.booked).map((t) => cleanTitle(t.title)).slice(0, 4);
+  const top = due.length ? [] : todos.filter((t) => !t.waiting).map((t) => cleanTitle(t.title)).slice(0, 3);
+  const hours = (weather?.hours ?? []).filter((h) => h.day === "today" && Number(h.time.slice(11, 13)) * 60 >= nowMinute - 59);
+  const sky = hours.length ? (() => {
+    const temps = hours.map((h) => Math.round(h.tempC));
+    const first = hours[0]; const hour = Number(first.time.slice(11, 13));
+    return {
+      now: temps[0], high: Math.max(...temps), low: Math.min(...temps), symbol: weatherSymbol(first.code ?? 0, hour),
+      line: weatherLine(weather, nowMinute),
+      hours: hours.filter((_, i) => i % 2 === 0).slice(0, 8).map((h) => {
+        const at = Number(h.time.slice(11, 13));
+        return { label: `${spokenClock(at * 60)} ${at < 12 ? "AM" : "PM"}`, temp: Math.round(h.tempC), rain: Math.round(h.rainChance ?? 0), symbol: weatherSymbol(h.code ?? 0, at) };
+      }),
+    };
+  })() : null;
+  return {
+    generatedAt: now.toISOString(),
+    greeting: nowMinute < 12 * 60 ? "Good morning, Nick" : "You're up, Nick",
+    date: now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
+    events, leaveBy: leave ? `${clock(leave.start)} ${half(leave.start)}` : null, due, top, weather: sky,
+  };
+}

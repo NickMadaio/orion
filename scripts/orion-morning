@@ -8,6 +8,7 @@
           used       a few minutes of phone use after the alarm (Screen Time)
           up         ORION opened on the phone after the alarm
    orion-morning preview     what he would hear right now (nothing is sent)
+   orion-morning show        put the morning screen up on the Mac now (silent)
    orion-morning status      whether this morning's briefing went out
 
  Turning an alarm off is one tap; getting up is the phone off the charger, or
@@ -15,13 +16,15 @@
  starts the briefing once a morning: today's plan, when to leave, what's due,
  the weather, and a question. The LED strip comes on (orion-lights), then it is said aloud on the Mac at full volume, then
  ORION listens for a few seconds; nothing heard and the conversation closes.
- The gate and the words are lib/reach/morning.mjs.
+ The Mac's display wakes to the morning screen (MorningScreen.swift): the day,
+ big, on the left; the weather on the right. A locked Mac stays locked — the
+ screen is there the moment he unlocks. The gate and the words are lib/reach/morning.mjs.
 */
 import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { shouldBrief, composeBriefing } from "./lib/reach/morning.mjs";
+import { shouldBrief, composeBriefing, buildView } from "./lib/reach/morning.mjs";
 import { weather } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
@@ -40,18 +43,22 @@ const now = new Date();
 const today = localDate(now);
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
 const state = readJson(STATE) ?? {};
-const usage = "usage: orion-morning signal unplugged|used|up [--at ISO] [--dry-run] | preview | status";
+const usage = "usage: orion-morning signal unplugged|used|up [--at ISO] [--dry-run] | preview | show | status";
 
 if (command === "status") {
   const sent = state[today];
   console.log(sent ? `Briefed at ${new Date(sent.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} (phone ${sent.signal}).` : "No morning briefing yet today.");
   process.exit(0);
 }
-if (!["signal", "preview"].includes(command)) { console.error(usage); process.exit(2); }
+if (!["signal", "preview", "show"].includes(command)) { console.error(usage); process.exit(2); }
 if (sandbox()) { console.log("Not during an evaluation."); process.exit(0); }
 
 if (command === "preview") {
-  console.log(await briefing());
+  console.log((await gather()).text);
+  process.exit(0);
+}
+if (command === "show") {
+  console.log(showScreen((await gather()).view) ? "Morning screen is up on the Mac." : "The ORION app isn't running.");
   process.exit(0);
 }
 
@@ -63,9 +70,10 @@ const gate = shouldBrief({ signal, signalAt, now, wake, briefedToday: !!state[to
 if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signal} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }
 if (!gate.ok) { console.log(`No briefing: ${gate.reason}.`); process.exit(0); }
 
-const text = await briefing();
+const { text, view } = await gather();
 if (dry) { console.log(`DRY RUN — would say aloud (${gate.reason}): ${text}`); process.exit(0); }
-// Lights first (2026-10-08): the strip coming on is the cue that ORION is about to talk.
+// The screen, then the lights (2026-10-08): the strip coming on is the cue that ORION is about to talk.
+showScreen(view);
 spawnSync(process.execPath, [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
 const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--urgent", "--loud", "--listen",
   "--channel", "mac", "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
@@ -81,7 +89,17 @@ function run(script, list) {
   try { return execFileSync(process.execPath, [join(here, script), ...list], { encoding: "utf8", timeout: 15000 }); } catch { return ""; }
 }
 
-async function briefing() {
+/** Write what the screen shows and ask the ORION app to put it up. */
+function showScreen(view) {
+  try {
+    mkdirSync(DIR, { recursive: true });
+    writeFileSync(join(DIR, "morning-view.json"), JSON.stringify(view, null, 2));
+    execFileSync("/usr/bin/open", ["-g", "orion://morning-screen"], { timeout: 5000 });
+    return true;
+  } catch { return false; }
+}
+
+async function gather() {
   let day = [];
   try { day = await liveDay(today); } catch {}
   const travel = (() => { try { return commuteWalls(day, loadConfig()); } catch { return []; } })();
@@ -94,5 +112,6 @@ async function briefing() {
       booked: day.some((b) => same(b.title, t.title)), waiting: !!waitsFor(t.notes, titles.filter((x) => x !== t.title)) }));
   } catch {}
   const sky = await weather(DIR, now).catch(() => null);
-  return composeBriefing({ now, day, travel, todos, today, weather: sky });
+  const facts = { now, day, travel, todos, today, weather: sky };
+  return { text: composeBriefing(facts), view: buildView(facts) };
 }

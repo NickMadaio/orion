@@ -339,13 +339,45 @@ final class NightRoutine: ObservableObject {
 
     // MARK: - The wake alarm
 
+    private var alarmBusy = false
+    private var alarmAgain: NightPlan?
+
+    /// One at a time (2026-10-08: "it sets like 20 million alarms… that i have
+    /// to snooze each"). refresh() runs from app open, the wake-request change
+    /// and background refresh, often together; each run cancelled only the one
+    /// alarm id it remembered, so overlapping runs each scheduled an alarm and
+    /// all but the last were orphaned. Now runs queue, and every ORION alarm
+    /// except the right one is cancelled.
     private func scheduleAlarm(_ plan: NightPlan, now: Date) async {
+        guard !alarmBusy else { alarmAgain = plan; return }
+        alarmBusy = true
+        var next: NightPlan? = plan
+        while let current = next {
+            alarmAgain = nil
+            await scheduleAlarmOnce(current, now: Date())
+            next = alarmAgain
+        }
+        alarmBusy = false
+    }
+
+    private func scheduleAlarmOnce(_ plan: NightPlan, now: Date) async {
         guard #available(iOS 26.0, *) else { alarmState = "Needs iOS 26"; return }
         let manager = AlarmManager.shared
-        if let old = UserDefaults.standard.string(forKey: Self.alarmKey).flatMap(UUID.init(uuidString:)) {
-            try? manager.cancel(id: old)
-            UserDefaults.standard.removeObject(forKey: Self.alarmKey)
+        let wanted = settings.wakeAlarm && plan.wake > now
+        // The ringing or snoozed alarm is left alone; every other ORION alarm goes,
+        // unless it is already exactly the one wanted.
+        let existing = ((try? manager.alarms) ?? []).filter { $0.state == .scheduled || $0.state == .paused }
+        let keep = existing.first { alarm in
+            guard wanted, case .fixed(let at)? = alarm.schedule else { return false }
+            return abs(at.timeIntervalSince(plan.wake)) < 30
         }
+        for alarm in existing where alarm.id != keep?.id { try? manager.cancel(id: alarm.id) }
+        if let keep {
+            UserDefaults.standard.set(keep.id.uuidString, forKey: Self.alarmKey)
+            alarmState = "Set for \(NightPlan.clock(plan.wake))"
+            return
+        }
+        UserDefaults.standard.removeObject(forKey: Self.alarmKey)
         guard settings.wakeAlarm else { alarmState = "Off"; return }
         guard plan.wake > now else { alarmState = "Not set"; return }
         do {

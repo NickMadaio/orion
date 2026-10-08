@@ -16,7 +16,10 @@ import SwiftUI
 struct MorningView: Decodable, Equatable {
     struct Event: Decodable, Equatable { let title: String; let start: String; let half: String; let end: String; let kind: String }
     struct Hour: Decodable, Equatable { let label: String; let temp: Int; let rain: Int; let symbol: String }
-    struct Sky: Decodable, Equatable { let now: Int; let high: Int; let low: Int; let symbol: String; let line: String?; let hours: [Hour] }
+    struct Sky: Decodable, Equatable {
+        let now: Int; let high: Int; let low: Int; let symbol: String; let line: String?; let hours: [Hour]
+        let sky: String?; let rain: String?; let wet: Bool?
+    }
     let greeting: String
     let date: String
     let events: [Event]
@@ -311,10 +314,30 @@ struct MorningScreenView: View {
                     Text("\(w.now)°").font(.system(size: 150, weight: .ultraLight, design: .rounded)).foregroundStyle(OrionTheme.text)
                 }
                 .padding(.top, 16)
-                Text("High \(w.high)°  ·  Low \(w.low)°").font(.system(size: 20, weight: .light)).foregroundStyle(OrionTheme.textSoft)
-                if let line = w.line {
-                    Text(line).font(.system(size: 20, weight: .light)).foregroundStyle(OrionTheme.textSoft)
-                        .fixedSize(horizontal: false, vertical: true).padding(.top, 14).frame(maxWidth: 420, alignment: .leading)
+                if let sky = w.sky {
+                    Text(sky.prefix(1).uppercased() + sky.dropFirst())
+                        .font(.system(size: 34, weight: .light)).foregroundStyle(OrionTheme.text)
+                }
+                HStack(spacing: 28) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.up").font(.system(size: 18, weight: .light)).foregroundStyle(OrionTheme.orange)
+                        Text("\(w.high)°").font(.system(size: 30, weight: .light))
+                    }
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down").font(.system(size: 18, weight: .light)).foregroundStyle(OrionTheme.blue)
+                        Text("\(w.low)°").font(.system(size: 30, weight: .light))
+                    }
+                }
+                .foregroundStyle(OrionTheme.text)
+                .padding(.top, 10)
+                if let rain = w.rain {
+                    let wet = w.wet == true
+                    HStack(spacing: 12) {
+                        Image(systemName: wet ? "umbrella.fill" : "sun.max").font(.system(size: 22))
+                        Text(rain).font(.system(size: 24, weight: wet ? .medium : .light))
+                    }
+                    .foregroundStyle(wet ? OrionTheme.blue : OrionTheme.textSoft)
+                    .padding(.top, 22)
                 }
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(Array(w.hours.enumerated()), id: \.offset) { _, hour in

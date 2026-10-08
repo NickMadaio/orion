@@ -24,7 +24,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } fr
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { shouldBrief, composeBriefing, buildView } from "./lib/reach/morning.mjs";
+import { shouldBrief, alarmClock, composeBriefing, buildView } from "./lib/reach/morning.mjs";
 import { weather } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
@@ -63,16 +63,10 @@ if (command === "show") {
 }
 
 const signalAt = flag("--at") ? new Date(flag("--at")) : now;
-// The alarm that actually rang: a wake-up he asked for (orion-wake) beats the
-// planner's automatic one. 2026-10-08: alarm moved to 7:15, the planner still
-// said 09:00, and his 7:15 unplug was judged "too early". Earliest one wins.
-let wake = null;
-try { wake = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
-const asked = readJson(join(DIR, "wake-request.json"))?.at;
-if (asked && localDate(new Date(asked)) === today) {
-  const clock = new Date(asked).toTimeString().slice(0, 5);
-  if (!wake || clock < wake) wake = clock;
-}
+// The alarm that actually rang: his own wake-up beats the planner's (alarmClock).
+let planned = null;
+try { planned = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
+const wake = alarmClock({ planned, asked: readJson(join(DIR, "wake-request.json"))?.at, today });
 const gate = shouldBrief({ signal, signalAt, now, wake, briefedToday: !!state[today] });
 // Every signal and what was decided, for checking a morning afterwards.
 if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signal} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }

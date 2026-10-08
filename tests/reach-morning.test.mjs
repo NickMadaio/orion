@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shouldBrief, composeBriefing, weatherLine, spokenClock } from "../scripts/lib/reach/morning.mjs";
+import { shouldBrief, composeBriefing, weatherLine, spokenClock, weatherFacts, rainLabel, alarmClock } from "../scripts/lib/reach/morning.mjs";
 
 const at = (h, m = 0) => new Date(2026, 9, 8, h, m);
 const m = (h, mm = 0) => h * 60 + mm;
@@ -41,7 +41,7 @@ test("the briefing says the day, when to leave, what's due, and the weather", ()
       { time: "2026-10-08T14:00", day: "today", tempC: 13, rainChance: 70, rainMm: 1.2, snowCm: 0 },
     ] },
   });
-  assert.equal(text, "Morning, Nick. Today you've got CS2100 Lecture at 9 and DS Assessment at 3:30. Leave by 8:30. Due today: Macro quiz prep. It's 9 degrees now, up to 14, with rain from about 2 — take a jacket. Anything you want to change?");
+  assert.equal(text, "Morning, Nick. Today you've got CS2100 Lecture at 9 and DS Assessment at 3:30. Leave by 8:30. Due today: Macro quiz prep. Cloudy, 9 degrees now. High of 14, low of 9. Rain likely from 2 to 3, 70% chance — take an umbrella. Anything you want to change?");
 });
 
 test("an empty day still gets a briefing, with the top of the list", () => {
@@ -50,7 +50,7 @@ test("an empty day still gets a briefing, with the top of the list", () => {
 });
 
 test("weather and clock wording", () => {
-  assert.equal(weatherLine({ hours: [{ time: "2026-10-08T08:00", day: "today", tempC: 11, rainChance: 0, rainMm: 0, snowCm: 0 }] }, m(8)), "It's 11 degrees and dry today.");
+  assert.equal(weatherLine({ hours: [{ time: "2026-10-08T08:00", day: "today", tempC: 11, rainChance: 0, rainMm: 0, snowCm: 0 }] }, m(8)), "Cloudy, 11 degrees now. High of 11, low of 11. No rain today.");
   assert.equal(weatherLine(null, m(8)), null);
   assert.equal(spokenClock(m(13, 15)), "1:15");
   assert.equal(spokenClock(m(0)), "12");
@@ -74,4 +74,34 @@ test("the morning screen: the day on one side, the weather on the other", async 
   assert.equal(view.weather.hours.length, 2);
   assert.equal(weatherSymbol(0, 3), "moon.stars");
   assert.equal(weatherSymbol(95), "cloud.bolt.rain");
+});
+
+const hour = (h, extra = {}) => ({ time: `2026-10-08T${String(h).padStart(2, "0")}:00`, day: "today", tempC: 10, rainChance: 0, rainMm: 0, snowCm: 0, code: 2, windKph: 10, ...extra });
+
+test("the weather says what it's like, the high and low, and when it rains (2026-10-08)", () => {
+  const day = { hours: [hour(7, { tempC: 8 }), hour(9), hour(12, { tempC: 15 }), hour(15, { rainChance: 80, rainMm: 1, code: 61 }), hour(16, { rainChance: 60, code: 61 }), hour(17, { rainChance: 10 }), hour(22, { tempC: 6 })] };
+  const w = weatherFacts(day, m(7));
+  assert.equal(w.sky, "partly cloudy");
+  assert.deepEqual([w.now, w.high, w.low], [8, 15, 6]);
+  assert.deepEqual(w.rain, { what: "rain", from: m(15), to: m(17), chance: 80, now: false });
+  assert.equal(weatherLine(day, m(7)), "Partly cloudy, 8 degrees now. High of 15, low of 6. Rain likely from 3 to 5, 80% chance — take an umbrella.");
+  assert.equal(rainLabel(w.rain), "Rain 3 PM – 5 PM · 80%");
+  assert.equal(rainLabel(null), "No rain today");
+});
+
+test("raining already, and a dry windy day", () => {
+  const wet = { hours: [hour(8, { rainChance: 90, rainMm: 2, code: 63 }), hour(9, { rainChance: 70, code: 61 }), hour(10), hour(12)] };
+  assert.match(weatherLine(wet, m(8, 10)), /It's raining now, until about 10 — take an umbrella\.$/);
+  const windy = { hours: [hour(8, { code: 0 }), hour(9, { code: 0, windKph: 45 }), hour(10, { code: 1 })] };
+  assert.match(weatherLine(windy, m(8)), /^Clear, .* No rain, but it's windy\.$/);
+});
+
+test("the alarm he set beats the planner's (2026-10-08: 7:15 unplug judged too early against 09:00)", () => {
+  const today = "2026-10-08";
+  assert.equal(alarmClock({ planned: "09:00", asked: new Date(2026, 9, 8, 7, 15).toISOString(), today }), "07:15");
+  assert.equal(alarmClock({ planned: "07:00", asked: new Date(2026, 9, 8, 7, 15).toISOString(), today }), "07:00");
+  assert.equal(alarmClock({ planned: "09:00", asked: new Date(2026, 9, 7, 7, 15).toISOString(), today }), "09:00");
+  assert.equal(alarmClock({ planned: null, asked: null, today }), null);
+  const wake = alarmClock({ planned: "09:00", asked: new Date(2026, 9, 8, 7, 15).toISOString(), today });
+  assert.equal(shouldBrief({ signal: "unplugged", signalAt: at(7, 15), now: at(7, 16), wake }).ok, true);
 });

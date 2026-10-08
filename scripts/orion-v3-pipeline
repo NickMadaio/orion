@@ -1,0 +1,122 @@
+#!/usr/bin/env node
+/*
+ orion-v3-pipeline run --jobs J3,J6 [--part heldout] [--front qwen3.5:4b-q4_K_M]
+                       --tiers quick=ollama/…,standard=ollama/…,deep=ollama/… [--limit N]
+
+ Phase 8 of the ORION V3 evaluation (ORION_V3_HANDOFF.md §11.1), test-only: the
+ front desk (direct Ollama, its frozen J1 configuration) picks a move; an
+ escalation speaks the say line and hands the whole conversation to the tier
+ model through the REAL route (orion-remote handle → openclaw agent) on the
+ evaluation sandbox. Graded on the day left behind and on honesty; times to the
+ say line and to the answer, and which model answered, are recorded.
+
+ The real route runs ORION's scripts inside the gateway, so this uses the global
+ eval-mode marker — it refuses to start if ORION was used in the last 15 minutes
+ or another evaluation is running, and always removes the marker and sandbox
+ files on the way out (Ctrl-C included). Nothing changes the live config.
+ (Written by Claude on 2026-10-08 for the V3 local-first evaluation.)
+*/
+import { readFileSync, writeFileSync, existsSync, rmSync, statSync, readdirSync, mkdirSync, utimesSync, appendFileSync, chmodSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { EVAL_MARKER } from "./lib/eval-mode.mjs";
+import { SANDBOX_CALENDAR } from "./lib/life/bridge-path.mjs";
+import { runConversation } from "./lib/eval/v3/pipeline.mjs";
+import { chat } from "./lib/eval/v3/ollama.mjs";
+import { messagesFor } from "./lib/eval/v3/frontdesk.mjs";
+import { configure } from "./lib/eval/v3/presets.mjs";
+import { schemaFor } from "./lib/eval/v3/prompts.mjs";
+import { gradeScheduleJob } from "./lib/eval/v3/graders.mjs";
+import { appendLedger, V3_DIR } from "./lib/eval/v3/ledger.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
+const fail = (m) => { console.error(`orion-v3-pipeline: ${m}`); process.exit(2); };
+const CONTROLLED = dirname(SANDBOX_CALENDAR);
+const SESSIONS = join(homedir(), ".openclaw/agents/main/sessions");
+const IDLE_MINUTES = 15;
+const readJson = (p, d) => (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : d);
+
+// ORION is idle when no session file changed in the last 15 minutes.
+const lastUse = () => Math.max(0, ...readdirSync(SESSIONS).filter((f) => f.endsWith(".jsonl")).map((f) => statSync(join(SESSIONS, f)).mtimeMs));
+const SANDBOX_FILES = [EVAL_MARKER, SANDBOX_CALENDAR, ...["eval-life-config.json", "eval-checkins.json", "eval-pins.json", "eval-remote-inbound.json", "eval-reschedule-undo.json", "eval-skipped-events.json"].map((f) => join(CONTROLLED, f))];
+const cleanUp = () => { for (const f of SANDBOX_FILES) rmSync(f, { force: true }); };
+
+const pad = (n) => String(n).padStart(2, "0");
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const iso = (hhmm) => new Date(`${today()}T${hhmm}:00`).toISOString();
+const minuteOf = (s) => { const d = new Date(s); return d.getHours() * 60 + d.getMinutes(); };
+const hhmm = (clock) => (String(clock ?? "12:00").match(/(\d{1,2}:\d{2})/) ?? [null, "12:00"])[1];
+
+function seed(c) {
+  utimesSync(EVAL_MARKER, new Date(), new Date());
+  const events = (c.state?.day ?? []).map((d, i) => ({ identifier: `seed-${i}`, title: d.title, start: iso(d.start), end: iso(d.end), ...(d.fixed ? {} : { orion: d.kind ?? "other" }) }));
+  writeFileSync(SANDBOX_CALENDAR, JSON.stringify({ now: iso(hhmm(c.clock)), events, reminders: (c.state?.todos ?? []).map((title, i) => ({ identifier: `todo-${i}`, title })) }, null, 2));
+  const life = join(CONTROLLED, "life-config.json");
+  writeFileSync(join(CONTROLLED, "eval-life-config.json"), existsSync(life) ? readFileSync(life, "utf8") : "{}");
+  for (const f of ["eval-reschedule-undo.json", "eval-pins.json", "eval-remote-inbound.json", "eval-checkins.json", "eval-skipped-events.json"]) rmSync(join(CONTROLLED, f), { force: true });
+}
+
+const readDay = () => {
+  const cal = JSON.parse(readFileSync(SANDBOX_CALENDAR, "utf8"));
+  return { day: cal.events.map((e) => ({ title: e.title, start: minuteOf(e.start), end: minuteOf(e.end), fixed: !e.orion })).sort((a, b) => a.start - b.start), todos: (cal.reminders ?? []).map((r) => r.title) };
+};
+
+async function main() {
+  if (flag("--run") === undefined && args[0] !== "run") fail("usage: orion-v3-pipeline run --jobs J3,J6 --tiers quick=…,standard=…,deep=… [--front M]");
+  const idleFor = (Date.now() - lastUse()) / 60000;
+  if (idleFor < IDLE_MINUTES) fail(`ORION was used ${idleFor.toFixed(1)} min ago; this needs ${IDLE_MINUTES} quiet minutes (it diverts live writes to the sandbox)`);
+  if (existsSync(SANDBOX_CALENDAR) || existsSync(EVAL_MARKER)) fail("another evaluation's sandbox or marker exists; refusing");
+  const front = flag("--front", "qwen3.5:4b-q4_K_M");
+  const frozen = readJson(join(V3_DIR, "configs", "j1", `${front.replace(/[:/]/g, "_")}.json`), null) ?? fail(`no frozen J1 configuration for ${front}`);
+  const tiers = Object.fromEntries(String(flag("--tiers", "")).split(",").filter(Boolean).map((kv) => kv.split("=")));
+  if (!tiers.standard) fail("--tiers needs at least standard=ollama/…");
+  const part = flag("--part", "heldout");
+  const cases = String(flag("--jobs", "J3,J6")).split(",").flatMap((j) => readJson(join(V3_DIR, "cases", part, `${j.toLowerCase()}.json`), []));
+  const picked = Number(flag("--limit", 0)) ? cases.slice(0, Number(flag("--limit"))) : cases;
+  const cfg = configure(front, { think: frozen.config.think ?? "off", temp: frozen.config.temp ?? "card", ctx: frozen.config.ctx ?? 16384 });
+  const frontDesk = async (c) => {
+    const r = await chat({ model: front, messages: [{ role: "system", content: frozen.system }, ...messagesFor(c)], format: schemaFor(frozen.config), think: cfg.think, options: cfg.options, timeoutMs: 60000 });
+    try { return JSON.parse(r.message.content); } catch { return { move: "answer", answer: "" }; }
+  };
+  const escalate = async ({ text, think, model, session }) => {
+    const t0 = Date.now();
+    const out = spawnSync(process.execPath, [join(here, "orion-remote"), "handle", "--from", "phone", "--mode", "chat", "--id", `${session}-${t0}`, "--at", String(t0), "--", text],
+      { encoding: "utf8", timeout: 400000, env: { ...process.env, ORION_REMOTE_ALLOW: "phone", ORION_BRAIN_SESSION: session, ORION_BRAIN_MODEL: model, ORION_BRAIN_THINKING: think === "high" ? "high" : think === "low" ? "low" : "off" } });
+    return { reply: (out.stdout ?? "").trim(), model, wallMs: Date.now() - t0 };
+  };
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-pipeline`;
+  const dir = join(V3_DIR, "runs", runId);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => { cleanUp(); process.exit(130); });
+  mkdirSync(CONTROLLED, { recursive: true });
+  writeFileSync(EVAL_MARKER, `orion-v3-pipeline ${runId}\n`);
+  const rows = [];
+  try {
+    for (const c of picked) {
+      seed(c);
+      const before = readDay().day;
+      const conv = await runConversation(c, { frontDesk, escalate, tiers });
+      const after = readDay();
+      const grade = gradeScheduleJob(c, { before, after: after.day, now: minuteOf(iso(hhmm(c.clock))), reply: conv.replies.at(-1) ?? "", toolLog: [], todos: after.todos });
+      const row = { id: c.id, job: c.job, pass: grade.pass, reasons: grade.reasons, steps: conv.steps };
+      rows.push(row);
+      appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(row)}\n`, { mode: 0o600 });
+      process.stderr.write(row.pass ? "." : "x");
+    }
+  } finally {
+    cleanUp();
+  }
+  const steps = rows.flatMap((r) => r.steps);
+  const med = (xs) => { const s = xs.filter((x) => x != null).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
+  const result = { n: rows.length, pass: rows.filter((r) => r.pass).length, escalations: steps.filter((s) => s.escalated).length, sayMsP50: med(steps.map((s) => s.sayMs)), totalMsP50: med(steps.map((s) => s.totalMs)),
+    answeredBy: steps.reduce((m, s) => ({ ...m, [s.answeredBy]: (m[s.answeredBy] ?? 0) + 1 }), {}) };
+  chmodSync(join(dir, "trials.jsonl"), 0o600);
+  appendLedger({ phase: "8", kind: "pipeline", runId, front, tiers, part, result });
+  console.log(`\n${JSON.stringify(result, null, 1)}`);
+}
+
+try { await main(); } catch (error) { cleanUp(); console.error(`orion-v3-pipeline failed: ${error.message}`); process.exit(1); }

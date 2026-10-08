@@ -28,6 +28,13 @@ Day-zero corrections to the handoff:
 - `MaxCapacity` from `ioreg -rn AppleSmartBattery` is a **percentage** on this Mac.
   Battery capacity in mAh is `AppleRawMaxCapacity` (7,910 at day zero; design
   8,579). §10.4's %/hour formula uses that.
+- **Energy method changed (A4).** The `AppleSmartBattery` registry publishes about
+  once a minute, so §10.4's 1 Hz per-task sampling is impossible. Its
+  `PowerTelemetryData` accumulators (`AccumulatedSystemLoad` / count, mW) give the
+  exact average load between published snapshots. Energy is therefore measured in
+  windows: ≥2 minutes idle, then tasks back to back for ≥4 minutes; joules per task
+  = (busy W − idle W) × seconds ÷ tasks. Verified unplugged on 2026-10-08: idle
+  1.26 W (114 s), llama3.2:3b load 13.4 W (120 s, 14 requests).
 - `orion-eval-schedule` records the *requested* thinking level ("default"), not
   the level ORION applied (its ThinkingPolicy chose `off` in the day-zero run).
   The V3 runner records the applied level. The old harness also leaves

@@ -1,0 +1,84 @@
+#!/usr/bin/env node
+/*
+ orion-v3-energy — battery energy for the ORION V3 evaluation (ORION_V3_HANDOFF.md §10.4).
+
+   orion-v3-energy check [--load-model llama3.2:3b]   ~1 min idle then ~1 min of load, each between two gauge snapshots (A4)
+   orion-v3-energy sample --model M [--minutes 4]      2 min idle, then front-desk tasks back to back; joules per task
+                                                      above idle; refuses unless on battery
+
+ The battery gauge publishes about once a minute (measured 2026-10-08), so energy is
+ measured over windows between published PowerTelemetryData snapshots, not at 1 Hz.
+
+ Uses ioreg (no sudo). Results go to the V3 ledger. Nick unplugs and toggles Low Power Mode;
+ this never changes a system setting.
+ (Written by Claude on 2026-10-08 for the V3 local-first evaluation.)
+*/
+import { readFileSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readBattery, readTelemetry, nextSnapshot, averageWatts, batchJoulesPerTask, percentPerHour } from "./lib/eval/v3/battery.mjs";
+import { chat } from "./lib/eval/v3/ollama.mjs";
+import { messagesFor } from "./lib/eval/v3/frontdesk.mjs";
+import { configure } from "./lib/eval/v3/presets.mjs";
+import { schemaFor } from "./lib/eval/v3/prompts.mjs";
+import { appendLedger, V3_DIR } from "./lib/eval/v3/ledger.mjs";
+import { median } from "./lib/eval/v3/stats.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const [command, ...rest] = process.argv.slice(2);
+const flag = (n, d) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : d; };
+const fail = (m) => { console.error(`orion-v3-energy: ${m}`); process.exit(2); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const readJson = (p, d) => (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : d);
+
+// A window from one published gauge snapshot to the next one after `seconds` (the gauge publishes ~once a minute).
+async function window(seconds, during = async () => {}) {
+  const start = await nextSnapshot();
+  const until = Date.now() + seconds * 1000;
+  let tasks = 0;
+  while (Date.now() < until) tasks += await during();
+  const end = await nextSnapshot();
+  return { watts: averageWatts(start, end), seconds: (end.t - start.t) / 1000, tasks };
+}
+
+async function check() {
+  const model = flag("--load-model", "llama3.2:3b");
+  if (!readBattery().onBattery) fail("plugged in: the gauge only measures discharge on battery");
+  const idle = await window(60, async () => { await sleep(1000); return 0; });
+  const load = await window(60, async () => { await chat({ model, messages: [{ role: "user", content: "Count from 1 to 60 in words." }], options: { num_predict: 300 }, timeoutMs: 60000 }); return 1; });
+  const result = { idle, load, follows: load.watts > idle.watts * 1.5, method: "PowerTelemetryData accumulators between published snapshots" };
+  appendLedger({ phase: "0", kind: "A4-battery-sensor", model, result });
+  console.log(JSON.stringify(result, null, 1));
+}
+
+async function sample() {
+  const model = flag("--model") ?? fail("--model is required");
+  const minutes = Number(flag("--minutes", 4));
+  if (!readBattery().onBattery) fail("refusing: energy is measured on battery only (Nick unplugs for Phase 7)");
+  const frozen = readJson(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), null) ?? fail(`no frozen J1 configuration for ${model}`);
+  const cases = readJson(join(V3_DIR, "cases", "practice", "j1.json"), []);
+  const cfg = configure(model, { think: frozen.config.think ?? "off", temp: frozen.config.temp ?? "card", ctx: frozen.config.ctx ?? 16384 });
+  let k = 0;
+  const walls = [];
+  const ask = async () => { const c = cases[k++ % cases.length]; const r = await chat({ model, messages: [{ role: "system", content: frozen.system }, ...messagesFor(c)], format: schemaFor(frozen.config), think: cfg.think, options: cfg.options, timeoutMs: 300000 }); walls.push(r.timings?.wallMs); return 1; };
+  await ask();
+  const idle = await window(120, async () => { await sleep(1000); return 0; });
+  walls.length = 0;
+  const busy = await window(minutes * 60, ask);
+  const joulesPerTask = batchJoulesPerTask({ idleW: idle.watts, taskW: busy.watts, seconds: busy.seconds, tasks: busy.tasks });
+  const b = readBattery();
+  const tasksPerHour = Number(flag("--tasks-per-hour", 2));
+  const result = { idleW: idle.watts, busyW: busy.watts, seconds: busy.seconds, tasks: busy.tasks, joulesPerTask, wallP50: median(walls.filter(Boolean)),
+    percentPerHour: percentPerHour({ joulesPerTask, tasksPerHour, rawMaxCapacityMah: b.rawMaxCapacityMah, voltageMv: b.voltageMv }), tasksPerHour, endPercent: b.percent };
+  appendLedger({ phase: "7", kind: "energy", job: "J1", model, config: frozen.config, result });
+  console.log(JSON.stringify({ model, ...result }, null, 1));
+}
+
+try {
+  if (command === "check") await check();
+  else if (command === "sample") await sample();
+  else fail("usage: orion-v3-energy check | sample --model M [--n 20]");
+} catch (error) {
+  console.error(`orion-v3-energy failed: ${error.message}`);
+  process.exit(1);
+}

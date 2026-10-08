@@ -1,8 +1,13 @@
-// Battery power for the V3 energy measurements (handoff §10.4). No sudo: the
-// AppleSmartBattery registry gives the instant current and voltage, which mean
-// power only while discharging. ioreg prints a negative current as an unsigned
-// 64-bit number, so it is read through BigInt. MaxCapacity is a percent on this
-// Mac (day zero, 2026-10-08); the capacity in mAh is AppleRawMaxCapacity.
+// Battery power for the V3 energy measurements (handoff §10.4). Measured
+// 2026-10-08: the AppleSmartBattery registry publishes once a minute, so 1 Hz
+// per-task readings are not possible. PowerTelemetryData's accumulators
+// (AccumulatedSystemLoad / SystemLoadAccumulatorCount, mW, sampled finely inside
+// the gauge) give the exact average load between two published snapshots, so
+// energy is measured in batches: an idle window, then tasks back to back.
+// No sudo. The instant current × voltage (power while discharging) is kept for
+// spot readings; ioreg prints a negative current as an unsigned 64-bit number,
+// so it is read through BigInt. MaxCapacity is a percent on this Mac (day zero,
+// 2026-10-08); the capacity in mAh is AppleRawMaxCapacity.
 // (Written by Claude on 2026-10-08 for the V3 local-first evaluation.)
 import { execFileSync } from "node:child_process";
 
@@ -47,4 +52,33 @@ export function startSampler(read = readBattery, intervalMs = 1000) {
   tick();
   const timer = setInterval(tick, intervalMs);
   return { stop: () => { clearInterval(timer); return samples; }, samples };
+}
+
+const telemetryField = (text, key) => { const m = text.match(new RegExp(`"${key}"=(\\d+)`)); return m ? Number(m[1]) : null; };
+
+/** { loadSum, loadCount, loadMw } from ioreg's PowerTelemetryData. */
+export function parseTelemetry(text) {
+  return { loadSum: telemetryField(text, "AccumulatedSystemLoad"), loadCount: telemetryField(text, "SystemLoadAccumulatorCount"), loadMw: telemetryField(text, "SystemLoad") };
+}
+
+export const readTelemetry = () => parseTelemetry(execFileSync("/usr/sbin/ioreg", ["-rn", "AppleSmartBattery"], { encoding: "utf8" }));
+
+/** Average system load in watts between two telemetry snapshots (null if the gauge has not published since). */
+export function averageWatts(a, b) {
+  const n = b.loadCount - a.loadCount;
+  return n > 0 ? (b.loadSum - a.loadSum) / n / 1000 : null;
+}
+
+export const batchJoulesPerTask = ({ idleW, taskW, seconds, tasks }) => ((taskW - idleW) * seconds) / tasks;
+
+/** Wait until the gauge publishes a new snapshot (it does about once a minute); returns it. */
+export async function nextSnapshot(read = readTelemetry, timeoutMs = 120000) {
+  const first = read();
+  const start = Date.now();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const now = read();
+    if (now.loadCount !== first.loadCount) return { ...now, t: Date.now() };
+    if (Date.now() - start > timeoutMs) return { ...now, t: Date.now() };
+  }
 }

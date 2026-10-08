@@ -36,7 +36,7 @@ export function messagesFor(c, { historyTurns = 4 } = {}) {
 }
 
 // A string the case's args pattern accepts: its first alternative, unescaped.
-const exampleFor = (pattern) => String(pattern).replace(/^\(\?i\)/, "").split("|")[0].replace(/\\(.)/g, "$1").replace(/ \?/g, " ").replace(/[()?^$]/g, "");
+const exampleFor = (pattern) => String(pattern).replace(/^\(\?i\)/, "").split("|")[0].replace(/\\b/g, "").replace(/\\(.)/g, "$1").replace(/ \?/g, " ").replace(/[()?^$]/g, "");
 
 /** The labelled answer as the model would output it (the §13.5 oracle dry run). */
 export function oracleOutput(c) {

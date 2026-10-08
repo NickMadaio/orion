@@ -1,47 +1,551 @@
 {
   "about": "Synthetic front-desk (J1) cases, ORION V3 handoff §5.5 and §6. provenance synthetic-edge. moves: acceptable moves; tiers: acceptable tiers when the move is escalate; tools: acceptable menu tools when the move is tool; args: regex the tool's args JSON must match. Written 2026-10-08.",
   "cases": [
-    { "id": "j1-syn-time", "clock": "Fri 10:12", "say": "what time is it", "moves": ["answer"] },
-    { "id": "j1-syn-weather-later", "clock": "Fri 10:12", "say": "what's the weather later", "moves": ["tool"], "tools": ["weather"] },
-    { "id": "j1-syn-rain-when", "clock": "Fri 10:12", "say": "when's it gonna rain", "moves": ["tool"], "tools": ["weather"] },
-    { "id": "j1-syn-lights-off", "clock": "Fri 23:40", "say": "turn the lights off", "moves": ["tool"], "tools": ["lights"], "args": "(?i)off" },
-    { "id": "j1-syn-lights-dim", "clock": "Fri 22:10", "say": "dim the lights to like twenty percent", "moves": ["tool"], "tools": ["lights"], "args": "20" },
-    { "id": "j1-syn-remind-label", "clock": "Fri 18:30", "say": "remind me at 6:55 to call mom", "moves": ["tool"], "tools": ["alarm"], "args": "(?i)call mom" },
-    { "id": "j1-syn-focus-until", "clock": "Fri 18:02", "say": "start a focus session until 8", "moves": ["tool"], "tools": ["session"], "args": "20:00|8" },
-    { "id": "j1-syn-move-gym", "clock": "Fri 14:00", "say": "move gym to 6", "moves": ["escalate", "tool"], "tiers": ["quick", "standard"], "tools": ["reschedule"], "args": "(?i)gym" },
-    { "id": "j1-syn-out-from-4", "clock": "Thu 14:40", "say": "redo my whole schedule, I'm out from 4 at my friends' all night", "moves": ["escalate"], "tiers": ["deep"] },
-    { "id": "j1-syn-cert-hours", "clock": "Sat 10:00", "say": "fit 6 hours of cert courses in today", "moves": ["escalate"], "tiers": ["deep", "standard"] },
-    { "id": "j1-syn-do-the-thing", "clock": "Fri 11:00", "say": "do the thing", "moves": ["ask"] },
-    { "id": "j1-syn-swap-and-remind", "clock": "Fri 15:00", "say": "swap study and laundry and remind me at 9", "moves": ["escalate"], "tiers": ["standard", "deep"] },
-    { "id": "j1-syn-hows-it-going", "clock": "Fri 12:00", "say": "how's it going", "moves": ["answer"] },
-    { "id": "j1-syn-thanks", "clock": "Fri 12:00", "say": "thanks man", "moves": ["answer", "ignore"] },
-    { "id": "j1-syn-aside-friend", "clock": "Fri 20:15", "say": "no dude I told you the pizza place closes at ten", "moves": ["ignore"] },
-    { "id": "j1-syn-aside-phone-call", "clock": "Fri 17:05", "say": "yeah mom I'll be there by seven, love you", "moves": ["ignore"] },
-    { "id": "j1-syn-fragment", "clock": "Fri 17:05", "say": "and then the", "moves": ["ignore", "ask"] },
-    { "id": "j1-syn-move-it-ambiguous", "clock": "Fri 13:00", "say": "move it to later", "moves": ["ask", "escalate"], "tiers": ["standard"] },
-    { "id": "j1-syn-the-lab-two", "clock": "Wed 09:30", "history": [{ "role": "assistant", "content": "You have CS lab at 12:30 and DS lab at 3." }], "say": "push the lab back an hour", "moves": ["ask", "escalate"], "tiers": ["standard"] },
-    { "id": "j1-syn-past-time", "clock": "Fri 10:20", "say": "remind me at 9 to take my vitamins", "moves": ["ask", "tool"], "tools": ["alarm"], "args": "21:00|9 ?pm|T21" },
-    { "id": "j1-syn-impossible", "clock": "Fri 16:00", "say": "book me eight hours of studying before dinner at 6", "moves": ["escalate", "answer"], "tiers": ["standard", "deep"] },
-    { "id": "j1-syn-save-for-later", "clock": "Fri 19:00", "history": [{ "role": "user", "content": "the break timer got stuck again and wouldn't let me out" }, { "role": "assistant", "content": "That sounds like the pause bug — sorry." }], "say": "put that in a file, we'll fix it later", "moves": ["tool"], "tools": ["repair_note"], "args": "(?i)break|stuck|timer|pause" },
-    { "id": "j1-syn-actually-5", "clock": "Fri 14:00", "history": [{ "role": "user", "content": "move gym to 6" }, { "role": "assistant", "content": "Moved gym to 6 PM." }], "say": "actually make it 5", "moves": ["escalate", "tool"], "tiers": ["quick", "standard"], "tools": ["reschedule"], "args": "17:00|5" },
-    { "id": "j1-syn-and-dinner-too", "clock": "Fri 14:00", "history": [{ "role": "user", "content": "push study back 30 minutes" }, { "role": "assistant", "content": "Study is now 4:30 to 5:30." }], "say": "and move dinner too", "moves": ["escalate", "ask"], "tiers": ["quick", "standard"] },
-    { "id": "j1-syn-whats-next", "clock": "Fri 13:45", "say": "what's next", "moves": ["tool"], "tools": ["agenda"] },
-    { "id": "j1-syn-unlock-20", "clock": "Fri 23:15", "say": "give me 20 more minutes on my phone, I'm texting my friends", "moves": ["tool"], "tools": ["phone_time"], "args": "20" },
-    { "id": "j1-syn-water", "clock": "Fri 11:00", "say": "I just drank a big bottle of water", "moves": ["tool"], "tools": ["log_intake"], "args": "(?i)water" },
-    { "id": "j1-syn-pause-music", "clock": "Fri 21:00", "say": "pause the music", "moves": ["tool"], "tools": ["media"], "args": "(?i)pause" },
-    { "id": "j1-syn-open-safari", "clock": "Fri 09:00", "say": "open safari", "moves": ["tool"], "tools": ["app_open", "browser"], "args": "(?i)safari" },
-    { "id": "j1-syn-show-health", "clock": "Fri 09:00", "say": "show me the health tab", "moves": ["tool"], "tools": ["show"], "args": "(?i)health" },
-    { "id": "j1-syn-add-todo", "clock": "Fri 09:00", "say": "add finish resume to my to-dos", "moves": ["tool"], "tools": ["tasks"], "args": "(?i)resume" },
-    { "id": "j1-syn-resume-notes", "clock": "Fri 09:00", "say": "what did I say about my resume in my notes", "moves": ["tool", "escalate"], "tiers": ["standard"], "tools": ["brain"], "args": "(?i)resume" },
-    { "id": "j1-syn-remember-pref", "clock": "Fri 09:00", "say": "remember I hate morning gym", "moves": ["tool"], "tools": ["brain"], "args": "(?i)gym" },
-    { "id": "j1-syn-capital", "clock": "Fri 09:00", "say": "what's the capital of Australia", "moves": ["answer"] },
-    { "id": "j1-syn-math", "clock": "Fri 09:00", "say": "what's 15 percent of 240", "moves": ["answer"] },
-    { "id": "j1-syn-explain", "clock": "Fri 09:00", "say": "explain how compound interest works, quickly", "moves": ["answer", "escalate"], "tiers": ["quick", "standard"] },
-    { "id": "j1-syn-end-session", "clock": "Fri 19:30", "say": "end my focus session", "moves": ["tool"], "tools": ["session"], "args": "(?i)finish|end|stop" },
-    { "id": "j1-syn-wake", "clock": "Fri 23:30", "say": "wake me up at 7:30", "moves": ["tool"], "tools": ["wake", "alarm"], "args": "7:30|07:30" },
-    { "id": "j1-syn-im-home-replan", "clock": "Fri 17:40", "say": "just got home, eating now, rearrange the rest of my night", "moves": ["escalate"], "tiers": ["standard", "deep"] },
-    { "id": "j1-syn-two-asks", "clock": "Fri 08:00", "say": "what's the weather and turn the lights on", "moves": ["escalate"], "tiers": ["quick", "standard"] },
-    { "id": "j1-syn-not-addressed-tv", "clock": "Fri 21:30", "say": "and the winner of tonight's competition is", "moves": ["ignore"] },
-    { "id": "j1-syn-voice-cutoff", "clock": "Fri 14:00", "say": "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) to six instead", "history": [{ "role": "user", "content": "can you move my gym" }], "moves": ["escalate", "tool"], "tiers": ["quick", "standard"], "tools": ["reschedule"], "args": "18:00|6" }
+    {
+      "id": "j1-syn-time",
+      "clock": "Fri 10:12",
+      "say": "what time is it",
+      "moves": [
+        "answer"
+      ]
+    },
+    {
+      "id": "j1-syn-weather-later",
+      "clock": "Fri 10:12",
+      "say": "what's the weather later",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "weather"
+      ]
+    },
+    {
+      "id": "j1-syn-rain-when",
+      "clock": "Fri 10:12",
+      "say": "when's it gonna rain",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "weather"
+      ]
+    },
+    {
+      "id": "j1-syn-lights-off",
+      "clock": "Fri 23:40",
+      "say": "turn the lights off",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "lights"
+      ],
+      "args": "(?i)off"
+    },
+    {
+      "id": "j1-syn-lights-dim",
+      "clock": "Fri 22:10",
+      "say": "dim the lights to like twenty percent",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "lights"
+      ],
+      "args": "\\b20\\b"
+    },
+    {
+      "id": "j1-syn-remind-label",
+      "clock": "Fri 18:30",
+      "say": "remind me at 6:55 to call mom",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "alarm"
+      ],
+      "args": "(?i)call mom"
+    },
+    {
+      "id": "j1-syn-focus-until",
+      "clock": "Fri 18:02",
+      "say": "start a focus session until 8",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "session"
+      ],
+      "args": "(?i)20:00|\\b8 ?pm|\"8\""
+    },
+    {
+      "id": "j1-syn-move-gym",
+      "clock": "Fri 14:00",
+      "say": "move gym to 6",
+      "moves": [
+        "escalate",
+        "tool"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ],
+      "tools": [
+        "reschedule"
+      ],
+      "args": "(?i)gym"
+    },
+    {
+      "id": "j1-syn-out-from-4",
+      "clock": "Thu 14:40",
+      "say": "redo my whole schedule, I'm out from 4 at my friends' all night",
+      "moves": [
+        "escalate"
+      ],
+      "tiers": [
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-cert-hours",
+      "clock": "Sat 10:00",
+      "say": "fit 6 hours of cert courses in today",
+      "moves": [
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-do-the-thing",
+      "clock": "Fri 11:00",
+      "say": "do the thing",
+      "moves": [
+        "ask"
+      ]
+    },
+    {
+      "id": "j1-syn-swap-and-remind",
+      "clock": "Fri 15:00",
+      "say": "swap study and laundry and remind me at 9",
+      "moves": [
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-hows-it-going",
+      "clock": "Fri 12:00",
+      "say": "how's it going",
+      "moves": [
+        "answer"
+      ]
+    },
+    {
+      "id": "j1-syn-thanks",
+      "clock": "Fri 12:00",
+      "say": "thanks man",
+      "moves": [
+        "answer",
+        "ignore"
+      ]
+    },
+    {
+      "id": "j1-syn-aside-friend",
+      "clock": "Fri 20:15",
+      "say": "no dude I told you the pizza place closes at ten",
+      "moves": [
+        "ignore"
+      ]
+    },
+    {
+      "id": "j1-syn-aside-phone-call",
+      "clock": "Fri 17:05",
+      "say": "yeah mom I'll be there by seven, love you",
+      "moves": [
+        "ignore"
+      ]
+    },
+    {
+      "id": "j1-syn-fragment",
+      "clock": "Fri 17:05",
+      "say": "and then the",
+      "moves": [
+        "ignore",
+        "ask"
+      ]
+    },
+    {
+      "id": "j1-syn-move-it-ambiguous",
+      "clock": "Fri 13:00",
+      "say": "move it to later",
+      "moves": [
+        "ask",
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-the-lab-two",
+      "clock": "Wed 09:30",
+      "history": [
+        {
+          "role": "assistant",
+          "content": "You have CS lab at 12:30 and DS lab at 3."
+        }
+      ],
+      "say": "push the lab back an hour",
+      "moves": [
+        "ask",
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-past-time",
+      "clock": "Fri 10:20",
+      "say": "remind me at 9 to take my vitamins",
+      "moves": [
+        "ask",
+        "tool"
+      ],
+      "tools": [
+        "alarm"
+      ],
+      "args": "21:00|9 ?pm|T21"
+    },
+    {
+      "id": "j1-syn-impossible",
+      "clock": "Fri 16:00",
+      "say": "book me eight hours of studying before dinner at 6",
+      "moves": [
+        "escalate",
+        "answer"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-save-for-later",
+      "clock": "Fri 19:00",
+      "history": [
+        {
+          "role": "user",
+          "content": "the break timer got stuck again and wouldn't let me out"
+        },
+        {
+          "role": "assistant",
+          "content": "That sounds like the pause bug — sorry."
+        }
+      ],
+      "say": "put that in a file, we'll fix it later",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "repair_note"
+      ],
+      "args": "(?i)break|stuck|timer|pause"
+    },
+    {
+      "id": "j1-syn-actually-5",
+      "clock": "Fri 14:00",
+      "history": [
+        {
+          "role": "user",
+          "content": "move gym to 6"
+        },
+        {
+          "role": "assistant",
+          "content": "Moved gym to 6 PM."
+        }
+      ],
+      "say": "actually make it 5",
+      "moves": [
+        "escalate",
+        "tool"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ],
+      "tools": [
+        "reschedule"
+      ],
+      "args": "(?i)17:00|\\b5 ?pm|\"5\""
+    },
+    {
+      "id": "j1-syn-and-dinner-too",
+      "clock": "Fri 14:00",
+      "history": [
+        {
+          "role": "user",
+          "content": "push study back 30 minutes"
+        },
+        {
+          "role": "assistant",
+          "content": "Study is now 4:30 to 5:30."
+        }
+      ],
+      "say": "and move dinner too",
+      "moves": [
+        "escalate",
+        "ask"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-whats-next",
+      "clock": "Fri 13:45",
+      "say": "what's next",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "agenda"
+      ]
+    },
+    {
+      "id": "j1-syn-unlock-20",
+      "clock": "Fri 23:15",
+      "say": "give me 20 more minutes on my phone, I'm texting my friends",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "phone_time"
+      ],
+      "args": "\\b20\\b"
+    },
+    {
+      "id": "j1-syn-water",
+      "clock": "Fri 11:00",
+      "say": "I just drank a big bottle of water",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "log_intake"
+      ],
+      "args": "(?i)water"
+    },
+    {
+      "id": "j1-syn-pause-music",
+      "clock": "Fri 21:00",
+      "say": "pause the music",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "media"
+      ],
+      "args": "(?i)pause"
+    },
+    {
+      "id": "j1-syn-open-safari",
+      "clock": "Fri 09:00",
+      "say": "open safari",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "app_open",
+        "browser"
+      ],
+      "args": "(?i)safari"
+    },
+    {
+      "id": "j1-syn-show-health",
+      "clock": "Fri 09:00",
+      "say": "show me the health tab",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "show"
+      ],
+      "args": "(?i)health"
+    },
+    {
+      "id": "j1-syn-add-todo",
+      "clock": "Fri 09:00",
+      "say": "add finish resume to my to-dos",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "tasks"
+      ],
+      "args": "(?i)resume"
+    },
+    {
+      "id": "j1-syn-resume-notes",
+      "clock": "Fri 09:00",
+      "say": "what did I say about my resume in my notes",
+      "moves": [
+        "tool",
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ],
+      "tools": [
+        "brain"
+      ],
+      "args": "(?i)resume"
+    },
+    {
+      "id": "j1-syn-remember-pref",
+      "clock": "Fri 09:00",
+      "say": "remember I hate morning gym",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "brain"
+      ],
+      "args": "(?i)gym"
+    },
+    {
+      "id": "j1-syn-capital",
+      "clock": "Fri 09:00",
+      "say": "what's the capital of Australia",
+      "moves": [
+        "answer"
+      ]
+    },
+    {
+      "id": "j1-syn-math",
+      "clock": "Fri 09:00",
+      "say": "what's 15 percent of 240",
+      "moves": [
+        "answer"
+      ]
+    },
+    {
+      "id": "j1-syn-explain",
+      "clock": "Fri 09:00",
+      "say": "explain how compound interest works, quickly",
+      "moves": [
+        "answer",
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-end-session",
+      "clock": "Fri 19:30",
+      "say": "end my focus session",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "session"
+      ],
+      "args": "(?i)finish|end|stop"
+    },
+    {
+      "id": "j1-syn-wake",
+      "clock": "Fri 23:30",
+      "say": "wake me up at 7:30",
+      "moves": [
+        "tool"
+      ],
+      "tools": [
+        "wake",
+        "alarm"
+      ],
+      "args": "7:30|07:30"
+    },
+    {
+      "id": "j1-syn-im-home-replan",
+      "clock": "Fri 17:40",
+      "say": "just got home, eating now, rearrange the rest of my night",
+      "moves": [
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-two-asks",
+      "clock": "Fri 08:00",
+      "say": "what's the weather and turn the lights on",
+      "moves": [
+        "escalate"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ]
+    },
+    {
+      "id": "j1-syn-not-addressed-tv",
+      "clock": "Fri 21:30",
+      "say": "and the winner of tonight's competition is",
+      "moves": [
+        "ignore"
+      ]
+    },
+    {
+      "id": "j1-syn-voice-cutoff",
+      "clock": "Fri 14:00",
+      "say": "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) to six instead",
+      "history": [
+        {
+          "role": "user",
+          "content": "can you move my gym"
+        }
+      ],
+      "moves": [
+        "escalate",
+        "tool"
+      ],
+      "tiers": [
+        "quick",
+        "standard",
+        "deep"
+      ],
+      "tools": [
+        "reschedule"
+      ],
+      "args": "(?i)18:00|\\b6 ?pm|\"6\""
+    }
   ]
 }

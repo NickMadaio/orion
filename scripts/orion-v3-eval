@@ -172,7 +172,7 @@ const J1_LADDER = [
 
 async function tuneJ1(model) {
   const practice = readJson(join(CASES, "practice/j1.json"), null) ?? fail("no cases — run orion-v3-eval build first");
-  const templates = Object.fromEntries(["p0", "p2", "p3"].map((n) => [n, readFileSync(join(here, `eval/v3/prompts/j1/${n}.md`), "utf8")]));
+  const templates = Object.fromEntries(["p0", "p2", "p3", "p4"].map((n) => [n, readFileSync(join(here, `eval/v3/prompts/j1/${n}.md`), "utf8")]));
   const info = await modelInfo(model);
   const tuneId = `${new Date().toISOString().replace(/[:.]/g, "-")}-tune-J1-${model.replace(/[:/]/g, "_")}`;
   const evaluate = async (config) => {
@@ -354,6 +354,40 @@ function breakdownCmd() {
   console.log(md);
 }
 
+
+// Hand prompt engineering (Nick, 2026-10-08): try a list of J1 configurations for one model on practice;
+// every try is a ledger line. freeze locks in the chosen one.
+const J1_TEMPLATES = () => Object.fromEntries(["p0", "p2", "p3", "p4", "p5"].filter((n) => existsSync(join(here, `eval/v3/prompts/j1/${n}.md`))).map((n) => [n, readFileSync(join(here, `eval/v3/prompts/j1/${n}.md`), "utf8")]));
+async function exploreJ1() {
+  const model = flag("--model") ?? fail("--model is required");
+  const configs = JSON.parse(flag("--configs") ?? fail("--configs '[{…}, …]' is required"));
+  const practice = readJson(join(CASES, "practice/j1.json"), null) ?? fail("no cases");
+  const templates = J1_TEMPLATES();
+  const exploreId = `${new Date().toISOString().replace(/[:.]/g, "-")}-explore-J1-${model.replace(/[:/]/g, "_")}`;
+  for (const config of configs) {
+    const system = renderFrontDesk(config, { templates, menu, examplesPool: practice });
+    const hash = createHash("sha256").update(system).digest("hex").slice(0, 12);
+    const dir = join(V3_DIR, "runs", exploreId, `${hash}-${config.temp ?? "card"}`);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const { summary } = await runFrontDesk(practice, { model, menu, system, schema: schemaFor(config), historyTurns: config.historyTurns ?? 4, think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384,
+      onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) });
+    writePrivate(join(dir, "prompt.json"), { config, system });
+    appendLedger({ phase: "5", kind: "explore", job: "J1", model, exploreId, config, promptHash: hash, practice: { pass: summary.pass, n: summary.n, critical: summary.criticalMisroutes, critByType: summary.critical, validJson: summary.validJson, speed: summary.speed }, power: powerNow() });
+    console.log(`${String(summary.pass).padStart(3)}/${summary.n} crit ${summary.criticalMisroutes} ${JSON.stringify(summary.critical)} ${JSON.stringify(config)}`);
+  }
+}
+
+function freezeJ1() {
+  const model = flag("--model") ?? fail("--model is required");
+  const config = JSON.parse(flag("--config") ?? fail("--config is required"));
+  const practice = readJson(join(CASES, "practice/j1.json"), []);
+  const system = renderFrontDesk(config, { templates: J1_TEMPLATES(), menu, examplesPool: practice });
+  const promptHash = createHash("sha256").update(system).digest("hex").slice(0, 12);
+  writePrivate(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), { job: "J1", model, config, system, promptHash, frozenBy: "hand", why: flag("--why", null) });
+  appendLedger({ phase: "5", kind: "freeze", job: "J1", model, config, promptHash, by: "hand", why: flag("--why", null) });
+  console.log(`frozen ${model} J1 ${promptHash}`);
+}
+
 // Tool-job summary: the J1 summary plus the honesty counts the gates use.
 function summariseTools({ trials, cfg }) {
   const base = summarise(trials.map((t) => ({ ...t, critical: null, validJson: true })), { cfg });
@@ -371,6 +405,8 @@ try {
   else if (command === "speed") await speed();
   else if (command === "report") report();
   else if (command === "breakdown") breakdownCmd();
+  else if (command === "explore") await exploreJ1();
+  else if (command === "freeze") freezeJ1();
   else if (command === "tune" && flag("--job", "J1") === "J1") await tuneJ1(flag("--model") ?? fail("--model is required"));
   else if (command === "tune" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await tuneTools(flag("--job"), flag("--model") ?? fail("--model is required"));
   else fail("usage: orion-v3-eval build | run --job J1 --model M … | final --job J1 --model M …");

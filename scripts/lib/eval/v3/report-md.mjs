@@ -38,7 +38,7 @@ export function gatesFor(job, r) {
 }
 
 export function buildReport({ ledger, runsDir }) {
-  const finals = latest(ledger.filter((e) => e.kind === "final"), (e) => `${e.job}|${e.model}`);
+  const finals = latest(ledger.filter((e) => e.kind === "final" && e.model !== "oracle" && !e.oracle), (e) => `${e.job}|${e.model}`);
   const speeds = latest(ledger.filter((e) => e.kind === "speed" && e.power?.start === "ac" && !e.cold), (e) => `${e.job}|${e.model}`);
   const lines = ["## 3. Held-out results (Phase 6)", "", "Generated from the ledger by `orion-v3-eval report`. Pooled over 3 repeats; 95% Wilson interval; pass^3 = share of cases passed in every repeat; a zero count carries its rule-of-three bound.", ""];
   const decisions = [];

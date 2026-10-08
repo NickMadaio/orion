@@ -44,6 +44,8 @@
 	</dict>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Orion controls Apple Music only when you choose it for a focus session, so the session player can play, pause, skip, seek, and show your current track.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Orion turns your LED strip on and off over Bluetooth — when you ask, and when you get up in the morning. It talks only to the light.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Orion reads your calendar so it knows what is actually in your day before it tells you how much of it is left. It can also add an event when you ask for one, and it can change or delete only the events it created itself — never one somebody else booked.</string>
 	<key>NSCalendarsUsageDescription</key>

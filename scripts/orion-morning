@@ -13,11 +13,11 @@
  Turning an alarm off is one tap; getting up is the phone off the charger, or
  minutes of use. Either one, after (or just before) the alarm and before 1 PM,
  starts the briefing once a morning: today's plan, when to leave, what's due,
- the weather, and a question. It is said aloud on the Mac at full volume, then
+ the weather, and a question. The LED strip comes on (orion-lights), then it is said aloud on the Mac at full volume, then
  ORION listens for a few seconds; nothing heard and the conversation closes.
  The gate and the words are lib/reach/morning.mjs.
 */
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -59,10 +59,14 @@ const signalAt = flag("--at") ? new Date(flag("--at")) : now;
 let wake = null;
 try { wake = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
 const gate = shouldBrief({ signal, signalAt, now, wake, briefedToday: !!state[today] });
+// Every signal and what was decided, for checking a morning afterwards.
+if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signal} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }
 if (!gate.ok) { console.log(`No briefing: ${gate.reason}.`); process.exit(0); }
 
 const text = await briefing();
 if (dry) { console.log(`DRY RUN — would say aloud (${gate.reason}): ${text}`); process.exit(0); }
+// Lights first (2026-10-08): the strip coming on is the cue that ORION is about to talk.
+spawnSync(process.execPath, [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
 const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--urgent", "--loud", "--listen",
   "--channel", "mac", "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
 process.stdout.write(sent.stdout ?? "");

@@ -72,6 +72,7 @@ that full path, never a bare name or `~`.
 - Planning around sleep → `orion-patterns` (he averages well under 8 hours).
 
 - Reaching him first: `orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--silent]` — it picks phone / silent Mac bubble / aloud from where he is, lands in his chat thread, never repeats, holds overnight. Watching something for him: `orion-watches add weather "rain tomorrow"`, `list`, `remove <id>`, `people add "<name>"`, `gate on|off` (texts), `mail on|off`.
+- His LED strip (Bluetooth, Lotus Lamp X): `orion-lights on [0-100] [warm|white|red|blue|green|purple|orange|pink]`, `off`, `brightness N`, `color NAME`. It comes on by itself with the morning briefing.
 
 ## Action truth
 

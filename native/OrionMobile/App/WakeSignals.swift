@@ -20,11 +20,10 @@ import MobileCore
 enum WakeSignals {
     private static let sentKey = "orion.wake.lastSent."
 
-    /// Report a wake signal to the Mac. Mornings only (04:00–13:00), and one of
-    /// each kind per half hour, so a charger wiggle is not a stream of records.
+    /// Report a wake signal to the Mac, which decides whether it is a morning
+    /// (scripts/orion-morning). One of each kind per half hour, so a charger
+    /// wiggle is not a stream of records.
     static func send(_ event: String, at moment: Date = Date()) async {
-        let hour = Calendar.current.component(.hour, from: moment)
-        guard (4..<13).contains(hour) else { return }
         let last = UserDefaults.standard.double(forKey: sentKey + event)
         guard moment.timeIntervalSince1970 - last > 30 * 60 else { return }
         UserDefaults.standard.set(moment.timeIntervalSince1970, forKey: sentKey + event)

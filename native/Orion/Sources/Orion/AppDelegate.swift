@@ -177,6 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    loud: entry.loud, listen: entry.listen)
                 continue
             }
+            // orion://lights?do=on&brightness=100 — the LED strip (scripts/orion-lights).
+            if url.scheme == "orion", url.host == "lights" {
+                StripLight.shared.run(StripLight.commands(from: url))
+                continue
+            }
             if url.scheme == "orion", url.host == "listen" {
                 // As a follow-up: a tap is not speech, so wait (up to the follow-up
                 // grace) for him to start before timing pauses. Started as an ordinary

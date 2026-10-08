@@ -75,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             // When the full dashboard is already visible, its central hologram
             // is the voice surface. Do not layer the small orb over it.
-            guard !self.textWindowController.isVisible else { return }
+            guard !self.textWindowController.isInFocus else { return }
             if !self.panelController.isVisible {
                 // Wake without stealing focus: the user is mid-sentence in
                 // another app and should stay there.
@@ -87,10 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Summoned by name. Always arrives in the configured corner on the
         // screen the user is looking at, and never takes focus — you can say
         // "Orion" mid-sentence in another app and keep typing.
-        state.dashboardVisible = { [weak self] in self?.textWindowController.isVisible ?? false }
+        state.dashboardVisible = { [weak self] in self?.textWindowController.isInFocus ?? false }
         state.onWantsSummon = { [weak self] in
             guard let self else { return }
-            guard !self.textWindowController.isVisible else { return }
+            guard !self.textWindowController.isInFocus else { return }
             self.panelController.summon()
             self.menuBarController.refresh(panelVisible: true)
             self.refreshEscapeWatch()

@@ -30,6 +30,13 @@ final class TextWindowController: NSObject, NSWindowDelegate {
     private static let frameAutosaveName = "OrionDashboardWindow"
 
     var isVisible: Bool { window?.isVisible ?? false }
+    /// Open AND what he is looking at: ORION is the active app and the dashboard
+    /// is its key window, not minimised or behind something else (2026-10-08:
+    /// "not just when hes closed but rather when he isnt the focus").
+    var isInFocus: Bool {
+        guard let window, window.isVisible, !window.isMiniaturized, window.isOnActiveSpace else { return false }
+        return NSApp.isActive && (window.isKeyWindow || window.isMainWindow)
+    }
     /// The app delegate owns the floating hologram, so this controller reports
     /// dashboard visibility instead of reaching into that other window.
     var onShown: (() -> Void)?
@@ -126,6 +133,12 @@ final class TextWindowController: NSObject, NSWindowDelegate {
     }
 
     // MARK: NSWindowDelegate
+
+    /// Switching back to the dashboard: its own hologram takes over, so the
+    /// small pop-up (shown while he was elsewhere) goes away.
+    func windowDidBecomeKey(_ notification: Notification) {
+        onShown?()
+    }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Hide rather than close: keeping the instance keeps the transcript

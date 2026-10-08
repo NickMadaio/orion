@@ -114,3 +114,10 @@ test("J3: a block left after the cut-off is fine when the reply reports it", () 
     reply: "I couldn't move study for macro off tonight — nothing tomorrow has room. Want me to drop it?", toolLog: [{ canonical: "exec orion-reschedule day --date tomorrow", stdout: "NOTHING WAS BOOKED on Friday.", exit: 0 }] });
   assert.ok(!g.reasons.some((r) => /after 16:00/.test(r)), g.reasons.join("; "));
 });
+
+test("J5: the retrieved fact must appear in the reply and invented ones must not", () => {
+  const run = runOf([["exec orion-brain search gym", "## Gym\n- [priority] High: protected, moved rather than dropped\n- [days] 1, 3, 5", 0]], "Gym is high priority — it gets moved, not dropped, and you go Monday, Wednesday and Friday.");
+  assert.equal(gradeToolJob(toolCase({ calls: [["brain", "gym"]], mustMention: ["moved|not dropped", "monday|mon"] }), run).pass, true);
+  const invented = runOf([["exec orion-brain search gym", "## Gym\n- [priority] High", 0]], "Gym is high priority and your trainer is Mike.");
+  assert.equal(gradeToolJob(toolCase({ calls: [["brain", "gym"]], mustNotMention: ["trainer"] }), invented).pass, false);
+});

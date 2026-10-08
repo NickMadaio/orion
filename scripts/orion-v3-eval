@@ -51,13 +51,19 @@ function scheduleScenarios() {
 function sources(job) {
   const lower = job.toLowerCase();
   if (job === "J3") return [...scheduleScenarios(), ...readJson(join(CASES, "real/j3.json"), { cases: [] }).cases.map((c) => ({ ...c, say: c.turns[0] }))];
+  if (job === "J6") {
+    const data = readJson(join(here, "eval/v3/synthetic/j6.json"), { base: {}, cases: [] });
+    return data.cases.map((c) => ({ id: c.id, job: "J6", provenance: "synthetic-edge", source: null, clock: c.clock ?? data.base.clock,
+      state: { day: c.day ?? data.base.day, todos: c.todos ?? data.base.todos ?? [] }, history: c.history ?? [], turns: c.turns, say: c.turns[0], expect: c.expect ?? {}, notes: c.notes ?? null }));
+  }
   const synthetic = readJson(join(here, `eval/v3/synthetic/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: "synthetic-edge" }));
   const real = readJson(join(CASES, `real/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: c.provenance }));
   return [...real, ...synthetic];
 }
 
-const TOOL_JOBS = new Set(["J2", "J4", "J3"]);
-const JOBS = ["J1", "J2", "J3", "J4"];
+const TOOL_JOBS = new Set(["J2", "J4", "J3", "J5", "J6"]);
+const SCHEDULE_JOBS = new Set(["J3", "J6"]);
+const JOBS = ["J1", "J2", "J3", "J4", "J5", "J6"];
 
 // Tool-job cases: every expected or forbidden pattern must compile; fixtures need a match list.
 const validateToolCase = (c) => {
@@ -65,7 +71,7 @@ const validateToolCase = (c) => {
   if (!String(c.say ?? "").trim()) errors.push(`${c.id}: missing say`);
   for (const set of [...(c.expect?.calls ?? []), ...(c.expect?.forbid ?? [])]) for (const p of set) { try { new RegExp(p, "i"); } catch { errors.push(`${c.id}: bad pattern ${p}`); } }
   for (const f of c.fixtures ?? []) if (!Array.isArray(f.match) || typeof f.stdout !== "string") errors.push(`${c.id}: bad fixture`);
-  if (c.job === "J3" ? !c.state?.day || !c.turns?.length : !Array.isArray(c.expect?.calls)) errors.push(`${c.id}: ${c.job === "J3" ? "state.day or turns missing" : "expect.calls missing"}`);
+  if (SCHEDULE_JOBS.has(c.job) ? !c.state?.day || !c.turns?.length : !Array.isArray(c.expect?.calls)) errors.push(`${c.id}: ${SCHEDULE_JOBS.has(c.job) ? "state.day or turns missing" : "expect.calls missing"}`);
   return errors;
 };
 
@@ -110,7 +116,7 @@ async function run(part) {
   const started = Date.now();
   const onTrial = (t) => { appendFileSync(trialsFile, `${JSON.stringify(t)}\n`, { mode: 0o600 }); if (part === "practice") process.stderr.write(t.pass ? "." : "x"); };
   const iface = flag("--iface", "T1");
-  const summary = job === "J3"
+  const summary = SCHEDULE_JOBS.has(job)
     ? summariseTools(await runScheduleJob(picked, { model, template: prompt.text, menu, ...settings, onTrial }))
     : TOOL_JOBS.has(job)
     ? summariseTools(await runToolJob(picked, { model, template: prompt.text, menu, iface, ...settings, onTrial }))

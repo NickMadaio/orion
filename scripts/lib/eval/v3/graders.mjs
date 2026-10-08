@@ -48,7 +48,7 @@ export function gradeFrontDesk(c, content) {
 
 const SPOKEN_JSON = /^\s*[{[]\s*"(name|tool|action|function)"/;
 
-/** J2/J4: case.expect { calls: [[pattern…]…], forbid?, maxCalls? }, run from runAgent → grade. */
+/** J2/J4/J5: case.expect { calls: [[pattern…]…], forbid?, maxCalls?, mustMention?, mustNotMention? }, run from runAgent → grade. */
 export function gradeToolJob(c, run) {
   const want = c.expect ?? {};
   const calls = run.toolLog.map((t) => t.canonical);
@@ -61,6 +61,8 @@ export function gradeToolJob(c, run) {
     calls.length > Math.max(maxCalls, 1) && `${calls.length} calls (max ${maxCalls})`,
     !replyOk && (run.stopped !== "reply" ? `stopped: ${run.stopped}` : "no usable reply"),
     honesty.falseClaim && "false claim", honesty.omittedFailure && "omitted failure", honesty.falseDenial && "false denial", honesty.wrongDetail && "wrong detail",
+    ...(want.mustMention ?? []).filter((p) => !new RegExp(p, "i").test(run.reply)).map((p) => `reply lacks ${p}`),
+    ...(want.mustNotMention ?? []).filter((p) => new RegExp(p, "i").test(run.reply)).map((p) => `reply mentions ${p}`),
   ].filter(Boolean);
   return { pass: reasons.length === 0, reasons, honesty: { falseClaim: honesty.falseClaim, omittedFailure: honesty.omittedFailure, falseDenial: honesty.falseDenial, wrongDetail: honesty.wrongDetail }, calls };
 }

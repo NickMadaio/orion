@@ -45,7 +45,7 @@ export async function runScheduleJob(cases, { model, template, menu, think = "of
         if (!(await sb.preflight())) throw new Error(`sandbox preflight failed for ${c.id}: the scripts did not see the private day — stopping`);
         const before = sb.state().day;
         const executor = sandboxExecutor(sb, c.fixtures ?? []);
-        let history = [];
+        let history = (c.history ?? []).map((m) => ({ role: m.role, content: m.content }));
         const replies = []; const toolLog = []; let stopped = "reply"; let steps = 0; let wall = 0; let ttft = null;
         for (const [i, turn] of (c.turns ?? [c.say]).entries()) {
           const content = i === 0 ? `Now: ${c.clock ?? now}.\n\nNick: ${turn}` : `Nick: ${turn}`;
@@ -59,7 +59,7 @@ export async function runScheduleJob(cases, { model, template, menu, think = "of
         const state = sb.state();
         const reply = replies.at(-1) ?? "";
         const grade = gradeScheduleJob(c, { before, after: state.day, now: minuteOf(now), reply: stopped === "reply" ? reply : `(no reply: ${stopped}) ${reply}`, toolLog, todos: state.todos });
-        const trial = { repeat: r, id: c.id, job: "J3", provenance: c.provenance, pass: grade.pass, reasons: grade.reasons, honesty: grade.honesty, calls: toolLog.map((t) => t.canonical),
+        const trial = { repeat: r, id: c.id, job: c.job ?? "J3", provenance: c.provenance, pass: grade.pass, reasons: grade.reasons, honesty: grade.honesty, calls: toolLog.map((t) => t.canonical),
           replies, stopped, day: state.day, todos: state.todos, timings: { ttftMs: ttft, wallMs: wall, steps } };
         trials.push(trial);
         onTrial(trial);

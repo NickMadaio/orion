@@ -63,8 +63,16 @@ if (command === "show") {
 }
 
 const signalAt = flag("--at") ? new Date(flag("--at")) : now;
+// The alarm that actually rang: a wake-up he asked for (orion-wake) beats the
+// planner's automatic one. 2026-10-08: alarm moved to 7:15, the planner still
+// said 09:00, and his 7:15 unplug was judged "too early". Earliest one wins.
 let wake = null;
 try { wake = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
+const asked = readJson(join(DIR, "wake-request.json"))?.at;
+if (asked && localDate(new Date(asked)) === today) {
+  const clock = new Date(asked).toTimeString().slice(0, 5);
+  if (!wake || clock < wake) wake = clock;
+}
 const gate = shouldBrief({ signal, signalAt, now, wake, briefedToday: !!state[today] });
 // Every signal and what was decided, for checking a morning afterwards.
 if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signal} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }

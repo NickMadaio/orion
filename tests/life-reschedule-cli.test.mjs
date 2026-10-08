@@ -373,3 +373,14 @@ test("an option that belongs to another command is refused (2026-10-07)", (t) =>
   assert.match(r.out, /--by/);
   assert.ok(day().some((e) => e.title === "Gym"));
 });
+
+test("add takes --minutes and --after the way ORION reaches for them (2026-10-08)", (t) => {
+  const { run, day } = world(t, [{ title: "CS1800 Discrete Structures", start: iso(9), end: iso(10, 30) }]);
+  const r = run("add", "gym and laundry", "--after", "CS1800 Discrete Structures", "--minutes", "120");
+  assert.equal(r.code, 0, r.out);
+  const gym = day().find((e) => e.title === "gym and laundry");
+  assert.ok(gym && gym.start >= hm(10, 30) && gym.end - gym.start === 120, JSON.stringify(day()));
+  const missing = run("add", "gym", "60", "--after", "Underwater basket weaving");
+  assert.equal(missing.code, 2, missing.out);
+  assert.match(missing.out, /NOTHING WAS CHANGED/);
+});

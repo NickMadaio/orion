@@ -5,7 +5,7 @@
 //   orion-reschedule overrun <minutes> [--what "<class>"] [--date …]   a class runs over (any day); the trip home moves too
 //   orion-reschedule now "<title>, <min>" ["<title>, <min>" …] [--at HH:MM]   what he is doing right now ("eating, then a
 //        break"): booked from now (or when he started), everything not yet done slides after it in order
-//   orion-reschedule add "<title>" <minutes> [--at HH:MM] [--fixed] [--before HH:MM] [--date YYYY-MM-DD]
+//   orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM] [--date YYYY-MM-DD]
 //   orion-reschedule fill [--date YYYY-MM-DD]                         fill the blanks once his real plans are known
 //   orion-reschedule day --plan "<title>, <min>, HH:MM, fixed" [--plan …] [--fill]
 //        everything he just told you, in ONE call: his plans go in first, then the blanks are filled
@@ -66,13 +66,13 @@ import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--gap", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--gap", "--minutes", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -331,9 +331,14 @@ if (command === "late") {
   // Also accept the --plan shape, add "reading, 30" (ORION wrote it that way, 2026-09-30).
   const packed = /^(.*?),\s*(\d+)\s*(?:min(?:ute)?s?)?$/i.exec(rest[0] ?? "");
   const title = clean(packed && rest[1] === undefined ? packed[1] : rest[0] ?? "");
-  const n = Number(packed && rest[1] === undefined ? packed[2] : rest[1]);
-  if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail('usage: orion-reschedule add "<title>" <minutes> [--at HH:MM] [--fixed] [--before HH:MM]');
-  const at = minute(flag("--at")); const before = minute(flag("--before"));
+  // `--minutes 120` and `--after "<event>"` are how ORION reaches for it (2026-10-08:
+  // three tries to add "gym and laundry" after the lecture); both are accepted.
+  const n = Number(packed && rest[1] === undefined ? packed[2] : rest[1] ?? flag("--minutes"));
+  if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail('usage: orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM]');
+  const afterTitle = flag("--after");
+  const anchor = afterTitle ? blocks.find((b) => sameThingEarly(afterTitle, b.title) || sameThingEarly(b.title, afterTitle)) : null;
+  if (afterTitle && !anchor) fail(`NOTHING WAS CHANGED: no "${afterTitle}" on ${date} to put it after.`, 2);
+  const at = anchor ? anchor.end : minute(flag("--at")); const before = minute(flag("--before"));
   const fixed = args.includes("--fixed") || isSocial(title);
   if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
   add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(before !== null ? { before } : {}), fixed });

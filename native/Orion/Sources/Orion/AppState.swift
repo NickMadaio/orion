@@ -444,14 +444,12 @@ final class AppState: ObservableObject {
     /// The listening window currently open is a follow-up, so nothing has been
     /// said in it yet and the ordinary hangover must not close it immediately.
     private var awaitingFollowUp = false
-    /// This turn opened without his wake word or key (a follow-up, or speech
-    /// that interrupted ORION): check it was said to ORION before paying for it.
-    private var turnUnaddressed = false
 
     /// How long to wait for a follow-up before deciding the exchange is over.
     /// Long enough to think about the answer, short enough that Orion is not
     /// still holding the microphone open when you have walked away.
     private static let followUpGrace: TimeInterval = 6
+    private static let continuationGrace: TimeInterval = 2.5
     /// A beat after Orion's own audio ends, before the ear opens. The speaker's
     /// tail and the room's reverb are still arriving; without this the follow-up
     /// window hears Orion and answers itself.
@@ -1213,7 +1211,6 @@ final class AppState: ObservableObject {
             conversationOpen = true
             setPhase(.idle)
             beginListening(handsFree: true)
-            turnUnaddressed = true
             // Set AFTER beginListening returns: a fresh, non-follow-up press
             // clears `preservedTranscript` at its own top, and this is the one
             // path that has to survive that clear — see `beginListening`.
@@ -1257,10 +1254,7 @@ final class AppState: ObservableObject {
         setPhase(.idle)
         beginListening(handsFree: true)
         // He is finishing his own sentence (2026-10-08: "after class, I want to"
-        // was cut by the endpoint, he kept talking, and AddressGate threw the
-        // rest away as "not said to ORION"). Voice ID already accepted him; the
-        // continuation of an addressed turn is addressed.
-        turnUnaddressed = false
+        // was cut by the endpoint and he kept talking).
         preservedTranscript = heardSeed
     }
 
@@ -1559,7 +1553,6 @@ final class AppState: ObservableObject {
             preservedTranscript = ""
             continuationChainRemaining = AppState.maxContinuationChain
         }
-        turnUnaddressed = followUp
         setPhase(.listening)
         statusLine = followUp
             ? "Go ahead…"
@@ -1666,7 +1659,10 @@ final class AppState: ObservableObject {
                 )
                 return
             }
-            if now.timeIntervalSince(handsFreeStartedAt) >= AppState.followUpGrace {
+            // Waiting for the rest of a cut-off sentence is short: nothing more
+            // within 2.5 s and what he said is sent as it is.
+            let grace = preservedTranscript.isEmpty ? AppState.followUpGrace : AppState.continuationGrace
+            if now.timeIntervalSince(handsFreeStartedAt) >= grace {
                 // Nothing came. The exchange is over; go back to waiting for
                 // the wake word rather than sitting here with the ear open.
                 endConversation()
@@ -1738,9 +1734,19 @@ final class AppState: ObservableObject {
         }
 
         let combined = AdaptiveEndpointModel.appendContinuation(text, to: preservedTranscript)
+        // Releasing the push-to-talk key says "I'm done"; only silence can be a breath.
+        let wasHandsFree = handsFree
         stopHandsFree()
-        let looksCutOff = activeSTTProvider != .deepgram && AdaptiveEndpointModel.hasContinuationCue(text)
-            && !AdaptiveEndpointModel.hasTerminalPunctuation(text)
+        // Deepgram punctuates a finished sentence; one that stops without a
+        // full stop or question mark was cut at a breath (2026-10-08: "after
+        // class, I want to do… I wanna hit go to the gym and do long" was sent,
+        // four times in one exchange). Keep listening; silence still sends it.
+        let looksCutOff: Bool
+        switch (wasHandsFree, activeSTTProvider == .deepgram) {
+        case (true, true): looksCutOff = !AdaptiveEndpointModel.hasTerminalPunctuation(text)
+        case (_, false): looksCutOff = AdaptiveEndpointModel.hasContinuationCue(text) && !AdaptiveEndpointModel.hasTerminalPunctuation(text)
+        case (false, true): looksCutOff = false
+        }
 
         if looksCutOff, continuationChainRemaining > 0 {
             continuationChainRemaining -= 1
@@ -1761,27 +1767,11 @@ final class AppState: ObservableObject {
         sendHeard(combined)
     }
 
-    /// Voice that may not have been for ORION goes past `AddressGate` first.
+    /// What he said goes to ORION. The local "was that said to ORION?" check
+    /// (AddressGate, 2026-10-07) was removed on 2026-10-08: it dropped five real
+    /// follow-ups in one morning and pushed him back to push-to-talk.
     private func sendHeard(_ text: String) {
-        guard turnUnaddressed else { send(text); return }
-        turnUnaddressed = false
-        AddressGate.check(heard: text, lastReply: speechOutput.lastSpokenText) { [weak self] addressed in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard addressed == false else { self.send(text); return }
-                OrionLog.write("[gate] not said to ORION — not sent (\(text.count) chars)")
-                if self.pausedGeneration != nil || self.pausedReplacementText != nil {
-                    // The paused answer still plays, and the exchange stays open so
-                    // he can answer it (it often ends in a question).
-                    self.conversationOpen = true
-                    self.handleResumeRequest(origin: .voice)
-                } else {
-                    self.endConversation()
-                    self.setPhase(.idle)
-                    self.statusLine = self.wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
-                }
-            }
-        }
+        send(text)
     }
 
     /// Whatever was preserved is sent now rather than lost — used when the

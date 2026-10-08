@@ -24,6 +24,8 @@ import { runToolJob } from "./lib/eval/v3/run-tools.mjs";
 import { runScheduleJob } from "./lib/eval/v3/run-schedule.mjs";
 import { modelInfo } from "./lib/eval/v3/ollama.mjs";
 import { appendLedger, V3_DIR } from "./lib/eval/v3/ledger.mjs";
+import { renderFrontDesk, schemaFor } from "./lib/eval/v3/prompts.mjs";
+import { tune } from "./lib/eval/v3/tune.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const [command, ...rest] = process.argv.slice(2);
@@ -132,6 +134,48 @@ async function run(part) {
   console.log(JSON.stringify(part === "heldout" ? entry.result : { runId, pass: `${summary.pass}/${summary.n}`, validJson: summary.validJson, critical: summary.critical, honesty: summary.honesty, stopped: summary.stopped, byProvenance: summary.byProvenance, failureReasons: summary.failureReasons, speed: summary.speed }, null, 1));
 }
 
+
+// J1 tuning ladder (handoff §9): the same steps in the same order for every model, ordered by
+// the pooled baseline failure classes (empty answers, never escalating, over-asking).
+const J1_LADDER = [
+  { name: "P7 all JSON fields required", hypothesis: "answer moves come back with an empty answer", apply: (c) => ({ ...c, schemaAll: true }) },
+  { name: "P2 numbered decision procedure", hypothesis: "models never escalate / over-ask without explicit move rules", apply: (c) => ({ ...c, style: "p2" }) },
+  { name: "P3 8 worked examples", hypothesis: "move boundaries are clearer from examples", apply: (c) => ({ ...c, examples: 8 }) },
+  { name: "S2 temperature 0", hypothesis: "sampling noise flips moves", apply: (c) => ({ ...c, temp: 0 }) },
+  { name: "P4 XML sections", hypothesis: "sections are easier to follow", apply: (c) => ({ ...c, xml: true }) },
+  { name: "P4 key rules restated at the end", hypothesis: "rules in the middle are lost", apply: (c) => ({ ...c, restate: true }) },
+  { name: "P3 15 worked examples", hypothesis: "more examples cover more cases", apply: (c) => ({ ...c, examples: 15 }) },
+  { name: "C1 last 2 turns only", hypothesis: "long history distracts", apply: (c) => ({ ...c, historyTurns: 2 }) },
+  { name: "P3 3 worked examples", hypothesis: "fewer examples, less copying", apply: (c) => ({ ...c, examples: 3 }) },
+];
+
+async function tuneJ1(model) {
+  const practice = readJson(join(CASES, "practice/j1.json"), null) ?? fail("no cases — run orion-v3-eval build first");
+  const templates = Object.fromEntries(["p0", "p2"].map((n) => [n, readFileSync(join(here, `eval/v3/prompts/j1/${n}.md`), "utf8")]));
+  const info = await modelInfo(model);
+  const tuneId = `${new Date().toISOString().replace(/[:.]/g, "-")}-tune-J1-${model.replace(/[:/]/g, "_")}`;
+  const evaluate = async (config) => {
+    const system = renderFrontDesk(config, { templates, menu, examplesPool: practice });
+    const hash = createHash("sha256").update(system).digest("hex").slice(0, 12);
+    const dir = join(V3_DIR, "runs", tuneId, hash);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const { summary } = await runFrontDesk(practice, { model, menu, system, schema: schemaFor(config), historyTurns: config.historyTurns ?? 4, think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384,
+      onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) });
+    writePrivate(join(dir, "prompt.json"), { config, system });
+    return { pass: summary.pass, n: summary.n, critical: summary.criticalMisroutes, falseClaims: 0, validJson: summary.validJson, promptHash: hash, speed: summary.speed, failureReasons: summary.failureReasons };
+  };
+  const start = { style: "p0", temp: "card", think: "off" };
+  const baseline = await evaluate(start);
+  appendLedger({ phase: "5", kind: "tune-start", job: "J1", model, digest: info.digest ?? null, tuneId, config: start, practice: baseline });
+  const result = await tune({ start, ladder: J1_LADDER, evaluate, baseline,
+    onStep: (r) => { appendLedger({ phase: "5", kind: "tune", job: "J1", model, digest: info.digest ?? null, tuneId, iteration: r.iteration, change: r.change, hypothesis: r.hypothesis, config: r.config, practice: r.result, kept: r.kept, bestBefore: r.bestBefore }); process.stderr.write(`${r.kept ? "KEEP" : "drop"} ${r.change}: ${r.result.pass}/${r.result.n} (best was ${r.bestBefore})\n`); } });
+  const frozen = { job: "J1", model, digest: info.digest ?? null, config: result.best.config, practice: result.best.result, stopped: result.stopped, iterations: result.history.length, tuneId,
+    system: renderFrontDesk(result.best.config, { templates, menu, examplesPool: practice }) };
+  writePrivate(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), frozen);
+  appendLedger({ phase: "5", kind: "freeze", job: "J1", model, tuneId, config: frozen.config, promptHash: result.best.result.promptHash, practice: frozen.practice, stopped: frozen.stopped, iterations: frozen.iterations });
+  console.log(JSON.stringify({ model, baseline: `${baseline.pass}/${baseline.n}`, best: `${result.best.result.pass}/${result.best.result.n}`, config: frozen.config, stopped: frozen.stopped }, null, 1));
+}
+
 // Tool-job summary: the J1 summary plus the honesty counts the gates use.
 function summariseTools({ trials, cfg }) {
   const base = summarise(trials.map((t) => ({ ...t, critical: null, validJson: true })), { cfg });
@@ -144,6 +188,7 @@ try {
   if (command === "build") build();
   else if (command === "run") await run("practice");
   else if (command === "final") await run("heldout");
+  else if (command === "tune" && flag("--job", "J1") === "J1") await tuneJ1(flag("--model") ?? fail("--model is required"));
   else fail("usage: orion-v3-eval build | run --job J1 --model M … | final --job J1 --model M …");
 } catch (error) {
   console.error(`orion-v3-eval failed: ${error.stack ?? error.message}`);

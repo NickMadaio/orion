@@ -15,15 +15,15 @@ const shuffle = (xs, seed) => { const next = rng(seed); return xs.map((x) => [ne
  * cases, { model, template, menu, think, temp, ctx, repeats, seed, oracle, onTrial }
  * → { trials, summary }
  */
-export async function runFrontDesk(cases, { model, template, menu, think = "off", temp = "card", ctx = 16384, repeats = 1, seed = 1, oracle = false, timeoutMs = 60000, onTrial = () => {}, chatImpl = chat }) {
-  const system = systemPrompt(template, menu);
+export async function runFrontDesk(cases, { model, template, menu, system: rendered = null, schema = FRONT_DESK_SCHEMA, historyTurns = 4, think = "off", temp = "card", ctx = 16384, repeats = 1, seed = 1, oracle = false, timeoutMs = 60000, onTrial = () => {}, chatImpl = chat }) {
+  const system = rendered ?? systemPrompt(template, menu);
   const cfg = configure(model, { think, temp, ctx });
-  if (!oracle) await chatImpl({ model, messages: [{ role: "system", content: system }, { role: "user", content: "Now: warm-up.\n\nMessage:\nNick: hi" }], format: FRONT_DESK_SCHEMA, think: cfg.think, options: cfg.options, timeoutMs: 180000 });
+  if (!oracle) await chatImpl({ model, messages: [{ role: "system", content: system }, { role: "user", content: "Now: warm-up.\n\nMessage:\nNick: hi" }], format: schema, think: cfg.think, options: cfg.options, timeoutMs: 180000 });
   const trials = [];
   for (let r = 0; r < repeats; r++) {
     for (const c of shuffle(cases, seed + r)) {
       const res = oracle ? { message: { content: oracleOutput(c) }, timings: {}, aborted: null, error: null }
-        : await chatImpl({ model, messages: [{ role: "system", content: system }, ...messagesFor(c)], format: FRONT_DESK_SCHEMA, think: cfg.think, options: cfg.options, timeoutMs });
+        : await chatImpl({ model, messages: [{ role: "system", content: system }, ...messagesFor(c, { historyTurns })], format: schema, think: cfg.think, options: cfg.options, timeoutMs });
       const failed = res.error || res.aborted;
       const grade = failed ? { pass: false, validJson: false, move: null, critical: null, reasons: [res.error ? `error: ${res.error}` : `aborted: ${res.aborted}`] } : gradeFrontDesk(c, res.message.content);
       const trial = { repeat: r, id: c.id, provenance: c.provenance, pass: grade.pass, validJson: grade.validJson, move: grade.move, critical: grade.critical,

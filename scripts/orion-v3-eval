@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+/*
+ orion-v3-eval — the ORION V3 local-model evaluation runner (ORION_V3_HANDOFF.md §13.4).
+
+   orion-v3-eval build                       assemble cases, validate, split (fixed seed), write practice/held-out
+   orion-v3-eval run --job J1 --model M [--prompt p0] [--think off] [--temp card|0|0.3] [--ctx 16384]
+                     [--repeats 1] [--seed 1] [--label baseline|tune] [--change "…"] [--hypothesis "…"] [--oracle]
+                                             practice cases only (tuning never sees held-out)
+   orion-v3-eval final --job J1 --model M --prompt … [same settings] --repeats 3
+                                             held-out cases; prints aggregates only
+
+ Cases with Nick's words live in ~/.openclaw/orion-controlled/evals/v3/cases (0600);
+ synthetic ones in scripts/eval/v3/synthetic. Every run writes runs/<id>/ and one
+ ledger line. Local models only; costs nothing.
+ (Written by Claude on 2026-10-08 for the V3 local-first evaluation.)
+*/
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, appendFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import { normaliseCase, validateCase, makeSplit, selectCases } from "./lib/eval/v3/cases.mjs";
+import { runFrontDesk, summarise } from "./lib/eval/v3/run-j1.mjs";
+import { runToolJob } from "./lib/eval/v3/run-tools.mjs";
+import { modelInfo } from "./lib/eval/v3/ollama.mjs";
+import { appendLedger, V3_DIR } from "./lib/eval/v3/ledger.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const [command, ...rest] = process.argv.slice(2);
+const flag = (n, d) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : d; };
+const has = (n) => rest.includes(n);
+const fail = (m, code = 2) => { console.error(`orion-v3-eval: ${m}`); process.exit(code); };
+const CASES = join(V3_DIR, "cases");
+const SPLIT = join(CASES, "split.json");
+const menu = JSON.parse(readFileSync(join(here, "eval/v3/front-desk-menu.json"), "utf8"));
+const readJson = (p, d) => (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : d);
+const writePrivate = (p, data) => { mkdirSync(dirname(p), { recursive: true, mode: 0o700 }); writeFileSync(p, JSON.stringify(data, null, 1)); chmodSync(p, 0o600); };
+
+function sources(job) {
+  const lower = job.toLowerCase();
+  const synthetic = readJson(join(here, `eval/v3/synthetic/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: "synthetic-edge" }));
+  const real = readJson(join(CASES, `real/${lower}.json`), { cases: [] }).cases.map((c) => normaliseCase(c, { job, provenance: c.provenance }));
+  return [...real, ...synthetic];
+}
+
+const TOOL_JOBS = new Set(["J2", "J4"]);
+const JOBS = ["J1", "J2", "J4"];
+
+// Tool-job cases: every expected or forbidden pattern must compile; fixtures need a match list.
+const validateToolCase = (c) => {
+  const errors = [];
+  if (!String(c.say ?? "").trim()) errors.push(`${c.id}: missing say`);
+  for (const set of [...(c.expect?.calls ?? []), ...(c.expect?.forbid ?? [])]) for (const p of set) { try { new RegExp(p, "i"); } catch { errors.push(`${c.id}: bad pattern ${p}`); } }
+  for (const f of c.fixtures ?? []) if (!Array.isArray(f.match) || typeof f.stdout !== "string") errors.push(`${c.id}: bad fixture`);
+  if (!Array.isArray(c.expect?.calls)) errors.push(`${c.id}: expect.calls missing`);
+  return errors;
+};
+
+function build() {
+  const jobs = JOBS;
+  const all = jobs.flatMap(sources);
+  const errors = all.flatMap((c) => (TOOL_JOBS.has(c.job) ? validateToolCase(c) : validateCase(c, { menu: new Set(menu.tools.map((t) => t.name)) })));
+  const dupes = all.map((c) => c.id).filter((id, i, a) => a.indexOf(id) !== i);
+  if (errors.length || dupes.length) fail(`invalid cases:\n  ${[...errors, ...dupes.map((d) => `duplicate id ${d}`)].join("\n  ")}`, 1);
+  const previous = readJson(SPLIT, { seed: 20261008, assignment: {} });
+  const assignment = makeSplit(all, { seed: previous.seed, previous: previous.assignment });
+  writePrivate(SPLIT, { seed: previous.seed, assignment });
+  for (const job of jobs) for (const part of ["practice", "heldout"]) writePrivate(join(CASES, part, `${job.toLowerCase()}.json`), selectCases(all.filter((c) => c.job === job), assignment, part));
+  const count = (part) => all.filter((c) => assignment[c.id] === part).reduce((m, c) => ({ ...m, [c.provenance]: (m[c.provenance] ?? 0) + 1 }), {});
+  console.log(JSON.stringify({ cases: all.length, practice: count("practice"), heldout: count("heldout") }, null, 1));
+}
+
+function promptFor(job, name, model) {
+  const slug = model.replace(/[:/]/g, "-");
+  const specific = join(here, `eval/v3/prompts/${job.toLowerCase()}/${slug}/${name}.md`);
+  const path = existsSync(specific) ? specific : join(here, `eval/v3/prompts/${job.toLowerCase()}/${name}.md`);
+  if (!existsSync(path)) fail(`no prompt ${name} for ${job} (${path})`);
+  const text = readFileSync(path, "utf8");
+  return { text, path: path.replace(`${here}/`, "scripts/"), hash: createHash("sha256").update(text).digest("hex").slice(0, 12) };
+}
+
+async function run(part) {
+  const job = flag("--job", "J1");
+  const model = flag("--model") ?? fail("--model is required");
+  if (!JOBS.includes(job)) fail(`job ${job} is not wired yet`);
+  const label = part === "heldout" ? "final" : flag("--label", "tune");
+  const cases = readJson(join(CASES, part, `${job.toLowerCase()}.json`), null) ?? fail("no cases — run orion-v3-eval build first");
+  const limit = Number(flag("--limit", 0));
+  const picked = limit ? cases.slice(0, limit) : cases;
+  const prompt = promptFor(job, flag("--prompt", "p0"), model);
+  const settings = { think: flag("--think", "off"), temp: flag("--temp", "card"), ctx: Number(flag("--ctx", 16384)), repeats: Number(flag("--repeats", part === "heldout" ? 3 : 1)), seed: Number(flag("--seed", 1)) };
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${job}-${model.replace(/[:/]/g, "_")}-${label}`;
+  const dir = join(V3_DIR, "runs", runId);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const trialsFile = join(dir, "trials.jsonl");
+  const info = has("--oracle") ? { model: "oracle" } : await modelInfo(model);
+  const started = Date.now();
+  const onTrial = (t) => { appendFileSync(trialsFile, `${JSON.stringify(t)}\n`, { mode: 0o600 }); if (part === "practice") process.stderr.write(t.pass ? "." : "x"); };
+  const iface = flag("--iface", "T1");
+  const summary = TOOL_JOBS.has(job)
+    ? summariseTools(await runToolJob(picked, { model, template: prompt.text, menu, iface, ...settings, onTrial }))
+    : (await runFrontDesk(picked, { model, template: prompt.text, menu, ...settings, oracle: has("--oracle"), onTrial })).summary;
+  if (TOOL_JOBS.has(job)) settings.iface = iface;
+  process.stderr.write("\n");
+  const entry = { phase: label === "final" ? "6" : label === "baseline" ? "4" : "5", kind: label, runId, job, part, model, digest: info.digest ?? null, quantization: info.quantization ?? null,
+    config: { prompt: prompt.path, promptHash: prompt.hash, ...settings, thinkApplied: summary.thinkApplied }, cases: picked.length, oracle: has("--oracle"),
+    change: flag("--change", null), hypothesis: flag("--hypothesis", null), minutes: Math.round((Date.now() - started) / 6000) / 10,
+    result: part === "heldout" ? { n: summary.n, pass: summary.pass, validJson: summary.validJson, criticalMisroutes: summary.criticalMisroutes, honesty: summary.honesty ?? null } : summary };
+  writePrivate(join(dir, "summary.json"), { ...entry, summary });
+  appendLedger(entry);
+  console.log(JSON.stringify(part === "heldout" ? entry.result : { runId, pass: `${summary.pass}/${summary.n}`, validJson: summary.validJson, critical: summary.critical, honesty: summary.honesty, stopped: summary.stopped, byProvenance: summary.byProvenance, failureReasons: summary.failureReasons, speed: summary.speed }, null, 1));
+}
+
+// Tool-job summary: the J1 summary plus the honesty counts the gates use.
+function summariseTools({ trials, cfg }) {
+  const base = summarise(trials.map((t) => ({ ...t, critical: null, validJson: true })), { cfg });
+  const count = (k) => trials.filter((t) => t.honesty?.[k]).length;
+  return { ...base, honesty: { falseClaims: count("falseClaim"), omittedFailures: count("omittedFailure"), falseDenials: count("falseDenial"), wrongDetails: count("wrongDetail") },
+    stopped: trials.reduce((m, t) => ({ ...m, [t.stopped]: (m[t.stopped] ?? 0) + 1 }), {}), malformedCalls: trials.reduce((s, t) => s + (t.malformedCalls ?? 0), 0) };
+}
+
+try {
+  if (command === "build") build();
+  else if (command === "run") await run("practice");
+  else if (command === "final") await run("heldout");
+  else fail("usage: orion-v3-eval build | run --job J1 --model M … | final --job J1 --model M …");
+} catch (error) {
+  console.error(`orion-v3-eval failed: ${error.stack ?? error.message}`);
+  process.exit(1);
+}

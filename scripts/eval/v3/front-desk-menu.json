@@ -1,0 +1,29 @@
+{
+  "about": "The front desk's one-step tool menu for J1 (ORION V3 handoff §6). Names are abstract; each maps to the real command ORION runs today. Anything needing several steps or judgement about his day is an escalation, not a tool.",
+  "tools": [
+    { "name": "weather", "does": "Current weather, today's high/low, rain times, a few days ahead", "maps": "orion_task_run weather_now(location, days)", "args": { "days": "1-7, optional" } },
+    { "name": "lights", "does": "LED strip on/off, brightness, colour", "maps": "orion-lights on|off [--brightness N] [--color X]", "args": { "do": "on|off", "brightness": "0-100, optional", "color": "optional" } },
+    { "name": "alarm", "does": "A reminder or alarm at a time, with what it is for", "maps": "orion_task_run alarm_set(at, label)", "args": { "at": "HH:MM or ISO", "label": "what it is for" } },
+    { "name": "wake", "does": "His phone's wake-up alarm", "maps": "orion-wake HH:MM", "args": { "at": "HH:MM" } },
+    { "name": "session", "does": "The focus session in the app: start, pause, resume, finish, status", "maps": "orion-session start|pause|resume|finish|status", "args": { "do": "start|pause|resume|finish|status", "task": "optional", "minutes": "optional", "until": "HH:MM, optional" } },
+    { "name": "phone_time", "does": "His phone's app lock: status, or unlock for N minutes / until a time", "maps": "orion-phone-time status | grant <minutes|HH:MM> --because <reason>", "args": { "do": "status|grant", "minutes": "optional", "until": "optional", "because": "his reason" } },
+    { "name": "agenda", "does": "Read today's or another day's calendar and to-dos", "maps": "orion-agenda today|tomorrow|day <d> [--todos]", "args": { "day": "today|tomorrow|<date>" } },
+    { "name": "tasks", "does": "Add, change or finish one to-do", "maps": "orion-tasks add|set|done", "args": { "do": "add|set|done", "title": "the to-do", "due": "optional" } },
+    { "name": "reschedule", "does": "One simple calendar change: move, drop or clear blocks", "maps": "orion-reschedule move|drop|clear", "args": { "do": "move|drop|clear", "title": "optional", "to": "HH:MM, optional" } },
+    { "name": "show", "does": "Show a tab of the Orion Mac app", "maps": "orion-show <tab>", "args": { "tab": "home|plan|health|focus|…" } },
+    { "name": "app_open", "does": "Open an app on the Mac", "maps": "orion_task_run app_open(application)", "args": { "application": "name" } },
+    { "name": "browser", "does": "Open a URL or new tab", "maps": "orion_task_run browser_open_url(url, browser)", "args": { "url": "https://…", "browser": "optional" } },
+    { "name": "media", "does": "Play, pause, skip, volume", "maps": "orion_task_run media_* / volume_set", "args": { "do": "play|pause|next|previous|volume", "level": "optional" } },
+    { "name": "log_intake", "does": "Log water or food he had", "maps": "orion-log water|food", "args": { "what": "water|food", "amount": "text" } },
+    { "name": "supplements", "does": "Add, update, remove or mark taken a supplement", "maps": "orion_task_run supplement_*", "args": { "do": "add|update|remove|take", "name": "supplement" } },
+    { "name": "brain", "does": "Search or read his notes, or save a fact he told you", "maps": "orion-brain search|read|learn", "args": { "do": "search|read|learn", "query": "text" } },
+    { "name": "repair_note", "does": "Save a problem or idea for later fixing (the repair queue)", "maps": "orion-brain learn \"ORION repair queue\" failure \"…\"", "args": { "what": "what went wrong or what he wants", "when": "optional" } }
+  ],
+  "moves": {
+    "answer": "Reply directly; no tool is needed (time, chit-chat, a fact already in front of you).",
+    "tool": "Run exactly one tool from the menu, then reply.",
+    "escalate": "Hand to a bigger model: anything with several steps, changes to his day beyond one simple move, or judgement. Pick tier quick/standard/deep and think off/low/high.",
+    "ask": "The request is unclear or missing something only he can say.",
+    "ignore": "The speech is not addressed to ORION (talking to someone else, a stray fragment)."
+  }
+}

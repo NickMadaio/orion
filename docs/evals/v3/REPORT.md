@@ -177,7 +177,6 @@ outside Git in `evals/v3/catalogue.json`).
   5. Sessions with a known key that were really coding probes still exist before September;
      they are outside the 30-day window that drives test weights.
 
-## 3–9. Pending
-
-Per-job results, comparisons, honesty (raw vs simulated guard), end-to-end,
-failure-catalogue status, routing matrix, open decisions.
+<!-- generated:start -->
+_Sections 3 and 8 are generated from the ledger by `orion-v3-eval report` once held-out finals exist._
+<!-- generated:end -->

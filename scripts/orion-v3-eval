@@ -29,6 +29,14 @@ import { thinkFor } from "./lib/eval/v3/presets.mjs";
 import { tune } from "./lib/eval/v3/tune.mjs";
 import { generateReplies, judgeReplies, summariseJudged } from "./lib/eval/v3/run-j7.mjs";
 import { readBattery } from "./lib/eval/v3/battery.mjs";
+import { runFinal } from "./lib/eval/v3/final.mjs";
+import { buildReport } from "./lib/eval/v3/report-md.mjs";
+import { readLedger } from "./lib/eval/v3/ledger.mjs";
+import { chat } from "./lib/eval/v3/ollama.mjs";
+import { messagesFor } from "./lib/eval/v3/frontdesk.mjs";
+import { configure } from "./lib/eval/v3/presets.mjs";
+import { median } from "./lib/eval/v3/stats.mjs";
+import { execFileSync } from "node:child_process";
 
 // Timings are only comparable on mains power (handoff §15); every run records where it ran.
 const powerNow = () => { try { const b = readBattery(); return b.onBattery ? `battery ${b.percent}%` : "ac"; } catch { return "unknown"; } };
@@ -262,6 +270,63 @@ async function tuneTools(job, model) {
   console.log(JSON.stringify({ job, model, baseline: `${baseline.pass}/${baseline.n}`, best: `${result.best.result.pass}/${result.best.result.n}`, config: frozen.config, stopped: frozen.stopped }, null, 1));
 }
 
+
+// Phase 6: the held-out set against a model's frozen configuration (configs/<job>/<model>.json).
+async function finalFrozen() {
+  const job = flag("--job") ?? fail("--job is required");
+  const model = flag("--model") ?? fail("--model is required");
+  const lower = job.toLowerCase();
+  const frozen = readJson(join(V3_DIR, "configs", lower, `${model.replace(/[:/]/g, "_")}.json`), null) ?? fail(`no frozen ${job} configuration for ${model} — tune first`);
+  const cases = readJson(join(CASES, `heldout/${lower}.json`), null) ?? fail("no held-out cases");
+  const repeats = Number(flag("--repeats", 3));
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-final-${job}-${model.replace(/[:/]/g, "_")}`;
+  const dir = join(V3_DIR, "runs", runId);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const powerAtStart = powerNow();
+  const { summary } = await runFinal({ job, frozen, cases, menu, repeats, onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) });
+  const { perCase, ...aggregate } = summary;
+  writePrivate(join(dir, "summary.json"), { job, model, frozen: { config: frozen.config, tuneId: frozen.tuneId }, summary });
+  appendLedger({ phase: "6", kind: "final", runId, job, model, digest: frozen.digest ?? null, config: frozen.config, repeats, power: { start: powerAtStart, end: powerNow() }, result: aggregate });
+  console.log(JSON.stringify({ runId, job, model, pass: `${aggregate.pass}/${aggregate.trials}`, pooled: aggregate.pooled, pass3: aggregate.pass3, criticalMisroutes: aggregate.criticalMisroutes, honesty: aggregate.honesty }, null, 1));
+}
+
+
+// Speed (handoff §10.2): ≥20 timed front-desk requests per configuration, warm (after a warm-up)
+// or cold (model unloaded before each). Plugged in only.
+async function speed() {
+  const model = flag("--model") ?? fail("--model is required");
+  const n = Number(flag("--n", 20));
+  const cold = has("--cold");
+  if (powerNow() !== "ac") fail("speed is measured plugged in only");
+  const frozen = readJson(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), null);
+  const config = frozen?.config ?? { style: "p0" };
+  const system = frozen?.system ?? promptFor("J1", "p0", model).text.replace("{{tools}}", menu.tools.map((t) => `- ${t.name}: ${t.does}. args: ${JSON.stringify(t.args)}`).join("\n"));
+  const cases = (readJson(join(CASES, "practice/j1.json"), [])).slice(0, n);
+  const cfg = configure(model, { think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384 });
+  const ask = (c) => chat({ model, messages: [{ role: "system", content: system }, ...messagesFor(c)], format: schemaFor(config), think: cfg.think, options: cfg.options, timeoutMs: 300000 });
+  if (!cold) await ask(cases[0]);
+  const rows = [];
+  for (const c of cases) {
+    if (cold) execFileSync("ollama", ["stop", model]);
+    const r = await ask(c);
+    rows.push({ id: c.id, ...r.timings });
+  }
+  const pick = (k) => rows.map((x) => x[k]).filter((x) => x != null);
+  const p90 = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(0.9 * xs.length)];
+  const result = { n: rows.length, ttftP50: median(pick("ttftMs")), ttftP90: p90(pick("ttftMs")), wallP50: median(pick("wallMs")), wallP90: p90(pick("wallMs")), loadP50: median(pick("loadMs")), promptMsP50: median(pick("promptMs")) };
+  appendLedger({ phase: "6", kind: "speed", job: "J1", model, cold, config, power: { start: "ac", end: powerNow() }, result });
+  console.log(JSON.stringify({ model, cold, ...result }, null, 1));
+}
+
+function report() {
+  const md = buildReport({ ledger: readLedger(), runsDir: join(V3_DIR, "runs") });
+  const file = join(here, "../docs/evals/v3/REPORT.md");
+  const text = readFileSync(file, "utf8");
+  const [head] = text.split("<!-- generated:start -->");
+  writeFileSync(file, `${head.trimEnd()}\n\n<!-- generated:start -->\n${md}\n<!-- generated:end -->\n`);
+  console.log(`report written: ${file}`);
+}
+
 // Tool-job summary: the J1 summary plus the honesty counts the gates use.
 function summariseTools({ trials, cfg }) {
   const base = summarise(trials.map((t) => ({ ...t, critical: null, validJson: true })), { cfg });
@@ -273,8 +338,11 @@ function summariseTools({ trials, cfg }) {
 try {
   if (command === "build") build();
   else if (command === "run") await run("practice");
+  else if (command === "final" && has("--frozen")) await finalFrozen();
   else if (command === "final") await run("heldout");
   else if (command === "judge") await judgeRun();
+  else if (command === "speed") await speed();
+  else if (command === "report") report();
   else if (command === "tune" && flag("--job", "J1") === "J1") await tuneJ1(flag("--model") ?? fail("--model is required"));
   else if (command === "tune" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await tuneTools(flag("--job"), flag("--model") ?? fail("--model is required"));
   else fail("usage: orion-v3-eval build | run --job J1 --model M … | final --job J1 --model M …");

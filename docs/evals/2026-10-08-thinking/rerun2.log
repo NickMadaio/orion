@@ -1,0 +1,9 @@
+FAIL real-same-end-conditions-two-turns (118s)
+   wrong time: organize safari is 820-885, wanted {"title":"organize safari","startAtLeast":"13:30","startBefore":"13:46","endAtLeast":"14:30","endBefore":"14:41"}
+   request 1 failed: exit 1 
+   ORION: Done. CS lab now starts right after CS2100 ends; organize safari runs 2:45 PM, ending 15 minutes before DS Assessment. (That's 65 minutes total—longer as you said, but it's cutting it closer on the end buffer than the 20
+FAIL impossible-nap-before-home (18s)
+   impossible request, but he didn't say it can't be done
+   ORION: The nap ending at 1:30 PM would make him 10 minutes late to the CS lab, which is scheduled to start at 1:20 PM. Should I move the lab to start after 1:30, or wake him earlier?
+
+0/2 passed.

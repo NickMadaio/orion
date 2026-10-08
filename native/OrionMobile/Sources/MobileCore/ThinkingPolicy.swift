@@ -15,14 +15,30 @@ import Foundation
 public enum ThinkingPolicy {
     public static let boostSeconds: TimeInterval = 600
 
-    static let action = try! NSRegularExpression(pattern:
-        #"\b(re)?schedul\w*|\bcalendar\b|\bplan\w*\b|\b(move|shift|push|swap|extend|shorten|resize|cancel|skip|drop|delete|remove|clear|book)\b|\b(longer|shorter|earlier|later)\b|\b(block|event|class|lecture|lab|seminar|meeting|appointment)s?\b|\bto-?dos?\b|\btasks?\b|\bremind\w*\b|\b(deadline|due)\b|\b(tomorrow|tonight|this (morning|afternoon|evening))\b|\b(until|before|after|between)\b|\borgani[sz]e\b|\bpriorit\w*\b|\bfocus session\b|\b\d{1,2}(:\d{2})?\s?(am|pm)\b|\b\d{1,2}:\d{2}\b"#,
+    static let verbs = try! NSRegularExpression(pattern:
+        #"\b(get rid of|start|move|shift|push|swap|extend|shorten|resize|cancel|skip|drop|delete|remove|clear|book|schedule|reschedule|add|put|replace|rename|fit|make)\b"#,
+        options: [.caseInsensitive])
+    static let anchors = try! NSRegularExpression(pattern:
+        #"\b(before|after|until|between|at least|ending|ends?|same (end|time|as)|instead|then|so i'?m|right after|directly after)\b"#,
+        options: [.caseInsensitive])
+    static let wholeDay = try! NSRegularExpression(pattern:
+        #"\b(plan|schedule|fill|organi[sz]e|redo|rebuild)\b[^.?!]{0,30}\b(my |the )?(day|today|tomorrow|week|evening|afternoon|morning|rest of)\b"#,
         options: [.caseInsensitive])
 
-    /// True when the message asks ORION to work something out, not just talk.
+    /// Narrowed 2026-10-07 ("he doesn't ALWAYS need thinking"): a schedule
+    /// change with several parts or anchors, a whole day, or a long message.
+    /// One-step commands — end my session, remind me at 6:55, move gym to 6 — don't.
+    static let narrative = try! NSRegularExpression(pattern:
+        #"\b(gonna|going to|i'?ll|i will|want to|wanna)\b.{0,80}\b(then|so i'?m|by \d|until|before|after)\b"#,
+        options: [.caseInsensitive])
+
     public static func needsReasoning(_ text: String) -> Bool {
         let range = NSRange(text.startIndex..., in: text)
-        if action.firstMatch(in: text, range: range) != nil { return true }
+        if narrative.firstMatch(in: text, range: range) != nil { return true }
+        if wholeDay.firstMatch(in: text, range: range) != nil { return true }
+        let verbCount = verbs.numberOfMatches(in: text, range: range)
+        if verbCount >= 2 { return true }
+        if verbCount >= 1, anchors.firstMatch(in: text, range: range) != nil { return true }
         return text.split(whereSeparator: \.isWhitespace).count >= 35
     }
 

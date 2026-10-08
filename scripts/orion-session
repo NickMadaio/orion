@@ -60,7 +60,13 @@ import { join } from "node:path";
 const SOCKET =
   process.env.ORION_SESSION_SOCKET || join(homedir(), ".openclaw/orion-session.sock");
 
-const [command, ...rest] = process.argv.slice(2);
+// The words he (and ORION) actually use (2026-10-07: "end my focus session" →
+// `orion-session end` → "unknown command", then the visible thinking said a
+// tool had failed). Each maps to the one real command.
+const ALIASES = { end: "finish", stop: "finish", done: "finish", complete: "finish", wrap: "finish",
+  cancel: "abandon", quit: "abandon", "give-up": "abandon", begin: "start", unpause: "resume", continue: "resume", "end-break": "skip" };
+const [rawCommand, ...rest] = process.argv.slice(2);
+const command = ALIASES[rawCommand] ?? rawCommand;
 const wantsJSON = rest.includes("--json");
 const dryRun = rest.includes("--dry-run");
 const HISTORY =

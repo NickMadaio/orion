@@ -19,7 +19,10 @@ import { decide } from "./lib/reach/proactive.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { focusToday, formatFocusToday } from "./lib/focus/day-total.mjs";
-import { sandbox } from "./lib/life/bridge-path.mjs";
+import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
+import { commuteWalls } from "./lib/life/commute.mjs";
+import { waitsFor } from "./lib/life/task-spread.mjs";
 
 const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const STATE = join(DIR, "proactive-sent.json");
@@ -56,8 +59,19 @@ try { sleep = JSON.parse(run("orion-now", ["--json"])).sleep ?? {}; } catch {}
 let day = [];
 try { day = await liveDay(localDate(now)); } catch {}
 const total = focusToday(history, { dayKey: localDate(now) });
+const config = loadConfig();
+const travel = (() => { try { return commuteWalls(day, config); } catch { return []; } })();
+const same = (a, b) => String(a).toLowerCase().includes(String(b).toLowerCase()) || String(b).toLowerCase().includes(String(a).toLowerCase());
+let todos = [];
+try {
+  const raw = JSON.parse((await bridgeRequest("list_incomplete_reminders", { list: config.todoList })).reminders_json ?? "[]");
+  const titles = raw.map((t) => t.title);
+  todos = raw.map((t) => ({ title: t.title, dueDate: t.due ? localDate(new Date(t.due)) : null,
+    booked: day.some((b) => same(b.title, t.title)), waiting: !!waitsFor(t.notes, titles.filter((x) => x !== t.title)) }));
+} catch {}
+const tomorrow = localDate(new Date(now.getTime() + 86400000));
 
-const messages = decide({ minute, day, session, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
+const messages = decide({ minute, day, session, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
   bed: sleep.bedtime, wake: sleep.wake, focusToday: total.focusSeconds >= 60 ? formatFocusToday(total).replace(/^Focused today: /, "").replace(/ \(latest.*$/, "") : null, sent });
 
 for (const m of messages) {

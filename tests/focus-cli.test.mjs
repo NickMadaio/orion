@@ -59,3 +59,12 @@ test("recover says nothing to recover after a completed session", async (t) => {
   assert.match(r.stdout, /Nothing to recover: the last session \(essay\) finished normally/);
   assert.doesNotMatch(r.stdout, /DRY RUN/);
 });
+
+test("end, stop and done mean finish; cancel means abandon (2026-10-07)", async (t) => {
+  const run = await harness(t);
+  for (const word of ["end", "stop", "done"]) {
+    const r = run(word, "--dry-run");
+    assert.doesNotMatch(r.stderr, /unknown command/, word);
+  }
+  assert.doesNotMatch(run("cancel", "--dry-run").stderr, /unknown command/);
+});

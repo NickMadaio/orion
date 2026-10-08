@@ -1,0 +1,78 @@
+[
+ {
+  "id": "resize-longer",
+  "model": "default",
+  "thinking": "default",
+  "ok": true,
+  "failures": [],
+  "secs": 10,
+  "replies": [
+   "Done. Study is now 5:33 PM. Everything after it shifted back by 30 minutes."
+  ],
+  "day": [
+   {
+    "title": "Side project (YouTube)",
+    "start": 838,
+    "end": 883,
+    "id": "seed-2",
+    "fixed": false
+   },
+   {
+    "title": "Nap",
+    "start": 908,
+    "end": 953,
+    "id": "seed-3",
+    "fixed": false
+   },
+   {
+    "title": "Study",
+    "start": 963,
+    "end": 1053,
+    "id": "seed-4",
+    "fixed": false
+   },
+   {
+    "title": "apply to SOMEWHERE",
+    "start": 1058,
+    "end": 1103,
+    "id": "seed-5",
+    "fixed": false
+   },
+   {
+    "title": "send internship applications",
+    "start": 1108,
+    "end": 1198,
+    "id": "seed-6",
+    "fixed": false
+   },
+   {
+    "title": "Dinner",
+    "start": 1203,
+    "end": 1248,
+    "id": "seed-7",
+    "fixed": false
+   },
+   {
+    "title": "finish resume",
+    "start": 1253,
+    "end": 1343,
+    "id": "seed-8",
+    "fixed": false
+   },
+   {
+    "title": "review CS lect 2",
+    "start": 1348,
+    "end": 1363,
+    "id": "seed-9",
+    "fixed": false
+   },
+   {
+    "title": "Wind down",
+    "start": 1425,
+    "end": 1439,
+    "id": "seed-10",
+    "fixed": false
+   }
+  ]
+ }
+]

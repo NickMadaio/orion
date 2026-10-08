@@ -9,16 +9,21 @@ final class ThinkingPolicyTests: XCTestCase {
         XCTAssertEqual(ThinkingPolicy.level(for: "tell me a joke", model: nil, boostedUntil: nil, now: now), "off")
     }
 
-    func test_changing_his_day_thinks() {
+    func test_one_step_commands_do_not_think() {
+        for text in ["end my focus session", "remind me at 6:55 for the drop", "move the gym to 6pm", "what's on tomorrow"] {
+            XCTAssertEqual(ThinkingPolicy.level(for: text, model: nil, boostedUntil: nil, now: now), "off", text)
+        }
+    }
+
+    func test_multi_part_changes_think() {
         for text in ["can you start organize safari directly after CS lab, same end conditions",
-                     "make a new to-do called organize safari", "move the gym to 6pm",
-                     "remind me to call mum", "push my nap later", "what's on tomorrow"] {
+                     "get rid of send internship applications and push study back half an hour", "plan my day from my to-do list"] {
             XCTAssertEqual(ThinkingPolicy.level(for: text, model: nil, boostedUntil: nil, now: now), "low", text)
         }
     }
 
     func test_local_models_never_think() {
-        XCTAssertEqual(ThinkingPolicy.level(for: "reschedule my day", model: "ollama/qwen3.5:9b", boostedUntil: nil, now: now), "off")
+        XCTAssertEqual(ThinkingPolicy.level(for: "plan my day", model: "ollama/qwen3.5:9b", boostedUntil: nil, now: now), "off")
     }
 
     func test_a_struggle_keeps_thinking_on_for_a_while() {

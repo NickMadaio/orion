@@ -35,6 +35,33 @@ export function decide(ctx) {
       late ? "reminder" : "update", { urgent: late });
   }
 
+  const strip = (t) => String(t).replace(/ — .*$/, "");
+  const blocks = ctx.day ?? [];
+  // Leave soon: travel starts in 5–15 minutes (even mid-session — missing class matters more).
+  for (const w of ctx.travel ?? []) {
+    const inMin = w.start - ctx.minute;
+    if (inMin < 5 || inMin > 15 || away) continue;
+    const dest = blocks.filter((b) => b.fixed && b.start >= w.end - 1).sort((a, b) => a.start - b.start)[0];
+    if (dest) say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder");
+  }
+  const open = (ctx.todos ?? []).filter((t) => !t.booked && !t.waiting);
+  // Free time worth using: daytime, home, no session, nothing now and an hour+ clear.
+  if (!busy && !away && ctx.minute >= 9 * 60 && ctx.minute <= 20 * 60 + 30 && open.length) {
+    const now = blocks.some((b) => b.start <= ctx.minute && b.end > ctx.minute);
+    const next = blocks.filter((b) => b.start > ctx.minute).sort((a, b) => a.start - b.start)[0];
+    const freeUntil = next ? next.start : Math.min(bed > ctx.minute ? bed : 24 * 60, 21 * 60);
+    if (!now && freeUntil - ctx.minute >= 60) {
+      const pick = [...open].sort((a, b) => String(a.dueDate ?? "9999").localeCompare(String(b.dueDate ?? "9999")))[0];
+      say(`gap-${Math.floor(ctx.minute / 180)}`, `You're free until ${hm(freeUntil)}. Want me to put ${pick.title} there?`, "question");
+    }
+  }
+  // Due tomorrow (or today) and nothing booked: ask in the evening, once.
+  if (ctx.minute >= 17 * 60 && ctx.minute <= 21 * 60) {
+    for (const t of open.filter((x) => x.dueDate && (x.dueDate === ctx.today || x.dueDate === ctx.tomorrow))) {
+      say(`due-${t.title}-${t.dueDate}`, `${t.title} is due ${t.dueDate === ctx.today ? "today" : "tomorrow"} and nothing's booked for it — want me to find an hour tonight?`, "question");
+    }
+  }
+
   // Bedtime — never while he's in a session or out; the session's end or his
   // getting home brings it instead.
   if (!busy && !away) {

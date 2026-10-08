@@ -36,3 +36,25 @@ test("a daytime session end names what's next", () => {
   const out = decide({ ...base, minute: m(15, 2), day: [...base.day, { title: "Gym", start: m(17), end: m(18) }], session: { status: "finished", endedMinute: m(15), sessionId: "s2" } });
   assert.match(out[0].text, /Session done\. Next: Gym at 5:00 PM\./);
 });
+
+test("leave soon names where and when", () => {
+  const day = [{ title: "CS2100 Program Design — Lab", start: m(11), end: m(12, 30), fixed: true }];
+  const out = decide({ ...base, minute: m(10, 5), day, travel: [{ title: "commute to class", start: m(10, 15), end: m(11) }] });
+  assert.equal(out[0].text, "Leave in 10 min for CS2100 Program Design at 11:00 AM.");
+});
+
+test("free time with an open to-do becomes a question, once per stretch", () => {
+  const day = [{ title: "Gym", start: m(16), end: m(17) }];
+  const todos = [{ title: "do cert courses", dueDate: "2026-10-21" }, { title: "finish resume", waiting: true }];
+  const out = decide({ ...base, minute: m(14), day, todos });
+  assert.equal(out[0].text, "You're free until 4:00 PM. Want me to put do cert courses there?");
+  assert.deepEqual(decide({ ...base, minute: m(14), day, todos, session: { status: "running" } }), []);
+  assert.deepEqual(decide({ ...base, minute: m(14), day: [{ title: "Gym", start: m(14, 30), end: m(15) }], todos }), [], "under an hour free");
+});
+
+test("due tomorrow with nothing booked is asked about in the evening", () => {
+  const todos = [{ title: "macro quiz prep", dueDate: "2026-10-08" }, { title: "booked one", dueDate: "2026-10-08", booked: true }];
+  const out = decide({ ...base, minute: m(18), day: [{ title: "Dinner", start: m(18), end: m(19) }], todos, today: "2026-10-07", tomorrow: "2026-10-08" });
+  assert.equal(out.length, 1);
+  assert.match(out[0].text, /macro quiz prep is due tomorrow and nothing's booked/);
+});

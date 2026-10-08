@@ -360,6 +360,8 @@ public enum LinkLog: Codable, Equatable, Sendable {
     case removeMeal(id: String)
     case supplement(id: String, taken: Bool)
     /// "bed" when Nick says he is going to sleep, "up" when he stops the alarm.
+    /// "unplugged" (charger off) and "used" (minutes of phone use) are the wake
+    /// signals the Mac's morning briefing waits for (2026-10-08).
     /// `at` is when it happened on the phone, ISO-8601. History for learning his patterns.
     case sleep(event: String, at: String)
     /// A sample of what the phone can see about Nick's state: motion ("still",
@@ -426,7 +428,7 @@ public enum LinkLog: Codable, Equatable, Sendable {
             guard ["started", "snooze", "done", "early-block", "early-out-of-class"].contains(action) else { throw LinkError.invalidCommand("not a check-in answer") }
             return self
         case let .sleep(event, at):
-            guard ["bed", "up"].contains(event) else { throw LinkError.invalidCommand("sleep event is bed or up") }
+            guard ["bed", "up", "unplugged", "used"].contains(event) else { throw LinkError.invalidCommand("sleep event is bed, up, unplugged or used") }
             guard at.count <= 40, ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a time") }
             return self
         }

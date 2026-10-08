@@ -11,6 +11,26 @@ enum ReachVolume {
         return current
     }
 
+    private static var restore: DispatchWorkItem?
+
+    /// Full volume, unmuted; the level he had comes back after `restoreAfter` seconds.
+    static func raiseToFull(restoreAfter seconds: TimeInterval) {
+        var error: NSDictionary?
+        let before = NSAppleScript(source: "output volume of (get volume settings)")?.executeAndReturnError(&error).int32Value ?? 50
+        let wasMuted = NSAppleScript(source: "output muted of (get volume settings)")?.executeAndReturnError(&error).booleanValue ?? false
+        _ = NSAppleScript(source: "set volume output volume 100 without output muted")?.executeAndReturnError(&error)
+        // A second briefing before the first restore keeps the ORIGINAL level.
+        if restore == nil || restore?.isCancelled == true {
+            let work = DispatchWorkItem {
+                var error: NSDictionary?
+                _ = NSAppleScript(source: "set volume output volume \(before)\(wasMuted ? " with output muted" : "")")?.executeAndReturnError(&error)
+                restore = nil
+            }
+            restore = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+        }
+    }
+
     static func prepare(headphones: Bool) {
         var error: NSDictionary?
         guard let settings = NSAppleScript(source: "get volume settings")?.executeAndReturnError(&error).stringValue

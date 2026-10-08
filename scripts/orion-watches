@@ -24,6 +24,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { parseWeatherWatch, weatherHit, judge } from "./lib/reach/triage.mjs";
 import { parsePluggedIn } from "./lib/reach/facts.mjs";
 import { sandbox } from "./lib/life/bridge-path.mjs";
+import { weather } from "./lib/reach/weather.mjs";
 
 const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const FILE = join(DIR, "watches.json");
@@ -74,7 +75,7 @@ async function tick() {
   const today = now.toLocaleDateString("en-CA");
   const due = state.watches.filter((w) => w.firedOn !== today && (!w.checkedAt || now - Date.parse(w.checkedAt) > 55 * 60000));
   if (due.length) {
-    const forecast = await weather().catch(() => null);
+    const forecast = await weather(DIR).catch(() => null);
     state = { ...state, watches: state.watches.map((w) => {
       if (!due.includes(w) || !forecast) return w;
       const hit = weatherHit(w, forecast);
@@ -134,14 +135,3 @@ function gmail() {
   try { return { ok: true, results: JSON.parse(r.stdout).results ?? [] }; } catch { return { ok: false, problem: "could not read Gmail" }; }
 }
 
-async function weather() {
-  const place = readJson(join(DIR, "location.json"))?.place ?? "London";
-  const geo = await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(place)}`, { signal: AbortSignal.timeout(10000) })).json();
-  const g = geo.results?.[0]; if (!g) return null;
-  const f = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${g.latitude}&longitude=${g.longitude}&hourly=temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,wind_speed_10m&forecast_days=2&timezone=auto`, { signal: AbortSignal.timeout(10000) })).json();
-  const h = f.hourly; const todayKey = h.time[0].slice(0, 10);
-  const nowHour = new Date().getHours();
-  return { hours: h.time.map((t, i) => ({ time: t, day: t.slice(0, 10) === todayKey ? "today" : "tomorrow", tempC: h.temperature_2m[i], rainChance: h.precipitation_probability[i] ?? 0,
-    rainMm: h.precipitation[i] ?? 0, snowCm: h.snowfall[i] ?? 0, code: h.weather_code[i] ?? 0, windKph: h.wind_speed_10m[i] ?? 0 }))
-    .filter((x) => x.day === "tomorrow" || Number(x.time.slice(11, 13)) >= nowHour) };
-}

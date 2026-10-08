@@ -1,3 +1,4 @@
+import CloudKit
 import DeviceActivity
 import FamilyControls
 import Foundation
@@ -23,6 +24,12 @@ final class ScreenMonitor: DeviceActivityMonitor {
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
+        // Three minutes on the phone after the alarm: he is up (2026-10-08).
+        if activity.rawValue.hasPrefix("morning") {
+            record(activity: activity.rawValue, event: event.rawValue)
+            reportWake("used")
+            return
+        }
         let info = about(activity)
         if let list = info["list"] {
             defaults?.set(event.rawValue == "nudge1" ? 10 : event.rawValue == "lock" ? 15 : event.rawValue == "cap" ? (list == "games" ? 90 : 120) : 0, forKey: "orion.focuslists.used." + list)
@@ -133,6 +140,27 @@ final class ScreenMonitor: DeviceActivityMonitor {
         content.sound = .default
         content.interruptionLevel = .timeSensitive
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "orion.screen.\(UUID().uuidString)", content: content, trigger: nil))
+    }
+
+    /// The same LinkCommand the app's CloudLink.sendNow writes: a `LinkLog.sleep`
+    /// for the Mac, which decides whether to give the morning briefing. Waits
+    /// (up to 20 s) so the extension is not torn down mid-save.
+    private func reportWake(_ event: String) {
+        let at = ISO8601DateFormatter().string(from: Date())
+        let zone = CKRecordZone.ID(zoneName: "OrionLink", ownerName: CKCurrentUserDefaultName)
+        let record = CKRecord(recordType: "LinkCommand", recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: zone))
+        record["text"] = "{\"sleep\":{\"at\":\"\(at)\",\"event\":\"\(event)\"}}" as CKRecordValue
+        record["sentAt"] = Date() as CKRecordValue
+        record["status"] = "pending" as CKRecordValue
+        record["device"] = "iphone" as CKRecordValue
+        record["kind"] = "log" as CKRecordValue
+        let done = DispatchSemaphore(value: 0)
+        CKContainer(identifier: "iCloud.com.nickmadaio.orion").privateCloudDatabase
+            .modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys, atomically: false) { [defaults] result in
+                if case .failure = result { defaults?.set(at, forKey: "orion.wake.unsent") }
+                done.signal()
+            }
+        _ = done.wait(timeout: .now() + 20)
     }
 
     private func record(activity: String, event: String) {

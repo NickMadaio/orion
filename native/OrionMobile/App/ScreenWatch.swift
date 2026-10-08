@@ -30,7 +30,10 @@ enum ScreenWatch {
         let lists = FocusLists.shared
         let selections = Dictionary(uniqueKeysWithValues: AppList.allCases.map { ($0, lists.selection(for: $0)) })
         let selection = FocusLock.shared.selection
-        guard selections.values.contains(where: { !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty }) else { return }
+        guard selections.values.contains(where: { !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty }) else {
+            watchMorning(glance, now: now)
+            return
+        }
         let calendar = Calendar.current
         let work = glance.blocks.filter { ["study", "deadline", "side_project", "other"].contains($0.kind) && $0.end > now && $0.minutes >= 15 }.prefix(3)
         let key = work.map { "\($0.id)\($0.start)\($0.end)" }.joined() + "\(glance.night?.bed.timeIntervalSince1970 ?? 0)" + calendar.startOfDay(for: now).description + selections.values.map { String(describing: $0) }.sorted().joined()
@@ -76,5 +79,38 @@ enum ScreenWatch {
         }
         }
         if let data = try? JSONSerialization.data(withJSONObject: about) { defaults?.set(data, forKey: "orion.screen.about") }
+        watchMorning(glance, now: now)
+    }
+    /// "used": three minutes on the phone (any app) from 45 minutes before the
+    /// alarm until four hours after it is one of the two signs he is really up
+    /// (2026-10-08, WakeSignals). An event with no apps listed counts all use.
+    /// Each morning is its own activity, remembered, and put back whenever it
+    /// is missing: the plan moves on to tomorrow's alarm minutes after today's
+    /// rings, and sync() stops every monitor when the day changes.
+    static func watchMorning(_ glance: OrionGlance, now: Date = Date()) {
+        let key = "orion.screen.mornings"
+        var windows = (defaults?.dictionary(forKey: key) as? [String: [Double]]) ?? [:]
+        let center = DeviceActivityCenter()
+        if let alarm = glance.night?.alarm {
+            let name = "morning." + String(Int(alarm.timeIntervalSince1970))
+            // A moved alarm replaces that morning's window instead of adding a second.
+            let replaced = windows.keys.filter { $0 != name && abs((windows[$0]?.first ?? 0) - alarm.timeIntervalSince1970) < 12 * 3600 }
+            center.stopMonitoring(replaced.map { DeviceActivityName($0) })
+            replaced.forEach { windows[$0] = nil }
+            windows[name] = [alarm.addingTimeInterval(-45 * 60).timeIntervalSince1970, alarm.addingTimeInterval(4 * 3600).timeIntervalSince1970]
+        }
+        windows = windows.filter { $0.value.count == 2 && $0.value[1] > now.timeIntervalSince1970 + 15 * 60 }
+        defaults?.set(windows, forKey: key)
+        let running = Set(center.activities.map(\.rawValue))
+        let calendar = Calendar.current
+        let parts: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute]
+        for (name, span) in windows where !running.contains(name) {
+            let start = max(Date(timeIntervalSince1970: span[0]), now)
+            let end = Date(timeIntervalSince1970: span[1])
+            try? center.startMonitoring(DeviceActivityName(name),
+                                        during: DeviceActivitySchedule(intervalStart: calendar.dateComponents(parts, from: start),
+                                                                       intervalEnd: calendar.dateComponents(parts, from: end), repeats: false),
+                                        events: [DeviceActivityEvent.Name("used"): DeviceActivityEvent(threshold: DateComponents(minute: 3))])
+        }
     }
 }

@@ -405,6 +405,9 @@ final class LinkEngine: ObservableObject {
                 } else {
                     result = Self.logTracking(text, at: sentAt)
                     if result.ok { applied.append(id); defaults.set(Array(applied.suffix(300)), forKey: "link.appliedLogs") }
+                    if result.ok, case .sleep(let event, let at)? = try? LinkLog.decode(text), event != "bed" {
+                        Self.morningSignal(event, at: at)
+                    }
                 }
             case .plan:
                 result = Self.requestPlan(text, id: id)
@@ -436,6 +439,19 @@ final class LinkEngine: ObservableObject {
         } catch {
             return .init(ok: false, reply: "Not logged: the health log could not be saved.")
         }
+    }
+
+    /// The phone says he is up (unplugged, minutes of use, ORION opened after the
+    /// alarm): orion-morning decides whether that is getting up and, once a
+    /// morning, says the day aloud on the Mac (2026-10-08). Fire and forget.
+    nonisolated static func morningSignal(_ signal: String, at: String) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let process = Process()
+        process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+        process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-morning").path, "signal", signal, "--at", at]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
     }
 
     /// "Started" / "10 more min" / "Done" tapped on a check-in notification.

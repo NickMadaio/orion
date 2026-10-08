@@ -87,8 +87,11 @@ final class TrackingLogTests: XCTestCase {
         let log = TrackingLog(file: file)
         XCTAssertEqual(try log.apply(.sleep(event: "bed", at: "2026-09-29T00:40:00Z"), now: now), "Logged: going to bed.")
         _ = try log.apply(.sleep(event: "up", at: "2026-09-29T08:10:00Z"), now: now)
+        // The wake signals for the morning briefing (2026-10-08).
+        _ = try log.apply(.sleep(event: "unplugged", at: "2026-09-29T08:11:00Z"), now: now)
+        _ = try log.apply(.sleep(event: "used", at: "2026-09-29T08:14:00Z"), now: now)
         let history = try XCTUnwrap(try json()["sleepLog"] as? [[String: Any]])
-        XCTAssertEqual(history.map { $0["event"] as? String }, ["bed", "up"])
+        XCTAssertEqual(history.map { $0["event"] as? String }, ["bed", "up", "unplugged", "used"])
         XCTAssertEqual((try json()["futureField"] as? [String: Any])?["kept"] as? Bool, true)
         XCTAssertThrowsError(try log.apply(.sleep(event: "nap", at: "2026-09-29T08:10:00Z"), now: now))
         XCTAssertThrowsError(try log.apply(.sleep(event: "bed", at: "last night"), now: now))

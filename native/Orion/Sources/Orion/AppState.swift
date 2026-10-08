@@ -488,7 +488,11 @@ final class AppState: ObservableObject {
     /// Set by the app delegate: the dashboard window is on screen.
     var dashboardVisible: (() -> Bool)?
 
-    func deliverReach(_ text: String, aloud: Bool, headphones: Bool) {
+    /// Set by a reach that asked for an answer (the morning briefing): when the
+    /// speech finishes, listen for a few seconds as a follow-up.
+    private var listenAfterReach = false
+
+    func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false) {
         append(.orion, text)
         if dashboardVisible?() == true {
             // The pop-up never layers over the open dashboard: put it in its chat.
@@ -504,7 +508,14 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: clear)
         OrionLog.write("[reach] \(aloud ? "aloud" : "silent bubble") — \(text.count) chars")
         guard aloud else { return }
-        ReachVolume.prepare(headphones: headphones)
+        if loud {
+            // "outloud with max volume" (2026-10-08): the morning briefing has to
+            // reach him across the room. His own level comes back after.
+            ReachVolume.raiseToFull(restoreAfter: 180)
+        } else {
+            ReachVolume.prepare(headphones: headphones)
+        }
+        listenAfterReach = listen
         activeReplyOrigin = .voice
         speak(text, origin: .voice)
     }
@@ -1032,6 +1043,18 @@ final class AppState: ObservableObject {
         speechOutput.onFinished = { [weak self] in
             guard let self else { return }
             guard self.phase == .speaking else { return }
+            // A briefing that asked a question waits a few seconds for an answer
+            // (the follow-up grace); nothing heard and the exchange closes.
+            if self.listenAfterReach {
+                self.listenAfterReach = false
+                self.setPhase(.idle)
+                self.statusLine = "Go ahead…"
+                DispatchQueue.main.asyncAfter(deadline: .now() + AppState.followUpSettle) { [weak self] in
+                    guard let self, self.phase == .idle else { return }
+                    self.beginListening(handsFree: true, followUp: true)
+                }
+                return
+            }
             // Orion has finished answering. If this exchange began by voice,
             // reopen the ear instead of going quiet, so the reply can be
             // answered the way a person would answer it.

@@ -4,7 +4,7 @@
 
    orion-reach "<message>" [--kind reminder|warning|update|question|info]
                [--why "<what prompted it>"] [--urgent] [--silent] [--channel auto|phone|mac]
-               [--dry-run] [--json]
+               [--loud] [--listen] [--dry-run] [--json]
 
  Every message lands in his ORION chat thread (phone and Mac), so he can answer
  normally, by typing or voice. How it reaches him (orion-presence):
@@ -13,6 +13,8 @@
    at the Mac at home/headphones→ hologram, said aloud at a sensible volume
    his planned night            → held until morning (unless --urgent)
  No repeats within 2 hours, at most 6 an hour. Never during an evaluation.
+ --loud: aloud at full volume (the morning briefing; the volume goes back after).
+ --listen: after saying it aloud, listen a few seconds for an answer.
 */
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -29,7 +31,7 @@ const text = args.find((a, i) => !a.startsWith("--") && !["--kind", "--why", "--
 const fail = (m, c = 2) => { console.error(m); process.exit(c); };
 if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent] [--channel auto|phone|mac] [--dry-run]');
 const kind = flag("--kind") ?? "info";
-if (!["reminder", "warning", "update", "question", "info"].includes(kind)) fail("--kind must be reminder, warning, update, question or info");
+if (!["reminder", "warning", "update", "question", "info", "morning"].includes(kind)) fail("--kind must be reminder, warning, update, question, info or morning");
 const dry = args.includes("--dry-run");
 if (!dry) refuseDuringEval("reaching Nick");
 
@@ -51,7 +53,8 @@ let decision = forced === "phone" ? { channel: "phone", reason: "asked for the p
 // --silent: never aloud (he said he's in class, or anything else that needs quiet).
 if (args.includes("--silent") && decision.channel === "mac-voice") decision = { channel: "mac-bubble", reason: `${decision.reason}; silent was asked for` };
 const id = `reach-${Date.now()}-${randomUUID().slice(0, 6)}`;
-const entry = { id, at: new Date().toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, headphones: !!here.headphones };
+const entry = { id, at: new Date().toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, headphones: !!here.headphones,
+  loud: args.includes("--loud") && !here.headphones, listen: args.includes("--listen") };
 
 if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
 

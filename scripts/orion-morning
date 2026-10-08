@@ -1,0 +1,94 @@
+#!/usr/bin/env node
+/*
+ orion-morning — ORION says good morning when Nick is actually up (2026-10-08).
+
+   orion-morning signal unplugged|used|up [--at ISO] [--dry-run]
+        the phone link runs this when the phone reports a wake signal:
+          unplugged  the charger came off (a Shortcuts automation on the phone)
+          used       a few minutes of phone use after the alarm (Screen Time)
+          up         ORION opened on the phone after the alarm
+   orion-morning preview     what he would hear right now (nothing is sent)
+   orion-morning status      whether this morning's briefing went out
+
+ Turning an alarm off is one tap; getting up is the phone off the charger, or
+ minutes of use. Either one, after (or just before) the alarm and before 1 PM,
+ starts the briefing once a morning: today's plan, when to leave, what's due,
+ the weather, and a question. It is said aloud on the Mac at full volume, then
+ ORION listens for a few seconds; nothing heard and the conversation closes.
+ The gate and the words are lib/reach/morning.mjs.
+*/
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { shouldBrief, composeBriefing } from "./lib/reach/morning.mjs";
+import { weather } from "./lib/reach/weather.mjs";
+import { liveDay, localDate } from "./lib/life/live-day.mjs";
+import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
+import { commuteWalls } from "./lib/life/commute.mjs";
+import { waitsFor } from "./lib/life/task-spread.mjs";
+
+const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const STATE = join(DIR, "morning-sent.json");
+const here = import.meta.dirname;
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const [command, signal] = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--at");
+const dry = args.includes("--dry-run");
+const now = new Date();
+const today = localDate(now);
+const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+const state = readJson(STATE) ?? {};
+const usage = "usage: orion-morning signal unplugged|used|up [--at ISO] [--dry-run] | preview | status";
+
+if (command === "status") {
+  const sent = state[today];
+  console.log(sent ? `Briefed at ${new Date(sent.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} (phone ${sent.signal}).` : "No morning briefing yet today.");
+  process.exit(0);
+}
+if (!["signal", "preview"].includes(command)) { console.error(usage); process.exit(2); }
+if (sandbox()) { console.log("Not during an evaluation."); process.exit(0); }
+
+if (command === "preview") {
+  console.log(await briefing());
+  process.exit(0);
+}
+
+const signalAt = flag("--at") ? new Date(flag("--at")) : now;
+let wake = null;
+try { wake = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
+const gate = shouldBrief({ signal, signalAt, now, wake, briefedToday: !!state[today] });
+if (!gate.ok) { console.log(`No briefing: ${gate.reason}.`); process.exit(0); }
+
+const text = await briefing();
+if (dry) { console.log(`DRY RUN — would say aloud (${gate.reason}): ${text}`); process.exit(0); }
+const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--urgent", "--loud", "--listen",
+  "--channel", "mac", "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
+process.stdout.write(sent.stdout ?? "");
+if (sent.status === 0 && /^Sent/.test(sent.stdout ?? "")) {
+  mkdirSync(DIR, { recursive: true });
+  const keep = Object.fromEntries(Object.entries({ ...state, [today]: { at: now.toISOString(), signal } }).sort().slice(-14));
+  writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2));
+  renameSync(`${STATE}.tmp`, STATE);
+}
+
+function run(script, list) {
+  try { return execFileSync(process.execPath, [join(here, script), ...list], { encoding: "utf8", timeout: 15000 }); } catch { return ""; }
+}
+
+async function briefing() {
+  let day = [];
+  try { day = await liveDay(today); } catch {}
+  const travel = (() => { try { return commuteWalls(day, loadConfig()); } catch { return []; } })();
+  const same = (a, b) => String(a).toLowerCase().includes(String(b).toLowerCase()) || String(b).toLowerCase().includes(String(a).toLowerCase());
+  let todos = [];
+  try {
+    const raw = JSON.parse((await bridgeRequest("list_incomplete_reminders", { list: loadConfig().todoList })).reminders_json ?? "[]");
+    const titles = raw.map((t) => t.title);
+    todos = raw.map((t) => ({ title: t.title, dueDate: t.due ? localDate(new Date(t.due)) : null,
+      booked: day.some((b) => same(b.title, t.title)), waiting: !!waitsFor(t.notes, titles.filter((x) => x !== t.title)) }));
+  } catch {}
+  const sky = await weather(DIR, now).catch(() => null);
+  return composeBriefing({ now, day, travel, todos, today, weather: sky });
+}

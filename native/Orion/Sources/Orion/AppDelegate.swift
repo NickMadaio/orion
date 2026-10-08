@@ -173,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if url.scheme == "orion", url.host == "reach",
                let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "id" })?.value,
                let entry = Self.outreach(id: id) {
-                state.deliverReach(entry.text, aloud: entry.channel == "mac-voice", headphones: entry.headphones)
+                state.deliverReach(entry.text, aloud: entry.channel == "mac-voice", headphones: entry.headphones,
+                                   loud: entry.loud, listen: entry.listen)
                 continue
             }
             if url.scheme == "orion", url.host == "listen" {
@@ -191,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The outreach entry orion-reach recorded for this id.
-    static func outreach(id: String) -> (text: String, channel: String, headphones: Bool)? {
+    static func outreach(id: String) -> (text: String, channel: String, headphones: Bool, loud: Bool, listen: Bool)? {
         let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach.jsonl")
         // orion-reach opens the URL before it appends the line; give it a moment.
         for _ in 0..<10 {
@@ -199,7 +200,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for line in text.split(separator: "\n").reversed() {
                     guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                           row["id"] as? String == id, let message = row["text"] as? String else { continue }
-                    return (message, row["channel"] as? String ?? "mac-bubble", row["headphones"] as? Bool ?? false)
+                    return (message, row["channel"] as? String ?? "mac-bubble", row["headphones"] as? Bool ?? false,
+                            row["loud"] as? Bool ?? false, row["listen"] as? Bool ?? false)
                 }
             }
             Thread.sleep(forTimeInterval: 0.2)

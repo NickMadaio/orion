@@ -32,6 +32,7 @@
 		000000000000000000000043 /* App/NightRoutine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000042 /* App/NightRoutine.swift */; };
 		000000000000000000000045 /* App/OfflineBrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000044 /* App/OfflineBrain.swift */; };
 		000000000000000000000047 /* App/PhoneSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000046 /* App/PhoneSignals.swift */; };
+		0000000000000000000E0002 /* App/WakeSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000E0001 /* App/WakeSignals.swift */; };
 		000000000000000000000049 /* App/FocusLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000048 /* App/FocusLock.swift */; };
 		0000000000000000000A0011 /* app */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000B; };
 		0000000000000000000A0012 /* app */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000C; };
@@ -115,6 +116,7 @@
 		000000000000000000000042 /* App/NightRoutine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NightRoutine.swift; sourceTree = "<group>"; };
 		000000000000000000000044 /* App/OfflineBrain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/OfflineBrain.swift; sourceTree = "<group>"; };
 		000000000000000000000046 /* App/PhoneSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneSignals.swift; sourceTree = "<group>"; };
+		0000000000000000000E0001 /* App/WakeSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WakeSignals.swift; sourceTree = "<group>"; };
 		000000000000000000000048 /* App/FocusLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FocusLock.swift; sourceTree = "<group>"; };
 		0000000000000000000A0001 /* ../OrionWidgets/Shared/WidgetStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/WidgetStyle.swift"; sourceTree = "<group>"; };
 		0000000000000000000A0002 /* ../OrionWidgets/Shared/GlanceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/Shared/GlanceProvider.swift"; sourceTree = "<group>"; };
@@ -180,6 +182,7 @@
 				000000000000000000000042 /* App/NightRoutine.swift */,
 				000000000000000000000044 /* App/OfflineBrain.swift */,
 				000000000000000000000046 /* App/PhoneSignals.swift */,
+				0000000000000000000E0001 /* App/WakeSignals.swift */,
 				000000000000000000000048 /* App/FocusLock.swift */,
 				00000000000000000000003B /* App/TrackingViews.swift */,
 				000000000000000000000039 /* App/HealthView.swift */,
@@ -412,6 +415,7 @@
 				000000000000000000000043 /* App/NightRoutine.swift in Sources */,
 				000000000000000000000045 /* App/OfflineBrain.swift in Sources */,
 				000000000000000000000047 /* App/PhoneSignals.swift in Sources */,
+				0000000000000000000E0002 /* App/WakeSignals.swift in Sources */,
 				000000000000000000000049 /* App/FocusLock.swift in Sources */,
 				0000000000000000000A0011,
 				0000000000000000000A0012,

@@ -174,6 +174,7 @@ struct PhoneRootView: View {
             routine.log = { [weak remote] entry in remote?.log(entry) }
             PhoneSignals.shared.log = { [weak remote] entry in remote?.logQuietly(entry) }
             PhoneSignals.shared.start()
+            WakeSignals.observeCharger()
             let planner = self.planner, routine = self.routine, remote = self.remote
             remote.offlineContext = OfflineContext(
                 schedule: { tomorrow in

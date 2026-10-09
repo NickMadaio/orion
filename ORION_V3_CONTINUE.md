@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-09 19:05 BST; base 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-09 21:15 BST; base 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -8,6 +8,14 @@ says what has been DONE, what is RUNNING, what is LEFT, and the exact commands.
 Nothing here touches the live ORION config. No Claude API calls have been made ($0 spent).
 
 ---
+
+## Update 2026-10-09 21:15 BST (newest first)
+
+- **9B J5 (brain) frozen**: `p0 + T1 + honesty + rules + examples, temp 0` → **22/23 on the expanded practice set**, 0 false claims, ~2.4 s. 9B J6 (continuity) pcoach config holds at **15/19** on the expanded set.
+- **9B J7 judged** (provisional gpt-oss v1): correctness 4.3, spoken 5.0, context 4.58, overAsk 4.3, tone 4.71 — second only to the 27B (4.5/4.92/4.92/4.65/4.75); well ahead of the 4B and llama.
+- **Queue stalled 19:04–21:10**: the worker's `pgrep -f "scripts/orion-v3-eval"` matched a Claude waiter shell whose command line contained that text. Fixed in `scripts/orion-v3-queue` (`pgrep -f "^node scripts/orion-v3-eval"`); the CURRENT worker process still runs the old loop until restarted. **Rule: never put the string `scripts/orion-v3-eval` in a long-running waiter command** — wait on `queue/<n>.done` files only, and run any freeze/queue commands in a separate, short call.
+- Next in the queue: 1044y7/y8 = 9B J5 and J6 finals on the NEW held-out sets; then 1044z1 = 4B J3 pcoach explore (then freeze its best and rename `223a-3.hold` → `.job`); then the 2xx block (J2 tunes for gpt-oss/27B; J5/J6 ladder tunes for llama/4B/gpt-oss/27B on the expanded sets).
+- After those tunes: hand-explore each model's J5/J6 with the configs that won for the 9B (`examples+honesty+rules temp 0` for J5; `pcoach+examples` for J6), freeze, run finals. Then speed (cool Mac), Phase 7 battery (tell Nick), Phase 8 pipeline, Phase 9 recommendation.
 
 ## Update 2026-10-09 19:05 BST (newest first; then the 16:37 update below)
 

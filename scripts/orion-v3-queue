@@ -17,7 +17,7 @@ case "$1" in
     while true; do
       if ! on_ac; then [[ -f $Q/.paused ]] || echo "=== $(date +%H:%M:%S) on battery — paused" >> $Q/log; touch $Q/.paused; sleep 60; continue; fi
       [[ -f $Q/.paused ]] && { rm $Q/.paused; echo "=== $(date +%H:%M:%S) on AC — resuming" >> $Q/log; }
-      if pgrep -f "scripts/orion-v3-eval" >/dev/null; then sleep 30; continue; fi
+      if pgrep -f "^node scripts/orion-v3-eval" >/dev/null; then sleep 30; continue; fi
       next=$(ls $Q/*.job 2>/dev/null | sort | head -1)
       if [[ -z "$next" ]]; then [[ -f $Q/STOP ]] && break; sleep 30; continue; fi
       line=$(cat $next); mv $next ${next%.job}.running

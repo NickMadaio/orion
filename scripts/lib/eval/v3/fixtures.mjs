@@ -19,7 +19,9 @@ export function canonicalCall({ name, args }) {
     return `exec ${[basename(first ?? ""), ...rest].join(" ")}`.trim();
   }
   if (name === "orion_task_run") {
-    const steps = a.steps ?? a.actions ?? (a.action ? [a] : []);
+    const raw = a.steps ?? a.actions ?? (a.action ? [a] : []);
+    const parsed = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : raw;
+    const steps = (Array.isArray(parsed) ? parsed : [parsed]).filter((x) => x && typeof x === "object");
     return `orion_task_run ${steps.map((s) => `${s.action ?? s.name ?? "?"} ${JSON.stringify(Object.fromEntries(Object.entries(s).filter(([k]) => k !== "action")))}`).join(" ; ")}`;
   }
   return `${name} ${JSON.stringify(a)}`;

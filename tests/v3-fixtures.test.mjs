@@ -39,3 +39,9 @@ test("toolsFor builds Ollama tool schemas for each interface", () => {
   assert.equal(t2[0].function.name, "lights");
   assert.ok(t2[0].function.parameters.properties.do);
 });
+
+test("orion_task_run steps as one object or a JSON string are canonicalised, never a crash", () => {
+  assert.match(canonicalCall({ name: "orion_task_run", args: { steps: { action: "alarm_set", at: "18:55" } } }), /alarm_set/);
+  assert.match(canonicalCall({ name: "orion_task_run", args: { steps: '[{"action":"weather_now"}]' } }), /weather_now/);
+  assert.match(canonicalCall({ name: "orion_task_run", args: { steps: "nonsense" } }), /orion_task_run/);
+});

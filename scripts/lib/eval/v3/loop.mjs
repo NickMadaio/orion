@@ -39,7 +39,9 @@ export async function runAgent({ model, system, messages, tools = [], executor, 
         toolLog.push(out); results.push(out);
         continue;
       }
-      const out = { name, args, ...(await executor({ name, args })) };
+      // A harness or fixture error is the tool failing, not the run: the model sees it like any error.
+      const done = await executor({ name, args }).catch((error) => ({ canonical: `${name} (executor error)`, stdout: `error: ${error.message}`, exit: 1 }));
+      const out = { name, args, ...done };
       toolLog.push(out); results.push(out);
     }
     history = [...history, assistant, ...results.map((o) => ({ role: "tool", tool_name: o.name, content: String(o.stdout ?? "") }))];

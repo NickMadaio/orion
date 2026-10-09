@@ -53,3 +53,10 @@ test("thinking is kept in the assistant message for the tool loop", async () => 
   const assistant = chatImpl.seen[1].messages.find((m) => m.role === "assistant");
   assert.equal(assistant.thinking, "plan");
 });
+
+test("an executor that throws becomes an error result the model sees, not a crashed run", async () => {
+  const chatImpl = scripted([step({ tool_calls: [call("exec", { command: "x" })] }), step({ content: "That failed." })]);
+  const r = await runAgent({ model: "m", system: "S", messages: [{ role: "user", content: "x" }], tools: [], executor: async () => { throw new Error("boom"); }, chatImpl });
+  assert.equal(r.stopped, "reply");
+  assert.match(r.toolLog[0].stdout, /error: boom/);
+});

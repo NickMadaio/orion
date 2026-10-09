@@ -28,6 +28,7 @@ import { renderFrontDesk, schemaFor, renderToolPrompt } from "./lib/eval/v3/prom
 import { thinkFor } from "./lib/eval/v3/presets.mjs";
 import { tune } from "./lib/eval/v3/tune.mjs";
 import { generateReplies, judgeReplies, summariseJudged } from "./lib/eval/v3/run-j7.mjs";
+import { JUDGE_VERSION } from "./lib/eval/v3/judge.mjs";
 import { readBattery } from "./lib/eval/v3/battery.mjs";
 import { runFinal } from "./lib/eval/v3/final.mjs";
 import { buildReport } from "./lib/eval/v3/report-md.mjs";
@@ -207,10 +208,10 @@ async function judgeRun() {
   if (meta.model === judge) fail(`refusing self-grading: ${judge} produced this run; use the other judge`);
   const trials = readFileSync(join(dir, "trials.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
   const cases = new Map([...readJson(join(CASES, "practice/j7.json"), []), ...readJson(join(CASES, "heldout/j7.json"), [])].map((c) => [c.id, c]));
-  const out = join(dir, `judged-${judge.replace(/[:/]/g, "_")}.jsonl`);
+  const out = join(dir, `judged-${judge.replace(/[:/]/g, "_")}${JUDGE_VERSION === "v1" ? "" : `-${JUDGE_VERSION}`}.jsonl`);
   const rows = await judgeReplies(trials, cases, { judge, onScored: (r) => appendFileSync(out, `${JSON.stringify(r)}\n`, { mode: 0o600 }) });
   const summary = summariseJudged(rows);
-  appendLedger({ phase: meta.phase, kind: "judge", job: "J7", runId, model: meta.model, judge, result: summary });
+  appendLedger({ phase: meta.phase, kind: "judge", job: "J7", runId, model: meta.model, judge, judgeVersion: JUDGE_VERSION, result: summary });
   console.log(JSON.stringify({ runId, model: meta.model, judge, ...summary }, null, 1));
 }
 

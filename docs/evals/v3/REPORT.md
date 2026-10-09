@@ -184,6 +184,22 @@ outside Git in `evals/v3/catalogue.json`).
   5. Sessions with a known key that were really coding probes still exist before September;
      they are outside the 30-day window that drives test weights.
 
+
+## Front desk (J1) — interim held-out results, 2026-10-09
+
+Practice-tuned per model (hand prompt engineering allowed, Nick 2026-10-08); held-out 46 cases × 3 repeats.
+
+| Model | Frozen setup | Practice | Held-out pooled | pass^3 | Critical |
+|---|---|---|---|---|---|
+| qwen3.5:4b | p4, temp 0 | 89/97 | 123/138 (89.1%, 82.8–93.3) | 0.89 | 6 |
+| gpt-oss:20b | p4, 25 examples, temp 0 | 80/97 | 113/138 (81.9%) | 0.80 | 4 |
+| qwen3.5:9b | p4, 25 examples, temp 0 | 86/97 | 111/138 (80.4%) | 0.80 | 6 |
+| llama3.2:3b | p5, 75 examples, temp 0 | 80/97 | 93/138 (67.4%) | 0.67 | 6 |
+| qwen3.6:27b | p4, 25 examples, temp 0 | 86/97 | pending | | |
+
+No model passes the J1 gates yet (≥95%, pass^3 ≥90%, ≤1 critical). Thinking on made the 4B
+front desk time out (60 s) on 86% of messages. llama's practice score was inflated by examples.
+
 <!-- generated:start -->
 _Sections 3 and 8 are generated from the ledger by `orion-v3-eval report` once held-out finals exist._
 <!-- generated:end -->

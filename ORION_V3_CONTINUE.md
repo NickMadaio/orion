@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-09 11:24 BST)
+# ORION V3 — continuation handoff (state at 2026-10-09 16:37 BST; base 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -6,6 +6,26 @@ in full, then `ORION_V3_HANDOFF.md` (the plan: goals, gates, fairness, cautions)
 says what has been DONE, what is RUNNING, what is LEFT, and the exact commands.
 
 Nothing here touches the live ORION config. No Claude API calls have been made ($0 spent).
+
+---
+
+## Update 2026-10-09 16:37 BST (read this first; sections below are the 11:24 state)
+
+New held-out finals (ledger has each):
+- J2 simple tools: **9B 33/33** (pass^3 1.0, 0 false claims, ~2.2 s median); 4B 24/33 (3 false claims, 5 omitted failures).
+- J3 scheduling: gpt-oss (think high) 25/36, 0 false claims, 2 wrong details — but median 28 s, p90 198 s (unusable live). 27B was 26/36, ~12 s.
+- J1 9B with 40 examples: 105/138 (worse than 25 examples' 111/138 → overfit). **Re-frozen back to 25 examples** (hash 3bbb9775bab0).
+- Speed per held-out run is in each run's trials.jsonl (`timings.ttftMs`, `wallMs`). J1 medians: llama 0.8 s, gpt-oss 1.3, 9B 1.6, 4B 2.7, 27B 6.0.
+
+J7 judge calibration (`node scripts/eval/v3/ops/judge-calibration.mjs <judge> [v1|v2]`):
+- gpt-oss v1: 82.5% within ±1 (bar 85%) — too lenient (5s for replies with the right shape). **v2 rubric** (stricter anchors, `JUDGE_VERSION` in judge.mjs; output `judged-<judge>-v2.jsonl`) queued as 1044y1–y3. Then run calibration with `v2`. If ≥85%, judge all J7 runs with it. Caveat: v2 was written after seeing the 8-id sample's disagreements, so hand-score a fresh sample before fully trusting it.
+- 27B as judge: 62.5% on 40 pairs and ~8 min per reply — dropped (1041 skipped).
+
+9B priority (Nick: "incredible how well 9B is doing"): queue jobs 1044x1–x5 run before the 223a/2xx block:
+- 1044x1 explore J3 9B with the new **pcoach** base (`prompts/j3/coach.md` appended to pfull: impossible-request check, extend vs resize, one command, check result, ≤4 calls, quote times only from output). The 9B J3 final is HELD as `queue/223a-4.hold` — freeze the best of pcoach vs pfull+think-on (11/25), then rename to `.job`.
+- 1044x2/x4: J5 and J6 tunes for the 9B (moved from 235/245).
+
+Queue worker: the old one died with the session at ~16:24. Restarted **detached** (`nohup scripts/orion-v3-queue work &`). If `queue/*.running` exists but no `orion-v3-queue` process runs, the worker died: mark that job done/requeue it, then restart.
 
 ---
 

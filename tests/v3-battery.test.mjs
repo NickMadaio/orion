@@ -47,3 +47,8 @@ test("PowerTelemetryData accumulators give the true average load between two pub
 test("batch energy per task: (task watts − idle watts) × seconds ÷ tasks", () => {
   assert.equal(batchJoulesPerTask({ idleW: 2, taskW: 22, seconds: 300, tasks: 60 }), 100);
 });
+
+test("thermal state names follow ProcessInfo.ThermalState; anything else is unknown", async () => {
+  const { thermalName } = await import("../scripts/lib/eval/v3/battery.mjs");
+  assert.deepEqual(["0", "1", "2", "3", "x", ""].map(thermalName), ["nominal", "fair", "serious", "critical", "unknown", "unknown"]);
+});

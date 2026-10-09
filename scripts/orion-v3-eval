@@ -29,7 +29,7 @@ import { thinkFor } from "./lib/eval/v3/presets.mjs";
 import { tune } from "./lib/eval/v3/tune.mjs";
 import { generateReplies, judgeReplies, summariseJudged } from "./lib/eval/v3/run-j7.mjs";
 import { JUDGE_VERSION } from "./lib/eval/v3/judge.mjs";
-import { readBattery } from "./lib/eval/v3/battery.mjs";
+import { readBattery, thermalNow } from "./lib/eval/v3/battery.mjs";
 import { runFinal } from "./lib/eval/v3/final.mjs";
 import { buildReport } from "./lib/eval/v3/report-md.mjs";
 import { breakdown as breakdownOf, breakdownMarkdown } from "./lib/eval/v3/breakdown.mjs";
@@ -41,6 +41,7 @@ import { median } from "./lib/eval/v3/stats.mjs";
 import { execFileSync } from "node:child_process";
 
 // Timings are only comparable on mains power (handoff §15); every run records where it ran.
+const thermalSpan = (start) => ({ start, end: thermalNow() });
 const powerNow = () => { try { const b = readBattery(); return b.onBattery ? `battery ${b.percent}%` : "ac"; } catch { return "unknown"; } };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -134,6 +135,7 @@ async function run(part) {
   const info = has("--oracle") ? { model: "oracle" } : await modelInfo(model);
   const started = Date.now();
   const powerAtStart = powerNow();
+  const thermalAtStart = thermalNow();
   const onTrial = (t) => { appendFileSync(trialsFile, `${JSON.stringify(t)}\n`, { mode: 0o600 }); if (part === "practice") process.stderr.write(t.pass ? "." : "x"); };
   const iface = flag("--iface", "T1");
   const summary = job === "J7"
@@ -148,7 +150,7 @@ async function run(part) {
   process.stderr.write("\n");
   const entry = { phase: label === "final" ? "6" : label === "baseline" ? "4" : "5", kind: label, runId, job, part, model, digest: info.digest ?? null, quantization: info.quantization ?? null,
     config: { prompt: prompt.path, promptHash: prompt.hash, ...settings, thinkApplied: summary.thinkApplied }, cases: picked.length, oracle: has("--oracle"),
-    change: flag("--change", null), hypothesis: flag("--hypothesis", null), power: { start: powerAtStart, end: powerNow() }, minutes: Math.round((Date.now() - started) / 6000) / 10,
+    change: flag("--change", null), hypothesis: flag("--hypothesis", null), power: { start: powerAtStart, end: powerNow() }, thermal: thermalSpan(thermalAtStart), minutes: Math.round((Date.now() - started) / 6000) / 10,
     result: part === "heldout" ? { n: summary.n, pass: summary.pass, validJson: summary.validJson, criticalMisroutes: summary.criticalMisroutes, honesty: summary.honesty ?? null } : summary };
   writePrivate(join(dir, "summary.json"), { ...entry, summary });
   appendLedger(entry);
@@ -190,7 +192,7 @@ async function tuneJ1(model) {
   const baseline = await evaluate(start);
   appendLedger({ phase: "5", kind: "tune-start", job: "J1", model, digest: info.digest ?? null, tuneId, config: start, practice: baseline });
   const result = await tune({ start, ladder: J1_LADDER, evaluate, baseline,
-    onStep: (r) => { appendLedger({ phase: "5", kind: "tune", job: "J1", model, digest: info.digest ?? null, tuneId, iteration: r.iteration, change: r.change, hypothesis: r.hypothesis, config: r.config, practice: r.result, kept: r.kept, bestBefore: r.bestBefore }); process.stderr.write(`${r.kept ? "KEEP" : "drop"} ${r.change}: ${r.result.pass}/${r.result.n} (best was ${r.bestBefore})\n`); } });
+    onStep: (r) => { appendLedger({ phase: "5", kind: "tune", power: powerNow(), thermal: thermalNow(), job: "J1", model, digest: info.digest ?? null, tuneId, iteration: r.iteration, change: r.change, hypothesis: r.hypothesis, config: r.config, practice: r.result, kept: r.kept, bestBefore: r.bestBefore }); process.stderr.write(`${r.kept ? "KEEP" : "drop"} ${r.change}: ${r.result.pass}/${r.result.n} (best was ${r.bestBefore})\n`); } });
   const frozen = { job: "J1", model, digest: info.digest ?? null, config: result.best.config, practice: result.best.result, stopped: result.stopped, iterations: result.history.length, tuneId,
     system: renderFrontDesk(result.best.config, { templates, menu, examplesPool: practice }) };
   writePrivate(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), frozen);
@@ -273,7 +275,7 @@ async function exploreTools(job, model) {
   const { evaluate, info, runId } = await toolEvaluator(job, model, "explore");
   for (const config of configs) {
     const r = await evaluate(config);
-    appendLedger({ phase: "5", kind: "explore", job, model, digest: info.digest ?? null, exploreId: runId, config, promptHash: r.promptHash, practice: r });
+    appendLedger({ phase: "5", kind: "explore", power: powerNow(), thermal: thermalNow(), job, model, digest: info.digest ?? null, exploreId: runId, config, promptHash: r.promptHash, practice: r });
     console.log(`${String(r.pass).padStart(3)}/${r.n} honesty ${JSON.stringify(r.honesty)} ${JSON.stringify(config)}`);
   }
 }
@@ -286,7 +288,7 @@ async function tuneTools(job, model) {
   const baseline = await evaluate(start);
   appendLedger({ phase: "5", kind: "tune-start", job, model, digest: info.digest ?? null, tuneId, config: start, practice: baseline });
   const result = await tune({ start, ladder, evaluate, baseline, isNoop: (next, cur) => applied(next) === applied(cur),
-    onStep: (r) => { appendLedger({ phase: "5", kind: "tune", job, model, digest: info.digest ?? null, tuneId, iteration: r.iteration, change: r.change, hypothesis: r.hypothesis, config: r.config, practice: r.result, kept: r.kept, bestBefore: r.bestBefore }); process.stderr.write(`${r.kept ? "KEEP" : "drop"} ${r.change}: ${r.result.pass}/${r.result.n} (best was ${r.bestBefore})\n`); } });
+    onStep: (r) => { appendLedger({ phase: "5", kind: "tune", power: powerNow(), thermal: thermalNow(), job, model, digest: info.digest ?? null, tuneId, iteration: r.iteration, change: r.change, hypothesis: r.hypothesis, config: r.config, practice: r.result, kept: r.kept, bestBefore: r.bestBefore }); process.stderr.write(`${r.kept ? "KEEP" : "drop"} ${r.change}: ${r.result.pass}/${r.result.n} (best was ${r.bestBefore})\n`); } });
   const frozen = { job, model, digest: info.digest ?? null, config: result.best.config, practice: result.best.result, stopped: result.stopped, iterations: result.history.length, skipped: result.skipped, tuneId,
     system: renderToolPrompt(result.best.config, { bases, blocks, examples }) };
   writePrivate(join(V3_DIR, "configs", lower, `${model.replace(/[:/]/g, "_")}.json`), frozen);
@@ -320,10 +322,11 @@ async function finalFrozen() {
   const dir = join(V3_DIR, "runs", runId);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const powerAtStart = powerNow();
+  const thermalAtStart = thermalNow();
   const { summary } = await runFinal({ job, frozen, cases, menu, repeats, onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) });
   const { perCase, ...aggregate } = summary;
   writePrivate(join(dir, "summary.json"), { job, model, frozen: { config: frozen.config, tuneId: frozen.tuneId }, summary });
-  appendLedger({ phase: "6", kind: "final", runId, job, model, digest: frozen.digest ?? null, config: frozen.config, repeats, power: { start: powerAtStart, end: powerNow() }, result: aggregate });
+  appendLedger({ phase: "6", kind: "final", runId, job, model, digest: frozen.digest ?? null, config: frozen.config, repeats, power: { start: powerAtStart, end: powerNow() }, thermal: thermalSpan(thermalAtStart), result: aggregate });
   console.log(JSON.stringify({ runId, job, model, pass: `${aggregate.pass}/${aggregate.trials}`, pooled: aggregate.pooled, pass3: aggregate.pass3, criticalMisroutes: aggregate.criticalMisroutes, honesty: aggregate.honesty }, null, 1));
 }
 
@@ -335,6 +338,8 @@ async function speed() {
   const n = Number(flag("--n", 20));
   const cold = has("--cold");
   if (powerNow() !== "ac") fail("speed is measured plugged in only");
+  const thermalAtSpeedStart = thermalNow();
+  if (["serious", "critical"].includes(thermalAtSpeedStart)) fail(`the Mac is hot (thermal ${thermalAtSpeedStart}); speed would be throttled — let it cool`);
   const frozen = readJson(join(V3_DIR, "configs", "j1", `${model.replace(/[:/]/g, "_")}.json`), null);
   const config = frozen?.config ?? { style: "p0" };
   const system = frozen?.system ?? promptFor("J1", "p0", model).text.replace("{{tools}}", menu.tools.map((t) => `- ${t.name}: ${t.does}. args: ${JSON.stringify(t.args)}`).join("\n"));
@@ -351,7 +356,7 @@ async function speed() {
   const pick = (k) => rows.map((x) => x[k]).filter((x) => x != null);
   const p90 = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(0.9 * xs.length)];
   const result = { n: rows.length, ttftP50: median(pick("ttftMs")), ttftP90: p90(pick("ttftMs")), wallP50: median(pick("wallMs")), wallP90: p90(pick("wallMs")), loadP50: median(pick("loadMs")), promptMsP50: median(pick("promptMs")) };
-  appendLedger({ phase: "6", kind: "speed", job: "J1", model, cold, config, power: { start: "ac", end: powerNow() }, result });
+  appendLedger({ phase: "6", kind: "speed", job: "J1", model, cold, config, power: { start: "ac", end: powerNow() }, thermal: thermalSpan(thermalAtSpeedStart), result });
   console.log(JSON.stringify({ model, cold, ...result }, null, 1));
 }
 
@@ -405,7 +410,7 @@ async function exploreJ1() {
     const { summary } = await runFrontDesk(practice, { model, menu, system, schema: schemaFor(config), historyTurns: config.historyTurns ?? 4, think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384,
       onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) });
     writePrivate(join(dir, "prompt.json"), { config, system });
-    appendLedger({ phase: "5", kind: "explore", job: "J1", model, exploreId, config, promptHash: hash, practice: { pass: summary.pass, n: summary.n, critical: summary.criticalMisroutes, critByType: summary.critical, validJson: summary.validJson, speed: summary.speed }, power: powerNow() });
+    appendLedger({ phase: "5", kind: "explore", power: powerNow(), thermal: thermalNow(), job: "J1", model, exploreId, config, promptHash: hash, practice: { pass: summary.pass, n: summary.n, critical: summary.criticalMisroutes, critByType: summary.critical, validJson: summary.validJson, speed: summary.speed }, power: powerNow() });
     console.log(`${String(summary.pass).padStart(3)}/${summary.n} crit ${summary.criticalMisroutes} ${JSON.stringify(summary.critical)} ${JSON.stringify(config)}`);
   }
 }

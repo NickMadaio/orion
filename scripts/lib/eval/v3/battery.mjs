@@ -82,3 +82,12 @@ export async function nextSnapshot(read = readTelemetry, timeoutMs = 120000) {
     if (Date.now() - start > timeoutMs) return { ...now, t: Date.now() };
   }
 }
+
+// Thermal state (added 2026-10-09: a run in a closed backpack throttled the chip and slowed timings).
+// ProcessInfo.thermalState via swift (~0.1 s, no sudo): 0 nominal, 1 fair, 2 serious, 3 critical.
+const THERMAL = ["nominal", "fair", "serious", "critical"];
+export const thermalName = (raw) => (/^[0-3]$/.test(String(raw).trim()) ? THERMAL[Number(raw)] : "unknown");
+export function thermalNow() {
+  try { return thermalName(execFileSync("swift", ["-e", "import Foundation; print(ProcessInfo.processInfo.thermalState.rawValue)"], { encoding: "utf8", timeout: 15000 })); }
+  catch { return "unknown"; }
+}

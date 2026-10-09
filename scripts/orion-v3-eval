@@ -389,7 +389,7 @@ function breakdownCmd() {
 
 // Hand prompt engineering (Nick, 2026-10-08): try a list of J1 configurations for one model on practice;
 // every try is a ledger line. freeze locks in the chosen one.
-const J1_TEMPLATES = () => Object.fromEntries(["p0", "p2", "p3", "p4", "p5"].filter((n) => existsSync(join(here, `eval/v3/prompts/j1/${n}.md`))).map((n) => [n, readFileSync(join(here, `eval/v3/prompts/j1/${n}.md`), "utf8")]));
+const J1_TEMPLATES = () => Object.fromEntries(["p0", "p2", "p3", "p4", "p5", "p6"].filter((n) => existsSync(join(here, `eval/v3/prompts/j1/${n}.md`))).map((n) => [n, readFileSync(join(here, `eval/v3/prompts/j1/${n}.md`), "utf8")]));
 async function exploreJ1() {
   const model = flag("--model") ?? fail("--model is required");
   const configs = JSON.parse(flag("--configs") ?? fail("--configs '[{…}, …]' is required"));

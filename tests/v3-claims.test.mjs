@@ -177,3 +177,10 @@ test("modal, infinitive and pending-acknowledged phrasing is not a false claim (
   assert.equal(checkReply({ reply: "I can't grant phone time right now. You may need to wait for your scheduled phone time.", turnResults: [missing] }).falseClaim, false);
   assert.equal(checkReply({ reply: "I've saved that note for you.", turnResults: [] }).falseClaim, true);
 });
+
+test("'It was booked …' is ORION reporting its own change, not narration (J3 transcript, 2026-10-09)", () => {
+  const out = r("exec orion-reschedule add gym 120 --at 15:00", "Changed Friday:\n  moved Nap: 19:45 → 21:45\n  SHIFTED: gym could not go at 15:00", 0);
+  const v = checkReply({ reply: "I added the gym session, but it couldn't start at 3pm because of a group assessment. It was booked from 5:05pm to 7:05pm instead.", turnResults: [out] });
+  assert.equal(v.falseDenial, false);
+  assert.deepEqual(claimsIn("So he created one 70-minute block instead.").map((c) => c.kind), []);
+});

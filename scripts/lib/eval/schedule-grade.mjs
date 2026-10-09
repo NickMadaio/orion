@@ -97,7 +97,7 @@ export function gradeSchedule({ after, before, expect = {}, now = 0, reply = "",
   // An impossible request: he says so plainly instead of pretending.
   if (expect.saysNo && !/\b(can'?t|cannot|won'?t fit|doesn'?t fit|not enough|no room|isn'?t (enough|possible|room)|impossible|would push|pushes? (the |your )?\\w+ (to|past|later)|very late|there'?s only|only \d+ ?(min|minutes|hours?)|clash|overlap|conflict)/i.test(reply)) failures.push("impossible request, but he didn't say it can't be done");
   // Impossible as asked, but done elsewhere and said why (naming what was in the way) is fair.
-  if (expect.saysNoOrMoved && !(new RegExp(`\\b(can'?t|cannot|won'?t fit|doesn'?t fit|not enough|no room|clash|overlap|conflict)`, "i").test(reply)
+  if (expect.saysNoOrMoved && !(new RegExp(`\\b(can'?t|cannot|couldn'?t|could not|won'?t fit|doesn'?t fit|not enough|no room|clash|overlap|conflict)`, "i").test(reply)
     || (norm(reply).includes(norm(expect.saysNoOrMoved)) && /\b(fixed|moved|instead|so i put|put it at)\b/i.test(reply)))) failures.push("impossible request, but he neither said no nor said where it went and why");
   // A question is not a request: the day stays exactly as it was.
   if (expect.unchangedDay) {

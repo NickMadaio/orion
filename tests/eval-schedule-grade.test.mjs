@@ -44,3 +44,9 @@ test("quality criteria reject stacked breaks, waking breaks and afternoon dinner
   const g = gradeSchedule({ before: [], after, expect: { breaks: { wake: "07:15" }, natural: [{ title: "Dinner", earliest: "18:30" }] } });
   assert.ok(g.failures.some(f => f.includes("stacked"))); assert.ok(g.failures.some(f => f.includes("waking"))); assert.ok(g.failures.some(f => f.includes("unnatural")));
 });
+
+test("'couldn't' counts as saying no to an impossible request (2026-10-09)", () => {
+  const day = [{ title: "Gym", start: 1025, end: 1145 }];
+  const g = gradeSchedule({ after: day, before: day, now: 600, expect: { saysNoOrMoved: "gym" }, reply: "It couldn't start at 3pm because of the assessment, so it's at 5:05 instead." });
+  assert.ok(!g.failures.some((f) => f.startsWith("impossible request")), g.failures.join("; "));
+});

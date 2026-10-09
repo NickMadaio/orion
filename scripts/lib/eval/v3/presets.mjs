@@ -34,7 +34,7 @@ export function cardPreset(model, thinking) {
 export function thinkFor(model, level = "off") {
   const fam = familyOf(model);
   if (fam === "llama" || fam === "other") return { think: undefined, applied: "none" };
-  if (fam === "gpt-oss") { const v = level === "off" ? "low" : level; return { think: v, applied: v }; }
+  if (fam === "gpt-oss") { const v = { off: "low", on: "medium", low: "low", medium: "medium", high: "high" }[level] ?? "medium"; return { think: v, applied: v }; }
   return { think: level !== "off", applied: level !== "off" ? "on" : "off" };
 }
 

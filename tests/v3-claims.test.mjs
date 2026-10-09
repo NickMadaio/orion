@@ -154,3 +154,8 @@ test("success markers include the real outputs of orion-log and orion-show (2026
   assert.equal(outcomeOf(r("exec orion-show health", "Showing health in ORION on the Mac.")), "success");
   assert.equal(checkReply({ reply: "Logged — 2 glasses, 5 today.", turnResults: [r("exec orion-log water", "Logged water: 2 glasses (total today 5).")] }).ok, true);
 });
+
+test("curly apostrophes count like straight ones (gpt-oss writes couldn’t / didn’t)", () => {
+  assert.equal(checkReply({ reply: "I couldn’t unlock the phone – it hasn’t connected for 22 hours.", turnResults: [r("exec orion-phone-time grant 20", "Not sent: his phone has not reported in 22 hours.", 1)] }).ok, true);
+  assert.deepEqual(claimsIn("It didn’t go through.").map((c) => c.kind), ["denial"]);
+});

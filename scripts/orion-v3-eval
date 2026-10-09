@@ -219,6 +219,7 @@ async function judgeRun() {
 // Nick's trust), then interface and settings. Same steps, same order, every model.
 const step = (name, hypothesis, patch) => ({ name, hypothesis, apply: (c) => ({ ...c, ...patch }) });
 const TOOL_LADDER = [
+  step("P9b result-meaning guide (what each tool output means, what to say)", "models report success after 'still running', 'Not sent', approvals and usage errors", { honesty: true, rules: true }),
   step("P1 honesty and procedure rules", "replies claim success after failed tools", { rules: true }),
   step("P9 self-check before replying", "claims are not compared with tool output", { selfcheck: true }),
   step("P2 numbered procedure", "wrong or extra calls", { procedure: true }),
@@ -229,6 +230,7 @@ const TOOL_LADDER = [
   step("S1 thinking on", "the model needs to reason before acting", { think: "on" }),
 ];
 const SCHEDULE_LADDER = [
+  step("P9b result-meaning guide (what each tool output means, what to say)", "models report success after NOTHING WAS / usage errors", { honesty: true, rules: true }),
   step("P6 full command guide (the script's own header, with worked mappings)", "the one-line help hides what extend/move/day arguments mean", { base: "pfull" }),
   step("P1 honesty and procedure rules", "replies claim success after NOTHING WAS BOOKED", { rules: true }),
   step("P2 numbered procedure", "wrong or repeated reschedule calls", { procedure: true }),
@@ -240,7 +242,8 @@ const SCHEDULE_LADDER = [
   step("S3 context 32k", "long tool loops are truncated", { ctx: 32768 }),
 ];
 
-async function tuneTools(job, model) {
+// One evaluator for tool and scheduling jobs, shared by tune and explore.
+async function toolEvaluator(job, model, kind) {
   const lower = job.toLowerCase();
   const practice = readJson(join(CASES, `practice/${lower}.json`), null) ?? fail("no cases — run orion-v3-eval build first");
   const read = (f) => (existsSync(join(here, `eval/v3/prompts/${lower}/${f}`)) ? readFileSync(join(here, `eval/v3/prompts/${lower}/${f}`), "utf8") : null);
@@ -248,13 +251,12 @@ async function tuneTools(job, model) {
   const blocks = readJson(join(here, "eval/v3/prompts/blocks.json"), {});
   const examples = read("examples.md") ?? "";
   const schedule = SCHEDULE_JOBS.has(job);
-  const ladder = (schedule ? SCHEDULE_LADDER : TOOL_LADDER).filter((st) => st.name !== "T2 one function per tool" || bases.p0t2);
   const info = await modelInfo(model);
-  const tuneId = `${new Date().toISOString().replace(/[:.]/g, "-")}-tune-${job}-${model.replace(/[:/]/g, "_")}`;
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${kind}-${job}-${model.replace(/[:/]/g, "_")}`;
   const evaluate = async (config) => {
     const system = renderToolPrompt(config, { bases, blocks, examples });
     const hash = createHash("sha256").update(system).digest("hex").slice(0, 12);
-    const dir = join(V3_DIR, "runs", tuneId, `${hash}-${config.iface ?? "T1"}-${config.think ?? "off"}-${config.temp ?? "card"}`);
+    const dir = join(V3_DIR, "runs", runId, `${hash}-${config.iface ?? "T1"}-${config.think ?? "off"}-${config.temp ?? "card"}`);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const opts = { model, template: system, menu, iface: config.iface ?? "T1", think: config.think ?? "off", temp: config.temp ?? "card", ctx: config.ctx ?? 16384,
       onTrial: (t) => appendFileSync(join(dir, "trials.jsonl"), `${JSON.stringify(t)}\n`, { mode: 0o600 }) };
@@ -262,6 +264,22 @@ async function tuneTools(job, model) {
     writePrivate(join(dir, "prompt.json"), { config, system });
     return { pass: sum.pass, n: sum.n, critical: sum.honesty.omittedFailures, falseClaims: sum.honesty.falseClaims, honesty: sum.honesty, promptHash: hash, speed: sum.speed, failureReasons: sum.failureReasons, power: powerNow() };
   };
+  return { evaluate, bases, blocks, examples, schedule, info, runId, lower };
+}
+
+async function exploreTools(job, model) {
+  const configs = JSON.parse(flag("--configs") ?? fail("--configs '[{…}]' is required"));
+  const { evaluate, info, runId } = await toolEvaluator(job, model, "explore");
+  for (const config of configs) {
+    const r = await evaluate(config);
+    appendLedger({ phase: "5", kind: "explore", job, model, digest: info.digest ?? null, exploreId: runId, config, promptHash: r.promptHash, practice: r });
+    console.log(`${String(r.pass).padStart(3)}/${r.n} honesty ${JSON.stringify(r.honesty)} ${JSON.stringify(config)}`);
+  }
+}
+
+async function tuneTools(job, model) {
+  const { evaluate, bases, blocks, examples, schedule, info, runId: tuneId, lower } = await toolEvaluator(job, model, "tune");
+  const ladder = (schedule ? SCHEDULE_LADDER : TOOL_LADDER).filter((st) => (st.name !== "T2 one function per tool" || bases.p0t2) && (!st.apply({}).base || bases[st.apply({}).base]));
   const applied = (c) => JSON.stringify({ ...c, think: thinkFor(model, c.think ?? "off").applied });
   const start = { base: "p0", iface: "T1", think: "off", temp: "card" };
   const baseline = await evaluate(start);
@@ -406,6 +424,7 @@ try {
   else if (command === "speed") await speed();
   else if (command === "report") report();
   else if (command === "breakdown") breakdownCmd();
+  else if (command === "explore" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await exploreTools(flag("--job"), flag("--model") ?? fail("--model is required"));
   else if (command === "explore") await exploreJ1();
   else if (command === "freeze") freezeJ1();
   else if (command === "tune" && flag("--job", "J1") === "J1") await tuneJ1(flag("--model") ?? fail("--model is required"));

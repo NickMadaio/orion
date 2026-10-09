@@ -44,7 +44,8 @@ const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 
 // Quoted words are Nick's or a title's, not ORION's claims.
-const unquote = (s) => s.replace(/"[^"]*"|“[^”]*”/g, "\"…\"");
+// Curly apostrophes (couldn’t) read as straight ones; quoted words are not claims.
+const unquote = (s) => s.replace(/[’‘]/g, "'").replace(/"[^"]*"|“[^”]*”/g, "\"…\"");
 const sentences = (text) => unquote(String(text ?? "")).split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 
 /** [{ kind: "done"|"denial"|"promise", strength: "strong"|"status", sentence }] */

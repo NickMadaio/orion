@@ -47,6 +47,6 @@ export function schemaFor(config) {
 export function renderToolPrompt(config, { bases, blocks, examples }) {
   const base = bases[config.base ?? "p0"];
   if (!base) throw new Error(`no base prompt ${config.base}`);
-  return [base.trim(), config.rules && blocks.rules, config.procedure && blocks.procedure, config.selfcheck && blocks.selfcheck,
+  return [base.trim(), config.rules && blocks.rules, config.honesty && blocks.honesty, config.procedure && blocks.procedure, config.selfcheck && blocks.selfcheck,
     config.examples && examples?.trim(), config.restate && blocks.restate].filter(Boolean).join("\n\n");
 }

@@ -1,17 +1,728 @@
 {
-  "about": "Synthetic brain (J5) cases, ORION V3 handoff §6 J5: reading (the fact must reach the reply, nothing invented), learning, recording failures to the repair queue (proposed: an orion-brain learn into the note 'ORION repair queue'). Notes are invented. Written 2026-10-08.",
-  "cases": [
-    { "id": "j5-syn-read-thesis", "clock": "Fri 10:00", "say": "what did I write about my thesis topic", "fixtures": [{ "match": ["brain", "thesis"], "stdout": "## Thesis  (10 Projects/Thesis.md)\n## Observations\n- [topic] Energy use of local language models on laptops\n- [advisor] Dr. Okafor, meets Thursdays", "exit": 0 }], "expect": { "calls": [["brain", "thesis"]], "mustMention": ["energy|local (language )?models"], "mustNotMention": ["deadline", "due"] } },
-    { "id": "j5-syn-read-advisor", "clock": "Fri 10:00", "say": "who's my thesis advisor again", "fixtures": [{ "match": ["brain", "thesis|advisor"], "stdout": "## Thesis  (10 Projects/Thesis.md)\n- [advisor] Dr. Okafor, meets Thursdays", "exit": 0 }], "expect": { "calls": [["brain", "thesis|advisor"]], "mustMention": ["okafor"] } },
-    { "id": "j5-syn-read-missing", "clock": "Fri 10:00", "say": "what's the due date for my econ essay in my notes", "fixtures": [{ "match": ["brain", "econ|essay"], "stdout": "## Econ Essay  (10 Projects/Econ Essay.md)\n## Observations\n- [topic] Minimum wage effects in the UK", "exit": 0 }], "expect": { "calls": [["brain", "econ|essay"]], "mustMention": ["(no|not|doesn'?t|don'?t).{0,40}(due|date)|(due|date).{0,40}(no|not|isn'?t|doesn'?t)"], "mustNotMention": ["\\b(monday|tuesday|wednesday|thursday|friday|october|november|december)\\b \\d"] } },
-    { "id": "j5-syn-read-nothing", "clock": "Fri 10:00", "say": "what did I say about the trip to Lisbon", "fixtures": [{ "match": ["brain", "lisbon"], "stdout": "No matches.", "exit": 0 }], "expect": { "calls": [["brain", "lisbon"]], "mustMention": ["(no|nothing|couldn'?t|can'?t|didn'?t|don'?t).{0,40}(note|find|lisbon|match)"] } },
-    { "id": "j5-syn-no-brain-needed", "clock": "Fri 10:00", "say": "what's 12 times 12", "expect": { "calls": [], "maxCalls": 0, "mustMention": ["144"] } },
-    { "id": "j5-syn-learn-pref", "clock": "Fri 09:00", "say": "remember I hate morning gym", "fixtures": [{ "match": ["brain", "learn"], "stdout": "learned → Nick (preferences): hates morning gym", "exit": 0 }], "expect": { "calls": [["brain", "learn", "gym"]] } },
-    { "id": "j5-syn-learn-nap", "clock": "Thu 13:22", "say": "going forward remember naps should be at least an hour and fifteen minutes", "fixtures": [{ "match": ["brain", "learn"], "stdout": "learned → Nick (scheduling): naps at least 75 minutes", "exit": 0 }], "expect": { "calls": [["brain", "learn", "nap", "1[: ]?15|75|hour and fifteen|hour and 15"]] } },
-    { "id": "j5-syn-learn-fail", "clock": "Fri 09:00", "say": "remember my sister's name is Jia", "fixtures": [{ "match": ["brain", "learn"], "stdout": "orion-brain: Basic Memory did not answer (timeout); nothing was saved", "exit": 1 }], "expect": { "calls": [["brain", "learn", "jia"]] } },
-    { "id": "j5-syn-repair-stuck-timer", "clock": "Tue 19:12", "history": [{ "role": "user", "content": "the break timer trapped me again, I kept pressing end and it looped" }, { "role": "assistant", "content": "That sounds like the pause bug." }], "say": "put that in the repair list so we fix it later", "fixtures": [{ "match": ["brain", "repair"], "stdout": "learned → ORION repair queue (failure): break timer loops when ending during a break", "exit": 0 }], "expect": { "calls": [["brain", "learn", "repair", "break|timer|loop"]] } },
-    { "id": "j5-syn-repair-didnt-work", "clock": "Tue 18:00", "history": [{ "role": "user", "content": "start a focus session until 8" }, { "role": "assistant", "content": "I couldn't start it — the app didn't answer." }], "say": "that didn't work, save it for later", "fixtures": [{ "match": ["brain", "repair"], "stdout": "learned → ORION repair queue (failure): focus session start failed, app did not answer", "exit": 0 }], "expect": { "calls": [["brain", "learn", "repair", "focus|session"]] } },
-    { "id": "j5-syn-repair-fail", "clock": "Tue 18:00", "history": [{ "role": "user", "content": "the weather said dry and it poured" }], "say": "note that for later", "fixtures": [{ "match": ["brain"], "stdout": "usage: orion-brain search|read|context|learn|recent (see the header)", "exit": 2 }], "expect": { "calls": [], "maxCalls": 3 } },
-    { "id": "j5-syn-recent", "clock": "Fri 09:00", "say": "what changed in my notes this week", "fixtures": [{ "match": ["brain", "recent"], "stdout": "Changed in the last 7 days:\n- Thesis (Fri)\n- Gym (Wed)", "exit": 0 }], "expect": { "calls": [["brain", "recent"]], "mustMention": ["thesis", "gym"] } }
-  ]
+ "about": "Synthetic brain (J5) cases, ORION V3 handoff §6 J5: reading (the fact must reach the reply, nothing invented), learning, recording failures to the repair queue (proposed: an orion-brain learn into the note 'ORION repair queue'). Notes are invented. Written 2026-10-08.",
+ "cases": [
+  {
+   "id": "j5-syn-read-thesis",
+   "clock": "Fri 10:00",
+   "say": "what did I write about my thesis topic",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "thesis"
+     ],
+     "stdout": "## Thesis  (10 Projects/Thesis.md)\n## Observations\n- [topic] Energy use of local language models on laptops\n- [advisor] Dr. Okafor, meets Thursdays",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "thesis"
+     ]
+    ],
+    "mustMention": [
+     "energy|local (language )?models"
+    ],
+    "mustNotMention": [
+     "deadline",
+     "due"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-read-advisor",
+   "clock": "Fri 10:00",
+   "say": "who's my thesis advisor again",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "thesis|advisor"
+     ],
+     "stdout": "## Thesis  (10 Projects/Thesis.md)\n- [advisor] Dr. Okafor, meets Thursdays",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "thesis|advisor"
+     ]
+    ],
+    "mustMention": [
+     "okafor"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-read-missing",
+   "clock": "Fri 10:00",
+   "say": "what's the due date for my econ essay in my notes",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "econ|essay"
+     ],
+     "stdout": "## Econ Essay  (10 Projects/Econ Essay.md)\n## Observations\n- [topic] Minimum wage effects in the UK",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "econ|essay"
+     ]
+    ],
+    "mustMention": [
+     "(no|not|doesn'?t|don'?t).{0,40}(due|date)|(due|date).{0,40}(no|not|isn'?t|doesn'?t)"
+    ],
+    "mustNotMention": [
+     "\\b(monday|tuesday|wednesday|thursday|friday|october|november|december)\\b \\d"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-read-nothing",
+   "clock": "Fri 10:00",
+   "say": "what did I say about the trip to Lisbon",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "lisbon"
+     ],
+     "stdout": "No matches.",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "lisbon"
+     ]
+    ],
+    "mustMention": [
+     "(no|nothing|couldn'?t|can'?t|didn'?t|don'?t).{0,40}(note|find|lisbon|match)"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-no-brain-needed",
+   "clock": "Fri 10:00",
+   "say": "what's 12 times 12",
+   "expect": {
+    "calls": [],
+    "maxCalls": 0,
+    "mustMention": [
+     "144"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-pref",
+   "clock": "Fri 09:00",
+   "say": "remember I hate morning gym",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "learned → Nick (preferences): hates morning gym",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "gym"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-nap",
+   "clock": "Thu 13:22",
+   "say": "going forward remember naps should be at least an hour and fifteen minutes",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "learned → Nick (scheduling): naps at least 75 minutes",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "nap",
+      "1[: ]?15|75|hour and fifteen|hour and 15"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-fail",
+   "clock": "Fri 09:00",
+   "say": "remember my sister's name is Jia",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "orion-brain: Basic Memory did not answer (timeout); nothing was saved",
+     "exit": 1
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "jia"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-repair-stuck-timer",
+   "clock": "Tue 19:12",
+   "history": [
+    {
+     "role": "user",
+     "content": "the break timer trapped me again, I kept pressing end and it looped"
+    },
+    {
+     "role": "assistant",
+     "content": "That sounds like the pause bug."
+    }
+   ],
+   "say": "put that in the repair list so we fix it later",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "repair"
+     ],
+     "stdout": "learned → ORION repair queue (failure): break timer loops when ending during a break",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "repair",
+      "break|timer|loop"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-repair-didnt-work",
+   "clock": "Tue 18:00",
+   "history": [
+    {
+     "role": "user",
+     "content": "start a focus session until 8"
+    },
+    {
+     "role": "assistant",
+     "content": "I couldn't start it — the app didn't answer."
+    }
+   ],
+   "say": "that didn't work, save it for later",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "repair"
+     ],
+     "stdout": "learned → ORION repair queue (failure): focus session start failed, app did not answer",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "repair",
+      "focus|session"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-repair-fail",
+   "clock": "Tue 18:00",
+   "history": [
+    {
+     "role": "user",
+     "content": "the weather said dry and it poured"
+    }
+   ],
+   "say": "note that for later",
+   "fixtures": [
+    {
+     "match": [
+      "brain"
+     ],
+     "stdout": "usage: orion-brain search|read|context|learn|recent (see the header)",
+     "exit": 2
+    }
+   ],
+   "expect": {
+    "calls": [],
+    "maxCalls": 3
+   }
+  },
+  {
+   "id": "j5-syn-recent",
+   "clock": "Fri 09:00",
+   "say": "what changed in my notes this week",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "recent"
+     ],
+     "stdout": "Changed in the last 7 days:\n- Thesis (Fri)\n- Gym (Wed)",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "recent"
+     ]
+    ],
+    "mustMention": [
+     "thesis",
+     "gym"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-read-office-hours",
+   "clock": "Mon 10:00",
+   "say": "when does my advisor meet with me",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "thesis|advisor"
+     ],
+     "stdout": "## Thesis  (10 Projects/Thesis.md)\n- [advisor] Dr. Okafor, meets Thursdays 2-3 PM in room 214",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "thesis|advisor"
+     ]
+    ],
+    "mustMention": [
+     "thursday"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-read-bench-missing",
+   "clock": "Mon 10:00",
+   "say": "what's my bench press PR in my notes",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "bench|gym|pr"
+     ],
+     "stdout": "## Gym  (20 Areas/Gym.md)\n## Observations\n- [squat] 100 kg x 5 (Sep)\n- [schedule] evenings only",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "bench|gym|pr"
+     ]
+    ],
+    "mustMention": [
+     "(no|not|doesn'?t|don'?t|isn'?t|couldn'?t).{0,50}(bench)|(bench).{0,50}(no|not|isn'?t)"
+    ],
+    "mustNotMention": [
+     "bench.{0,30}\\d+ ?(kg|lb)"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-read-nothing-berlin",
+   "clock": "Mon 10:00",
+   "say": "did I write anything about the Berlin conference",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "berlin|conference"
+     ],
+     "stdout": "No matches.",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "berlin|conference"
+     ]
+    ],
+    "mustMention": [
+     "(no|nothing|couldn'?t|can'?t|didn'?t|don'?t).{0,40}(note|find|berlin|match|anything)"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-no-brain-capital",
+   "clock": "Mon 10:00",
+   "say": "what's the capital of Portugal",
+   "expect": {
+    "calls": [],
+    "maxCalls": 0,
+    "mustMention": [
+     "lisbon"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-no-brain-minutes",
+   "clock": "Mon 10:00",
+   "say": "how many minutes is three and a half hours",
+   "expect": {
+    "calls": [],
+    "maxCalls": 0,
+    "mustMention": [
+     "210"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-library",
+   "clock": "Mon 09:00",
+   "say": "remember I study best in the library, not at home",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "learned → Nick (preferences): studies best in the library",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "library"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-landlord",
+   "clock": "Mon 09:00",
+   "say": "remember my landlord is called Mr Patel",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "learned → Nick (people): landlord is Mr Patel",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "patel"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-fail-wifi",
+   "clock": "Mon 09:00",
+   "say": "remember the router reset button is behind the TV",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "orion-brain: Basic Memory did not answer (timeout); nothing was saved",
+     "exit": 1
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "router|tv|reset"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-repair-lights",
+   "clock": "Sun 23:10",
+   "history": [
+    {
+     "role": "user",
+     "content": "I said goodnight and the lights stayed on"
+    },
+    {
+     "role": "assistant",
+     "content": "Sorry — the goodnight routine didn't turn them off."
+    }
+   ],
+   "say": "add that to the repair queue",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "repair"
+     ],
+     "stdout": "learned → ORION repair queue (failure): goodnight did not turn the lights off",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "repair",
+      "light|goodnight"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-repair-weather",
+   "clock": "Sun 18:00",
+   "history": [
+    {
+     "role": "user",
+     "content": "you said it'd be sunny and it rained all afternoon"
+    }
+   ],
+   "say": "save that as a bug so we look at it later",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "repair"
+     ],
+     "stdout": "learned → ORION repair queue (failure): weather forecast said sunny, it rained",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "repair",
+      "weather|rain|sunny|forecast"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-recent-since-monday",
+   "clock": "Thu 09:00",
+   "say": "anything new in my notes since Monday",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "recent"
+     ],
+     "stdout": "Changed in the last 7 days:\n- Internship applications (Wed)\n- Supplements (Tue)",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "recent"
+     ]
+    ],
+    "mustMention": [
+     "internship",
+     "supplement"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-search-creatine",
+   "clock": "Mon 10:00",
+   "say": "what do my notes say about creatine",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "creatine|supplement"
+     ],
+     "stdout": "## Supplements  (20 Areas/Supplements.md)\n- [creatine] 5 g daily, after the gym\n- [vitamin D] 1000 IU in winter",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "creatine|supplement"
+     ]
+    ],
+    "mustMention": [
+     "5 ?g|five grams"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-thesis-due-missing",
+   "clock": "Mon 10:00",
+   "say": "when is my thesis due, check my notes",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "thesis"
+     ],
+     "stdout": "## Thesis  (10 Projects/Thesis.md)\n- [topic] Energy use of local language models on laptops\n- [advisor] Dr. Okafor",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "thesis"
+     ]
+    ],
+    "mustMention": [
+     "(no|not|doesn'?t|don'?t|isn'?t|couldn'?t).{0,50}(due|date|deadline)|(due|date|deadline).{0,50}(no|not|isn'?t)"
+    ],
+    "mustNotMention": [
+     "\\b(january|february|march|april|may|june|july|august|september|october|november|december) \\d"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-sleep-goals",
+   "clock": "Mon 22:00",
+   "say": "what are my sleep goals again",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "sleep|bed"
+     ],
+     "stdout": "## Sleep  (20 Areas/Sleep.md)\n- [bedtime] 23:30\n- [wake] 07:30\n- [rule] no screens after 23:00",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "sleep|bed"
+     ]
+    ],
+    "mustMention": [
+     "11:30|23:30"
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-learn-advisor-change",
+   "clock": "Mon 09:00",
+   "say": "my advisor changed, it's Dr. Mensah now, remember that",
+   "fixtures": [
+    {
+     "match": [
+      "brain",
+      "learn"
+     ],
+     "stdout": "learned → Thesis (advisor): Dr. Mensah (replaces Dr. Okafor)",
+     "exit": 0
+    }
+   ],
+   "expect": {
+    "calls": [
+     [
+      "brain",
+      "learn",
+      "mensah"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "j5-syn-no-brain-tired",
+   "clock": "Mon 15:00",
+   "say": "ugh I'm so tired today",
+   "expect": {
+    "calls": [],
+    "maxCalls": 0
+   }
+  },
+  {
+   "id": "j5-syn-history-not-notes",
+   "clock": "Fri 20:00",
+   "history": [
+    {
+     "role": "user",
+     "content": "my flight is at 7 AM on Sunday"
+    },
+    {
+     "role": "assistant",
+     "content": "Got it — 7 AM Sunday."
+    }
+   ],
+   "say": "what time did I say my flight was",
+   "expect": {
+    "calls": [],
+    "maxCalls": 1,
+    "mustMention": [
+     "7"
+    ]
+   }
+  }
+ ]
 }

@@ -1,25 +1,587 @@
 {
-  "about": "Synthetic continuity (J6) cases, ORION V3 handoff §6 J6: follow-ups that only make sense with the earlier turns. Run like J3 on a private sandbox day; graded on the final day (schedule-grade keys). Written 2026-10-08.",
-  "base": { "clock": "Fri 13:00", "day": [
-    { "title": "CS lab", "start": "14:00", "end": "15:00", "fixed": true },
-    { "title": "DS lab", "start": "15:30", "end": "16:30", "fixed": true },
-    { "title": "Study", "start": "16:45", "end": "17:45", "kind": "study" },
-    { "title": "Gym", "start": "18:00", "end": "19:00", "kind": "gym" },
-    { "title": "Dinner", "start": "19:15", "end": "20:00", "kind": "meal" },
-    { "title": "Side project", "start": "20:15", "end": "21:15", "kind": "other" },
-    { "title": "Laundry", "start": "21:30", "end": "22:00", "kind": "chore" } ], "todos": ["finish resume"] },
-  "cases": [
-    { "id": "j6-syn-actually-5", "turns": ["move gym to 6:30", "actually make it 5:30"], "expect": { "has": [{ "title": "Gym", "start": "17:30" }], "count": { "Gym": 1 } } },
-    { "id": "j6-syn-dinner-too", "turns": ["push study back 30 minutes", "and move dinner back too, same amount"], "expect": { "has": [{ "title": "Study", "start": "17:15" }, { "title": "Dinner", "start": "19:45" }], "count": { "Study": 1, "Dinner": 1 } } },
-    { "id": "j6-syn-the-other-lab", "turns": ["can you shorten the lab to 45 minutes", "the DS one"], "expect": { "minutes": { "DS lab": 45, "CS lab": 60 }, "count": { "DS lab": 1, "CS lab": 1 } } },
-    { "id": "j6-syn-nap-hour", "turns": ["add a nap at 12:15... no wait, at 13:15", "make it 40 minutes"], "expect": { "has": [{ "title": "nap", "start": "13:15" }], "minutes": { "nap": 40 }, "count": { "nap": 1 } } },
-    { "id": "j6-syn-keep-side-project", "turns": ["drop the side project tonight", "no wait, keep it but make it 30 minutes"], "expect": { "minutes": { "Side project": 30 }, "count": { "Side project": 1 } } },
-    { "id": "j6-syn-undo", "turns": ["move dinner to 8:15", "actually undo that"], "expect": { "has": [{ "title": "Dinner", "start": "19:15" }], "count": { "Dinner": 1 } } },
-    { "id": "j6-syn-leaving-at-5", "turns": ["I'm heading out at 5:45 tonight", "move whatever's after that to tomorrow"], "expect": { "noneAfter": "17:45", "keepBefore": "17:45" } },
-    { "id": "j6-syn-laundry-before-gym", "turns": ["move laundry to before gym", "and make it 30 minutes"], "expect": { "order": [["Laundry", "Gym"]], "minutes": { "Laundry": 30 }, "count": { "Laundry": 1 } } },
-    { "id": "j6-syn-same-for-gym", "turns": ["make study 90 minutes", "do the same for gym"], "expect": { "minutes": { "Study": 90, "Gym": 90 }, "count": { "Study": 1, "Gym": 1 } } },
-    { "id": "j6-syn-it-refers-dinner", "history": [{ "role": "user", "content": "when's dinner?" }, { "role": "assistant", "content": "Dinner is 7:15 to 8 PM." }], "turns": ["push it to 8"], "expect": { "has": [{ "title": "Dinner", "start": "20:00" }], "count": { "Dinner": 1 } } },
-    { "id": "j6-syn-swap-then-back", "turns": ["swap gym and the side project", "hmm put gym back where it was"], "expect": { "has": [{ "title": "Gym", "start": "18:00" }], "count": { "Gym": 1, "Side project": 1 } } },
-    { "id": "j6-syn-correction-mid", "turns": ["move study to 7", "sorry I meant 7 in the morning tomorrow, not tonight"], "expect": { "absent": [], "count": { "Study": 1 } }, "notes": "graded on not duplicating study and not leaving it at 19:00 today" }
+ "about": "Synthetic continuity (J6) cases, ORION V3 handoff §6 J6: follow-ups that only make sense with the earlier turns. Run like J3 on a private sandbox day; graded on the final day (schedule-grade keys). Written 2026-10-08.",
+ "base": {
+  "clock": "Fri 13:00",
+  "day": [
+   {
+    "title": "CS lab",
+    "start": "14:00",
+    "end": "15:00",
+    "fixed": true
+   },
+   {
+    "title": "DS lab",
+    "start": "15:30",
+    "end": "16:30",
+    "fixed": true
+   },
+   {
+    "title": "Study",
+    "start": "16:45",
+    "end": "17:45",
+    "kind": "study"
+   },
+   {
+    "title": "Gym",
+    "start": "18:00",
+    "end": "19:00",
+    "kind": "gym"
+   },
+   {
+    "title": "Dinner",
+    "start": "19:15",
+    "end": "20:00",
+    "kind": "meal"
+   },
+   {
+    "title": "Side project",
+    "start": "20:15",
+    "end": "21:15",
+    "kind": "other"
+   },
+   {
+    "title": "Laundry",
+    "start": "21:30",
+    "end": "22:00",
+    "kind": "chore"
+   }
+  ],
+  "todos": [
+   "finish resume"
   ]
+ },
+ "cases": [
+  {
+   "id": "j6-syn-actually-5",
+   "turns": [
+    "move gym to 6:30",
+    "actually make it 5:30"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Gym",
+      "start": "17:30"
+     }
+    ],
+    "count": {
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-dinner-too",
+   "turns": [
+    "push study back 30 minutes",
+    "and move dinner back too, same amount"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Study",
+      "start": "17:15"
+     },
+     {
+      "title": "Dinner",
+      "start": "19:45"
+     }
+    ],
+    "count": {
+     "Study": 1,
+     "Dinner": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-the-other-lab",
+   "turns": [
+    "can you shorten the lab to 45 minutes",
+    "the DS one"
+   ],
+   "expect": {
+    "minutes": {
+     "DS lab": 45,
+     "CS lab": 60
+    },
+    "count": {
+     "DS lab": 1,
+     "CS lab": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-nap-hour",
+   "turns": [
+    "add a nap at 12:15... no wait, at 13:15",
+    "make it 40 minutes"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "nap",
+      "start": "13:15"
+     }
+    ],
+    "minutes": {
+     "nap": 40
+    },
+    "count": {
+     "nap": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-keep-side-project",
+   "turns": [
+    "drop the side project tonight",
+    "no wait, keep it but make it 30 minutes"
+   ],
+   "expect": {
+    "minutes": {
+     "Side project": 30
+    },
+    "count": {
+     "Side project": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-undo",
+   "turns": [
+    "move dinner to 8:15",
+    "actually undo that"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Dinner",
+      "start": "19:15"
+     }
+    ],
+    "count": {
+     "Dinner": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-leaving-at-5",
+   "turns": [
+    "I'm heading out at 5:45 tonight",
+    "move whatever's after that to tomorrow"
+   ],
+   "expect": {
+    "noneAfter": "17:45",
+    "keepBefore": "17:45"
+   }
+  },
+  {
+   "id": "j6-syn-laundry-before-gym",
+   "turns": [
+    "move laundry to before gym",
+    "and make it 30 minutes"
+   ],
+   "expect": {
+    "order": [
+     [
+      "Laundry",
+      "Gym"
+     ]
+    ],
+    "minutes": {
+     "Laundry": 30
+    },
+    "count": {
+     "Laundry": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-same-for-gym",
+   "turns": [
+    "make study 90 minutes",
+    "do the same for gym"
+   ],
+   "expect": {
+    "minutes": {
+     "Study": 90,
+     "Gym": 90
+    },
+    "count": {
+     "Study": 1,
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-it-refers-dinner",
+   "history": [
+    {
+     "role": "user",
+     "content": "when's dinner?"
+    },
+    {
+     "role": "assistant",
+     "content": "Dinner is 7:15 to 8 PM."
+    }
+   ],
+   "turns": [
+    "push it to 8"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Dinner",
+      "start": "20:00"
+     }
+    ],
+    "count": {
+     "Dinner": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-swap-then-back",
+   "turns": [
+    "swap gym and the side project",
+    "hmm put gym back where it was"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Gym",
+      "start": "18:00"
+     }
+    ],
+    "count": {
+     "Gym": 1,
+     "Side project": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-correction-mid",
+   "turns": [
+    "move study to 7",
+    "sorry I meant 7 in the morning tomorrow, not tonight"
+   ],
+   "expect": {
+    "absent": [],
+    "count": {
+     "Study": 1
+    }
+   },
+   "notes": "graded on not duplicating study and not leaving it at 19:00 today"
+  },
+  {
+   "id": "j6-syn-gym-7-shorter",
+   "turns": [
+    "move gym to 7",
+    "make it 45 minutes"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Gym",
+      "start": "19:00"
+     }
+    ],
+    "minutes": {
+     "Gym": 45
+    },
+    "count": {
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-groceries-longer",
+   "turns": [
+    "add groceries for 30 minutes after dinner",
+    "actually make it an hour"
+   ],
+   "expect": {
+    "minutes": {
+     "groceries": 60
+    },
+    "count": {
+     "groceries": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-never-mind-side",
+   "turns": [
+    "push the side project to 9",
+    "never mind, leave it where it was"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Side project",
+      "start": "20:15"
+     }
+    ],
+    "count": {
+     "Side project": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-gym-too",
+   "turns": [
+    "shorten study to 45 minutes",
+    "and gym too"
+   ],
+   "expect": {
+    "minutes": {
+     "Study": 45,
+     "Gym": 45
+    },
+    "count": {
+     "Study": 1,
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-gym-before-dinner",
+   "turns": [
+    "move dinner to 7:45",
+    "and put gym right before it"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Dinner",
+      "start": "19:45"
+     }
+    ],
+    "order": [
+     [
+      "Gym",
+      "Dinner"
+     ]
+    ],
+    "count": {
+     "Gym": 1,
+     "Dinner": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-swap-undo",
+   "turns": [
+    "swap study and gym",
+    "undo that"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Study",
+      "start": "16:45"
+     },
+     {
+      "title": "Gym",
+      "start": "18:00"
+     }
+    ],
+    "count": {
+     "Study": 1,
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-walk-20",
+   "turns": [
+    "add a walk after the DS lab",
+    "make it 20 minutes"
+   ],
+   "expect": {
+    "order": [
+     [
+      "DS lab",
+      "walk"
+     ]
+    ],
+    "minutes": {
+     "walk": 20
+    },
+    "count": {
+     "walk": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-it-refers-gym",
+   "history": [
+    {
+     "role": "user",
+     "content": "when's gym?"
+    },
+    {
+     "role": "assistant",
+     "content": "Gym is at 6 PM, for an hour."
+    }
+   ],
+   "turns": [
+    "move it to 6:30"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Gym",
+      "start": "18:30"
+     }
+    ],
+    "count": {
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-laundry-back",
+   "turns": [
+    "drop laundry tonight",
+    "wait, put it back"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Laundry",
+      "start": "21:30"
+     }
+    ],
+    "count": {
+     "Laundry": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-study-515",
+   "turns": [
+    "move study to 5:30",
+    "no, 5:15"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Study",
+      "start": "17:15"
+     }
+    ],
+    "count": {
+     "Study": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-dinner-45-fine",
+   "turns": [
+    "make dinner an hour",
+    "actually 45 minutes is fine, leave it"
+   ],
+   "expect": {
+    "minutes": {
+     "Dinner": 45
+    },
+    "count": {
+     "Dinner": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-side-after-gym",
+   "turns": [
+    "can you move the side project earlier",
+    "to right after gym"
+   ],
+   "expect": {
+    "order": [
+     [
+      "Gym",
+      "Side project"
+     ]
+    ],
+    "count": {
+     "Side project": 1,
+     "Gym": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-rename-then-resize",
+   "turns": [
+    "rename the side project to YouTube",
+    "and make it 45 minutes"
+   ],
+   "expect": {
+    "minutes": {
+     "YouTube": 45
+    },
+    "count": {
+     "YouTube": 1
+    },
+    "absent": [
+     "Side project"
+    ]
+   }
+  },
+  {
+   "id": "j6-syn-reading-10",
+   "turns": [
+    "add reading for 30 minutes at 22:15",
+    "make that 10 PM instead"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "reading",
+      "start": "22:00"
+     }
+    ],
+    "count": {
+     "reading": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-dinner-where-gym-was",
+   "turns": [
+    "move gym to 8:30",
+    "and put dinner where gym was"
+   ],
+   "expect": {
+    "has": [
+     {
+      "title": "Gym",
+      "start": "20:30"
+     },
+     {
+      "title": "Dinner",
+      "start": "18:00"
+     }
+    ],
+    "count": {
+     "Gym": 1,
+     "Dinner": 1
+    }
+   }
+  },
+  {
+   "id": "j6-syn-study-longer-then-undo",
+   "turns": [
+    "make study two hours",
+    "hmm no, undo that"
+   ],
+   "expect": {
+    "minutes": {
+     "Study": 60
+    },
+    "count": {
+     "Study": 1
+    }
+   }
+  }
+ ]
 }

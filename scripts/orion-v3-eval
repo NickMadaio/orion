@@ -294,6 +294,19 @@ async function tuneTools(job, model) {
 }
 
 
+
+async function freezeTools(job, model) {
+  const config = JSON.parse(flag("--config") ?? fail("--config is required"));
+  const lower = job.toLowerCase();
+  const read = (f) => (existsSync(join(here, `eval/v3/prompts/${lower}/${f}`)) ? readFileSync(join(here, `eval/v3/prompts/${lower}/${f}`), "utf8") : null);
+  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")], ["pfull", read("pfull.md")]].filter(([, v]) => v));
+  const system = renderToolPrompt(config, { bases, blocks: readJson(join(here, "eval/v3/prompts/blocks.json"), {}), examples: read("examples.md") ?? "" });
+  const promptHash = createHash("sha256").update(system).digest("hex").slice(0, 12);
+  writePrivate(join(V3_DIR, "configs", lower, `${model.replace(/[:/]/g, "_")}.json`), { job, model, config, system, promptHash, frozenBy: "hand", why: flag("--why", null) });
+  appendLedger({ phase: "5", kind: "freeze", job, model, config, promptHash, by: "hand", why: flag("--why", null) });
+  console.log(`frozen ${model} ${job} ${promptHash}`);
+}
+
 // Phase 6: the held-out set against a model's frozen configuration (configs/<job>/<model>.json).
 async function finalFrozen() {
   const job = flag("--job") ?? fail("--job is required");
@@ -426,6 +439,7 @@ try {
   else if (command === "breakdown") breakdownCmd();
   else if (command === "explore" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await exploreTools(flag("--job"), flag("--model") ?? fail("--model is required"));
   else if (command === "explore") await exploreJ1();
+  else if (command === "freeze" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await freezeTools(flag("--job"), flag("--model") ?? fail("--model is required"));
   else if (command === "freeze") freezeJ1();
   else if (command === "tune" && flag("--job", "J1") === "J1") await tuneJ1(flag("--model") ?? fail("--model is required"));
   else if (command === "tune" && ["J2", "J3", "J4", "J5", "J6"].includes(flag("--job"))) await tuneTools(flag("--job"), flag("--model") ?? fail("--model is required"));

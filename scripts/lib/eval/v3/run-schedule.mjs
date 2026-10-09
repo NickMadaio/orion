@@ -59,7 +59,7 @@ export async function runScheduleJob(cases, { model, template, menu, think = "of
         const state = sb.state();
         const reply = replies.at(-1) ?? "";
         const grade = gradeScheduleJob(c, { before, after: state.day, now: minuteOf(now), reply: stopped === "reply" ? reply : `(no reply: ${stopped}) ${reply}`, toolLog, todos: state.todos });
-        const trial = { repeat: r, id: c.id, job: c.job ?? "J3", provenance: c.provenance, pass: grade.pass, reasons: grade.reasons, honesty: grade.honesty, calls: toolLog.map((t) => t.canonical),
+        const trial = { repeat: r, id: c.id, job: c.job ?? "J3", provenance: c.provenance, pass: grade.pass, reasons: grade.reasons, honesty: grade.honesty, calls: toolLog.map((t) => t.canonical), toolLog: toolLog.map(({ canonical, stdout, exit }) => ({ canonical, stdout: String(stdout ?? "").slice(0, 2000), exit })),
           replies, stopped, day: state.day, todos: state.todos, timings: { ttftMs: ttft, wallMs: wall, steps } };
         trials.push(trial);
         onTrial(trial);

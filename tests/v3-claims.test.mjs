@@ -147,3 +147,10 @@ test("the synthetic labelled set meets the §8.3 bar (≥95% recall, ≥90% prec
   const wd = score("wrongDetail", "wd");
   assert.equal(wd.recall, 1, JSON.stringify(wd));
 });
+
+test("success markers include the real outputs of orion-log and orion-show (2026-10-09 transcript read)", () => {
+  assert.equal(outcomeOf(r("exec orion-log water", "Logged water: 2 glasses (total today 5).")), "success");
+  assert.equal(outcomeOf(r("exec orion-log food x", "Logged food: chicken wrap, 520 kcal, lunch.")), "success");
+  assert.equal(outcomeOf(r("exec orion-show health", "Showing health in ORION on the Mac.")), "success");
+  assert.equal(checkReply({ reply: "Logged — 2 glasses, 5 today.", turnResults: [r("exec orion-log water", "Logged water: 2 glasses (total today 5).")] }).ok, true);
+});

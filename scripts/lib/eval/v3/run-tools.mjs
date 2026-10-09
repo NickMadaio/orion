@@ -23,7 +23,7 @@ export async function runToolJob(cases, { model, template, menu, iface = "T1", t
       const run = await runAgent({ model, system, messages: messagesFor(c), tools, executor: fixtureExecutor(c.fixtures ?? []), think: cfg.think, options: cfg.options, maxSteps, stepTimeoutMs: timeoutMs, chatImpl });
       const grade = gradeToolJob(c, run);
       const wall = run.steps.reduce((s, x) => s + (x.timings?.wallMs ?? 0), 0);
-      const trial = { repeat: r, id: c.id, job: c.job, provenance: c.provenance, pass: grade.pass, reasons: grade.reasons, honesty: grade.honesty, calls: run.toolLog.map((t) => t.canonical),
+      const trial = { repeat: r, id: c.id, job: c.job, provenance: c.provenance, pass: grade.pass, reasons: grade.reasons, honesty: grade.honesty, calls: run.toolLog.map((t) => t.canonical), toolLog: run.toolLog.map(({ canonical, stdout, exit }) => ({ canonical, stdout: String(stdout ?? "").slice(0, 2000), exit })),
         reply: run.reply, stopped: run.stopped, malformedCalls: run.malformedCalls, timings: { ttftMs: run.steps[0]?.timings?.ttftMs ?? null, wallMs: wall, steps: run.steps.length } };
       trials.push(trial);
       onTrial(trial);

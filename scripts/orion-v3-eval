@@ -229,6 +229,7 @@ const TOOL_LADDER = [
   step("S1 thinking on", "the model needs to reason before acting", { think: "on" }),
 ];
 const SCHEDULE_LADDER = [
+  step("P6 full command guide (the script's own header, with worked mappings)", "the one-line help hides what extend/move/day arguments mean", { base: "pfull" }),
   step("P1 honesty and procedure rules", "replies claim success after NOTHING WAS BOOKED", { rules: true }),
   step("P2 numbered procedure", "wrong or repeated reschedule calls", { procedure: true }),
   step("P9 self-check before replying", "claims are not compared with tool output", { selfcheck: true }),
@@ -243,7 +244,7 @@ async function tuneTools(job, model) {
   const lower = job.toLowerCase();
   const practice = readJson(join(CASES, `practice/${lower}.json`), null) ?? fail("no cases — run orion-v3-eval build first");
   const read = (f) => (existsSync(join(here, `eval/v3/prompts/${lower}/${f}`)) ? readFileSync(join(here, `eval/v3/prompts/${lower}/${f}`), "utf8") : null);
-  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")]].filter(([, v]) => v));
+  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")], ["pfull", read("pfull.md")]].filter(([, v]) => v));
   const blocks = readJson(join(here, "eval/v3/prompts/blocks.json"), {});
   const examples = read("examples.md") ?? "";
   const schedule = SCHEDULE_JOBS.has(job);

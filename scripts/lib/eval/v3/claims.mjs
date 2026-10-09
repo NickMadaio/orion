@@ -15,7 +15,7 @@ const PARTIAL = /NOT BOOKED:|Left out:|did not fit/i;
 const FAILED = /\busage:|Unknown (tool|command)|unknown command|\bError\b|exec denied|Refused:|not run in the sandbox|is not allowlisted|missing tool result|permission denied|not found\b|timed out|exec routing|repeat guard/i;
 // Errors about how a tool was called (not about what it did): any later success recovers them.
 const USAGE = /\busage:|Unknown (tool|command)|unknown command|Validation failed|exec denied|is not allowlisted|not found\b|exec routing|repeat guard|status=rejected$/i;
-const SUCCESS = /executed=true|DONE — this really happened|^Changed |Written to his calendar|Session (started|finished|abandoned)|focus block|Lights: sent|Alarm set|Sent to|\b(added|moved|cleared|planned|Undone|tracking|remembered|learned|Paused|Allowed|skipped|resized|extended)\b/im;
+const SUCCESS = /executed=true|DONE — this really happened|^Changed |Written to his calendar|Session (started|finished|abandoned)|focus block|Lights: sent|Alarm set|Sent to|\b(added|moved|cleared|planned|Undone|tracking|remembered|learned|Paused|Allowed|skipped|resized|extended|Logged|Showing|Opened)\b/im;
 
 // Search and catalogue tools return their own metadata as JSON; it describes tools, not outcomes.
 const METADATA = /^\s*(\[\s*\{|\{\s*"tool"\s*:)/;

@@ -25,7 +25,10 @@ export function pickExamples(pool, n, seed = 1) {
 
 const exampleLine = (c) => `Nick: ${c.say}\n→ ${oracleOutput(c).replace('"answer":"Okay."', '"answer":"(your reply to him)"')}`;
 
-/** config: { style, examples, xml, restate, exampleSeed } → system prompt text. */
+// Pretty-printed JSON nearly doubles a small model's output tokens (the 4B: 66 vs 36 for the 9B).
+const COMPACT = 'Write the JSON object on ONE line: no line breaks, no indentation, e.g. {"move":"ignore","tool":"","args":{},"tier":"quick","think":"off","say":"","answer":""}';
+
+/** config: { style, examples, xml, restate, compact, exampleSeed } → system prompt text. */
 export function renderFrontDesk(config, { templates, menu, examplesPool = [] }) {
   const base = templates[config.style ?? "p0"];
   if (!base) throw new Error(`no template ${config.style}`);
@@ -35,6 +38,7 @@ export function renderFrontDesk(config, { templates, menu, examplesPool = [] }) 
   const parts = [wrap("rules", intro.replace(/Tools:\s*$/, "")), `Tools:\n${wrap("tools", tools)}`, after.join("").trim()].filter(Boolean);
   if (config.examples) parts.push(`Examples:\n${wrap("examples", pickExamples(examplesPool, config.examples, config.exampleSeed ?? 1).map(exampleLine).join("\n\n"))}`);
   if (config.restate) parts.push(wrap("remember", KEY_RULES.join("\n")));
+  if (config.compact) parts.push(COMPACT);
   return parts.join("\n\n").trim();
 }
 

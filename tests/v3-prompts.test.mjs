@@ -46,3 +46,9 @@ test("tool prompts: base, then each switched-on block, examples, restate last", 
   assert.deepEqual(p.split("\n\n"), ["BASE", "RULES", "CHECK", "EXAMPLES", "REMEMBER"]);
   assert.equal(renderToolPrompt({ base: "p0" }, { bases: { p0: "BASE" }, blocks, examples: "" }), "BASE");
 });
+
+test("compact asks for one-line JSON as the last instruction (speed: fewer output tokens)", () => {
+  const p = renderFrontDesk({ style: "p0", restate: true, compact: true }, { templates, menu, examplesPool: pool });
+  assert.match(p.trim().split("\n").at(-1), /ONE line/);
+  assert.doesNotMatch(renderFrontDesk({ style: "p0" }, { templates, menu, examplesPool: pool }), /ONE line/);
+});

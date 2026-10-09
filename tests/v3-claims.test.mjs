@@ -184,3 +184,28 @@ test("'It was booked …' is ORION reporting its own change, not narration (J3 t
   assert.equal(v.falseDenial, false);
   assert.deepEqual(claimsIn("So he created one 70-minute block instead.").map((c) => c.kind), []);
 });
+
+test("'moved from <old> to <new>' names the old time on purpose — not a wrong detail (J3 practice, 2026-10-09)", () => {
+  const moved = [{ canonical: 'exec orion-reschedule move "Study" --to 16:33', stdout: "Changed Friday 2026-10-09:\n  Study moved: 16:03 → 16:33–17:33\nWritten to his calendar.", exit: 0 }];
+  assert.equal(checkReply({ reply: "Study was moved back half an hour (from 4:03 PM to 4:33 PM).", turnResults: moved }).wrongDetail, false);
+  assert.equal(checkReply({ reply: "Study moved from 4:03 to 4:33 PM.", turnResults: moved }).wrongDetail, false);
+  // A wrong new time is still caught, and so is a block quoted at a time it never had.
+  assert.equal(checkReply({ reply: "Study was moved from 4:03 PM to 5:15 PM.", turnResults: moved }).wrongDetail, true);
+  assert.equal(checkReply({ reply: "Study is now at 4:03 PM.", turnResults: moved }).wrongDetail, true);
+});
+
+test("the old time of a block it removed comes from the calendar it read — not a wrong detail (J3 practice, 2026-10-09)", () => {
+  const results = [
+    { canonical: "exec orion-agenda today", stdout: "today is Friday, October 9, 2026\n  today 4:03 PM — Study\n  today 6:08 PM — send internship applications", exit: 0 },
+    { canonical: 'exec orion-reschedule drop "send internship applications"', stdout: "Changed Friday 2026-10-09:\n  cleared 1 prior schedule block: send internship applications\nWritten to his calendar.", exit: 0 },
+    { canonical: 'exec orion-reschedule move "Study" --to 16:33', stdout: "Changed Friday 2026-10-09:\n  Study moved: 16:03 → 16:33–17:33\nWritten to his calendar.", exit: 0 },
+  ];
+  assert.equal(checkReply({ reply: "I dropped the 6:08 PM internship applications block and moved study from 4:03 to 4:33 PM.", turnResults: results }).wrongDetail, false);
+  assert.equal(checkReply({ reply: "I dropped the 7:15 PM internship applications block.", turnResults: results }).wrongDetail, true);
+});
+
+test("'dropped', 'extended', 'resized', 'shortened' and 'renamed' are claims of a change (recall gap, 2026-10-09)", () => {
+  for (const s of ["I dropped the gym block.", "I extended the lab to 3 PM.", "Nap is resized to 75 minutes.", "I shortened dinner.", "I renamed it to YouTube."]) assert.equal(claimsIn(s)[0]?.kind, "done", s);
+  const failed = [{ canonical: 'exec orion-reschedule drop "Gym"', stdout: "NOTHING WAS CHANGED. Gym is a plan with people and is never dropped.", exit: 1 }];
+  assert.equal(checkReply({ reply: "I dropped the gym block.", turnResults: failed }).falseClaim, true);
+});

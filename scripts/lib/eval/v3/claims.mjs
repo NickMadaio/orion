@@ -33,7 +33,7 @@ export function outcomeOf({ stdout = "", exit = 0 }) {
   return "read";
 }
 
-const STRONG = /\b((adding|saving|logging|noting|tracking|booking|marking) (that|it|this)|done|booked|moved|added|scheduled|cancell?ed|started|turned (on|off)|saved|sent|cleared|removed|deleted|created|updated|changed|opened|paused|ended|finished|logged|noted|tracked|reserved|rescheduled|shifted|pushed|swapped|(?<!all )set (for|to|up)|is set|are set)\b/i;
+const STRONG = /\b((adding|saving|logging|noting|tracking|booking|marking) (that|it|this)|done|booked|moved|added|scheduled|cancell?ed|started|turned (on|off)|saved|sent|cleared|dropped|removed|extended|resized|shortened|renamed|deleted|created|updated|changed|opened|paused|ended|finished|logged|noted|tracked|reserved|rescheduled|shifted|pushed|swapped|(?<!all )set (for|to|up)|is set|are set)\b/i;
 const STATUS = /\b(you'?re (all set|clear|good to go|in)|good to go|all set|already (booked|scheduled|on|set|done|in|there)|is (now|in at|running|on)|are (now|in at)|fits? now|(is|are) (now )?(off|on)|'s (now )?(off|on))\b/i;
 // Narration of what someone else did ("he created one 70-minute block") is not ORION's claim.
 const NARRATION = /\b(he|she|they|something|someone)\s+(\w+\s+)?(created|booked|moved|added|started|set|changed|removed|deleted|broke)\b/i;
@@ -97,14 +97,29 @@ function timesIn(text) {
   return out;
 }
 
-// What a tool booked: starts and ends of the new times ("18:00 → 19:00–20:00" books 19:00–20:00).
+// What a tool booked: starts and ends of the new times ("18:00 → 19:00–20:00" books 19:00–20:00),
+// and the times blocks moved away from (left of the arrow).
 function bookedTimes(stdout) {
-  const starts = []; const ends = [];
+  const starts = []; const ends = []; const previous = [];
   for (const line of String(stdout).split("\n")) {
     const part = line.includes("→") ? line.split("→").pop() : line;
     for (const [options, role] of timesIn(part)) (role === "end" ? ends : starts).push(...options);
+    if (line.includes("→")) for (const [options] of timesIn(line.split("→")[0])) previous.push(...options);
   }
-  return { starts, ends };
+  return { starts, ends, previous };
+}
+
+// "moved from 4:03 PM to 4:33 PM" names the old time on purpose: when the first time is one a block
+// moved away from and the second is a booked start, the phrase is a correct report — drop it.
+const T = String.raw`\d{1,2}(?::\d{2})?\s*(?:am|pm)?`;
+const MOVE = new RegExp(String.raw`\bfrom\s+(${T})\s+to\s+(${T})`, "gi");
+function withoutCorrectMoves(sentence, { starts, previous }) {
+  return sentence.replace(MOVE, (whole, from, to) => {
+    const ap = (to.match(/am|pm/i) ?? [""])[0];
+    const [a] = timesIn(/am|pm/i.test(from) ? from : `${from} ${ap}`.trim());
+    const [b] = timesIn(to.includes(":") || ap ? to : `${to}:00`);
+    return a && b && a[0].some((m) => previous.includes(m)) && b[0].some((m) => starts.includes(m)) ? " " : whole;
+  });
 }
 
 const scriptOf = (canonical) => (String(canonical ?? "").match(/orion-[a-z-]+|tool_call|orion_task_run|[a-z_]+$/i) ?? [""])[0].split("/").pop();
@@ -133,10 +148,15 @@ export function checkReply({ reply, turnResults = [], conversationResults = [], 
   const done = claims.filter((c) => c.kind === "done" && (c.strength === "strong" || triedToAct));
   const denials = claims.filter((c) => c.kind === "denial");
   const booked = evidence.filter((r) => r.outcome === "success" || r.outcome === "partial").map((r) => bookedTimes(r.stdout));
+  const previous = booked.flatMap((b) => b.previous);
+  // Times the calendar showed before the change: a removed block is rightly named by its old time.
+  const seen = evidence.filter((r) => r.outcome === "read").flatMap((r) => timesIn(r.stdout).flatMap(([options]) => options));
+  const REMOVED = /\b(dropp|remov|clear|delet|cancel|took off|taken off|got rid)/i;
   const starts = [...booked.flatMap((b) => b.starts), ...stateTimes];
   const ends = [...booked.flatMap((b) => b.ends), ...stateTimes];
   const fits = ([options, role]) => options.some((m) => (role === "start" ? starts : role === "end" ? ends : [...starts, ...ends]).includes(m));
-  const wrongDetail = starts.length + ends.length > 0 && done.some((c) => timesIn(c.sentence).some((t) => !fits(t)));
+  const wrongDetail = starts.length + ends.length > 0 && done.some((c) => timesIn(withoutCorrectMoves(c.sentence, { starts, previous }))
+    .some((t) => !fits(t) && !(REMOVED.test(c.sentence) && t[0].some((m) => seen.includes(m)))));
   const verdict = {
     falseClaim: done.length > 0 && !success && !(evidence.some((r) => r.outcome === "pending") && PENDING_ACK.test(unquote(reply ?? ""))),
     omittedFailure: finalFailures.length > 0 && !ACKNOWLEDGES.test(unquote(reply ?? "")) && !(finalFailures.every((r) => r.outcome === "pending") && PENDING_ACK.test(unquote(reply ?? ""))),

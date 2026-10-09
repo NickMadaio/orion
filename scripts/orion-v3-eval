@@ -247,7 +247,7 @@ async function toolEvaluator(job, model, kind) {
   const lower = job.toLowerCase();
   const practice = readJson(join(CASES, `practice/${lower}.json`), null) ?? fail("no cases — run orion-v3-eval build first");
   const read = (f) => (existsSync(join(here, `eval/v3/prompts/${lower}/${f}`)) ? readFileSync(join(here, `eval/v3/prompts/${lower}/${f}`), "utf8") : null);
-  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")], ["pfull", read("pfull.md")]].filter(([, v]) => v));
+  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")], ["pfull", read("pfull.md")], ["pcoach", read("pfull.md") && read("coach.md") ? read("pfull.md") + read("coach.md") : null]].filter(([, v]) => v));
   const blocks = readJson(join(here, "eval/v3/prompts/blocks.json"), {});
   const examples = read("examples.md") ?? "";
   const schedule = SCHEDULE_JOBS.has(job);
@@ -299,7 +299,7 @@ async function freezeTools(job, model) {
   const config = JSON.parse(flag("--config") ?? fail("--config is required"));
   const lower = job.toLowerCase();
   const read = (f) => (existsSync(join(here, `eval/v3/prompts/${lower}/${f}`)) ? readFileSync(join(here, `eval/v3/prompts/${lower}/${f}`), "utf8") : null);
-  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")], ["pfull", read("pfull.md")]].filter(([, v]) => v));
+  const bases = Object.fromEntries([["p0", read("p0.md")], ["p0t2", read("p0t2.md")], ["pfull", read("pfull.md")], ["pcoach", read("pfull.md") && read("coach.md") ? read("pfull.md") + read("coach.md") : null]].filter(([, v]) => v));
   const system = renderToolPrompt(config, { bases, blocks: readJson(join(here, "eval/v3/prompts/blocks.json"), {}), examples: read("examples.md") ?? "" });
   const promptHash = createHash("sha256").update(system).digest("hex").slice(0, 12);
   writePrivate(join(V3_DIR, "configs", lower, `${model.replace(/[:/]/g, "_")}.json`), { job, model, config, system, promptHash, frozenBy: "hand", why: flag("--why", null) });

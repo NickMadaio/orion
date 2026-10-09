@@ -1,3 +1,11 @@
+## 2026-10-09 11:24 BST — ORION V3: tuning and first held-out finals; continuation handoff (Claude)
+
+- **Continue from `ORION_V3_CONTINUE.md`** (repo root): state, results, exact next steps, lessons. The plan remains `ORION_V3_HANDOFF.md`.
+- Nick: repair queue = brain note "ORION repair queue" (yes); tuning may differ per model (big prompts OK); battery session any time with a heads-up; no Haiku run yet.
+- Held-out so far: front desk qwen3.5:4b 89% (best; none passes the 95% gate); honesty qwen3.5:9b 24/24 and gpt-oss 23/24 with 0 false claims; scheduling qwen3.6:27b 72% (26/36).
+- Next-build findings: give ORION the full reschedule usage (6→16/25 for the 27B), document alarm_set's label, add relative moves, build the honesty guard from `claims.mjs`.
+- The work queue now lives at `~/.openclaw/orion-controlled/evals/v3/queue/` and runs with `scripts/orion-v3-queue work` (pauses on battery). Nothing live changed; $0 spent.
+
 ## 2026-10-08 20:25 BST — ORION V3 Phases 2–8 harness built; baselines started (Claude)
 
 - Nick approved: qwen3.5:4b-q4_K_M download (done, 3.3 GB); no Haiku reference run for now; battery sessions any time with a heads-up; run autonomously.

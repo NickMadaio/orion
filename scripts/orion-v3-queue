@@ -1,0 +1,31 @@
+#!/bin/zsh
+# orion-v3-queue — the ORION V3 work queue (ORION_V3_CONTINUE.md).
+#   orion-v3-queue work            run jobs one at a time until the queue is empty and STOP exists
+#   orion-v3-queue add "<args>"    append "args for orion-v3-eval" or "!shell command"
+#   orion-v3-queue status          running job, pending count, last log lines
+# Jobs are files $Q/<name>.job run in name order. The worker pauses on battery (timings and
+# Nick's battery), and waits while any orion-v3-eval process runs so two jobs never overlap.
+# (Written by Claude on 2026-10-09 for the V3 local-first evaluation.)
+cd "$(dirname "$0")/.."
+Q="${ORION_V3_DIR:-$HOME/.openclaw/orion-controlled/evals/v3}/queue"
+mkdir -p "$Q"; chmod 700 "$Q"
+on_ac() { pmset -g batt | head -1 | grep -q "AC Power"; }
+case "$1" in
+  add) n=$(( $(ls "$Q" | grep -cE '\.(job|done|running)$') + 1000 )); echo "$2" > "$Q/$n.job"; echo "queued $n";;
+  status) ls "$Q" | grep running; echo "pending: $(ls "$Q" | grep -c '\.job$')"; tail -5 "$Q/log" 2>/dev/null;;
+  work)
+    while true; do
+      if ! on_ac; then [[ -f $Q/.paused ]] || echo "=== $(date +%H:%M:%S) on battery — paused" >> $Q/log; touch $Q/.paused; sleep 60; continue; fi
+      [[ -f $Q/.paused ]] && { rm $Q/.paused; echo "=== $(date +%H:%M:%S) on AC — resuming" >> $Q/log; }
+      if pgrep -f "scripts/orion-v3-eval" >/dev/null; then sleep 30; continue; fi
+      next=$(ls $Q/*.job 2>/dev/null | sort | head -1)
+      if [[ -z "$next" ]]; then [[ -f $Q/STOP ]] && break; sleep 30; continue; fi
+      line=$(cat $next); mv $next ${next%.job}.running
+      echo "=== $(date +%H:%M:%S) $line" >> $Q/log
+      if [[ "$line" == !* ]]; then eval "${line#!}" >> $Q/log 2>&1
+      else eval "node scripts/orion-v3-eval $line" 2>>$Q/err.log | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | grep -E '"pass"|"best"|"baseline"|falseClaims|crit |stopped|frozen' >> $Q/log; fi
+      mv ${next%.job}.running ${next%.job}.done
+    done
+    echo "=== worker stopped $(date +%H:%M:%S)" >> $Q/log;;
+  *) echo "usage: orion-v3-queue work | add \"<args>\" | status"; exit 2;;
+esac

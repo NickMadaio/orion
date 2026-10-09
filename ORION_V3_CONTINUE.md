@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-09 16:37 BST; base 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-09 19:05 BST; base 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -8,6 +8,17 @@ says what has been DONE, what is RUNNING, what is LEFT, and the exact commands.
 Nothing here touches the live ORION config. No Claude API calls have been made ($0 spent).
 
 ---
+
+## Update 2026-10-09 19:05 BST (newest first; then the 16:37 update below)
+
+- **Claims checker fixed** (e74d09b): "moved from <old> to <new>" and a removed block named by its calendar time are not wrong details; dropped/extended/resized/shortened/renamed count as change claims. Real set still 65/65. J3 finals re-graded with `ops/regrade-final.mjs` (aggregates only): **gpt-oss 27/36 (0 FC, ~28 s), 27B 24/36 (3 FC), 9B 23/36 (0 FC, ~14 s, pcoach+examples+think on)**.
+- **4B J1 p6+restate final 123/138** — identical to p4; practice gain (89→94/97) didn't transfer. Compact JSON (`compact: true`) saves ~0.4 s/msg on the 4B but cost 3 practice cases; rejected.
+- **9B J5 final 7/18, J6 final 6/12 (3 FC)** on the OLD tiny held-out sets. **J5 +17 and J6 +16 synthetic cases added** (now J5 23/12, J6 19/9 practice/held-out; split stable). All J5/J6 finals must be re-run on the new sets. 9B J5/J6 re-explore on the bigger practice sets is running (1044x9/xa); next step: read its practice failures, write `prompts/j5/coach`-style guide if useful, freeze, re-run finals.
+- **J6 coach** (`prompts/j6/coach.md`, base `pcoach`): 9B 6/8 practice (was 3/8). Frozen config `pcoach+honesty+rules+examples temp 0`.
+- **Judge**: v2 rubric REJECTED (agreed less than v1 on identical items). v1 is the **provisional** J7 judge: 84% within ±1 over 240 hand-scored pairs (samples A and B in `review/`), bar 85%. gpt-oss judged llama/4B/27B; 9B queued (1044y5). gpt-oss's own J7 run has no judge (27B is too slow, 62.5%) — hand spot-check it.
+- **Thermal**: every tune/explore/final/speed entry now records `thermal` (ProcessInfo.thermalState). Speed refuses to run when serious/critical. Nick's backpack hour (≈15:40–16:40 BST) is a ledger caveat.
+- Holds: `queue/223a-3.hold` = 4B J3 final, waiting on the 4B pcoach explore (1044z1). Freeze the better config, then rename `.hold` → `.job`.
+- Lesson (again): small practice sets overfit. Prefer adding cases over prompt-patching a model's last few practice misses.
 
 ## Update 2026-10-09 16:37 BST (read this first; sections below are the 11:24 state)
 

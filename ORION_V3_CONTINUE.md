@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-09 21:15 BST; base 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-10 18:25 BST; base 2026-10-09 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -8,6 +8,12 @@ says what has been DONE, what is RUNNING, what is LEFT, and the exact commands.
 Nothing here touches the live ORION config. No Claude API calls have been made ($0 spent).
 
 ---
+
+## Update 2026-10-10 18:25 BST (newest first) — campaign essentially complete
+
+- All Phase 5 tuning and Phase 6 finals done for all five models (auto-freeze: `scripts/eval/v3/ops/auto-freeze.mjs`). Speed measured cold+warm on AC, thermal nominal. Phase 8 pipeline (4B front → 9B via the real route) ran: 7/21, ~35 s — the gateway uses production prompts, not the tuned ones. Eval marker verified removed.
+- **`docs/evals/v3/REPORT.md` §9 = the recommendation** (routing matrix, per-job winners, decisions for Nick). Read it first.
+- **Remaining:** (1) Phase 7 battery session — needs Nick to unplug: run `scripts/orion-v3-energy sample --model <m> --minutes 4` for qwen3.5:4b-q4_K_M, qwen3.5:9b, gpt-oss:20b (optionally llama, 27B), then add an energy table to REPORT §9 and set battery thresholds. (2) Nick's decisions in §9.4 (supervised live day, porting prompts, gateway registration, removing the 27B). Nothing else is queued.
 
 ## Update 2026-10-09 21:15 BST (newest first)
 

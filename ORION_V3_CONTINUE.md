@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-10 18:25 BST; base 2026-10-09 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-10 22:40 BST; base 2026-10-09 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -8,6 +8,11 @@ says what has been DONE, what is RUNNING, what is LEFT, and the exact commands.
 Nothing here touches the live ORION config. No Claude API calls have been made ($0 spent).
 
 ---
+
+## Update 2026-10-10 22:40 BST (newest first) — implementation started
+
+- Nick rejected a category-based "deep" tier. Replay test (`scripts/eval/v3/ops/cascade.mjs`): 9B → runtime check → 9B retry → check → gpt-oss = **28/36 held-out scheduling, 0 false claims, gpt-oss on 4/36, p50 21 s / p90 86 s** (REPORT §9.7). 9B self-review rejected (flags ~everything).
+- Implementation plan: `docs/planning/v3/ORION_V3_IMPLEMENTATION_PLAN.md` (status section at the end). Built and committed: work check, front desk, shadow-mode wiring. **Waiting on Nick:** go-ahead to deploy shadow mode (build + config flag + gateway restart), and the battery session.
 
 ## Update 2026-10-10 18:25 BST (newest first) — campaign essentially complete
 

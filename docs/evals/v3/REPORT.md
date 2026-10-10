@@ -201,5 +201,142 @@ No model passes the J1 gates yet (≥95%, pass^3 ≥90%, ≤1 critical). Thinkin
 front desk time out (60 s) on 86% of messages. llama's practice score was inflated by examples.
 
 <!-- generated:start -->
-_Sections 3 and 8 are generated from the ledger by `orion-v3-eval report` once held-out finals exist._
+## 3. Held-out results (Phase 6)
+
+Generated from the ledger by `orion-v3-eval report`. Pooled over 3 repeats; 95% Wilson interval; pass^3 = share of cases passed in every repeat; a zero count carries its rule-of-three bound.
+
+### J1
+
+| Model | Pooled | 95% interval | pass^3 | Critical | False claims (bound) | Omitted failures | Gates | Speed p50 |
+|---|---|---|---|---|---|---|---|---|
+| qwen3.5:4b-q4_K_M | 123/138 (89.1%) | 82.8%–93.3% | 89.1% | 6 | 0 (<2.2%) | 0 | fail: 0.95, pass^3 ≥ 90.0%, critical misroutes ≤ 1 | 0.52 s |
+| llama3.2:3b | 93/138 (67.4%) | 59.2%–74.6% | 67.4% | 6 | 0 (<2.2%) | 0 | fail: 0.95, pass^3 ≥ 90.0%, critical misroutes ≤ 1 | 0.08 s |
+| qwen3.5:9b | 111/138 (80.4%) | 73.0%–86.2% | 80.4% | 6 | 0 (<2.2%) | 0 | fail: 0.95, pass^3 ≥ 90.0%, critical misroutes ≤ 1 | 0.88 s |
+| gpt-oss:20b | 113/138 (81.9%) | 74.6%–87.4% | 80.4% | 4 | 0 (<2.2%) | 0 | fail: 0.95, pass^3 ≥ 90.0%, critical misroutes ≤ 1 | 0.65 s |
+| qwen3.6:27b | 111/138 (80.4%) | 73.0%–86.2% | 80.4% | 12 | 0 (<2.2%) | 0 | fail: 0.95, pass^3 ≥ 90.0%, critical misroutes ≤ 1 | 1.47 s |
+
+- qwen3.5:4b-q4_K_M vs llama3.2:3b: Δ 21.7 points (14.5 to 29.7), McNemar p = 0.000 → A more reliable
+- qwen3.5:4b-q4_K_M vs qwen3.5:9b: Δ 8.7 points (1.4 to 16.7), McNemar p = 0.043 → A more reliable
+- qwen3.5:4b-q4_K_M vs gpt-oss:20b: Δ 7.2 points (-0.7 to 15.2), McNemar p = 0.121 → inconclusive
+- qwen3.5:4b-q4_K_M vs qwen3.6:27b: Δ 8.7 points (1.4 to 16.7), McNemar p = 0.043 → A more reliable
+- llama3.2:3b vs qwen3.5:9b: Δ -13.0 points (-21.7 to -4.3), McNemar p = 0.008 → B more reliable
+- llama3.2:3b vs gpt-oss:20b: Δ -14.5 points (-24.6 to -4.3), McNemar p = 0.008 → B more reliable
+- llama3.2:3b vs qwen3.6:27b: Δ -13.0 points (-21.7 to -4.3), McNemar p = 0.008 → B more reliable
+- qwen3.5:9b vs gpt-oss:20b: Δ -1.4 points (-8.7 to 5.8), McNemar p = 0.845 → inconclusive
+- qwen3.5:9b vs qwen3.6:27b: Δ 0.0 points (-8.0 to 8.0), McNemar p = 1.000 → inconclusive
+- gpt-oss:20b vs qwen3.6:27b: Δ 1.4 points (-5.8 to 9.4), McNemar p = 0.851 → inconclusive
+
+**Choice (plugged in):** none — no configuration passes every gate
+
+### J2
+
+| Model | Pooled | 95% interval | pass^3 | Critical | False claims (bound) | Omitted failures | Gates | Speed p50 |
+|---|---|---|---|---|---|---|---|---|
+| qwen3.5:9b | 33/33 (100.0%) | 89.6%–100.0% | 100.0% | 0 | 0 (<9.1%) | 0 | all pass | — |
+| qwen3.5:4b-q4_K_M | 24/33 (72.7%) | 55.8%–84.9% | 63.6% | 0 | 3 | 5 | fail: 0.95, pass^3 ≥ 90.0%, 0 false claims | — |
+| gpt-oss:20b | 27/33 (81.8%) | 65.6%–91.4% | 72.7% | 0 | 0 (<9.1%) | 2 | fail: 0.95, pass^3 ≥ 90.0% | — |
+| qwen3.6:27b | 29/33 (87.9%) | 72.7%–95.2% | 81.8% | 0 | 0 (<9.1%) | 0 | borderline | — |
+
+- qwen3.5:9b vs qwen3.5:4b-q4_K_M: Δ 27.3 points (12.1 to 42.4), McNemar p = 0.004 → A more reliable
+- qwen3.5:9b vs gpt-oss:20b: Δ 18.2 points (6.1 to 30.3), McNemar p = 0.031 → A more reliable
+- qwen3.5:9b vs qwen3.6:27b: Δ 12.1 points (3.0 to 24.2), McNemar p = 0.125 → A more reliable
+- qwen3.5:4b-q4_K_M vs gpt-oss:20b: Δ -9.1 points (-24.2 to 6.1), McNemar p = 0.453 → inconclusive
+- qwen3.5:4b-q4_K_M vs qwen3.6:27b: Δ -15.2 points (-30.3 to 0.0), McNemar p = 0.125 → inconclusive
+- gpt-oss:20b vs qwen3.6:27b: Δ -6.1 points (-21.2 to 9.1), McNemar p = 0.688 → inconclusive
+
+**Choice (plugged in):** qwen3.5:9b — qwen3.5:9b is the fastest that passes every gate
+
+### J3
+
+| Model | Pooled | 95% interval | pass^3 | Critical | False claims (bound) | Omitted failures | Gates | Speed p50 |
+|---|---|---|---|---|---|---|---|---|
+| qwen3.6:27b | 24/36 (66.7%) | 50.3%–79.8% | 58.3% | 0 | 3 | 0 | fail: 0.9, pass^3 ≥ 80.0%, 0 false claims | — |
+| gpt-oss:20b | 27/36 (75.0%) | 58.9%–86.2% | 75.0% | 0 | 0 (<8.3%) | 0 | fail: 0.9, pass^3 ≥ 80.0% | — |
+| qwen3.5:9b | 23/36 (63.9%) | 47.6%–77.5% | 41.7% | 0 | 0 (<8.3%) | 0 | fail: 0.9, pass^3 ≥ 80.0%, 0 false denials | — |
+| qwen3.5:4b-q4_K_M | 21/36 (58.3%) | 42.2%–72.9% | 58.3% | 0 | 0 (<8.3%) | 0 | fail: 0.9, pass^3 ≥ 80.0% | — |
+
+- qwen3.6:27b vs gpt-oss:20b: Δ 2.8 points (-8.3 to 13.9), McNemar p = 1.000 → inconclusive
+- qwen3.6:27b vs qwen3.5:9b: Δ 13.9 points (0.0 to 27.8), McNemar p = 0.125 → inconclusive
+- qwen3.6:27b vs qwen3.5:4b-q4_K_M: Δ 13.9 points (0.0 to 27.8), McNemar p = 0.125 → inconclusive
+- gpt-oss:20b vs qwen3.5:9b: Δ 11.1 points (-5.6 to 27.8), McNemar p = 0.344 → inconclusive
+- gpt-oss:20b vs qwen3.5:4b-q4_K_M: Δ 11.1 points (2.8 to 22.2), McNemar p = 0.125 → A more reliable
+- qwen3.5:9b vs qwen3.5:4b-q4_K_M: Δ 0.0 points (-19.4 to 19.4), McNemar p = 1.000 → inconclusive
+
+**Choice (plugged in):** none — no configuration passes every gate
+
+### J4
+
+| Model | Pooled | 95% interval | pass^3 | Critical | False claims (bound) | Omitted failures | Gates | Speed p50 |
+|---|---|---|---|---|---|---|---|---|
+| qwen3.5:4b-q4_K_M | 16/24 (66.7%) | 46.7%–82.0% | 50.0% | 0 | 2 | 3 | fail: 0 false claims | — |
+| qwen3.5:9b | 24/24 (100.0%) | 86.2%–100.0% | 100.0% | 0 | 0 (<12.5%) | 0 | all pass | — |
+| gpt-oss:20b | 23/24 (95.8%) | 79.8%–99.3% | 87.5% | 0 | 0 (<12.5%) | 0 | all pass | — |
+| qwen3.6:27b | 18/24 (75.0%) | 55.1%–88.0% | 75.0% | 0 | 3 | 0 | fail: 0 false claims | — |
+
+- qwen3.5:4b-q4_K_M vs qwen3.5:9b: Δ -33.3 points (-54.2 to -16.7), McNemar p = 0.008 → B more reliable
+- qwen3.5:4b-q4_K_M vs gpt-oss:20b: Δ -29.2 points (-50.0 to -8.3), McNemar p = 0.039 → B more reliable
+- qwen3.5:4b-q4_K_M vs qwen3.6:27b: Δ -8.3 points (-29.2 to 12.5), McNemar p = 0.688 → inconclusive
+- qwen3.5:9b vs gpt-oss:20b: Δ 4.2 points (0.0 to 12.5), McNemar p = 1.000 → inconclusive
+- qwen3.5:9b vs qwen3.6:27b: Δ 25.0 points (8.3 to 41.7), McNemar p = 0.031 → A more reliable
+- gpt-oss:20b vs qwen3.6:27b: Δ 20.8 points (4.2 to 37.5), McNemar p = 0.063 → A more reliable
+
+**Choice (plugged in):** qwen3.5:9b — qwen3.5:9b is the fastest that passes every gate
+
+### J5
+
+| Model | Pooled | 95% interval | pass^3 | Critical | False claims (bound) | Omitted failures | Gates | Speed p50 |
+|---|---|---|---|---|---|---|---|---|
+| qwen3.5:9b | 33/36 (91.7%) | 78.2%–97.1% | 91.7% | 0 | 0 (<8.3%) | 3 | all pass | — |
+| llama3.2:3b | 9/36 (25.0%) | 13.8%–41.1% | 25.0% | 0 | 0 (<8.3%) | 0 | fail: 0.85 | — |
+| qwen3.5:4b-q4_K_M | 30/36 (83.3%) | 68.1%–92.1% | 83.3% | 0 | 0 (<8.3%) | 0 | borderline | — |
+| gpt-oss:20b | 19/36 (52.8%) | 37.0%–68.0% | 41.7% | 0 | 0 (<8.3%) | 0 | fail: 0.85 | — |
+| qwen3.6:27b | 34/36 (94.4%) | 81.9%–98.5% | 83.3% | 0 | 1 | 0 | fail: 0 false claims | — |
+
+- qwen3.5:9b vs llama3.2:3b: Δ 66.7 points (44.4 to 86.1), McNemar p = 0.000 → A more reliable
+- qwen3.5:9b vs qwen3.5:4b-q4_K_M: Δ 8.3 points (0.0 to 19.4), McNemar p = 0.250 → inconclusive
+- qwen3.5:9b vs gpt-oss:20b: Δ 38.9 points (22.2 to 55.6), McNemar p = 0.000 → A more reliable
+- qwen3.5:9b vs qwen3.6:27b: Δ -2.8 points (-13.9 to 5.6), McNemar p = 1.000 → inconclusive
+- llama3.2:3b vs qwen3.5:4b-q4_K_M: Δ -58.3 points (-80.6 to -33.3), McNemar p = 0.000 → B more reliable
+- llama3.2:3b vs gpt-oss:20b: Δ -27.8 points (-52.8 to 0.0), McNemar p = 0.076 → inconclusive
+- llama3.2:3b vs qwen3.6:27b: Δ -69.4 points (-86.1 to -52.8), McNemar p = 0.000 → B more reliable
+- qwen3.5:4b-q4_K_M vs gpt-oss:20b: Δ 30.6 points (13.9 to 47.2), McNemar p = 0.003 → A more reliable
+- qwen3.5:4b-q4_K_M vs qwen3.6:27b: Δ -11.1 points (-25.0 to 0.0), McNemar p = 0.219 → inconclusive
+- gpt-oss:20b vs qwen3.6:27b: Δ -41.7 points (-58.3 to -25.0), McNemar p = 0.000 → B more reliable
+
+**Choice (plugged in):** qwen3.5:9b — qwen3.5:9b is the fastest that passes every gate
+
+### J6
+
+| Model | Pooled | 95% interval | pass^3 | Critical | False claims (bound) | Omitted failures | Gates | Speed p50 |
+|---|---|---|---|---|---|---|---|---|
+| qwen3.5:9b | 18/27 (66.7%) | 47.8%–81.4% | 66.7% | 0 | 3 | 0 | fail: 0.9, 0 false claims | — |
+| llama3.2:3b | 9/27 (33.3%) | 18.6%–52.2% | 33.3% | 0 | 3 | 9 | fail: 0.9, 0 false claims | — |
+| qwen3.5:4b-q4_K_M | 10/27 (37.0%) | 21.5%–55.8% | 33.3% | 0 | 3 | 5 | fail: 0.9, 0 false claims | — |
+| gpt-oss:20b | 14/27 (51.9%) | 34.0%–69.3% | 33.3% | 0 | 0 (<11.1%) | 1 | fail: 0.9, 0 false denials | — |
+| qwen3.6:27b | 18/27 (66.7%) | 47.8%–81.4% | 66.7% | 0 | 3 | 0 | fail: 0.9, 0 false claims | — |
+
+- qwen3.5:9b vs llama3.2:3b: Δ 33.3 points (7.4 to 59.3), McNemar p = 0.035 → A more reliable
+- qwen3.5:9b vs qwen3.5:4b-q4_K_M: Δ 29.6 points (14.8 to 48.1), McNemar p = 0.008 → A more reliable
+- qwen3.5:9b vs gpt-oss:20b: Δ 14.8 points (3.7 to 29.6), McNemar p = 0.125 → A more reliable
+- qwen3.5:9b vs qwen3.6:27b: Δ 0.0 points (0.0 to 0.0), McNemar p = 1.000 → equivalent
+- llama3.2:3b vs qwen3.5:4b-q4_K_M: Δ -3.7 points (-33.3 to 25.9), McNemar p = 1.000 → inconclusive
+- llama3.2:3b vs gpt-oss:20b: Δ -18.5 points (-44.4 to 7.4), McNemar p = 0.267 → inconclusive
+- llama3.2:3b vs qwen3.6:27b: Δ -33.3 points (-59.3 to -7.4), McNemar p = 0.035 → B more reliable
+- qwen3.5:4b-q4_K_M vs gpt-oss:20b: Δ -14.8 points (-37.0 to 7.4), McNemar p = 0.344 → inconclusive
+- qwen3.5:4b-q4_K_M vs qwen3.6:27b: Δ -29.6 points (-48.1 to -14.8), McNemar p = 0.008 → B more reliable
+- gpt-oss:20b vs qwen3.6:27b: Δ -14.8 points (-29.6 to -3.7), McNemar p = 0.125 → B more reliable
+
+**Choice (plugged in):** none — no configuration passes every gate
+
+## 8. Proposed routing (plugged in)
+
+| Job | Model | Why |
+|---|---|---|
+| J1 | none — keep Claude or add a tool | no configuration passes every gate |
+| J2 | qwen3.5:9b | qwen3.5:9b is the fastest that passes every gate |
+| J3 | none — keep Claude or add a tool | no configuration passes every gate |
+| J4 | qwen3.5:9b | qwen3.5:9b is the fastest that passes every gate |
+| J5 | qwen3.5:9b | qwen3.5:9b is the fastest that passes every gate |
+| J6 | none — keep Claude or add a tool | no configuration passes every gate |
+
 <!-- generated:end -->

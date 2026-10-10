@@ -1,4 +1,5 @@
 import { Type, type Static } from "typebox";
+import { registerLocalRouting } from "./local-routing.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -262,6 +263,13 @@ export const ConfigSchema = Type.Object({
         "Enable typed Apple Calendar event creation/removal and Apple Reminders creation through EventKit. Event removal still requires approval bound to the exact title. Default off.",
     }),
   ),
+  localRouting: Type.Optional(
+    Type.Union([Type.Literal("off"), Type.Literal("shadow"), Type.Literal("on")], {
+      description:
+        "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off.",
+    }),
+  ),
+  localRoutingLogPath: Type.Optional(Type.String({ description: "Shadow log path. Defaults to ~/.openclaw/orion-controlled/local-routing/shadow.jsonl." })),
   enableEpisodicCapture: Type.Optional(
     Type.Boolean({
       description:
@@ -1643,6 +1651,15 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     if (typeof runId === "string") repeatState.delete(`run:${runId}`);
     if (typeof sessionKey === "string") repeatState.delete(`session:${sessionKey}`);
   });
+  const localRouting = api.pluginConfig?.localRouting;
+  if (localRouting === "shadow" || localRouting === "on") {
+    registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
+      mode: localRouting,
+      logPath: typeof api.pluginConfig?.localRoutingLogPath === "string"
+        ? api.pluginConfig.localRoutingLogPath
+        : path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "shadow.jsonl"),
+    });
+  }
   if (api.pluginConfig?.enableEpisodicCapture === true) {
     api.on("before_agent_finalize", async (event, hookContext) => {
       const sessionId = field(event, "sessionId") ?? field(hookContext, "sessionId");

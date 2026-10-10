@@ -103,6 +103,15 @@
         "type": "boolean",
         "description": "Enable typed Apple Calendar event creation/removal and Apple Reminders creation through EventKit. Event removal still requires approval bound to the exact title. Default off."
       },
+      "localRouting": {
+        "type": "string",
+        "enum": ["off", "shadow", "on"],
+        "description": "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off."
+      },
+      "localRoutingLogPath": {
+        "type": "string",
+        "description": "Shadow log path. Defaults to ~/.openclaw/orion-controlled/local-routing/shadow.jsonl."
+      },
       "enableEpisodicCapture": {
         "type": "boolean",
         "description": "Automatically append high-signal user preferences, corrections and decisions to the daily episodic journal. Deterministic and local: no model call and no token cost. Default off."

@@ -412,3 +412,23 @@ reachable in production. Treat this as the largest finding for the next build.
 - Two grader bugs (time phrasing; missing change verbs) were found by reading practice transcripts;
   finals were re-graded on aggregates only.
 - Rubric tightening made the local judge worse, not better.
+
+### 9.7 Try → check → escalate (added 2026-10-10 at Nick's request)
+
+Instead of the front desk sending "deep" requests straight to the slowest model, the 9B tries every
+scheduling job; a check that uses only runtime signals (claims vs tool outputs, unmentioned failures,
+overlaps / lost / duplicated blocks, unfinished turn, last change incomplete) decides whether to undo
+and hand the job to gpt-oss from the same starting day. Replayed exactly from the paired held-out
+finals (`scripts/eval/v3/ops/cascade.mjs`):
+
+| J3 scheduling, held-out (36) | Pass | False claims | Escalated | p50 | p90 |
+|---|---|---|---|---|---|
+| 9B alone | 23 (64%) | 0 | — | 15 s | 47 s |
+| gpt-oss alone | 27 (75%) | 0 | all | 28 s | 198 s |
+| **9B → check → gpt-oss** | **27 (75%)** | **0** | **9 (25%)** | **21 s** | **91 s** |
+
+J6 continuity (27): same passes as the 9B (18), false claims 3 → 0, 9 escalated.
+The check caught 7/13 of the 9B's J3 failures with 1 false alarm in 23. The 9B reviewing its own
+work was rejected: it flagged 22–24 of 25 practice attempts (with or without thinking; ~1 min per
+check with thinking). **This replaces the "deep" tier**: no category routing; the 9B does the work,
+the check escalates. gpt-oss must be registered in the gateway for this (Nick's decision).

@@ -77,6 +77,7 @@ const report = (name, rows) => {
   console.log(`${name.padEnd(34)} ${String(pass).padStart(2)}/${rows.length} (${Math.round((100 * pass) / rows.length)}%)  FC ${fc}  escalated ${esc}  time p50 ${pct(s, 0.5).toFixed(1)} s  p90 ${pct(s, 0.9).toFixed(1)} s`);
 };
 
+const allSmall = load(arg("--small"));
 const rows = [];
 for (const [k, s] of small) {
   const b = big.get(k) ?? big.get(`${s.id}#0`);
@@ -85,16 +86,28 @@ for (const [k, s] of small) {
   const gs = grade(c, s); const gb = grade(c, b);
   const flags = mechanicalCheck(c, s);
   const sc = selfModel ? await selfCheck(c, s) : null;
-  rows.push({ id: s.id, gs, gb, flags, sc, sMs: s.timings?.wallMs ?? 0, bMs: b.timings?.wallMs ?? 0 });
+  // A retry by the small model = another recorded attempt at the same case (independent, no feedback).
+  const alt = allSmall.find((x) => x.id === s.id && x.repeat !== s.repeat && x !== s);
+  const ga = alt ? grade(c, alt) : null;
+  rows.push({ id: s.id, gs, gb, flags, sc, sMs: s.timings?.wallMs ?? 0, bMs: b.timings?.wallMs ?? 0,
+    retry: alt ? { pass: ga.pass, fc: ga.honesty.falseClaim, flags: mechanicalCheck(c, alt), ms: alt.timings?.wallMs ?? 0 } : null });
 }
 const policy = (escalate, checkMs = () => 0) => rows.map((r) => { const e = escalate(r);
   return { pass: e ? r.gb.pass : r.gs.pass, fc: (e ? r.gb : r.gs).honesty.falseClaim, esc: e, ms: r.sMs + checkMs(r) + (e ? r.bMs : 0) }; });
 const core = (r) => r.flags.some((f) => f !== "last change incomplete");
+const flagged = (flags) => flags.length > 0;
 console.log(`${job} ${part}: ${rows.length} paired trials`);
 report("9B alone", policy(() => false));
 report("big model alone", rows.map((r) => ({ pass: r.gb.pass, fc: r.gb.honesty.falseClaim, esc: true, ms: r.bMs })));
 report("9B → check → big (mechanical)", policy(core));
 report("  + escalate incomplete changes", policy((r) => r.flags.length > 0));
+if (rows.every((r) => r.retry)) {
+  report("9B → check → 9B retry (no big)", rows.map((r) => { const e = flagged(r.flags); const out = e ? r.retry : { pass: r.gs.pass, fc: r.gs.honesty.falseClaim };
+    return { pass: out.pass, fc: out.fc, esc: e, ms: r.sMs + (e ? r.retry.ms : 0) }; }));
+  report("9B → check → 9B retry → check → big", rows.map((r) => { const e1 = flagged(r.flags); const e2 = e1 && flagged(r.retry.flags);
+    const out = !e1 ? { pass: r.gs.pass, fc: r.gs.honesty.falseClaim } : !e2 ? r.retry : { pass: r.gb.pass, fc: r.gb.honesty.falseClaim };
+    return { pass: out.pass, fc: out.fc, esc: e2, ms: r.sMs + (e1 ? r.retry.ms : 0) + (e2 ? r.bMs : 0) }; }));
+}
 if (selfModel) {
   report("9B → self-review → big", policy((r) => !r.sc.ok, (r) => r.sc.ms));
   report("9B → mechanical OR self-review", policy((r) => core(r) || !r.sc.ok, (r) => r.sc.ms));

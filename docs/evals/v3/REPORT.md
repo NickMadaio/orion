@@ -340,3 +340,75 @@ Generated from the ledger by `orion-v3-eval report`. Pooled over 3 repeats; 95% 
 | J6 | none — keep Claude or add a tool | no configuration passes every gate |
 
 <!-- generated:end -->
+
+## 9. Recommendation (Phase 9) — written 2026-10-10 by Claude; Nick decides
+
+Every number below is on held-out cases (never used for tuning), 3 repeats, from the ledger. Energy
+(Phase 7) is pending a battery session and is added when measured.
+
+### 9.1 Per-job winners
+
+| Job | Winner | Held-out | Honesty | Warm speed | Runner-up |
+|---|---|---|---|---|---|
+| J1 front desk | **qwen3.5:4b** (p6 + restate, JSON schema, temp 0) | 123/138 = 89%, 6 critical | — | 1.4 s (cold 2.9 s) | gpt-oss 82% (4 critical), 1.2 s |
+| J2 simple tools | **qwen3.5:9b** (T2 one-function-per-tool + rules) | **33/33**, pass^3 100% | 0 false claims | ~2 s | 27B 29/33 |
+| J4 honesty | **qwen3.5:9b** (T2 + honesty + rules + self-check, temp 0) | **24/24** | 0 | ~2.5 s | gpt-oss 23/24 |
+| J5 brain | **qwen3.5:9b** (examples + honesty + rules, temp 0) | 33/36 = 92% | 0 FC, 3 omitted failures | ~2.4 s | 27B 34/36 (1 FC), ~9 s |
+| J3 scheduling | **gpt-oss:20b** (think high) — *too slow live*; practical: **qwen3.5:9b** (coach guide + examples, thinking on) | gpt-oss 27/36 (75%); 9B 23/36 (64%) | both 0 FC | gpt-oss ~28 s (p90 >3 min); 9B ~14 s | 27B 24/36 with 3 FC |
+| J6 continuity | **qwen3.5:9b** (coach guide + examples, temp 0) | 18/27 = 67% | **3 false claims** | ~4.5 s | 27B 18/27 (3 FC), ~16 s |
+| J7 conversation | qwen3.6:27b, then qwen3.5:9b (provisional judge) | correctness 4.5 vs 4.3 /5 | — | 27B 3.7 s vs 9B 1.6 s | 4B, llama ≈ 3.5–3.7 |
+
+The judge for J7 is provisional (84% within ±1 of hand scores over 240 pairs; bar 85%). gpt-oss's own
+J7 replies were not judged (no fair judge).
+
+### 9.2 Routing matrix (plugged in)
+
+| Tier | Model | Thinking | Why |
+|---|---|---|---|
+| Front desk (every message) | **qwen3.5:4b** | off | best routing; 0.5 s to first token warm |
+| quick / tools / honesty / brain | **qwen3.5:9b** | off | perfect on J2 and J4, 92% on J5, ~2 s |
+| standard (scheduling, multi-step) | **qwen3.5:9b** | on | 64%, 0 false claims, ~14 s; matches the 27B without its false claims |
+| deep (rebuild the day, continuity with corrections) | **Claude (Haiku) for now** | — | no local model passes the J3/J6 gates (best 75% / 67%); gpt-oss is accurate but too slow live |
+
+**Smallest useful set:** small = 4B (front desk), medium = 9B (everything routine), big = Claude for
+deep scheduling. The 27B (16 GB) does not earn its place: it never beats the 9B by a significant
+margin, makes false claims on J3/J4/J6, and is 2–6× slower. gpt-oss is the best local scheduler but
+too slow; keep it installed as an offline fallback for deep scheduling.
+
+On battery: the same 4B front desk; route standard to the 9B only above a battery threshold, deep to
+Claude — exact thresholds wait for the Phase 7 energy numbers.
+
+### 9.3 What Phase 8 showed (end to end, real route)
+
+The 4B front desk handing escalations to the 9B through ORION's real gateway route passed **7/21**
+held-out J3/J6 conversations, ~35 s median. The gateway runs the 9B on ORION's **production**
+instructions, not the tuned prompts behind §9.1 — so the local models' tuned performance is not yet
+reachable in production. Treat this as the largest finding for the next build.
+
+### 9.4 Decisions for Nick
+
+1. **Adopt the routing above** for a supervised live day (config only, reversible)? Needs your go-ahead.
+2. **Port the tuned prompts into production first** (front-desk p6, the J3/J6 coaching guide and the
+   result-meaning honesty block into TOOLS.md / the agent instructions) — otherwise the live day tests
+   production prompts, not these results.
+3. **Register gpt-oss:20b in the gateway** as an offline deep-scheduling fallback? (live config change)
+4. **Remove qwen3.6:27b** to free 16 GB? Nothing in the results needs it.
+5. **Battery session** (~40 min unplugged) to fill in the energy numbers.
+
+### 9.5 Next build (from these results, in priority order)
+
+1. Tuned prompts into production (see 9.4.2), then re-run Phase 8.
+2. Production honesty guard from the validated claim checker (65/65 real, ≥95% synthetic recall).
+3. `orion-reschedule`: full usage text in TOOLS.md; `move --by` for relative moves; "extend ADDS
+   minutes" made explicit; an "I'm out from X" command.
+4. `alarm_set` label always passed; repair-queue command documented.
+5. Router from the matrix above with visible escalation (chat and orb).
+
+### 9.6 Lessons about the method
+
+- Small practice sets overfit: prompts written from a model's last few practice misses gained 5+
+  practice points and 0 held-out (4B J1: 89→94/97 practice, 123→123/138 held-out). Adding cases
+  helped more than patching prompts (J5: 7/18 → 33/36 after the practice set tripled).
+- Two grader bugs (time phrasing; missing change verbs) were found by reading practice transcripts;
+  finals were re-graded on aggregates only.
+- Rubric tightening made the local judge worse, not better.

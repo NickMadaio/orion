@@ -1,20 +1,34 @@
 /*
- Local routing (V3): front desk → worker → check → retry → escalate.
+ Local routing (V3): front desk → worker → check → retry → honest stop.
 
- This file wires the pieces into OpenClaw's hooks. Today it implements SHADOW mode only:
- on every real turn it asks the front desk what it would have done and runs the work check on the
- answer ORION actually gave, then appends both to a private log. It never overrides the model,
- never replies, never revises — the turn is exactly what it would have been without it. Shadow
- data is how the V3 results get confirmed on Nick's real traffic before anything is switched on
- (docs/planning/v3/ORION_V3_IMPLEMENTATION_PLAN.md, step 4).
+ docs/planning/v3/ORION_V3_IMPLEMENTATION_PLAN.md; results in docs/evals/v3/REPORT.md §9.
 
- "on" mode (model override, front-desk replies, check-driven retry, escalation) is not built yet;
- asking for it logs a warning and runs shadow. (Written by Claude on 2026-10-10.)
+ SHADOW (`localRouting: "shadow"`): on every real turn, ask the front desk what it would have done
+ (fire and forget, so no added latency) and run the work check on the answer ORION actually gave;
+ append both to a private log. Never overrides, replies or revises.
+
+ ON (`localRouting: "on"`):
+   1. before_model_resolve — the front desk (qwen3.5:4b) picks a move. answer/ask keep the
+      configured model (the front desk replies in step 2); everything else — tool, escalate, and
+      ignore — goes to the worker (ollama/qwen3.5:9b). "ignore" is deliberately NOT silenced: a
+      wrong "not for ORION" must never swallow a real request (6/138 critical misroutes held-out).
+   2. before_agent_reply — the front desk's own answer/question is sent without a model call.
+   3. before_prompt_build — the worker gets the V3-tuned instructions for the job: scheduling
+      (coach guide + full reschedule usage), brain, or the general honesty block.
+   4. before_agent_finalize — the work check. Findings → one revise with what to fix. Still
+      flagged → one more revise: undo any change and tell Nick plainly what did not happen.
+      Then finalize. The hand-off to gpt-oss (plan step 5) is logged as `escalationNeeded` until
+      that model is registered in the gateway and the follow-up turn is proven.
+
+ Phone, Mac chat and voice all reach the gateway as agent turns, so every channel is covered; the
+ phone's channel brief is stripped so the front desk reads only Nick's words.
+ (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { decide, type Decision } from "./front-desk.js";
-import { checkWork, type ToolResult } from "./work-check.js";
+import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
+import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -26,11 +40,32 @@ export type LocalRoutingOptions = {
   decideImpl?: (input: { message: string; clock: string }) => Promise<Decision>;
   clock?: () => string;
   finalizeWaitMs?: number;
+  workerProvider?: string;
+  workerModel?: string;
+};
+
+type Run = {
+  message: string;
+  decision: Promise<Decision | { error: string }>;
+  settled?: Decision;
+  tools: ToolResult[];
+  started: number;
+  passes: number;
+  findings: string[][];
 };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
+const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
+const SCHEDULING = /\b(schedul\w*|calendar|plan|replan|day|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resize|extend|shorten|clear|drop|free|fit|class|lab|lecture|study|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|reschedule|out from|leaving at)\b|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
+const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key: string) => str(event[key]) ?? str(ctx[key]);
+
+/** Nick's own words: the part after a channel brief, if the message carries one. */
+export function userText(prompt: string): string {
+  for (const marker of MARKERS) if (prompt.includes(marker)) return prompt.split(marker).pop()!.trim();
+  return prompt.trim();
+}
 
 /** "Sat 18:05" in local time, the clock format the front desk was evaluated with. */
 export function localClock(now = new Date()): string {
@@ -53,35 +88,70 @@ export function canonicalCall(toolName: string, params: unknown): string {
   return `${toolName} ${JSON.stringify(p)}`;
 }
 
+/** The worker's instructions for this job. */
+export function instructionsFor(decision: Decision | undefined, message: string): string {
+  if (decision?.tool === "brain" || decision?.tool === "repair_note" || (!decision?.tool && BRAIN.test(message))) return BRAIN_INSTRUCTIONS;
+  if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message)) return SCHEDULING_INSTRUCTIONS;
+  return GENERAL_INSTRUCTIONS;
+}
+
+const HONEST_STOP = "The check still finds a problem. Undo any change you made in this turn (orion-reschedule undo, or the matching undo), then tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
+
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
   if (options.mode === "off") return;
-  if (options.mode === "on") api.logger?.warn?.("[orion-control] localRouting 'on' is not built yet; running shadow");
-  const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000 } = options;
-  const runs = new Map<string, { message: string; decision: Promise<Decision | { error: string }>; tools: ToolResult[]; started: number }>();
+  const on = options.mode === "on";
+  const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
+  const runs = new Map<string, Run>();
+  const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
   const log = (entry: Record<string, unknown>) => {
     try {
       mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
-      appendFileSync(logPath, `${JSON.stringify({ at: new Date().toISOString(), mode: "shadow", ...entry })}\n`, { mode: 0o600 });
+      appendFileSync(logPath, `${JSON.stringify({ at: new Date().toISOString(), mode: options.mode, ...entry })}\n`, { mode: 0o600 });
     } catch (error) {
       api.logger?.warn?.(`[orion-control] local routing log failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
+  const settle = async (run: Run): Promise<Decision | { error: string }> => {
+    const timeout = new Promise<{ error: string }>((resolve) => setTimeout(() => resolve({ error: "front desk still running" }), finalizeWaitMs));
+    return Promise.race([run.decision, timeout]);
+  };
 
-  api.on("before_model_resolve", (event, ctx) => {
+  api.on("before_model_resolve", async (event, ctx) => {
     const runId = pick(event, ctx, "runId");
     const sessionKey = pick(event, ctx, "sessionKey") ?? "";
-    const message = str(event.prompt);
-    if (!runId || !message || INTERNAL.test(sessionKey)) return undefined;
-    // Fire and forget: shadow mode must not add the front desk's latency to the real turn.
+    const raw = str(event.prompt);
+    if (!raw || INTERNAL.test(sessionKey)) return undefined;
+    const message = userText(raw);
     const decision = Promise.resolve()
       .then(() => decideImpl({ message, clock: clock() }))
       .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-    runs.set(runId, { message, decision, tools: [], started: Date.now() });
-    return undefined;
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [] };
+    if (runId) runs.set(runId, run);
+    if (sessionKey) runs.set(`session:${sessionKey}`, run);
+    if (!on) return undefined; // shadow: fire and forget
+    const d = await decision;
+    if ("error" in d) return { providerOverride: workerProvider, modelOverride: workerModel };
+    run.settled = d;
+    if (d.move === "answer" || d.move === "ask") return undefined;
+    return { providerOverride: workerProvider, modelOverride: workerModel };
   });
 
+  if (on) {
+    api.on("before_agent_reply", (event, ctx) => {
+      const d = runFor(event, ctx)?.settled;
+      if ((d?.move === "answer" || d?.move === "ask") && d.answer) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
+      return undefined;
+    });
+
+    api.on("before_prompt_build", (event, ctx) => {
+      const run = runFor(event, ctx);
+      if (!run?.settled || run.settled.move === "answer" || run.settled.move === "ask") return undefined;
+      return { appendSystemContext: instructionsFor(run.settled, run.message) };
+    });
+  }
+
   api.on("after_tool_call", (event, ctx) => {
-    const run = runs.get(pick(event, ctx, "runId") ?? "");
+    const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
     if (!run || !toolName) return;
     run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
@@ -89,17 +159,25 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
 
   api.on("before_agent_finalize", async (event, ctx) => {
     const runId = pick(event, ctx, "runId") ?? "";
-    const run = runs.get(runId);
+    const run = runFor(event, ctx);
     if (!run) return undefined;
-    runs.delete(runId);
+    const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     try {
-      const timeout = new Promise<{ error: string }>((resolve) => setTimeout(() => resolve({ error: "front desk still running" }), finalizeWaitMs));
-      const decision = await Promise.race([run.decision, timeout]);
       const reply = str(event.lastAssistantMessage) ?? "";
       const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0 });
-      log({ runId, message: run.message, decision, model: str(event.model) ?? null, tools: run.tools.length, findings, turnMs: Date.now() - run.started });
+      run.findings.push(findings);
+      if (on && findings.length > 0 && run.passes < 2) {
+        run.passes += 1;
+        const instruction = run.passes === 1 ? retryInstruction(findings) : HONEST_STOP;
+        return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
+      }
+      const decision = run.settled ?? (await settle(run));
+      log({ runId, message: run.message, decision, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+        ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });
+      done();
     } catch (error) {
-      api.logger?.warn?.(`[orion-control] local routing shadow failed: ${error instanceof Error ? error.message : String(error)}`);
+      api.logger?.warn?.(`[orion-control] local routing finalize failed: ${error instanceof Error ? error.message : String(error)}`);
+      done();
     }
     return undefined;
   });

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { registerLocalRouting } from "./local-routing.js";
+import { registerLocalRouting, userText } from "./local-routing.js";
 import type { Decision } from "./front-desk.js";
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -40,7 +40,7 @@ describe("local routing — shadow mode", () => {
     expect(finalized).toEqual([undefined]); // shadow never revises
     const [entry] = lines(logPath);
     expect(entry).toMatchObject({ mode: "shadow", message: "move gym to 7", decision: { move: "escalate" }, model: "claude-haiku", tools: 1 });
-    expect(entry.findings).toEqual(expect.arrayContaining(["claims what the tools don't show", "last change incomplete"]));
+    expect(entry.findings.flat()).toEqual(expect.arrayContaining(["claims what the tools don't show", "last change incomplete"]));
   });
 
   it("skips internal sessions (cron, heartbeat, eval, test, subagent)", async () => {
@@ -58,5 +58,66 @@ describe("local routing — shadow mode", () => {
     registerLocalRouting(f.api, { mode: "shadow", logPath: "/nonexistent-dir/x/shadow.jsonl", decideImpl: async () => { throw new Error("boom"); } });
     await expect(f.fire("before_model_resolve", { prompt: "hi" }, { runId: "r3", sessionKey: "agent:main:orion-chat-1" })).resolves.toEqual([undefined]);
     await expect(f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "hi" }, { runId: "r3", sessionKey: "agent:main:orion-chat-1" })).resolves.toEqual([undefined]);
+  });
+});
+
+describe("local routing — on mode", () => {
+  const setup = (decision: Decision) => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+    const f = fakeApi();
+    registerLocalRouting(f.api, { mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00" });
+    return { f, logPath, ctx: { runId: "r9", sessionKey: "agent:main:orion-app-v2" } };
+  };
+
+  it("reads only Nick's words from a phone message wrapped in the channel brief", () => {
+    expect(userText("You are answering over the phone…\n--- Nick's message follows ---\nmove gym to 7")).toBe("move gym to 7");
+    expect(userText("plain message")).toBe("plain message");
+  });
+
+  it("answers itself when the front desk can (no model call)", async () => {
+    const { f, ctx } = setup({ move: "answer", answer: "You're welcome, Nick." });
+    expect(await f.fire("before_model_resolve", { prompt: "thanks" }, ctx)).toEqual([undefined]);
+    expect(await f.fire("before_agent_reply", { cleanedBody: "thanks" }, ctx)).toEqual([{ handled: true, reply: { text: "You're welcome, Nick." }, reason: "front desk answered" }]);
+  });
+
+  it("never silences a message the front desk thinks is not for ORION — the worker answers instead", async () => {
+    const { f, ctx } = setup({ move: "ignore" });
+    expect(await f.fire("before_model_resolve", { prompt: "and the winner is" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+    expect(await f.fire("before_agent_reply", { cleanedBody: "and the winner is" }, ctx)).toEqual([undefined]);
+  });
+
+  it("routes tools and escalations to the worker with the instructions for that job", async () => {
+    const { f, ctx } = setup({ move: "escalate", tier: "standard", say: "One moment." });
+    expect(await f.fire("before_model_resolve", { prompt: "move gym to 7 and push dinner back" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+    const [built] = (await f.fire("before_prompt_build", { prompt: "move gym to 7 and push dinner back", messages: [] }, ctx)) as Array<{ appendSystemContext: string }>;
+    expect(built?.appendSystemContext).toMatch(/orion-reschedule/);
+    const brain = setup({ move: "tool", tool: "brain", args: { do: "search" } });
+    await brain.f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, brain.ctx);
+    const [b] = (await brain.f.fire("before_prompt_build", { prompt: "what did I write about my thesis", messages: [] }, brain.ctx)) as Array<{ appendSystemContext: string }>;
+    expect(b?.appendSystemContext).toMatch(/orion-brain/);
+  });
+
+  it("check → one retry with what to fix → then undo and say plainly, never a false 'done'", async () => {
+    const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
+    await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
+    const failed = { toolName: "exec", params: { command: 'orion-reschedule move "Gym" --to 19:00' }, result: "NOTHING WAS CHANGED. NOT BOOKED: Gym did not fit" };
+    await f.fire("after_tool_call", failed, ctx);
+    const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx)) as Array<Record<string, any>>;
+    expect(first).toMatchObject({ action: "revise", retry: { maxAttempts: 1 } });
+    expect(first?.retry.instruction).toMatch(/did not happen|NOT BOOKED/);
+    await f.fire("after_tool_call", failed, ctx);
+    const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx)) as Array<Record<string, any>>;
+    expect(second).toMatchObject({ action: "revise" });
+    expect(second?.retry.instruction).toMatch(/undo/i);
+    const [third] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I couldn't move gym — 7 PM doesn't fit, so nothing changed." }, ctx);
+    expect(third).toBeUndefined();
+    expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", escalationNeeded: true });
+  });
+
+  it("finalizes untouched when the check finds nothing", async () => {
+    const { f, ctx } = setup({ move: "tool", tool: "lights", args: { do: "off" } });
+    await f.fire("before_model_resolve", { prompt: "lights off" }, ctx);
+    await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-lights off" }, result: "Lights: sent off" }, ctx);
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Lights are off." }, ctx)).toEqual([undefined]);
   });
 });

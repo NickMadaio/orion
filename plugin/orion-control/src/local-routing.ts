@@ -214,7 +214,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
-      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0 });
+      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) });
       run.findings.push(findings);
       if (on && findings.length > 0 && run.passes < 2) {
         run.passes += 1;

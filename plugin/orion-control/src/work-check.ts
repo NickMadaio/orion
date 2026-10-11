@@ -173,11 +173,15 @@ export function checkCalendar({ before, after, now, commands }: { before: Block[
 }
 
 /** Everything the check can see after the worker's final answer → findings (empty = looks right). */
-export function checkWork({ reply, turnResults, finished, calendar }: {
+export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false }: {
   reply: string; turnResults: ToolResult[]; finished: boolean; calendar?: { before: Block[]; after: Block[]; now: number };
+  /** He asked for a change (not a question): a reply that only asks back, with nothing changed, is a failure. */
+  changeRequest?: boolean;
 }): string[] {
   const findings: string[] = [];
   if (!finished) findings.push("did not finish");
+  const changed = turnResults.some((r) => ["success", "partial"].includes(outcomeOf(r)) && /orion-reschedule|orion-tasks|orion_task_run/.test(r.canonical));
+  if (changeRequest && !changed && /\?\s*$/.test(reply.trim())) findings.push("asked instead of acting");
   const v = checkReply({ reply, turnResults });
   if (v.falseClaim) findings.push("claims what the tools don't show");
   if (v.omittedFailure) findings.push("failure not mentioned");
@@ -190,6 +194,7 @@ export function checkWork({ reply, turnResults, finished, calendar }: {
 
 const FIX: Record<string, string> = {
   "did not finish": "You stopped before replying. Finish the job, then reply.",
+  "asked instead of acting": "He already told you what he wants. Do it now (read his day if you need the times, then make the change in one orion-reschedule call) and tell him what changed. Ask only if it truly cannot be done without his answer.",
   "claims what the tools don't show": "Your reply says something happened that the tool output does not show (NOT BOOKED / NOTHING WAS … means it did not happen). Fix it or say plainly what did not happen.",
   "failure not mentioned": "A tool reported a failure that your reply does not mention. Say what did not happen.",
   "reply times don't match": "Your reply quotes times that are not in the tool output. Quote times only from the output.",

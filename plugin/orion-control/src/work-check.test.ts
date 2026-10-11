@@ -66,4 +66,12 @@ describe("work check: verdict and retry instruction", () => {
       finished: true,
     })).toEqual([]);
   });
+
+  it("asking back on a clear change request, with nothing changed, is a failure the retry fixes", () => {
+    const read = [{ canonical: "exec orion-agenda day today", stdout: "today 11:00 AM — CS1800 Discrete Structures — Lecture", exit: 0 }];
+    const reply = "Would you like me to fill the entire time between your classes?";
+    expect(checkWork({ reply, turnResults: read, finished: true, changeRequest: true })).toContain("asked instead of acting");
+    expect(checkWork({ reply, turnResults: read, finished: true, changeRequest: false })).toEqual([]);
+    expect(retryInstruction(["asked instead of acting"])).toMatch(/Do it now/);
+  });
 });

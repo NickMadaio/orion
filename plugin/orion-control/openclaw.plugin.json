@@ -108,6 +108,10 @@
         "enum": ["off", "shadow", "on"],
         "description": "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off."
       },
+      "localRoutingTrace": {
+        "type": "boolean",
+        "description": "Append one line per hook stage to <log>.trace (diagnostics). Default off."
+      },
       "localRoutingLogPath": {
         "type": "string",
         "description": "Shadow log path. Defaults to ~/.openclaw/orion-controlled/local-routing/shadow.jsonl."

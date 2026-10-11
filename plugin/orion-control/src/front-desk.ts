@@ -59,7 +59,7 @@ export function frontDeskRequest({ message, clock, history = [] }: FrontDeskInpu
     think: false,
     format: SCHEMA,
     options: { temperature: FRONT_DESK_TEMPERATURE, num_ctx: 16384 },
-    keep_alive: "30m",
+    keep_alive: "24h",
     messages: [{ role: "system", content: FRONT_DESK_SYSTEM }, { role: "user", content }],
   };
 }
@@ -67,7 +67,7 @@ export function frontDeskRequest({ message, clock, history = [] }: FrontDeskInpu
 const fallback = (reason: string, started: number): Decision => ({ move: "escalate", fallback: reason, ms: Date.now() - started });
 
 /** Ask the front desk for a move. Never throws; anything unexpected escalates to the worker. */
-export async function decide(input: FrontDeskInput, { fetchImpl = fetch, baseUrl = "http://127.0.0.1:11434", timeoutMs = 4000, model = FRONT_DESK_MODEL }: {
+export async function decide(input: FrontDeskInput, { fetchImpl = fetch, baseUrl = "http://127.0.0.1:11434", timeoutMs = 8000, model = FRONT_DESK_MODEL }: {
   fetchImpl?: typeof fetch; baseUrl?: string; timeoutMs?: number; model?: string;
 } = {}): Promise<Decision> {
   const started = Date.now();
@@ -96,4 +96,12 @@ export async function decide(input: FrontDeskInput, { fetchImpl = fetch, baseUrl
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Load the front desk into memory (and keep it there) so the first message is not a cold start. Never throws. */
+export async function warmUp({ fetchImpl = fetch, baseUrl = "http://127.0.0.1:11434", model = FRONT_DESK_MODEL }: { fetchImpl?: typeof fetch; baseUrl?: string; model?: string } = {}): Promise<boolean> {
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, keep_alive: "24h" }) });
+    return res.ok;
+  } catch { return false; }
 }

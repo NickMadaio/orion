@@ -269,6 +269,7 @@ export const ConfigSchema = Type.Object({
         "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off.",
     }),
   ),
+  localRoutingTrace: Type.Optional(Type.Boolean({ description: "Append one line per hook stage to <log>.trace (diagnostics). Default off." })),
   localRoutingLogPath: Type.Optional(Type.String({ description: "Shadow log path. Defaults to ~/.openclaw/orion-controlled/local-routing/shadow.jsonl." })),
   enableEpisodicCapture: Type.Optional(
     Type.Boolean({
@@ -1655,6 +1656,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
   if (localRouting === "shadow" || localRouting === "on") {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,
+      trace: api.pluginConfig?.localRoutingTrace === true,
       logPath: typeof api.pluginConfig?.localRoutingLogPath === "string"
         ? api.pluginConfig.localRoutingLogPath
         : path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "shadow.jsonl"),

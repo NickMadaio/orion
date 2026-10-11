@@ -26,7 +26,7 @@
 */
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { decide, type Decision } from "./front-desk.js";
+import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 
@@ -42,6 +42,10 @@ export type LocalRoutingOptions = {
   finalizeWaitMs?: number;
   workerProvider?: string;
   workerModel?: string;
+  /** Load the front desk at registration (off in tests). */
+  warm?: boolean;
+  /** Append one line per hook stage to <logPath>.trace (diagnostics). */
+  trace?: boolean;
 };
 
 type Run = {
@@ -101,6 +105,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   if (options.mode === "off") return;
   const on = options.mode === "on";
   const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
+  if (options.warm !== false) void warmUp();
+  const traceLine = (stage: string, event: Record<string, unknown>, ctx: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    if (!options.trace) return;
+    try { appendFileSync(`${logPath}.trace`, `${JSON.stringify({ at: new Date().toISOString(), stage, runId: pick(event, ctx, "runId") ?? null, sessionKey: pick(event, ctx, "sessionKey") ?? null, ...extra })}\n`, { mode: 0o600 }); } catch { /* diagnostics only */ }
+  };
   const runs = new Map<string, Run>();
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
   const log = (entry: Record<string, unknown>) => {
@@ -120,6 +129,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const runId = pick(event, ctx, "runId");
     const sessionKey = pick(event, ctx, "sessionKey") ?? "";
     const raw = str(event.prompt);
+    traceLine("before_model_resolve", event, ctx, { hasPrompt: !!raw });
     if (!raw || INTERNAL.test(sessionKey)) return undefined;
     const message = userText(raw);
     const decision = Promise.resolve()
@@ -139,6 +149,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   if (on) {
     api.on("before_agent_reply", (event, ctx) => {
       const d = runFor(event, ctx)?.settled;
+      traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
       if ((d?.move === "answer" || d?.move === "ask") && d.answer) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
@@ -160,6 +171,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   api.on("before_agent_finalize", async (event, ctx) => {
     const runId = pick(event, ctx, "runId") ?? "";
     const run = runFor(event, ctx);
+    traceLine("before_agent_finalize", event, ctx, { found: !!run });
     if (!run) return undefined;
     const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     try {

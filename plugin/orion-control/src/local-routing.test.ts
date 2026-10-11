@@ -23,7 +23,7 @@ const lines = (path: string) => readFileSync(path, "utf8").trim().split("\n").ma
 describe("local routing — shadow mode", () => {
   it("off registers nothing", () => {
     const f = fakeApi();
-    registerLocalRouting(f.api, { mode: "off", logPath: "/dev/null" });
+    registerLocalRouting(f.api, { warm: false, mode: "off", logPath: "/dev/null" });
     expect(f.names()).toEqual([]);
   });
 
@@ -31,7 +31,7 @@ describe("local routing — shadow mode", () => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "shadow.jsonl");
     const f = fakeApi();
     const decideImpl = async (): Promise<Decision> => ({ move: "escalate", tier: "standard", say: "One moment.", ms: 900 });
-    registerLocalRouting(f.api, { mode: "shadow", logPath, decideImpl, clock: () => "Sat 18:00" });
+    registerLocalRouting(f.api, { warm: false, mode: "shadow", logPath, decideImpl, clock: () => "Sat 18:00" });
     const ctx = { runId: "r1", sessionKey: "agent:main:orion-chat-1" };
     const resolved = await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
     expect(resolved).toEqual([undefined]); // shadow never overrides the model
@@ -47,7 +47,7 @@ describe("local routing — shadow mode", () => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "shadow.jsonl");
     const f = fakeApi();
     let calls = 0;
-    registerLocalRouting(f.api, { mode: "shadow", logPath, decideImpl: async () => { calls += 1; return { move: "answer", answer: "hi" }; } });
+    registerLocalRouting(f.api, { warm: false, mode: "shadow", logPath, decideImpl: async () => { calls += 1; return { move: "answer", answer: "hi" }; } });
     await f.fire("before_model_resolve", { prompt: "status" }, { runId: "r2", sessionKey: "agent:main:cron:daily" });
     await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok" }, { runId: "r2", sessionKey: "agent:main:cron:daily" });
     expect(calls).toBe(0);
@@ -55,7 +55,7 @@ describe("local routing — shadow mode", () => {
 
   it("a failing front desk or log write never breaks the turn", async () => {
     const f = fakeApi();
-    registerLocalRouting(f.api, { mode: "shadow", logPath: "/nonexistent-dir/x/shadow.jsonl", decideImpl: async () => { throw new Error("boom"); } });
+    registerLocalRouting(f.api, { warm: false, mode: "shadow", logPath: "/nonexistent-dir/x/shadow.jsonl", decideImpl: async () => { throw new Error("boom"); } });
     await expect(f.fire("before_model_resolve", { prompt: "hi" }, { runId: "r3", sessionKey: "agent:main:orion-chat-1" })).resolves.toEqual([undefined]);
     await expect(f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "hi" }, { runId: "r3", sessionKey: "agent:main:orion-chat-1" })).resolves.toEqual([undefined]);
   });
@@ -65,7 +65,7 @@ describe("local routing — on mode", () => {
   const setup = (decision: Decision) => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
     const f = fakeApi();
-    registerLocalRouting(f.api, { mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00" });
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00" });
     return { f, logPath, ctx: { runId: "r9", sessionKey: "agent:main:orion-app-v2" } };
   };
 

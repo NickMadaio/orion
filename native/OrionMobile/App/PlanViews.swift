@@ -198,6 +198,55 @@ struct TodoListView: View {
     @ObservedObject var planner: PlannerStore
     @State private var draft = ""
     @State private var editing: PlannerStore.Todo?
+    /// The tag the list is filtered by; nil = everything (2026-10-11).
+    @State private var filter: String?
+
+    private func notes(_ todo: PlannerStore.Todo) -> TaskNotes { TaskNotes.parse(todo.notes) }
+
+    /// Open to-dos in his order (dragged by hand), then filtered by the chosen tag.
+    private var openTodos: [PlannerStore.Todo] {
+        let ordered = TaskNotes.sortedByOrder(planner.todos.filter { !$0.done }, order: { notes($0).order })
+        guard let filter else { return ordered }
+        return ordered.filter { notes($0).tags.contains(filter) }
+    }
+
+    private var allTags: [String] {
+        TaskNotes.cleanTags(planner.todos.filter { !$0.done }.flatMap { notes($0).tags })
+    }
+
+    /// Drop a to-do just above `target` (TaskNotes.reorder decides which notes change).
+    private func move(_ draggedID: String, before target: PlannerStore.Todo) {
+        let all = TaskNotes.sortedByOrder(planner.todos.filter { !$0.done }, order: { notes($0).order })
+        let changes = TaskNotes.reorder(all.map(\.id), orders: all.map { notes($0).order }, moving: draggedID, before: target.id)
+        withAnimation(.spring(response: 0.3)) {
+            for todo in all {
+                guard let order = changes[todo.id] else { continue }
+                var n = notes(todo); n.order = order
+                var updated = todo; updated.notes = n.text
+                planner.update(updated)
+            }
+        }
+    }
+
+    private var tagBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip("All", selected: filter == nil) { filter = nil }
+                ForEach(allTags, id: \.self) { tag in chip("#\(tag)", selected: filter == tag) { filter = filter == tag ? nil : tag } }
+            }
+        }
+        .accessibilityIdentifier("todoTagFilter")
+    }
+
+    private func chip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Capsule().fill(selected ? Phone.accent.opacity(0.22) : Phone.hairline.opacity(0.6)))
+                .foregroundStyle(selected ? Phone.accent : Phone.soft)
+        }
+        .buttonStyle(.plain)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -211,7 +260,8 @@ struct TodoListView: View {
             .padding(.vertical, 10)
             .overlay(alignment: .bottom) { Rectangle().fill(Phone.hairline).frame(height: 1) }
 
-            let open = planner.todos.filter { !$0.done }, done = planner.todos.filter(\.done)
+            if !allTags.isEmpty { tagBar }
+            let open = openTodos, done = planner.todos.filter(\.done).filter { filter == nil || notes($0).tags.contains(filter!) }
             if open.isEmpty && done.isEmpty {
                 Text("Nothing on your \(PlannerStore.orionList) list. Add one above; it syncs to Reminders on every device.")
                     .font(.system(size: 14)).foregroundStyle(Phone.soft)
@@ -220,6 +270,13 @@ struct TodoListView: View {
                 SectionLabel("To do · \(open.count)", tint: Phone.accent)
                 ForEach(open) { todo in
                     row(todo)
+                        // Long-press and drag a to-do onto another to put it just above (2026-10-11).
+                        .draggable(todo.id)
+                        .dropDestination(for: String.self) { ids, _ in
+                            guard let id = ids.first else { return false }
+                            move(id, before: todo)
+                            return true
+                        }
                     // Its parts, dropped below it like to-dos of their own (2026-10-06).
                     ForEach(TaskNotes.parse(todo.notes).subtasks) { sub in subRow(sub, of: todo) }
                 }
@@ -270,6 +327,9 @@ struct TodoListView: View {
                     }
                     if !parsed.spread.isEmpty {
                         Text(parsed.spread).font(.system(size: 12)).foregroundStyle(Phone.soft).lineLimit(1)
+                    }
+                    if !parsed.tags.isEmpty {
+                        Text(parsed.tags.map { "#\($0)" }.joined(separator: " ")).font(Phone.mono(10, .medium)).foregroundStyle(Phone.accent.opacity(0.8))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -343,6 +403,12 @@ struct TodoEditor: View {
                         if let progress = notes.progress { Text("\(progress)% overall").foregroundStyle(Phone.accent) }
                     }
                 } footer: { Text("Only this to-do goes on your schedule; subtasks track how far along each part is.") }
+                Section {
+                    TextField("school, gym, errands", text: Binding(get: { notes.tags.joined(separator: ", ") },
+                                                                  set: { notes.tags = TaskNotes.cleanTags($0.components(separatedBy: ",")) }))
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("todoTagsField")
+                } header: { Text("Tags") } footer: { Text("Separate tags with commas. Filter the list by tag above your to-dos.") }
                 Section("Notes") {
                     TextField("Anything else", text: Binding(get: { notes.other.joined(separator: "\n") },
                                                            set: { notes.other = $0.components(separatedBy: "\n") }), axis: .vertical)

@@ -264,10 +264,13 @@ final class AppleRemindersSync: ObservableObject {
                         notes: reminder.notes ?? ""
                     )
                 }
-                // Completed sink to the bottom; above that, overdue, then
-                // priority, then due date. The list should answer "what now".
+                // Completed sink to the bottom; above that, the order he dragged on the phone
+                // ("Order:" in the notes, 2026-10-11), then overdue, priority, due date.
                 .sorted { left, right in
                     if left.isComplete != right.isComplete { return !left.isComplete }
+                    let (l, r) = (TaskNotes.parse(left.notes).order, TaskNotes.parse(right.notes).order)
+                    if let l, let r, l != r { return l < r }
+                    if (l == nil) != (r == nil) { return l != nil }
                     if left.sortKey != right.sortKey { return left.sortKey < right.sortKey }
                     return left.title < right.title
                 }

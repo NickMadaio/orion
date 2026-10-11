@@ -384,3 +384,18 @@ test("add takes --minutes and --after the way ORION reaches for them (2026-10-08
   assert.equal(missing.code, 2, missing.out);
   assert.match(missing.out, /NOTHING WAS CHANGED/);
 });
+
+// 2026-10-11, live: "CS2101" matched the CS2100 lecture (words were cut to five letters, so both were
+// "cs210") and "fill the time between Discrete Structures and the lab" ran past midnight.
+test("course codes match exactly: CS2101 is the lab, not the CS2100 lecture", (t) => {
+  const { run, day } = world(t, [
+    { title: "CS2100 Program Design & Implementation 1 — Lecture", start: iso(9), end: iso(10, 30) },
+    { title: "CS1800 Discrete Structures — Lecture", start: iso(11), end: iso(12, 30) },
+    { title: "CS2101 Lab for Program Design & Implementation 1", start: iso(15, 30), end: iso(17, 10) },
+    { title: "do cert courses", start: iso(17, 50), end: iso(21, 50), orion: "task" },
+  ]);
+  const r = run("move", "do cert courses", "--after", "CS1800", "--before", "CS2101");
+  assert.equal(r.code, 0, r.out);
+  const cert = day().find((b) => b.title === "do cert courses");
+  assert.ok(cert.start >= hm(12, 30) && cert.end <= hm(15, 30) && cert.end - cert.start >= 150, JSON.stringify(cert));
+});

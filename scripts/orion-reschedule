@@ -182,7 +182,18 @@ const sayText = flag("--say");
 const said = sayText ? parsePlans(sayText, { date: localDate(nowDate), minute: nowDate.getHours() * 60 + nowDate.getMinutes(), weekday: nowDate.getDay() }) : [];
 const wordDate = !dateWord ? null : /^today$/i.test(dateWord) ? localDate(nowDate)
   : /^tomorrow$/i.test(dateWord) ? localDate(new Date(nowDate.getTime() + 86400000)) : dateWord;
-const date = flag("--date") ?? wordDate ?? said[0]?.date ?? localDate(nowDate);
+// --date also takes today / tomorrow / a weekday (the 9B wrote "--date tomorrow" and got "Invalid time value", 2026-10-11).
+const dayWord = (word) => {
+  if (!word || /^\d{4}-\d{2}-\d{2}$/.test(word)) return word;
+  if (/^today$/i.test(word)) return localDate(nowDate);
+  if (/^tomorrow$/i.test(word)) return localDate(new Date(nowDate.getTime() + 86400000));
+  const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const target = days.findIndex((d) => d.startsWith(word.toLowerCase().slice(0, 3)));
+  if (target < 0) fail(`orion-reschedule: --date takes YYYY-MM-DD, today, tomorrow or a weekday, not "${word}"; nothing was changed`, 2);
+  const ahead = ((target - nowDate.getDay()) + 7) % 7 || 7;
+  return localDate(new Date(nowDate.getTime() + ahead * 86400000));
+};
+const date = dayWord(flag("--date")) ?? wordDate ?? said[0]?.date ?? localDate(nowDate);
 if (date < localDate(nowDate)) fail(`orion-reschedule: ${date} is in the past; nothing was changed`, 1);
 const otherDays = said.filter((p) => p.date !== date);
 const dayName = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
@@ -212,7 +223,9 @@ const untilMinute = ["extend", "move"].includes(command) ? null : minute(flag("-
 if (flag("--until") !== undefined && !["extend", "move"].includes(command) && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
 const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
-const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5)).filter((x) => x.length >= 3);
+// Words keep five letters ("studying" ~ "study"), but a word with a digit is a code and stays whole:
+// cut to five, CS2101 and CS2100 were both "cs210" (2026-10-11).
+const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "")).map((x) => (/\d/.test(x) ? x : x.slice(0, 5))).filter((x) => x.length >= 3);
   const x = w(a), y = w(b); return x.length > 0 && x.every((q) => y.includes(q)); };
 /*
  How closely a title is the thing he named (2026-10-07). sameThingEarly drops

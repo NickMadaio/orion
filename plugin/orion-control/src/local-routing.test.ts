@@ -95,6 +95,8 @@ describe("local routing — on mode", () => {
     const [built] = (await f.fire("before_prompt_build", { prompt: "move gym to 7 and push dinner back", messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
     expect(built?.systemPrompt).toMatch(/orion-reschedule/);
     expect(built?.systemPrompt).toMatch(/Now: Sat 18:00/);
+    expect(built?.systemPrompt).toMatch(/full path of a script: \/Users\/nickmadaio\/Desktop\/ORION\/scripts\/orion-agenda/);
+    expect(built?.systemPrompt).toMatch(/tomorrow is \w+day \d{4}-\d{2}-\d{2}/);
     const brain = setup({ move: "tool", tool: "brain", args: { do: "search" } });
     await brain.f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, brain.ctx);
     const [b] = (await brain.f.fire("before_prompt_build", { prompt: "what did I write about my thesis", messages: [] }, brain.ctx)) as Array<{ systemPrompt: string }>;

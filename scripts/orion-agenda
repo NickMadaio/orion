@@ -53,7 +53,11 @@ const BRIDGE = join(
   "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge",
 );
 
-const [command, ...rest] = process.argv.slice(2);
+// "orion-agenda tomorrow" / "orion-agenda friday" read as "day tomorrow" — the local model reached
+// for it first and got the usage text (2026-10-11).
+const DAY_WORD = /^(tomorrow|mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?|\d{4}-\d{2}-\d{2})$/i;
+const argv = process.argv.slice(2);
+const [command, ...rest] = DAY_WORD.test(argv[0] ?? "") ? ["day", ...argv] : argv;
 
 function fail(message, code = 2) {
   console.error(`orion-agenda: ${message}`);

@@ -102,6 +102,25 @@ export function instructionsFor(decision: Decision | undefined, message: string)
 
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
 
+/** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
+export function dateLine(now = new Date()): string {
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const name = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "long" });
+  const tomorrow = new Date(now.getTime() + 86400000);
+  return `Today is ${name(now)} ${iso(now)}; tomorrow is ${name(tomorrow)} ${iso(tomorrow)}.`;
+}
+
+// What the live system needs that the evaluation sandbox did not (2026-10-11, "fix my schedule"
+// failed on all four: bare script names refused, "&" in a title refused, a guessed date, asking
+// for times it could read).
+export const PRODUCTION_NOTES = [
+  "On this Mac, exec needs the full path of a script: /Users/nickmadaio/Desktop/ORION/scripts/orion-agenda, /Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule, /Users/nickmadaio/Desktop/ORION/scripts/orion-tasks, /Users/nickmadaio/Desktop/ORION/scripts/orion-brain (same for every orion- script).",
+  "Read a day with: orion-agenda day <today|tomorrow|weekday|YYYY-MM-DD>. For another day's change add --date <tomorrow|weekday|YYYY-MM-DD>.",
+  "Never put & ; | or > inside an argument, even in quotes: name a class by its code or a distinctive word (\"CS2101\", \"Discrete\").",
+  "\"Fill the time between two classes with X\" is one call: orion-reschedule move \"X\" --after \"<first class>\" --before \"<second class>\" (add --date for another day). If X is not on that day yet, use add \"X\" <minutes> --after … --before ….",
+  "Do the job: read his calendar instead of asking him for times you can look up. Ask only for what no tool can tell you.",
+].join("\n");
+
 const HONEST_STOP = "The check still finds a problem. Undo any change you made in this turn (orion-reschedule undo, or the matching undo), then tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
@@ -164,11 +183,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
-      const now = `Now: ${clock()} (Europe/London).`;
+      const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
       if ((run.settled.move === "answer" || run.settled.move === "ask") && run.settled.answer) {
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
       }
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${now}` };
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${now}` };
     });
   }
 

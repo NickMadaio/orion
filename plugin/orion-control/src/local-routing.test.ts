@@ -74,9 +74,11 @@ describe("local routing — on mode", () => {
     expect(userText("plain message")).toBe("plain message");
   });
 
-  it("answers itself when the front desk can (no model call)", async () => {
+  it("never falls through to the cloud model: answers go to the worker with the front desk's draft, or straight out when the reply hook fires", async () => {
     const { f, ctx } = setup({ move: "answer", answer: "You're welcome, Nick." });
-    expect(await f.fire("before_model_resolve", { prompt: "thanks" }, ctx)).toEqual([undefined]);
+    expect(await f.fire("before_model_resolve", { prompt: "thanks" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+    const [built] = (await f.fire("before_prompt_build", { prompt: "thanks", messages: [] }, ctx)) as Array<{ appendSystemContext: string }>;
+    expect(built?.appendSystemContext).toMatch(/drafted this reply: "You're welcome, Nick\."/);
     expect(await f.fire("before_agent_reply", { cleanedBody: "thanks" }, ctx)).toEqual([{ handled: true, reply: { text: "You're welcome, Nick." }, reason: "front desk answered" }]);
   });
 

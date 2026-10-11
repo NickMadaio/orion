@@ -8,9 +8,10 @@
  append both to a private log. Never overrides, replies or revises.
 
  ON (`localRouting: "on"`):
-   1. before_model_resolve — the front desk (qwen3.5:4b) picks a move. answer/ask keep the
-      configured model (the front desk replies in step 2); everything else — tool, escalate, and
-      ignore — goes to the worker (ollama/qwen3.5:9b). "ignore" is deliberately NOT silenced: a
+   1. before_model_resolve — the front desk (qwen3.5:4b) picks a move; every turn then runs on the
+      worker (ollama/qwen3.5:9b) — never the cloud model. For answer/ask the worker is handed the
+      front desk's draft to confirm (step 3), since the direct-reply hook does not fire on the
+      agent-CLI/phone route (found live 2026-10-11). "ignore" is deliberately NOT silenced: a
       wrong "not for ORION" must never swallow a real request (6/138 critical misroutes held-out).
    2. before_agent_reply — the front desk's own answer/question is sent without a model call.
    3. before_prompt_build — the worker gets the V3-tuned instructions for the job: scheduling
@@ -142,7 +143,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const d = await decision;
     if ("error" in d) return { providerOverride: workerProvider, modelOverride: workerModel };
     run.settled = d;
-    if (d.move === "answer" || d.move === "ask") return undefined;
+    // Every move goes to the local worker: the direct-reply hook does not fire on every route
+    // (agent CLI / phone), and falling through to the configured cloud model costs money.
     return { providerOverride: workerProvider, modelOverride: workerModel };
   });
 
@@ -156,7 +158,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
 
     api.on("before_prompt_build", (event, ctx) => {
       const run = runFor(event, ctx);
-      if (!run?.settled || run.settled.move === "answer" || run.settled.move === "ask") return undefined;
+      if (!run?.settled) return undefined;
+      if ((run.settled.move === "answer" || run.settled.move === "ask") && run.settled.answer) {
+        return { appendSystemContext: `The front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
+      }
       return { appendSystemContext: instructionsFor(run.settled, run.message) };
     });
   }

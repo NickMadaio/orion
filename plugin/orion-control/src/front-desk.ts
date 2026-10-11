@@ -17,6 +17,9 @@
 */
 import { FRONT_DESK_MODEL, FRONT_DESK_SYSTEM, FRONT_DESK_TEMPERATURE } from "./front-desk-prompt.js";
 
+/** One context size for every call and the warm-up: a different num_ctx makes Ollama reload the model. */
+export const FRONT_DESK_CTX = 16384;
+
 export const MOVES = ["answer", "tool", "escalate", "ask", "ignore"] as const;
 export type Move = (typeof MOVES)[number];
 export const MENU_TOOLS = ["weather", "lights", "alarm", "wake", "session", "phone_time", "agenda", "tasks", "reschedule", "show", "app_open", "browser", "media", "log_intake", "supplements", "brain", "repair_note"] as const;
@@ -58,7 +61,7 @@ export function frontDeskRequest({ message, clock, history = [] }: FrontDeskInpu
     stream: false,
     think: false,
     format: SCHEMA,
-    options: { temperature: FRONT_DESK_TEMPERATURE, num_ctx: 16384 },
+    options: { temperature: FRONT_DESK_TEMPERATURE, num_ctx: FRONT_DESK_CTX },
     keep_alive: "24h",
     messages: [{ role: "system", content: FRONT_DESK_SYSTEM }, { role: "user", content }],
   };
@@ -101,7 +104,7 @@ export async function decide(input: FrontDeskInput, { fetchImpl = fetch, baseUrl
 /** Load the front desk into memory (and keep it there) so the first message is not a cold start. Never throws. */
 export async function warmUp({ fetchImpl = fetch, baseUrl = "http://127.0.0.1:11434", model = FRONT_DESK_MODEL }: { fetchImpl?: typeof fetch; baseUrl?: string; model?: string } = {}): Promise<boolean> {
   try {
-    const res = await fetchImpl(`${baseUrl}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, keep_alive: "24h" }) });
+    const res = await fetchImpl(`${baseUrl}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, keep_alive: "24h", options: { num_ctx: FRONT_DESK_CTX } }) });
     return res.ok;
   } catch { return false; }
 }

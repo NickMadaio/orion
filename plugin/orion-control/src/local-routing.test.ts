@@ -126,4 +126,15 @@ describe("local routing — on mode", () => {
     await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-lights off" }, result: "Lights: sent off" }, ctx);
     expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Lights are off." }, ctx)).toEqual([undefined]);
   });
+
+  it("a request to change his day is always work: an 'ask' or even an 'answer' from the front desk gets the scheduling instructions", async () => {
+    const msg = "today, change of plans. please schedule me for cert courses the entire time between the two classes";
+    for (const decision of [{ move: "ask", answer: "What time do you want it?" }, { move: "answer", answer: "Sounds good!" }] as Decision[]) {
+      const { f, ctx } = setup(decision);
+      await f.fire("before_model_resolve", { prompt: msg }, ctx);
+      const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+      expect(built?.systemPrompt).toMatch(/orion-reschedule/);
+      expect(await f.fire("before_agent_reply", { cleanedBody: msg }, ctx)).toEqual([undefined]);
+    }
+  });
 });

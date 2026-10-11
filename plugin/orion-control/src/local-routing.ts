@@ -62,6 +62,8 @@ type Run = {
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 const SCHEDULING = /\b(schedul\w*|calendar|plan|replan|day|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resize|extend|shorten|clear|drop|free|fit|class|lab|lecture|study|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|reschedule|out from|leaving at)\b|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
+// "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
+const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key: string) => str(event[key]) ?? str(ctx[key]);
@@ -173,7 +175,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     api.on("before_agent_reply", (event, ctx) => {
       const d = runFor(event, ctx)?.settled;
       traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
-      if ((d?.move === "answer" || d?.move === "ask") && d.answer) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
+      const run = runFor(event, ctx);
+      if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
 
@@ -184,10 +187,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
-      if ((run.settled.move === "answer" || run.settled.move === "ask") && run.settled.answer) {
+      // Only a plain answer is handed over as a draft. "ask" goes to the worker with the job's
+      // instructions (the 4B asked for times it could have read, 2026-10-12), and a request to change
+      // his day is always work, whatever the front desk thought.
+      if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message)) {
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
       }
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${now}` };
+      const askNote = run.settled.move === "ask" && run.settled.answer
+        ? `\n\nThe front desk thought you might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${now}${askNote}` };
     });
   }
 

@@ -108,6 +108,10 @@
         "enum": ["off", "shadow", "on"],
         "description": "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off."
       },
+      "localRoutingScheduleToCloud": {
+        "type": "boolean",
+        "description": "Send requests to change his calendar to the configured (cloud) model instead of the local worker. Default off."
+      },
       "localRoutingTrace": {
         "type": "boolean",
         "description": "Append one line per hook stage to <log>.trace (diagnostics). Default off."

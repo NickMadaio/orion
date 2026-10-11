@@ -43,6 +43,9 @@ export type LocalRoutingOptions = {
   finalizeWaitMs?: number;
   workerProvider?: string;
   workerModel?: string;
+  /** Requests to change his calendar go to the configured (cloud) model instead of the worker:
+   *  the 9B failed his real "fill the time between my classes" three ways (2026-10-12). */
+  scheduleChangesToCloud?: boolean;
   /** Load the front desk at registration (off in tests). */
   warm?: boolean;
   /** Append one line per hook stage to <logPath>.trace (diagnostics). */
@@ -57,6 +60,7 @@ type Run = {
   started: number;
   passes: number;
   findings: string[][];
+  cloud?: boolean;
 };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
@@ -166,6 +170,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const d = await decision;
     if ("error" in d) return { providerOverride: workerProvider, modelOverride: workerModel };
     run.settled = d;
+    if (options.scheduleChangesToCloud && CHANGE_REQUEST.test(message) && SCHEDULING.test(message)) {
+      run.cloud = true;
+      return undefined; // the configured model, with ORION's full prompt
+    }
     // Every move goes to the local worker: the direct-reply hook does not fire on every route
     // (agent CLI / phone), and falling through to the configured cloud model costs money.
     return { providerOverride: workerProvider, modelOverride: workerModel };
@@ -182,7 +190,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
 
     api.on("before_prompt_build", (event, ctx) => {
       const run = runFor(event, ctx);
-      if (!run?.settled) return undefined;
+      if (!run?.settled || run.cloud) return undefined;
       // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
@@ -222,7 +230,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       const decision = run.settled ?? (await settle(run));
-      log({ runId, message: run.message, decision, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+      log({ runId, message: run.message, decision, cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
         ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });
       done();
     } catch (error) {

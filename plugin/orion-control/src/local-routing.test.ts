@@ -137,4 +137,15 @@ describe("local routing — on mode", () => {
       expect(await f.fire("before_agent_reply", { cleanedBody: msg }, ctx)).toEqual([undefined]);
     }
   });
+
+  it("with scheduleChangesToCloud, a calendar change keeps the configured model and its full prompt; other turns stay local", async () => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", scheduleChangesToCloud: true, logPath, decideImpl: async () => ({ move: "escalate", tier: "standard" }), clock: () => "Mon 00:05" });
+    const ctx = { runId: "c1", sessionKey: "agent:main:orion-app-v2" };
+    expect(await f.fire("before_model_resolve", { prompt: "schedule me for cert courses between my two classes today" }, ctx)).toEqual([undefined]);
+    expect(await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx)).toEqual([undefined]);
+    const other = { runId: "c2", sessionKey: "agent:main:orion-app-v2" };
+    expect(await f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, other)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+  });
 });

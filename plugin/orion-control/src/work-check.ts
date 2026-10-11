@@ -182,6 +182,7 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
   if (!finished) findings.push("did not finish");
   const changed = turnResults.some((r) => ["success", "partial"].includes(outcomeOf(r)) && /orion-reschedule|orion-tasks|orion_task_run/.test(r.canonical));
   if (changeRequest && !changed && /\?\s*$/.test(reply.trim())) findings.push("asked instead of acting");
+  if (changeRequest && !changed && /\b(let me|I'?ll|I will|I'?m going to)\b/i.test(reply)) findings.push("promised but did not act");
   const v = checkReply({ reply, turnResults });
   if (v.falseClaim) findings.push("claims what the tools don't show");
   if (v.omittedFailure) findings.push("failure not mentioned");
@@ -194,6 +195,7 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
 
 const FIX: Record<string, string> = {
   "did not finish": "You stopped before replying. Finish the job, then reply.",
+  "promised but did not act": "You said you would make the change but ran no command that changes anything. Make the change now with orion-reschedule, then tell him what changed.",
   "asked instead of acting": "He already told you what he wants. Do it now (read his day if you need the times, then make the change in one orion-reschedule call) and tell him what changed. Ask only if it truly cannot be done without his answer.",
   "claims what the tools don't show": "Your reply says something happened that the tool output does not show (NOT BOOKED / NOTHING WAS … means it did not happen). Fix it or say plainly what did not happen.",
   "failure not mentioned": "A tool reported a failure that your reply does not mention. Say what did not happen.",

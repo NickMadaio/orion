@@ -100,6 +100,8 @@ export function instructionsFor(decision: Decision | undefined, message: string)
   return GENERAL_INSTRUCTIONS;
 }
 
+const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
+
 const HONEST_STOP = "The check still finds a problem. Undo any change you made in this turn (orion-reschedule undo, or the matching undo), then tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
@@ -159,10 +161,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     api.on("before_prompt_build", (event, ctx) => {
       const run = runFor(event, ctx);
       if (!run?.settled) return undefined;
+      // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
+      // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
+      // instructions for this job, plus the time.
+      const now = `Now: ${clock()} (Europe/London).`;
       if ((run.settled.move === "answer" || run.settled.move === "ask") && run.settled.answer) {
-        return { appendSystemContext: `The front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
       }
-      return { appendSystemContext: instructionsFor(run.settled, run.message) };
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${now}` };
     });
   }
 

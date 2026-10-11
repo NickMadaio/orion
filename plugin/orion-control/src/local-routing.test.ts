@@ -77,8 +77,9 @@ describe("local routing — on mode", () => {
   it("never falls through to the cloud model: answers go to the worker with the front desk's draft, or straight out when the reply hook fires", async () => {
     const { f, ctx } = setup({ move: "answer", answer: "You're welcome, Nick." });
     expect(await f.fire("before_model_resolve", { prompt: "thanks" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
-    const [built] = (await f.fire("before_prompt_build", { prompt: "thanks", messages: [] }, ctx)) as Array<{ appendSystemContext: string }>;
-    expect(built?.appendSystemContext).toMatch(/drafted this reply: "You're welcome, Nick\."/);
+    const [built] = (await f.fire("before_prompt_build", { prompt: "thanks", messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(built?.systemPrompt).toMatch(/drafted this reply: "You're welcome, Nick\."/);
+    expect(built?.systemPrompt.length).toBeLessThan(1200);
     expect(await f.fire("before_agent_reply", { cleanedBody: "thanks" }, ctx)).toEqual([{ handled: true, reply: { text: "You're welcome, Nick." }, reason: "front desk answered" }]);
   });
 
@@ -91,12 +92,13 @@ describe("local routing — on mode", () => {
   it("routes tools and escalations to the worker with the instructions for that job", async () => {
     const { f, ctx } = setup({ move: "escalate", tier: "standard", say: "One moment." });
     expect(await f.fire("before_model_resolve", { prompt: "move gym to 7 and push dinner back" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
-    const [built] = (await f.fire("before_prompt_build", { prompt: "move gym to 7 and push dinner back", messages: [] }, ctx)) as Array<{ appendSystemContext: string }>;
-    expect(built?.appendSystemContext).toMatch(/orion-reschedule/);
+    const [built] = (await f.fire("before_prompt_build", { prompt: "move gym to 7 and push dinner back", messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(built?.systemPrompt).toMatch(/orion-reschedule/);
+    expect(built?.systemPrompt).toMatch(/Now: Sat 18:00/);
     const brain = setup({ move: "tool", tool: "brain", args: { do: "search" } });
     await brain.f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, brain.ctx);
-    const [b] = (await brain.f.fire("before_prompt_build", { prompt: "what did I write about my thesis", messages: [] }, brain.ctx)) as Array<{ appendSystemContext: string }>;
-    expect(b?.appendSystemContext).toMatch(/orion-brain/);
+    const [b] = (await brain.f.fire("before_prompt_build", { prompt: "what did I write about my thesis", messages: [] }, brain.ctx)) as Array<{ systemPrompt: string }>;
+    expect(b?.systemPrompt).toMatch(/orion-brain/);
   });
 
   it("check → one retry with what to fix → then undo and say plainly, never a false 'done'", async () => {

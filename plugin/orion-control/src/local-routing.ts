@@ -25,7 +25,7 @@
  phone's channel brief is stripped so the front desk reads only Nick's words.
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
@@ -46,6 +46,8 @@ export type LocalRoutingOptions = {
   /** Requests to change his calendar go to the configured (cloud) model instead of the worker:
    *  the 9B failed his real "fill the time between my classes" three ways (2026-10-12). */
   scheduleChangesToCloud?: boolean;
+  /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
+  acceptancePath?: string;
   /** Load the front desk at registration (off in tests). */
   warm?: boolean;
   /** Append one line per hook stage to <logPath>.trace (diagnostics). */
@@ -129,9 +131,36 @@ export const PRODUCTION_NOTES = [
 
 const HONEST_STOP = "The check still finds a problem. Undo any change you made in this turn (orion-reschedule undo, or the matching undo), then tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 
+/*
+ The gate (Nick, 2026-10-12: "clearly we havent done enough work with the local models to do this.
+ lets make sure this doesnt happen again"). "on" was switched live on eval numbers alone and failed
+ his first real request three ways. "on" now needs a recent end-to-end pass through the REAL route
+ (scripts/eval/v3/ops/local-acceptance.mjs writes it): pass rate, speed and age. Otherwise: shadow.
+*/
+export const ACCEPTANCE = { minPassRate: 0.85, maxMedianMs: 20000, maxAgeDays: 14, minCases: 20 };
+export function acceptanceVerdict(path: string, now = Date.now()): { ok: boolean; why: string } {
+  let record: { at?: string; n?: number; pass?: number; medianMs?: number };
+  try { record = JSON.parse(readFileSync(path, "utf8")); } catch { return { ok: false, why: `no acceptance record at ${path}` }; }
+  const { at, n = 0, pass = 0, medianMs = Infinity } = record;
+  const age = at ? (now - Date.parse(at)) / 86400000 : Infinity;
+  if (!(age <= ACCEPTANCE.maxAgeDays)) return { ok: false, why: `acceptance is ${Number.isFinite(age) ? Math.round(age) : "?"} days old (max ${ACCEPTANCE.maxAgeDays})` };
+  if (n < ACCEPTANCE.minCases) return { ok: false, why: `acceptance ran ${n} cases (min ${ACCEPTANCE.minCases})` };
+  if (pass / n < ACCEPTANCE.minPassRate) return { ok: false, why: `acceptance passed ${pass}/${n} (needs ${Math.round(ACCEPTANCE.minPassRate * 100)}%)` };
+  if (medianMs > ACCEPTANCE.maxMedianMs) return { ok: false, why: `acceptance median ${Math.round(medianMs / 1000)} s (max ${ACCEPTANCE.maxMedianMs / 1000} s)` };
+  return { ok: true, why: `acceptance ${pass}/${n}, median ${Math.round(medianMs / 1000)} s` };
+}
+
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
   if (options.mode === "off") return;
-  const on = options.mode === "on";
+  let on = options.mode === "on";
+  if (on && options.acceptancePath !== undefined) {
+    const verdict = acceptanceVerdict(options.acceptancePath);
+    if (!verdict.ok) {
+      api.logger?.warn?.(`[orion-control] localRouting "on" REFUSED — ${verdict.why}. Running shadow: the configured model answers.`);
+      on = false;
+      options = { ...options, mode: "shadow" };
+    }
+  }
   const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
   if (options.warm !== false) void warmUp();
   const traceLine = (stage: string, event: Record<string, unknown>, ctx: Record<string, unknown>, extra: Record<string, unknown> = {}) => {

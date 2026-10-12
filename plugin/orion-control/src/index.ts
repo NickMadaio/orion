@@ -1658,6 +1658,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,
       trace: api.pluginConfig?.localRoutingTrace === true,
+      acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,
       logPath: typeof api.pluginConfig?.localRoutingLogPath === "string"
         ? api.pluginConfig.localRoutingLogPath

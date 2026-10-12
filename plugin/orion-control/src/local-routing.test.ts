@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { registerLocalRouting, userText } from "./local-routing.js";
+import { acceptanceVerdict, registerLocalRouting, userText } from "./local-routing.js";
+import { writeFileSync } from "node:fs";
 import type { Decision } from "./front-desk.js";
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -147,5 +148,23 @@ describe("local routing — on mode", () => {
     expect(await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx)).toEqual([undefined]);
     const other = { runId: "c2", sessionKey: "agent:main:orion-app-v2" };
     expect(await f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, other)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+  });
+
+  it("'on' is refused without a recent real-route acceptance pass — it runs shadow instead", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lr-"));
+    const acceptancePath = join(dir, "acceptance.json");
+    const now = Date.parse("2026-10-12T10:00:00Z");
+    expect(acceptanceVerdict(acceptancePath, now).ok).toBe(false);
+    writeFileSync(acceptancePath, JSON.stringify({ at: "2026-10-10T15:30:00Z", n: 21, pass: 7, medianMs: 35297 }));
+    expect(acceptanceVerdict(acceptancePath, now)).toMatchObject({ ok: false, why: expect.stringMatching(/7\/21/) });
+    writeFileSync(acceptancePath, JSON.stringify({ at: "2026-10-11T15:30:00Z", n: 40, pass: 36, medianMs: 12000 }));
+    expect(acceptanceVerdict(acceptancePath, now).ok).toBe(true);
+    writeFileSync(acceptancePath, JSON.stringify({ at: "2026-09-01T15:30:00Z", n: 40, pass: 36, medianMs: 12000 }));
+    expect(acceptanceVerdict(acceptancePath, now).ok).toBe(false);
+    // Registered "on" with a failing record: never overrides the model.
+    writeFileSync(acceptancePath, JSON.stringify({ at: new Date().toISOString(), n: 21, pass: 7, medianMs: 35297 }));
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, logPath: join(dir, "r.jsonl"), decideImpl: async () => ({ move: "escalate" }) });
+    expect(await f.fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "g1", sessionKey: "agent:main:x" })).toEqual([undefined]);
   });
 });

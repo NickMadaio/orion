@@ -63,6 +63,8 @@ struct TasksTab: View {
     @State private var newPriority: TaskPriority = .none
     @State private var sheetMode: EventSheetMode?
     @State private var composerTitle = ""
+    /// The tag the task list is filtered by; nil = everything (2026-10-12).
+    @State private var tagFilter: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 28) {
@@ -217,6 +219,34 @@ struct TasksTab: View {
 
     // MARK: - Tasks
 
+    /// Tags across open tasks (from "Tags:" in each reminder's notes, shared with the phone).
+    private var allTags: [String] {
+        TaskNotes.cleanTags(reminders.tasks.filter { !$0.isComplete }.flatMap { TaskNotes.parse($0.notes).tags })
+    }
+
+    private var shownTasks: [SyncedTask] {
+        guard let tagFilter else { return reminders.tasks }
+        return reminders.tasks.filter { TaskNotes.parse($0.notes).tags.contains(tagFilter) }
+    }
+
+    private var tagBar: some View {
+        HStack(spacing: 6) {
+            tagChip("All", selected: tagFilter == nil) { tagFilter = nil }
+            ForEach(allTags, id: \.self) { tag in tagChip("#\(tag)", selected: tagFilter == tag) { tagFilter = tagFilter == tag ? nil : tag } }
+            Spacer()
+        }
+    }
+
+    private func tagChip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(Capsule().fill(selected ? OrionTheme.accent.opacity(0.22) : OrionTheme.line))
+                .foregroundStyle(selected ? OrionTheme.accent : OrionTheme.textDim)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var tasksSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionRule(title: "Tasks", trailing: "\(reminders.doneCount) / \(reminders.tasks.count) done")
@@ -231,8 +261,9 @@ struct TasksTab: View {
                     .foregroundStyle(OrionTheme.textDim)
                     .padding(.vertical, 8)
             } else {
+                if !allTags.isEmpty { tagBar }
                 VStack(spacing: 0) {
-                    ForEach(reminders.tasks) { task in
+                    ForEach(shownTasks) { task in
                         TaskRow(
                             task: task,
                             onToggle: { reminders.setComplete(task.id, !task.isComplete) },
@@ -245,6 +276,16 @@ struct TasksTab: View {
                                 sheetMode = .create(start: task.dueDate ?? nextFreeHour())
                             }
                         )
+                        // Drag a task onto another to put it just above (2026-10-12); the order is saved in
+                        // the reminder's notes, so the phone shows the same order.
+                        .draggable(task.id)
+                        .dropDestination(for: String.self) { ids, _ in
+                            guard let id = ids.first, !task.isComplete else { return false }
+                            let open = reminders.tasks.filter { !$0.isComplete }
+                            let changes = TaskNotes.reorder(open.map(\.id), orders: open.map { TaskNotes.parse($0.notes).order }, moving: id, before: task.id)
+                            withAnimation(.spring(response: 0.3)) { reminders.applyOrder(changes) }
+                            return !changes.isEmpty
+                        }
                         // Its parts, dropped below it like to-dos of their own (2026-10-06).
                         ForEach(TaskNotes.parse(task.notes).subtasks) { sub in
                             SubtaskRow(sub: sub) { percent in
@@ -254,7 +295,7 @@ struct TasksTab: View {
                                 reminders.setNotes(task.id, notes.text)
                             }
                         }
-                        if task.id != reminders.tasks.last?.id {
+                        if task.id != shownTasks.last?.id {
                             Rectangle().fill(OrionTheme.line).frame(height: 1)
                         }
                     }
@@ -682,6 +723,9 @@ private struct TaskPlanEditor: View {
                 TextField("How to spread it — e.g. 2.5 hours a day", text: $notes.spread)
                     .textFieldStyle(.roundedBorder)
                 Text("ORION books the work before the due date from this.").font(.system(size: 10)).foregroundStyle(OrionTheme.textDim)
+                TextField("Tags — e.g. school, gym", text: Binding(get: { notes.tags.joined(separator: ", ") },
+                                                               set: { notes.tags = TaskNotes.cleanTags($0.components(separatedBy: ",")) }))
+                    .textFieldStyle(.roundedBorder)
             }
             VStack(alignment: .leading, spacing: 8) {
                 HStack {

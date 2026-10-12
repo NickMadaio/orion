@@ -334,6 +334,17 @@ final class AppleRemindersSync: ObservableObject {
     }
 
     /// The spread and subtasks are the notes; ORION's planner re-plans from them.
+    /// Write new manual positions ("Order:" in the notes) and re-sort at once (2026-10-12).
+    func applyOrder(_ changes: [String: Double]) {
+        for (id, order) in changes {
+            guard let task = tasks.first(where: { $0.id == id }) else { continue }
+            var notes = TaskNotes.parse(task.notes); notes.order = order
+            setNotes(id, notes.text)
+        }
+        let open = TaskNotes.sortedByOrder(tasks.filter { !$0.isComplete }, order: { TaskNotes.parse($0.notes).order })
+        tasks = open + tasks.filter(\.isComplete)
+    }
+
     func setNotes(_ id: String, _ notes: String) {
         mutate(id) { $0.notes = notes.isEmpty ? nil : notes }
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }

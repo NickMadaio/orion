@@ -153,6 +153,9 @@ final class RemoteStore: ObservableObject {
     @Published private(set) var localConversation: [CloudLink.Message] = LocalChat.load()
     private var offlineBrain: AnyObject?
 
+    /// The on-device fallback model is off (see `say`). Flip only if Nick asks for it back.
+    static let answerOnDevice = false
+
     /// Talk to the Mac only when it is actually answering.
     var macReachable: Bool { presence == .online }
 
@@ -221,8 +224,10 @@ final class RemoteStore: ObservableObject {
         #if targetEnvironment(simulator)
         if Self.fixture { sent?(id); return }
         #endif
-        // Mac not answering: the phone answers, and says it is the phone.
-        if !macReachable && answerOnPhone(text, id: "local-" + id) {
+        // Mac not answering: the phone used to answer with Apple's on-device model. Nick (2026-10-12):
+        // "make the phone use only the api rather than this stupid local model" — every message now
+        // goes to ORION on the Mac (Claude) and waits there if the Mac is briefly away.
+        if Self.answerOnDevice && !macReachable && answerOnPhone(text, id: "local-" + id) {
             sent?("local-" + id)
             return
         }

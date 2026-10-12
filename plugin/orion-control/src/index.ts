@@ -270,6 +270,7 @@ export const ConfigSchema = Type.Object({
     }),
   ),
   localRoutingScheduleToCloud: Type.Optional(Type.Boolean({ description: "Send requests to change his calendar to the configured (cloud) model instead of the local worker. Default off." })),
+  localRoutingTestingUntil: Type.Optional(Type.String({ description: "ISO time: until then localRouting 'on' runs without an acceptance record (deliberate testing, max 48 h ahead)." })),
   localRoutingTrace: Type.Optional(Type.Boolean({ description: "Append one line per hook stage to <log>.trace (diagnostics). Default off." })),
   localRoutingLogPath: Type.Optional(Type.String({ description: "Shadow log path. Defaults to ~/.openclaw/orion-controlled/local-routing/shadow.jsonl." })),
   enableEpisodicCapture: Type.Optional(
@@ -1658,6 +1659,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,
       trace: api.pluginConfig?.localRoutingTrace === true,
+      ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
       acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,
       logPath: typeof api.pluginConfig?.localRoutingLogPath === "string"

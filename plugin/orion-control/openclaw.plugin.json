@@ -112,6 +112,10 @@
         "type": "boolean",
         "description": "Send requests to change his calendar to the configured (cloud) model instead of the local worker. Default off."
       },
+      "localRoutingTestingUntil": {
+        "type": "string",
+        "description": "ISO time: until then localRouting 'on' runs without an acceptance record (deliberate testing, max 48 h ahead)."
+      },
       "localRoutingTrace": {
         "type": "boolean",
         "description": "Append one line per hook stage to <log>.trace (diagnostics). Default off."

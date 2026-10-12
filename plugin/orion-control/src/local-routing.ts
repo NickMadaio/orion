@@ -26,6 +26,7 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
@@ -46,6 +47,10 @@ export type LocalRoutingOptions = {
   /** Requests to change his calendar go to the configured (cloud) model instead of the worker:
    *  the 9B failed his real "fill the time between my classes" three ways (2026-10-12). */
   scheduleChangesToCloud?: boolean;
+  /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
+  testingUntil?: string;
+  /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
+  brainSearch?: (query: string) => Promise<string>;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
   acceptancePath?: string;
   /** Load the front desk at registration (off in tests). */
@@ -63,6 +68,7 @@ type Run = {
   passes: number;
   findings: string[][];
   cloud?: boolean;
+  brain?: Promise<string>;
 };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
@@ -107,6 +113,22 @@ export function instructionsFor(decision: Decision | undefined, message: string)
   if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message)) return SCHEDULING_INSTRUCTIONS;
   return GENERAL_INSTRUCTIONS;
 }
+
+// The small core every local turn gets (Nick, 2026-10-12: a small prompt, and ORION looks up the rest
+// in the brain). The manual is generated into the brain by scripts/orion-brain-manual.
+export const LOOK_IT_UP = "Your manual and his memory live in his brain; you only see a small part of it here. When you need something that is not in front of you — how a script works, a scheduling rule, dates, his routines, people, preferences, what was decided before — look it up first with exec: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain search \"<words>\", or read \"ORION Manual - Index\" for the list of manual sections, then read \"<title>\". Never guess a fact about Nick or a command's syntax that you could look up.";
+
+/** Brain search for the message, trimmed to the best few matches (pre-fetched while the front desk decides). */
+export function brainSnippets(output: string, maxChars = 1400): string {
+  const blocks = output.split(/\n(?=## )/).map((b) => b.trim()).filter((b) => b.startsWith("## "));
+  const picked: string[] = []; let used = 0;
+  for (const b of blocks.slice(0, 4)) { const cut = b.slice(0, 500); if (used + cut.length > maxChars) break; picked.push(cut); used += cut.length; }
+  return picked.join("\n\n");
+}
+const ORION_BRAIN = "/Users/nickmadaio/Desktop/ORION/scripts/orion-brain";
+const defaultBrainSearch = (query: string): Promise<string> => new Promise((resolve) => {
+  execFile(ORION_BRAIN, ["search", query.slice(0, 200)], { timeout: 8000, maxBuffer: 1 << 20 }, (_e, stdout) => resolve(String(stdout ?? "")));
+});
 
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
 
@@ -153,7 +175,11 @@ export function acceptanceVerdict(path: string, now = Date.now()): { ok: boolean
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
   if (options.mode === "off") return;
   let on = options.mode === "on";
-  if (on && options.acceptancePath !== undefined) {
+  // A deliberate, time-boxed test window (Nick testing local models himself): at most 48 h ahead.
+  const testing = options.testingUntil ? Date.parse(options.testingUntil) : NaN;
+  const testingActive = Number.isFinite(testing) && testing > Date.now() && testing - Date.now() <= 48 * 3600000;
+  if (on && testingActive) api.logger?.warn?.(`[orion-control] localRouting "on" under a TESTING WINDOW until ${options.testingUntil} — acceptance not required`);
+  if (on && !testingActive && options.acceptancePath !== undefined) {
     const verdict = acceptanceVerdict(options.acceptancePath);
     if (!verdict.ok) {
       api.logger?.warn?.(`[orion-control] localRouting "on" REFUSED — ${verdict.why}. Running shadow: the configured model answers.`);
@@ -192,7 +218,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const decision = Promise.resolve()
       .then(() => decideImpl({ message, clock: clock() }))
       .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [] };
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [],
+      ...(on ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
     if (!on) return undefined; // shadow: fire and forget
@@ -217,7 +244,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       return undefined;
     });
 
-    api.on("before_prompt_build", (event, ctx) => {
+    api.on("before_prompt_build", async (event, ctx) => {
       const run = runFor(event, ctx);
       if (!run?.settled || run.cloud) return undefined;
       // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
@@ -230,9 +257,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message)) {
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
       }
+      const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
+      const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
       const askNote = run.settled.move === "ask" && run.settled.answer
         ? `\n\nThe front desk thought you might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${now}${askNote}` };
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}` };
     });
   }
 

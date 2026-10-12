@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+/*
+ ORION's manual, in his brain (2026-10-12).
+
+ The workspace files (AGENTS.md, TOOLS.md, SCHEDULING.md, PLAYBOOK.md, USER.md, SOUL.md, SELF.md)
+ were pushed into every turn: ~18k tokens a call, and OpenClaw cut AGENTS.md at 20,000 characters, so
+ "Dates", "Memory and Brain" and "Safety and communication" never reached the model. Nick's idea: keep
+ a small core prompt and let ORION look the rest up in the brain when he needs it.
+
+ This writes one brain note per section ("ORION Manual - Scheduling - Dates"…) under
+ 90 System/ORION Manual/, generated from the workspace files (never edit the notes by hand — edit the
+ workspace file and run this again), plus an index note listing them. Then:
+   orion-brain search "dates tomorrow"            finds the section
+   orion-brain read "ORION Manual - Index"         lists every section
+
+   orion-brain-manual            write/refresh the notes
+   orion-brain-manual --dry-run  print what would be written
+*/
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const WORKSPACE = process.env.ORION_WORKSPACE ?? join(homedir(), ".openclaw/workspace");
+const VAULT = process.env.ORION_BRAIN_VAULT ?? join(homedir(), "Documents/orionBrain");
+const OUT = join(VAULT, "90 System/ORION Manual");
+const dry = process.argv.includes("--dry-run");
+const SOURCES = [
+  ["AGENTS.md", "Operating Rules"], ["TOOLS.md", "Tools"], ["SCHEDULING.md", "Scheduling"],
+  ["PLAYBOOK.md", "Playbook"], ["USER.md", "About Nick"], ["SOUL.md", "Voice"], ["SELF.md", "Self"],
+];
+
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const clean = (s) => s.replace(/[\\/:*?"<>|#]/g, "").replace(/\s+/g, " ").trim().slice(0, 70);
+
+/** Split a workspace file at its "## " headings; text before the first heading is the intro. */
+export function sections(text) {
+  const out = []; let title = "Overview"; let body = [];
+  for (const line of text.split("\n")) {
+    const h = line.match(/^##\s+(.+)$/);
+    if (h) { if (body.join("").trim()) out.push({ title, body: body.join("\n").trim() }); title = h[1]; body = []; }
+    else body.push(line);
+  }
+  if (body.join("").trim()) out.push({ title, body: body.join("\n").trim() });
+  return out;
+}
+
+const notes = [];
+for (const [file, area] of SOURCES) {
+  const path = join(WORKSPACE, file);
+  if (!existsSync(path)) continue;
+  for (const s of sections(readFileSync(path, "utf8"))) {
+    const title = `ORION Manual - ${area} - ${clean(s.title)}`;
+    notes.push({ title, area, section: s.title, file, body: s.body });
+  }
+}
+
+const note = (n) => `---
+title: ${n.title}
+type: manual
+permalink: 90-system/orion-manual/${slug(n.title)}
+tags: [orion-manual, ${slug(n.area)}]
+---
+
+# ${n.title}
+
+Generated from workspace ${n.file} (section "${n.section}") by scripts/orion-brain-manual — edit the workspace file, not this note.
+
+${n.body}
+`;
+const index = `---
+title: ORION Manual - Index
+type: manual
+permalink: 90-system/orion-manual/index
+tags: [orion-manual]
+---
+
+# ORION Manual - Index
+
+ORION's own manual, one note per section. Read one with: orion-brain read "<title>". Search all with: orion-brain search "<words>".
+
+${SOURCES.map(([file, area]) => {
+  const mine = notes.filter((n) => n.area === area);
+  return mine.length ? `## ${area} (${file})\n${mine.map((n) => `- ${n.title}`).join("\n")}` : "";
+}).filter(Boolean).join("\n\n")}
+`;
+
+if (dry) { console.log(index); console.log(`${notes.length} sections`); process.exit(0); }
+mkdirSync(OUT, { recursive: true });
+for (const f of readdirSync(OUT)) if (f.endsWith(".md")) rmSync(join(OUT, f));   // generated: replace wholesale
+for (const n of notes) writeFileSync(join(OUT, `${n.title}.md`), note(n));
+writeFileSync(join(OUT, "ORION Manual - Index.md"), index);
+console.log(`wrote ${notes.length} manual sections + index to ${OUT}`);

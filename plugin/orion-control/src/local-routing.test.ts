@@ -66,7 +66,7 @@ describe("local routing — on mode", () => {
   const setup = (decision: Decision) => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
     const f = fakeApi();
-    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00" });
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00", brainSearch: async () => "## Scheduling Rules  (20 Areas/Routine/Scheduling Rules.md)\n- [minimum] nap: at least 75 minutes" });
     return { f, logPath, ctx: { runId: "r9", sessionKey: "agent:main:orion-app-v2" } };
   };
 
@@ -98,6 +98,8 @@ describe("local routing — on mode", () => {
     expect(built?.systemPrompt).toMatch(/Now: Sat 18:00/);
     expect(built?.systemPrompt).toMatch(/full path of a script: \/Users\/nickmadaio\/Desktop\/ORION\/scripts\/orion-agenda/);
     expect(built?.systemPrompt).toMatch(/tomorrow is \w+day \d{4}-\d{2}-\d{2}/);
+    expect(built?.systemPrompt).toMatch(/orion-brain search/);
+    expect(built?.systemPrompt).toMatch(/nap: at least 75 minutes/);
     const brain = setup({ move: "tool", tool: "brain", args: { do: "search" } });
     await brain.f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, brain.ctx);
     const [b] = (await brain.f.fire("before_prompt_build", { prompt: "what did I write about my thesis", messages: [] }, brain.ctx)) as Array<{ systemPrompt: string }>;
@@ -166,5 +168,15 @@ describe("local routing — on mode", () => {
     const f = fakeApi();
     registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, logPath: join(dir, "r.jsonl"), decideImpl: async () => ({ move: "escalate" }) });
     expect(await f.fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "g1", sessionKey: "agent:main:x" })).toEqual([undefined]);
+  });
+
+  it("a testing window (max 48 h) lets 'on' run without acceptance; a window too far ahead or past does not", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lr-"));
+    const acceptancePath = join(dir, "none.json");
+    const reg = (testingUntil: string) => { const f = fakeApi(); registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, testingUntil, logPath: join(dir, "r.jsonl"), brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }) }); return f; };
+    const inHours = (h: number) => new Date(Date.now() + h * 3600000).toISOString();
+    expect(await reg(inHours(5)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t1", sessionKey: "agent:main:x" })).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+    expect(await reg(inHours(100)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t2", sessionKey: "agent:main:x" })).toEqual([undefined]);
+    expect(await reg(inHours(-1)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t3", sessionKey: "agent:main:x" })).toEqual([undefined]);
   });
 });

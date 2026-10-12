@@ -244,3 +244,24 @@ export async function runScheduleFlow({ message, clock, exec, ask }: {
   }
   return { outcome: "done", calls, outputs };
 }
+
+const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
+
+/** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
+export function spokenReply(outputs: string[]): string {
+  const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
+  const said: string[] = [];
+  for (const l of lines) {
+    let m = l.match(/^planned (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
+    if (m) { said.push(`${m[1]} ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
+    m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
+    if (m) { said.push(`${m[1]} now ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
+    m = l.match(/^(.+?) is now (\d+) min: (\d{2}:\d{2})–(\d{2}:\d{2})/);
+    if (m) { said.push(`${m[1]} is now ${m[2]} minutes, ${ampm(m[3]!)}–${ampm(m[4]!)}`); continue; }
+    m = l.match(/^(?:Undone: )?skipped (.+?)(?: today|$)/i);
+    if (m) { said.push(`${m[1]} is off today`); continue; }
+  }
+  const failed = lines.find((l) => FAILED.test(l));
+  const parts = [said.length ? `Done: ${said.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${failed.replace(/^NOTHING WAS CHANGED:\s*/i, "")}` : ""].filter(Boolean);
+  return parts.join(" ") || "Nothing on your day changed.";
+}

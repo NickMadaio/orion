@@ -31,7 +31,7 @@ import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
-import { FORM_OPTIONS, RESCHEDULE, runScheduleFlow, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, RESCHEDULE, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -286,7 +286,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
       }
       if (run.flow?.outcome === "done") {
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nORION's scheduler has ALREADY handled his request. Its output:\n${run.flow.outputs.join("\n")}\n\nTell Nick in one or two short spoken sentences what changed, with 12-hour times. If a line says NOT BOOKED or NOTHING WAS CHANGED, say plainly what did not happen and why. Do not call any tools.` };
+        // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
+        // it said "before you head to the spit" for a plan that starts there, 2026-10-12).
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou already made this change. Reply to Nick with exactly this text and nothing else, and do not call any tools:\n${spokenReply(run.flow.outputs)}` };
       }
       if (run.flow?.outcome === "say") {
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nTell Nick this, in your own words, in one or two short sentences (${run.flow.kind === "ask" ? "it is a question for him" : "it cannot be done"}): ${run.flow.text}\nDo not call any tools.` };

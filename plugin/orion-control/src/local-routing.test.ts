@@ -189,7 +189,7 @@ describe("local routing — on mode", () => {
     const msg = "schedule cert courses the entire time between DS and my lab";
     await f.fire("before_model_resolve", { prompt: msg }, ctx);
     const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
-    expect(built?.systemPrompt).toMatch(/ALREADY handled[\s\S]*12:35–15:25[\s\S]*Do not call any tools/);
+    expect(built?.systemPrompt).toMatch(/already made this change[\s\S]*do not call any tools[\s\S]*do cert courses now 12:35 PM–3:25 PM/);
     expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Cert courses are now 12:35 to 3:25 PM, between DS and your lab." }, ctx)).toEqual([undefined]);
     expect(lines(logPath).at(-1)).toMatchObject({ flow: { outcome: "done" }, findings: [[]] });
   });

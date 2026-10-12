@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockList, compile, intentSchema, runScheduleFlow, setPlaces, summarize, type Day } from "./schedule-flow.js";
+import { blockList, compile, intentSchema, runScheduleFlow, setPlaces, spokenReply, summarize, type Day } from "./schedule-flow.js";
 
 // His real Monday, 2026-10-12, at 13:06 (DS already happened).
 const monday: Day = {
@@ -97,5 +97,12 @@ describe("schedule flow", () => {
     expect(compile({ do: "plan", after: "B3", where: "Chapter Spitalfields", items: [{ title: "leetcode", minutes: 60 }] }, day)).toEqual({ args: ["day", "--plan", "leetcode, 60, 17:25"] });
     expect(compile({ do: "plan", after: "B3", where: "somewhere new", items: [{ title: "leetcode", minutes: 60 }] }, day)).toEqual({ args: ["day", "--plan", "leetcode, 60, 17:15"] });
     expect(compile({ do: "plan", after: "B3", items: [] }, day)).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("the spoken reply is built from the scheduler's lines, in order, with 12-hour times", () => {
+    const out = "Changed Monday 2026-10-12:\n  rebuilt the remaining day\n  planned go over my marketing presentation: 17:15–18:00\n  planned practice leet code: 19:15–20:15";
+    expect(spokenReply([out])).toBe("Done: go over my marketing presentation 5:15 PM–6:00 PM; practice leet code 7:15 PM–8:15 PM.");
+    expect(spokenReply(["Changed:\n  do cert courses moved: 17:50 → 12:35–15:25"])).toBe("Done: do cert courses now 12:35 PM–3:25 PM.");
+    expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — overlaps Macro"])).toMatch(/^Not done: moving it would break/);
   });
 });

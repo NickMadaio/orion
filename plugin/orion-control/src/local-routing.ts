@@ -31,7 +31,7 @@ import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
-import { FORM_OPTIONS, RESCHEDULE, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, RESCHEDULE, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -52,6 +52,8 @@ export type LocalRoutingOptions = {
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
   scheduleFlow?: (message: string, clock: string) => Promise<FlowResult>;
+  /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
+  readDay?: (tomorrow: boolean) => Promise<string>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
   brainSearch?: (query: string) => Promise<string>;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
@@ -135,6 +137,11 @@ const ORION_BRAIN = "/Users/nickmadaio/Desktop/ORION/scripts/orion-brain";
 const defaultBrainSearch = (query: string): Promise<string> => new Promise((resolve) => {
   execFile(ORION_BRAIN, ["search", query.slice(0, 200)], { timeout: 8000, maxBuffer: 1 << 20 }, (_e, stdout) => resolve(String(stdout ?? "")));
 });
+
+/** His day as a numbered list, read from the scheduler (wired in by index.ts). */
+export const liveReadDay = (tomorrow: boolean): Promise<string> => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...(tomorrow ? ["--date", "tomorrow"] : [])], { timeout: 30000 }, (_e, stdout) => {
+  try { resolve(blockList(JSON.parse(String(stdout)))); } catch { resolve(""); }
+}));
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message: string, clock: string): Promise<FlowResult> => runScheduleFlow({
@@ -287,10 +294,19 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
         }
       }
+      // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
+      if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay) {
+        const tomorrow = /\btomorrow\b/i.test(run.message);
+        const day = await options.readDay(tomorrow).catch(() => "");
+        if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. Do not call any tools.` };
+      }
       if (run.flow?.outcome === "done") {
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
-        // it said "before you head to the spit" for a plan that starts there, 2026-10-12).
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou already made this change. Reply to Nick with exactly this text and nothing else, and do not call any tools:\n${spokenReply(run.flow.outputs)}` };
+        // it said "before you head to the spit" for a plan that starts there, 2026-10-12). It goes in the
+        // LATEST message too: from the system prompt alone the 9B paraphrased old turns (live gauntlet).
+        const exact = spokenReply(run.flow.outputs);
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou already made this change. Reply to Nick with exactly this text and nothing else, and do not call any tools:\n${exact}`,
+          appendContext: `[ORION scheduler — already done. Your whole reply must be exactly: ${exact}]` };
       }
       if (run.flow?.outcome === "say") {
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nTell Nick this, in your own words, in one or two short sentences (${run.flow.kind === "ask" ? "it is a question for him" : "it cannot be done"}): ${run.flow.text}\nDo not call any tools.` };
@@ -348,7 +364,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
         if (!squash(reply).includes(squash(expected).slice(0, 60)) && run.passes < 1) {
           run.passes += 1;
-          return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Reply with exactly this text and nothing else, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
+          return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Ignore the earlier conversation. Your whole reply must be exactly this text, nothing before or after, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
         }
       }
       const flowActed = run.flow?.outcome === "done";

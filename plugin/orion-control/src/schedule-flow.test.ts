@@ -109,4 +109,10 @@ describe("schedule flow", () => {
   it("'clear my schedule after the lab' compiles to drop --after the lab", () => {
     expect(compile({ do: "clear_after", after: "B3" }, monday)).toEqual({ args: ["drop", "--after", "CS2101 Lab for Program Design & Implementation 1"] });
   });
+
+  it("'push it back half an hour' is a by-shift computed by code; 'skip' on his own block drops it", () => {
+    expect(compile({ do: "move", what: "B4", by: 30 }, monday)).toEqual({ args: ["move", "do cert courses", "--to", "18:20"] });
+    expect(compile({ do: "skip", what: "B4" }, monday)).toEqual({ args: ["drop", "do cert courses"] });
+    expect(compile({ do: "skip", what: "B3" }, monday)).toEqual({ args: ["skip", "CS2101 Lab for Program Design & Implementation 1"] });
+  });
 });

@@ -19,6 +19,8 @@ export type Day = { date: string; now: string | null; blocks: DayBlock[] };
 export type Intent = {
   do: "fill_between" | "plan" | "clear_after" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "cannot" | "ask" | "answer";
   what?: string; after?: string; before?: string; with?: string; to?: string; until?: string; minutes?: number; text?: string;
+  /** move: minutes later (positive) or earlier (negative) — code does the arithmetic. */
+  by?: number;
   /** plan: where he goes, how long getting there takes, and what he does there, in order. */
   where?: string; travel?: number; items?: Array<{ title: string; minutes?: number }>;
 };
@@ -47,7 +49,7 @@ export function intentSchema(day: Day) {
         what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
         after: ref, before: ref, with: ref,
         to: { type: "string", description: "HH:MM" }, until: { type: "string", description: "HH:MM" },
-        minutes: { type: "number" }, text: { type: "string", maxLength: 200, description: "for cannot/ask/answer: one plain sentence" },
+        minutes: { type: "number" }, by: { type: "number" }, text: { type: "string", maxLength: 200, description: "for cannot/ask/answer: one plain sentence" },
       }, required: ["do"] } },
     },
     required: ["steps"],
@@ -65,7 +67,7 @@ Steps:
 - fill_between: put "what" (a block id, or a new title) in all the time between block "after" and block "before" ("between DS and my lab", "the entire time between the two classes")
 - plan: after block "after" he goes somewhere and does several things there (the list itself is read separately — just give "after")
 - clear_after: remove everything planned after block "after" ("clear my schedule after the lab", "I'm going home after X, clear the rest") — classes and plans with people stay
-- move: block "what" to start at "to" (HH:MM), or end at "until"
+- move: block "what" to start at "to" (HH:MM), or end at "until", or shift it "by" minutes ("push it back half an hour" = by 30, "an hour earlier" = by -60 — never work out the clock time yourself)
 - resize: block "what" lasts "minutes" in total
 - extend: block "what" (running long) ends at "until"; "N more minutes" = now + N
 - add: a new block titled "what", "minutes" long, at "to" or right after block "after"
@@ -81,6 +83,7 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "going back to my dorm after the lab, clear my schedule after it, I'll tell you the plan later" → {"steps":[{"do":"clear_after","after":"B2"}]}
 - "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
+- "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
 
 Never drop a block and add it again — move it (or fill_between). Name blocks by their id. Classes he mentions by name or nickname ("DS" = Discrete Structures, "my lab", "program design") are the matching blocks. Only what he asked for.
@@ -160,6 +163,7 @@ export function compile(input: Intent, day: Day): Compiled {
       const endsAt = day.blocks.findIndex((b) => b !== what && time(step.to) === b.end);
       const startsAt = day.blocks.findIndex((b) => b !== what && time(step.until) === b.start);
       if (endsAt >= 0 && startsAt >= 0) return compile({ do: "fill_between", what: step.what, after: `B${endsAt + 1}`, before: `B${startsAt + 1}` }, day);
+      if (Number.isFinite(step.by) && step.by !== 0) return { args: ["move", what.title, "--to", hhmm(toMin(what.start) + Math.round(step.by!))] };
       if (time(step.to) && time(step.until)) return { args: ["move", what.title, "--to", time(step.to)!, "--until", time(step.until)!] };
       if (time(step.to)) return { args: ["move", what.title, "--to", time(step.to)!] };
       if (time(step.until)) return { args: ["move", what.title, "--until", time(step.until)!] };
@@ -179,7 +183,8 @@ export function compile(input: Intent, day: Day): Compiled {
       return { args: ["add", step.what, String(Math.round(step.minutes!)), ...at] };
     }
     case "drop": return what && !what.fixed ? { args: ["drop", what.title] } : { error: "drop needs a movable block id" };
-    case "skip": return what ? { args: ["skip", what.title] } : { error: "skip needs a block id" };
+    // "skip" is for a class or plan with people; for his own block it means drop ("ditch the macro stuff").
+    case "skip": return what ? { args: [what.fixed ? "skip" : "drop", what.title] } : { error: "skip needs a block id" };
     case "swap": return what && byId(step.with) ? { args: ["swap", what.title, byId(step.with)!.title] } : { error: "swap needs two block ids" };
     case "tidy": return { args: ["tidy"] };
     default: return { error: `unknown step ${String(step.do)}` };

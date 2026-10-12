@@ -190,7 +190,31 @@ describe("local routing — on mode", () => {
     await f.fire("before_model_resolve", { prompt: msg }, ctx);
     const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
     expect(built?.systemPrompt).toMatch(/already made this change[\s\S]*do not call any tools[\s\S]*do cert courses now 12:35 PM–3:25 PM/);
-    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Cert courses are now 12:35 to 3:25 PM, between DS and your lab." }, ctx)).toEqual([undefined]);
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done: do cert courses now 12:35 PM–3:25 PM." }, ctx)).toEqual([undefined]);
     expect(lines(logPath).at(-1)).toMatchObject({ flow: { outcome: "done" }, findings: [[]] });
+  });
+
+  it("delivers the scheduler's own reply (rewriting a paraphrase) and an honest line instead of a false claim", async () => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }),
+      scheduleFlow: async (m) => (/nuke/.test(m) ? { outcome: "done", calls: ["exec orion-reschedule drop --after lab"], outputs: ["Changed Monday:\n  cleared 2 prior schedule blocks: grind leetcode, deck"] } : { outcome: "fallback", reason: "t" }) });
+    const ctx = { runId: "p1", sessionKey: "agent:main:x" };
+    await f.fire("before_model_resolve", { prompt: "nuke everything after my lab" }, ctx);
+    await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx);
+    const [revise] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done: grind leetcode 5:45 PM–7:20 PM" }, ctx)) as Array<Record<string, any>>;
+    expect(revise).toMatchObject({ action: "revise" });
+    expect(revise?.retry.instruction).toMatch(/exactly this text.*cleared grind leetcode, deck/);
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done: grind leetcode 5:45 PM–7:20 PM" }, ctx);
+    const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "Done: grind leetcode 5:45 PM–7:20 PM" }, runId: "p1", sessionKey: "agent:main:x" }, {})) as Array<Record<string, any>>;
+    expect(sent?.payload.text).toBe("Done: cleared grind leetcode, deck.");
+    // A false claim that survives the retries is replaced at delivery.
+    const ctx2 = { runId: "p2", sessionKey: "agent:main:y" };
+    await f.fire("before_model_resolve", { prompt: "stick 45 mins of macro after leetcode" }, ctx2);
+    await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx2);
+    for (let k = 0; k < 3; k++) await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I added 45 minutes of macro studying." }, ctx2);
+    await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-agenda today" }, result: "today 5:15 PM — grind leetcode" }, ctx2);
+    const [sent2] = (await f.fire("reply_payload_sending", { payload: { text: "I added 45 minutes of macro studying." }, runId: "p2", sessionKey: "agent:main:y" }, {})) as Array<Record<string, any>>;
+    expect(sent2?.payload.text).toMatch(/didn't manage/);
   });
 });

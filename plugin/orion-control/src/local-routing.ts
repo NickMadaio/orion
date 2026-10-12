@@ -77,7 +77,9 @@ type Run = {
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
-const SCHEDULING = /\b(schedul\w*|calendar|plan|replan|day|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resize|extend|shorten|clear|drop|free|fit|class|lab|lecture|study|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|reschedule|out from|leaving at)\b|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
+// Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
+// loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
+const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resiz|extend|shorten|shorter|longer|clear|drop|ditch|nuke|scrap|cancel|skip|free|fit|stick|put|add|slot|book|class|lab\b|lectur|seminar|stud|revis|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|commute|after my|before my|between|out from|leaving at|leetcode|deck|presentation)\w*|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
@@ -307,6 +309,19 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     });
   }
 
+  // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at
+  // delivery: the 9B paraphrased it from session history ("Done: grind leetcode 6:15…" after a clear).
+  const finalText = new Map<string, { text: string; at: number }>();
+  const remember = (keys: string[], text: string) => { for (const k of keys) if (k) finalText.set(k, { text, at: Date.now() }); };
+  if (on) api.on("reply_payload_sending", (event) => {
+    const keys = [str(event.runId) ?? "", `session:${str(event.sessionKey) ?? ""}`];
+    const hit = keys.map((k) => finalText.get(k)).find((v) => v && Date.now() - v.at < 120000);
+    if (!hit) return undefined;
+    keys.forEach((k) => finalText.delete(k));
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    return { payload: { ...payload, text: hit.text }, reason: "orion-control: the scheduler's own reply" };
+  });
+
   api.on("after_tool_call", (event, ctx) => {
     const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
@@ -326,12 +341,27 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       run.findings.push(findings);
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
       // with tools let the model act on its own).
-      if (on && findings.length > 0 && run.passes < 2 && !run.flow) {
+      const sessionKeyNow = `session:${pick(event, ctx, "sessionKey") ?? ""}`;
+      if (on && run.flow?.outcome === "done") {
+        const expected = spokenReply(run.flow.outputs);
+        remember([runId, sessionKeyNow], expected);
+        const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
+        if (!squash(reply).includes(squash(expected).slice(0, 60)) && run.passes < 1) {
+          run.passes += 1;
+          return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Reply with exactly this text and nothing else, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
+        }
+      }
+      const flowActed = run.flow?.outcome === "done";
+      if (on && findings.length > 0 && run.passes < 2 && !flowActed) {
         run.passes += 1;
         const instruction = run.passes === 1 ? retryInstruction(findings) : HONEST_STOP;
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       const decision = run.settled ?? (await settle(run));
+      // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
+      if (on && !flowActed && findings.some((f) => /claims what the tools|promised but did not act/.test(f))) {
+        remember([runId, sessionKeyNow], "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?");
+      }
       log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}) } : null, cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
         ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });
       done();

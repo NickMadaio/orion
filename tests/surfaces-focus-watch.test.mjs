@@ -16,6 +16,8 @@ test('watcher uses fresh activity, respects snooze, and emits one nudge per step
  const run = minute => spawnSync(process.execPath,[join(root,'scripts/orion-ontask-watch')],{encoding:'utf8',env:{...process.env,HOME:home,ORION_BRIDGE_BIN:join(root,'tests/fixtures/fake-bridge.mjs'),FAKE_CALENDAR:calendar,ORION_RESCHEDULE_NOW:iso(9,minute)}});
  assert.equal(run(0).status,0); const nudge=run(3); assert.equal(nudge.status,0,nudge.stderr);assert.equal(JSON.parse(nudge.stdout).mac,'nudge');
  run(4); const alerts=readFileSync(join(controlled,'alerts-outbox.jsonl'),'utf8').trim().split('\n');assert.equal(alerts.length,1);
+ // LinkEngine.swift drops any outbox line without a string id and text, so a check-in missing either never reaches the phone.
+ for (const line of alerts) { const a=JSON.parse(line); assert.equal(typeof a.id,'string'); assert.ok(a.id.length>0); assert.equal(typeof a.text,'string'); assert.equal(a.level,1); assert.equal(a.kind,'checkin'); }
  const state=JSON.parse(readFileSync(join(controlled,'ontask-state.json'),'utf8'));state.ladder.snoozeUntil=570;writeFileSync(join(controlled,'ontask-state.json'),JSON.stringify(state));
  assert.equal(JSON.parse(run(6).stdout).mac,'none');
  activity.at='2000-01-01T00:00:00Z';writeFileSync(join(controlled,'focus-activity.json'),JSON.stringify(activity));assert.match(run(7).stdout,/No fresh/);

@@ -29,10 +29,14 @@ const lists = listsToBlock({ block, usedToday, current: null, escalation: step.p
 writeState(file, { ...state, ladder: step.state });
 const directive = { at: now.toISOString(), until: block ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, block.end).toISOString() : now.toISOString(), block: lists.block, why: lists.why };
 writeFileSync(join(root, "focus-phone.json.tmp"), JSON.stringify(directive)); renameSync(join(root, "focus-phone.json.tmp"), join(root, "focus-phone.json"));
+// LinkEngine.swift discards any outbox line without a string `id`, so every check-in carries one,
+// stable per day, block and step (same shape as scripts/orion-watch writes).
+const slug = String(block?.title ?? "none").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "block";
+const alertId = what => `ontask-${localDate(now)}-${slug}-${what}`;
 const alerts = [];
-if (step.phone === "warn") alerts.push(`Ten minutes on your phone during ${block?.title}. Put it down; distracting lists block at fifteen.`);
-if (["nudge", "say"].includes(step.mac) && step.mac !== ladder.lastStep) alerts.push(`You planned ${block.title}. Back to it — ${step.why}.`);
-for (const text of alerts) appendFileSync(join(root, "alerts-outbox.jsonl"), JSON.stringify({ at: now.toISOString(), kind: "checkin", text }) + "\n");
+if (step.phone === "warn") alerts.push({ id: alertId("phone-warn"), level: 1, text: `Ten minutes on your phone during ${block?.title}. Put it down; distracting lists block at fifteen.` });
+if (["nudge", "say"].includes(step.mac) && step.mac !== ladder.lastStep) alerts.push({ id: alertId(step.mac), level: 1, text: `You planned ${block.title}. Back to it — ${step.why}.` });
+for (const alert of alerts) appendFileSync(join(root, "alerts-outbox.jsonl"), JSON.stringify({ ...alert, at: now.toISOString(), kind: "checkin" }) + "\n");
 if (["front", "quit", "lock"].includes(step.mac) && step.mac !== ladder.lastStep) {
   // The existing consent switch still controls intrusive focus actions.
   if (activity.enforcementAllowed) {

@@ -205,6 +205,9 @@ export function summarize(outputs: string[], said: string[]): { reply: string; c
   return { reply: parts.join(". ") || "Nothing changed.", changed: changes.length > 0 };
 }
 
+/** "tomorrow" as he types it ("tmrw" read today's calendar, 2026-10-12). */
+export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
+
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 export type FlowResult =
   | { outcome: "done"; calls: string[]; outputs: string[] }
@@ -217,7 +220,7 @@ export async function runScheduleFlow({ message, clock, exec, ask }: {
   exec: (args: string[]) => Promise<{ stdout: string; code: number }>;
   ask: (system: string, user: string, schema: object) => Promise<{ steps?: Intent[] } | null>;
 }): Promise<FlowResult> {
-  const dateArgs = /\btomorrow\b/i.test(message) ? ["--date", "tomorrow"] : [];
+  const dateArgs = TOMORROW.test(message) ? ["--date", "tomorrow"] : [];
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
   const user = `Now: ${clock}.\n\nHis day${dateArgs.length ? " (tomorrow)" : ""}:\n${blockList(day)}\n\nNick: ${message}`;

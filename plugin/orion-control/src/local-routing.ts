@@ -31,7 +31,7 @@ import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
-import { FORM_OPTIONS, RESCHEDULE, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, RESCHEDULE, TOMORROW, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -159,6 +159,13 @@ export const liveScheduleFlow = (message: string, clock: string): Promise<FlowRe
   },
 });
 
+/** What Nick must hear after the scheduling flow: the scheduler's own lines, or its "can't"/question. */
+function exactReply(flow: FlowResult): string {
+  if (flow.outcome === "done") return spokenReply(flow.outputs);
+  if (flow.outcome === "say") return flow.kind === "ask" ? flow.text : `That doesn't fit: ${flow.text.replace(/^(that|it) (can't|cannot) be done[:,]?\s*/i, "")}`;
+  return "";
+}
+
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
@@ -253,7 +260,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
     if (!on) return undefined; // shadow: fire and forget
     const d = await decision;
-    if ("error" in d) return { providerOverride: workerProvider, modelOverride: workerModel };
+    // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
+    if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
     run.settled = d;
     if (options.scheduleChangesToCloud && CHANGE_REQUEST.test(message) && SCHEDULING.test(message)) {
       run.cloud = true;
@@ -296,7 +304,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
       if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay) {
-        const tomorrow = /\btomorrow\b/i.test(run.message);
+        const tomorrow = TOMORROW.test(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
         if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. Do not call any tools.` };
       }
@@ -304,12 +312,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
         // it said "before you head to the spit" for a plan that starts there, 2026-10-12). It goes in the
         // LATEST message too: from the system prompt alone the 9B paraphrased old turns (live gauntlet).
-        const exact = spokenReply(run.flow.outputs);
+        const exact = exactReply(run.flow);
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou already made this change. Reply to Nick with exactly this text and nothing else, and do not call any tools:\n${exact}`,
           appendContext: `[ORION scheduler — already done. Your whole reply must be exactly: ${exact}]` };
       }
       if (run.flow?.outcome === "say") {
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nTell Nick this, in your own words, in one or two short sentences (${run.flow.kind === "ask" ? "it is a question for him" : "it cannot be done"}): ${run.flow.text}\nDo not call any tools.` };
+        const exact = exactReply(run.flow);
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nReply to Nick with exactly this text and nothing else, and do not call any tools:\n${exact}`,
+          appendContext: `[ORION scheduler — nothing was changed. Your whole reply must be exactly: ${exact}]` };
       }
       // Only a plain answer is handed over as a draft. "ask" goes to the worker with the job's
       // instructions (the 4B asked for times it could have read, 2026-10-12), and a request to change
@@ -358,8 +368,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
       // with tools let the model act on its own).
       const sessionKeyNow = `session:${pick(event, ctx, "sessionKey") ?? ""}`;
-      if (on && run.flow?.outcome === "done") {
-        const expected = spokenReply(run.flow.outputs);
+      if (on && (run.flow?.outcome === "done" || run.flow?.outcome === "say")) {
+        const expected = exactReply(run.flow);
         remember([runId, sessionKeyNow], expected);
         const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
         if (!squash(reply).includes(squash(expected).slice(0, 60)) && run.passes < 1) {

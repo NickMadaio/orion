@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-10 22:40 BST; base 2026-10-09 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-12 10:15 BST; base 2026-10-09 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -8,6 +8,15 @@ says what has been DONE, what is RUNNING, what is LEFT, and the exact commands.
 Nothing here touches the live ORION config. No Claude API calls have been made ($0 spent).
 
 ---
+
+## Update 2026-10-12 10:15 BST (newest first) — local routing pulled back; API is out of credit
+
+- **Live state:** `localRouting: "shadow"` (Haiku answers; local front desk + check only log). The plugin now REFUSES "on" without a passing real-route acceptance record (`~/.openclaw/orion-controlled/local-routing/acceptance.json`, written by `scripts/eval/v3/ops/local-acceptance.mjs`; gate ≥85% pass, ≤20 s median, ≤14 days, ≥20 cases). Current record 7/21 → refused.
+- **Why it was pulled:** "on" failed Nick's real request ("fill the time between my classes") three ways. Fixed along the way: course codes match exactly (CS2101≠CS2100), `--date` takes today/tomorrow/weekday, `orion-agenda <day word>`, worker gets a slim prompt (was 17k tokens/call, 60-100 s) with full script paths and dates, 'ask'/change requests always go to the worker, check flags "asked instead of acting" and "promised but did not act".
+- **Anthropic API is unusable** since 2026-10-11 19:23: "credit balance too low" and "reached your specified API usage limits ... regain access 2026-11-01". Every Haiku turn fails and falls back to the 9B with the full prompt → timeouts. **Nick must top up credits / raise the limit** (console.anthropic.com). A task chip exists to alert him automatically next time.
+- **Phone:** on-device model fallback off (`RemoteViews.answerOnDevice = false`): messages always go to the Mac. Built; installs when the iPhone is unlocked.
+- **To-dos:** tags + drag order in TaskNotes ("Tags:", "Order:" in the reminder notes). Phone list (chips, drag, editor field) and Mac Tasks tab (chips, drag, editor field) — Mac build 620 installed (rollback `/Applications/.Orion-previous-558-todos`).
+- Lesson saved to memory: never switch live routing without a real-route test and an API-health check.
 
 ## Update 2026-10-10 22:40 BST (newest first) — implementation started
 

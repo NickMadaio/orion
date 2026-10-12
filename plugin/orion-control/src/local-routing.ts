@@ -31,6 +31,7 @@ import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
+import { FORM_OPTIONS, RESCHEDULE, runScheduleFlow, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -49,6 +50,8 @@ export type LocalRoutingOptions = {
   scheduleChangesToCloud?: boolean;
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
+  /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
+  scheduleFlow?: (message: string, clock: string) => Promise<FlowResult>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
   brainSearch?: (query: string) => Promise<string>;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
@@ -69,6 +72,7 @@ type Run = {
   findings: string[][];
   cloud?: boolean;
   brain?: Promise<string>;
+  flow?: FlowResult;
 };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
@@ -128,6 +132,21 @@ export function brainSnippets(output: string, maxChars = 1400): string {
 const ORION_BRAIN = "/Users/nickmadaio/Desktop/ORION/scripts/orion-brain";
 const defaultBrainSearch = (query: string): Promise<string> => new Promise((resolve) => {
   execFile(ORION_BRAIN, ["search", query.slice(0, 200)], { timeout: 8000, maxBuffer: 1 << 20 }, (_e, stdout) => resolve(String(stdout ?? "")));
+});
+
+const defaultScheduleFlow = (message: string, clock: string): Promise<FlowResult> => runScheduleFlow({
+  message, clock,
+  exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) =>
+    resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
+  ask: async (system, user, schema) => {
+    try {
+      const res = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: WORKER_MODEL, stream: false, think: false, format: schema, options: FORM_OPTIONS, keep_alive: "24h",
+          messages: [{ role: "system", content: system }, { role: "user", content: user }] }), signal: AbortSignal.timeout(30000) });
+      const body = (await res.json()) as { message?: { content?: string } };
+      return JSON.parse(body.message?.content ?? "");
+    } catch { return null; }
+  },
 });
 
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
@@ -251,6 +270,20 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
+      // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
+      // fills one form, code runs the exact command; the worker only phrases the result.
+      if (CHANGE_REQUEST.test(run.message) && SCHEDULING.test(run.message) && !run.flow) {
+        run.flow = await (options.scheduleFlow ?? defaultScheduleFlow)(run.message, clock()).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (run.flow.outcome === "done") {
+          run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
+        }
+      }
+      if (run.flow?.outcome === "done") {
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nORION's scheduler has ALREADY handled his request. Its output:\n${run.flow.outputs.join("\n")}\n\nTell Nick in one or two short spoken sentences what changed, with 12-hour times. If a line says NOT BOOKED or NOTHING WAS CHANGED, say plainly what did not happen and why. Do not call any tools.` };
+      }
+      if (run.flow?.outcome === "say") {
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nTell Nick this, in your own words, in one or two short sentences (${run.flow.kind === "ask" ? "it is a question for him" : "it cannot be done"}): ${run.flow.text}\nDo not call any tools.` };
+      }
       // Only a plain answer is handed over as a draft. "ask" goes to the worker with the job's
       // instructions (the 4B asked for times it could have read, 2026-10-12), and a request to change
       // his day is always work, whatever the front desk thought.
@@ -280,7 +313,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
-      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) });
+      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say" });
       run.findings.push(findings);
       if (on && findings.length > 0 && run.passes < 2) {
         run.passes += 1;
@@ -288,7 +321,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       const decision = run.settled ?? (await settle(run));
-      log({ runId, message: run.message, decision, cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+      log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}) } : null, cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
         ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });
       done();
     } catch (error) {

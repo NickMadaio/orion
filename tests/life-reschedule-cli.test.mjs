@@ -399,3 +399,18 @@ test("course codes match exactly: CS2101 is the lab, not the CS2100 lecture", (t
   const cert = day().find((b) => b.title === "do cert courses");
   assert.ok(cert.start >= hm(12, 30) && cert.end <= hm(15, 30) && cert.end - cert.start >= 150, JSON.stringify(cert));
 });
+
+// 2026-10-12: "orion-agenda today" hides what already happened, so the model could not see the class
+// he meant ("between Discrete Structures and my lab" after DS ended). `show --json` is the whole day as data.
+test("show --json lists every block of the day, past ones included, with fixed/kind", (t) => {
+  const { run } = world(t, [
+    { title: "CS1800 Discrete Structures — Lecture", start: iso(11), end: iso(12, 30) },
+    { title: "CS2101 Lab for Program Design & Implementation 1", start: iso(15, 30), end: iso(17, 10) },
+    { title: "do cert courses", start: iso(17, 50), end: iso(21, 50), orion: "task" },
+  ]);
+  const r = run("show", "--json");
+  assert.equal(r.code, 0, r.out);
+  const day = JSON.parse(r.out);
+  assert.equal(day.date, DATE);
+  assert.deepEqual(day.blocks.map((b) => [b.title.slice(0, 6), b.start, b.end, b.fixed]), [["CS1800", "11:00", "12:30", true], ["CS2101", "15:30", "17:10", true], ["do cer", "17:50", "21:50", false]]);
+});

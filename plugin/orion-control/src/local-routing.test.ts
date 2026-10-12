@@ -66,7 +66,7 @@ describe("local routing — on mode", () => {
   const setup = (decision: Decision) => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
     const f = fakeApi();
-    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00", brainSearch: async () => "## Scheduling Rules  (20 Areas/Routine/Scheduling Rules.md)\n- [minimum] nap: at least 75 minutes" });
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00", scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), brainSearch: async () => "## Scheduling Rules  (20 Areas/Routine/Scheduling Rules.md)\n- [minimum] nap: at least 75 minutes" });
     return { f, logPath, ctx: { runId: "r9", sessionKey: "agent:main:orion-app-v2" } };
   };
 
@@ -178,5 +178,19 @@ describe("local routing — on mode", () => {
     expect(await reg(inHours(5)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t1", sessionKey: "agent:main:x" })).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
     expect(await reg(inHours(100)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t2", sessionKey: "agent:main:x" })).toEqual([undefined]);
     expect(await reg(inHours(-1)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t3", sessionKey: "agent:main:x" })).toEqual([undefined]);
+  });
+
+  it("a calendar change runs through the scheduling flow; the worker only phrases the scheduler's output", async () => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }),
+      scheduleFlow: async () => ({ outcome: "done", calls: ['exec orion-reschedule move "do cert courses" --to 12:35 --until 15:25'], outputs: ["Changed Monday:\n  do cert courses moved: 17:50 → 12:35–15:25\nWritten to his calendar."] }) });
+    const ctx = { runId: "f1", sessionKey: "agent:main:x" };
+    const msg = "schedule cert courses the entire time between DS and my lab";
+    await f.fire("before_model_resolve", { prompt: msg }, ctx);
+    const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(built?.systemPrompt).toMatch(/ALREADY handled[\s\S]*12:35–15:25[\s\S]*Do not call any tools/);
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Cert courses are now 12:35 to 3:25 PM, between DS and your lab." }, ctx)).toEqual([undefined]);
+    expect(lines(logPath).at(-1)).toMatchObject({ flow: { outcome: "done" }, findings: [[]] });
   });
 });

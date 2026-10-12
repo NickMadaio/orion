@@ -72,7 +72,7 @@ const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--gap", "--minutes", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--gap", "--json", "--minutes", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -86,7 +86,7 @@ if (unknown.length) {
  changes as done. Refuse the whole call instead of doing part of it.
 */
 const COMMANDS = new Set(["add", "busy", "clear", "day", "drop", "early", "extend", "fill", "late", "minimums", "move", "now",
-  "overrun", "rename", "resize", "skip", "swap", "tidy", "undo"]);
+  "overrun", "rename", "resize", "show", "skip", "swap", "tidy", "undo"]);
 const glued = restRaw.find((w) => COMMANDS.has(String(w).toLowerCase()));
 if (COMMANDS.has(command) && glued) {
   console.error(`NOTHING WAS CHANGED: one command per call — "${glued}" is a separate command. Run \`${command} …\` and then \`${glued} …\` as two calls, one after the other.`);
@@ -99,6 +99,7 @@ const OWN_OPTIONS = {
   rename: ["--date", "--dry-run"],
   skip: ["--date", "--dry-run"],
   move: ["--to", "--by", "--after", "--before", "--gap", "--until", "--date", "--dry-run"],
+  show: ["--json", "--date"],
   extend: ["--until", "--then", "--date", "--dry-run"],
 };
 const foreign = OWN_OPTIONS[command] ? args.filter((a) => a.startsWith("--") && !OWN_OPTIONS[command].includes(a)) : [];
@@ -213,6 +214,13 @@ const patterns = loadPatterns();
 const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMinute(config.usualWake);
 const events = await calendarEvents().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 const blocks = pinBlocks(toBlocks(events, date), date);
+// `show --json` (2026-10-12): the whole day as data, past blocks included — read-only. What a model
+// needs to name the blocks he means ("between Discrete Structures and my lab" after DS has ended).
+if (command === "show") {
+  console.log(JSON.stringify({ date, now: date === localDate(nowDate) ? hhmm(nowDate.getHours() * 60 + nowDate.getMinutes()) : null,
+    blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed, kind: b.kind })) }));
+  process.exit(0);
+}
 // The day ends at the "asleep by" line his phone alarm is set from (night.mjs),
 // so wind-down, the last thing planned, ends exactly on it (2026-09-30).
 const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest() });

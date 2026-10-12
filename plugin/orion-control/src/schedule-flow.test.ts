@@ -105,4 +105,8 @@ describe("schedule flow", () => {
     expect(spokenReply(["Changed:\n  do cert courses moved: 17:50 → 12:35–15:25"])).toBe("Done: do cert courses now 12:35 PM–3:25 PM.");
     expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — overlaps Macro"])).toMatch(/^Not done: moving it would break/);
   });
+
+  it("'clear my schedule after the lab' compiles to drop --after the lab", () => {
+    expect(compile({ do: "clear_after", after: "B3" }, monday)).toEqual({ args: ["drop", "--after", "CS2101 Lab for Program Design & Implementation 1"] });
+  });
 });

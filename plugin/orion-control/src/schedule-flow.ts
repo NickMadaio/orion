@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string };
 export type Day = { date: string; now: string | null; blocks: DayBlock[] };
 export type Intent = {
-  do: "fill_between" | "plan" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "cannot" | "ask" | "answer";
+  do: "fill_between" | "plan" | "clear_after" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "cannot" | "ask" | "answer";
   what?: string; after?: string; before?: string; with?: string; to?: string; until?: string; minutes?: number; text?: string;
   /** plan: where he goes, how long getting there takes, and what he does there, in order. */
   where?: string; travel?: number; items?: Array<{ title: string; minutes?: number }>;
@@ -41,7 +41,7 @@ export function intentSchema(day: Day) {
     type: "object",
     properties: {
       steps: { type: "array", maxItems: 4, items: { type: "object", properties: {
-        do: { type: "string", enum: ["fill_between", "plan", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "cannot", "ask", "answer"] },
+        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "cannot", "ask", "answer"] },
         where: { type: "string", maxLength: 40 }, travel: { type: "number" },
         items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title"] } },
         what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
@@ -64,6 +64,7 @@ export const FORM_PROMPT = `You fill in a form for ORION's scheduler. You get th
 Steps:
 - fill_between: put "what" (a block id, or a new title) in all the time between block "after" and block "before" ("between DS and my lab", "the entire time between the two classes")
 - plan: after block "after" he goes somewhere and does several things there (the list itself is read separately — just give "after")
+- clear_after: remove everything planned after block "after" ("clear my schedule after the lab", "I'm going home after X, clear the rest") — classes and plans with people stay
 - move: block "what" to start at "to" (HH:MM), or end at "until"
 - resize: block "what" lasts "minutes" in total
 - extend: block "what" (running long) ends at "until"; "N more minutes" = now + N
@@ -77,6 +78,7 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "stay in the building between DS and my lab, schedule cert courses the entire time between the two classes" → {"steps":[{"do":"fill_between","what":"B3","after":"B1","before":"B2"}]}
 - "put gym between my two classes" (gym is not on the day) → {"steps":[{"do":"fill_between","what":"gym","after":"B1","before":"B2"}]}
 - "after my lab I'll go to the library, 10 min walk, then do my essay and call mom" → {"steps":[{"do":"plan","after":"B2"}]}
+- "going back to my dorm after the lab, clear my schedule after it, I'll tell you the plan later" → {"steps":[{"do":"clear_after","after":"B2"}]}
 - "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
@@ -147,6 +149,10 @@ export function compile(input: Intent, day: Day): Compiled {
       const mins = (n?: number) => String(Math.min(240, Math.max(5, Math.round(Number.isFinite(n) ? n! : 45))));
       const plans = items.map((it, i) => (i === 0 ? `${it.title.trim()}, ${mins(it.minutes)}, ${hhmm(arrive)}` : `${it.title.trim()}, ${mins(it.minutes)}`));
       return { args: ["day", ...plans.flatMap((p) => ["--plan", p])] };
+    }
+    case "clear_after": {
+      const anchor = byId(step.after);
+      return anchor ? { args: ["drop", "--after", anchor.title] } : { error: "clear_after needs the block it comes after" };
     }
     case "move": {
       if (!what) return { error: "move needs a block id" };
@@ -258,6 +264,8 @@ export function spokenReply(outputs: string[]): string {
     if (m) { said.push(`${m[1]} now ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
     m = l.match(/^(.+?) is now (\d+) min: (\d{2}:\d{2})–(\d{2}:\d{2})/);
     if (m) { said.push(`${m[1]} is now ${m[2]} minutes, ${ampm(m[3]!)}–${ampm(m[4]!)}`); continue; }
+    m = l.match(/^cleared \d+ prior schedule blocks?: (.+)$/i) ?? l.match(/^removed (.+)$/i);
+    if (m) { said.push(`cleared ${m[1]}`); continue; }
     m = l.match(/^(?:Undone: )?skipped (.+?)(?: today|$)/i);
     if (m) { said.push(`${m[1]} is off today`); continue; }
   }

@@ -11,6 +11,8 @@
  Nick: "you go okay, the start time is a because the class ends at b, and the end time is x because
  the lab starts at y" — that decomposition is compile() below.
 */
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 
 export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string };
 export type Day = { date: string; now: string | null; blocks: DayBlock[] };
@@ -86,6 +88,19 @@ export const EXTRACT_PROMPT = `From what Nick says, list where he is going, how 
 export const EXTRACT_SCHEMA = { type: "object", properties: { where: { type: "string", maxLength: 40 }, travel: { type: "number" },
   items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title", "minutes"] } } }, required: ["where", "travel", "items"] };
 
+/** Travel minutes to places he goes, from ~/.openclaw/orion-controlled/places.json ({"spitalfields": 15, …}). */
+let placesCache: Record<string, number> | null = null;
+export function setPlaces(places: Record<string, number>): void { placesCache = places; }
+function knownTravel(where?: string): number | undefined {
+  if (!where) return undefined;
+  if (placesCache === null) {
+    try { placesCache = JSON.parse(readFileSync(`${homedir()}/.openclaw/orion-controlled/places.json`, "utf8")); } catch { placesCache = {}; }
+  }
+  const w = where.toLowerCase();
+  const hit = Object.entries(placesCache ?? {}).find(([name]) => w.includes(name) || name.includes(w));
+  return hit?.[1];
+}
+
 type Compiled = { args: string[] } | { say: "cannot" | "ask" | "answer"; text: string } | { error: string };
 
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
@@ -124,11 +139,13 @@ export function compile(input: Intent, day: Day): Compiled {
       const items = (step.items ?? []).filter((i) => String(i.title ?? "").trim());
       if (!anchor) return { error: "plan needs the block it comes after" };
       if (!items.length) return { error: "plan needs at least one thing he will do" };
-      const start = Math.max(toMin(anchor.end), now);
+      // Commutes are invisible (Nick, 2026-10-12): no "Travel to …" event. The first thing starts when
+      // he arrives — the anchor's end + the commute he stated (or a known one for that place) — and a
+      // stated time replaces the planner's default commute-home wall.
+      const travel = Number.isFinite(step.travel) && step.travel! > 0 ? Math.round(step.travel!) : knownTravel(step.where);
+      const arrive = Math.ceil((Math.max(toMin(anchor.end), now) + (travel ?? BUFFER)) / 5) * 5;
       const mins = (n?: number) => String(Math.min(240, Math.max(5, Math.round(Number.isFinite(n) ? n! : 45))));
-      const plans: string[] = [];
-      if (Number.isFinite(step.travel) && step.travel! > 0) plans.push(`${step.where ? `Travel to ${step.where}` : "Travel"}, ${mins(step.travel)}, ${hhmm(start)}`);
-      items.forEach((it, i) => plans.push(i === 0 && !plans.length ? `${it.title.trim()}, ${mins(it.minutes)}, ${hhmm(start + BUFFER)}` : `${it.title.trim()}, ${mins(it.minutes)}`));
+      const plans = items.map((it, i) => (i === 0 ? `${it.title.trim()}, ${mins(it.minutes)}, ${hhmm(arrive)}` : `${it.title.trim()}, ${mins(it.minutes)}`));
       return { args: ["day", ...plans.flatMap((p) => ["--plan", p])] };
     }
     case "move": {

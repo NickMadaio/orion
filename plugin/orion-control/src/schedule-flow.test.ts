@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockList, compile, intentSchema, runScheduleFlow, summarize, type Day } from "./schedule-flow.js";
+import { blockList, compile, intentSchema, runScheduleFlow, setPlaces, summarize, type Day } from "./schedule-flow.js";
 
 // His real Monday, 2026-10-12, at 13:06 (DS already happened).
 const monday: Day = {
@@ -88,10 +88,14 @@ describe("schedule flow", () => {
     expect(result).toMatchObject({ outcome: "done" });
   });
 
-  it("'after my lab I'm going to Spit, 15 min commute, then four things' compiles to one day --plan call", () => {
+  it("'after my lab I'm going to Spit, 15 min commute, then four things' — commute invisible, first thing at arrival", () => {
     const day = { ...monday, now: "13:30" };
     expect(compile({ do: "plan", after: "B3", where: "Spit", travel: 15, items: [{ title: "go over marketing presentation", minutes: 45 }, { title: "student oyster card", minutes: 15 }, { title: "research backpacking stuff" }, { title: "practice leetcode", minutes: 60 }] }, day))
-      .toEqual({ args: ["day", "--plan", "Travel to Spit, 15, 17:10", "--plan", "go over marketing presentation, 45", "--plan", "student oyster card, 15", "--plan", "research backpacking stuff, 45", "--plan", "practice leetcode, 60"] });
+      .toEqual({ args: ["day", "--plan", "go over marketing presentation, 45, 17:25", "--plan", "student oyster card, 15", "--plan", "research backpacking stuff, 45", "--plan", "practice leetcode, 60"] });
+    // No commute stated: a known place's travel time is used; unknown → just his 5-minute buffer.
+    setPlaces({ spitalfields: 15 });
+    expect(compile({ do: "plan", after: "B3", where: "Chapter Spitalfields", items: [{ title: "leetcode", minutes: 60 }] }, day)).toEqual({ args: ["day", "--plan", "leetcode, 60, 17:25"] });
+    expect(compile({ do: "plan", after: "B3", where: "somewhere new", items: [{ title: "leetcode", minutes: 60 }] }, day)).toEqual({ args: ["day", "--plan", "leetcode, 60, 17:15"] });
     expect(compile({ do: "plan", after: "B3", items: [] }, day)).toMatchObject({ error: expect.any(String) });
   });
 });

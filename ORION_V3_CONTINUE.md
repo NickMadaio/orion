@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-12 10:15 BST; base 2026-10-09 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-12 13:25 BST; base 2026-10-09 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -12,6 +12,15 @@ Nothing here touches the live ORION config. No Claude API calls have been made (
 ## Update 2026-10-12 10:09 BST — account-health alerts built (not deployed)
 
 - `plugin/orion-control/src/account-health.ts`: a dead Anthropic account (credit / usage cap / bad key) now produces ONE phone alert with the console fix, and optional fail-fast (`accountFailFast`). Details and proofs in `HANDOFF.md` 2026-10-12. Needs `scripts/orion-deploy` with Nick's go-ahead. This is the "alert him automatically next time" item from the entry below.
+
+## Update 2026-10-12 13:25 BST (newest first) — first live local success
+
+- **Root cause found by research (docs/evals/v3/RESEARCH_IDEAS.md):** the live 9B ran at Ollama's model defaults (temperature 1.0, presence_penalty 1.5) while evals used temperature 0. Fixed in `~/.openclaw/openclaw.json` → `models.providers.ollama.models[qwen3.5:9b].params` = temperature 0.2, top_p 0.9, top_k 20, presence_penalty 0, num_ctx 32768, keep_alive 24h (backup in ~/.openclaw/backups/).
+- **Scheduling now runs as a fixed sequence** (`plugin/orion-control/src/schedule-flow.ts`): `orion-reschedule show --json` (whole day, past blocks included) → the 9B fills one form (temp 0; block refs are enums of real ids; `fill_between` etc.) → pure-code compile to argv (5-min buffers, no shell) with one correction round on rule breaks → the scheduler runs it → the worker only phrases the output; no tool retry after the flow acted. Anything it cannot compile falls back to the worker loop.
+- **Live result:** Nick's exact request → `add "cert courses" 120 --at 13:25 --before 15:30` in 9 s, check clean, correct reply. Offline on his real day (2 variants × 5 messages): 10/10 handled.
+- **Incident (fixed):** a plugin test without a stub reached the real flow and wrote a block "B4" to his calendar (undone). The live flow is now wired only from index.ts.
+- Live config: `localRouting: on` under a testing window until 2026-10-12T23:41Z; account-health alert deployed (on by default; fail-fast off).
+- Next: production-replay eval (idea #6) on his real logged requests; example store from successful turns (idea #5); propose/preview/commit (idea #4); serving fixes (idea #8: front desk num_ctx vs 9B, MAX_LOADED_MODELS, Ollama keep-alive).
 
 ## Update 2026-10-12 10:15 BST (newest first) — local routing pulled back; API is out of credit
 

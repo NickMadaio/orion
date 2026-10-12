@@ -9,6 +9,10 @@ Nothing here touches the live ORION config. No Claude API calls have been made (
 
 ---
 
+## Update 2026-10-12 10:09 BST — account-health alerts built (not deployed)
+
+- `plugin/orion-control/src/account-health.ts`: a dead Anthropic account (credit / usage cap / bad key) now produces ONE phone alert with the console fix, and optional fail-fast (`accountFailFast`). Details and proofs in `HANDOFF.md` 2026-10-12. Needs `scripts/orion-deploy` with Nick's go-ahead. This is the "alert him automatically next time" item from the entry below.
+
 ## Update 2026-10-12 10:15 BST (newest first) — local routing pulled back; API is out of credit
 
 - **Live state:** `localRouting: "shadow"` (Haiku answers; local front desk + check only log). The plugin now REFUSES "on" without a passing real-route acceptance record (`~/.openclaw/orion-controlled/local-routing/acceptance.json`, written by `scripts/eval/v3/ops/local-acceptance.mjs`; gate ≥85% pass, ≤20 s median, ≤14 days, ≥20 cases). Current record 7/21 → refused.

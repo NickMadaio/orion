@@ -218,7 +218,8 @@ const blocks = pinBlocks(toBlocks(events, date), date);
 // needs to name the blocks he means ("between Discrete Structures and my lab" after DS has ended).
 if (command === "show") {
   console.log(JSON.stringify({ date, now: date === localDate(nowDate) ? hhmm(nowDate.getHours() * 60 + nowDate.getMinutes()) : null,
-    blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed, kind: b.kind })) }));
+    blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed && !b.pinned, pinned: !!b.pinned, kind: b.kind })) }));
+  // pinned = an ORION block at a time he stated: the planner keeps it there, but he can still move it.
   process.exit(0);
 }
 // The day ends at the "asleep by" line his phone alarm is set from (night.mjs),

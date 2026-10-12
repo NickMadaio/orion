@@ -273,7 +273,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
-      if (CHANGE_REQUEST.test(run.message) && SCHEDULING.test(run.message) && !run.flow) {
+      // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
+      // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
+      if (SCHEDULING.test(run.message) && !/\?\s*$/.test(run.message.trim()) && !run.flow) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         run.flow = options.scheduleFlow

@@ -15,8 +15,10 @@
 export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string };
 export type Day = { date: string; now: string | null; blocks: DayBlock[] };
 export type Intent = {
-  do: "fill_between" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "cannot" | "ask" | "answer";
+  do: "fill_between" | "plan" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "cannot" | "ask" | "answer";
   what?: string; after?: string; before?: string; with?: string; to?: string; until?: string; minutes?: number; text?: string;
+  /** plan: where he goes, how long getting there takes, and what he does there, in order. */
+  where?: string; travel?: number; items?: Array<{ title: string; minutes?: number }>;
 };
 
 const toMin = (t: string): number => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
@@ -36,12 +38,14 @@ export function intentSchema(day: Day) {
   return {
     type: "object",
     properties: {
-      steps: { type: "array", items: { type: "object", properties: {
-        do: { type: "string", enum: ["fill_between", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "cannot", "ask", "answer"] },
-        what: { type: "string", description: "a block id (B1…) or, for something new, its short title" },
+      steps: { type: "array", maxItems: 4, items: { type: "object", properties: {
+        do: { type: "string", enum: ["fill_between", "plan", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "cannot", "ask", "answer"] },
+        where: { type: "string", maxLength: 40 }, travel: { type: "number" },
+        items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title"] } },
+        what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
         after: ref, before: ref, with: ref,
         to: { type: "string", description: "HH:MM" }, until: { type: "string", description: "HH:MM" },
-        minutes: { type: "number" }, text: { type: "string", description: "for cannot/ask/answer: one plain sentence" },
+        minutes: { type: "number" }, text: { type: "string", maxLength: 200, description: "for cannot/ask/answer: one plain sentence" },
       }, required: ["do"] } },
     },
     required: ["steps"],
@@ -49,12 +53,15 @@ export function intentSchema(day: Day) {
 }
 
 /** Sampling for the form call: deterministic (thinking off, so greedy is safe). */
-export const FORM_OPTIONS = { temperature: 0, top_p: 1, top_k: 20, presence_penalty: 0, num_ctx: 32768 };
+// num_predict caps the form (a real one is <200 tokens): at temperature 0 a list can loop forever —
+// one call generated 14k tokens for 5 minutes (2026-10-12).
+export const FORM_OPTIONS = { temperature: 0, top_p: 1, top_k: 20, presence_penalty: 0, repeat_penalty: 1.05, num_predict: 500, num_ctx: 32768 };
 
 export const FORM_PROMPT = `You fill in a form for ORION's scheduler. You get the time now, Nick's day as numbered blocks (B1, B2…; FIXED = a class or plan with people) and what he says. Choose the steps that do exactly what he asked; the scheduler does the times and slides other blocks.
 
 Steps:
 - fill_between: put "what" (a block id, or a new title) in all the time between block "after" and block "before" ("between DS and my lab", "the entire time between the two classes")
+- plan: after block "after" he goes somewhere and does several things there (the list itself is read separately — just give "after")
 - move: block "what" to start at "to" (HH:MM), or end at "until"
 - resize: block "what" lasts "minutes" in total
 - extend: block "what" (running long) ends at "until"; "N more minutes" = now + N
@@ -67,6 +74,7 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
   B1 11:00–12:30 Discrete Structures (FIXED) · B2 15:30–17:00 Lab (FIXED) · B3 17:50–21:50 cert courses
 - "stay in the building between DS and my lab, schedule cert courses the entire time between the two classes" → {"steps":[{"do":"fill_between","what":"B3","after":"B1","before":"B2"}]}
 - "put gym between my two classes" (gym is not on the day) → {"steps":[{"do":"fill_between","what":"gym","after":"B1","before":"B2"}]}
+- "after my lab I'll go to the library, 10 min walk, then do my essay and call mom" → {"steps":[{"do":"plan","after":"B2"}]}
 - "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
@@ -74,13 +82,24 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 Never drop a block and add it again — move it (or fill_between). Name blocks by their id. Classes he mentions by name or nickname ("DS" = Discrete Structures, "my lab", "program design") are the matching blocks. Only what he asked for.
 Output JSON only: {"steps":[...]}`;
 
+export const EXTRACT_PROMPT = `From what Nick says, list where he is going, how many minutes it takes to get there (0 if he does not say), and the things he will do there, in his order. When he lists what he will do, the general reason for going ("to study", "to work") is not a separate thing. Each thing: a short title in his words, and minutes — his number if he gives one, otherwise an honest estimate (15 for a quick errand or a look-up, 45 for a task or prep, 60 for practice or study). Output JSON only: {"where":"","travel":0,"items":[{"title":"","minutes":45}]}`;
+export const EXTRACT_SCHEMA = { type: "object", properties: { where: { type: "string", maxLength: 40 }, travel: { type: "number" },
+  items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title", "minutes"] } } }, required: ["where", "travel", "items"] };
+
 type Compiled = { args: string[] } | { say: "cannot" | "ask" | "answer"; text: string } | { error: string };
 
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
-export function compile(step: Intent, day: Day): Compiled {
+export function compile(input: Intent, day: Day): Compiled {
+  let step = input;
   const byId = (id?: string) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
   const now = day.now ? toMin(day.now) : 0;
   if (step.what && /^B\d+$/.test(step.what) && !byId(step.what)) return { error: `${step.what} is not a block on his day` };
+  // A title that names a block already on his day means that block ("push cert courses to 2").
+  if (step.what && !/^B\d+$/.test(step.what) && step.do !== "plan") {
+    const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const i = day.blocks.findIndex((b) => !b.fixed && (norm(b.title).includes(norm(step.what!)) || norm(step.what!).includes(norm(b.title))));
+    if (i >= 0 && step.do !== "add") step = { ...step, what: `B${i + 1}` };
+  }
   for (const k of ["after", "before", "with"] as const) if (step[k] && !byId(step[k])) return { error: `${step[k]} is not a block on his day` };
   const what = byId(step.what);
   if (what && (step.what === step.after || step.what === step.before)) return { error: "the block to place cannot be one of its own anchors" };
@@ -99,6 +118,18 @@ export function compile(step: Intent, day: Day): Compiled {
       if (what) return { args: ["move", what.title, "--to", hhmm(start), "--until", hhmm(end)] };
       if (!step.what) return { error: "fill_between needs what to put there" };
       return { args: ["add", step.what, String(end - start), "--at", hhmm(start), "--before", hhmm(end + BUFFER)] };
+    }
+    case "plan": {
+      const anchor = byId(step.after);
+      const items = (step.items ?? []).filter((i) => String(i.title ?? "").trim());
+      if (!anchor) return { error: "plan needs the block it comes after" };
+      if (!items.length) return { error: "plan needs at least one thing he will do" };
+      const start = Math.max(toMin(anchor.end), now);
+      const mins = (n?: number) => String(Math.min(240, Math.max(5, Math.round(Number.isFinite(n) ? n! : 45))));
+      const plans: string[] = [];
+      if (Number.isFinite(step.travel) && step.travel! > 0) plans.push(`${step.where ? `Travel to ${step.where}` : "Travel"}, ${mins(step.travel)}, ${hhmm(start)}`);
+      items.forEach((it, i) => plans.push(i === 0 && !plans.length ? `${it.title.trim()}, ${mins(it.minutes)}, ${hhmm(start + BUFFER)}` : `${it.title.trim()}, ${mins(it.minutes)}`));
+      return { args: ["day", ...plans.flatMap((p) => ["--plan", p])] };
     }
     case "move": {
       if (!what) return { error: "move needs a block id" };
@@ -169,6 +200,15 @@ export async function runScheduleFlow({ message, clock, exec, ask }: {
   if (bad && "error" in bad) {
     out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day));
     compiled = (out?.steps ?? []).map((s) => compile(s, day));
+    bad = compiled.find((c) => "error" in c);
+  }
+  // A plan's list is read by its own small call — extraction only, no block ids (Nick: break it
+  // into smaller tasks; one form doing both made the 9B unsure, 2026-10-12).
+  const steps = out?.steps ?? [];
+  if (steps.some((st) => st.do === "plan" && !(st.items ?? []).length)) {
+    const list = await ask(EXTRACT_PROMPT, `Nick: ${message}`, EXTRACT_SCHEMA) as { where?: string; travel?: number; items?: Array<{ title: string; minutes?: number }> } | null;
+    const merged = steps.map((st) => (st.do === "plan" && !(st.items ?? []).length ? { ...st, where: list?.where ?? st.where, travel: list?.travel ?? st.travel, items: list?.items ?? [] } : st));
+    compiled = merged.map((st) => compile(st, day));
     bad = compiled.find((c) => "error" in c);
   }
   if (!compiled.length) return { outcome: "fallback", reason: "no steps" };

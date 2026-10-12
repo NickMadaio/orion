@@ -28,7 +28,9 @@ describe("schedule flow", () => {
     expect(compile({ do: "fill_between", what: "B4", after: "B2", before: "B3" }, monday)).toEqual({ args: ["move", "do cert courses", "--to", "13:10", "--until", "15:25"] });
     const morning = { ...monday, now: "08:00" };
     expect(compile({ do: "fill_between", what: "B4", after: "B2", before: "B3" }, morning)).toEqual({ args: ["move", "do cert courses", "--to", "12:35", "--until", "15:25"] });
-    expect(compile({ do: "fill_between", what: "cert courses", after: "B2", before: "B3" }, morning)).toEqual({ args: ["add", "cert courses", "170", "--at", "12:35", "--before", "15:30"] });
+    // "cert courses" names the block already there, so it moves rather than duplicating it.
+    expect(compile({ do: "fill_between", what: "cert courses", after: "B2", before: "B3" }, morning)).toEqual({ args: ["move", "do cert courses", "--to", "12:35", "--until", "15:25"] });
+    expect(compile({ do: "fill_between", what: "gym", after: "B2", before: "B3" }, morning)).toEqual({ args: ["add", "gym", "170", "--at", "12:35", "--before", "15:30"] });
   });
 
   it("refuses what it cannot compile instead of guessing, and says no when there is no room", () => {
@@ -84,5 +86,12 @@ describe("schedule flow", () => {
     const result = await runScheduleFlow({ message: "cert courses between DS and lab", clock: "Mon 08:00", exec, ask: async (_s, user) => { asked.push(user); return answers[asked.length - 1] ?? null; } });
     expect(asked[1]).toMatch(/broke a rule: .*does not move/);
     expect(result).toMatchObject({ outcome: "done" });
+  });
+
+  it("'after my lab I'm going to Spit, 15 min commute, then four things' compiles to one day --plan call", () => {
+    const day = { ...monday, now: "13:30" };
+    expect(compile({ do: "plan", after: "B3", where: "Spit", travel: 15, items: [{ title: "go over marketing presentation", minutes: 45 }, { title: "student oyster card", minutes: 15 }, { title: "research backpacking stuff" }, { title: "practice leetcode", minutes: 60 }] }, day))
+      .toEqual({ args: ["day", "--plan", "Travel to Spit, 15, 17:10", "--plan", "go over marketing presentation, 45", "--plan", "student oyster card, 15", "--plan", "research backpacking stuff, 45", "--plan", "practice leetcode, 60"] });
+    expect(compile({ do: "plan", after: "B3", items: [] }, day)).toMatchObject({ error: expect.any(String) });
   });
 });

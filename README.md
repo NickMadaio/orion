@@ -47,6 +47,7 @@ access.
 |---|---|---|
 | Brain | OpenClaw agent on Claude (Haiku, escalating to Sonnet), tool allowlist + approval gate | `plugin/workspace/`, `plugin/orion-control/` |
 | Action catalog | TypeScript plugin — typed actions, executors, verifiers, redaction | `plugin/orion-control/src/` |
+| Account health | Plugin hooks that spot an unusable model account (no credit, usage cap, bad key), tell Nick once on his phone with the fix, and can answer turns at once instead of falling back to slow local models | `plugin/orion-control/src/account-health.ts` |
 | Mac app | SwiftUI — voice, dashboard, project runs, life watch, CloudKit link | `native/Orion/` |
 | System bridge | Swift CLI over EventKit (calendar, reminders) | `native/OrionMacBridge/` |
 | iPhone | SwiftUI + WidgetKit + DeviceActivity + ActivityKit, CloudKit sync | `native/OrionMobile/`, `native/OrionWidgets/`, `native/OrionLink/` |

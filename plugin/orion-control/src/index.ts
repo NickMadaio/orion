@@ -1,4 +1,5 @@
 import { Type, type Static } from "typebox";
+import { registerAccountHealth } from "./account-health.js";
 import { registerLocalRouting } from "./local-routing.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
@@ -269,6 +270,8 @@ export const ConfigSchema = Type.Object({
         "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off.",
     }),
   ),
+  accountHealth: Type.Optional(Type.Boolean({ description: "Notice when a model provider's account is unusable (credit too low, usage limit reached, API key rejected) and tell Nick once on his phone with the fix. Default on; false turns it off." })),
+  accountFailFast: Type.Optional(Type.Boolean({ description: "While that account problem is fresh (10 min since the last failure), answer real turns at once with the problem and the fix instead of falling back to a slow local model. Ignored when localRouting is 'on'. Default off." })),
   localRoutingScheduleToCloud: Type.Optional(Type.Boolean({ description: "Send requests to change his calendar to the configured (cloud) model instead of the local worker. Default off." })),
   localRoutingTestingUntil: Type.Optional(Type.String({ description: "ISO time: until then localRouting 'on' runs without an acceptance record (deliberate testing, max 48 h ahead)." })),
   localRoutingTrace: Type.Optional(Type.Boolean({ description: "Append one line per hook stage to <log>.trace (diagnostics). Default off." })),
@@ -1501,6 +1504,7 @@ interface ProvenanceHostApi {
   ) => void;
   logger?: { warn?: (message: string) => void };
   pluginConfig?: Record<string, unknown>;
+  config?: unknown;
 }
 
 function field(source: unknown, key: string): unknown {
@@ -1654,6 +1658,16 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     if (typeof runId === "string") repeatState.delete(`run:${runId}`);
     if (typeof sessionKey === "string") repeatState.delete(`session:${sessionKey}`);
   });
+  if (api.pluginConfig?.accountHealth !== false) {
+    const controlled = path.join(os.homedir(), ".openclaw", "orion-controlled");
+    registerAccountHealth(api as unknown as Parameters<typeof registerAccountHealth>[0], {
+      statePath: path.join(controlled, "account-health.json"),
+      outboxPath: path.join(controlled, "alerts-outbox.jsonl"),
+      // Local routing "on" already keeps turns off the cloud model; answering for it would be wrong.
+      failFast: api.pluginConfig?.accountFailFast === true && api.pluginConfig?.localRouting !== "on",
+      primaryProvider: primaryProviderOf(api.config),
+    });
+  }
   const localRouting = api.pluginConfig?.localRouting;
   if (localRouting === "shadow" || localRouting === "on") {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
@@ -1699,6 +1713,13 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       }
     });
   }
+}
+
+/** "anthropic" from agents.defaults.model.primary = "anthropic/claude-…", if the host passes its config. */
+function primaryProviderOf(config: unknown): string | undefined {
+  const model = field(field(field(config, "agents"), "defaults"), "model");
+  const primary = typeof model === "string" ? model : field(model, "primary");
+  return typeof primary === "string" && primary.includes("/") ? primary.split("/")[0] : undefined;
 }
 
 function stableHookValue(value: unknown): string {

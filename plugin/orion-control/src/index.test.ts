@@ -192,6 +192,12 @@ describe("orion-control plugin", () => {
     expect(written).toContain("<!-- orion-daily:begin");
   });
 
+  it("watches model accounts unless accountHealth is false", () => {
+    expect(hostHarness({ accountHealth: undefined }).hooks.has("llm_output")).toBe(true); // default on
+    expect(hostHarness({ accountHealth: true }).hooks.has("llm_output")).toBe(true);
+    expect(hostHarness({ accountHealth: false }).hooks.has("llm_output")).toBe(false);
+  });
+
   it("blocks a third identical tool call in one run and resets at run end", () => {
     const harness = hostHarness({});
     const hook = harness.hooks.get("before_tool_call");
@@ -1645,10 +1651,22 @@ function hostHarness(pluginConfig: Record<string, unknown>) {
   const tools = new Map<string, RegisteredTool>();
   const hooks = new Map<string, HookHandler>();
   const api = {
-    pluginConfig,
+    // Account health writes under ~/.openclaw; it has its own tests with temp paths.
+    pluginConfig: { accountHealth: false, ...pluginConfig },
     logger: { warn: () => undefined },
+    // Like the host: every handler for a hook runs, and the first result wins.
     on: (name: string, handler: HookHandler) => {
-      hooks.set(name, handler);
+      const previous = hooks.get(name);
+      hooks.set(
+        name,
+        previous
+          ? (event, hookContext) => {
+              const first = previous(event, hookContext);
+              const second = handler(event, hookContext);
+              return first ?? second;
+            }
+          : handler,
+      );
     },
     registerTool: (tool: unknown) => {
       const registered = tool as RegisteredTool;

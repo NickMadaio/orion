@@ -1,4 +1,4 @@
-# ORION V3 — continuation handoff (state at 2026-10-12 13:25 BST; base 2026-10-09 11:24)
+# ORION V3 — continuation handoff (state at 2026-10-12 16:15 BST; base 2026-10-09 11:24)
 
 Written by Claude (Opus 5.5) for whichever session picks this up next — possibly on a
 different Claude account with no access to the conversation that produced it. Read this file
@@ -12,6 +12,12 @@ Nothing here touches the live ORION config. No Claude API calls have been made (
 ## Update 2026-10-12 10:09 BST — account-health alerts built (not deployed)
 
 - `plugin/orion-control/src/account-health.ts`: a dead Anthropic account (credit / usage cap / bad key) now produces ONE phone alert with the console fix, and optional fail-fast (`accountFailFast`). Details and proofs in `HANDOFF.md` 2026-10-12. Needs `scripts/orion-deploy` with Nick's go-ahead. This is the "alert him automatically next time" item from the entry below.
+
+## Update 2026-10-12 16:15 BST (newest first) — live gauntlet 12/12
+
+- Live gauntlet on Nick's real calendar through the real gateway (`scripts/eval/v3/gauntlet/run.sh`, today.txt + tomorrow.txt): **12/12**, 7–12 s a turn, all local. Fill, move by "half an hour", resize, drop, clear-after, plan with invisible commute, a question, and a fake-out ("the lab is cancelled lol jk").
+- Fixed on the way: stem trigger (studying/shorter/ditch/nuke/stick/scrap), "tmrw", `by` shifts computed by code, skip→drop on own blocks, `clear_after`, `plan` = decide + separate extraction, invisible commutes (places.json; Spitalfields 15), exact replies (finalize revise + latest-message appendContext + reply_payload_sending rewrite), honest line for surviving false claims, front-desk error keeps the flow, questions get the day read by code, 9B gateway params think:false + num_predict 2048 (an 11k-token thinking runaway caused a timeout), form capped (num_predict 500, maxItems/maxLength).
+- Still open: Phase-8-style acceptance on many requests (the gauntlet is 12), example store (#5), propose/preview/commit (#4), serving (#8: something else loads gpt-oss:20b and squeezes memory; consider OLLAMA_MAX_LOADED_MODELS=2), Anthropic credits.
 
 ## Update 2026-10-12 13:25 BST (newest first) — first live local success
 

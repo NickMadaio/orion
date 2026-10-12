@@ -63,10 +63,12 @@ Steps:
 - swap: block "what" with block "with" · tidy: separate overlaps
 - cannot: it cannot be done — say why in "text" · ask: only if no block tells you — question in "text" · answer: he only asked a question — reply in "text"
 
-Examples (block ids depend on the day shown):
-- "stay in the building between DS and my lab, schedule cert courses the entire time between the two classes" (cert courses is B4, DS B2, lab B3) → {"steps":[{"do":"fill_between","what":"B4","after":"B2","before":"B3"}]}
-- "skip the lab today" → {"steps":[{"do":"skip","what":"B3"}]}   (a class is skipped, never dropped)
-- "push cert courses to 6" → {"steps":[{"do":"move","what":"B4","to":"18:00"}]}
+Examples, for this SAMPLE day only (his real day below has its own ids — never copy these ids):
+  B1 11:00–12:30 Discrete Structures (FIXED) · B2 15:30–17:00 Lab (FIXED) · B3 17:50–21:50 cert courses
+- "stay in the building between DS and my lab, schedule cert courses the entire time between the two classes" → {"steps":[{"do":"fill_between","what":"B3","after":"B1","before":"B2"}]}
+- "put gym between my two classes" (gym is not on the day) → {"steps":[{"do":"fill_between","what":"gym","after":"B1","before":"B2"}]}
+- "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
+- "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
 
 Never drop a block and add it again — move it (or fill_between). Name blocks by their id. Classes he mentions by name or nickname ("DS" = Discrete Structures, "my lab", "program design") are the matching blocks. Only what he asked for.
@@ -78,7 +80,11 @@ type Compiled = { args: string[] } | { say: "cannot" | "ask" | "answer"; text: s
 export function compile(step: Intent, day: Day): Compiled {
   const byId = (id?: string) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
   const now = day.now ? toMin(day.now) : 0;
+  if (step.what && /^B\d+$/.test(step.what) && !byId(step.what)) return { error: `${step.what} is not a block on his day` };
+  for (const k of ["after", "before", "with"] as const) if (step[k] && !byId(step[k])) return { error: `${step[k]} is not a block on his day` };
   const what = byId(step.what);
+  if (what && (step.what === step.after || step.what === step.before)) return { error: "the block to place cannot be one of its own anchors" };
+  if (what?.fixed && ["fill_between", "move", "resize", "drop", "swap"].includes(step.do)) return { error: `${what.title} is a class or a plan with people — it does not move` };
   const time = (t?: string) => (t && /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5, "0") : undefined);
   switch (step.do) {
     case "cannot": case "ask": case "answer":
@@ -155,11 +161,17 @@ export async function runScheduleFlow({ message, clock, exec, ask }: {
   const dateArgs = /\btomorrow\b/i.test(message) ? ["--date", "tomorrow"] : [];
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
-  const out = await ask(FORM_PROMPT, `Now: ${clock}.\n\nHis day${dateArgs.length ? " (tomorrow)" : ""}:\n${blockList(day)}\n\nNick: ${message}`, intentSchema(day));
-  const steps = out?.steps ?? [];
-  if (!steps.length) return { outcome: "fallback", reason: "no steps" };
-  const compiled = steps.map((s) => compile(s, day));
-  const bad = compiled.find((c) => "error" in c);
+  const user = `Now: ${clock}.\n\nHis day${dateArgs.length ? " (tomorrow)" : ""}:\n${blockList(day)}\n\nNick: ${message}`;
+  let out = await ask(FORM_PROMPT, user, intentSchema(day));
+  let compiled = (out?.steps ?? []).map((s) => compile(s, day));
+  let bad = compiled.find((c) => "error" in c);
+  // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model).
+  if (bad && "error" in bad) {
+    out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day));
+    compiled = (out?.steps ?? []).map((s) => compile(s, day));
+    bad = compiled.find((c) => "error" in c);
+  }
+  if (!compiled.length) return { outcome: "fallback", reason: "no steps" };
   if (bad && "error" in bad) return { outcome: "fallback", reason: bad.error };
   const said = compiled.find((c) => "say" in c && c.say !== "answer");
   if (said && "say" in said) return { outcome: "say", text: said.text, kind: said.say as "cannot" | "ask" };

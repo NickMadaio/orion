@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
-import { registerLocalRouting } from "./local-routing.js";
+import { liveScheduleFlow, registerLocalRouting } from "./local-routing.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -1673,6 +1673,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,
       trace: api.pluginConfig?.localRoutingTrace === true,
+      scheduleFlow: liveScheduleFlow,
       ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
       acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,

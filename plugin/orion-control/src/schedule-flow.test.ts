@@ -33,7 +33,7 @@ describe("schedule flow", () => {
 
   it("refuses what it cannot compile instead of guessing, and says no when there is no room", () => {
     expect(compile({ do: "fill_between", what: "B4", after: "B9", before: "B3" }, monday)).toMatchObject({ error: expect.any(String) });
-    expect(compile({ do: "drop", what: "B1" }, monday)).toMatchObject({ error: expect.stringMatching(/movable/) });
+    expect(compile({ do: "drop", what: "B1" }, monday)).toMatchObject({ error: expect.stringMatching(/movable|does not move/) });
     const late = { ...monday, now: "15:20" };
     expect(compile({ do: "fill_between", what: "B4", after: "B2", before: "B3" }, late)).toMatchObject({ say: "cannot" });
   });
@@ -67,5 +67,22 @@ describe("schedule flow", () => {
     expect(await runScheduleFlow({ message: "x", clock: "Mon 08:00", exec, ask: async () => ({ steps: [{ do: "cannot", text: "no room" }] }) })).toEqual({ outcome: "say", text: "no room", kind: "cannot" });
     expect(await runScheduleFlow({ message: "move it tomorrow", clock: "Mon 08:00", exec, ask: async () => ({ steps: [{ do: "move", what: "B4", to: "18:00" }] }) })).toMatchObject({ outcome: "done" });
     expect(calls.at(-1)).toEqual(["move", "do cert courses", "--to", "18:00", "--date", "tomorrow"]);
+  });
+
+  it("rejects block ids that do not exist, anchors used as the thing to place, and moving a class", () => {
+    const today = { ...monday, blocks: monday.blocks.slice(0, 3) }; // no cert courses block today
+    expect(compile({ do: "fill_between", what: "B4", after: "B2", before: "B3" }, today)).toMatchObject({ error: expect.stringMatching(/not a block/) });
+    expect(compile({ do: "fill_between", what: "B3", after: "B2", before: "B3" }, today)).toMatchObject({ error: expect.any(String) });
+    expect(compile({ do: "move", what: "B3", to: "13:15", until: "15:25" }, today)).toMatchObject({ error: expect.stringMatching(/does not move/) });
+    expect(compile({ do: "fill_between", what: "cert courses", after: "B2", before: "B3" }, { ...today, now: "13:14" })).toEqual({ args: ["add", "cert courses", "130", "--at", "13:15", "--before", "15:30"] });
+  });
+
+  it("a form that breaks a rule gets one correction round with the rule it broke", async () => {
+    const exec = async (args: string[]) => (args[0] === "show" ? { stdout: JSON.stringify({ ...monday, now: "08:00" }), code: 0 } : { stdout: "Changed:\n  do cert courses moved: 17:50 → 12:35–15:25", code: 0 });
+    const asked: string[] = [];
+    const answers = [{ steps: [{ do: "move" as const, what: "B3", to: "13:00" }] }, { steps: [{ do: "fill_between" as const, what: "B4", after: "B2", before: "B3" }] }];
+    const result = await runScheduleFlow({ message: "cert courses between DS and lab", clock: "Mon 08:00", exec, ask: async (_s, user) => { asked.push(user); return answers[asked.length - 1] ?? null; } });
+    expect(asked[1]).toMatch(/broke a rule: .*does not move/);
+    expect(result).toMatchObject({ outcome: "done" });
   });
 });

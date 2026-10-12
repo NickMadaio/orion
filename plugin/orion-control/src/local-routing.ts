@@ -134,7 +134,8 @@ const defaultBrainSearch = (query: string): Promise<string> => new Promise((reso
   execFile(ORION_BRAIN, ["search", query.slice(0, 200)], { timeout: 8000, maxBuffer: 1 << 20 }, (_e, stdout) => resolve(String(stdout ?? "")));
 });
 
-const defaultScheduleFlow = (message: string, clock: string): Promise<FlowResult> => runScheduleFlow({
+/** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
+export const liveScheduleFlow = (message: string, clock: string): Promise<FlowResult> => runScheduleFlow({
   message, clock,
   exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
@@ -273,7 +274,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
       if (CHANGE_REQUEST.test(run.message) && SCHEDULING.test(run.message) && !run.flow) {
-        run.flow = await (options.scheduleFlow ?? defaultScheduleFlow)(run.message, clock()).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        // No built-in default: only the plugin entry point wires the real scheduler in (a test that
+        // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
+        run.flow = options.scheduleFlow
+          ? await options.scheduleFlow(run.message, clock()).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
+          : { outcome: "fallback", reason: "no scheduling flow wired" };
         if (run.flow.outcome === "done") {
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
         }
@@ -315,7 +320,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const reply = str(event.lastAssistantMessage) ?? "";
       const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say" });
       run.findings.push(findings);
-      if (on && findings.length > 0 && run.passes < 2) {
+      // After the scheduling flow acted, its result is final: the worker only reports it (a retry
+      // with tools let the model act on its own).
+      if (on && findings.length > 0 && run.passes < 2 && !run.flow) {
         run.passes += 1;
         const instruction = run.passes === 1 ? retryInstruction(findings) : HONEST_STOP;
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };

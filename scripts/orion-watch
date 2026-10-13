@@ -134,6 +134,15 @@ if (awake && short && !day.adjusted && minute < 780 && blocks.length) {
   day.adjusted = true;
 }
 
+// 2a. A to-do he ticked off (on any device) loses the sessions ORION booked for it,
+// within a tick (2026-10-13: finished cert courses stayed booked). Quiet and cheap
+// when nothing it booked has been finished.
+if (!dry) {
+  const r = spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "orion-tasks"), "sweep"], { encoding: "utf8", timeout: 60000 });
+  const swept = (r.stdout || "").trim();
+  if (swept) day.tasksSwept = [...(day.tasksSwept ?? []), swept.slice(0, 300)];
+}
+
 // 2b. To-dos with due dates and spreads (orion-tasks): re-planned once each
 // morning, so a due date or spread he changed in Reminders shows up in his days.
 if (awake && !day.tasksPlanned && minute < 780) {

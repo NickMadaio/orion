@@ -24,14 +24,16 @@ function world(t, { reminders = [], events = [], at = [9, 0] } = {}) {
   writeFileSync(join(home, "calendar.json"), JSON.stringify(events));
   writeFileSync(join(home, "reminders.json"), JSON.stringify(reminders));
   const env = { ...process.env, HOME: home, ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "calendar.json"),
-    FAKE_REMINDERS: join(home, "reminders.json"), ORION_LIFE_CONFIG: join(home, "life.json"), ORION_RESCHEDULE_UNDO: join(home, "undo.json"),
+    FAKE_REMINDERS: join(home, "reminders.json"), ORION_TASK_LEDGER: join(home, "task-sessions.json"), ORION_LIFE_CONFIG: join(home, "life.json"), ORION_RESCHEDULE_UNDO: join(home, "undo.json"),
     ORION_RESCHEDULE_NOW: new Date(2030, 9, 8, ...at).toISOString() };
   const run = (script, ...a) => { const r = spawnSync(process.execPath, [script, ...a], { encoding: "utf8", env }); return { code: r.status, out: `${r.stdout}${r.stderr}` }; };
   const sessions = (title) => JSON.parse(readFileSync(join(home, "calendar.json"), "utf8"))
     .filter((e) => e.title === title).map((e) => ({ ...local(e.start), length: (new Date(e.end) - new Date(e.start)) / 60000 }))
     .sort((a, b) => a.date.localeCompare(b.date));
   const reminder = (title) => JSON.parse(readFileSync(join(home, "reminders.json"), "utf8")).find((r) => r.title === title);
-  return { tasks: (...a) => run(TASKS, ...a), reschedule: (...a) => run(RESCHEDULE, ...a), sessions, reminder };
+  const complete = (title) => writeFileSync(join(home, "reminders.json"), JSON.stringify(JSON.parse(readFileSync(join(home, "reminders.json"), "utf8"))
+    .map((r) => (r.title === title ? { ...r, completed: true } : r))));
+  return { tasks: (...a) => run(TASKS, ...a), reschedule: (...a) => run(RESCHEDULE, ...a), sessions, reminder, complete };
 }
 
 test("a to-do due Friday at 2 hours a day gets a 2-hour session every day before Friday", (t) => {
@@ -152,4 +154,27 @@ test("unknown options are refused, with nothing changed", (t) => {
   assert.notEqual(r.code, 0);
   assert.match(r.out, /--at/);
   assert.match(r.out, /NOTHING WAS CHANGED|not an option/i);
+});
+
+// 2026-10-13: he finished his cert courses and they stayed booked every evening. A to-do that is
+// ticked off loses the sessions ORION booked for it (from now on; what already happened stays).
+test("a finished to-do's booked sessions come off its days", (t) => {
+  const w = world(t, { at: [15, 0] });
+  assert.equal(w.tasks("add", "Complete cert courses", "--due", "2030-10-12", "--spread", "2 hours a day").code, 0);
+  assert.ok(w.sessions("Complete cert courses").length >= 3);
+  w.complete("Complete cert courses");
+  const r = w.tasks("sweep");
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /Complete cert courses is done/);
+  assert.equal(w.sessions("Complete cert courses").length, 0, r.out);
+  // Nothing left to sweep: quiet, and no calendar read.
+  assert.equal(w.tasks("sweep").out.trim(), "");
+});
+
+test("an open to-do's sessions are left alone by the sweep", (t) => {
+  const w = world(t, { at: [15, 0] });
+  w.tasks("add", "Essay", "--due", "2030-10-12", "--spread", "1 hour a day");
+  const before = w.sessions("Essay").length;
+  w.tasks("sweep");
+  assert.equal(w.sessions("Essay").length, before);
 });

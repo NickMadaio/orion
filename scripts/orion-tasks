@@ -12,6 +12,7 @@
    orion-tasks add "<title>" [--due <when>] [--spread "<how>"] [--priority high|medium|low]
    orion-tasks set "<task>" [--due <when>|--no-due] [--spread "<how>"] [--priority …] [--title "<new>"]
    orion-tasks plan ["<task>"] [--days 7] [--dry-run]       (re)book the sessions for the next days
+   orion-tasks sweep                                        take finished to-dos' sessions off (orion-watch, every tick)
    orion-tasks sub "<task>" add "<subtask>" | set "<subtask>" <percent> | remove "<subtask>"
         subtasks ("complete cert courses" → its 3 courses, each with a % done). Only the
         parent is scheduled; the subtasks track progress.
@@ -22,6 +23,8 @@
  importance comes from the priority and how close the due date is.
 */
 import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
@@ -85,6 +88,34 @@ function spreadOf(task) {
   try { const parsed = parseTodos(task.title, { now: { date: today, minute: 0 } }).tasks; if (parsed.length === 1) minutes = parsed[0].minutes; } catch { /* default */ }
   return { kind: "total", minutes };
 }
+// The to-dos ORION has booked sessions for (2026-10-13). Reminders only lists the open ones, so
+// without this a ticked-off to-do kept its sessions: his finished cert courses stayed booked.
+const LEDGER = process.env.ORION_TASK_LEDGER || join(homedir(), ".openclaw/orion-controlled/task-sessions.json");
+const readLedger = () => { try { return JSON.parse(readFileSync(LEDGER, "utf8")).titles ?? []; } catch { return []; } };
+function writeLedger(titles) {
+  if (dry) return;
+  mkdirSync(dirname(LEDGER), { recursive: true });
+  writeFileSync(`${LEDGER}.tmp`, JSON.stringify({ titles: [...new Set(titles)] }, null, 2));
+  renameSync(`${LEDGER}.tmp`, LEDGER);
+}
+
+/** Sessions of booked to-dos that are no longer open come off the next two weeks (what happened stays). */
+async function sweep(open) {
+  const booked = readLedger();
+  const finished = booked.filter((title) => !open.some((t) => same(title, t.title) || same(t.title, title)));
+  if (!finished.length) return [];
+  const events = await calendarEvents();
+  const report = [];
+  for (const title of finished) {
+    const dates = Array.from({ length: 14 }, (_, i) => addDays(today, i))
+      .filter((date) => toBlocks(events, date).some((b) => b.source === "orion" && same(title, b.title)));
+    for (const date of dates) if (!dry) reschedule("drop", title, "--date", date);
+    report.push(`${title} is done — ${dates.length ? `${dry ? "would remove" : "removed"} its sessions on ${dates.join(", ")}` : "nothing of it was booked"}`);
+  }
+  writeLedger(booked.filter((title) => !finished.includes(title)));
+  return report;
+}
+
 const reschedule = (...a) => spawnSync(process.execPath, [join(HERE, "orion-reschedule"), ...a], { encoding: "utf8" });
 
 /** Book (or re-book) the sessions of these to-dos for the next `days` days. */
@@ -119,6 +150,8 @@ async function plan(list, days, open = list) {
     }
     report.push(`${task.title}: ${sessions.map((s) => `${s.date} ${s.minutes} min`).join(", ") || "nothing in the next days"}${task.dueDate ? ` (due ${task.dueDate})` : ""}`);
   }
+  const booking = [...perDate.values()].some((d) => d.book.length);
+  if (booking) writeLedger([...readLedger(), ...list.filter((t) => [...perDate.values()].some((d) => d.book.some((p) => p.startsWith(`${t.title}, `)))).map((t) => t.title)]);
   for (const [date, { book, drop }] of perDate) {
     if (drop.length) {
       const r = dry ? null : reschedule("drop", ...drop, "--date", date);
@@ -193,14 +226,18 @@ try {
     if (!dry) await bridgeRequest("update_reminder", { identifier: task.identifier, notes: text });
     const progress = progressOf(subtasks);
     console.log(`${dry ? "Would update" : "Updated"} ${task.title}: ${subtasks.map((s) => `${s.title} ${s.percent}%`).join(", ") || "no subtasks"}${progress !== null ? ` — ${progress}% overall` : ""}.`);
+  } else if (command === "sweep") {
+    if (!readLedger().length) process.exit(0);
+    for (const l of await sweep(await tasks())) console.log(l);
   } else if (command === "plan") {
     const list = await tasks();
+    if (!name) for (const l of await sweep(list)) console.log(l);
     const openTitles = list.map((t) => t.title);
     const chosen = name ? [find(list, name)] : list.filter((t) => t.dueDate || parseSpread(parseTaskNotes(t.notes).spread) || waitsFor(t.notes, openTitles.filter((x) => x !== t.title)));
     if (!chosen.length) { console.log("No to-do has a due date or a spread yet; nothing to plan."); process.exit(0); }
     for (const l of await plan(chosen, Number(flag("--days") ?? 7), list)) console.log(l);
   } else {
-    fail("usage: orion-tasks list|add|set|plan (see the header)");
+    fail("usage: orion-tasks list|add|set|plan|sweep (see the header)");
   }
 } catch (e) {
   fail(`orion-tasks: ${e.message}`, 1);

@@ -15,10 +15,10 @@ switch (request.action) {
   case "list_upcoming_calendar_events": reply({ events_json: JSON.stringify(events) }); break;
   case "list_deadlines": reply({ events_json: "[]" }); break;
   case "list_incomplete_reminders": {
-    // $FAKE_REMINDERS: [{ identifier, title, list, due? }]; payload.list filters by list name.
+    // $FAKE_REMINDERS: [{ identifier, title, list, due?, completed? }]; payload.list filters by list name.
     const all = (() => { try { return JSON.parse(readFileSync(process.env.FAKE_REMINDERS, "utf8")); } catch { return []; } })();
     const wanted = (p.list ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-    reply({ reminders_json: JSON.stringify(all.filter((r) => !wanted.length || wanted.includes(String(r.list).toLowerCase()))) });
+    reply({ reminders_json: JSON.stringify(all.filter((r) => !r.completed && (!wanted.length || wanted.includes(String(r.list).toLowerCase())))) });
     break;
   }
   case "create_reminder": case "update_reminder": {

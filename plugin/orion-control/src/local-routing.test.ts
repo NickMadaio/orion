@@ -222,15 +222,22 @@ describe("local routing — on mode", () => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
     const f = fakeApi();
     let flowRan = false;
-    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "tool", tool: "alarm" }), scheduleFlow: async () => { flowRan = true; return { outcome: "fallback", reason: "t" }; } });
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "tool", tool: "alarm" }), scheduleFlow: async () => { flowRan = true; return { outcome: "fallback", reason: "t" }; },
+      extractReminder: async () => ({ time: "11:00", label: "text the marketing group chat" }) });
     const ctx = { runId: "rm1", sessionKey: "agent:main:x" };
     const msg = "can you remind me tomorrow around 11 am to text the marketing group chat";
     await f.fire("before_model_resolve", { prompt: msg }, ctx);
     const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string; appendContext: string }>;
-    expect(built?.systemPrompt).toMatch(/alarm_set/);
-    expect(built?.systemPrompt).toMatch(/Never use orion-tasks/);
-    expect(built?.appendContext).toMatch(/alarm_set for \w+day \d{4}-\d{2}-\d{2}/);
+    expect(built?.systemPrompt).toMatch(/"action":"alarm_set","at":"\d{4}-\d{2}-\d{2}T11:00","label":"text the marketing group chat"/);
+    expect(built?.appendContext).toMatch(/call orion_task_run now/);
     expect(flowRan).toBe(false);
+    // Replied without calling the tool → told to call it; still not called → honest line at delivery.
+    const [r1] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx)) as Array<Record<string, any>>;
+    expect(r1?.retry.instruction).toMatch(/NOT set the reminder/);
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx);
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx);
+    const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "I've set a reminder for 11." }, runId: "rm1", sessionKey: "agent:main:x" }, {})) as Array<Record<string, any>>;
+    expect(sent?.payload.text).toMatch(/didn't manage to set that reminder/);
   });
 
   it("after midnight, 'tomorrow' means today's date", async () => {

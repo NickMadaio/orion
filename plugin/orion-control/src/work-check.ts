@@ -39,7 +39,7 @@ export function outcomeOf({ stdout = "", exit = 0 }: ToolResult): Outcome {
   return "read";
 }
 
-const STRONG = /\b((adding|saving|logging|noting|tracking|booking|marking) (that|it|this)|done|booked|moved|added|scheduled|cancell?ed|started|turned (on|off)|saved|sent|cleared|dropped|removed|extended|resized|shortened|renamed|deleted|created|updated|changed|opened|paused|ended|finished|logged|noted|tracked|reserved|rescheduled|shifted|pushed|swapped|(?<!all )set (for|to|up)|is set|are set)\b/i;
+const STRONG = /\b((adding|saving|logging|noting|tracking|booking|marking) (that|it|this)|done|booked|moved|added|scheduled|cancell?ed|started|turned (on|off)|saved|sent|cleared|dropped|removed|extended|resized|shortened|renamed|deleted|created|updated|changed|opened|paused|ended|finished|logged|noted|tracked|reserved|rescheduled|shifted|pushed|swapped|(?<!all )set (for|to|up|a|an|the|your)|(i'?ve|i have|i) set|is set|are set)\b/i;
 const STATUS = /\b(you'?re (all set|clear|good to go|in)|good to go|all set|already (booked|scheduled|on|set|done|in|there)|is (now|in at|running|on)|are (now|in at)|fits? now|(is|are) (now )?(off|on)|'s (now )?(off|on))\b/i;
 const NARRATION = /\b(he|she|they|something|someone)\s+(\w+\s+)?(created|booked|moved|added|started|set|changed|removed|deleted|broke)\b/i;
 const DENIAL = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|wasn'?t able|unable|failed|nothing (was|got|fit)|no (room|space)|not (booked|added|moved|sent|set|saved|done|changed)|won'?t fit|doesn'?t fit)\b/i;

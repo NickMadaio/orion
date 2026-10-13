@@ -209,3 +209,8 @@ test("'dropped', 'extended', 'resized', 'shortened' and 'renamed' are claims of 
   const failed = [{ canonical: 'exec orion-reschedule drop "Gym"', stdout: "NOTHING WAS CHANGED. Gym is a plan with people and is never dropped.", exit: 1 }];
   assert.equal(checkReply({ reply: "I dropped the gym block.", turnResults: failed }).falseClaim, true);
 });
+
+test("'I've set a reminder' is a claim of a change (2026-10-13: said with no tool call at all)", () => {
+  assert.equal(claimsIn("I've set a reminder for Tuesday at 11:00 AM.")[0]?.kind, "done");
+  assert.equal(checkReply({ reply: "I've set a reminder for Tuesday at 11:00 AM.", turnResults: [] }).falseClaim, true);
+});

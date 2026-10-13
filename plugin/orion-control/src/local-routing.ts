@@ -52,6 +52,8 @@ export type LocalRoutingOptions = {
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
   scheduleFlow?: (message: string, clock: string) => Promise<FlowResult>;
+  /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
+  extractReminder?: (message: string) => Promise<{ time: string; label: string } | null>;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
   readDay?: (tomorrow: boolean) => Promise<string>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
@@ -73,6 +75,8 @@ type Run = {
   passes: number;
   findings: string[][];
   cloud?: boolean;
+  /** A reminder the worker must set: the exact orion_task_run arguments and what to tell him. */
+  reminder?: { args: string; say: string };
   brain?: Promise<string>;
   flow?: FlowResult;
 };
@@ -166,6 +170,20 @@ function exactReply(flow: FlowResult): string {
   if (flow.outcome === "say") return flow.kind === "ask" ? flow.text : `That doesn't fit: ${flow.text.replace(/^(that|it) (can't|cannot) be done[:,]?\s*/i, "")}`;
   return "";
 }
+
+const ampm12 = (t: string): string => { const [h, m] = t.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
+
+/** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
+export const liveExtractReminder = async (message: string): Promise<{ time: string; label: string } | null> => {
+  try {
+    const res = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ model: WORKER_MODEL, stream: false, think: false, options: FORM_OPTIONS, keep_alive: "24h",
+        format: { type: "object", properties: { time: { type: "string", pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }, label: { type: "string", maxLength: 100 } }, required: ["time", "label"] },
+        messages: [{ role: "system", content: "From Nick's message, give the time of day for his reminder (24-hour HH:MM; \"around 11\" or \"11 am\" = 11:00, \"5ish\" in the afternoon = 17:00) and a short label of what it is for, in his words. JSON only: {\"time\":\"HH:MM\",\"label\":\"…\"}" }, { role: "user", content: message }] }) });
+    const out = JSON.parse(((await res.json()) as { message?: { content?: string } }).message?.content ?? "");
+    return /^\d{2}:\d{2}$/.test(out.time) && out.label ? out : null;
+  } catch { return null; }
+};
 
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
 
@@ -299,8 +317,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const day = new Date(Date.now() + (meansTomorrow(run.message) ? 86400000 : 0));
         const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
         const weekday = day.toLocaleDateString("en-GB", { weekday: "long" });
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}${TOMORROW.test(run.message) && !meansTomorrow(run.message) ? " (it is after midnight, so his \"tomorrow\" is today)" : ""}. Set it with ONE orion_task_run call, exactly this shape:\n{"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM 24-hour, his time>","label":"<what it is for, in his words>"}]}\n"Around 11" or "11ish" is 11:00; "11 am" is 11:00; "11" with no am/pm during the day means 11:00 if it is before 11 now, otherwise 23:00. Never use orion-tasks or orion-reschedule for a reminder. After the call, reply in one sentence with the day, the time (12-hour) and the label — only if the tool result shows it was set; otherwise say plainly it was not.`,
-          appendContext: `[ORION: this is a timed reminder → orion_task_run alarm_set for ${weekday} ${ymd}.]` };
+        // Code works out the exact call; the worker makes it (through the normal orion_task_run gate).
+        const got = options.extractReminder ? await options.extractReminder(run.message).catch(() => null) : null;
+        if (got?.time && got.label) {
+          run.reminder = { args: JSON.stringify({ steps: [{ action: "alarm_set", at: `${ymd}T${got.time}`, label: got.label }] }), say: `${weekday} at ${ampm12(got.time)}: ${got.label}` };
+          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nSet Nick's reminder now with ONE orion_task_run call using exactly these arguments:\n${run.reminder.args}\nThen, only if the result shows it was set, reply: "Reminder set for ${run.reminder.say}." If it was not set, say so plainly.`,
+            appendContext: `[ORION: call orion_task_run now with exactly ${run.reminder.args} — do not reply before calling it.]` };
+        }
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}. Set it with ONE orion_task_run call: {"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM>","label":"<what it is for>"}]}. Never use orion-tasks. Reply only after the tool result shows it was set.` };
       }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
@@ -382,6 +406,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
       // with tools let the model act on its own).
       const sessionKeyNow = `session:${pick(event, ctx, "sessionKey") ?? ""}`;
+      if (on && run.reminder) {
+        const called = run.tools.some((t) => t.canonical.startsWith("orion_task_run") && /alarm_set/.test(t.canonical));
+        if (!called && run.passes < 2) {
+          run.passes += 1;
+          return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call orion_task_run now with exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
+        }
+        if (!called) remember([runId, sessionKeyNow], "I didn't manage to set that reminder — nothing was set. Can you say it again?");
+      }
       if (on && (run.flow?.outcome === "done" || run.flow?.outcome === "say")) {
         const expected = exactReply(run.flow);
         remember([runId, sessionKeyNow], expected);
@@ -399,7 +431,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       const decision = run.settled ?? (await settle(run));
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
-      if (on && !flowActed && findings.some((f) => /claims what the tools|promised but did not act/.test(f))) {
+      if (on && !flowActed && !run.reminder && findings.some((f) => /claims what the tools|promised but did not act/.test(f))) {
         remember([runId, sessionKeyNow], "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?");
       }
       log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}) } : null, cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,

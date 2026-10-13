@@ -36,6 +36,14 @@ const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const VALUED = ["--due", "--spread", "--priority", "--title", "--days"];
 const positional = args.filter((a, i) => !a.startsWith("--") && !VALUED.includes(args[i - 1]));
+// Unknown options fail loudly: "--at 11:00" was ignored and a timed reminder became a to-do booked into
+// his evening (2026-10-13). A time-of-day reminder is the alarm_set action, not a to-do.
+const KNOWN_OPTIONS = new Set([...VALUED, "--dry-run", "--no-due", "--date", "--plan"]);
+const unknownOption = args.find((a) => a.startsWith("--") && !KNOWN_OPTIONS.has(a));
+if (unknownOption) {
+  console.error(`NOTHING WAS CHANGED: ${unknownOption} is not an option of orion-tasks (options: ${[...KNOWN_OPTIONS].join(" ")}).${unknownOption === "--at" ? " For a reminder at a time of day use the alarm_set action." : ""}`);
+  process.exit(2);
+}
 const [command, name] = positional;
 const dry = args.includes("--dry-run");
 const fail = (m, code = 2) => { console.error(m); process.exit(code); };

@@ -31,7 +31,7 @@ import { dirname } from "node:path";
 import { decide, warmUp, type Decision } from "./front-desk.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
-import { FORM_OPTIONS, RESCHEDULE, TOMORROW, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -82,6 +82,7 @@ const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
 // loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
 const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resiz|extend|shorten|shorter|longer|clear|drop|ditch|nuke|scrap|cancel|skip|free|fit|stick|put|add|slot|book|class|lab\b|lectur|seminar|stud|revis|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|commute|after my|before my|between|out from|leaving at|leetcode|deck|presentation)\w*|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
+const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
@@ -173,6 +174,7 @@ export function dateLine(now = new Date()): string {
   const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const name = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "long" });
   const tomorrow = new Date(now.getTime() + 86400000);
+  if (now.getHours() < LATE_NIGHT_UNTIL) return `It is after midnight and he is still up: today is ${name(now)} ${iso(now)}, and when he says "tomorrow" he means ${name(now)} ${iso(now)} (the day after he sleeps), not ${name(tomorrow)}.`;
   return `Today is ${name(now)} ${iso(now)}; tomorrow is ${name(tomorrow)} ${iso(tomorrow)}.`;
 }
 
@@ -214,6 +216,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   // A deliberate, time-boxed test window (Nick testing local models himself): at most 48 h ahead.
   const testing = options.testingUntil ? Date.parse(options.testingUntil) : NaN;
   const testingActive = Number.isFinite(testing) && testing > Date.now() && testing - Date.now() <= 48 * 3600000;
+  // Checked again on every turn below: a window that ended mid-session must not keep "on" running.
+  const windowOpen = () => !Number.isFinite(testing) || Date.now() < testing;
   if (on && testingActive) api.logger?.warn?.(`[orion-control] localRouting "on" under a TESTING WINDOW until ${options.testingUntil} — acceptance not required`);
   if (on && !testingActive && options.acceptancePath !== undefined) {
     const verdict = acceptanceVerdict(options.acceptancePath);
@@ -259,6 +263,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
     if (!on) return undefined; // shadow: fire and forget
+    if (options.testingUntil && !windowOpen()) return undefined; // the testing window closed: back to shadow
     const d = await decision;
     // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
     if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
@@ -288,6 +293,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
+      // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
+      // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).
+      if (REMINDER.test(run.message)) {
+        const day = new Date(Date.now() + (meansTomorrow(run.message) ? 86400000 : 0));
+        const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+        const weekday = day.toLocaleDateString("en-GB", { weekday: "long" });
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}${TOMORROW.test(run.message) && !meansTomorrow(run.message) ? " (it is after midnight, so his \"tomorrow\" is today)" : ""}. Set it with ONE orion_task_run call, exactly this shape:\n{"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM 24-hour, his time>","label":"<what it is for, in his words>"}]}\n"Around 11" or "11ish" is 11:00; "11 am" is 11:00; "11" with no am/pm during the day means 11:00 if it is before 11 now, otherwise 23:00. Never use orion-tasks or orion-reschedule for a reminder. After the call, reply in one sentence with the day, the time (12-hour) and the label — only if the tool result shows it was set; otherwise say plainly it was not.`,
+          appendContext: `[ORION: this is a timed reminder → orion_task_run alarm_set for ${weekday} ${ymd}.]` };
+      }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
@@ -304,7 +318,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
       if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay) {
-        const tomorrow = TOMORROW.test(run.message);
+        const tomorrow = meansTomorrow(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
         if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. Do not call any tools.` };
       }

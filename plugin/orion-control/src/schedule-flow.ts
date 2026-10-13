@@ -208,6 +208,13 @@ export function summarize(outputs: string[], said: string[]): { reply: string; c
 /** "tomorrow" as he types it ("tmrw" read today's calendar, 2026-10-12). */
 export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 
+/** Before 5 AM he is still up: "tomorrow" means the coming daytime — today's date (2026-10-13: a reminder
+ *  asked for at 00:44 "tomorrow at 11" was filed for the day after). */
+export const LATE_NIGHT_UNTIL = 5;
+export function meansTomorrow(message: string, now: Date = new Date()): boolean {
+  return TOMORROW.test(message) && now.getHours() >= LATE_NIGHT_UNTIL;
+}
+
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 export type FlowResult =
   | { outcome: "done"; calls: string[]; outputs: string[] }
@@ -215,12 +222,12 @@ export type FlowResult =
   | { outcome: "fallback"; reason: string };
 
 /** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell). */
-export async function runScheduleFlow({ message, clock, exec, ask }: {
-  message: string; clock: string;
+export async function runScheduleFlow({ message, clock, exec, ask, now = new Date() }: {
+  message: string; clock: string; now?: Date;
   exec: (args: string[]) => Promise<{ stdout: string; code: number }>;
   ask: (system: string, user: string, schema: object) => Promise<{ steps?: Intent[] } | null>;
 }): Promise<FlowResult> {
-  const dateArgs = TOMORROW.test(message) ? ["--date", "tomorrow"] : [];
+  const dateArgs = meansTomorrow(message, now) ? ["--date", "tomorrow"] : [];
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
   const user = `Now: ${clock}.\n\nHis day${dateArgs.length ? " (tomorrow)" : ""}:\n${blockList(day)}\n\nNick: ${message}`;

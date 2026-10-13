@@ -143,3 +143,13 @@ test("delete everything after the resume, or just the two named ones", (t) => {
   assert.equal(w.sessions("finish resume").length, 0);
   assert.equal(w.sessions("research backpacking stuff").length, 1);
 });
+
+// 2026-10-13: "remind me at 11" became `orion-tasks add … --at 11:00`; --at was ignored silently, the to-do
+// was booked into his evening and ORION said "reminder at 11". Unknown options now fail loudly.
+test("unknown options are refused, with nothing changed", (t) => {
+  const w = world(t, { reminders: [] });
+  const r = w.tasks("add", "Text the group chat", "--due", "tomorrow", "--at", "11:00");
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /--at/);
+  assert.match(r.out, /NOTHING WAS CHANGED|not an option/i);
+});

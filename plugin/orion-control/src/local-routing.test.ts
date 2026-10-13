@@ -97,7 +97,7 @@ describe("local routing — on mode", () => {
     expect(built?.systemPrompt).toMatch(/orion-reschedule/);
     expect(built?.systemPrompt).toMatch(/Now: Sat 18:00/);
     expect(built?.systemPrompt).toMatch(/full path of a script: \/Users\/nickmadaio\/Desktop\/ORION\/scripts\/orion-agenda/);
-    expect(built?.systemPrompt).toMatch(/tomorrow is \w+day \d{4}-\d{2}-\d{2}/);
+    expect(built?.systemPrompt).toMatch(/(tomorrow is|he means) \w+day \d{4}-\d{2}-\d{2}/);
     expect(built?.systemPrompt).toMatch(/orion-brain search/);
     expect(built?.systemPrompt).toMatch(/nap: at least 75 minutes/);
     const brain = setup({ move: "tool", tool: "brain", args: { do: "search" } });
@@ -216,5 +216,27 @@ describe("local routing — on mode", () => {
     await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-agenda today" }, result: "today 5:15 PM — grind leetcode" }, ctx2);
     const [sent2] = (await f.fire("reply_payload_sending", { payload: { text: "I added 45 minutes of macro studying." }, runId: "p2", sessionKey: "agent:main:y" }, {})) as Array<Record<string, any>>;
     expect(sent2?.payload.text).toMatch(/didn't manage/);
+  });
+
+  it("a timed reminder goes to alarm_set (never orion-tasks), with the day worked out by code", async () => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+    const f = fakeApi();
+    let flowRan = false;
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "tool", tool: "alarm" }), scheduleFlow: async () => { flowRan = true; return { outcome: "fallback", reason: "t" }; } });
+    const ctx = { runId: "rm1", sessionKey: "agent:main:x" };
+    const msg = "can you remind me tomorrow around 11 am to text the marketing group chat";
+    await f.fire("before_model_resolve", { prompt: msg }, ctx);
+    const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string; appendContext: string }>;
+    expect(built?.systemPrompt).toMatch(/alarm_set/);
+    expect(built?.systemPrompt).toMatch(/Never use orion-tasks/);
+    expect(built?.appendContext).toMatch(/alarm_set for \w+day \d{4}-\d{2}-\d{2}/);
+    expect(flowRan).toBe(false);
+  });
+
+  it("after midnight, 'tomorrow' means today's date", async () => {
+    const { meansTomorrow } = await import("./schedule-flow.js");
+    expect(meansTomorrow("remind me tomorrow at 11", new Date(2026, 9, 13, 0, 44))).toBe(false);
+    expect(meansTomorrow("remind me tomorrow at 11", new Date(2026, 9, 13, 14, 0))).toBe(true);
+    expect(meansTomorrow("remind me at 11", new Date(2026, 9, 13, 14, 0))).toBe(false);
   });
 });

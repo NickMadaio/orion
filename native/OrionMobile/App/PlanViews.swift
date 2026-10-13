@@ -1,5 +1,6 @@
 import SwiftUI
 import MobileCore
+import OrionViews
 
 /*
  The Plan tab: the day as a calendar app draws it, and the to-do list beside it.
@@ -194,254 +195,45 @@ struct DayScheduleView: View {
 
 // MARK: - To-dos
 
+/// The to-do list: the shared OrionViews screen the Mac also draws (2026-10-13),
+/// rebuilt after his old Notion list. Everything is set while adding and edited in place.
 struct TodoListView: View {
     @ObservedObject var planner: PlannerStore
-    @State private var draft = ""
-    @State private var editing: PlannerStore.Todo?
-    /// The tag the list is filtered by; nil = everything (2026-10-11).
-    @State private var filter: String?
 
-    private func notes(_ todo: PlannerStore.Todo) -> TaskNotes { TaskNotes.parse(todo.notes) }
-
-    /// Open to-dos in his order (dragged by hand), then filtered by the chosen tag.
-    private var openTodos: [PlannerStore.Todo] {
-        let ordered = TaskNotes.sortedByOrder(planner.todos.filter { !$0.done }, order: { notes($0).order })
-        guard let filter else { return ordered }
-        return ordered.filter { notes($0).tags.contains(filter) }
-    }
-
-    private var allTags: [String] {
-        TaskNotes.cleanTags(planner.todos.filter { !$0.done }.flatMap { notes($0).tags })
-    }
-
-    /// Drop a to-do just above `target` (TaskNotes.reorder decides which notes change).
-    private func move(_ draggedID: String, before target: PlannerStore.Todo) {
-        let all = TaskNotes.sortedByOrder(planner.todos.filter { !$0.done }, order: { notes($0).order })
-        let changes = TaskNotes.reorder(all.map(\.id), orders: all.map { notes($0).order }, moving: draggedID, before: target.id)
-        withAnimation(.spring(response: 0.3)) {
-            for todo in all {
-                guard let order = changes[todo.id] else { continue }
-                var n = notes(todo); n.order = order
-                var updated = todo; updated.notes = n.text
-                planner.update(updated)
-            }
-        }
-    }
-
-    private var tagBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip("All", selected: filter == nil) { filter = nil }
-                ForEach(allTags, id: \.self) { tag in chip("#\(tag)", selected: filter == tag) { filter = filter == tag ? nil : tag } }
-            }
-        }
-        .accessibilityIdentifier("todoTagFilter")
-    }
-
-    private func chip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label).font(.system(size: 13, weight: .medium))
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(selected ? Phone.accent.opacity(0.22) : Phone.hairline.opacity(0.6)))
-                .foregroundStyle(selected ? Phone.accent : Phone.soft)
-        }
-        .buttonStyle(.plain)
+    private var items: [TodoItem] {
+        planner.todos.map { TodoItem(id: $0.id, title: $0.title, due: $0.due, done: $0.done,
+                                     priority: TodoPriority(eventKit: $0.priority), notes: $0.notes) }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 10) {
-                Image(systemName: "plus.circle").foregroundStyle(Phone.accent)
-                TextField("Add a to-do", text: $draft)
-                    .submitLabel(.done)
-                    .onSubmit { planner.addTodo(title: draft, due: nil); draft = "" }
-                    .accessibilityIdentifier("addTodoField")
-            }
-            .padding(.vertical, 10)
-            .overlay(alignment: .bottom) { Rectangle().fill(Phone.hairline).frame(height: 1) }
+        TodoListScreen(items: items, actions: actions, density: .touch)
+            .tint(Phone.accent)
+    }
 
-            if !allTags.isEmpty { tagBar }
-            let open = openTodos, done = planner.todos.filter(\.done).filter { filter == nil || notes($0).tags.contains(filter!) }
-            if open.isEmpty && done.isEmpty {
-                Text("Nothing on your \(PlannerStore.orionList) list. Add one above; it syncs to Reminders on every device.")
-                    .font(.system(size: 14)).foregroundStyle(Phone.soft)
-            }
-            if !open.isEmpty {
-                SectionLabel("To do · \(open.count)", tint: Phone.accent)
-                ForEach(open) { todo in
-                    row(todo)
-                        // Long-press and drag a to-do onto another to put it just above (2026-10-11).
-                        .draggable(todo.id)
-                        .dropDestination(for: String.self) { ids, _ in
-                            guard let id = ids.first else { return false }
-                            move(id, before: todo)
-                            return true
-                        }
-                    // Its parts, dropped below it like to-dos of their own (2026-10-06).
-                    ForEach(TaskNotes.parse(todo.notes).subtasks) { sub in subRow(sub, of: todo) }
-                }
-            }
-            if !done.isEmpty {
-                SectionLabel("Done today · \(done.count)", tint: Phone.green)
-                ForEach(done) { row($0) }
-            }
+    private func edit(_ id: String, _ change: (inout PlannerStore.Todo) -> Void) {
+        guard var todo = planner.todos.first(where: { $0.id == id }) else { return }
+        change(&todo)
+        planner.update(todo)
+    }
+
+    private var actions: TodoActions {
+        TodoActions(
+            add: { planner.addTodo($0) },
+            toggle: { id in if let todo = planner.todos.first(where: { $0.id == id }) { planner.toggle(todo) } },
+            rename: { id, title in edit(id) { $0.title = title } },
+            setPriority: { id, level in edit(id) { $0.priority = level.eventKit } },
+            setDue: { id, due in edit(id) { $0.due = due } },
+            setNotes: { id, notes in edit(id) { $0.notes = notes } },
+            delete: { id in if let todo = planner.todos.first(where: { $0.id == id }) { planner.deleteTodo(todo) } },
+            reorder: { changes in applyOrder(changes) }
+        )
+    }
+
+    /// New manual positions ("Order:" in each moved to-do's notes).
+    private func applyOrder(_ changes: [String: Double]) {
+        for (id, order) in changes {
+            edit(id) { todo in var n = TaskNotes.parse(todo.notes); n.order = order; todo.notes = n.text }
         }
-        .sheet(item: $editing) { todo in TodoEditor(todo: todo, planner: planner) }
-    }
-
-    private func subRow(_ sub: TaskNotes.Subtask, of todo: PlannerStore.Todo) -> some View {
-        PhoneSubtaskRow(sub: sub) { percent in
-            var notes = TaskNotes.parse(todo.notes)
-            guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
-            notes.subtasks[i].percent = percent
-            var updated = todo; updated.notes = notes.text
-            withAnimation(.spring(response: 0.3)) { planner.update(updated) }
-        }
-    }
-
-    private func row(_ todo: PlannerStore.Todo) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button { withAnimation(.spring(response: 0.3)) { planner.toggle(todo) } } label: {
-                ZStack {
-                    Circle().stroke(todo.done ? Phone.green : Phone.soft, lineWidth: 1.4).frame(width: 22, height: 22)
-                    if todo.done { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Phone.green) }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(todo.done ? "Mark \(todo.title) not done" : "Complete \(todo.title)")
-            Button { editing = todo } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(todo.title).font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(todo.done ? Phone.dim : Phone.text).strikethrough(todo.done, color: Phone.dim)
-                    if let due = todo.due {
-                        Text(due.formatted(date: Calendar.current.isDateInToday(due) ? .omitted : .abbreviated, time: .shortened))
-                            .font(Phone.mono(11, .medium))
-                            .foregroundStyle(!todo.done && due < Date() ? Phone.orange : Phone.dim)
-                    }
-                    let parsed = TaskNotes.parse(todo.notes)
-                    if let progress = parsed.progress {
-                        HStack(spacing: 8) {
-                            ProgressView(value: Double(progress), total: 100).tint(Phone.accent).frame(maxWidth: 120)
-                            Text("\(progress)% · \(parsed.subtasks.count) parts").font(Phone.mono(10, .medium)).foregroundStyle(Phone.dim)
-                        }
-                    }
-                    if !parsed.spread.isEmpty {
-                        Text(parsed.spread).font(.system(size: 12)).foregroundStyle(Phone.soft).lineLimit(1)
-                    }
-                    if !parsed.tags.isEmpty {
-                        Text(parsed.tags.map { "#\($0)" }.joined(separator: " ")).font(Phone.mono(10, .medium)).foregroundStyle(Phone.accent.opacity(0.8))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            if todo.priority > 0 && todo.priority <= 4 {
-                Image(systemName: "exclamationmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Phone.orange)
-                    .accessibilityLabel("High priority")
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-struct TodoEditor: View {
-    @State var todo: PlannerStore.Todo
-    let planner: PlannerStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var hasDue = false
-    /// The notes, read as spread + subtasks + other lines (MobileCore.TaskNotes).
-    @State private var notes = TaskNotes()
-    @State private var newSubtask = ""
-
-    private static let priorities: [(String, Int)] = [("None", 0), ("Low", 9), ("Medium", 5), ("High", 1)]
-    private var priorityChoice: Binding<Int> {
-        Binding(get: { todo.priority == 0 ? 0 : todo.priority <= 4 ? 1 : todo.priority == 5 ? 5 : 9 },
-                set: { todo.priority = $0 })
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Title", text: $todo.title)
-                    Picker("Priority", selection: priorityChoice) {
-                        ForEach(Self.priorities, id: \.1) { Text($0.0).tag($0.1) }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                Section {
-                    Toggle("Due date", isOn: $hasDue.animation())
-                    if hasDue {
-                        DatePicker("Done by", selection: Binding(get: { todo.due ?? Date() }, set: { todo.due = $0 }))
-                    }
-                    TextField("How to spread it", text: $notes.spread, axis: .vertical).lineLimit(1...3)
-                } header: { Text("Plan") } footer: {
-                    Text("ORION books the work before the due date, e.g. \"2.5 hours a day\", \"two 2-hour blocks, Tuesday and Thursday\", \"four 1-hour blocks this week\".")
-                }
-                Section {
-                    ForEach($notes.subtasks) { $sub in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(sub.title).strikethrough(sub.done, color: Phone.dim)
-                                Spacer()
-                                Text("\(sub.percent)%").font(Phone.mono(12, .semibold)).foregroundStyle(sub.done ? Phone.green : Phone.accent)
-                            }
-                            Slider(value: Binding(get: { Double(sub.percent) }, set: { sub.percent = Int($0.rounded()) }), in: 0...100, step: 5)
-                        }
-                    }
-                    .onDelete { notes.subtasks.remove(atOffsets: $0) }
-                    HStack {
-                        TextField("Add a subtask", text: $newSubtask).onSubmit(addSubtask)
-                        Button(action: addSubtask) { Image(systemName: "plus.circle.fill") }
-                            .disabled(newSubtask.trimmingCharacters(in: .whitespaces).isEmpty)
-                            .accessibilityLabel("Add subtask")
-                    }
-                } header: {
-                    HStack {
-                        Text("Subtasks")
-                        Spacer()
-                        if let progress = notes.progress { Text("\(progress)% overall").foregroundStyle(Phone.accent) }
-                    }
-                } footer: { Text("Only this to-do goes on your schedule; subtasks track how far along each part is.") }
-                Section {
-                    TextField("school, gym, errands", text: Binding(get: { notes.tags.joined(separator: ", ") },
-                                                                  set: { notes.tags = TaskNotes.cleanTags($0.components(separatedBy: ",")) }))
-                        .textInputAutocapitalization(.never)
-                        .accessibilityIdentifier("todoTagsField")
-                } header: { Text("Tags") } footer: { Text("Separate tags with commas. Filter the list by tag above your to-dos.") }
-                Section("Notes") {
-                    TextField("Anything else", text: Binding(get: { notes.other.joined(separator: "\n") },
-                                                           set: { notes.other = $0.components(separatedBy: "\n") }), axis: .vertical)
-                        .lineLimit(1...5)
-                }
-                Toggle("Done", isOn: $todo.done)
-                Section { Text("Saved to the \(todo.listName) list in Reminders.").font(.footnote).foregroundStyle(Phone.dim) }
-                Section { Button("Delete to-do", role: .destructive) { planner.deleteTodo(todo); dismiss() } }
-            }
-            .navigationTitle("To-do")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        if !hasDue { todo.due = nil }
-                        notes.other = notes.other.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                        todo.notes = notes.text
-                        planner.update(todo); dismiss()
-                    }
-                }
-            }
-            .onAppear { hasDue = todo.due != nil; notes = TaskNotes.parse(todo.notes) }
-        }
-        .preferredColorScheme(.dark)
-        .tint(Phone.accent)
-    }
-
-    private func addSubtask() {
-        let title = newSubtask.trimmingCharacters(in: .whitespaces)
-        guard !title.isEmpty, !notes.subtasks.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) else { return }
-        withAnimation { notes.subtasks.append(.init(title: title)) }
-        newSubtask = ""
     }
 }
 
@@ -512,63 +304,5 @@ struct OrionBlockSheet: View {
         }
         .preferredColorScheme(.dark)
         .presentationDetents([.medium])
-    }
-}
-
-
-/// A part of a to-do, drawn like a to-do (same circle, title and colours),
-/// indented under its parent, with a drag-to-set progress track that saves
-/// once when the drag ends (2026-10-06).
-struct PhoneSubtaskRow: View {
-    let sub: TaskNotes.Subtask
-    let onSet: (Int) -> Void
-    @State private var draft: Double?
-    private var shown: Double { draft ?? Double(sub.percent) / 100 }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 12) {
-                Button { onSet(sub.done ? 0 : 100) } label: {
-                    ZStack {
-                        Circle().stroke(sub.done ? Phone.green : Phone.soft, lineWidth: 1.4).frame(width: 22, height: 22)
-                        if sub.done { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Phone.green) }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(sub.done ? "Mark \(sub.title) not done" : "Complete \(sub.title)")
-                Text(sub.title).font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(sub.done ? Phone.dim : Phone.text).strikethrough(sub.done, color: Phone.dim)
-                Spacer(minLength: 8)
-                Text("\(Int((shown * 100).rounded()))%").font(Phone.mono(12, .semibold))
-                    .foregroundStyle(shown > 0 && !sub.done ? Phone.accent : Phone.dim)
-            }
-            if !sub.done {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.08)).frame(height: 4)
-                        Capsule().fill(Phone.accent).frame(width: max(4, geo.size.width * shown), height: 4)
-                    }
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { draft = min(1, max(0, $0.location.x / max(1, geo.size.width))) }
-                        .onEnded { value in
-                            let v = min(1, max(0, value.location.x / max(1, geo.size.width)))
-                            onSet(Int((v * 100 / 5).rounded()) * 5); draft = nil
-                        })
-                }
-                .frame(height: 18)
-                .padding(.leading, 34)
-                .accessibilityElement()
-                .accessibilityLabel("\(sub.title) progress")
-                .accessibilityValue("\(sub.percent) percent")
-                .accessibilityAdjustableAction { direction in
-                    onSet(min(100, max(0, sub.percent + (direction == .increment ? 10 : -10))))
-                }
-            }
-        }
-        .padding(.leading, 30)
-        .padding(.vertical, 4)
-        .onChange(of: sub.percent) { _, _ in draft = nil }
     }
 }

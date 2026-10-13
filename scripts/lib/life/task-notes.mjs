@@ -16,6 +16,10 @@ export function parseTaskNotes(notes) {
       const percent = checked ? 100 : Math.min(100, Math.max(0, Number(m[3] ?? 0)));
       out.subtasks.push({ title: m[2].trim(), percent, done: percent >= 100 });
     } else if (/^spread:/i.test(line)) out.spread = line.slice(7).trim();
+    // "Tags:"/"Order:" are the apps' lines and "Notes:" marks details written with no spread
+    // (2026-10-13), so none of them is ever read as the spread.
+    else if (/^(tags|order):/i.test(line)) out.other.push(line);
+    else if (/^notes:/i.test(line)) out.other.push(line.slice(6).trim());
     else if (!out.spread && !out.subtasks.length && !out.other.length) out.spread = line;
     else out.other.push(line);
   }
@@ -23,10 +27,13 @@ export function parseTaskNotes(notes) {
 }
 
 export function formatTaskNotes({ spread = "", subtasks = [], other = [] }) {
+  // With no spread and no subtasks, a free first line would read back as the spread: mark it.
+  const bare = !spread.trim() && !subtasks.length;
+  const firstFree = bare ? other.findIndex((line) => !/^(tags|order):/i.test(line)) : -1;
   return [
     ...(spread.trim() ? [spread.trim()] : []),
     ...subtasks.map((s) => `- [${s.percent >= 100 ? "x" : " "}] ${s.title} · ${Math.min(100, Math.max(0, s.percent))}%`),
-    ...other,
+    ...other.map((line, i) => (i === firstFree ? `Notes: ${line}` : line)),
   ].join("\n");
 }
 

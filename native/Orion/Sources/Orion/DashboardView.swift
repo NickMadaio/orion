@@ -27,7 +27,6 @@ struct DashboardView: View {
 
     @State private var quickOpenEditorVisible = false
     @State private var quickOpenAppPickerVisible = false
-    @State private var newFocusTask = ""
 
     @StateObject private var quickOpen = QuickOpenSettings()
     /// The task list lives in Apple Reminders, not in AppState — see
@@ -490,7 +489,7 @@ struct DashboardView: View {
                         onPreviewFocus: { sessionPreview = .focus },
                         onPreviewBreak: { sessionPreview = .breakTime })
             case .tasks:
-                TasksTab(state: state, reminders: reminders, agenda: agenda, newTask: $newFocusTask,
+                TasksTab(state: state, reminders: reminders, agenda: agenda,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
                          energyTitle: energyTitle, availableHeight: availableHeight,
                          availableWidth: availableWidth ?? 1_180,

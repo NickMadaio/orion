@@ -286,7 +286,7 @@ final class AppleRemindersSync: ObservableObject {
 
     // MARK: - Writing
 
-    func add(_ title: String, due: Date? = nil, priority: TaskPriority = .none) {
+    func add(_ title: String, due: Date? = nil, priority: TaskPriority = .none, notes: String = "") {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, access.isGranted else { return }
         if calendar == nil { prepareCalendar() }
@@ -296,16 +296,17 @@ final class AppleRemindersSync: ObservableObject {
         reminder.calendar = calendar
         reminder.title = trimmed
         reminder.priority = priority.rawValue
-        if let due {
-            reminder.dueDateComponents = Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute], from: due
-            )
-            // A due date alone is a label; it does not notify. The alarm is the
-            // entire reason for putting tasks in Reminders, so a dated task
-            // always gets one.
-            reminder.addAlarm(EKAlarm(absoluteDate: due))
-        }
+        if !notes.isEmpty { reminder.notes = notes }
+        if let due { Self.setDue(reminder, due) }
         commit(reminder)
+    }
+
+    /// A timed due gets an alarm: the alarm is the reason for putting it in Reminders.
+    /// A date-only due is stored at 23:59 (the planner's convention) and does not
+    /// ring at midnight (2026-10-13).
+    private static func setDue(_ reminder: EKReminder, _ due: Date) {
+        reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: due)
+        if TodoBoard.hasTime(due) { reminder.addAlarm(EKAlarm(absoluteDate: due)) }
     }
 
     func setComplete(_ id: String, _ complete: Bool) {
@@ -323,10 +324,7 @@ final class AppleRemindersSync: ObservableObject {
             // fire twice.
             for alarm in reminder.alarms ?? [] { reminder.removeAlarm(alarm) }
             if let due {
-                reminder.dueDateComponents = Calendar.current.dateComponents(
-                    [.year, .month, .day, .hour, .minute], from: due
-                )
-                reminder.addAlarm(EKAlarm(absoluteDate: due))
+                Self.setDue(reminder, due)
             } else {
                 reminder.dueDateComponents = nil
             }

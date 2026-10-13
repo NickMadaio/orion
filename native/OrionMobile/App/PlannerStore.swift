@@ -124,11 +124,33 @@ final class PlannerStore: ObservableObject {
         save(reminder)
     }
 
+    /// A to-do with everything set from one line: "essay #school !high fri 5pm" (2026-10-13).
+    func addTodo(_ draft: TodoDraft) {
+        let trimmed = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let calendar = reminderCalendars()?.first ?? store.defaultCalendarForNewReminders() else { return }
+        let reminder = EKReminder(eventStore: store)
+        reminder.title = trimmed
+        reminder.calendar = calendar
+        reminder.priority = draft.priority.eventKit
+        var notes = TaskNotes(); notes.tags = draft.tags
+        if !notes.text.isEmpty { reminder.notes = notes.text }
+        if let due = draft.due { Self.setDue(reminder, due) }
+        save(reminder)
+    }
+
+    /// Date-only is stored at 23:59 (the planner's convention) with no alarm; a time gets one.
+    private static func setDue(_ reminder: EKReminder, _ due: Date?) {
+        for alarm in reminder.alarms ?? [] { reminder.removeAlarm(alarm) }
+        reminder.dueDateComponents = due.map { Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: $0) }
+        if let due, TodoBoard.hasTime(due) { reminder.addAlarm(EKAlarm(absoluteDate: due)) }
+    }
+
     func update(_ todo: Todo) {
         guard let reminder = store.calendarItem(withIdentifier: todo.id) as? EKReminder else { return }
         reminder.title = todo.title
         reminder.notes = todo.notes.isEmpty ? nil : todo.notes
-        reminder.dueDateComponents = todo.due.map { Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: $0) }
+        let current = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
+        if current != todo.due { Self.setDue(reminder, todo.due) }
         reminder.isCompleted = todo.done
         reminder.priority = todo.priority
         save(reminder)
@@ -302,9 +324,16 @@ final class PlannerStore: ObservableObject {
 
     private static func todo(_ reminder: EKReminder) -> Todo {
         Todo(id: reminder.calendarItemIdentifier, title: reminder.title ?? "Untitled",
-             due: reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) },
+             due: reminder.dueDateComponents.flatMap { Self.dueDate($0) },
              done: reminder.isCompleted, priority: reminder.priority, notes: reminder.notes ?? "",
              listName: reminder.calendar.title)
+    }
+
+    /// A date-only reminder (made in the Reminders app) reads as 23:59 that day, like ORION's own.
+    private static func dueDate(_ components: DateComponents) -> Date? {
+        guard let date = Calendar.current.date(from: components) else { return nil }
+        guard components.hour == nil else { return date }
+        return Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: date)
     }
 
     /// Open before done; then by due date (undated last); then by priority.

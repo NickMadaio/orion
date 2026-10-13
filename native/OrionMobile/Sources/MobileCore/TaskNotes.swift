@@ -107,6 +107,11 @@ public struct TaskNotes: Equatable, Sendable {
                 result.order = value
                 continue
             }
+            // Details written while there is no spread are marked so they are not read as one (2026-10-13).
+            if lower.hasPrefix("notes:") {
+                result.other.append(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces))
+                continue
+            }
             if line.lowercased().hasPrefix("spread:") {
                 result.spread = String(line.dropFirst(7)).trimmingCharacters(in: .whitespaces)
             } else if result.spread.isEmpty && result.subtasks.isEmpty && result.other.isEmpty {
@@ -139,7 +144,9 @@ public struct TaskNotes: Equatable, Sendable {
         var lines: [String] = []
         if !spread.trimmingCharacters(in: .whitespaces).isEmpty { lines.append(spread.trimmingCharacters(in: .whitespaces)) }
         lines += subtasks.map { "- [\($0.done ? "x" : " ")] \($0.title) · \($0.percent)%" }
-        lines += other
+        // With no spread, a first free line would read back as the spread: mark it.
+        let marked = lines.isEmpty && !other.isEmpty ? ["Notes: \(other[0])"] + other.dropFirst() : other
+        lines += marked
         if !tags.isEmpty { lines.append("Tags: \(tags.joined(separator: ", "))") }
         if let order { lines.append("Order: \(order == order.rounded() ? String(Int(order)) : String(order))") }
         return lines.joined(separator: "\n")

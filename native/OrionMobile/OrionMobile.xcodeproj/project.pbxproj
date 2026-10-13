@@ -14,6 +14,7 @@
 		000000000000000000000D04 /* App/FocusLists.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000D03 /* App/FocusLists.swift */; };
 		000000000000000000000D06 /* App/PhoneOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000D05 /* App/PhoneOrb.swift */; };
 		000000000000000000000D08 /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000D07 /* ThinkingOrbsKit */; };
+		000000000000000000000D0A /* OrionViews in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000D09 /* OrionViews */; };
 		000000000000000000000024 /* App/PhoneDeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000023 /* App/PhoneDeviceIdentity.swift */; };
 		000000000000000000000026 /* App/PairingApprovalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000025 /* App/PairingApprovalView.swift */; };
 		000000000000000000000028 /* App/PhoneHTTPReadSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000027 /* App/PhoneHTTPReadSession.swift */; };
@@ -146,6 +147,7 @@
 			files = (
 				000000000000000000000020 /* MobileCore in Frameworks */,
 				000000000000000000000D08 /* ThinkingOrbsKit in Frameworks */,
+				000000000000000000000D0A /* OrionViews in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,6 +259,7 @@
 			packageProductDependencies = (
 				00000000000000000000001F /* MobileCore */,
 				000000000000000000000D07 /* ThinkingOrbsKit */,
+				000000000000000000000D09 /* OrionViews */,
 			);
 			productName = OrionPhone;
 			productReference = 000000000000000000000008 /* OrionPhone.app */;
@@ -833,6 +836,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 00000000000000000000001E /* XCLocalSwiftPackageReference "." */;
 			productName = ThinkingOrbsKit;
+		};
+		000000000000000000000D09 /* OrionViews */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 00000000000000000000001E /* XCLocalSwiftPackageReference "." */;
+			productName = OrionViews;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

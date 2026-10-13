@@ -71,4 +71,16 @@ final class TaskNotesTests: XCTestCase {
         XCTAssertEqual(TaskNotes.reorder(["a", "b"], orders: [0, 1], moving: "a", before: "a"), [:])
         XCTAssertEqual(TaskNotes.reorder(["a", "b"], orders: [0, 1], moving: "x", before: "a"), [:])
     }
+
+    /// 2026-10-13: details typed in the app with no spread came back as the spread.
+    func testDetailsWithoutASpreadStayDetails() {
+        var notes = TaskNotes()
+        notes.other = ["bring calculator"]
+        notes.tags = ["school"]
+        XCTAssertEqual(notes.text, "Notes: bring calculator\nTags: school")
+        let back = TaskNotes.parse(notes.text)
+        XCTAssertEqual(back.spread, "")
+        XCTAssertEqual(back.other, ["bring calculator"])
+        XCTAssertEqual(back, notes)
+    }
 }

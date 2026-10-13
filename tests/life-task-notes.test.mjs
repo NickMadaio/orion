@@ -15,3 +15,12 @@ test("spread, subtasks with percent, and other lines", () => {
 
 test("formatting round-trips", () => assert.equal(formatTaskNotes(parseTaskNotes(sample)), sample));
 test("a checked subtask is 100%", () => assert.equal(parseTaskNotes("- [x] Done thing").subtasks[0].percent, 100));
+
+// 2026-10-13: details typed in the app with no spread came back as the spread; "Tags:" lines too.
+test("details and tags are never read as the spread", () => {
+  const n = parseTaskNotes("Tags: school\nNotes: bring calculator");
+  assert.equal(n.spread, "");
+  assert.deepEqual(n.other, ["Tags: school", "bring calculator"]);
+  assert.equal(formatTaskNotes(n), "Tags: school\nNotes: bring calculator");
+  assert.equal(parseTaskNotes("2 hours a day\nTags: gym").spread, "2 hours a day");
+});

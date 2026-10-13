@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import SessionDomain
 import MobileCore
+import OrionViews
 
 /*
  Tasks, and the day they have to fit into.
@@ -27,7 +28,6 @@ struct TasksTab: View {
     @ObservedObject var state: AppState
     @ObservedObject var reminders: AppleRemindersSync
     @ObservedObject var agenda: AppleCalendarSync
-    @Binding var newTask: String
     let dayProgress: Double
     let hoursLeft: Int
     let energyTitle: String
@@ -58,13 +58,8 @@ struct TasksTab: View {
 
     @FocusState private var planningComposerFocused: Bool
     @State private var submittedPlanningMessage = false
-    @State private var dueDate = Date().addingTimeInterval(3600)
-    @State private var wantsDueDate = false
-    @State private var newPriority: TaskPriority = .none
     @State private var sheetMode: EventSheetMode?
     @State private var composerTitle = ""
-    /// The tag the task list is filtered by; nil = everything (2026-10-12).
-    @State private var tagFilter: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 28) {
@@ -219,91 +214,49 @@ struct TasksTab: View {
 
     // MARK: - Tasks
 
-    /// Tags across open tasks (from "Tags:" in each reminder's notes, shared with the phone).
-    private var allTags: [String] {
-        TaskNotes.cleanTags(reminders.tasks.filter { !$0.isComplete }.flatMap { TaskNotes.parse($0.notes).tags })
-    }
-
-    private var shownTasks: [SyncedTask] {
-        guard let tagFilter else { return reminders.tasks }
-        return reminders.tasks.filter { TaskNotes.parse($0.notes).tags.contains(tagFilter) }
-    }
-
-    private var tagBar: some View {
-        HStack(spacing: 6) {
-            tagChip("All", selected: tagFilter == nil) { tagFilter = nil }
-            ForEach(allTags, id: \.self) { tag in tagChip("#\(tag)", selected: tagFilter == tag) { tagFilter = tagFilter == tag ? nil : tag } }
-            Spacer()
-        }
-    }
-
-    private func tagChip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label).font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(Capsule().fill(selected ? OrionTheme.accent.opacity(0.22) : OrionTheme.line))
-                .foregroundStyle(selected ? OrionTheme.accent : OrionTheme.textDim)
-        }
-        .buttonStyle(.plain)
-    }
-
+    /// The to-do list (2026-10-13): the shared OrionViews screen the phone also draws,
+    /// rebuilt after his old Notion list. Everything is set while adding and edited in place.
     private var tasksSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Tasks", trailing: "\(reminders.doneCount) / \(reminders.tasks.count) done")
-
             if !reminders.access.isGranted { accessNotice }
-
-            if reminders.tasks.isEmpty {
-                Text(reminders.access.isGranted
-                     ? "Nothing on the list. Add one below, or just tell Orion."
-                     : "Waiting on Reminders access.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .padding(.vertical, 8)
-            } else {
-                if !allTags.isEmpty { tagBar }
-                VStack(spacing: 0) {
-                    ForEach(shownTasks) { task in
-                        TaskRow(
-                            task: task,
-                            onToggle: { reminders.setComplete(task.id, !task.isComplete) },
-                            onDelete: { reminders.remove(task.id) },
-                            onPriority: { reminders.setPriority(task.id, task.priority.next) },
-                            onProgress: { reminders.setProgress(task.id, $0) },
-                            onSave: { notes, due in reminders.setNotes(task.id, notes); if due != task.dueDate { reminders.setDue(task.id, due) } },
-                            onSchedule: {
-                                composerTitle = task.title
-                                sheetMode = .create(start: task.dueDate ?? nextFreeHour())
-                            }
-                        )
-                        // Drag a task onto another to put it just above (2026-10-12); the order is saved in
-                        // the reminder's notes, so the phone shows the same order.
-                        .draggable(task.id)
-                        .dropDestination(for: String.self) { ids, _ in
-                            guard let id = ids.first, !task.isComplete else { return false }
-                            let open = reminders.tasks.filter { !$0.isComplete }
-                            let changes = TaskNotes.reorder(open.map(\.id), orders: open.map { TaskNotes.parse($0.notes).order }, moving: id, before: task.id)
-                            withAnimation(.spring(response: 0.3)) { reminders.applyOrder(changes) }
-                            return !changes.isEmpty
-                        }
-                        // Its parts, dropped below it like to-dos of their own (2026-10-06).
-                        ForEach(TaskNotes.parse(task.notes).subtasks) { sub in
-                            SubtaskRow(sub: sub) { percent in
-                                var notes = TaskNotes.parse(task.notes)
-                                guard let i = notes.subtasks.firstIndex(where: { $0.title == sub.title }) else { return }
-                                notes.subtasks[i].percent = percent
-                                reminders.setNotes(task.id, notes.text)
-                            }
-                        }
-                        if task.id != shownTasks.last?.id {
-                            Rectangle().fill(OrionTheme.line).frame(height: 1)
-                        }
-                    }
-                }
-            }
-
-            composer.padding(.top, 6)
+            TodoListScreen(items: todoItems, actions: todoActions, density: .pointer)
+                .disabled(!reminders.access.isGranted)
         }
+    }
+
+    private var todoItems: [TodoItem] {
+        reminders.tasks.map { task in
+            TodoItem(id: task.id, title: task.title, due: task.dueDate.map { task.dueHasTime ? $0 : Self.endOfDay($0) },
+                     done: task.isComplete, priority: TodoPriority(eventKit: task.priority.rawValue), notes: task.notes)
+        }
+    }
+
+    private static func endOfDay(_ date: Date) -> Date {
+        Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: date) ?? date
+    }
+
+    private var todoActions: TodoActions {
+        TodoActions(
+            add: { draft in
+                var notes = TaskNotes(); notes.tags = draft.tags
+                reminders.add(draft.title, due: draft.due, priority: TaskPriority.from(draft.priority.eventKit), notes: notes.text)
+            },
+            toggle: { id in
+                guard let task = reminders.tasks.first(where: { $0.id == id }) else { return }
+                reminders.setComplete(id, !task.isComplete)
+            },
+            rename: { reminders.rename($0, to: $1) },
+            setPriority: { reminders.setPriority($0, TaskPriority.from($1.eventKit)) },
+            setDue: { reminders.setDue($0, $1) },
+            setNotes: { reminders.setNotes($0, $1) },
+            delete: { reminders.remove($0) },
+            reorder: { changes in withAnimation(.spring(response: 0.3)) { reminders.applyOrder(changes) } },
+            schedule: { id in
+                guard let task = reminders.tasks.first(where: { $0.id == id }) else { return }
+                composerTitle = task.title
+                sheetMode = .create(start: task.dueHasTime ? task.dueDate ?? nextFreeHour() : nextFreeHour())
+            }
+        )
     }
 
     /// Where a task would go if scheduled now: the next hour that has not
@@ -313,71 +266,6 @@ struct TasksTab: View {
         let now = Date()
         let hour = calendar.component(.hour, from: now)
         return calendar.date(bySettingHour: min(23, hour + 1), minute: 0, second: 0, of: now) ?? now
-    }
-
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                TextField("Add a task…", text: $newTask)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(OrionTheme.text)
-                    .padding(.vertical, 7)
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
-                    }
-                    .onSubmit(add)
-
-                // Priority before it exists, so it does not have to be set
-                // twice — once when adding and once when correcting.
-                Button {
-                    withAnimation(.easeOut(duration: 0.14)) { newPriority = newPriority.next }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: newPriority.mark)
-                            .font(.system(size: 9, weight: .bold))
-                        Text(newPriority == .none ? "PRIORITY" : newPriority.label.uppercased())
-                            .font(OrionTheme.mono(8, .semibold))
-                            .tracking(1.1)
-                    }
-                    .foregroundStyle(newPriority.tint)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Capsule().strokeBorder(newPriority.tint.opacity(0.4), lineWidth: 1))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Priority")
-
-                Button { wantsDueDate.toggle() } label: {
-                    Image(systemName: wantsDueDate ? "bell.fill" : "bell")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(wantsDueDate ? OrionTheme.orange : OrionTheme.textDim)
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Remind me at a time")
-
-                LogButton(title: "Add", systemImage: "plus", action: add)
-                    .disabled(!reminders.access.isGranted)
-            }
-
-            if wantsDueDate {
-                HStack(spacing: 9) {
-                    Image(systemName: "alarm")
-                        .font(.system(size: 10))
-                        .foregroundStyle(OrionTheme.orange)
-                    DatePicker("", selection: $dueDate)
-                        .labelsHidden()
-                        .datePickerStyle(.compact)
-                    Text("Reminders will notify you on every device.")
-                        .font(OrionTheme.mono(10))
-                        .foregroundStyle(OrionTheme.textDim)
-                    Spacer()
-                }
-            }
-        }
     }
 
     @ViewBuilder private var accessNotice: some View {
@@ -535,15 +423,6 @@ struct TasksTab: View {
         return OrionTheme.textDim
     }
 
-    private func add() {
-        let trimmed = newTask.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        reminders.add(trimmed, due: wantsDueDate ? dueDate : nil, priority: newPriority)
-        newTask = ""
-        wantsDueDate = false
-        newPriority = .none
-    }
-
     /// A substantial work column, with every remaining point assigned to the
     /// calendar. The cap keeps task rows readable on very wide displays.
     private var splitWidths: (left: CGFloat, calendar: CGFloat) {
@@ -552,263 +431,5 @@ struct TasksTab: View {
         let desiredLeft = min(820, max(480, usableWidth * 0.43))
         let left = max(0, min(desiredLeft, usableWidth - calendarFloor))
         return (left, max(0, usableWidth - left))
-    }
-}
-
-/// One task: priority on the left edge, progress underneath, and the actions
-/// that only appear when you are looking at it.
-private struct TaskRow: View {
-    let task: SyncedTask
-    let onToggle: () -> Void
-    let onDelete: () -> Void
-    let onPriority: () -> Void
-    let onProgress: (Double) -> Void
-    let onSave: (String, Date?) -> Void
-    let onSchedule: () -> Void
-
-    @State private var hovering = false
-    @State private var editing = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 11) {
-                Button(action: onToggle) {
-                    Image(systemName: task.isComplete ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15))
-                        .foregroundStyle(task.isComplete ? OrionTheme.green : OrionTheme.textDim)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-
-                // Cycles rather than opening a menu. Four values is not worth a
-                // popover, and one click per step is faster than two per change.
-                Button(action: onPriority) {
-                    Image(systemName: task.priority.mark)
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(task.priority.tint)
-                        .frame(width: 16, height: 16)
-                        .background(Circle().strokeBorder(task.priority.tint.opacity(0.35), lineWidth: 1))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Priority: \(task.priority.label)")
-                .opacity(task.isComplete ? 0.4 : 1)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(task.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(task.isComplete ? OrionTheme.textDim : OrionTheme.text)
-                        .strikethrough(task.isComplete, color: OrionTheme.textDim)
-                    let plan = TaskNotes.parse(task.notes)
-                    if !plan.spread.isEmpty || !plan.subtasks.isEmpty {
-                        Text([plan.spread.isEmpty ? nil : plan.spread,
-                              plan.subtasks.isEmpty ? nil : "\(plan.subtasks.count) parts"].compactMap { $0 }.joined(separator: " · "))
-                            .font(.system(size: 11)).foregroundStyle(OrionTheme.textSoft).lineLimit(1)
-                    }
-                    if let due = task.dueDate {
-                        HStack(spacing: 5) {
-                            Image(systemName: task.hasAlarm ? "bell.fill" : "calendar")
-                                .font(.system(size: 8))
-                            Text(due.formatted(date: .abbreviated, time: .shortened))
-                                .font(OrionTheme.mono(10))
-                        }
-                        .foregroundStyle(task.isOverdue ? OrionTheme.red : OrionTheme.textDim)
-                    }
-                }
-
-                Spacer(minLength: 12)
-
-                if task.isOverdue {
-                    Text("OVERDUE")
-                        .font(OrionTheme.mono(9, .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(OrionTheme.red)
-                }
-
-                if !task.isComplete {
-                    Text("\(Int(task.progress * 100))%")
-                        .font(OrionTheme.mono(10, .semibold))
-                        .foregroundStyle(task.progress > 0 ? OrionTheme.accent : OrionTheme.textDim)
-                        .frame(width: 34, alignment: .trailing)
-                }
-
-                if hovering || editing {
-                    InlineAction(title: "Edit", tint: OrionTheme.accent) { editing = true }
-                        .popover(isPresented: $editing, arrowEdge: .trailing) {
-                            TaskPlanEditor(task: task) { notes, due in onSave(notes, due); editing = false }
-                        }
-                    InlineAction(title: "Schedule", tint: OrionTheme.violet, action: onSchedule)
-                    Button(action: onDelete) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(OrionTheme.textDim)
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Drag anywhere along it to set progress. A slider control would be
-            // four times the height for the same gesture.
-            if !task.isComplete {
-                ProgressTrack(progress: task.progress, tint: task.priority == .none ? OrionTheme.accent : task.priority.tint,
-                              onChange: onProgress)
-                    .padding(.leading, 42)
-            }
-        }
-        .padding(.vertical, 9)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-    }
-}
-
-/// A hairline you can drag. Two pixels tall, with a much taller invisible
-/// target — a 2pt hit region would be unusable, and a 2pt bar is what the rest
-/// of this design language uses.
-private struct ProgressTrack: View {
-    let progress: Double
-    let tint: Color
-    let onChange: (Double) -> Void
-    /// Called once when the drag ends (parts save to Reminders then, not on every pixel).
-    var onCommit: ((Double) -> Void)? = nil
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(height: 2)
-                Capsule()
-                    .fill(tint)
-                    .frame(width: max(0, geometry.size.width * progress), height: 2)
-                    .shadow(color: tint.opacity(0.6), radius: 4)
-            }
-            .frame(height: 14)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        onChange(min(1, max(0, value.location.x / max(1, geometry.size.width))))
-                    }
-                    .onEnded { value in
-                        onCommit?(min(1, max(0, value.location.x / max(1, geometry.size.width))))
-                    }
-            )
-        }
-        .frame(height: 14)
-    }
-}
-
-
-/// Due date, how to spread it, and its parts (2026-10-06). The spread and the
-/// subtasks are saved in the to-do's notes (MobileCore.TaskNotes), which syncs
-/// to the phone and which ORION's planner reads: only this to-do is scheduled,
-/// the subtasks record how far along each part is.
-private struct TaskPlanEditor: View {
-    let task: SyncedTask
-    let onSave: (String, Date?) -> Void
-    @State private var notes = TaskNotes()
-    @State private var hasDue = false
-    @State private var due = Date()
-    @State private var newSubtask = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(task.title).font(.system(size: 15, weight: .semibold))
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("Due date", isOn: $hasDue.animation()).toggleStyle(.switch).controlSize(.small)
-                if hasDue { DatePicker("Done by", selection: $due).labelsHidden() }
-                TextField("How to spread it — e.g. 2.5 hours a day", text: $notes.spread)
-                    .textFieldStyle(.roundedBorder)
-                Text("ORION books the work before the due date from this.").font(.system(size: 10)).foregroundStyle(OrionTheme.textDim)
-                TextField("Tags — e.g. school, gym", text: Binding(get: { notes.tags.joined(separator: ", ") },
-                                                               set: { notes.tags = TaskNotes.cleanTags($0.components(separatedBy: ",")) }))
-                    .textFieldStyle(.roundedBorder)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Parts").font(.system(size: 12, weight: .medium))
-                    Spacer()
-                    if let progress = notes.progress { Text("\(progress)% overall").font(OrionTheme.mono(10, .semibold)).foregroundStyle(OrionTheme.accent) }
-                }
-                ForEach($notes.subtasks) { $sub in
-                    HStack(spacing: 8) {
-                        Text(sub.title).font(.system(size: 12)).frame(width: 150, alignment: .leading).lineLimit(1)
-                        Slider(value: Binding(get: { Double(sub.percent) }, set: { sub.percent = Int($0.rounded()) }), in: 0...100, step: 5)
-                        Text("\(sub.percent)%").font(OrionTheme.mono(10)).frame(width: 34, alignment: .trailing)
-                        Button { notes.subtasks.removeAll { $0.title == sub.title } } label: { Image(systemName: "minus.circle") }
-                            .buttonStyle(.plain).foregroundStyle(OrionTheme.textDim).help("Remove this part")
-                    }
-                }
-                HStack {
-                    TextField("Add a part (a course, a chapter…)", text: $newSubtask).textFieldStyle(.roundedBorder).onSubmit(add)
-                    Button("Add", action: add).disabled(newSubtask.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Save") { onSave(notes.text, hasDue ? due : nil) }.keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(16)
-        .frame(width: 380)
-        .onAppear {
-            notes = TaskNotes.parse(task.notes)
-            hasDue = task.dueDate != nil
-            due = task.dueDate ?? Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
-        }
-    }
-
-    private func add() {
-        let title = newSubtask.trimmingCharacters(in: .whitespaces)
-        guard !title.isEmpty, !notes.subtasks.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) else { return }
-        notes.subtasks.append(.init(title: title))
-        newSubtask = ""
-    }
-}
-
-
-/// One part of a to-do, drawn exactly like a to-do (same circle, text,
-/// percent and drag-to-set track), indented under its parent. The track moves
-/// live and saves once when the drag ends; the tick sets 100% / reopens at 0%.
-private struct SubtaskRow: View {
-    let sub: TaskNotes.Subtask
-    let onSet: (Int) -> Void
-    @State private var draft: Double?
-
-    private var shown: Double { draft ?? Double(sub.percent) / 100 }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 11) {
-                Button { onSet(sub.done ? 0 : 100) } label: {
-                    Image(systemName: sub.done ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15))
-                        .foregroundStyle(sub.done ? OrionTheme.green : OrionTheme.textDim)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                Text(sub.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(sub.done ? OrionTheme.textDim : OrionTheme.text)
-                    .strikethrough(sub.done, color: OrionTheme.textDim)
-                Spacer(minLength: 12)
-                Text("\(Int((shown * 100).rounded()))%")
-                    .font(OrionTheme.mono(10, .semibold))
-                    .foregroundStyle(shown > 0 ? OrionTheme.accent : OrionTheme.textDim)
-                    .frame(width: 34, alignment: .trailing)
-            }
-            if !sub.done {
-                ProgressTrack(progress: shown, tint: OrionTheme.accent,
-                              onChange: { draft = $0 },
-                              onCommit: { value in onSet(Int((value * 100 / 5).rounded()) * 5); draft = nil })
-                    .padding(.leading, 26)
-            }
-        }
-        .padding(.vertical, 7)
-        .padding(.leading, 28)
-        .onChange(of: sub.percent) { _, _ in draft = nil }
     }
 }

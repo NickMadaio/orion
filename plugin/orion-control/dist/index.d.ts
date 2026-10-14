@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { type ModelTaskGraph } from "./provenance.js";
 export declare const ConfigSchema: Type.TObject<{
     ledgerPath: Type.TOptional<Type.TString>;
     enableTestWorkspaceActions: Type.TOptional<Type.TBoolean>;
@@ -26,6 +27,13 @@ export declare const ConfigSchema: Type.TObject<{
     enableHealthTrackingActions: Type.TOptional<Type.TBoolean>;
     healthLogPath: Type.TOptional<Type.TString>;
     enableCalendarActions: Type.TOptional<Type.TBoolean>;
+    localRouting: Type.TOptional<Type.TUnion<[Type.TLiteral<"off">, Type.TLiteral<"shadow">, Type.TLiteral<"on">]>>;
+    accountHealth: Type.TOptional<Type.TBoolean>;
+    accountFailFast: Type.TOptional<Type.TBoolean>;
+    localRoutingScheduleToCloud: Type.TOptional<Type.TBoolean>;
+    localRoutingTestingUntil: Type.TOptional<Type.TString>;
+    localRoutingTrace: Type.TOptional<Type.TBoolean>;
+    localRoutingLogPath: Type.TOptional<Type.TString>;
     enableEpisodicCapture: Type.TOptional<Type.TBoolean>;
     episodicMemoryPath: Type.TOptional<Type.TString>;
     enableSelfTuningActions: Type.TOptional<Type.TBoolean>;
@@ -58,6 +66,14 @@ export declare const ConfigSchema: Type.TObject<{
     enableV2SystemStatusAdapter: Type.TOptional<Type.TBoolean>;
 }>;
 /**
+ * Accept the concise graph shape models actually produce.
+ *
+ * Missing ids and arguments flattened beside `action` are syntax differences,
+ * not authority differences. Normalize them before the ordinary provenance,
+ * catalog, approval, taint, execution and verification gates run.
+ */
+export declare function normalizeModelGraphShape(graph: ModelTaskGraph): ModelTaskGraph;
+/**
  * One sentence naming what is being approved, for a person who is not looking
  * at a screen. Arguments are rendered rather than dumped: a ticket that says
  * `{"recipient":"+1555…","body":"…"}` is a ticket nobody reads before saying
@@ -78,6 +94,7 @@ interface ProvenanceHostApi {
         warn?: (message: string) => void;
     };
     pluginConfig?: Record<string, unknown>;
+    config?: unknown;
 }
 /**
  * Install the harness-only trust channel.

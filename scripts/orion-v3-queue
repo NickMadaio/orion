@@ -1,5 +1,5 @@
 #!/bin/zsh
-# orion-v3-queue — the ORION V3 work queue (ORION_V3_CONTINUE.md).
+# orion-v3-queue — the ORION V3 work queue (see HANDOFF.md).
 #   orion-v3-queue work            run jobs one at a time until the queue is empty and STOP exists
 #   orion-v3-queue add "<args>"    append "args for orion-v3-eval" or "!shell command"
 #   orion-v3-queue status          running job, pending count, last log lines

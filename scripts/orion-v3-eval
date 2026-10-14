@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- orion-v3-eval — the ORION V3 local-model evaluation runner (ORION_V3_HANDOFF.md §13.4).
+ orion-v3-eval — the ORION V3 local-model evaluation runner (docs/planning/v3/ORION_V3_SPEC.md §13.4).
 
    orion-v3-eval build                       assemble cases, validate, split (fixed seed), write practice/held-out
    orion-v3-eval run --job J1 --model M [--prompt p0] [--think off] [--temp card|0|0.3] [--ctx 16384]

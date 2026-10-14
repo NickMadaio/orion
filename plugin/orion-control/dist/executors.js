@@ -27,9 +27,27 @@ export class ActionExecutionError extends Error {
     }
 }
 const execFileAsync = promisify(execFile);
-async function resolveApplication(application) {
+/*
+ Where an app may live. Finder is not in /Applications at all — it is in
+ /System/Library/CoreServices — so "open Finder" failed with "not installed"
+ (6 Oct 2026). Opening an app is low-risk; looking in every place macOS keeps
+ apps is the fix, not a wider permission.
+*/
+export const APPLICATION_ROOTS = Object.freeze([
+    "/Applications",
+    "/Applications/Utilities",
+    "/System/Applications",
+    "/System/Applications/Utilities",
+    "/System/Library/CoreServices",
+    "/System/Library/CoreServices/Applications",
+    path.join(os.homedir(), "Applications"),
+]);
+export async function resolveApplication(application, roots = APPLICATION_ROOTS) {
+    if (!application || application.includes("/") || application.includes("..")) {
+        throw new ActionExecutionError("Application name must be a plain app name.");
+    }
     let lastFailure;
-    for (const root of ["/Applications", "/System/Applications"]) {
+    for (const root of roots) {
         const candidate = path.join(root, `${application}.app`);
         try {
             const stats = await lstat(candidate);
@@ -55,7 +73,7 @@ async function resolveApplication(application) {
     }
     throw new ActionExecutionError(lastFailure
         ? `Application could not be resolved (${lastFailure}).`
-        : "Application was not found in /Applications or /System/Applications.");
+        : `Application "${application}" was not found in ${roots.join(", ")}.`);
 }
 async function applicationIsRunning(bundleId) {
     const { stdout } = await execFileAsync("/usr/bin/osascript", ["-e", `application id "${bundleId}" is running`], { timeout: 5000 });
@@ -1710,12 +1728,20 @@ async function manageReminder(policy, step, context, idempotencyKey) {
         };
     }
     if (policy.operation === "reminder_cancel") {
-        const id = String(step.arguments.id);
-        const remaining = live.filter((entry) => entry.id !== id);
-        if (remaining.length === live.length) {
-            throw new ActionExecutionError(`There is no timer or alarm with id ${id}.`);
+        // By id, or by what it is for ("cancel the bank reminder", 2026-10-07):
+        // a label works when exactly one reminder matches it.
+        const asked = String(step.arguments.id).trim();
+        const byLabel = (entry) => entry.label.toLowerCase().includes(asked.toLowerCase()) || asked.toLowerCase().includes(entry.label.toLowerCase());
+        const exact = live.find((entry) => entry.id === asked);
+        const named = exact ? [exact] : live.filter(byLabel);
+        if (named.length === 0) {
+            throw new ActionExecutionError(`There is no timer or alarm "${asked}". Live: ${live.map((e) => `${e.id} (${e.label})`).join(", ") || "none"}.`);
         }
-        await writeReminders(file, remaining);
+        if (named.length > 1) {
+            throw new ActionExecutionError(`"${asked}" matches ${named.length} reminders: ${named.map((e) => `${e.id} (${e.label})`).join(", ")}. Cancel one by its id.`);
+        }
+        const id = named[0].id;
+        await writeReminders(file, live.filter((entry) => entry.id !== id));
         return { mode: "cancelled", idempotencyKey, target: id };
     }
     const label = typeof step.arguments.label === "string" && step.arguments.label.trim()
@@ -1735,9 +1761,15 @@ async function manageReminder(policy, step, context, idempotencyKey) {
             throw new ActionExecutionError(error instanceof Error ? error.message : "That is not a time.");
         }
     }
+    // Short and speakable: the user may have to say it back to cancel it. Two set
+    // in the same millisecond (one batch) used to share an id, and cancelling one
+    // removed both (2026-10-07) — bump until it is free.
+    const prefix = policy.operation === "alarm_set" ? "a" : "t";
+    let stamp = now;
+    while (live.some((entry) => entry.id === `${prefix}${stamp.toString(36).slice(-5)}`))
+        stamp += 1;
     const reminder = {
-        // Short and speakable: the user may have to say it back to cancel it.
-        id: `${policy.operation === "alarm_set" ? "a" : "t"}${now.toString(36).slice(-5)}`,
+        id: `${prefix}${stamp.toString(36).slice(-5)}`,
         kind: policy.operation === "alarm_set" ? "alarm" : "timer",
         label,
         dueAt,

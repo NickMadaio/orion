@@ -3,7 +3,7 @@
  orion-v3-pipeline run --jobs J3,J6 [--part heldout] [--front qwen3.5:4b-q4_K_M]
                        --tiers quick=ollama/…,standard=ollama/…,deep=ollama/… [--limit N]
 
- Phase 8 of the ORION V3 evaluation (ORION_V3_HANDOFF.md §11.1), test-only: the
+ Phase 8 of the ORION V3 evaluation (docs/planning/v3/ORION_V3_SPEC.md §11.1), test-only: the
  front desk (direct Ollama, its frozen J1 configuration) picks a move; an
  escalation speaks the say line and hands the whole conversation to the tier
  model through the REAL route (orion-remote handle → openclaw agent) on the

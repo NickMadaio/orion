@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 246,
-    "AUTO": 155,
-    "NOTIFY": 22,
-    "APPROVAL": 16,
-    "NEVER": 53
+    "total": 279,
+    "AUTO": 163,
+    "NOTIFY": 24,
+    "APPROVAL": 18,
+    "NEVER": 74
   },
   "availability": [
     {
@@ -1444,6 +1444,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-brain",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-checkin",
       "level": "AUTO",
       "rule": "R1/R2 from script source",
@@ -1453,12 +1461,19 @@
     },
     {
       "kind": "command",
-      "name": "orion-focus",
+      "name": "orion-connect",
       "level": "AUTO",
       "rule": "R1/R2 from script source",
       "because": "it writes only Orion's own state directory",
-      "enforcedBy": "exec allowlist (allow/deny only)",
-      "coarse": true
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-finance",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
     },
     {
       "kind": "command",
@@ -1486,6 +1501,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-help",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-identity-check",
       "level": "AUTO",
       "rule": "R3 default",
@@ -1495,6 +1518,14 @@
     {
       "kind": "command",
       "name": "orion-life",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-lights",
       "level": "AUTO",
       "rule": "R3 default",
       "because": "nothing in its source writes outside Orion's state or leaves the machine",
@@ -1543,6 +1574,23 @@
     },
     {
       "kind": "command",
+      "name": "orion-ontask",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)",
+      "coarse": true
+    },
+    {
+      "kind": "command",
+      "name": "orion-ontask-watch",
+      "level": "AUTO",
+      "rule": "R1/R2 from script source",
+      "because": "it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-patterns",
       "level": "AUTO",
       "rule": "R3 default",
@@ -1559,7 +1607,23 @@
     },
     {
       "kind": "command",
+      "name": "orion-phone-time",
+      "level": "AUTO",
+      "rule": "R1/R2 from script source",
+      "because": "it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-plan-study",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-presence",
       "level": "AUTO",
       "rule": "R3 default",
       "because": "nothing in its source writes outside Orion's state or leaves the machine",
@@ -1591,7 +1655,7 @@
     },
     {
       "kind": "command",
-      "name": "orion-recall",
+      "name": "orion-project-run",
       "level": "AUTO",
       "rule": "R3 default",
       "because": "nothing in its source writes outside Orion's state or leaves the machine",
@@ -1599,7 +1663,7 @@
     },
     {
       "kind": "command",
-      "name": "orion-remote",
+      "name": "orion-reach",
       "level": "AUTO",
       "rule": "R1/R2 from script source",
       "because": "it writes only Orion's own state directory",
@@ -1607,7 +1671,7 @@
     },
     {
       "kind": "command",
-      "name": "orion-reschedule",
+      "name": "orion-recall",
       "level": "AUTO",
       "rule": "R3 default",
       "because": "nothing in its source writes outside Orion's state or leaves the machine",
@@ -1637,6 +1701,14 @@
       "because": "nothing in its source writes outside Orion's state or leaves the machine",
       "enforcedBy": "exec allowlist (allow/deny only)",
       "coarse": true
+    },
+    {
+      "kind": "command",
+      "name": "orion-shortcut",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "nothing in its source writes outside Orion's state or leaves the machine",
+      "enforcedBy": "exec allowlist (allow/deny only)"
     },
     {
       "kind": "command",
@@ -1684,14 +1756,6 @@
       "level": "AUTO",
       "rule": "R1/R2 from script source",
       "because": "it writes only Orion's own state directory",
-      "enforcedBy": "exec allowlist (allow/deny only)"
-    },
-    {
-      "kind": "command",
-      "name": "orion-weather-alert",
-      "level": "AUTO",
-      "rule": "R3 default",
-      "because": "nothing in its source writes outside Orion's state or leaves the machine",
       "enforcedBy": "exec allowlist (allow/deny only)"
     },
     {
@@ -2028,10 +2092,26 @@
     },
     {
       "kind": "command",
+      "name": "orion-remote",
+      "level": "NOTIFY",
+      "rule": "R1/R2 from script source",
+      "because": "it writes files Nick reads directly, including memory loaded into every session; it writes only Orion's own state directory",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-skill",
       "level": "NOTIFY",
       "rule": "R1/R2 from script source",
       "because": "it writes files Nick reads directly, including memory loaded into every session",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-tasks",
+      "level": "NOTIFY",
+      "rule": "R1/R2 from script source",
+      "because": "it writes a record into an account Nick reads outside Orion; it writes only Orion's own state directory",
       "enforcedBy": "exec allowlist (allow/deny only)"
     },
     {
@@ -2208,10 +2288,26 @@
     },
     {
       "kind": "command",
+      "name": "orion-reschedule",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it removes a record that lives outside Orion's own state, and he has no inverse to run",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-standing",
       "level": "APPROVAL",
       "rule": "R1/R2 from script source",
       "because": "it delivers a message off this machine, and a sent message cannot be unsent",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-watches",
+      "level": "APPROVAL",
+      "rule": "R1/R2 from script source",
+      "because": "it delivers a message off this machine, and a sent message cannot be unsent; it writes only Orion's own state directory",
       "enforcedBy": "exec allowlist (allow/deny only)"
     },
     {
@@ -2284,6 +2380,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-approve-resume",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-attention",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2332,6 +2436,22 @@
     },
     {
       "kind": "command",
+      "name": "orion-brain-manual",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-brain-seed",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-budget",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2349,6 +2469,22 @@
     {
       "kind": "command",
       "name": "orion-computer",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-connect-admin",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-conversation-bench",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2389,6 +2525,38 @@
     {
       "kind": "command",
       "name": "orion-eval",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-eval-grade",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-eval-run",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-eval-schedule",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-focus",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2460,6 +2628,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-log-audit",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-login-item",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2484,6 +2660,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-morning",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-next",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2493,6 +2677,14 @@
     {
       "kind": "command",
       "name": "orion-privacy",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-proactive",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2524,6 +2716,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-project-queue",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-projects",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2533,6 +2733,14 @@
     {
       "kind": "command",
       "name": "orion-python",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-quick",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2636,7 +2844,63 @@
     },
     {
       "kind": "command",
+      "name": "orion-usage",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-v3-energy",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-v3-eval",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-v3-logs",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-v3-pipeline",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-v3-queue",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-voiceid-install",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-weather-alert",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

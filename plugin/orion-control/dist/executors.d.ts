@@ -48,6 +48,11 @@ export declare class ActionExecutionError extends Error {
     readonly retryable: boolean;
     constructor(message: string, retryable?: boolean);
 }
+export declare const APPLICATION_ROOTS: readonly string[];
+export declare function resolveApplication(application: string, roots?: readonly string[]): Promise<{
+    path: string;
+    bundleId: string;
+}>;
 type BrowserEngine = "chromium" | "safari";
 export interface ResolvedBrowser {
     name: SupportedBrowser;

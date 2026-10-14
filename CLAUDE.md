@@ -55,7 +55,9 @@ findings that are still worth reading, are in
 5. `docs/planning/v2/ROADMAP_AMENDMENTS.json`
 6. `docs/planning/v2/PROGRAM_CORRECTION_2026-09-01.md` — read the header first; its
    re-sequencing is superseded and its findings are not.
-7. `docs/GAME_PLAN.md` — the July plan. Its permission half shipped; its
+7. `docs/planning/v3/ORION_V3_SPEC.md` and `docs/evals/v3/REPORT.md` — the
+   local-model work (V3) that the live route now runs on.
+8. `docs/GAME_PLAN.md` — the July plan. Its permission half shipped; its
    architecture half did not. Read it so the reversal is not re-derived a third
    time.
 

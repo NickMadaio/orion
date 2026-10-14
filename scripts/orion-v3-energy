@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- orion-v3-energy — battery energy for the ORION V3 evaluation (ORION_V3_HANDOFF.md §10.4).
+ orion-v3-energy — battery energy for the ORION V3 evaluation (docs/planning/v3/ORION_V3_SPEC.md §10.4).
 
    orion-v3-energy check [--load-model llama3.2:3b]   ~1 min idle then ~1 min of load, each between two gauge snapshots (A4)
    orion-v3-energy sample --model M [--minutes 4]      2 min idle, then front-desk tasks back to back; joules per task

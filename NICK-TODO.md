@@ -8,6 +8,23 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 
 ---
 
+## Now — 2026-10-14
+
+1. **Top up Anthropic credits / raise the usage limit** (console.anthropic.com).
+   The API has refused every call since 2026-10-11 ("credit balance too low",
+   "usage limits … 2026-11-01"). Unblocks every cloud model; until then ORION
+   runs only on the local models.
+2. **The local testing window ends 2026-10-16 21:58 BST.** After that ORION falls
+   back to the cloud model and goes quiet unless (1) is done, the window is
+   renewed, or the local acceptance gate passes. Say "renew the local window" to
+   any assistant session.
+3. Optional: `OLLAMA_MAX_LOADED_MODELS=2` for Ollama, so nothing else (a
+   12 GB `gpt-oss:20b`) squeezes ORION's two models out of memory.
+4. Optional: should the scheduler's default 45-minute commute home follow your
+   real travel times (`places.json`: Spitalfields 15 min)?
+
+---
+
 ## Turning the unattended local agent on — 2026-09-21
 
 The local development loop is built and tested but **disabled**. Four steps, in

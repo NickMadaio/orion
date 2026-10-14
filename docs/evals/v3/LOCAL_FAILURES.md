@@ -2,7 +2,7 @@
 
 Written by Claude for Nick (and any assistant he works with next). Evidence: session transcripts in
 `~/.openclaw/agents/main/sessions/`, the routing log `~/.openclaw/orion-controlled/local-routing/shadow.jsonl`,
-the gateway log `~/Library/Logs/openclaw/gateway.log`, and `ORION_V3_CONTINUE.md`.
+the gateway log `~/Library/Logs/openclaw/gateway.log`, and `HANDOFF.md`.
 
 The test request throughout: *"change of plans. ill stay in the building between discreet structures and
 my lab for program design, so no commute time, and then while im there please schedule me for cert

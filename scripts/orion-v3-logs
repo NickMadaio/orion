@@ -2,7 +2,7 @@
 /*
  orion-v3-logs [--since YYYY-MM-DD] [--out-dir DIR]
 
- Phase 1 of the ORION V3 evaluation (ORION_V3_HANDOFF.md §5): flatten every real
+ Phase 1 of the ORION V3 evaluation (docs/planning/v3/ORION_V3_SPEC.md §5): flatten every real
  turn Nick had with ORION — sessions (including reset ones) and chat threads —
  into one JSON line each, flag the likely failures, and count requests by job.
  Read-only on every source. Writes only to DIR (default

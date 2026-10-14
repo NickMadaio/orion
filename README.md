@@ -70,10 +70,9 @@ selections. See `HANDOFF.md` for installed proof and checks still outstanding.
 
 Schedule edits preserve explicit per-date times through cascades, reuse existing
 replacement tasks, apply saved minimums today, and support relative moves.
-`docs/evals/2026-10-02-schedule/SUMMARY.txt` records Sonnet's latest 15/16 core
-(21/22 overall), Haiku's 16/16 core, and Qwen 3.5 9B's 8/16 core. Sonnet is
-recommended for complex edits; Qwen has not passed the schedule gate. Provider
-defaults were not changed.
+Scheduling now runs locally as a fixed sequence (read the day, the 9B fills one
+form, code compiles it to an exact scheduler command); the local-model results
+and routing recommendation are in `docs/evals/v3/REPORT.md`.
 
 Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python,
 across about 400 commits since July 2026.

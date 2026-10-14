@@ -116,6 +116,11 @@ describe("orion-control plugin", () => {
         expect(written).toContain("[auto] Nick prefers Opera Air.");
         expect(written).toContain("<!-- orion-daily:begin");
     });
+    it("watches model accounts unless accountHealth is false", () => {
+        expect(hostHarness({ accountHealth: undefined }).hooks.has("llm_output")).toBe(true); // default on
+        expect(hostHarness({ accountHealth: true }).hooks.has("llm_output")).toBe(true);
+        expect(hostHarness({ accountHealth: false }).hooks.has("llm_output")).toBe(false);
+    });
     it("blocks a third identical tool call in one run and resets at run end", () => {
         const harness = hostHarness({});
         const hook = harness.hooks.get("before_tool_call");
@@ -136,6 +141,22 @@ describe("orion-control plugin", () => {
         });
         harness.hooks.get("agent_end")?.({ runId: "loop-run", messages: [], success: true }, {});
         expect(hook?.({ ...event, toolCallId: "call-4" }, { runId: "loop-run" })).toBeUndefined();
+    });
+    it("a run the guard keeps blocking gets no more tools at all, so it has to answer", () => {
+        const harness = hostHarness({});
+        const hook = harness.hooks.get("before_tool_call");
+        const call = (i, command = "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today") => hook?.({ toolName: "exec", params: { command }, runId: "stuck-run", toolCallId: `c${i}` }, { runId: "stuck-run" });
+        for (let i = 0; i < 2; i += 1)
+            expect(call(i)).toBeUndefined();
+        for (let i = 2; i < 5; i += 1)
+            expect(call(i)).toMatchObject({ block: true });
+        // Three blocks in: even a DIFFERENT call is refused, with the instruction to reply.
+        expect(call(9, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toMatchObject({
+            block: true,
+            blockReason: expect.stringContaining("Reply to Nick NOW"),
+        });
+        harness.hooks.get("agent_end")?.({ runId: "stuck-run", messages: [], success: true }, {});
+        expect(call(10, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toBeUndefined();
     });
     it("routes a doomed exec on the FIRST call, before the repeat guard ever sees it", () => {
         const harness = hostHarness({});
@@ -371,6 +392,23 @@ describe("orion-control plugin", () => {
         }), { roots: {}, simulatedState: new Map(), remindersPath: store });
         expect(cancelled.mode).toBe("cancelled");
         expect(JSON.parse(await readFile(store, "utf8"))).toHaveLength(0);
+    });
+    // Regression, 2026-10-07: "cancel the bank reminder" — ORION passed the
+    // label, and only an id was accepted, so it could never be cancelled.
+    it("cancels a reminder by what it is for, and refuses an ambiguous name", async () => {
+        const directory = await mkdtemp(path.join(os.tmpdir(), "orion-timers-"));
+        const store = path.join(directory, "reminders.json");
+        const ctx = { roots: {}, simulatedState: new Map(), remindersPath: store };
+        // A distinct step id each: ids are derived from the step, and three set in one millisecond would collide.
+        const set = (label) => executeAction(ACTION_CATALOG.timer_set, step({ id: `set-${label}`, action: "timer_set", arguments: { seconds: 600, label }, verify: "reminder_stored" }), ctx);
+        await set("call the bank");
+        await set("stretch");
+        await set("stretch again");
+        const cancel = (id) => executeAction(ACTION_CATALOG.reminder_cancel, step({ action: "reminder_cancel", arguments: { id }, verify: "reminder_absent", reversible: false }), ctx);
+        expect((await cancel("call the bank")).mode).toBe("cancelled");
+        expect(JSON.parse(await readFile(store, "utf8")).map((r) => r.label).sort()).toEqual(["stretch", "stretch again"]);
+        await expect(cancel("stretch")).rejects.toThrow(/matches 2 reminders/);
+        await expect(cancel("dentist")).rejects.toThrow(/no timer or alarm "dentist"/);
     });
     it("refuses a weather request that names no place and has no default", async () => {
         await expect(executeAction(ACTION_CATALOG.weather_now, step({
@@ -1248,10 +1286,19 @@ function hostHarness(pluginConfig) {
     const tools = new Map();
     const hooks = new Map();
     const api = {
-        pluginConfig,
+        // Account health writes under ~/.openclaw; it has its own tests with temp paths.
+        pluginConfig: { accountHealth: false, ...pluginConfig },
         logger: { warn: () => undefined },
+        // Like the host: every handler for a hook runs, and the first result wins.
         on: (name, handler) => {
-            hooks.set(name, handler);
+            const previous = hooks.get(name);
+            hooks.set(name, previous
+                ? (event, hookContext) => {
+                    const first = previous(event, hookContext);
+                    const second = handler(event, hookContext);
+                    return first ?? second;
+                }
+                : handler);
         },
         registerTool: (tool) => {
             const registered = tool;

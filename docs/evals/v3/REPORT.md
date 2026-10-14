@@ -1,6 +1,6 @@
 # ORION V3 — local-first evaluation report
 
-Plan: `ORION_V3_HANDOFF.md`. Raw data and the ledger live outside Git in
+Plan: `docs/planning/v3/ORION_V3_SPEC.md`. Raw data and the ledger live outside Git in
 `~/.openclaw/orion-controlled/evals/v3/` (personal transcripts). This report
 names case ids only.
 

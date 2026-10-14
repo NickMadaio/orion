@@ -1,4 +1,6 @@
 import { Type } from "typebox";
+import { registerAccountHealth } from "./account-health.js";
+import { liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting } from "./local-routing.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import { appendEpisode, defaultEpisodicMemoryPath, episodeFromUserText, } from "./episodic.js";
@@ -142,6 +144,15 @@ export const ConfigSchema = Type.Object({
     enableCalendarActions: Type.Optional(Type.Boolean({
         description: "Enable typed Apple Calendar event creation/removal and Apple Reminders creation through EventKit. Event removal still requires approval bound to the exact title. Default off.",
     })),
+    localRouting: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("shadow"), Type.Literal("on")], {
+        description: "V3 local routing (front desk → worker → check). 'shadow' logs what the local front desk and the work check would do on each real turn without changing anything. Default off.",
+    })),
+    accountHealth: Type.Optional(Type.Boolean({ description: "Notice when a model provider's account is unusable (credit too low, usage limit reached, API key rejected) and tell Nick once on his phone with the fix. Default on; false turns it off." })),
+    accountFailFast: Type.Optional(Type.Boolean({ description: "While that account problem is fresh (10 min since the last failure), answer real turns at once with the problem and the fix instead of falling back to a slow local model. Ignored when localRouting is 'on'. Default off." })),
+    localRoutingScheduleToCloud: Type.Optional(Type.Boolean({ description: "Send requests to change his calendar to the configured (cloud) model instead of the local worker. Default off." })),
+    localRoutingTestingUntil: Type.Optional(Type.String({ description: "ISO time: until then localRouting 'on' runs without an acceptance record (deliberate testing, max 48 h ahead)." })),
+    localRoutingTrace: Type.Optional(Type.Boolean({ description: "Append one line per hook stage to <log>.trace (diagnostics). Default off." })),
+    localRoutingLogPath: Type.Optional(Type.String({ description: "Shadow log path. Defaults to ~/.openclaw/orion-controlled/local-routing/shadow.jsonl." })),
     enableEpisodicCapture: Type.Optional(Type.Boolean({
         description: "Automatically append high-signal user preferences, corrections and decisions to the daily episodic journal. Deterministic and local: no model call and no token cost. Default off.",
     })),
@@ -516,16 +527,22 @@ const STEP_ENVELOPE_KEYS = new Set([
  * not authority differences. Normalize them before the ordinary provenance,
  * catalog, approval, taint, execution and verification gates run.
  */
-function normalizeModelGraphShape(graph) {
+export function normalizeModelGraphShape(graph) {
     const steps = (Array.isArray(graph.steps) ? graph.steps : []).map((step, index) => {
         const record = step;
         const explicitArguments = record.arguments && typeof record.arguments === "object"
             ? record.arguments
             : {};
-        const looseArguments = Object.fromEntries(Object.entries(record).filter(([key]) => !STEP_ENVELOPE_KEYS.has(key)));
+        // `{ action: "reminder_cancel", id: "an2s34" }`: in the flattened form an
+        // `id` is the ACTION's argument when the action needs one, not the step's
+        // name (2026-10-07: every cancel failed with "id must name a reminder").
+        const definition = ACTION_CATALOG[String(record.action)];
+        const idIsArgument = !record.arguments && typeof record.id === "string"
+            && (definition?.requiredArguments ?? []).includes("id");
+        const looseArguments = Object.fromEntries(Object.entries(record).filter(([key]) => !STEP_ENVELOPE_KEYS.has(key) || (idIsArgument && key === "id")));
         return {
             ...record,
-            id: typeof record.id === "string" && record.id.trim().length > 0
+            id: !idIsArgument && typeof record.id === "string" && record.id.trim().length > 0
                 ? record.id
                 : `step-${index + 1}`,
             action: typeof record.action === "string" ? record.action : "",
@@ -1192,6 +1209,8 @@ export function installProvenanceHooks(api) {
     hostWarn = api.logger?.warn ? (message) => api.logger?.warn?.(message) : undefined;
     const store = provenance;
     const repeatState = new Map();
+    /** Blocked repeats after which a run gets no more tools and must answer. */
+    const REPEAT_LOCKOUT = 3;
     if (typeof api.on !== "function") {
         api.logger?.warn?.("[orion-control] host hook API unavailable; no user turn can be authenticated and all gated actions will fail closed.");
         return;
@@ -1241,7 +1260,18 @@ export function installProvenanceHooks(api) {
             const state = repeatState.get(runKey) ?? {
                 consecutive: 0,
                 totals: new Map(),
+                guardHits: 0,
             };
+            // After the guard has had to block several times, the run is stuck: every
+            // further tool call in it is refused, so the only thing left is to answer.
+            // (2026-10-06: "delete all scheduled tasks for today" spun for two minutes on
+            // one malformed call, blocked 30 times, until the turn timed out.)
+            if (state.guardHits >= REPEAT_LOCKOUT) {
+                return {
+                    block: true,
+                    blockReason: "Orion repeat guard: this turn is stuck, so no more tools run in it. Reply to Nick NOW in one or two sentences: what you tried, that it did not work, and the one thing he can say or do next. Do not call any tool.",
+                };
+            }
             state.consecutive = state.lastSignature === signature ? state.consecutive + 1 : 1;
             state.lastSignature = signature;
             const total = (state.totals.get(signature) ?? 0) + 1;
@@ -1256,6 +1286,7 @@ export function installProvenanceHooks(api) {
             // honest retry. A third consecutive attempt, or fifth anywhere in the
             // same run, is a loop until the model changes its approach.
             if (state.consecutive >= 3 || total >= 5) {
+                state.guardHits += 1;
                 return {
                     block: true,
                     blockReason: "Orion repeat guard: this exact tool call has already been attempted in this run. Read the prior result and either change the arguments/tool or stop; repeating it is blocked to prevent token-burning loops.",
@@ -1294,6 +1325,32 @@ export function installProvenanceHooks(api) {
         if (typeof sessionKey === "string")
             repeatState.delete(`session:${sessionKey}`);
     });
+    if (api.pluginConfig?.accountHealth !== false) {
+        const controlled = path.join(os.homedir(), ".openclaw", "orion-controlled");
+        registerAccountHealth(api, {
+            statePath: path.join(controlled, "account-health.json"),
+            outboxPath: path.join(controlled, "alerts-outbox.jsonl"),
+            // Local routing "on" already keeps turns off the cloud model; answering for it would be wrong.
+            failFast: api.pluginConfig?.accountFailFast === true && api.pluginConfig?.localRouting !== "on",
+            primaryProvider: primaryProviderOf(api.config),
+        });
+    }
+    const localRouting = api.pluginConfig?.localRouting;
+    if (localRouting === "shadow" || localRouting === "on") {
+        registerLocalRouting(api, {
+            mode: localRouting,
+            trace: api.pluginConfig?.localRoutingTrace === true,
+            scheduleFlow: liveScheduleFlow,
+            readDay: liveReadDay,
+            extractReminder: liveExtractReminder,
+            ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
+            acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
+            scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,
+            logPath: typeof api.pluginConfig?.localRoutingLogPath === "string"
+                ? api.pluginConfig.localRoutingLogPath
+                : path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "shadow.jsonl"),
+        });
+    }
     if (api.pluginConfig?.enableEpisodicCapture === true) {
         api.on("before_agent_finalize", async (event, hookContext) => {
             const sessionId = field(event, "sessionId") ?? field(hookContext, "sessionId");
@@ -1322,6 +1379,12 @@ export function installProvenanceHooks(api) {
             }
         });
     }
+}
+/** "anthropic" from agents.defaults.model.primary = "anthropic/claude-…", if the host passes its config. */
+function primaryProviderOf(config) {
+    const model = field(field(field(config, "agents"), "defaults"), "model");
+    const primary = typeof model === "string" ? model : field(model, "primary");
+    return typeof primary === "string" && primary.includes("/") ? primary.split("/")[0] : undefined;
 }
 function stableHookValue(value) {
     if (Array.isArray(value))

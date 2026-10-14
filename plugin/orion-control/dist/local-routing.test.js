@@ -1,0 +1,229 @@
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { acceptanceVerdict, registerLocalRouting, userText } from "./local-routing.js";
+import { writeFileSync } from "node:fs";
+function fakeApi() {
+    const handlers = new Map();
+    return {
+        api: { on: (name, fn) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) },
+        fire: async (name, event, ctx = {}) => {
+            const out = [];
+            for (const fn of handlers.get(name) ?? [])
+                out.push(await fn(event, ctx));
+            return out;
+        },
+        names: () => [...handlers.keys()],
+    };
+}
+const lines = (path) => readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+describe("local routing — shadow mode", () => {
+    it("off registers nothing", () => {
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "off", logPath: "/dev/null" });
+        expect(f.names()).toEqual([]);
+    });
+    it("logs the front desk's decision and the check's findings for a real turn without changing anything", async () => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "shadow.jsonl");
+        const f = fakeApi();
+        const decideImpl = async () => ({ move: "escalate", tier: "standard", say: "One moment.", ms: 900 });
+        registerLocalRouting(f.api, { warm: false, mode: "shadow", logPath, decideImpl, clock: () => "Sat 18:00" });
+        const ctx = { runId: "r1", sessionKey: "agent:main:orion-chat-1" };
+        const resolved = await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
+        expect(resolved).toEqual([undefined]); // shadow never overrides the model
+        await f.fire("after_tool_call", { toolName: "exec", params: { command: 'orion-reschedule move "Gym" --to 19:00' }, result: { content: [{ type: "text", text: "NOTHING WAS CHANGED. NOT BOOKED: Gym did not fit" }] } }, ctx);
+        const finalized = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7.", model: "claude-haiku" }, ctx);
+        expect(finalized).toEqual([undefined]); // shadow never revises
+        const [entry] = lines(logPath);
+        expect(entry).toMatchObject({ mode: "shadow", message: "move gym to 7", decision: { move: "escalate" }, model: "claude-haiku", tools: 1 });
+        expect(entry.findings.flat()).toEqual(expect.arrayContaining(["claims what the tools don't show", "last change incomplete"]));
+    });
+    it("skips internal sessions (cron, heartbeat, eval, test, subagent)", async () => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "shadow.jsonl");
+        const f = fakeApi();
+        let calls = 0;
+        registerLocalRouting(f.api, { warm: false, mode: "shadow", logPath, decideImpl: async () => { calls += 1; return { move: "answer", answer: "hi" }; } });
+        await f.fire("before_model_resolve", { prompt: "status" }, { runId: "r2", sessionKey: "agent:main:cron:daily" });
+        await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok" }, { runId: "r2", sessionKey: "agent:main:cron:daily" });
+        expect(calls).toBe(0);
+    });
+    it("a failing front desk or log write never breaks the turn", async () => {
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "shadow", logPath: "/nonexistent-dir/x/shadow.jsonl", decideImpl: async () => { throw new Error("boom"); } });
+        await expect(f.fire("before_model_resolve", { prompt: "hi" }, { runId: "r3", sessionKey: "agent:main:orion-chat-1" })).resolves.toEqual([undefined]);
+        await expect(f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "hi" }, { runId: "r3", sessionKey: "agent:main:orion-chat-1" })).resolves.toEqual([undefined]);
+    });
+});
+describe("local routing — on mode", () => {
+    const setup = (decision) => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Sat 18:00", scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), brainSearch: async () => "## Scheduling Rules  (20 Areas/Routine/Scheduling Rules.md)\n- [minimum] nap: at least 75 minutes" });
+        return { f, logPath, ctx: { runId: "r9", sessionKey: "agent:main:orion-app-v2" } };
+    };
+    it("reads only Nick's words from a phone message wrapped in the channel brief", () => {
+        expect(userText("You are answering over the phone…\n--- Nick's message follows ---\nmove gym to 7")).toBe("move gym to 7");
+        expect(userText("plain message")).toBe("plain message");
+    });
+    it("never falls through to the cloud model: answers go to the worker with the front desk's draft, or straight out when the reply hook fires", async () => {
+        const { f, ctx } = setup({ move: "answer", answer: "You're welcome, Nick." });
+        expect(await f.fire("before_model_resolve", { prompt: "thanks" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+        const [built] = (await f.fire("before_prompt_build", { prompt: "thanks", messages: [] }, ctx));
+        expect(built?.systemPrompt).toMatch(/drafted this reply: "You're welcome, Nick\."/);
+        expect(built?.systemPrompt.length).toBeLessThan(1200);
+        expect(await f.fire("before_agent_reply", { cleanedBody: "thanks" }, ctx)).toEqual([{ handled: true, reply: { text: "You're welcome, Nick." }, reason: "front desk answered" }]);
+    });
+    it("never silences a message the front desk thinks is not for ORION — the worker answers instead", async () => {
+        const { f, ctx } = setup({ move: "ignore" });
+        expect(await f.fire("before_model_resolve", { prompt: "and the winner is" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+        expect(await f.fire("before_agent_reply", { cleanedBody: "and the winner is" }, ctx)).toEqual([undefined]);
+    });
+    it("routes tools and escalations to the worker with the instructions for that job", async () => {
+        const { f, ctx } = setup({ move: "escalate", tier: "standard", say: "One moment." });
+        expect(await f.fire("before_model_resolve", { prompt: "move gym to 7 and push dinner back" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+        const [built] = (await f.fire("before_prompt_build", { prompt: "move gym to 7 and push dinner back", messages: [] }, ctx));
+        expect(built?.systemPrompt).toMatch(/orion-reschedule/);
+        expect(built?.systemPrompt).toMatch(/Now: Sat 18:00/);
+        expect(built?.systemPrompt).toMatch(/full path of a script: \/Users\/nickmadaio\/Desktop\/ORION\/scripts\/orion-agenda/);
+        expect(built?.systemPrompt).toMatch(/(tomorrow is|he means) \w+day \d{4}-\d{2}-\d{2}/);
+        expect(built?.systemPrompt).toMatch(/orion-brain search/);
+        expect(built?.systemPrompt).toMatch(/nap: at least 75 minutes/);
+        const brain = setup({ move: "tool", tool: "brain", args: { do: "search" } });
+        await brain.f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, brain.ctx);
+        const [b] = (await brain.f.fire("before_prompt_build", { prompt: "what did I write about my thesis", messages: [] }, brain.ctx));
+        expect(b?.systemPrompt).toMatch(/orion-brain/);
+    });
+    it("check → one retry with what to fix → then undo and say plainly, never a false 'done'", async () => {
+        const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
+        await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
+        const failed = { toolName: "exec", params: { command: 'orion-reschedule move "Gym" --to 19:00' }, result: "NOTHING WAS CHANGED. NOT BOOKED: Gym did not fit" };
+        await f.fire("after_tool_call", failed, ctx);
+        const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx));
+        expect(first).toMatchObject({ action: "revise", retry: { maxAttempts: 1 } });
+        expect(first?.retry.instruction).toMatch(/did not happen|NOT BOOKED/);
+        await f.fire("after_tool_call", failed, ctx);
+        const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx));
+        expect(second).toMatchObject({ action: "revise" });
+        expect(second?.retry.instruction).toMatch(/undo/i);
+        const [third] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I couldn't move gym — 7 PM doesn't fit, so nothing changed." }, ctx);
+        expect(third).toBeUndefined();
+        expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", escalationNeeded: true });
+    });
+    it("finalizes untouched when the check finds nothing", async () => {
+        const { f, ctx } = setup({ move: "tool", tool: "lights", args: { do: "off" } });
+        await f.fire("before_model_resolve", { prompt: "lights off" }, ctx);
+        await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-lights off" }, result: "Lights: sent off" }, ctx);
+        expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Lights are off." }, ctx)).toEqual([undefined]);
+    });
+    it("a request to change his day is always work: an 'ask' or even an 'answer' from the front desk gets the scheduling instructions", async () => {
+        const msg = "today, change of plans. please schedule me for cert courses the entire time between the two classes";
+        for (const decision of [{ move: "ask", answer: "What time do you want it?" }, { move: "answer", answer: "Sounds good!" }]) {
+            const { f, ctx } = setup(decision);
+            await f.fire("before_model_resolve", { prompt: msg }, ctx);
+            const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx));
+            expect(built?.systemPrompt).toMatch(/orion-reschedule/);
+            expect(await f.fire("before_agent_reply", { cleanedBody: msg }, ctx)).toEqual([undefined]);
+        }
+    });
+    it("with scheduleChangesToCloud, a calendar change keeps the configured model and its full prompt; other turns stay local", async () => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", scheduleChangesToCloud: true, logPath, decideImpl: async () => ({ move: "escalate", tier: "standard" }), clock: () => "Mon 00:05" });
+        const ctx = { runId: "c1", sessionKey: "agent:main:orion-app-v2" };
+        expect(await f.fire("before_model_resolve", { prompt: "schedule me for cert courses between my two classes today" }, ctx)).toEqual([undefined]);
+        expect(await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx)).toEqual([undefined]);
+        const other = { runId: "c2", sessionKey: "agent:main:orion-app-v2" };
+        expect(await f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, other)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+    });
+    it("'on' is refused without a recent real-route acceptance pass — it runs shadow instead", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "lr-"));
+        const acceptancePath = join(dir, "acceptance.json");
+        const now = Date.parse("2026-10-12T10:00:00Z");
+        expect(acceptanceVerdict(acceptancePath, now).ok).toBe(false);
+        writeFileSync(acceptancePath, JSON.stringify({ at: "2026-10-10T15:30:00Z", n: 21, pass: 7, medianMs: 35297 }));
+        expect(acceptanceVerdict(acceptancePath, now)).toMatchObject({ ok: false, why: expect.stringMatching(/7\/21/) });
+        writeFileSync(acceptancePath, JSON.stringify({ at: "2026-10-11T15:30:00Z", n: 40, pass: 36, medianMs: 12000 }));
+        expect(acceptanceVerdict(acceptancePath, now).ok).toBe(true);
+        writeFileSync(acceptancePath, JSON.stringify({ at: "2026-09-01T15:30:00Z", n: 40, pass: 36, medianMs: 12000 }));
+        expect(acceptanceVerdict(acceptancePath, now).ok).toBe(false);
+        // Registered "on" with a failing record: never overrides the model.
+        writeFileSync(acceptancePath, JSON.stringify({ at: new Date().toISOString(), n: 21, pass: 7, medianMs: 35297 }));
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, logPath: join(dir, "r.jsonl"), decideImpl: async () => ({ move: "escalate" }) });
+        expect(await f.fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "g1", sessionKey: "agent:main:x" })).toEqual([undefined]);
+    });
+    it("a testing window (max 48 h) lets 'on' run without acceptance; a window too far ahead or past does not", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "lr-"));
+        const acceptancePath = join(dir, "none.json");
+        const reg = (testingUntil) => { const f = fakeApi(); registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, testingUntil, logPath: join(dir, "r.jsonl"), brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }) }); return f; };
+        const inHours = (h) => new Date(Date.now() + h * 3600000).toISOString();
+        expect(await reg(inHours(5)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t1", sessionKey: "agent:main:x" })).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
+        expect(await reg(inHours(100)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t2", sessionKey: "agent:main:x" })).toEqual([undefined]);
+        expect(await reg(inHours(-1)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t3", sessionKey: "agent:main:x" })).toEqual([undefined]);
+    });
+    it("a calendar change runs through the scheduling flow; the worker only phrases the scheduler's output", async () => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }),
+            scheduleFlow: async () => ({ outcome: "done", calls: ['exec orion-reschedule move "do cert courses" --to 12:35 --until 15:25'], outputs: ["Changed Monday:\n  do cert courses moved: 17:50 → 12:35–15:25\nWritten to his calendar."] }) });
+        const ctx = { runId: "f1", sessionKey: "agent:main:x" };
+        const msg = "schedule cert courses the entire time between DS and my lab";
+        await f.fire("before_model_resolve", { prompt: msg }, ctx);
+        const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx));
+        expect(built?.systemPrompt).toMatch(/already made this change[\s\S]*do not call any tools[\s\S]*do cert courses now 12:35 PM–3:25 PM/);
+        expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done: do cert courses now 12:35 PM–3:25 PM." }, ctx)).toEqual([undefined]);
+        expect(lines(logPath).at(-1)).toMatchObject({ flow: { outcome: "done" }, findings: [[]] });
+    });
+    it("delivers the scheduler's own reply (rewriting a paraphrase) and an honest line instead of a false claim", async () => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }),
+            scheduleFlow: async (m) => (/nuke/.test(m) ? { outcome: "done", calls: ["exec orion-reschedule drop --after lab"], outputs: ["Changed Monday:\n  cleared 2 prior schedule blocks: grind leetcode, deck"] } : { outcome: "fallback", reason: "t" }) });
+        const ctx = { runId: "p1", sessionKey: "agent:main:x" };
+        await f.fire("before_model_resolve", { prompt: "nuke everything after my lab" }, ctx);
+        await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx);
+        const [revise] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done: grind leetcode 5:45 PM–7:20 PM" }, ctx));
+        expect(revise).toMatchObject({ action: "revise" });
+        expect(revise?.retry.instruction).toMatch(/exactly this text.*cleared grind leetcode, deck/);
+        await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done: grind leetcode 5:45 PM–7:20 PM" }, ctx);
+        const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "Done: grind leetcode 5:45 PM–7:20 PM" }, runId: "p1", sessionKey: "agent:main:x" }, {}));
+        expect(sent?.payload.text).toBe("Done: cleared grind leetcode, deck.");
+        // A false claim that survives the retries is replaced at delivery.
+        const ctx2 = { runId: "p2", sessionKey: "agent:main:y" };
+        await f.fire("before_model_resolve", { prompt: "stick 45 mins of macro after leetcode" }, ctx2);
+        await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx2);
+        for (let k = 0; k < 3; k++)
+            await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I added 45 minutes of macro studying." }, ctx2);
+        await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-agenda today" }, result: "today 5:15 PM — grind leetcode" }, ctx2);
+        const [sent2] = (await f.fire("reply_payload_sending", { payload: { text: "I added 45 minutes of macro studying." }, runId: "p2", sessionKey: "agent:main:y" }, {}));
+        expect(sent2?.payload.text).toMatch(/didn't manage/);
+    });
+    it("a timed reminder goes to alarm_set (never orion-tasks), with the day worked out by code", async () => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+        const f = fakeApi();
+        let flowRan = false;
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "tool", tool: "alarm" }), scheduleFlow: async () => { flowRan = true; return { outcome: "fallback", reason: "t" }; },
+            extractReminder: async () => ({ time: "11:00", label: "text the marketing group chat" }) });
+        const ctx = { runId: "rm1", sessionKey: "agent:main:x" };
+        const msg = "can you remind me tomorrow around 11 am to text the marketing group chat";
+        await f.fire("before_model_resolve", { prompt: msg }, ctx);
+        const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx));
+        expect(built?.systemPrompt).toMatch(/"action":"alarm_set","at":"\d{4}-\d{2}-\d{2}T11:00","label":"text the marketing group chat"/);
+        expect(built?.appendContext).toMatch(/call orion_task_run now/);
+        expect(flowRan).toBe(false);
+        // Replied without calling the tool → told to call it; still not called → honest line at delivery.
+        const [r1] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx));
+        expect(r1?.retry.instruction).toMatch(/NOT set the reminder/);
+        await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx);
+        await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx);
+        const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "I've set a reminder for 11." }, runId: "rm1", sessionKey: "agent:main:x" }, {}));
+        expect(sent?.payload.text).toMatch(/didn't manage to set that reminder/);
+    });
+    it("after midnight, 'tomorrow' means today's date", async () => {
+        const { meansTomorrow } = await import("./schedule-flow.js");
+        expect(meansTomorrow("remind me tomorrow at 11", new Date(2026, 9, 13, 0, 44))).toBe(false);
+        expect(meansTomorrow("remind me tomorrow at 11", new Date(2026, 9, 13, 14, 0))).toBe(true);
+        expect(meansTomorrow("remind me at 11", new Date(2026, 9, 13, 14, 0))).toBe(false);
+    });
+});

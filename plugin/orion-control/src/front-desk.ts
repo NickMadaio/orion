@@ -101,10 +101,21 @@ export async function decide(input: FrontDeskInput, { fetchImpl = fetch, baseUrl
   }
 }
 
-/** Load the front desk into memory (and keep it there) so the first message is not a cold start. Never throws. */
-export async function warmUp({ fetchImpl = fetch, baseUrl = "http://127.0.0.1:11434", model = FRONT_DESK_MODEL }: { fetchImpl?: typeof fetch; baseUrl?: string; model?: string } = {}): Promise<boolean> {
+/**
+ * Keep the local models in memory at the context size each is called with (2026-10-14). Only
+ * what is missing — or loaded at another num_ctx, which Ollama would reload on the next call —
+ * is loaded. Returns the models it loaded. Never throws.
+ */
+export async function keepWarm(models: Array<{ model: string; numCtx: number }>,
+  { fetchImpl = fetch, baseUrl = "http://127.0.0.1:11434" }: { fetchImpl?: typeof fetch; baseUrl?: string } = {}): Promise<string[]> {
   try {
-    const res = await fetchImpl(`${baseUrl}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, keep_alive: "24h", options: { num_ctx: FRONT_DESK_CTX } }) });
-    return res.ok;
-  } catch { return false; }
+    const ps = await fetchImpl(`${baseUrl}/api/ps`).then((r) => r.json()) as { models?: Array<{ name?: string; model?: string; context_length?: number }> };
+    const loaded = ps.models ?? [];
+    const cold = models.filter(({ model, numCtx }) => !loaded.some((m) => (m.name ?? m.model) === model && m.context_length === numCtx));
+    for (const { model, numCtx } of cold) {
+      await fetchImpl(`${baseUrl}/api/generate`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model, keep_alive: "24h", options: { num_ctx: numCtx } }) });
+    }
+    return cold.map((m) => m.model);
+  } catch { return []; }
 }

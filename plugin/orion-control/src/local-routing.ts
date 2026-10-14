@@ -28,7 +28,8 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname } from "node:path";
-import { decide, warmUp, type Decision } from "./front-desk.js";
+import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js";
+import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
@@ -246,7 +247,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
   }
   const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
-  if (options.warm !== false) void warmUp();
+  // Both local models stay loaded, at the context each is called with, checked every 5 minutes
+  // (2026-10-14: the 9B was never warmed; a terminal run or another num_ctx unloaded them).
+  if (options.warm !== false) {
+    const models = [{ model: FRONT_DESK_MODEL, numCtx: FRONT_DESK_CTX }, { model: workerModel, numCtx: FORM_OPTIONS.num_ctx }];
+    const warm = () => void keepWarm(on ? models : models.slice(0, 1));
+    warm();
+    setInterval(warm, 5 * 60_000).unref?.();
+  }
   const traceLine = (stage: string, event: Record<string, unknown>, ctx: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
     if (!options.trace) return;
     try { appendFileSync(`${logPath}.trace`, `${JSON.stringify({ at: new Date().toISOString(), stage, runId: pick(event, ctx, "runId") ?? null, sessionKey: pick(event, ctx, "sessionKey") ?? null, ...extra })}\n`, { mode: 0o600 }); } catch { /* diagnostics only */ }

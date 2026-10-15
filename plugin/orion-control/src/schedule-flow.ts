@@ -85,6 +85,7 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
+- "I'm in a time block but I don't need it. I'm gonna meal prep — put it from 12:45 to 1:45 and push everything else to follow" → {"steps":[{"do":"add","what":"meal prep","to":"12:45","until":"13:45"}]}   (one step: the scheduler cuts short the block he is in and slides everything after it — never move the blocks after it yourself)
 
 Never drop a block and add it again — move it (or fill_between). Name blocks by their id. Classes he mentions by name or nickname ("DS" = Discrete Structures, "my lab", "program design") are the matching blocks. Only what he asked for.
 Output JSON only: {"steps":[...]}`;
@@ -178,9 +179,13 @@ export function compile(input: Intent, day: Day): Compiled {
       if (!step.what || byId(step.what)) return { error: "add needs a new title" };
       const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
       if (day.blocks.some((b) => norm(b.title).includes(norm(step.what!)) || norm(step.what!).includes(norm(b.title)))) return { error: `"${step.what}" is already on his day — move it instead of adding it again` };
-      if (!Number.isFinite(step.minutes)) return { error: "add needs minutes" };
+      // "from 12:45 to 1:45": code works out the length, never the model.
+      const span = time(step.to) && time(step.until) ? toMin(time(step.until)!) - toMin(time(step.to)!) : undefined;
+      if (span !== undefined && span < 5) return { error: `add runs ${step.to}–${step.until}, which ends before it starts` };
+      const minutes = span ?? step.minutes;
+      if (!Number.isFinite(minutes)) return { error: "add needs minutes, or a start (to) and an end (until)" };
       const at = time(step.to) ? ["--at", time(step.to)!] : byId(step.after) ? ["--after", byId(step.after)!.title] : [];
-      return { args: ["add", step.what, String(Math.round(step.minutes!)), ...at] };
+      return { args: ["add", step.what, String(Math.round(minutes!)), ...at] };
     }
     case "drop": return what && !what.fixed ? { args: ["drop", what.title] } : { error: "drop needs a movable block id" };
     // "skip" is for a class or plan with people; for his own block it means drop ("ditch the macro stuff").
@@ -217,16 +222,26 @@ export function meansTomorrow(message: string, now: Date = new Date()): boolean 
 
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 export type FlowResult =
-  | { outcome: "done"; calls: string[]; outputs: string[] }
+  /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
+  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number }
   | { outcome: "say"; text: string; kind: "cannot" | "ask" }
   | { outcome: "fallback"; reason: string };
 
-/** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell). */
-export async function runScheduleFlow({ message, clock, exec, ask, now = new Date() }: {
+/** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
+ *  undo: stamps of changes an earlier, cut-off half of this request made — reverted first, newest first,
+ *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone. */
+export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null }: {
   message: string; clock: string; now?: Date;
   exec: (args: string[]) => Promise<{ stdout: string; code: number }>;
   ask: (system: string, user: string, schema: object) => Promise<{ steps?: Intent[] } | null>;
+  undo?: string[]; undoTop?: () => string | null;
 }): Promise<FlowResult> {
+  let undone = 0;
+  for (const mark of [...undo].reverse()) {
+    if (undoTop() !== mark) break;
+    await exec(["undo"]);
+    undone += 1;
+  }
   const dateArgs = meansTomorrow(message, now) ? ["--date", "tomorrow"] : [];
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
@@ -255,15 +270,18 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
   if (said && "say" in said) return { outcome: "say", text: said.text, kind: said.say as "cannot" | "ask" };
   const runs = compiled.filter((c): c is { args: string[] } => "args" in c);
   if (!runs.length) return { outcome: "fallback", reason: "a question, not a change" };
-  const calls: string[] = []; const outputs: string[] = [];
+  const calls: string[] = []; const outputs: string[] = []; const marks: string[] = [];
   for (const c of runs) {
     const argv = [...c.args, ...dateArgs];
+    const before = undoTop();
     const { stdout } = await exec(argv);
     calls.push(`exec orion-reschedule ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`);
     outputs.push(stdout);
+    const after = undoTop();
+    if (after && after !== before) marks.push(after);
     if (FAILED.test(stdout)) break; // the rest depended on this one
   }
-  return { outcome: "done", calls, outputs };
+  return { outcome: "done", calls, outputs, marks, undone };
 }
 
 const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
@@ -271,8 +289,13 @@ const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); c
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export function spokenReply(outputs: string[]): string {
   const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
-  const said: string[] = [];
+  const said: string[] = []; const cut: string[] = []; const followed: string[] = [];
   for (const l of lines) {
+    // The block he was in, cut short for a time he stated; the blocks that slid after a change.
+    let c = l.match(/^(.+?) now ends at (\d{2}:\d{2})$/);
+    if (c) { cut.push(`${c[1]} ends at ${ampm(c[2]!)}`); continue; }
+    c = l.match(/^moved (.+?): \d{2}:\d{2} → (\d{2}:\d{2})$/);
+    if (c) { followed.push(`${c[1]} now ${ampm(c[2]!)}`); continue; }
     let m = l.match(/^planned (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
     if (m) { said.push(`${m[1]} ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
     m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
@@ -285,6 +308,9 @@ export function spokenReply(outputs: string[]): string {
     if (m) { said.push(`${m[1]} is off today`); continue; }
   }
   const failed = lines.find((l) => FAILED.test(l));
-  const parts = [said.length ? `Done: ${said.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${failed.replace(/^NOTHING WAS CHANGED:\s*/i, "")}` : ""].filter(Boolean);
+  // Spoken: three moved blocks can be named; more is a count ("4 other blocks moved to follow it").
+  const rest = followed.length > 3 ? [`${followed.length} other blocks moved to follow it`] : followed;
+  const all = said.length ? [...said, ...cut, ...rest] : [];
+  const parts = [all.length ? `Done: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${failed.replace(/^NOTHING WAS CHANGED:\s*/i, "")}` : ""].filter(Boolean);
   return parts.join(" ") || "Nothing on your day changed.";
 }

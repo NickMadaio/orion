@@ -25,9 +25,10 @@
  phone's channel brief is stripped so the front desk reads only Nick's words.
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js";
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
@@ -52,7 +53,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
   /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
   extractReminder?: (message: string) => Promise<{ time: string; label: string } | null>;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
@@ -80,9 +81,23 @@ type Run = {
   reminder?: { args: string; say: string };
   brain?: Promise<string>;
   flow?: FlowResult;
+  sessionKey?: string;
+  /** Spoken and trailing off mid-sentence: nothing is done until the rest arrives. */
+  cutOff?: boolean;
+  /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
+  undo?: string[];
 };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
+// One spoken request can arrive as two turns: the app sends what it heard when he pauses, and the rest
+// with this marker (native AppState.send). 2026-10-15: the first half ("…so if you can go ahead and")
+// changed his day on its own, and the second half was read without the first.
+const CONTINUING = /^\(Continuing — my last message was cut off[^)]*\)\s*/;
+const SPOKEN = /Nick SAID this out loud/;
+// A spoken message that ends on a word a sentence cannot end on ("…go ahead and", "…move the").
+const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|with|of|from|um|uh)\s*[,–—-]*\s*$/i;
+export const GO_ON = "Go on.";
+const STITCH_WINDOW_MS = 3 * 60_000;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
 // loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
@@ -149,9 +164,21 @@ export const liveReadDay = (tomorrow: boolean): Promise<string> => new Promise((
   try { resolve(blockList(JSON.parse(String(stdout)))); } catch { resolve(""); }
 }));
 
+/** The stamp of the newest change in the scheduler's undo journal (the entry "orion-reschedule undo"
+ *  reverts; same file and same skipping of empty entries as scripts/lib/life/calendar-write.mjs). */
+export function undoJournalTop(home = homedir(), now = Date.now()): string | null {
+  const dir = join(home, ".openclaw", "orion-controlled");
+  let evalRun = false;
+  try { evalRun = now - statSync(join(dir, "eval-mode")).mtimeMs < 2 * 3600_000 && existsSync(join(dir, "eval-calendar.json")); } catch { /* not an evaluation */ }
+  try {
+    const history = JSON.parse(readFileSync(join(dir, `${evalRun ? "eval-" : ""}reschedule-undo.json`), "utf8")) as Array<{ at?: string; steps?: unknown[] }>;
+    return [...history].reverse().find((e) => (e.steps ?? []).length)?.at ?? null;
+  } catch { return null; }
+}
+
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string): Promise<FlowResult> => runScheduleFlow({
-  message, clock,
+export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[] } = {}): Promise<FlowResult> => runScheduleFlow({
+  message, clock, undo: opts.undo ?? [], undoTop: () => undoJournalTop(),
   exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema) => {
@@ -260,6 +287,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     try { appendFileSync(`${logPath}.trace`, `${JSON.stringify({ at: new Date().toISOString(), stage, runId: pick(event, ctx, "runId") ?? null, sessionKey: pick(event, ctx, "sessionKey") ?? null, ...extra })}\n`, { mode: 0o600 }); } catch { /* diagnostics only */ }
   };
   const runs = new Map<string, Run>();
+  /** Per session: his last message (stitched) and the scheduler changes it made. */
+  const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
   const log = (entry: Record<string, unknown>) => {
     try {
@@ -280,12 +309,20 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const raw = str(event.prompt);
     traceLine("before_model_resolve", event, ctx, { hasPrompt: !!raw });
     if (!raw || INTERNAL.test(sessionKey)) return undefined;
-    const message = userText(raw);
-    const decision = Promise.resolve()
-      .then(() => decideImpl({ message, clock: clock() }))
-      .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [],
-      ...(on ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
+    // The rest of a cut-off spoken request is read together with its first half, as one request.
+    const said = userText(raw);
+    const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
+    const stitch = CONTINUING.test(said) && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
+    const message = stitch ? `${stitch.text} ${said.replace(CONTINUING, "")}` : said;
+    const cutOff = SPOKEN.test(raw) && TRAILS_OFF.test(message);
+    if (sessionKey) lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
+    const decision = cutOff
+      ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
+      : Promise.resolve()
+        .then(() => decideImpl({ message, clock: clock() }))
+        .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, undo: stitch?.marks ?? [],
+      ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
     if (!on) return undefined; // shadow: fire and forget
@@ -319,9 +356,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
+      // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
+      if (run.cutOff) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
       // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
       // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).
-      if (REMINDER.test(run.message)) {
+      if (REMINDER.test(run.message) && !run.cutOff) {
         const day = new Date(Date.now() + (meansTomorrow(run.message) ? 86400000 : 0));
         const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
         const weekday = day.toLocaleDateString("en-GB", { weekday: "long" });
@@ -342,10 +381,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         run.flow = options.scheduleFlow
-          ? await options.scheduleFlow(run.message, clock()).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
+          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [] }).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
           : { outcome: "fallback", reason: "no scheduling flow wired" };
         if (run.flow.outcome === "done") {
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
+          const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
+          if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: run.flow.marks ?? [] });
         }
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
@@ -442,7 +483,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (on && !flowActed && !run.reminder && findings.some((f) => /claims what the tools|promised but did not act/.test(f))) {
         remember([runId, sessionKeyNow], "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?");
       }
-      log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}) } : null, cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+      log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
+        ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
         ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });
       done();
     } catch (error) {

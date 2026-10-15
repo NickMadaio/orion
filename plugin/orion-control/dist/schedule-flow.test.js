@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockList, compile, intentSchema, runScheduleFlow, setPlaces, spokenReply, summarize } from "./schedule-flow.js";
+import { FORM_PROMPT, blockList, compile, intentSchema, runScheduleFlow, setPlaces, spokenReply, summarize } from "./schedule-flow.js";
 // His real Monday, 2026-10-12, at 13:06 (DS already happened).
 const monday = {
     date: "2026-10-12", now: "13:06",
@@ -98,5 +98,52 @@ describe("schedule flow", () => {
         expect(compile({ do: "move", what: "B4", by: 30 }, monday)).toEqual({ args: ["move", "do cert courses", "--to", "18:20"] });
         expect(compile({ do: "skip", what: "B4" }, monday)).toEqual({ args: ["drop", "do cert courses"] });
         expect(compile({ do: "skip", what: "B3" }, monday)).toEqual({ args: ["skip", "CS2101 Lab for Program Design & Implementation 1"] });
+    });
+    // 2026-10-15, 12:12, in "finish resume": "I'm gonna start meal prepping in about thirty minutes… put [it]
+    // from twelve forty five to one forty five and then push everything else to kinda follow that".
+    const thursday = { date: "2026-10-15", now: "12:12", blocks: [
+            { title: "CS1800 Discrete Structures — Lecture", start: "09:00", end: "10:30", fixed: true },
+            { title: "finish resume", start: "11:20", end: "12:50", fixed: false },
+            { title: "DS Lab", start: "12:55", end: "13:40", fixed: false },
+            { title: "CS Lab", start: "13:45", end: "14:30", fixed: false },
+            { title: "Review spending", start: "14:35", end: "15:20", fixed: false },
+        ] };
+    it("'meal prep from 12:45 to 1:45' is one add with a start and an end — code works out the minutes", () => {
+        expect(compile({ do: "add", what: "meal prep", to: "12:45", until: "13:45" }, thursday)).toEqual({ args: ["add", "meal prep", "60", "--at", "12:45"] });
+        expect(compile({ do: "add", what: "meal prep", to: "13:45", until: "12:45" }, thursday)).toMatchObject({ error: expect.any(String) });
+    });
+    it("the form is told the scheduler slides the rest, so it never moves the following blocks itself", () => {
+        expect(FORM_PROMPT).toMatch(/meal prep.*"to":"12:45","until":"13:45"/);
+        expect(FORM_PROMPT).toMatch(/never move the blocks after it yourself/i);
+    });
+    it("says the block he was in was cut short, and where the rest went", () => {
+        const out = "Changed Thursday 2026-10-15:\n  rebuilt the remaining day\n  finish resume now ends at 12:35\n  moved DS Lab: 12:55 → 13:55\n  moved CS Lab: 13:45 → 14:50\n  moved Review spending: 14:35 → 15:45\n  planned meal prep: 12:45–13:45";
+        expect(spokenReply([out])).toBe("Done: meal prep 12:45 PM–1:45 PM; finish resume ends at 12:35 PM; DS Lab now 1:55 PM; CS Lab now 2:50 PM; Review spending now 3:45 PM.");
+        const many = ["a", "b", "c", "d"].map((t, i) => `  moved ${t}: 1${i}:00 → 1${i + 1}:00`).join("\n");
+        expect(spokenReply([`Changed:\n  planned gym: 09:00–10:00\n${many}`])).toBe("Done: gym 9:00 AM–10:00 AM; 4 other blocks moved to follow it.");
+    });
+    it("a continuation first undoes what its cut-off first half changed — only while that is still the latest change", async () => {
+        let top = "frag-1";
+        const calls = [];
+        const exec = async (args) => {
+            calls.push(args);
+            if (args[0] === "undo") {
+                top = "older";
+                return { stdout: "Undone: finish resume back to 11:20–12:50", code: 0 };
+            }
+            if (args[0] === "show")
+                return { stdout: JSON.stringify(thursday), code: 0 };
+            top = "new-1";
+            return { stdout: "Changed:\n  planned meal prep: 12:45–13:45", code: 0 };
+        };
+        const ask = async () => ({ steps: [{ do: "add", what: "meal prep", to: "12:45", until: "13:45" }] });
+        const done = await runScheduleFlow({ message: "meal prep from 12:45 to 1:45", clock: "Thu 12:13", exec, ask, undo: ["frag-1"], undoTop: () => top });
+        expect(calls.map((c) => c[0])).toEqual(["undo", "show", "add"]);
+        expect(done).toMatchObject({ outcome: "done", undone: 1, marks: ["new-1"] });
+        // Something else changed his day in between: that is not ours to undo.
+        calls.length = 0;
+        top = "someone-else";
+        await runScheduleFlow({ message: "meal prep from 12:45 to 1:45", clock: "Thu 12:13", exec, ask, undo: ["frag-1"], undoTop: () => top });
+        expect(calls[0]?.[0]).toBe("show");
     });
 });

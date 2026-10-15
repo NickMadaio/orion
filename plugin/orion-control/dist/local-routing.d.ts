@@ -25,7 +25,9 @@ export type LocalRoutingOptions = {
     /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
     testingUntil?: string;
     /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-    scheduleFlow?: (message: string, clock: string) => Promise<FlowResult>;
+    scheduleFlow?: (message: string, clock: string, opts?: {
+        undo?: string[];
+    }) => Promise<FlowResult>;
     /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
     extractReminder?: (message: string) => Promise<{
         time: string;
@@ -42,6 +44,7 @@ export type LocalRoutingOptions = {
     /** Append one line per hook stage to <logPath>.trace (diagnostics). */
     trace?: boolean;
 };
+export declare const GO_ON = "Go on.";
 /** Nick's own words: the part after a channel brief, if the message carries one. */
 export declare function userText(prompt: string): string;
 /** "Sat 18:05" in local time, the clock format the front desk was evaluated with. */
@@ -57,8 +60,13 @@ export declare const LOOK_IT_UP = "Your manual and his memory live in his brain;
 export declare function brainSnippets(output: string, maxChars?: number): string;
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
 export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;
+/** The stamp of the newest change in the scheduler's undo journal (the entry "orion-reschedule undo"
+ *  reverts; same file and same skipping of empty entries as scripts/lib/life/calendar-write.mjs). */
+export declare function undoJournalTop(home?: string, now?: number): string | null;
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export declare const liveScheduleFlow: (message: string, clock: string) => Promise<FlowResult>;
+export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
+    undo?: string[];
+}) => Promise<FlowResult>;
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export declare const liveExtractReminder: (message: string) => Promise<{
     time: string;

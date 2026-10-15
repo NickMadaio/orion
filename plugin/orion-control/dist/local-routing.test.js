@@ -220,6 +220,59 @@ describe("local routing — on mode", () => {
         const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "I've set a reminder for 11." }, runId: "rm1", sessionKey: "agent:main:x" }, {}));
         expect(sent?.payload.text).toMatch(/didn't manage to set that reminder/);
     });
+    // 2026-10-15 12:12: one spoken request arrived as two turns. The first half ("…so if you can go ahead
+    // and") resized a block on its own; the second ("put from 12:45 to 1:45 and push everything else") ran
+    // without the first, so "meal prep" was never booked.
+    describe("a request cut off mid-sentence", () => {
+        const spoken = (text) => `[Orion app context]\nNick SAID this out loud and your answer will be SPOKEN: one to three short sentences.\n\nUser message:\n${text}`;
+        const first = "I'm now, and I'm in a time block. But here's the thing. I don't really need to be in one right now. I'm gonna start meal prepping in about thirty minutes. So if you can go ahead and";
+        const rest = "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) Put from twelve forty five to one forty five and then push everything else to kinda follow that, that would be lovely.";
+        const mealPrep = { outcome: "done", calls: ['exec orion-reschedule add "meal prep" 60 --at 12:45'], outputs: ["Changed:\n  planned meal prep: 12:45–13:45"], marks: ["m2"] };
+        const harness = (flowFor) => {
+            const f = fakeApi();
+            const flows = [];
+            const desk = [];
+            registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Thu 12:12",
+                decideImpl: async ({ message }) => { desk.push(message); return { move: "escalate" }; },
+                scheduleFlow: async (message, _clock, opts) => { flows.push({ message, undo: opts?.undo ?? [] }); return flowFor(message); } });
+            const turn = async (runId, prompt) => {
+                const ctx = { runId, sessionKey: "agent:main:orion-chat-1" };
+                await f.fire("before_model_resolve", { prompt }, ctx);
+                const [built] = (await f.fire("before_prompt_build", { prompt, messages: [] }, ctx));
+                await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok" }, ctx);
+                return built?.systemPrompt ?? "";
+            };
+            return { turn, flows, desk };
+        };
+        it("does not act on the half that trails off — it waits for the rest", async () => {
+            const h = harness(() => ({ outcome: "fallback", reason: "t" }));
+            expect(await h.turn("c1", spoken(first))).toMatch(/exactly this text[\s\S]*Go on\./);
+            expect(h.flows).toEqual([]);
+            expect(h.desk).toEqual([]); // no front-desk round trip for "go on"
+        });
+        it("reads the rest together with the first half, without the app's marker", async () => {
+            const h = harness(() => mealPrep);
+            await h.turn("c1", spoken(first));
+            await h.turn("c2", spoken(rest));
+            expect(h.flows).toHaveLength(1);
+            expect(h.flows[0].message).toMatch(/^I'm now.*meal prepping.*go ahead and Put from twelve forty five.*follow that/);
+            expect(h.flows[0].message).not.toMatch(/Continuing/);
+            expect(h.desk.at(-1)).toMatch(/meal prepping.*twelve forty five/);
+        });
+        it("if the first half did change his day, the rest is told to undo exactly that first", async () => {
+            const h = harness((m) => (/twelve forty five/.test(m) ? mealPrep
+                : { outcome: "done", calls: ['exec orion-reschedule resize "finish resume" 30'], outputs: ["Changed:\n  finish resume is now 30 min: 11:20–11:50"], marks: ["m1"] }));
+            await h.turn("c1", spoken("I'm in a time block but I don't need it. I'm gonna start meal prepping in about thirty minutes."));
+            await h.turn("c2", spoken(rest));
+            expect(h.flows.map((x) => x.undo)).toEqual([[], ["m1"]]);
+            expect(h.flows[1].message).toMatch(/^I'm in a time block.*Put from twelve forty five/);
+        });
+        it("a typed message that trails off is not held", async () => {
+            const h = harness(() => ({ outcome: "fallback", reason: "t" }));
+            await h.turn("c1", "move gym to 6 and");
+            expect(h.flows).toHaveLength(1);
+        });
+    });
     it("after midnight, 'tomorrow' means today's date", async () => {
         const { meansTomorrow } = await import("./schedule-flow.js");
         expect(meansTomorrow("remind me tomorrow at 11", new Date(2026, 9, 13, 0, 44))).toBe(false);

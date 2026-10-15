@@ -471,7 +471,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
-      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say" });
+      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" });
       run.findings.push(findings);
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
       // with tools let the model act on its own).

@@ -44,7 +44,10 @@ const PAST_DENIAL = /\b(couldn'?t|could not|didn'?t|did not|wasn'?t able|failed 
 const HYPOTHETICAL = /\b(may|might|could|should|would|if|to be|need(s)? to|want(s)? to|try to|going to)\b/i;
 // After a still-running or pending result, saying so ("still", "can't confirm yet") is the honest report.
 const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in progress|check back)\b/i;
-const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\b/i;
+// "Let me know if…" is a sign-off, not a promise to act.
+const PROMISE = /\b(I'?ll|I will|let me(?! know)|I'?m going to)\b/i;
+// Reports of a lookup or a live status ("I checked…", "15 minutes remaining"): true only if a tool looked (2026-10-16 sweep).
+const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 
 // Quoted words are Nick's or a title's, not ORION's claims.
@@ -52,7 +55,7 @@ const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unabl
 const unquote = (s) => s.replace(/[’‘]/g, "'").replace(/"[^"]*"|“[^”]*”/g, "\"…\"");
 const sentences = (text) => unquote(String(text ?? "")).split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 
-/** [{ kind: "done"|"denial"|"promise", strength: "strong"|"status", sentence }] */
+/** [{ kind: "done"|"denial"|"promise"|"read", strength: "strong"|"status", sentence }] */
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
 
 export function claimsIn(reply) {
@@ -63,8 +66,9 @@ export function claimsIn(reply) {
     if (DENIAL.test(s)) return [{ kind: "denial", strength: "strong", sentence: s }];
     if (PROMISE.test(s)) return [{ kind: "promise", strength: "strong", sentence: s }];
     if (STRONG.test(s) && !NARRATION.test(s) && !HYPOTHETICAL.test(s)) return [{ kind: "done", strength: "strong", sentence: s }];
-    if (STATUS.test(s)) return [{ kind: "done", strength: "status", sentence: s }];
-    return [];
+    const read = READ.test(s) ? [{ kind: "read", strength: "status", sentence: s }] : [];
+    if (STATUS.test(s)) return [{ kind: "done", strength: "status", sentence: s }, ...read];
+    return read;
   });
 }
 

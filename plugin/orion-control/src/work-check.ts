@@ -15,7 +15,7 @@
 export type ToolResult = { canonical: string; stdout: string; exit?: number | null };
 type Outcome = "success" | "partial" | "nothing" | "pending" | "failed" | "read";
 type Graded = ToolResult & { outcome: Outcome };
-type Claim = { kind: "done" | "denial" | "promise"; strength: "strong" | "status"; sentence: string };
+type Claim = { kind: "done" | "denial" | "promise" | "read"; strength: "strong" | "status"; sentence: string };
 type TimeMention = [number[], "start" | "end" | "any"];
 
 const PENDING = /needs[_ ]approval|requires approval|NO MESSAGE WAS SENT|still running|\bqueued\b/i;
@@ -46,7 +46,9 @@ const DENIAL = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|wasn'?t abl
 const PAST_DENIAL = /\b(couldn'?t|could not|didn'?t|did not|wasn'?t able|failed to|nothing (was|got)|not (booked|added|moved|sent|set|saved|done|changed))\b/i;
 const HYPOTHETICAL = /\b(may|might|could|should|would|if|to be|need(s)? to|want(s)? to|try to|going to)\b/i;
 const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in progress|check back)\b/i;
-const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\b/i;
+const PROMISE = /\b(I'?ll|I will|let me(?! know)|I'?m going to)\b/i;
+/** Reports of a lookup or a live status: true only if a tool looked this turn (2026-10-16 sweep). */
+const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
 
@@ -61,8 +63,9 @@ export function claimsIn(reply: string): Claim[] {
     if (DENIAL.test(s)) return [{ kind: "denial", strength: "strong", sentence: s }];
     if (PROMISE.test(s)) return [{ kind: "promise", strength: "strong", sentence: s }];
     if (STRONG.test(s) && !NARRATION.test(s) && !HYPOTHETICAL.test(s)) return [{ kind: "done", strength: "strong", sentence: s }];
-    if (STATUS.test(s)) return [{ kind: "done", strength: "status", sentence: s }];
-    return [];
+    const read: Claim[] = READ.test(s) ? [{ kind: "read", strength: "status", sentence: s }] : [];
+    if (STATUS.test(s)) return [{ kind: "done", strength: "status", sentence: s }, ...read];
+    return read;
   });
 }
 
@@ -172,18 +175,28 @@ export function checkCalendar({ before, after, now, commands }: { before: Block[
   return findings;
 }
 
+/** "I don't have access to…" said without trying a tool (q076: orion-health had the answer). */
+const NO_ACCESS = /\b(I )?(don'?t|do not) have (any )?(access|a way|the ability)\b|\bI (can'?t|cannot|am unable to|'m unable to) (access|see|check|look (at|up)|read|view)\b|\bno access to\b/i;
+
 /** Everything the check can see after the worker's final answer → findings (empty = looks right). */
-export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false }: {
+export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false, dictated = false }: {
   reply: string; turnResults: ToolResult[]; finished: boolean; calendar?: { before: Block[]; after: Block[]; now: number };
   /** He asked for a change (not a question): a reply that only asks back, with nothing changed, is a failure. */
   changeRequest?: boolean;
+  /** The reply was dictated by a code-run flow, which did its own reads outside turnResults. */
+  dictated?: boolean;
 }): string[] {
   const findings: string[] = [];
   if (!finished) findings.push("did not finish");
   const changed = turnResults.some((r) => ["success", "partial"].includes(outcomeOf(r)) && /orion-reschedule|orion-tasks|orion_task_run/.test(r.canonical));
   if (changeRequest && !changed && /\?\s*$/.test(reply.trim())) findings.push("asked instead of acting");
-  if (changeRequest && !changed && /\b(let me|I'?ll|I will|I'?m going to)\b/i.test(reply)) findings.push("promised but did not act");
   const v = checkReply({ reply, turnResults });
+  // Live sweep 2026-10-16: "I'll just note that you took your creatine" (q072), "I checked the weather…
+  // it's not expected to rain" (q007), "still active with 15 minutes remaining" (q049, really 3) and
+  // "I don't have access to your vitamin D history" (q076) all came with no tool call and passed with [].
+  if ((changeRequest && !changed && /\b(let me|I'?ll|I will|I'?m going to)\b/i.test(reply)) || (v.unbackedPromise && !dictated)) findings.push("promised but did not act");
+  if (!dictated && turnResults.length === 0 && claimsIn(reply).some((c) => c.kind === "read")) findings.push("claims a lookup it did not do");
+  if (!dictated && turnResults.length === 0 && sentences(reply).some((s) => NO_ACCESS.test(s) && !/\?\s*$/.test(s))) findings.push("said it can't without checking");
   if (v.falseClaim) findings.push("claims what the tools don't show");
   if (v.omittedFailure) findings.push("failure not mentioned");
   if (v.wrongDetail) findings.push("reply times don't match");
@@ -195,7 +208,9 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
 
 const FIX: Record<string, string> = {
   "did not finish": "You stopped before replying. Finish the job, then reply.",
-  "promised but did not act": "You said you would make the change but ran no command that changes anything. Make the change now with orion-reschedule, then tell him what changed.",
+  "promised but did not act": "You said you would do it but ran no command that does it. Do it now with the right tool (orion-reschedule for his calendar), then tell him what you did; if no tool can, say so plainly.",
+  "claims a lookup it did not do": "Your reply reports something looked up (checked, found, a status, minutes left) but you ran no tool this turn. Look it up now with the right tool and answer from what it prints, or say you don't know.",
+  "said it can't without checking": "You said you can't see or reach that, but you ran no tool. Check with the right tool first (health log, memory, calendar, tasks, messages); only if none can, say so plainly.",
   "asked instead of acting": "He already told you what he wants. Do it now (read his day if you need the times, then make the change in one orion-reschedule call) and tell him what changed. Ask only if it truly cannot be done without his answer.",
   "claims what the tools don't show": "Your reply says something happened that the tool output does not show (NOT BOOKED / NOTHING WAS … means it did not happen). Fix it or say plainly what did not happen.",
   "failure not mentioned": "A tool reported a failure that your reply does not mention. Say what did not happen.",

@@ -85,6 +85,40 @@ describe("local routing — on mode", () => {
     expect(await f.fire("before_agent_reply", { cleanedBody: "thanks" }, ctx)).toEqual([{ handled: true, reply: { text: "You're welcome, Nick." }, reason: "front desk answered" }]);
   });
 
+  it("a drafted answer about live data (sun times, weather, his texts) is never sent unchecked: the worker looks it up", async () => {
+    // Live sweep 2026-10-15: q012 "Sunset is at 6:42 PM today." (invented), q001 "it's still warm outside",
+    // q065 "I haven't seen any new messages" — all front-desk drafts sent with no tool call.
+    const cases: Array<[string, string]> = [
+      ["what's the sunset time today", "Sunset is at 6:42 PM today."],
+      ["do i need a jacket tho", "Probably not, it's still warm outside."],
+      ["did anyone text me", "No, I haven't seen any new messages from anyone yet."],
+    ];
+    for (const [said, draft] of cases) {
+      const { f, ctx } = setup({ move: "answer", answer: draft });
+      await f.fire("before_model_resolve", { prompt: said }, ctx);
+      expect(await f.fire("before_agent_reply", { cleanedBody: said }, ctx)).toEqual([undefined]);
+      const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+      expect(built?.systemPrompt).not.toMatch(/drafted this reply/);
+      expect(built?.systemPrompt).not.toContain(draft);
+      expect(built?.systemPrompt).toMatch(/can't check that right now/);
+    }
+  });
+
+  it("pure answers keep the draft, but the worker drops claims about Nick it was never told (q082)", async () => {
+    for (const [said, draft] of [["whats 17 times 23", "That's 391."], ["quick whats the capital of australia", "The capital of Australia is Canberra."], ["whats dfs vs bfs quick", "DFS goes deep first, BFS goes wide."]]) {
+      const { f, ctx } = setup({ move: "answer", answer: draft });
+      await f.fire("before_model_resolve", { prompt: said }, ctx);
+      const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+      expect(built?.systemPrompt).toContain(`drafted this reply: "${draft}"`);
+    }
+    const { f, ctx } = setup({ move: "answer", answer: "You've been coding for hours and your brain needs rest, so sleep now." });
+    await f.fire("before_model_resolve", { prompt: "should i sleep now or finish leetcode, be honest" }, ctx);
+    const [built] = (await f.fire("before_prompt_build", { prompt: "should i sleep now or finish leetcode, be honest", messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(built?.systemPrompt).toMatch(/drafted this reply/);
+    expect(built?.systemPrompt).toMatch(/leave (it|that) out/);
+    expect(built?.systemPrompt).toMatch(/never mention the draft or the front desk/i);
+  });
+
   it("never silences a message the front desk thinks is not for ORION — the worker answers instead", async () => {
     const { f, ctx } = setup({ move: "ignore" });
     expect(await f.fire("before_model_resolve", { prompt: "and the winner is" }, ctx)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);

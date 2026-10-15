@@ -108,6 +108,11 @@ const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomor
 const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
+// Live data the front desk cannot know: its "answer" drafts made these up and went out unchecked
+// ("Sunset is at 6:42 PM today.", "it's still warm outside", "I haven't seen any new messages"; live sweep
+// 2026-10-15). A message about these is a lookup: the worker gets the job's tools and no draft.
+const LIVE_DATA = /\b(weather|forecast|rain\w*|snow\w*|sunny|temperature|degrees|(cold|warm|hot|dark) (out|outside)|jacket|coat|umbrella|sunset|sunrise|sun (sets?|rises?|goes down|comes up)|texts?|texted|messages?|messaged|emails?|emailed|inbox|missed calls?|voicemails?)\b|\bmy (calendar|day|schedule|agenda|session|supplements?|to-?dos?|tasks|reminders|alarms?)\b/i;
+const LIVE_NOTE = "This needs live data (weather, sun times, his messages, his day). Answer only from what a tool returns just now; if none of your tools can get it, say \"I can't check that right now.\" Never guess it.";
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key: string) => str(event[key]) ?? str(ctx[key]);
@@ -356,7 +361,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const d = runFor(event, ctx)?.settled;
       traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
       const run = runFor(event, ctx);
-      if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
+      if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !LIVE_DATA.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
 
@@ -432,14 +437,18 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Only a plain answer is handed over as a draft. "ask" goes to the worker with the job's
       // instructions (the 4B asked for times it could have read, 2026-10-12), and a request to change
       // his day is always work, whatever the front desk thought.
-      if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message)) {
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself.` };
+      // A lookup (weather, sun times, his texts, his day) never gets a draft: nothing checks a draft's facts.
+      const lookup = LIVE_DATA.test(run.message);
+      if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message) && !lookup) {
+        // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
+        // read it out as "The front desk says…" (live sweep 2026-10-15).
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
       }
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
       const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
       const askNote = run.settled.move === "ask" && run.settled.answer
         ? `\n\nThe front desk thought you might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}` };
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}${lookup ? `\n\n${LIVE_NOTE}` : ""}` };
     });
   }
 

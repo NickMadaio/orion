@@ -108,6 +108,31 @@ const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomor
 const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
+// 2026-10-15 sweep: SCHEDULING alone ran the calendar flow, whatever the front desk decided. "text myself
+// bring the charger to lab" booked "bring the charger" at 11:45 PM, "add a todo to email prof…" ran add … 0,
+// "focus mode on for an hour" added a "focus mode" block, "i take creatine every morning at 8" added creatine,
+// and "cancel that" / "make it longer" (no history reaches the form) dropped and resized "finish resume".
+const CALENDAR_TOOLS = new Set(["reschedule", "agenda"]);
+// A message to send or something to capture, not a block: "text myself…", "email prof…", "add a todo…".
+const SEND_OR_CAPTURE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion|can you|could you|would you)[,\s]+)*(?:text|message|imessage|email|send|remind|note|jot)\b|\bto-?dos?\b|\bto do list\b/i;
+// A habit he is telling ORION about ("i take creatine every morning at 8"), to remember, not to book today.
+const HABIT = /\bi\s+(?:usually\s+|always\s+|normally\s+)?(?:take|have|drink|eat|do|go|run|lift|wake)\b.*\b(?:every|each)\s+(?:day|morning|night|evening|week|mon|tues|wednes|thurs|fri|satur|sun)\w*/i;
+// Booking travel or a table is not a calendar block ("book me a flight to mars" → "That doesn't fit: …").
+const BOOK_ELSEWHERE = /\bbook\b.*\b(?:flight|train|plane|hotel|airbnb|uber|taxi|cab|ride|table|ticket)s?\b/i;
+// "cancel that", "make it longer": only a pronoun for the block. The form sees no earlier turns, so it guessed one.
+const VAGUE = new Set(["that", "it", "this", "them", "those", "one", "thing", "last", "the", "a", "cancel", "drop", "delete", "remove", "scrap", "ditch", "nuke", "skip", "clear", "make", "longer", "shorter", "bigger", "smaller", "move", "push", "pull", "back", "forward", "later", "earlier", "extend", "shorten", "resize", "undo", "please", "pls", "can", "could", "you", "just", "actually", "and", "ok", "okay", "nah", "yeah", "so", "now", "then", "instead", "bit", "little", "more", "less", "do", "go", "ahead"]);
+const NAMES_NOTHING = (message: string) => {
+  const words = message.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  return words.length > 0 && words.every((w) => VAGUE.has(w));
+};
+/** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
+export function isCalendarTurn(message: string, settled: Decision): boolean {
+  if (settled.move === "tool" && !CALENDAR_TOOLS.has(settled.tool ?? "")) return false;
+  if (SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message)) return false;
+  if (HABIT.test(message) && !CHANGE_REQUEST.test(message)) return false;
+  if (settled.move === "ask" && NAMES_NOTHING(message)) return false;
+  return true;
+}
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key: string) => str(event[key]) ?? str(ctx[key]);
@@ -398,7 +423,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      if (SCHEDULING.test(run.message) && !/\?\s*$/.test(run.message.trim()) && !run.flow) {
+      if (SCHEDULING.test(run.message) && !/\?\s*$/.test(run.message.trim()) && !run.flow && isCalendarTurn(run.message, run.settled)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         run.flow = options.scheduleFlow

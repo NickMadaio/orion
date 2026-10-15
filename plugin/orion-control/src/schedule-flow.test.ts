@@ -59,6 +59,13 @@ describe("schedule flow", () => {
     expect(compile({ do: "add", what: "cert courses", minutes: 240 }, monday)).toMatchObject({ error: expect.stringMatching(/move it/) });
   });
 
+  // 2026-10-15 sweep q043: "add a todo to email prof…" became add "email prof…" 0 — a block with no length.
+  it("an add shorter than 5 minutes is refused", () => {
+    expect(compile({ do: "add", what: "email prof about office hours by thurs", minutes: 0 }, monday)).toMatchObject({ error: expect.stringMatching(/minutes/) });
+    expect(compile({ do: "add", what: "stretch", minutes: 4 }, monday)).toMatchObject({ error: expect.any(String) });
+    expect(compile({ do: "add", what: "stretch", minutes: 5 }, monday)).toEqual({ args: ["add", "stretch", "5"] });
+  });
+
   it("runs the fixed sequence: read the day, one form, exact argv to the scheduler; falls back on anything it cannot compile", async () => {
     const calls: string[][] = [];
     const exec = async (args: string[]) => { calls.push(args); return args[0] === "show" ? { stdout: JSON.stringify({ ...monday, now: "08:00" }), code: 0 } : { stdout: "Changed Monday:\n  do cert courses moved: 17:50 → 12:35–15:25\nWritten to his calendar.", code: 0 }; };

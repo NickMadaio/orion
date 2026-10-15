@@ -297,6 +297,56 @@ describe("local routing — on mode", () => {
     });
   });
 
+  // 2026-10-15 sweep: the flow ran on any scheduling word, whatever the front desk decided. "text myself
+  // bring the charger to lab" booked a block at 11:45 PM, a to-do became add … 0, "cancel that" dropped
+  // an arbitrary block.
+  describe("the calendar flow only runs for calendar requests", () => {
+    const harness = (decision: Decision) => {
+      const f = fakeApi(); const flows: string[] = [];
+      registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Thu 23:40",
+        decideImpl: async () => decision, scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "t" }; } });
+      const turn = async (prompt: string) => {
+        const ctx = { runId: `h${flows.length}${prompt.length}`, sessionKey: "agent:main:orion-chat-1" };
+        await f.fire("before_model_resolve", { prompt }, ctx);
+        await f.fire("before_prompt_build", { prompt, messages: [] }, ctx);
+      };
+      return { turn, flows };
+    };
+    const cases: Array<[string, Decision]> = [
+      ["text myself bring the charger to lab", { move: "tool", tool: "tasks", args: { do: "add", title: "bring the charger to lab" } }],
+      ["text myself my gym schedule for the week", { move: "escalate", tier: "standard" }],
+      ["add a todo to email prof about office hours by thurs", { move: "tool", tool: "tasks", args: { do: "add" } }],
+      ["focus mode on for an hour, leetcode", { move: "tool", tool: "session", args: { do: "start", task: "leetcode" } }],
+      ["i take creatine every morning at 8", { move: "answer", answer: "Got it." }],
+      ["cancel that", { move: "ask", answer: "Cancel what?" }],
+      ["make it longer", { move: "ask", answer: "What do you want to make longer?" }],
+      ["book me a flight to mars for next week", { move: "escalate", tier: "deep" }],
+    ];
+    for (const [msg, decision] of cases) {
+      it(`"${msg}" does not touch his calendar`, async () => {
+        const h = harness(decision);
+        await h.turn(msg);
+        expect(h.flows).toEqual([]);
+      });
+    }
+    const still: Array<[string, Decision]> = [
+      ["move gym to 7", { move: "tool", tool: "reschedule" }],
+      ["add 45 mins of leetcode after my lab", { move: "escalate" }],
+      ["cancel the gym", { move: "ask", answer: "Which gym?" }],
+      ["push it to 7pm", { move: "ask", answer: "Push what?" }],
+      ["put leetcode at 9pm", { move: "tool", tool: "agenda" }],
+      ["i need to do leetcode, add an hour of it at 9pm", { move: "escalate" }],
+      ["i go to the gym every morning, put it at 7 tomorrow", { move: "escalate" }],
+    ];
+    for (const [msg, decision] of still) {
+      it(`"${msg}" still runs the calendar flow`, async () => {
+        const h = harness(decision);
+        await h.turn(msg);
+        expect(h.flows).toEqual([msg]);
+      });
+    }
+  });
+
   it("after midnight, 'tomorrow' means today's date", async () => {
     const { meansTomorrow } = await import("./schedule-flow.js");
     expect(meansTomorrow("remind me tomorrow at 11", new Date(2026, 9, 13, 0, 44))).toBe(false);

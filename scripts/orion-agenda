@@ -64,7 +64,7 @@ function fail(message, code = 2) {
   process.exit(code);
 }
 
-if (!sandbox() && !existsSync(BRIDGE)) {
+if (!sandbox() && !process.env.ORION_BRIDGE_BIN && !existsSync(BRIDGE)) {
   fail("the bridge binary is missing — build it with `swift build -c release` in native/OrionMacBridge", 1);
 }
 
@@ -73,7 +73,8 @@ if (!sandbox() && !existsSync(BRIDGE)) {
  stdout. It is not a daemon, so a call is a spawn.
 */
 async function ask(action, payload = {}) {
-  if (sandbox()) return bridgeRequest(action, payload);
+  // ORION_BRIDGE_BIN: a test's stub bridge, never the real calendar (tests/agenda-today.test.mjs).
+  if (sandbox() || process.env.ORION_BRIDGE_BIN) return bridgeRequest(action, payload).catch((error) => fail(error.message, 1));
   // Arguments go UNDER `payload` — the bridge decodes `request.payload["title"]`,
   // so spreading them at the top level silently loses every one of them and
   // comes back as "an event needs a title and valid start and end times".
@@ -115,8 +116,27 @@ const localDay = (at) => at.toLocaleDateString("en-CA");
 const timeLabel = (iso) =>
   new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
+/*
+ Live sweep 2026-10-15, 23:25: `today` read only what had not ended yet and
+ printed "nothing on the calendar today" over a day of five blocks, so ORION
+ told him "Nothing is scheduled for today" and "no lectures on your calendar
+ today". A read of today is the whole day now (the bridge's `from: "today"`),
+ with what is over marked, so "next" and "how long until" still read right and
+ an evening with nothing left is said as exactly that.
+*/
+function dayMark(event, now) {
+  if (event.allDay === "true") return "";
+  if (new Date(event.end) <= now) return ` (already over, ended ${timeLabel(event.end)})`;
+  return new Date(event.start) <= now ? ` (happening now, until ${timeLabel(event.end)})` : "";
+}
+function printNothingLeft(events, now, which) {
+  const earlier = events.filter((e) => e.allDay !== "true" && new Date(e.end) <= now).length;
+  if (earlier > 0 && earlier === events.length) console.log(`nothing left on the calendar ${which} (${earlier} earlier) — for what comes next, read \`orion-agenda upcoming\``);
+}
+
 function describeEvents(events, { onlyToday }) {
-  const today = localDay(new Date());
+  const now = clockNow();
+  const today = localDay(now);
   const wanted = onlyToday
     ? events.filter((e) => localDay(new Date(e.start)) === today)
     : events;
@@ -134,11 +154,13 @@ function describeEvents(events, { onlyToday }) {
       day: "numeric",
     });
     const when = event.allDay === "true" ? "all day" : timeLabel(event.start);
-    console.log(`  ${day} ${when} — ${event.title}${event.location ? ` @ ${event.location}` : ""}`);
+    const mark = onlyToday ? dayMark(event, now) : "";
+    console.log(`  ${day} ${when} — ${event.title}${event.location ? ` @ ${event.location}` : ""}${mark}`);
     // Printed so `remove` works on anything listed, not only on what `add`
     // just returned. Indented under the event so it reads as a detail.
     if (event.identifier) console.log(`      id: ${event.identifier}`);
   }
+  if (onlyToday) printNothingLeft(wanted, now, "today");
 }
 
 const WEEKDAYS = [
@@ -212,7 +234,8 @@ switch (command) {
     // that output is parsed by other programs, and a fingerprint that carries
     // today's date is a fingerprint that changes at midnight.
     if (!rest.includes("--json")) printGrounding(target);
-    const events = unpack(await ask("list_upcoming_calendar_events"), "events_json").filter((e) => !ignoredEvent(e.title));
+    const json = rest.includes("--json");
+    const events = unpack(await ask("list_upcoming_calendar_events", json ? {} : { from: "today" }), "events_json").filter((e) => !ignoredEvent(e.title));
     const wanted = events.filter((e) => localDay(new Date(e.start)) === localDay(target));
     if (rest.includes("--json")) {
       console.log(JSON.stringify(wanted, null, 2));
@@ -224,17 +247,21 @@ switch (command) {
       console.log("nothing on the calendar that day");
       break;
     }
+    const now = clockNow();
     for (const event of wanted.sort((a, b) => new Date(a.start) - new Date(b.start))) {
-      console.log(`  ${timeLabel(event.start)} — ${event.title}`);
+      console.log(`  ${timeLabel(event.start)} — ${event.title}${dayMark(event, now)}`);
       if (event.identifier) console.log(`      id: ${event.identifier}`);
     }
+    printNothingLeft(wanted, now, "that day");
     break;
   }
 
   case "today":
   case "upcoming": {
     if (!rest.includes("--json")) printGrounding(null);
-    const result = await ask("list_upcoming_calendar_events");
+    // The human `today` reads from midnight (see dayMark); `--json` and `upcoming` are unchanged.
+    const wholeDay = command === "today" && !rest.includes("--json");
+    const result = await ask("list_upcoming_calendar_events", wholeDay ? { from: "today" } : {});
     const events = unpack(result, "events_json").filter((e) => !ignoredEvent(e.title));
     /*
      `--json` emits what was already unpacked, unchanged.
@@ -249,7 +276,7 @@ switch (command) {
      the same query, printed differently.
     */
     if (rest.includes("--json")) {
-      const today = new Date().toLocaleDateString("en-CA");
+      const today = clockNow().toLocaleDateString("en-CA");
       const chosen =
         command === "today"
           ? events.filter((event) => {

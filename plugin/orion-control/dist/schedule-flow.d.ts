@@ -189,16 +189,20 @@ export declare function meansTomorrow(message: string, now?: Date): boolean;
 export declare const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 export type FlowResult = 
 /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
+/** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
 {
     outcome: "done";
     calls: string[];
     outputs: string[];
     marks?: string[];
     undone?: number;
-} | {
+    reply?: string;
+}
+/** plain: said exactly as written (no "That doesn't fit" framing). */
+ | {
     outcome: "say";
     text: string;
-    kind: "cannot" | "ask";
+    kind: "cannot" | "ask" | "plain";
 } | {
     outcome: "fallback";
     reason: string;

@@ -33,6 +33,7 @@ import { decide, keepWarm, FRONT_DESK_CTX } from "./front-desk.js";
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction } from "./work-check.js";
+import { isSessionStart } from "./session-flow.js";
 import { FORM_OPTIONS, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply } from "./schedule-flow.js";
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
 // One spoken request can arrive as two turns: the app sends what it heard when he pauses, and the rest
@@ -162,9 +163,9 @@ export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
 /** What Nick must hear after the scheduling flow: the scheduler's own lines, or its "can't"/question. */
 function exactReply(flow) {
     if (flow.outcome === "done")
-        return spokenReply(flow.outputs);
+        return flow.reply ?? spokenReply(flow.outputs);
     if (flow.outcome === "say")
-        return flow.kind === "ask" ? flow.text : `That doesn't fit: ${flow.text.replace(/^(that|it) (can't|cannot) be done[:,]?\s*/i, "")}`;
+        return flow.kind === "ask" || flow.kind === "plain" ? flow.text : `That doesn't fit: ${flow.text.replace(/^(that|it) (can't|cannot) be done[:,]?\s*/i, "")}`;
     return "";
 }
 const ampm12 = (t) => { const [h, m] = t.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
@@ -203,6 +204,14 @@ export const PRODUCTION_NOTES = [
     "Do the job: read his calendar instead of asking him for times you can look up. Ask only for what no tool can tell you.",
 ].join("\n");
 const HONEST_STOP = "The check still finds a problem. Undo any change you made in this turn (orion-reschedule undo, or the matching undo), then tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
+/** What reaches Nick when the reply still claims what the tools do not show. Dictated as the whole reply
+ *  on the last revise: the Mac chat and phone call `openclaw agent --json`, which has no delivery stage,
+ *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
+ *  "I've started the focus session" verbatim (2026-10-15). */
+export const honestLine = (calendar) => calendar
+    ? "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?"
+    : "I didn't actually do that — nothing was started or changed. Can you say it again?";
+const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 /*
  The gate (Nick, 2026-10-12: "clearly we havent done enough work with the local models to do this.
  lets make sure this doesnt happen again"). "on" was switched live on eval numbers alone and failed
@@ -333,7 +342,7 @@ export function registerLocalRouting(api, options) {
             const d = runFor(event, ctx)?.settled;
             traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
             const run = runFor(event, ctx);
-            if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? ""))
+            if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !isSessionStart(run?.message ?? ""))
                 return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
             return undefined;
         });
@@ -348,9 +357,19 @@ export function registerLocalRouting(api, options) {
             // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
             if (run.cutOff)
                 run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
+            // A focus session is one fixed command: code runs orion-session and the reply is built from
+            // its output. Left to the worker, it said "I've started a focus session" three times and
+            // called nothing (2026-10-15). Before the scheduler, which "focus block" would also match.
+            if (!run.flow && isSessionStart(run.message) && options.sessionFlow) {
+                run.flow = await options.sessionFlow(run.message).catch((e) => ({ outcome: "fallback", reason: String(e) }));
+                if (run.flow.outcome === "done") {
+                    const outputs = run.flow.outputs;
+                    run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
+                }
+            }
             // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
             // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).
-            if (REMINDER.test(run.message) && !run.cutOff) {
+            if (REMINDER.test(run.message) && !run.cutOff && !run.flow) {
                 const day = new Date(Date.now() + (meansTomorrow(run.message) ? 86400000 : 0));
                 const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
                 const weekday = day.toLocaleDateString("en-GB", { weekday: "long" });
@@ -381,7 +400,7 @@ export function registerLocalRouting(api, options) {
                 }
             }
             // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
-            if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay) {
+            if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay && !run.flow) {
                 const tomorrow = meansTomorrow(run.message);
                 const day = await options.readDay(tomorrow).catch(() => "");
                 if (day)
@@ -471,13 +490,17 @@ export function registerLocalRouting(api, options) {
             const flowActed = run.flow?.outcome === "done";
             if (on && findings.length > 0 && run.passes < 2 && !flowActed) {
                 run.passes += 1;
-                const instruction = run.passes === 1 ? retryInstruction(findings) : HONEST_STOP;
+                const calendar = SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical));
+                const claimed = findings.some((f) => FALSE_CLAIM.test(f));
+                const instruction = run.passes === 1 ? retryInstruction(findings)
+                    : claimed ? `${HONEST_STOP}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar)}`
+                        : HONEST_STOP;
                 return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
             }
             const decision = run.settled ?? (await settle(run));
             // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
-            if (on && !flowActed && !run.reminder && findings.some((f) => /claims what the tools|promised but did not act/.test(f))) {
-                remember([runId, sessionKeyNow], "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?");
+            if (on && !flowActed && !run.reminder && findings.some((f) => FALSE_CLAIM.test(f))) {
+                remember([runId, sessionKeyNow], honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical))));
             }
             log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
                 ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,

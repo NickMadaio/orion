@@ -280,3 +280,64 @@ describe("local routing — on mode", () => {
         expect(meansTomorrow("remind me at 11", new Date(2026, 9, 13, 14, 0))).toBe(false);
     });
 });
+describe("local routing — focus sessions and false claims (2026-10-15)", () => {
+    const SAID = "Can you go ahead and, uh, start a focus session? I wanna do some work.";
+    const setup = (decision, sessionFlow) => {
+        const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Thu 22:40",
+            scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), brainSearch: async () => "", readDay: async () => "1. Gym 18:00",
+            ...(sessionFlow ? { sessionFlow } : {}) });
+        return { f, logPath, ctx: { runId: "fs1", sessionKey: "agent:main:orion-chat-1" } };
+    };
+    const started = { outcome: "done", calls: ["exec orion-session start Focus --json"], outputs: ['{"ok":true,"status":"running"}'], reply: "Your focus session is running: block 1 of 3, 50 minutes." };
+    it("code starts the session; the worker is told the exact reply and to call nothing", async () => {
+        const asked = [];
+        const { f, ctx, logPath } = setup({ move: "tool", tool: "session", args: { do: "start" } }, async (m) => { asked.push(m); return started; });
+        await f.fire("before_model_resolve", { prompt: SAID }, ctx);
+        const [built] = (await f.fire("before_prompt_build", { prompt: SAID, messages: [] }, ctx));
+        expect(asked).toEqual([SAID]);
+        expect(built?.systemPrompt).toMatch(/exactly this text[\s\S]*Your focus session is running: block 1 of 3, 50 minutes\./);
+        expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Your focus session is running: block 1 of 3, 50 minutes." }, ctx)).toEqual([undefined]);
+        expect(lines(logPath).at(-1)).toMatchObject({ tools: 1, flow: { outcome: "done", calls: ["exec orion-session start Focus --json"] } });
+    });
+    it("a session start phrased as a question is still started, not answered from his calendar", async () => {
+        const { f, ctx } = setup({ move: "tool", tool: "session", args: { do: "start" } }, async () => started);
+        await f.fire("before_model_resolve", { prompt: "can you start a focus block?" }, ctx);
+        const [built] = (await f.fire("before_prompt_build", { prompt: "can you start a focus block?", messages: [] }, ctx));
+        expect(built?.systemPrompt).toMatch(/Your focus session is running/);
+        expect(built?.systemPrompt).not.toMatch(/read just now from his calendar/);
+    });
+    it("the front desk's draft never answers a session start in place of starting it", async () => {
+        const { f, ctx } = setup({ move: "answer", answer: "Starting your focus session now." }, async () => started);
+        await f.fire("before_model_resolve", { prompt: "start a focus session" }, ctx);
+        expect(await f.fire("before_agent_reply", {}, ctx)).toEqual([undefined]);
+    });
+    it("a failed start is said plainly, exactly as the flow wrote it", async () => {
+        const { f, ctx } = setup({ move: "tool", tool: "session", args: { do: "start" } }, async () => ({ outcome: "say", kind: "plain", text: "I couldn't start the focus session: Orion is not running. Nothing is running." }));
+        await f.fire("before_model_resolve", { prompt: SAID }, ctx);
+        const [built] = (await f.fire("before_prompt_build", { prompt: SAID, messages: [] }, ctx));
+        expect(built?.systemPrompt).toMatch(/exactly this text[\s\S]*I couldn't start the focus session: Orion is not running\./);
+        expect(built?.systemPrompt).not.toMatch(/That doesn't fit/);
+    });
+    it("tonight's replay: a claimed action with no tool call ends with the honest line DICTATED, not left to delivery", async () => {
+        // No session flow wired, so nothing runs — exactly the shape of the turn that lied.
+        const { f, ctx } = setup({ move: "answer", answer: "Right here, Nick. What's on your mind?" });
+        await f.fire("before_model_resolve", { prompt: "Right now." }, ctx);
+        const lie = "I've started the focus session right now with those apps allowed.";
+        const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie }, ctx));
+        expect(first).toMatchObject({ action: "revise" });
+        const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie }, ctx));
+        expect(second).toMatchObject({ action: "revise" });
+        expect(second?.retry.instruction).toMatch(/whole reply must be exactly this text.*I didn't actually do that — nothing was started or changed\./);
+        expect(second?.retry.instruction).not.toMatch(/calendar changed/);
+    });
+    it("a calendar false claim keeps the calendar wording", async () => {
+        const { f, ctx } = setup({ move: "escalate", tier: "standard" });
+        await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
+        for (let k = 0; k < 1; k++)
+            await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx);
+        const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx));
+        expect(second?.retry.instruction).toMatch(/nothing on your calendar changed/);
+    });
+});

@@ -28,6 +28,8 @@ export type LocalRoutingOptions = {
     scheduleFlow?: (message: string, clock: string, opts?: {
         undo?: string[];
     }) => Promise<FlowResult>;
+    /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
+    sessionFlow?: (message: string) => Promise<FlowResult>;
     /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
     extractReminder?: (message: string) => Promise<{
         time: string;
@@ -75,6 +77,11 @@ export declare const liveExtractReminder: (message: string) => Promise<{
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export declare function dateLine(now?: Date): string;
 export declare const PRODUCTION_NOTES: string;
+/** What reaches Nick when the reply still claims what the tools do not show. Dictated as the whole reply
+ *  on the last revise: the Mac chat and phone call `openclaw agent --json`, which has no delivery stage,
+ *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
+ *  "I've started the focus session" verbatim (2026-10-15). */
+export declare const honestLine: (calendar: boolean) => string;
 export declare const ACCEPTANCE: {
     minPassRate: number;
     maxMedianMs: number;

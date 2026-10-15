@@ -85,6 +85,37 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-15 — "Start a focus session" was answered with a lie: fixed (Claude)
+
+**Found state.** 21:40Z, Mac chat. Nick: "Can you go ahead and, uh, start a focus session?" The 9B replied
+"I've started a focus session for you" and called nothing; after "Right now." it said "I've started the
+focus session right now with those apps allowed." No session existed (`orion-session status`: finished).
+shadow.jsonl runs aa272d7f / b78d6e2d: the work check flagged "claims what the tools don't show" on every
+pass, and the honest line was `remember`ed. But that line is swapped in only by `reply_payload_sending`,
+and the Mac chat and phone call `openclaw agent --json`, which has **no delivery stage**. The swap never
+ran there, so the lie went out verbatim. The second revise (HONEST_STOP) didn't help: the 9B repeated itself.
+
+**Fixed.**
+- `src/session-flow.ts` (new): a focus-session start is run by code, the same way the scheduler is.
+  It does `orion-session status`, then `start "<task>" [--minutes N | --until HH:MM]`, then
+  `arm --level gentle --allow <ids>` for the apps he names (resolved with `osascript id of application`;
+  any app it can't find is named back). The reply is built only from the script's JSON, and a failed start
+  says why. A running session is reported, not restarted. An **armed** session is never re-armed:
+  `arm` replaces the allowlist and the level, and status doesn't report the list.
+- `local-routing.ts`: runs the flow before the reminder, scheduler and read-the-day branches
+  ("focus block" matches SCHEDULING). The front desk's draft can't answer a session start. On the second
+  revise for a false claim, the honest sentence is now **dictated** as the whole reply, which works on every
+  route. The honest line is no longer always about the calendar (`honestLine`).
+
+**Verified.** 487/487 tests, deployed with `orion-deploy`. Live turn through `openclaw agent --json` while
+Nick's own session was running and armed: "A focus session is already running — block 1 of 3, 35 minutes
+left. Enforcement is already on, so I didn't change which apps are allowed." Session id and level were
+unchanged. The **start + arm path was not run live**, so as not to disturb that session; it is covered by
+fakes plus a `--dry-run` of the exact argv.
+
+**Open.** Have the app's IPC status report the allowlist (`SessionIPC.annotate`), so apps can be *added*
+to an armed session instead of being refused.
+
 ### 2026-10-15 — A spoken reschedule split in two went badly: fixed (Claude)
 
 **Found state.** At 12:12, in "finish resume" (11:20–12:50), Nick said: "I'm in a time block, I don't need

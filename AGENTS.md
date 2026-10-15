@@ -425,6 +425,12 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 
 ## Traps that have already bitten, do not reintroduce
 
+- **A spoken request can arrive as two turns.** The Mac app sends what it heard when Nick pauses, then the
+  rest prefixed "(Continuing — my last message was cut off…)". Any per-message logic must read the
+  stitched request (`local-routing.ts` CONTINUING/lastTurn) and must not act on a half that trails off.
+  On 2026-10-15 the first half changed his day on its own, and the second half was read without the
+  first.
+
 - **`set -euo pipefail` + `grep`.** A `grep` that matches nothing exits 1 and
   kills the script mid-assignment. This silently made the ad-hoc warning path in
   `make_app_bundle.sh` unreachable. Use `|| true` on pipelines whose emptiness is

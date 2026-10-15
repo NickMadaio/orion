@@ -85,6 +85,59 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-15 — A spoken reschedule split in two went badly: fixed (Claude)
+
+**Found state.** At 12:12, in "finish resume" (11:20–12:50), Nick said: "I'm in a time block, I don't need
+it, I'm gonna start meal prepping in about thirty minutes, so if you can go ahead and | put [it] from 12:45
+to 1:45 and push everything else to follow." The Mac app sent it as two turns (the second prefixed
+"(Continuing — my last message was cut off…)", `AppState.send`). Three separate bugs (shadow.jsonl,
+11:12:48Z and 11:13:12Z):
+1. The first half, ending "…go ahead and", ran the schedule flow on its own: `resize "finish resume" 30`
+   (11:20–11:50, already past).
+2. The second half was read alone. No "meal prep" in it, so the 9B moved CS Lab and Review spending itself.
+   Meal prep was never booked; DS Lab stayed at 12:55.
+3. Even the right command (`add "meal prep" 60 --at 12:45`) got SHIFTED to 13:00 by the scheduler: the
+   ORION block he was in counted as a wall against a time he stated.
+The handoff's "4.5–5.8 s per turn" is the 9B alone. Real voice turns were 11–20 s, mostly the front desk
+(3.5–4.5 s) plus the 9B repeating the exact reply. Not touched.
+
+**Changed.**
+- `scripts/lib/life/replan.mjs`: a time he states cuts short the movable block under way (ends `buffer`
+  before it) and is kept exactly. Classes are never cut. `orion-reschedule` prints
+  "`<title> now ends at HH:MM`". Live at once (ORION runs the repo script).
+- `schedule-flow.ts`: `add` takes `to`+`until` (code computes the minutes). There is a form example for
+  "put X from A to B and push everything else" (one step; never move the following blocks). The spoken
+  reply names the cut-short block and up to three blocks that slid. More than three becomes a count.
+  `runScheduleFlow` takes `undo` stamps and reverts them first, newest first. It reverts each one only while
+  it is still the top of the undo journal (`undoJournalTop`, same file as `calendar-write.mjs`). Every
+  change's stamp is returned as `marks`.
+- `local-routing.ts`: a continuation is stitched to the same session's previous message (≤3 min) and the
+  marker is dropped. The front desk and the flow see the whole request. The first half's `marks` are
+  undone first. A **spoken** message ending on a word a sentence cannot end on (`TRAILS_OFF`: and, so, to,
+  the…) is held: exact reply "Go on.", no front desk, no flow, logged `heldCutOff: true`. Typed messages
+  are never held.
+- Rejected: fixing it only in the Swift app (merge fragments before sending). That is better long-term,
+  but it is a shared native file and needs a rebuild. The plugin fix covers the phone and every route.
+
+**Verification.** life tests 279/279 (two new in `tests/life-replan.test.mjs`); plugin 469/469 (8 new);
+tsc clean. Sandbox replay of his real morning (`tests/fixtures/fake-bridge.mjs`, now 12:12):
+`add "meal prep" 60 --at 12:45` → resume ends 12:35, meal prep 12:45–13:45, DS Lab 13:55, CS Lab 14:50,
+Review spending 15:45. (The gaps are 10 min because that is the config buffer.) Real `qwen3.5:9b` on the
+stitched message: `[{"do":"add","what":"meal prep","to":"12:45","until":"13:45"}]` in 3.1 s. "push CS
+lab back half an hour" and "put gym at 4 for an hour" still compile correctly. Live through the gateway after
+deploy: a spoken "…so if you can go ahead and" → "Go on.", 4.7 s, no flow.
+
+**Live state.** Deployed 12:28 with `orion-deploy --allow-dirty` (all suites ok, gateway restarted, probe
+ok). Nick's real calendar was NOT repaired: it still has resume ending 11:50, no meal prep, and DS Lab
+12:55. Ask him.
+
+**Rollback.** `scripts/orion-deploy --rollback` (snapshot `~/.openclaw/backups/orion-control/20261015-122838`);
+the scheduler change is the `clips` block in `replan.mjs` + one line in `orion-reschedule`.
+
+**Next.** Make the app wait for the rest instead of sending a half (native `AppState`/endpointing; shared
+file, Nick's window). The live continuation turn (which writes to his calendar) has only been run in
+the sandbox, not on the gateway: run it with the gauntlet when he OKs it.
+
 ### 2026-10-14 — ORION slow and sometimes silent: fixed (Claude)
 
 - **Hidden thinking.** The Mac app's chat sessions carry `thinkingLevel: "low"`

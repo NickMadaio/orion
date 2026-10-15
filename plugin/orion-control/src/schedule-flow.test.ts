@@ -161,4 +161,33 @@ describe("schedule flow", () => {
     await runScheduleFlow({ message: "meal prep from 12:45 to 1:45", clock: "Thu 12:13", exec, ask, undo: ["frag-1"], undoTop: () => top });
     expect(calls[0]?.[0]).toBe("show");
   });
+  // Live sweep 2026-10-16 (q043, q051, q093, q022, q026, q020): a scheduler that changed NOTHING came back
+  // as outcome "done" ("You already made this change"), and its raw lines were spoken word for word —
+  // usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added", block ids.
+  it("a scheduler failure that changed nothing is a 'say', not 'done', in short spoken words", async () => {
+    const exec = async (args: string[]) => (args[0] === "show" ? { stdout: JSON.stringify(thursday), code: 0 }
+      : { stdout: "NOTHING WAS BOOKED: focus at 12:55 is already over today (Thursday 2026-10-15). If he meant another day, run again with --date YYYY-MM-DD.\nNOTHING WAS BOOKED on Thursday (2026-10-15). Do not tell him anything was added or moved.", code: 1 });
+    const result = await runScheduleFlow({ message: "focus at 12:55", clock: "Thu 15:00", exec, ask: async () => ({ steps: [{ do: "add" as const, what: "focus", minutes: 50, to: "12:55" }] }) });
+    expect(result).toMatchObject({ outcome: "say", kind: "plain", text: "Not done: focus at 12:55 PM has already ended today." });
+  });
+
+  it("failure lines are spoken without usage text, block dumps, operator notes or 24-hour times", () => {
+    expect(spokenReply(['usage: orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM]'])).toBe("Not done: I couldn't make that change.");
+    expect(spokenReply(["NOTHING WAS BOOKED on Thursday (2026-10-15). Do not tell him anything was added or moved."])).toBe("Not done: nothing could be booked.");
+    expect(spokenReply(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: CS1800 Discrete Structures 09:00–10:30, finish resume 11:20–12:50.'])).toBe("Not done: there's no block called gym.");
+    expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — CS2101 Lab (15:48–17:00) overlaps grind leetcode (16:15–17:45). Tell him what clashes and ask which to move; do not retry the same call."]))
+      .toBe("Not done: moving it would break the day rules — CS2101 Lab (3:48 PM–5:00 PM) overlaps grind leetcode (4:15 PM–5:45 PM).");
+    expect(spokenReply(["  NOT BOOKED: macro (45 min) did not fit on Thursday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)"])).toBe("Not done: macro didn't fit.");
+    expect(summarize(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: finish resume 11:20–12:50.'], []).reply).toBe("Not done: there's no block called gym.");
+  });
+
+  it("the form's own sentences name blocks by title, never by id", () => {
+    expect(compile({ do: "cannot", text: "Cannot swap B1 (a FIXED class) with DS Lab (B3)." }, thursday)).toEqual({ say: "cannot", text: "Cannot swap CS1800 Discrete Structures — Lecture (a fixed class) with DS Lab." });
+  });
+
+  it("a change made for tomorrow says so (q020: 'Done: resume work 5:50 PM–6:35 PM.' with no day)", async () => {
+    const exec = async (args: string[]) => (args[0] === "show" ? { stdout: JSON.stringify(thursday), code: 0 } : { stdout: "Changed Friday:\n  planned resume work: 17:50–18:35", code: 0 });
+    const result = await runScheduleFlow({ message: "resume work tomorrow at 5:50", clock: "Thu 12:00", now: new Date(2026, 9, 15, 12, 0), exec, ask: async () => ({ steps: [{ do: "add" as const, what: "resume work", minutes: 45, to: "17:50" }] }) });
+    expect(result).toMatchObject({ outcome: "done", reply: "Done for tomorrow: resume work 5:50 PM–6:35 PM." });
+  });
 });

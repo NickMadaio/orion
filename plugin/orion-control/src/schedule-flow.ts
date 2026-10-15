@@ -127,8 +127,11 @@ export function compile(input: Intent, day: Day): Compiled {
   if (what?.fixed && ["fill_between", "move", "resize", "drop", "swap"].includes(step.do)) return { error: `${what.title} is a class or a plan with people — it does not move` };
   const time = (t?: string) => (t && /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5, "0") : undefined);
   switch (step.do) {
-    case "cannot": case "ask": case "answer":
-      return { say: step.do, text: String(step.text ?? "").trim() || (step.do === "cannot" ? "That can't be done today." : "") };
+    case "cannot": case "ask": case "answer": {
+      // Nick hears blocks by name: the form wrote "Cannot swap B2 (a FIXED class)" and "DS Lab (B3)" (sweep 2026-10-16).
+      const text = String(step.text ?? "").replace(/\s*\(B\d+\)/g, "").replace(/\bB(\d+)\b/g, (id, n) => day.blocks[Number(n) - 1]?.title ?? id).replace(/\bFIXED\b/g, "fixed").trim();
+      return { say: step.do, text: text || (step.do === "cannot" ? "That can't be done today." : "") };
+    }
     case "fill_between": {
       const a = byId(step.after); const b = byId(step.before);
       if (!a || !b) return { error: "fill_between needs two real blocks (after, before)" };
@@ -198,6 +201,33 @@ export function compile(input: Intent, day: Day): Compiled {
 
 const FAILED = /NOT BOOKED|NOTHING WAS|did not fit|usage:|not a real block|is in the past|no block called|Error/i;
 
+/** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
+ *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
+export function spokenFailure(line: string): string {
+  const l = line.trim().replace(/^orion-reschedule:\s*/, "")
+    .replace(/^(?:MUST-HAVE )?(?:NOTHING WAS|NOT) (?:CHANGED|BOOKED|DROPPED)\b(?: on \w+day)?(?: \(\d{4}-\d{2}-\d{2}\))?[:.]?\s*/i, "")
+    // Notes to the operator, and lists of his whole day, are not for Nick.
+    .replace(/(?:[.;]\s+|\s+—\s+|^)(?:Tell him|Do not|Don't|If he|ask whether|Run |Use |To set|See the header|Options:|Blocks today|Fixed today|Movable blocks|Classes today|Never |swap only|skip is only)[\s\S]*$/i, "")
+    .replace(/ \((?:\w+day )?\d{4}-\d{2}-\d{2}\)/g, "").trim();
+  if (/^usage:|^Error\b|has no .* option|one command per call|does not take/i.test(l)) return "I couldn't make that change";
+  if (!l) return "nothing could be booked";
+  const rules: Array<[RegExp, (...m: string[]) => string]> = [
+    [/^(.+?) (is|are) already over today/i, (_, what, verb) => `${what} ${verb === "is" ? "has" : "have"} already ended today`],
+    [/^no block called "?(.+?)"? on /i, (_, what) => `there's no block called ${what}`],
+    [/^no class or fixed plan called "?(.+?)"? left/i, (_, what) => `there's no class called ${what} left today`],
+    [/^no "(.+?)" on .* to put it after/i, (_, what) => `there's no ${what} to put it after`],
+    [/^"?(.+?)"? is one of his own calendar events/i, (_, what) => `${what} is a class or a plan with people, so it doesn't move`],
+    [/^(.+?) \(\d+ min\) (?:no longer fits|did not fit)/i, (_, what) => `${what} didn't fit`],
+    [/^must-haves could not fit: (.+?)\.?$/i, (_, what) => `${what} didn't fit`],
+    [/^no movable block matches/i, () => "there's no movable block by that name"],
+    [/^(.+?) is on \d{4}-\d{2}-\d{2}/i, (_, what) => `${what} is on another day`],
+    [/is in the past/i, () => "that day is already over"],
+  ];
+  const hit = rules.map(([re, say]) => { const m = l.match(re); return m ? say(...m) : null; }).find((t) => t !== null);
+  const said = hit ?? l;
+  return said.replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t)).replace(/\.$/, "");
+}
+
 /** What to tell Nick, from the scheduler's own output only. */
 export function summarize(outputs: string[], said: string[]): { reply: string; changed: boolean } {
   const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
@@ -205,9 +235,9 @@ export function summarize(outputs: string[], said: string[]): { reply: string; c
   const failed = lines.filter((l) => FAILED.test(l));
   const parts: string[] = [];
   if (changes.length) parts.push(changes.slice(0, 4).join("; "));
-  if (failed.length) parts.push(`Not done: ${failed[0]}`);
+  if (failed.length) parts.push(`Not done: ${spokenFailure(failed[0]!)}`);
   parts.push(...said.filter(Boolean));
-  return { reply: parts.join(". ") || "Nothing changed.", changed: changes.length > 0 };
+  return { reply: parts.join(". ").replace(/^(Not done: .*[^.])$/, "$1.") || "Nothing changed.", changed: changes.length > 0 };
 }
 
 /** "tomorrow" as he types it ("tmrw" read today's calendar, 2026-10-12). */
@@ -225,8 +255,8 @@ export type FlowResult =
   /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
   /** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
   | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string }
-  /** plain: said exactly as written (no "That doesn't fit" framing). */
-  | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain" }
+  /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */
+  | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[] }
   | { outcome: "fallback"; reason: string };
 
 /** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
@@ -283,13 +313,19 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     if (after && after !== before) marks.push(after);
     if (FAILED.test(stdout)) break; // the rest depended on this one
   }
-  return { outcome: "done", calls, outputs, marks, undone };
+  const when = dateArgs.length ? "tomorrow" : undefined;
+  // The scheduler refused and nothing was written: that is not "done" — "done" told the worker "You
+  // already made this change" and skipped the work check (sweep 2026-10-16, q043/q051/q093).
+  if (outputs.some((o) => FAILED.test(o)) && !marks.length && !undone && !summarize(outputs, []).changed) {
+    return { outcome: "say", kind: "plain", text: spokenReply(outputs, when), calls, outputs };
+  }
+  return { outcome: "done", calls, outputs, marks, undone, ...(when ? { reply: spokenReply(outputs, when) } : {}) };
 }
 
 const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
 
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
-export function spokenReply(outputs: string[]): string {
+export function spokenReply(outputs: string[], when?: string): string {
   const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
   const said: string[] = []; const cut: string[] = []; const followed: string[] = [];
   for (const l of lines) {
@@ -313,6 +349,7 @@ export function spokenReply(outputs: string[]): string {
   // Spoken: three moved blocks can be named; more is a count ("4 other blocks moved to follow it").
   const rest = followed.length > 3 ? [`${followed.length} other blocks moved to follow it`] : followed;
   const all = said.length ? [...said, ...cut, ...rest] : [];
-  const parts = [all.length ? `Done: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${failed.replace(/^NOTHING WAS CHANGED:\s*/i, "")}` : ""].filter(Boolean);
+  // when: the day it was for ("Done: resume work 5:50 PM" for tomorrow sounded like today, q020).
+  const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
   return parts.join(" ") || "Nothing on your day changed.";
 }

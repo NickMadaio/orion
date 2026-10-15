@@ -34,6 +34,7 @@ import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart } from "./session-flow.js";
+import { toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
@@ -58,6 +59,8 @@ export type LocalRoutingOptions = {
   scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
   /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
   sessionFlow?: (message: string) => Promise<FlowResult>;
+  /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
+  sessionStatus?: () => Promise<FlowResult>;
   /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
   extractReminder?: (message: string) => Promise<{ time: string; label: string } | null>;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
@@ -83,6 +86,8 @@ type Run = {
   cloud?: boolean;
   /** A reminder the worker must set: the exact orion_task_run arguments and what to tell him. */
   reminder?: { args: string; say: string };
+  /** A front-desk tool move code worked out (tool-moves.ts): the one call the worker must make. */
+  directive?: Extract<ToolDirective, { kind: "call" }>;
   brain?: Promise<string>;
   flow?: FlowResult;
   sessionKey?: string;
@@ -278,6 +283,8 @@ export const honestLine = (calendar: boolean): string => calendar
   ? "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?"
   : "I didn't actually do that — nothing was started or changed. Can you say it again?";
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
+/** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id). */
+const directiveCalled = (run: Run): boolean => !!run.directive && run.tools.some((t) => /orion_task_run/.test(t.canonical) && t.canonical.includes(`"${run.directive!.action}"`));
 
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
@@ -454,6 +461,19 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}. Set it with ONE orion_task_run call: {"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM>","label":"<what it is for>"}]}. Never use orion-tasks. Reply only after the tool result shows it was set.` };
       }
+      // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
+      // a timer and supplements answered with no call or the wrong one). Before the calendar flow.
+      const moved = !run.flow && !run.cutOff ? toolDirective(run.settled, run.message) : null;
+      if (moved?.kind === "say") run.flow = { outcome: "say", kind: "plain", text: moved.text };
+      if (moved?.kind === "call") {
+        run.directive = moved;
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this with ONE orion_task_run call using exactly these arguments:\n${moved.args}\n${moved.note} If it failed, say so plainly.`,
+          appendContext: `[ORION: call orion_task_run now with exactly ${moved.args} — do not reply before calling it.]` };
+      }
+      // "how much focus time is left": code reads the session (q049 said "15 minutes remaining" from nothing).
+      if (!run.flow && !run.cutOff && run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && options.sessionStatus) {
+        run.flow = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+      }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
@@ -560,6 +580,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Ignore the earlier conversation. Your whole reply must be exactly this text, nothing before or after, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
         }
       }
+      if (on && run.directive && run.passes < 2 && !directiveCalled(run)) {
+        run.passes += 1;
+        return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call orion_task_run now with exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
+      }
       const flowActed = run.flow?.outcome === "done";
       if (on && findings.length > 0 && run.passes < 2 && !flowActed) {
         run.passes += 1;
@@ -576,6 +600,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)));
         remember([runId, sessionKeyNow], owed);
       }
+      // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
+      if (on && run.directive && !directiveCalled(run)) { owed = run.directive.failLine; remember([runId, sessionKeyNow], owed); }
       if (on && owed) putReplyInPlace(event.messages, owed);
       log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
         ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,

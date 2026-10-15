@@ -187,6 +187,8 @@ export function compile(input: Intent, day: Day): Compiled {
       if (span !== undefined && span < 5) return { error: `add runs ${step.to}–${step.until}, which ends before it starts` };
       const minutes = span ?? step.minutes;
       if (!Number.isFinite(minutes)) return { error: "add needs minutes, or a start (to) and an end (until)" };
+      // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
+      if (minutes! < 5) return { error: "add needs at least 5 minutes" };
       const at = time(step.to) ? ["--at", time(step.to)!] : byId(step.after) ? ["--after", byId(step.after)!.title] : [];
       return { args: ["add", step.what, String(Math.round(minutes!)), ...at] };
     }

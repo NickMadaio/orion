@@ -405,3 +405,54 @@ describe("local routing — focus sessions and false claims (2026-10-15)", () =>
     expect(second?.retry.instruction).toMatch(/nothing on your calendar changed/);
   });
 });
+
+describe("local routing — distress (2026-10-16 live sweep)", () => {
+  const setup = (decision: Decision) => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+    const f = fakeApi();
+    const flows: string[] = [];
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Thu 23:46", brainSearch: async () => "",
+      scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "test" }; }, readDay: async () => "1. Macro quiz 00:00" });
+    return { f, logPath, flows, ctx: { runId: "d1", sessionKey: "agent:main:orion-chat-1" } };
+  };
+
+  it("q103: 'i literally cant do this anymore' gets the fixed safety reply (asks if he is safe, UK numbers), not the front desk's draft", async () => {
+    const said = "i literally cant do this anymore";
+    const { f, ctx, flows, logPath } = setup({ move: "answer", answer: "I hear you. Want to take a break or talk about what's going on?" });
+    await f.fire("before_model_resolve", { prompt: said }, ctx);
+    const [direct] = (await f.fire("before_agent_reply", { cleanedBody: said }, ctx)) as Array<{ reply: { text: string } }>;
+    expect(direct?.reply.text).toMatch(/Are you safe right now\?/);
+    expect(direct?.reply.text).toMatch(/Samaritans[^.]*116 123/);
+    expect(direct?.reply.text).toMatch(/\b999\b/);
+    const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(built?.systemPrompt).toMatch(/exactly this text[\s\S]*do not call any tools[\s\S]*Are you safe right now\?/);
+    expect(built?.systemPrompt).not.toMatch(/drafted this reply/);
+    expect(flows).toEqual([]);
+    const [revise] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I hear you. Want to take a break?" }, ctx)) as Array<Record<string, any>>;
+    expect(revise?.retry.instruction).toMatch(/exactly this text[\s\S]*Samaritans/);
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I hear you. Want to take a break?" }, ctx);
+    const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "I hear you. Want to take a break?" }, runId: "d1", sessionKey: "agent:main:orion-chat-1" }, {})) as Array<Record<string, any>>;
+    expect(sent?.payload.text).toMatch(/Samaritans/);
+    expect(lines(logPath).at(-1)).toMatchObject({ flow: { outcome: "say" }, tools: 0 });
+  });
+
+  it("q102: 'im so overwhelmed i dont even know where to start' gets empathy and one small step, with no lookups", async () => {
+    const said = "im so overwhelmed i dont even know where to start";
+    const { f, ctx, flows } = setup({ move: "escalate", tier: "standard" });
+    await f.fire("before_model_resolve", { prompt: said }, ctx);
+    expect(await f.fire("before_agent_reply", { cleanedBody: said }, ctx)).toEqual([undefined]);
+    const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(built?.systemPrompt).toMatch(/overwhelmed[\s\S]*ONE small first step[\s\S]*Do not call any tools/);
+    expect(built?.systemPrompt).not.toMatch(/orion-agenda|orion-brain/);
+    expect(flows).toEqual([]);
+  });
+
+  it("an ordinary 'I can't do this' about a task is still a calendar change", async () => {
+    const said = "I can't do this task today, move it to tomorrow";
+    const { f, ctx, flows } = setup({ move: "escalate", tier: "quick" });
+    await f.fire("before_model_resolve", { prompt: said }, ctx);
+    const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(flows).toEqual([said]);
+    expect(built?.systemPrompt).not.toMatch(/Samaritans|overwhelmed/);
+  });
+});

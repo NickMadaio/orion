@@ -34,6 +34,7 @@ import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart } from "./session-flow.js";
+import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -360,7 +361,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
     if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
     run.settled = d;
-    if (options.scheduleChangesToCloud && CHANGE_REQUEST.test(message) && SCHEDULING.test(message)) {
+    if (options.scheduleChangesToCloud && CHANGE_REQUEST.test(message) && SCHEDULING.test(message) && !isCrisis(message)) {
       run.cloud = true;
       return undefined; // the configured model, with ORION's full prompt
     }
@@ -374,6 +375,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const d = runFor(event, ctx)?.settled;
       traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
       const run = runFor(event, ctx);
+      // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
+      if (run && isCrisis(run.message)) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
+      if (run && isOverwhelmed(run.message)) return undefined;
       if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
@@ -385,8 +389,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
+      // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
+      // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
+      if (isCrisis(run.message)) run.flow = { outcome: "say", kind: "plain", text: CRISIS_REPLY };
+      // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
+      // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.
+      if (!run.flow && isOverwhelmed(run.message) && !CHANGE_REQUEST.test(run.message)) {
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\n${OVERWHELMED_NOTE}` };
+      }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
-      if (run.cutOff) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
+      if (run.cutOff && !run.flow) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
       // A focus session is one fixed command: code runs orion-session and the reply is built from
       // its output. Left to the worker, it said "I've started a focus session" three times and
       // called nothing (2026-10-15). Before the scheduler, which "focus block" would also match.

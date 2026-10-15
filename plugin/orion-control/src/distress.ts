@@ -5,7 +5,8 @@
 
 // Words that may mean he is not safe. Narrow on purpose: "I can't do this task", "end it at 5" or
 // "kill the lights" are ordinary requests, so every phrase here needs its "anymore"/"all"/"myself".
-const CRISIS = /\b(can['’]?t|cannot) (do|take|handle) (this|it) (any ?more|no more)\b|\bcan['’]?t go on( like this| any ?more)?\s*[.!]*$|\b(want|wanna|going) to die\b|\bkill(ing)? myself\b|\bend (it all|my life)\b|\b(hurt|harm)(ing)? myself\b|\bsuicid\w*|\bself[- ]harm\w*|\bno (reason|point) (to live|in living|going on)\b|\bhopeless\b|\bbetter off (dead|without me)\b/i;
+// "hopeless" counts only about himself or his life — "this code is hopeless" is a bug report.
+const CRISIS = /\b(can['’]?t|cannot) (do|take|handle) (this|it) (any ?more|no more)\b|\bcan['’]?t go on( like this| any ?more)?\s*[.!]*$|\b(want|wanna|going) to die\b|\bkill(ing)? myself\b|\bend (it all|my life)\b|\b(hurt|harm)(ing)? myself\b|\bsuicid\w*|\bself[- ]harm\w*|\bno (reason|point) (to live|in living|going on)\b|\b(i|i'?m|i am|feel\w*|everything(?:'s| is)?|it all(?: is)?|life(?: is)?)\s+(?:\w+\s+)?hopeless\b|\bbetter off (dead|without me)\b/i;
 
 // Heavy but not a crisis: he needs warmth and one small step, not a lookup.
 const OVERWHELMED = /\b(overwhelm\w*|stressed out|so stressed|burn(t|ed) out|freaking out|panick?ing|so anxious|can['’]?t cope|falling apart|(don['’]?t|do not) (even )?know where to (start|begin))\b/i;

@@ -35,6 +35,7 @@ import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORK
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart } from "./session-flow.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
+import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -139,6 +140,8 @@ export function isCalendarTurn(message: string, settled: Decision): boolean {
   if (settled.move === "ask" && NAMES_NOTHING(message)) return false;
   return true;
 }
+// A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).
+const keepsFact = (message: string) => tellsFact(message) || (HABIT.test(message) && !CHANGE_REQUEST.test(message) && !/\?\s*$/.test(message.trim()));
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key: string) => str(event[key]) ?? str(ctx[key]);
@@ -408,6 +411,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
       if (run && isCrisis(run.message)) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
       if (run && isOverwhelmed(run.message)) return undefined;
+      // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
+      if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
       if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !LIVE_DATA.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
@@ -438,6 +443,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           const outputs = run.flow.outputs;
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
         }
+      }
+      // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
+      // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
+      // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
+      if (!run.flow && !run.cutOff && (keepsFact(run.message) || asksRecall(run.message))) {
+        const fact = keepsFact(run.message);
+        const fetched = fact || !run.brain ? "" : brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))]));
+        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${fetched ? `\n\nFrom his brain, matched to this message (may help; not necessarily something he told you):\n${fetched}` : ""}\n\n${now}`,
+          appendContext: fact ? FACT_NOW : RECALL_NOW };
       }
       // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
       // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).

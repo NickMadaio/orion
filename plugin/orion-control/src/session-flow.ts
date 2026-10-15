@@ -20,6 +20,8 @@ import type { FlowResult } from "./schedule-flow.js";
 
 export type SessionExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type SessionRequest = { task: string; minutes?: number; until?: string; apps: string[] };
+/** What the front desk read from his words: its session start, task and length (fills only what his words leave out). */
+export type SessionHint = { start?: boolean; task?: string; minutes?: number };
 
 export const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
 const DEFAULT_TASK = "Focus";
@@ -27,10 +29,18 @@ const RUNNING_STATES = new Set(["running", "paused", "waiting-for-return"]);
 const ARMED_LEVELS = new Set(["gentle", "guided", "firm", "shield"]);
 
 const START = /\b(start|begin|kick(?:\s|-)?off|launch|fire up|spin up|set up|open)\b[^.?!]{0,40}?\b(focus|work|study|deep work)(?:\s+(session|block|mode|time))?\b|\block me in\b/i;
+// "focus mode on for an hour, leetcode" has no start verb and became a calendar block (q051, sweep 2026-10-15).
+const MODE_ON = /\b(focus|study|work|deep work)\s+mode\s+on\b/i;
 // Not now, or not a session: a future start belongs to the calendar path; these words end or query one.
-const NOT_A_START = /\b(end|stop|finish|pause|resume|cancel|abandon|calendar|schedule|tomorrow|at \d{1,2}(:\d{2})?)\b/i;
+const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|tomorrow|at \d{1,2}(:\d{2})?)\b/i;
+// "Resume" the verb only: "start focus for the resume" (his CV, q054) was refused as resuming a session,
+// and the worker then called a tool named orion-session ten times.
+const RESUMES = /^\W*(?:(?:ok(?:ay)?|please|pls|can you|could you)[,\s]+)*resume\b|\bresume\s+(?:(?:the|my|our)\s+)?(?:session|focus(?:ing)?|timer|it|block)\b/i;
+const ruledOut = (message: string): boolean => NOT_A_START.test(message) || RESUMES.test(message);
 
-export const isSessionStart = (message: string): boolean => START.test(message) && !NOT_A_START.test(message);
+export const isSessionStart = (message: string): boolean => (START.test(message) || MODE_ON.test(message)) && !ruledOut(message);
+/** His words start a session, or the front desk read a start and nothing in his words rules one out. */
+export const startsSession = (message: string, hint: SessionHint = {}): boolean => isSessionStart(message) || (!!hint.start && !ruledOut(message));
 
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 
@@ -40,7 +50,7 @@ function readMinutes(message: string): number | undefined {
   if (/\bhalf an hour\b/.test(m)) return 30;
   const hours = /\bfor (\d+(?:\.\d+)?|one|two|three|four|five|six|an?)\s*(?:hours?|hrs?|h)\b/.exec(m);
   if (hours?.[1]) return Math.round((WORD_NUMBERS[hours[1]] ?? (/^an?$/.test(hours[1]) ? 1 : Number(hours[1]))) * 60);
-  const minutes = /\bfor (\d+)\s*(?:minutes?|mins?|m)\b/.exec(m);
+  const minutes = /\b(?:for|like|about|around) (\d+)\s*(?:minutes?|mins?|m)\b/.exec(m);
   return minutes?.[1] ? Number(minutes[1]) : undefined;
 }
 
@@ -55,11 +65,15 @@ function readUntil(message: string): string | undefined {
 }
 
 const STOP_TO_TASK = /(?=\s+(?:for|until|with|and I|I need)\b|[.,?!]|$)/.source;
+// "start focus for the resume" names the task (q054); "for the next hour" names a length.
+const FOR_THE_TASK = new RegExp(`\\bfor\\s+((?:the|my)\\s+.+?)${STOP_TO_TASK}`, "i");
+const DURATION_WORDS = /\b(hours?|minutes?|mins?|rest|next|day|morning|afternoon|evening|night)\b/i;
 function readTask(message: string): string {
   const named = new RegExp(`\\bwork(?:ing)? on\\s+(.+?)${STOP_TO_TASK}`, "i").exec(message)
-    ?? new RegExp(`\\bon\\s+((?:the|my)\\s+.+?)${STOP_TO_TASK}`, "i").exec(message);
+    ?? new RegExp(`\\bon\\s+((?:the|my)\\s+.+?)${STOP_TO_TASK}`, "i").exec(message)
+    ?? FOR_THE_TASK.exec(message);
   const task = named?.[1]?.trim();
-  return task && !/\b(calendar|phone|mac)\b/i.test(task) ? task : DEFAULT_TASK;
+  return task && !/\b(calendar|phone|mac)\b/i.test(task) && !DURATION_WORDS.test(task) ? task : DEFAULT_TASK;
 }
 
 // Words that can follow "use/need/with" without naming an app.
@@ -75,11 +89,13 @@ function readApps(message: string): string[] {
   return [...new Set(names)];
 }
 
-export function parseSessionRequest(message: string): SessionRequest | null {
-  if (!isSessionStart(message)) return null;
-  const minutes = readMinutes(message);
+/** His request, or null. A front-desk start (hint.start) counts only when nothing in his words rules a start out. */
+export function parseSessionRequest(message: string, hint: SessionHint = {}): SessionRequest | null {
+  if (!startsSession(message, hint)) return null;
+  const minutes = readMinutes(message) ?? hint.minutes;
   const until = minutes === undefined ? readUntil(message) : undefined;
-  return { task: readTask(message), ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
+  const task = readTask(message);
+  return { task: task === DEFAULT_TASK && hint.task ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 
 const parse = (stdout: string): Record<string, unknown> | null => {
@@ -117,12 +133,13 @@ async function allowApps(apps: string[], exec: SessionExec, resolveApp: (name: s
 }
 
 /** One start request, end to end. Returns a FlowResult whose reply is built only from script output. */
-export async function runSessionFlow({ message, exec, resolveApp }: {
+export async function runSessionFlow({ message, hint, exec, resolveApp }: {
   message: string;
+  hint?: SessionHint;
   exec: SessionExec;
   resolveApp: (name: string) => Promise<string | null>;
 }): Promise<FlowResult> {
-  const request = parseSessionRequest(message);
+  const request = parseSessionRequest(message, hint);
   if (!request) return { outcome: "fallback", reason: "not a session start" };
   const status = parse((await exec(["status", "--json"])).stdout) ?? {};
   const running = RUNNING_STATES.has(String(status.status ?? ""));
@@ -176,5 +193,5 @@ const liveResolveApp = async (name: string): Promise<string | null> => {
 };
 
 /** The real flow: Orion.app's session socket through orion-session. Wired in by index.ts only. */
-export const liveSessionFlow = (message: string): Promise<FlowResult> =>
-  runSessionFlow({ message, exec: (args) => runFile(ORION_SESSION, args, 15000), resolveApp: liveResolveApp });
+export const liveSessionFlow = (message: string, hint?: SessionHint): Promise<FlowResult> =>
+  runSessionFlow({ message, ...(hint ? { hint } : {}), exec: (args) => runFile(ORION_SESSION, args, 15000), resolveApp: liveResolveApp });

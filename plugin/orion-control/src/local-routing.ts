@@ -248,6 +248,24 @@ export const honestLine = (calendar: boolean): string => calendar
   : "I didn't actually do that — nothing was started or changed. Can you say it again?";
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 
+/** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
+ *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
+ *  the Mac chat and phone — reply_payload_sending never runs, before_agent_finalize can only revise, and
+ *  before_message_write rewrites only the transcript copy, written before the check runs; the reply is
+ *  read afterwards from this same message object, so it is changed in place (the one deliberate
+ *  mutation here: the host owns the object). "buy more oats has been marked as done" went out after
+ *  three flagged passes. Thinking and tool blocks are kept; the text blocks become this one. */
+export function putReplyInPlace(messages: unknown, text: string): boolean {
+  const last = Array.isArray(messages) ? [...messages].reverse().find((m) => (m as { role?: unknown })?.role === "assistant") as { content?: unknown } | undefined : undefined;
+  if (!last) return false;
+  if (!Array.isArray(last.content)) { last.content = text; return true; }
+  const blocks = last.content as Array<{ type?: unknown }>;
+  const at = blocks.findIndex((b) => b?.type === "text");
+  const kept = blocks.filter((b) => b?.type !== "text");
+  last.content = at < 0 ? [...kept, { type: "text", text }] : [...kept.slice(0, at), { type: "text", text }, ...kept.slice(at)];
+  return true;
+}
+
 /*
  The gate (Nick, 2026-10-12: "clearly we havent done enough work with the local models to do this.
  lets make sure this doesnt happen again"). "on" was switched live on eval numbers alone and failed
@@ -469,6 +487,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     traceLine("before_agent_finalize", event, ctx, { found: !!run });
     if (!run) return undefined;
     const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
+    // What this run must deliver: kept for reply_payload_sending (channel routes) and put in place for the agent CLI.
+    let owed: string | undefined;
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
       const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say" });
@@ -482,10 +502,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           run.passes += 1;
           return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call orion_task_run now with exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
-        if (!called) remember([runId, sessionKeyNow], "I didn't manage to set that reminder — nothing was set. Can you say it again?");
+        if (!called) { owed = "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
       }
       if (on && (run.flow?.outcome === "done" || run.flow?.outcome === "say")) {
         const expected = exactReply(run.flow);
+        owed = expected;
         remember([runId, sessionKeyNow], expected);
         const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
         if (!squash(reply).includes(squash(expected).slice(0, 60)) && run.passes < 1) {
@@ -506,8 +527,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const decision = run.settled ?? (await settle(run));
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
       if (on && !flowActed && !run.reminder && findings.some((f) => FALSE_CLAIM.test(f))) {
-        remember([runId, sessionKeyNow], honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical))));
+        owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)));
+        remember([runId, sessionKeyNow], owed);
       }
+      if (on && owed) putReplyInPlace(event.messages, owed);
       log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
         ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
         ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });

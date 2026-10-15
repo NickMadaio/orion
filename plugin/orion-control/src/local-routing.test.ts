@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { acceptanceVerdict, registerLocalRouting, userText } from "./local-routing.js";
+import { acceptanceVerdict, honestLine, registerLocalRouting, userText } from "./local-routing.js";
 import { writeFileSync } from "node:fs";
 import type { Decision } from "./front-desk.js";
 import type { FlowResult } from "./schedule-flow.js";
@@ -362,6 +362,39 @@ describe("local routing — focus sessions and false claims (2026-10-15)", () =>
     expect(second).toMatchObject({ action: "revise" });
     expect(second?.retry.instruction).toMatch(/whole reply must be exactly this text.*I didn't actually do that — nothing was started or changed\./);
     expect(second?.retry.instruction).not.toMatch(/calendar changed/);
+  });
+
+  // 2026-10-15 22:35 (sweep q042): "ok mark the oats one done" — no tool call, three passes all flagged,
+  // and Nick still heard "buy more oats has been marked as done". The Mac chat and phone use
+  // `openclaw agent --json`, which never runs reply_payload_sending; its reply is read from the turn's
+  // last assistant message, so the honest line must be put there.
+  it("on the agent-CLI route the honest line replaces the false claim in the final message itself", async () => {
+    const { f, ctx } = setup({ move: "tool", tool: "supplements", args: { do: "done", name: "oats" } });
+    await f.fire("before_model_resolve", { prompt: "ok mark the oats one done" }, ctx);
+    await f.fire("before_prompt_build", { prompt: "ok mark the oats one done", messages: [] }, ctx);
+    const lie = "The task \"buy more oats\" has been marked as done.";
+    const said = () => ({ role: "assistant", content: [{ type: "thinking", thinking: "…" }, { type: "text", text: lie }], stopReason: "stop" });
+    const passes: Array<Record<string, any>> = [];
+    for (let k = 0; k < 3; k++) passes.push({ role: "user", content: "x" }, said());
+    for (let k = 0; k < 3; k++) await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie, messages: passes.slice(0, 2 * k + 2) }, ctx);
+    const final = passes.at(-1)!;
+    expect(final.content).toEqual([{ type: "thinking", thinking: "…" }, { type: "text", text: honestLine(false) }]);
+    expect(passes[1]!.content[1].text).toBe(lie); // only the reply that goes out is replaced
+  });
+
+  it("on the agent-CLI route a paraphrase of the scheduler's reply is replaced by the scheduler's own words", async () => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }),
+      scheduleFlow: async () => ({ outcome: "done", calls: ["exec orion-reschedule drop --after lab"], outputs: ["Changed Monday:\n  cleared 2 prior schedule blocks: grind leetcode, deck"] }) });
+    const ctx = { runId: "p9", sessionKey: "agent:main:x" };
+    await f.fire("before_model_resolve", { prompt: "nuke everything after my lab" }, ctx);
+    await f.fire("before_prompt_build", { prompt: "x", messages: [] }, ctx);
+    const paraphrase = "Done: grind leetcode 5:45 PM–7:20 PM";
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: paraphrase, messages: [{ role: "assistant", content: [{ type: "text", text: paraphrase }] }] }, ctx);
+    const final = { role: "assistant", content: paraphrase };
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: paraphrase, messages: [final] }, ctx);
+    expect(final.content).toBe("Done: cleared grind leetcode, deck.");
   });
 
   it("a calendar false claim keeps the calendar wording", async () => {

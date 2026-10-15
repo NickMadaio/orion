@@ -92,3 +92,27 @@ test("ORION's own blocks always move, even when the title reads like a class (20
                            { title: "CS1800 Lecture", start: "2026-10-01T09:00:00", end: "2026-10-01T10:30:00" }], "2026-10-01");
   assert.deepEqual(blocks.map((x) => [x.title, x.fixed, x.kind]), [["CS1800 Lecture", true, "class"], ["DS lab", false, "study"]]);
 });
+
+// 2026-10-15, 12:12: in "finish resume" (11:20–12:50), "meal prep from 12:45 to 1:45, push everything
+// else to follow". His time won and was booked 13:00 instead — the block he was in counted as a wall.
+test("a time he states cuts short the ORION block he is in, and is kept exactly", () => {
+  const day = [b("resume", "other", 680, 770), b("dslab", "other", 775, 820), b("cslab", "other", 825, 870)];
+  const r = replan(day, { now: 732, window: win, buffer: 5, add: [{ title: "meal prep", kind: "meal", minutes: 60, at: 765 }] });
+  assert.equal(r.created[0].start, 765, "meal prep at 12:45, as he said");
+  assert.deepEqual(r.shifted, []);
+  const clip = r.moves.find((m) => m.id === "resume");
+  assert.equal(clip.toEnd, 760, "the block he is in ends 5 minutes before");
+  assert.equal(clip.to, 680, "and keeps its start");
+  const resume = r.blocks.find((x) => x.id === "resume");
+  assert.equal(resume.end, 760);
+  const ds = r.blocks.find((x) => x.id === "dslab"); const cs = r.blocks.find((x) => x.id === "cslab");
+  assert.ok(ds.start >= 830 && cs.start > ds.start, "the rest follows meal prep, in order");
+  assert.ok(!r.blocks.some((x, i) => r.blocks.slice(i + 1).some((y) => x.start < y.end && y.start < x.end)), "no overlaps");
+});
+
+test("a class he is in is never cut short for his stated time", () => {
+  const day = [b("macro", "class", 700, 790, true)];
+  const r = replan(day, { now: 732, window: win, buffer: 5, add: [{ title: "meal prep", kind: "meal", minutes: 60, at: 765 }] });
+  assert.equal(r.blocks.find((x) => x.id === "macro").end, 790);
+  assert.equal(r.shifted.length, 1);
+});

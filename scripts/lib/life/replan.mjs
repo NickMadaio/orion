@@ -73,10 +73,22 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   // under way) moves like any displaced block. Found by the property tests,
   // 2026-10-01: blocks that were never compared with each other kept overlapping.
   const finished = movable.filter((b) => b.end <= floor);
-  const runningNow = movable.filter((b) => b.start < floor && b.end > floor).sort((a, b) => a.start - b.start || a.end - b.end);
+  // A time he states cuts short the ORION block he is in ("I'm in a time block, I don't need it —
+  // meal prep from 12:45"): it ends a buffer before his time instead of pushing his time later
+  // (2026-10-15: meal prep was booked 13:00 because "finish resume" ran to 12:50).
+  const statedAt = add.filter((a) => !a.fixed && Number.isInteger(a.at) && a.at >= floor);
+  const clips = [];
+  const runningNow = movable.filter((b) => b.start < floor && b.end > floor).map((b) => {
+    const cut = statedAt.find((a) => overlaps(b, { start: a.at - buffer, end: a.at + a.minutes }));
+    if (!cut) return b;
+    const clipped = { ...b, end: Math.max(floor, cut.at - buffer) };
+    clips.push({ id: b.id, title: b.title, from: b.start, to: b.start, toEnd: clipped.end, clipped: true });
+    return clipped;
+  }).sort((a, b) => a.start - b.start || a.end - b.end);
   const past = [...finished];
   const interrupted = [];
   for (const b of runningNow) {
+    if (b.end <= floor) { past.push(b); continue; } // cut short to now: it is over
     const rest = { start: floor, end: b.end };
     if ([...walls, ...past].some((t) => t.end > floor && overlaps(t, rest))) interrupted.push(b); else past.push(b);
   }
@@ -148,8 +160,8 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   }
   const { placed } = layout(chosen, fixedTaken, { floor, end, buffer });
 
-  const moves = placed.filter(({ item, block }) => !item.fresh && block.start !== item.block.start)
-    .map(({ item, block }) => ({ id: item.block.id, title: item.block.title, from: item.block.start, to: block.start }));
+  const moves = [...clips, ...placed.filter(({ item, block }) => !item.fresh && block.start !== item.block.start)
+    .map(({ item, block }) => ({ id: item.block.id, title: item.block.title, from: item.block.start, to: block.start }))];
   const placedNew = placed.filter(({ item }) => item.fresh).map(({ block }) => block);
   for (const { a, i, because } of lostTime) {
     const got = placedNew.find((block) => block.id === `new-${i}`);

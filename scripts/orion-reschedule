@@ -961,6 +961,7 @@ const lines = [
   ...(replaceDay ? (() => { const gone = removed.filter((b) => !add.some((a) => sameThing(a.title, b.title) || sameThing(b.title, a.title)));
     return gone.length ? [`DROPPED (he did not mention them, so they are gone — tell him by name): ${gone.map((b) => b.title).join(", ")}`] : []; })() : []),
   ...shrunkLines, ...raised,
+  ...result.moves.filter((m) => m.clipped).map((m) => `${m.title} now ends at ${hhmm(m.toEnd)}`),
   ...result.moves.filter((m) => m.to !== m.from).map((m) => `moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`),
   ...alreadyOver.map((item) => `NOT BOOKED: ${item.title} at ${hhmm(item.at)} is already over today — if he meant another day, run again with --date YYYY-MM-DD`),
   ...(result.shifted ?? []).map((x) => `SHIFTED: ${x.title} could not go at ${hhmm(x.from)} (${x.because === "it was already past" ? "that time has passed" : `${x.because} is there`}) — booked ${hhmm(x.to)} instead; tell him`),

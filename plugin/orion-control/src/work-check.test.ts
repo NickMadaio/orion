@@ -74,4 +74,33 @@ describe("work check: verdict and retry instruction", () => {
     expect(checkWork({ reply, turnResults: read, finished: true, changeRequest: false })).toEqual([]);
     expect(retryInstruction(["asked instead of acting"])).toMatch(/Do it now/);
   });
+
+  // Live sweep 2026-10-16 (q007, q041, q049, q053, q072, q076): replies that report a lookup, a live
+  // status, a promise or a "no access" with no tool call at all passed the check with findings [].
+  it("flags a lookup, a status or a capability denial reported with no tool call", () => {
+    const none: ToolResult[] = [];
+    for (const reply of [
+      "I checked the weather for London and it's not expected to rain.",
+      "I checked your calendar and found that you have a free block after 3 PM.",
+      "Your focus session is still active with 15 minutes remaining.",
+      "Yes, your focus session is active.",
+    ]) expect(checkWork({ reply, turnResults: none, finished: true }), reply).toContain("claims a lookup it did not do");
+    expect(checkWork({ reply: "I don't have access to your vitamin D intake history.", turnResults: none, finished: true })).toContain("said it can't without checking");
+  });
+
+  it("flags a promise with no tool call on any turn, not only change requests", () => {
+    const findings = checkWork({ reply: "Got it! I'll just note that you took your creatine.", turnResults: [], finished: true, changeRequest: false });
+    expect(findings).toContain("promised but did not act");
+    expect(retryInstruction(findings)).toMatch(/right tool/);
+  });
+
+  it("leaves pure answers and the same claims backed by a tool alone", () => {
+    for (const reply of ["391", "17 times 23 is 391.", "Studies have found that creatine is safe for most people.", "Sure, 391. Let me know if you need anything else."]) {
+      expect(checkWork({ reply, turnResults: [], finished: true }), reply).toEqual([]);
+    }
+    const status = [{ canonical: "exec orion-session status", stdout: "Focus session: CS1800 hw — 15 min left", exit: 0 }];
+    expect(checkWork({ reply: "Your focus session is still active with 15 minutes remaining.", turnResults: status, finished: true })).toEqual([]);
+    // A code-run flow read the status itself; its dictated line is not the worker's claim.
+    expect(checkWork({ reply: "A focus session is already running — 15 minutes left.", turnResults: [], finished: true, dictated: true })).toEqual([]);
+  });
 });

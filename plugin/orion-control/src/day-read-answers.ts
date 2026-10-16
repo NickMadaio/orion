@@ -22,13 +22,13 @@ type Kind = { label: string; asked: string; title: RegExp };
 // that every title classify() calls gym or study matches here, so the two lists cannot drift apart.
 const KINDS: Kind[] = [
   { label: "nap", asked: "nap", title: /\bnap(s|ping)?\b/i },
-  { label: "gym", asked: "gym|workout", title: /\b(gym|workout|lift(ing)?|run(ning)?|jog(ging)?|swim(ming)?|climb(ing)?|cardio)\b/i },
-  { label: "lab", asked: "labs?", title: /\blab\b/i },
-  { label: "meal prep", asked: "meal\\s*prep", title: /\bmeal\s*prep\b/i },
+  { label: "gym", asked: "gym|workout|yoga|pilates|spin|leg day", title: /\b(gym|workout|lift(ing)?|run(ning)?|jog(ging)?|swim(ming)?|climb(ing)?|cardio|yoga|pilates|spin(ning)?|leg day)\b/i },
+  { label: "lab", asked: "labs?", title: /\blabs?\b/i },
+  { label: "meal prep", asked: "meal[\\s-]*prep", title: /\bmeal[\s-]*prep\b/i },
   { label: "lunch", asked: "lunch", title: /\blunch\b/i },
   { label: "dinner", asked: "dinner", title: /\bdinner\b/i },
   { label: "breakfast", asked: "breakfast", title: /\bbreakfast\b/i },
-  { label: "study", asked: "study|studying", title: /\b(study|studying|revis\w*|homework|problem set|reading|deep work)\b/i },
+  { label: "study", asked: "study|studying|hw|homework", title: /\b(study|studying|revis\w*|hw|homework|problem set|reading|deep work)\b/i },
 ];
 // "my nap block", "the lab", "a lab day", "nap time": the kind is named as a block of his day, not mentioned in passing ("the gym closes").
 const namedAs = (k: Kind): RegExp => new RegExp(`\\b(?:my|the|a|an)\\s+(?:\\w+\\s+)?(?:${k.asked})\\b|\\b(?:${k.asked})\\s+(?:block|session|day)\\b`, "i");
@@ -51,14 +51,18 @@ const joinList = (xs: string[]): string => (xs.length <= 2 ? xs.join(" and ") : 
 
 // A question about when something is on his calendar, not advice about it ("how long should my naps be").
 const ABOUT_TIME = /\b(when|what time|how (?:long|much time|many minutes|soon)|until|till|before|after|ends?|starts?|next|is today|is there|do i have|have a)\b/i;
+// "when does the gym close today": about the place's hours, not his calendar (r8 review 2 M3).
+const HOURS = /\b(?:open|opens|opening|close|closes|closed|closing|hours)\b/i;
 const ADVICE = /\b(should|supposed to|recommend\w*|ideal|healthy|best)\b/i;
 
 /** The reply when the question names a kind of block and none is on the day; null when one is, or none is named. */
 export function noBlockReply(message: string, day: string, tomorrow: boolean): string | null {
-  const kind = ABOUT_TIME.test(message) && !ADVICE.test(message) && !FITTING.test(message) ? KINDS.find((k) => namedAs(k).test(message)) : undefined;
+  const kind = ABOUT_TIME.test(message) && !ADVICE.test(message) && !FITTING.test(message) && !HOURS.test(message) ? KINDS.find((k) => namedAs(k).test(message)) : undefined;
   const all = rows(day);
   if (!kind || !all.length && !day.trim()) return null;
-  if (all.some((r) => kind.title.test(r.title))) return null;
+  // M3: the asked word anywhere in a title ("CHEM1211 Labs", "Meal-prep") is the block, whatever its synonym list says.
+  const word = new RegExp(`\\b(?:${kind.asked})`, "i");
+  if (all.some((r) => kind.title.test(r.title) || word.test(r.title))) return null;
   const when = tomorrow ? "tomorrow" : "today";
   const head = `There's no ${kind.label} block on your calendar ${when}.`;
   const left = all.filter((r) => !r.over);

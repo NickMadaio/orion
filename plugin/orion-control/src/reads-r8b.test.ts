@@ -90,8 +90,10 @@ describe("M3: deadline titles", () => {
     const { DEADLINE_TITLE, classify } = await import("../../../scripts/lib/life/live-day.mjs");
     for (const t of ["CS2500 HW4 due", "HW4 due", "Midterm exam", "Exams week", "Quiz 1"]) expect(DEADLINE_TITLE.test(t)).toBe(true);
     for (const t of ["Examine the results", "Overdue library book", "Gym"]) expect(DEADLINE_TITLE.test(t)).toBe(false);
-    expect(classify("HW4 due")).toBe("deadline");
-    expect(classify("Examine notes")).not.toBe("deadline");
+    // r8 review 2 M4: the scheduler's classify() is unchanged: a self-made "HW due" block is study, not a fixed deadline.
+    expect(classify("Study – HW due Mon")).toBe("study");
+    expect(classify("HW4 due")).not.toBe("deadline");
+    expect(classify("DUE 13:00 — Marketing: Slides")).toBe("deadline");
   });
 });
 

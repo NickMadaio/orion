@@ -10,13 +10,13 @@ import { isSkipped } from "./skips.mjs";
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
 
-/** What makes a title a deadline (shared: classify below, orion-agenda deadlines --json, the plugin's "what's due" read). */
+/** What makes a title a deadline for a READ ("what's due", orion-agenda deadlines --json). The scheduler's classify() below keeps its own, narrower rule (r8 review 2 M4). */
 export const DEADLINE_TITLE = /\bdue\b|\bquiz|\bexams?\b|deadline|submission\b/i;
 
 export function classify(title) {
   const t = title.toLowerCase();
   if (/\b(lecture|seminar|lab|workshop|tutorial|class)\b|\b(cs|econ|mktg)\d{3,4}\b/.test(t)) return "class";
-  if (DEADLINE_TITLE.test(t)) return "deadline";
+  if (/^due\b|\bquiz|exam|deadline|submission\b/.test(t)) return "deadline";
   if (/\bgym|workout|lift|run(ning)?\b/.test(t)) return "gym";
   if (/\bstudy|revise|revision|homework|problem set|reading\b/.test(t)) return "study";
   if (/\byoutube|video|edit(ing)?|content|side project|thumbnail|film(ing)?\b/.test(t)) return "side_project";

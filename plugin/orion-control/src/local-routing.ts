@@ -132,12 +132,14 @@ type Run = {
   cutOff?: boolean;
   /** Tools the HOST ran this turn (after_tool_call), as opposed to the reads code pushed into `tools` itself (H4, r8 review 1, 2026-10-16). */
   hostTools?: number;
+  /** r8 review 2 HIGH-1 (2026-10-16): code itself ran a read this turn (messages, gmail, focus status), as opposed to `provided` brain snippets or the day. */
+  codeRead?: boolean;
   /** Said out loud (the app's spoken marker), not typed. */
   spoken?: boolean;
   /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
   undo?: string[];
   /** q029 (2026-10-16 r8): a "running late" turn code owns: the fixed "how late?" question, the stitched minutes answer, or the go-ahead. */
-  late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string } };
+  late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string; asked?: boolean } };
 };
 
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
@@ -542,7 +544,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const reminderAsk = new Map<string, { text: string; at: number; label?: boolean }>();
   /** Per session: an unanswered "how late?" (q029), and the last late move code ran (so "yeah push everything after it" does not move it twice). */
   const lateAsk = new Map<string, number>();
-  const lastLate = new Map<string, { minutes: number; at: number; changed: boolean; reply: string }>();
+  const lastLate = new Map<string, { minutes: number; at: number; changed: boolean; reply: string; asked?: boolean }>();
   /** Whether this turn is the late flow's: "running late" with no minutes, the short answer to our question, or the go-ahead after it. Consumes the pending question. */
   const lateTurn = (key: string, message: string): Run["late"] => {
     const askedAt = lateAsk.get(key); lateAsk.delete(key);
@@ -556,7 +558,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (minutes !== null) return { kind: "run", minutes };
       if (isLateConfirm(message) || isBareYes(message)) return { kind: "ask" };
     }
-    if (last && Date.now() - last.at < SESSION_CHANGE_WINDOW_MS && (isLateConfirm(message) || isBareYes(message))) return { kind: "confirm", last };
+    // r8 review 2 MEDIUM-1: a bare "ok"/"yeah" confirms only a late reply that asked something; after "Nothing was moved — …" it is an acknowledgement.
+    if (last && Date.now() - last.at < SESSION_CHANGE_WINDOW_MS && (isLateConfirm(message) || (isBareYes(message) && last.asked))) return { kind: "confirm", last };
     return undefined;
   };
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
@@ -675,7 +678,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             run.flow = flow;
             if (flow.outcome === "say" && flow.text === LATE_TOO_SMALL && key) lateAsk.set(key, Date.now());
             if ("calls" in flow && flow.calls) flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs?.[i] ?? "", exit: null }));
-            if (key && "calls" in flow && flow.calls) lastLate.set(key, { minutes, at: Date.now(), changed: flow.outcome === "done", reply: flow.outcome === "done" ? flow.reply ?? "" : "" });
+            if (key && "calls" in flow && flow.calls) lastLate.set(key, { minutes, at: Date.now(), changed: flow.outcome === "done", reply: flow.outcome === "done" ? flow.reply ?? "" : "", asked: flow.outcome === "say" && /\?\s*$/.test(flow.text) });
             if (flow.outcome === "done" && flow.marks?.length) recordChange(run.sessionKey, flow.marks);
           }
         }
@@ -715,7 +718,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const status = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
         // r8 (2026-10-16) q053/q050/q052: the status read is recorded, and code says the whole reply.
         if (status.outcome === "say" && status.calls) status.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: status.outputs?.[i] ?? "", exit: null }));
-        if (status.outcome === "say" && status.calls) { run.provided = true; markRead(run, "focus-status"); }
+        if (status.outcome === "say" && status.calls) { run.provided = true; run.codeRead = true; markRead(run, "focus-status"); }
         const noSession = status.outcome === "say" && /^No focus session/.test(status.text);
         if (todayAsk && !statusAsk && status.outcome === "say" && (noSession || status.calls)) {
           // q052: today's focused minutes from the history file plus a session still running (see focusTodayTotal).
@@ -793,9 +796,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
       // a timer and supplements answered with no call or the wrong one). Before the calendar flow.
-      // r8 review LOW: no isQuestion gate (a spoken "any deadlines coming up" has no "?"; asksDeadlines is question-shaped itself).
+      // r8 review 2 HIGH-2: the question form needs isQuestion; only a bare noun phrase ("any deadlines coming up") passes without a "?".
       // q041 (2026-10-16 r8): "whats due this week" is read and worded by code (the 9B read a lecture's time out as the all-day quiz's).
-      if (!run.flow && !run.cutOff && options.readDeadlines && asksDeadlines(run.message)) {
+      if (!run.flow && !run.cutOff && options.readDeadlines && asksDeadlines(run.message, isQuestion(run.message))) {
         const read = await options.readDeadlines().catch(() => null);
         if (read) {
           run.provided = true;
@@ -828,6 +831,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             if (read.say || !read.data) run.flow = { outcome: "say", kind: "plain", text: read.say ?? "I couldn't read that.", calls: read.calls, outputs: read.outputs };
             else {
               run.provided = true;
+              run.codeRead = true;
               return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\n${readNote(req, read.data)}`, appendContext: "[ORION: the read already ran — summarize it from the system prompt, do not call tools.]" };
             }
           }
@@ -974,7 +978,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const allFindings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" || run.noTools === true, provided: run.provided ?? false });
       // H4 (r8 review 1, 2026-10-16): when only CODE read (gmail/messages/deadlines/focus) and handed the worker the data, a summary
       // that says "found/confirmed/booked" is the data talking, not a claimed write: no done-claim finding, no replaced reply.
-      const codeReadOnly = !run.hostTools && run.provided === true;
+      const codeReadOnly = !run.hostTools && run.provided === true && run.codeRead === true;
       const findings = codeReadOnly ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
       run.findings.push(findings);
       // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).

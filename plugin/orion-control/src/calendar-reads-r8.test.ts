@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { meansTomorrow } from "./schedule-flow.js";
-import { registerLocalRouting } from "./local-routing.js";
+import { isQuestion, registerLocalRouting } from "./local-routing.js";
 import type { Decision } from "./front-desk.js";
 import { dayRead, noBlockReply } from "./day-read-answers.js";
 import { deadlineReply, parseTasks, asksDeadlines, type DeadlineRead } from "./deadline-read.js";
@@ -107,12 +107,12 @@ describe("q041: what's due is read by code", () => {
   };
   const today = new Date(2026, 9, 16, 3, 31);
   it("recognises the questions, not changes", () => {
-    for (const m of ["whats due this week", "what's due today", "any deadlines tomorrow?", "do i have anything due soon"]) expect(asksDeadlines(m)).toBe(true);
-    for (const m of ["make the essay due friday", "whats on today", "remind me when it's due"]) expect(asksDeadlines(m)).toBe(false);
+    for (const m of ["whats due this week", "what's due today", "any deadlines tomorrow?", "do i have anything due soon"]) expect(asksDeadlines(m, isQuestion(m))).toBe(true);
+    for (const m of ["make the essay due friday", "whats on today", "remind me when it's due"]) expect(asksDeadlines(m, isQuestion(m))).toBe(false);
   });
   it("this week: the quiz is all day (never a time), plus the to-do, nothing from lectures or people", () => {
     expect(deadlineReply("whats due this week", read, today))
-      .toBe("Due this week: Macro (ECON1115) — Quiz 1, today (all day); Review spending (to-do), tomorrow.");
+      .toBe("Due this week: Macro (ECON1115) — Quiz 1, Friday (all day); Review spending (to-do), Saturday.");
   });
   it("nothing in the window names the next deadline after it", () => {
     expect(deadlineReply("whats due tomorrow", { ...read, tasks: [] }, new Date(2026, 9, 16, 10, 0)))
@@ -124,7 +124,7 @@ describe("q041: what's due is read by code", () => {
   it("routes: dictated reply from the read, before the worker; marked provided and logged", async () => {
     const { prompt, log } = await harness({ move: "tool", tool: "agenda", args: { day: "today" } }, { deadlines: read }).turn("whats due this week");
     expect(prompt).toContain("Reply to Nick with exactly this text");
-    expect(prompt).toContain("Macro (ECON1115) — Quiz 1, today (all day)");
+    expect(prompt).toContain("Macro (ECON1115) — Quiz 1, Friday (all day)");
     expect(log.provided).toBe(true);
     expect(log.reads).toEqual(["deadlines"]);
   });

@@ -17,19 +17,25 @@ export type DeadlineTask = { title: string; due: string };
 export type DeadlineRead = { events: DeadlineEvent[]; tasks: DeadlineTask[]; tasksFailed?: boolean };
 
 const ASKS = /\b(?:what'?s|whats|what is|what are|which|any|anything|do i have|how many)\b[^.?]*\b(?:due|deadlines?)\b/i;
-// "any deadlines coming up", "my deadlines" with no verb: a spoken ask has no "?" (r8 review LOW); "my deadlines are killing me" is not one.
-const BARE = /\b(?:my|upcoming|any) deadlines?\b/i;
+// A bare noun phrase with no "?" ("any deadlines coming up", "my deadlines", "deadlines this week"); "my deadlines are killing me" is not one.
+const BARE = /\b(?:my|upcoming|any) deadlines?\b|^\s*deadlines? (?:this|next|today|tomorrow|coming)\b/i;
 const STATEMENT = /\b(?:is|are|was|were|am|i'?m|i've|have|has)\b/i;
 const CHANGES = /\b(?:make|set|move|push|change|add|remind|schedule|cancel|drop|skip)\b/i;
-/** A question about what is due; a change ("make the essay due friday") is not one. */
-export const asksDeadlines = (message: string): boolean => (ASKS.test(message) || (BARE.test(message) && !STATEMENT.test(message))) && !CHANGES.test(message);
+// r8 review 2 HIGH-2 (2026-10-16): another request ("plan a chill day", "tell sam whats due friday") or a negation ("nothing is due") is not the question.
+const OTHER_REQUEST = /\b(?:plan|book|put|block|clear|text|tell|send|email|remind|add|move)\b|\b(?:don'?t|dont|nothing|no)\b|\bnothing'?s\b/i;
+/**
+ * A question about what is due; a change ("make the essay due friday") is not one. The question form needs a real question
+ * (`question`: a "?" or a question opener, "i wonder what's due" is neither); only a bare noun phrase passes without one.
+ */
+export const asksDeadlines = (message: string, question: boolean = /\?\s*$/.test(message.trim())): boolean =>
+  !CHANGES.test(message) && !OTHER_REQUEST.test(message) && ((question && ASKS.test(message)) || (BARE.test(message) && !STATEMENT.test(message)));
 
 const ymd = (d: Date): string => d.toLocaleDateString("en-CA");
 const dayStart = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-const NAMED_DAY = /\b(?:(?<next>next)\s+)?(?:on\s+|this\s+|next\s+)?(?<day>sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
+const NAMED_DAY = /\b(?:(?<by>by|before)\s+)?(?:(?<next>next)\s+)?(?:on\s+|this\s+|next\s+)?(?<day>sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
 const addDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
 /**
@@ -48,15 +54,20 @@ function windowOf(message: string, now: Date): { from: number; to: number; label
     const target = DAY_NAMES.indexOf(named.groups.day.toLowerCase());
     // "next friday" is that day in the coming Monday-to-Sunday week; a bare weekday is its next date (today when it is today).
     const off = named.groups.next ? toMonday + (target + 6) % 7 : (target - dow + 7) % 7;
-    return { from: off, to: off, label: named.groups.day.toLowerCase() };
+    const name = named.groups.day.toLowerCase();
+    // HIGH-3: "next friday" on a Monday is 11 days off, so its date is said; "by friday" is today through Friday, "before friday" leaves Friday out.
+    if (named.groups.by) return { from: 0, to: named.groups.by.toLowerCase() === "before" ? off - 1 : off, label: `${named.groups.by.toLowerCase()} ${name}` };
+    return { from: off, to: off, label: named.groups.next ? `next ${WEEKDAY[target]}, ${addDays(now, off).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : name };
   }
   return { from: 0, to: (7 - dow) % 7, label: "this week" };
 }
 
 type Item = { text: string; date: Date; minute: number };
 function describe(item: Item, today: Date): string {
+  const late = today.getHours() < LATE_NIGHT_UNTIL;
   const days = Math.round((dayStart(item.date).getTime() - dayStart(today).getTime()) / 86400000);
-  return days === 0 ? "today" : days === 1 ? "tomorrow" : days < 7 ? WEEKDAY[item.date.getDay()]! : `${WEEKDAY[item.date.getDay()]} ${item.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  // M2: between midnight and 5 AM "today" is ambiguous (he is still up), so a near day is its weekday.
+  return days === 0 && !late ? "today" : days === 1 && !late ? "tomorrow" : days < 7 ? WEEKDAY[item.date.getDay()]! : `${WEEKDAY[item.date.getDay()]} ${item.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 }
 
 function items(read: DeadlineRead, today: Date): Item[] {
@@ -80,7 +91,10 @@ function items(read: DeadlineRead, today: Date): Item[] {
 
 /** The spoken answer to "what's due …" from the read. */
 export function deadlineReply(message: string, read: DeadlineRead, today: Date): string {
-  const { from, to, label } = windowOf(message, today);
+  const win = windowOf(message, today);
+  const { from, to } = win;
+  const late = today.getHours() < LATE_NIGHT_UNTIL;
+  const label = late && (win.label === "today" || win.label === "tomorrow") ? WEEKDAY[addDays(today, from).getDay()]! : win.label;
   const first = ymd(addDays(today, from));
   const last = ymd(addDays(today, to));
   const todos = read.tasksFailed ? "I couldn't read your to-dos." : "";

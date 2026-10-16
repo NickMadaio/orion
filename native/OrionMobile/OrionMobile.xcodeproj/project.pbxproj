@@ -50,6 +50,7 @@
 		0000000000000000000A001C /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0008; };
 		0000000000000000000A001D /* widget */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A0009; };
 		0000000000000000000A001F /* assets */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000A; };
+		0000000000000000000A0072 /* MobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000A0071 /* MobileCore */; };
 		0000000000000000000A0022 /* MobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000A0021; };
 		0000000000000000000A0024 /* nse */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000E; };
 		0000000000000000000A002F /* appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A000F; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -165,6 +166,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0000000000000000000A0072 /* MobileCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -317,6 +319,7 @@
 			);
 			name = OrionNotify;
 			packageProductDependencies = (
+				0000000000000000000A0071 /* MobileCore */,
 			);
 			productName = OrionNotify;
 			productReference = 0000000000000000000A0010;
@@ -834,6 +837,11 @@
 		0000000000000000000A0021 /* MobileCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 00000000000000000000001E;
+			productName = MobileCore;
+		};
+		0000000000000000000A0071 /* MobileCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 00000000000000000000001E /* XCLocalSwiftPackageReference "." */;
 			productName = MobileCore;
 		};
 		000000000000000000000D07 /* ThinkingOrbsKit */ = {

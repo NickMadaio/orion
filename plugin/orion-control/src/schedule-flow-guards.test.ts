@@ -76,3 +76,30 @@ describe("a contradiction asks, and never touches a block he did not name (q098)
     }
   });
 });
+
+// Review 2026-10-16: the guard refused real swaps and claimed an existing block was missing.
+describe("swaps are allowed; a refusal never says a block is missing when it is there (review MEDIUM)", () => {
+  for (const msg of ["skip lunch, i'll go for a walk instead", "cancel lunch and do a run at 6 instead", "not going to lunch, study instead", "skip lunch, count a walk instead"]) {
+    it(`"${msg}" may add`, async () => {
+      const { writes } = await run(msg, [{ do: "drop", what: "B2" }, { do: "add", what: "walk", minutes: 20, to: "18:00" }]);
+      expect(writes.map((w) => w[0])).toEqual(["drop", "add"]);
+    });
+  }
+  it("refusal wording is 'I didn't make that change' and true when the block is on the day", async () => {
+    const { r } = await run("skip lunch", [{ do: "add", what: "walk", minutes: 20, to: "18:00" }]);
+    expect(r).toMatchObject({ text: expect.stringMatching(/^I didn't make that change/) });
+    expect((r as any).text).not.toMatch(/no lunch/);
+  });
+  it("q019 still refuses and says there is no gym", async () => {
+    const { r } = await run("skip gym today", [{ do: "add", what: "gym", minutes: 20, to: "15:05" }]);
+    expect((r as any).text).toMatch(/^I didn't make that change.*no gym/i);
+  });
+  it("a time or an anchor names a block ('ditch the 4pm', 'drop whatever's after lab')", async () => {
+    const day: Day = { date: "2026-10-16", now: "08:00", blocks: [
+      { title: "CS2101 Lab", start: "10:00", end: "11:00", fixed: true }, { title: "study", start: "11:30", end: "12:30", fixed: false }, { title: "reading", start: "16:00", end: "17:00", fixed: false }] };
+    const n = new Date(2026, 9, 16, 8, 0);
+    expect((await run("ditch the 4pm", [{ do: "drop", what: "B3" }], n, day)).writes).toEqual([["drop", "reading"]]);
+    expect((await run("ditch the 4 pm", [{ do: "drop", what: "B3" }], n, day)).writes).toEqual([["drop", "reading"]]);
+    expect((await run("drop whatever's after lab", [{ do: "drop", what: "B2" }], n, day)).writes).toEqual([["drop", "study"]]);
+  });
+});

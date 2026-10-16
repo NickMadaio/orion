@@ -124,7 +124,8 @@ function namesABlock(title: string, day: Day): boolean {
 // ---- Code-level guards (2026-10-16, live re-run q019/q098): whatever the 9B fills in, these cannot write the wrong thing.
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "all", "also", "sure", "make", "need", "want", "today", "tomorrow", "tonight", "please", "going", "not", "but", "then", "just", "from", "into", "his", "her", "our", "your"]);
 const REMOVE_VERB = /\b(skip|cancel|ditch|drop|delete|remove|bail on|not going to|won'?t (?:be )?(?:going|at|making))\b/i;
-const ADD_CUE = /\b(add|put|schedule|book|create|set up|block (?:off|out)|plan)\b/i;
+// (review, 2026-10-16) swaps are not skips: "skip lunch, i'll go for a walk instead", "cancel gym and do a run", "count a walk".
+const ADD_CUE = /\b(add|put|schedule|book|create|set up|block (?:off|out)|plan|count|instead|do an?|go for|i'?ll)\b/i;
 const PRESENCE = /\b(make sure (?:i'?m|im|i am|i'?ll be)|be (?:in|at)|i'?m (?:in|at)|im (?:in|at)|attend|go to|still (?:go|be|need))\b/i;
 const words = (t: string): string[] => normTitle(t).split(" ").filter((w) => w.length >= 3 && !FILLER.has(w) && !STOP.has(w));
 const sameWord = (a: string, b: string): boolean => a === b || (Math.min(a.length, b.length) >= 3 && (a.startsWith(b) || b.startsWith(a)));
@@ -133,14 +134,28 @@ function removalObject(message: string): string | undefined {
   const m = message.match(/\b(?:skip|cancel|ditch|drop|delete|remove|bail on|not going to)\s+(?:out of\s+)?(?:my|the|our|a|an)?\s*([^,.;!?]+?)(?=\s+(?:today|tomorrow|tonight|and|but|then|so)\b|[,.;!?]|$)/i);
   return m?.[1]?.trim() || undefined;
 }
-/** Whether what he said names this block: a word of its title, its course code, or its initials ("DS" = Discrete Structures). */
-function messageNames(message: string, b: DayBlock): boolean {
+/** Whether what he said names this block: a word of its title, its course code, its initials ("DS" = Discrete
+ *  Structures), its time ("ditch the 4pm"), or an anchor ("whatever's after lab") (review, 2026-10-16). */
+function messageNames(message: string, b: DayBlock, day?: Day): boolean {
   const said = normTitle(message).split(" ").filter(Boolean);
   const title = words(b.title);
   if (said.some((w) => w.length >= 3 && title.some((t) => sameWord(w, t)))) return true;
   const initials = normTitle(b.title).split(" ").filter((w) => w.length > 2 && !/\d/.test(w) && !["lecture", "lab", "class", "for", "and", "the", "seminar", "tutorial"].includes(w)).map((w) => w[0]).join("");
   if (initials.length >= 2 && said.includes(initials)) return true;
-  return b.fixed && said.some((w) => w === "class" || w === "classes" || w === "lecture");
+  if (b.fixed && said.some((w) => w === "class" || w === "classes" || w === "lecture")) return true;
+  const [bh, bm] = b.start.split(":").map(Number) as [number, number];
+  for (const m of message.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(?:the|at)\s+(\d{1,2})(?::(\d{2}))?\b/gi)) {
+    const h = Number(m[1] ?? m[4]); const min = Number(m[2] ?? m[5] ?? 0); const ap = m[3]?.toLowerCase();
+    const hours = ap ? [(h % 12) + (ap === "pm" ? 12 : 0)] : [h % 24, (h % 12) + 12];
+    if (min === bm && hours.includes(bh)) return true;
+  }
+  const anchor = message.match(/\b(after|before)\s+(?:my|the)?\s*([^,.;!?]+)/i);
+  if (anchor && day) {
+    const a = day.blocks.find((x) => x !== b && messageNames(anchor[2]!, x));
+    const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
+    if (a && (anchor[1]!.toLowerCase() === "after" ? toMin(b.start) >= toMin(a.end) : toMin(b.end) <= toMin(a.start))) return true;
+  }
+  return false;
 }
 
 /** The message asks for two opposite things about one noun ("cancel my lab and also make sure I'm in the lab at 2"). */
@@ -157,14 +172,16 @@ export function contradiction(message: string): string | undefined {
 /** Steps that would write something he did not ask for, as what to say instead. null = fine. */
 export function guardSteps(message: string, steps: Intent[], day: Day): { say: "cannot"; text: string } | null {
   const obj = removalObject(message);
-  const gone = `there's no ${obj ?? "such block"} on ${day.now ? "today's" : "that day's"} calendar`;
+  // Never claim a block is missing when it is on the day (review, 2026-10-16).
+  const onDay = obj ? day.blocks.some((b) => messageNames(obj, b)) : false;
+  const gone = `I didn't make that change — ${onDay ? `you asked to take ${obj} off, not to add anything` : `there's no ${obj ?? "such block"} on ${day.now ? "today's" : "that day's"} calendar`}`;
   // A skip only ever takes something off: "skip gym today" (no gym) became add gym 15:05 and "Done" (q019).
   if (REMOVE_VERB.test(message) && !ADD_CUE.test(message) && steps.some((s) => ["add", "fill_between", "plan"].includes(s.do))) return { say: "cannot", text: gone };
   // Any skip/drop must land on a block he named: "cancel my lab" removed the MKTG lecture (q098).
   for (const s of steps) {
     if (s.do !== "skip" && s.do !== "drop") continue;
     const id = s.what && /^B\d+$/.test(s.what) ? day.blocks[Number(s.what.slice(1)) - 1] : day.blocks.find((b) => s.what && normTitle(b.title).includes(normTitle(s.what)));
-    if (id && !messageNames(message, id)) return { say: "cannot", text: gone };
+    if (id && !messageNames(message, id, day)) return { say: "cannot", text: gone };
   }
   return null;
 }

@@ -81,7 +81,8 @@ public struct TodoListScreen: View {
                     .background(
                         HStack(spacing: 0) {
                             Rectangle().fill(TodoTone.palette[4].text.opacity(0.8)).frame(width: 2)
-                            TodoTone.palette[4].fill.opacity(0.35)
+                            // No fill behind the Mac's motto (2026-10-16 UI audit #7).
+                            TodoTone.palette[4].fill.opacity(density == .pointer ? 0 : 0.35)
                         }
                     )
             }

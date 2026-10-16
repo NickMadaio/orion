@@ -136,7 +136,7 @@ struct TodayPlanView: View {
     }
 }
 
-/// Quiet buttons that match the rest of the dashboard; the prominent one is filled.
+/// Quiet outline buttons that match the rest of the dashboard; the prominent one has a stronger stroke.
 struct PlanButtonStyle: ButtonStyle {
     var prominent = false
     @Environment(\.isEnabled) private var enabled
@@ -144,10 +144,11 @@ struct PlanButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(prominent ? OrionTheme.ink : OrionTheme.accent)
+            .foregroundStyle(OrionTheme.accent)
             .padding(.horizontal, 12).padding(.vertical, 7)
-            .background {
-                Capsule().fill(prominent ? OrionTheme.accent : OrionTheme.accent.opacity(0.10))
+            // 2026-10-16 UI audit #7: outline, not filled, prominent or not.
+            .overlay {
+                Capsule().strokeBorder(OrionTheme.accent.opacity(prominent ? 0.65 : 0.25), lineWidth: 0.7)
             }
             .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
             .contentShape(Capsule())

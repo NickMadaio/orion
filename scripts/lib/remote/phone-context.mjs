@@ -12,11 +12,31 @@ import { join } from "node:path";
 
 export const MARKER = "--- Nick's message follows ---";
 
-/** localRouting "on" in openclaw.json (plugins.entries.orion-control.config), the way the plugin reads it. */
-export function localRoutingOn(home) {
+/** Mirrors the plugin's gate (local-routing.ts registerLocalRouting + acceptanceVerdict). */
+const ACCEPTANCE = { minPassRate: 0.85, maxMedianMs: 20000, maxAgeDays: 14, minCases: 20 };
+const MAX_WINDOW_MS = 48 * 3600000;
+
+function acceptanceOk(home, now) {
   try {
-    const cfg = JSON.parse(readFileSync(join(home, ".openclaw/openclaw.json"), "utf8"));
-    return cfg?.plugins?.entries?.["orion-control"]?.config?.localRouting === "on";
+    const rec = JSON.parse(readFileSync(join(home, ".openclaw/orion-controlled/local-routing/acceptance.json"), "utf8"));
+    const { at, n = 0, pass = 0, medianMs = Infinity } = rec;
+    const age = at ? (now - Date.parse(at)) / 86400000 : Infinity;
+    return age <= ACCEPTANCE.maxAgeDays && n >= ACCEPTANCE.minCases && pass / n >= ACCEPTANCE.minPassRate && medianMs <= ACCEPTANCE.maxMedianMs;
+  } catch { return false; }
+}
+
+/**
+ * True only when the plugin really routes locally (review 5 M4, 2026-10-16): localRouting "on" in openclaw.json
+ * (plugins.entries.orion-control.config) AND (an open testing window, localRoutingTestingUntil at most 48 h ahead, OR a passing
+ * acceptance record). Otherwise the plugin falls back to shadow and the cloud model needs the full text.
+ */
+export function localRoutingOn(home, now = Date.now()) {
+  try {
+    const cfg = JSON.parse(readFileSync(join(home, ".openclaw/openclaw.json"), "utf8"))?.plugins?.entries?.["orion-control"]?.config;
+    if (cfg?.localRouting !== "on") return false;
+    const until = typeof cfg.localRoutingTestingUntil === "string" ? Date.parse(cfg.localRoutingTestingUntil) : NaN;
+    if (Number.isFinite(until) && until > now && until - now <= MAX_WINDOW_MS) return true;
+    return acceptanceOk(home, now);
   } catch { return false; }
 }
 
@@ -34,7 +54,7 @@ const DAY_RULE = [
   "- His day: ONE orion-reschedule call (move \"X\" --to HH:MM | --by 30; extend; resize; swap; drop; skip; now; late; overrun; tidy; day --plan \"<title>, <min>[, HH:MM][, fixed]\").",
   "  Name blocks with HIS words; HH:MM only if he said a time; never retype the day to change one block; nothing in \"Earlier today\" is re-planned.",
   "  Schedule changes never use the generic calendar actions. Report only what the output says was written; SHIFTED / SHRUNK / NOT BOOKED means tell him.",
-  "  Planning or priorities: read SCHEDULING.md with orion-brain when planning.",
+  "  Planning or priorities: read ~/.openclaw/workspace/SCHEDULING.md (the read tool, or cat) when planning.",
 ].join("\n");
 
 const CHECKIN_RULE = (checkin) => `- Closing the loop: delayed with a reason → ${checkin} add <min> "<what>" --because "<reason>"; starting → started; finished → done; plans changed → cancel. "Later" is not a reason: add a short check-in anyway.`;
@@ -67,7 +87,7 @@ export function compactPhoneMessage({ text, parts, paths }) {
     parts.outreach,
     need.apps ? (parts.apps?.length ? `- Apps open on the Mac: ${parts.apps.join(", ")}.` : null) : null,
     need.apps ? APP_RULE(paths.show) : null,
-    need.day ? DAY_RULE : "- Planning or the day: read SCHEDULING.md with orion-brain when planning.",
+    need.day ? DAY_RULE : "- Planning or the day: read ~/.openclaw/workspace/SCHEDULING.md (the read tool, or cat) when planning.",
     need.checkin || need.day ? CHECKIN_RULE(paths.checkin) : null,
     parts.savedNote ? parts.savedNote.trimEnd() : null,
     COMPACT_PHONE_BRIEF,

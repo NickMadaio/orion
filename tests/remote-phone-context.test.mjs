@@ -23,7 +23,7 @@ async function turn({ routing, words = WORDS }) {
   try {
     await mkdir(join(home, ".openclaw/workspace"), { recursive: true });
     await writeFile(join(home, ".openclaw/workspace/SCHEDULING.md"), SCHEDULING);
-    if (routing) await writeFile(join(home, ".openclaw/openclaw.json"), JSON.stringify({ plugins: { entries: { "orion-control": { config: { localRouting: routing } } } } }));
+    if (routing) await writeFile(join(home, ".openclaw/openclaw.json"), JSON.stringify({ plugins: { entries: { "orion-control": { config: { localRouting: routing, ...(routing === "on" ? { localRoutingTestingUntil: new Date(Date.now() + 3600000).toISOString() } : {}) } } } } }));
     const keep = join(home, "kept.txt");
     const brain = join(home, "fake-openclaw");
     await writeFile(brain, `#!/bin/bash\nprev=""\nfor a in "$@"; do [ "$prev" = "--message-file" ] && cp "$a" "${keep}"; prev="$a"; done\necho '{"runId":"r1","status":"ok","result":{"payloads":[{"text":"Moved.","mediaUrl":null}]}}'\n`);
@@ -38,7 +38,7 @@ test("localRouting on: the phone message is small and still ends with Nick's wor
   const msg = await turn({ routing: "on" });
   assert.ok(msg.length < 4000, `phone message is ${msg.length} chars`);
   assert.ok(!msg.includes("Scheduling preference line"), "SCHEDULING.md is not inlined");
-  assert.match(msg, /read SCHEDULING\.md with orion-brain when planning/);
+  assert.match(msg, /read ~\/\.openclaw\/workspace\/SCHEDULING\.md/);
   assert.match(msg, /orion-reschedule/);                 // the one-line day rule
   assert.match(msg, /No open check-ins|Open check-ins/); // check-ins
   // The plugin's userText splits on this marker (local-routing.ts MARKERS) and must find his words.
@@ -77,4 +77,26 @@ test("nothing the transport adds contains a word the AUTHORITY gate matches", as
 
 test("localRoutingOn reads the plugin config and is false when unreadable", async () => {
   assert.equal(localRoutingOn("/nonexistent-home-xyz"), false);
+});
+
+// review 5 M4 (2026-10-16): the gate mirrors the plugin: "on" needs an open testing window or a passing acceptance record.
+test("localRoutingOn needs localRouting on AND (testing window or passing acceptance)", async () => {
+  const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const now = Date.parse("2026-10-16T12:00:00Z");
+  const home = async (config, acceptance) => {
+    const h = await mkdtemp(join(tmpdir(), "phonectx-"));
+    await mkdir(join(h, ".openclaw/orion-controlled/local-routing"), { recursive: true });
+    await writeFile(join(h, ".openclaw/openclaw.json"), JSON.stringify({ plugins: { entries: { "orion-control": { config } } } }));
+    if (acceptance) await writeFile(join(h, ".openclaw/orion-controlled/local-routing/acceptance.json"), JSON.stringify(acceptance));
+    return h;
+  };
+  const good = { at: "2026-10-15T12:00:00Z", n: 21, pass: 20, medianMs: 9000 };
+  assert.equal(localRoutingOn(await home({ localRouting: "on" }), now), false, "on, no window, no record");
+  assert.equal(localRoutingOn(await home({ localRouting: "on" }, { ...good, pass: 7 }), now), false, "failing record (7/21)");
+  assert.equal(localRoutingOn(await home({ localRouting: "on" }, good), now), true, "passing record");
+  assert.equal(localRoutingOn(await home({ localRouting: "on", localRoutingTestingUntil: "2026-10-16T20:58:39Z" }), now), true, "open window");
+  assert.equal(localRoutingOn(await home({ localRouting: "on", localRoutingTestingUntil: "2026-10-16T11:00:00Z" }), now), false, "window closed");
+  assert.equal(localRoutingOn(await home({ localRouting: "on", localRoutingTestingUntil: "2026-10-20T00:00:00Z" }), now), false, "window more than 48 h ahead is ignored");
+  assert.equal(localRoutingOn(await home({ localRouting: "shadow", localRoutingTestingUntil: "2026-10-16T20:58:39Z" }, good), now), false, "not on");
 });

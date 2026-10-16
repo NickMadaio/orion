@@ -127,11 +127,12 @@ describe("argument drift (r02: 21:00 became 09:00)", () => {
   it("the before_tool_call hook applies it to the live run's reminder and timer directives", async () => {
     const r = setup({ move: "tool", tool: "alarm" }, R02_EXTRACT);
     await r.build(R02);
-    const [fixed] = (await r.f.fire("before_tool_call", { toolName: "tool_call", params: wrap(drifted, "orion_task_run") }, r.ctx)) as Array<{ params: any }>;
+    // Two before_tool_call hooks are registered (the undo guard first); take the one that answered.
+    const fixed = ((await r.f.fire("before_tool_call", { toolName: "tool_call", params: wrap(drifted, "orion_task_run") }, r.ctx)) as Array<{ params: any } | undefined>).find(Boolean);
     expect(fixed?.params.args.steps[0].at).toBe("2026-10-16T21:00");
     const t = setup({ move: "tool", tool: "session", args: {} });
     await t.build("set a timer for 25 min");
-    const [timer] = (await t.f.fire("before_tool_call", { toolName: "tool_call", params: wrap({ steps: [{ action: "timer_set", seconds: 25 }] }) }, t.ctx)) as Array<{ params: any }>;
+    const timer = ((await t.f.fire("before_tool_call", { toolName: "tool_call", params: wrap({ steps: [{ action: "timer_set", seconds: 25 }] }) }, t.ctx)) as Array<{ params: any } | undefined>).find(Boolean);
     expect(timer?.params.args.steps[0].seconds).toBe(1500);
   });
 });

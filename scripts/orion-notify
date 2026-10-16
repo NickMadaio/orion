@@ -52,7 +52,11 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const STATE = join(homedir(), ".openclaw/orion-controlled/remote.json");
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
 const CONFIG = join(homedir(), ".openclaw/openclaw.json");
-const DISCORD = join(ROOT, "scripts/orion-discord-alert");
+const DISCORD = process.env.ORION_DISCORD_ALERT_BIN || join(ROOT, "scripts/orion-discord-alert");
+// 2026-10-16: when Discord is unreachable (DNS failures all of 10-15), the phone is the fallback channel.
+const REACH = process.env.ORION_REACH_BIN || join(ROOT, "scripts/orion-reach");
+// A queued retry older than this is stale ("Starts in 1h 58m" is no longer true): dropped, and said so.
+const RETRY_MAX_AGE_MS = 3 * 3_600_000;
 
 const EVENTS = {
   started: { label: "MISSION STARTED", minGapMs: 0 },
@@ -80,19 +84,19 @@ function fail(message, code = 2) {
 /* ---------- state (atomic, immutable) ---------- */
 
 async function readState() {
-  if (!existsSync(STATE)) return { missions: {}, pending: {}, notify: { sent: [], deferred: [] } };
+  if (!existsSync(STATE)) return { missions: {}, pending: {}, notify: { sent: [], deferred: [], retry: [] } };
   try {
     const parsed = JSON.parse(await readFile(STATE, "utf8"));
     return {
       missions: parsed.missions ?? {},
       pending: parsed.pending ?? {},
-      notify: { sent: parsed.notify?.sent ?? [], deferred: parsed.notify?.deferred ?? [] },
+      notify: { sent: parsed.notify?.sent ?? [], deferred: parsed.notify?.deferred ?? [], retry: parsed.notify?.retry ?? [] },
     };
   } catch {
     // A corrupt state file must not mean "Orion goes silent". Losing the rate
     // limiter is survivable; losing the ability to say BLOCKED is not.
     console.error("orion-notify: state unreadable, continuing with an empty history");
-    return { missions: {}, pending: {}, notify: { sent: [], deferred: [] } };
+    return { missions: {}, pending: {}, notify: { sent: [], deferred: [], retry: [] } };
   }
 }
 
@@ -240,12 +244,36 @@ async function deliver(transport, text, dryRun) {
     }
     return { delivered: true };
   } catch (error) {
-    // Never let a transport failure kill the caller's mission. Report and move
-    // on -- a dropped milestone is cheaper than a crashed long-running job.
+    // Never let a transport failure kill the caller's mission. Report it, try the
+    // phone, and if that fails too say so (exit non-zero, queued for a retry).
     const reason = error instanceof Error ? error.message : String(error);
     console.error(`orion-notify: delivery failed: ${reason.slice(0, 200)}`);
-    return { delivered: false, error: true };
+    try {
+      await run(REACH, [text.slice(0, 900), "--channel", "phone", "--kind", "update", "--why", `orion-notify fallback: ${transport.kind} failed`], { timeout: 30_000 });
+      console.error("orion-notify: sent through the phone instead");
+      return { delivered: true, via: "phone" };
+    } catch (fallback) {
+      console.error(`orion-notify: the phone fallback failed too: ${String(fallback?.message ?? fallback).slice(0, 120)}`);
+      return { delivered: false, error: true };
+    }
   }
+}
+
+/** Retry what failed earlier. Stale entries are dropped out loud; the rest go out or stay queued. */
+async function retryPending(transport) {
+  const state = await readState();
+  if (state.notify.retry.length === 0) return;
+  const stale = state.notify.retry.filter((r) => at - r.at > RETRY_MAX_AGE_MS);
+  for (const r of stale) console.error(`orion-notify: dropped a stale retry (${Math.round((at - r.at) / 60000)} min old): ${r.message.slice(0, 80)}`);
+  const fresh = state.notify.retry.filter((r) => at - r.at <= RETRY_MAX_AGE_MS);
+  const delivered = [], still = [];
+  for (const r of fresh) {
+    const result = await deliver(transport, r.text ?? r.message, false);
+    (result.delivered ? delivered : still).push({ ...r, via: result.via });
+  }
+  await writeState((fresh2) => ({ ...fresh2, notify: { ...fresh2.notify,
+    retry: still.map(({ via, ...r }) => r),
+    sent: [...fresh2.notify.sent, ...delivered.map((r) => ({ event: r.event, missionId: r.missionId, message: r.message, at, ...(r.via ? { via: r.via } : {}) }))].filter((e) => at - e.at < 24 * 3_600_000) } }));
 }
 
 /* ---------- suppression ---------- */
@@ -301,6 +329,7 @@ if (command === "status") {
 }
 
 if (command === "flush") {
+  if (!dryRun) await retryPending(await resolveTransport(flags));
   const state = await readState();
   if (state.notify.deferred.length === 0) {
     console.log("nothing deferred");
@@ -383,6 +412,7 @@ if (suppressed) {
 }
 
 const transport = await resolveTransport(flags);
+if (!dryRun) await retryPending(transport);
 const result = await deliver(transport, text, dryRun);
 
 await writeState((fresh) => ({
@@ -404,14 +434,20 @@ await writeState((fresh) => ({
      The suppression check above still runs for dry runs, so a rehearsal still
      tells you honestly that it would have been throttled.
     */
-    sent: dryRun
+    // 2026-10-16 audit, finding 6: only a DELIVERED message is recorded as sent. A failure used to
+    // consume the 30 min dedupe window and the hourly cap and then vanish; now it waits in `retry`.
+    sent: dryRun || !result.delivered
       ? fresh.notify.sent
-      : [...fresh.notify.sent, { event: command, missionId, message, at }].filter(
+      : [...fresh.notify.sent, { event: command, missionId, message, at, ...(result.via ? { via: result.via } : {}) }].filter(
           (e) => at - e.at < 24 * 3_600_000,
         ),
+    retry: !dryRun && !result.delivered
+      ? [...fresh.notify.retry, { event: command, missionId, message, text, at }].slice(-20)
+      : fresh.notify.retry,
   },
 }));
 
 if (approvalId) console.log(`pending approval id: ${approvalId}`);
-if (result.delivered) console.log(`sent (${transport.kind})`);
+if (result.delivered) console.log(`sent (${result.via ?? transport.kind})`);
+else if (!dryRun) console.log("NOT SENT: delivery failed; queued for a retry");
 process.exit(result.error ? 1 : 0);

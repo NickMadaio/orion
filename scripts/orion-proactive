@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { decide } from "./lib/reach/proactive.mjs";
+import { deliveryOutcome } from "./lib/reach/delivery.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { focusToday, formatFocusToday } from "./lib/focus/day-total.mjs";
@@ -35,6 +36,9 @@ const dayKey = new Date(now.getTime() - 6 * 3600000).toLocaleDateString("en-CA")
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
 const state = readJson(STATE) ?? {};
 const sent = state[dayKey] ?? {};
+// Failed sends, kept so a retry is visible (and orion-doctor can show it).
+const FAILED = join(DIR, "proactive-failed.json");
+const failures = (readJson(FAILED) ?? {})[dayKey] ?? {};
 
 if (command === "status") {
   console.log(Object.keys(sent).length ? `Said today: ${Object.keys(sent).join(", ")}` : "Nothing said today.");
@@ -76,10 +80,16 @@ const messages = decide({ minute, day, session, travel, todos, today: localDate(
 
 for (const m of messages) {
   if (dry) { console.log(`DRY RUN would say (${m.key}): ${m.text}`); continue; }
-  const r = spawnSync(process.execPath, [join(here, "orion-reach"), m.text, "--kind", m.kind, "--why", `proactive: ${m.key}`, ...(m.urgent ? ["--urgent"] : [])], { encoding: "utf8", timeout: 30000 });
-  if (r.status === 0) sent[m.key] = true;
+  const r = spawnSync(process.execPath, [join(here, "orion-reach"), m.text, "--kind", m.kind, "--why", `proactive: ${m.key}`,
+    ...(m.urgent ? ["--urgent"] : []), ...(m.urgentKind ? ["--urgent-kind", m.urgentKind] : []), ...(m.expires ? ["--no-queue"] : [])], { encoding: "utf8", timeout: 30000 });
+  // 2026-10-16 audit, finding 6: a key is "said" only when orion-reach really sent, held or already said it.
+  // A refusal (exit 3) or a failed delivery (exit 4) stays unsaid so the next tick retries, and a failure is recorded.
+  const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
+  if (outcome.said) sent[m.key] = true;
+  else if (outcome.failed) failures[m.key] = { at: now.toISOString(), attempts: (failures[m.key]?.attempts ?? 0) + 1 };
   process.stdout.write(r.stdout ?? "");
 }
+if (!dry && Object.keys(failures).length) { try { writeFileSync(`${FAILED}.tmp`, JSON.stringify({ [dayKey]: failures }, null, 2)); renameSync(`${FAILED}.tmp`, FAILED); } catch {} }
 if (!dry && messages.length) {
   mkdirSync(DIR, { recursive: true });
   const keep = Object.fromEntries(Object.entries({ ...state, [dayKey]: sent }).sort().slice(-7));

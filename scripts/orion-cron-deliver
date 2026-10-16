@@ -54,7 +54,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const ROOT = join(homedir(), "Desktop/ORION");
-const ALERT = join(ROOT, "scripts/orion-discord-alert");
+const ALERT = process.env.ORION_DISCORD_ALERT_BIN || join(ROOT, "scripts/orion-discord-alert");
+const REACH = process.env.ORION_REACH_BIN || join(ROOT, "scripts/orion-reach");
 const STATE = join(homedir(), ".openclaw/orion-controlled/cron-delivery.json");
 const HISTORY = join(homedir(), ".openclaw/orion-controlled/cron-delivery-history.jsonl");
 
@@ -158,14 +159,23 @@ async function writeState(next) {
   }
 }
 
-function deliver(text) {
+function deliverVia(bin, args) {
   return new Promise((resolve) => {
-    const child = spawn(ALERT, [text], { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
     let err = "";
     child.stderr?.on("data", (chunk) => (err += String(chunk)));
     child.on("error", (error) => resolve({ ok: false, err: error.message }));
     child.on("close", (code) => resolve({ ok: code === 0, err: err.trim() }));
   });
+}
+
+// 2026-10-16 audit, finding 6: Discord's DNS failed for two weeks and the fallback was the same webhook.
+// Now the phone (orion-reach) is the second channel; both failing is reported, never silent.
+async function deliver(text) {
+  const first = await deliverVia(ALERT, [text]);
+  if (first.ok) return first;
+  const second = await deliverVia(REACH, [text.slice(0, 900), "--channel", "phone", "--kind", "update", "--why", "orion-cron-deliver fallback: Discord failed"]);
+  return second.ok ? { ok: true, err: "", via: "phone" } : { ok: false, err: `${first.err}; phone fallback failed too: ${second.err}`.slice(0, 300) };
 }
 
 /* ----------------------------------------------------------- history */
@@ -197,7 +207,14 @@ if (match && !match.test(spoken)) {
   process.exit(result.code);
 }
 
-const body = spoken.length > MAX_BODY ? `${spoken.slice(0, MAX_BODY)}\n…(truncated)` : spoken;
+// 2026-10-16 audit, finding 13: the focus-guard's "OFF TASK: Claude (strike 1) - 128 min left" log line
+// was appended to the phone message. It is a log, not something to say to him: stripped here.
+const forPhone = spoken.split("\n").filter((l) => !/^OFF TASK:/.test(l.trim())).join("\n").trim();
+if (forPhone.length === 0) {
+  await recordOutcome("silent", result.code);
+  process.exit(result.code);
+}
+const body = forPhone.length > MAX_BODY ? `${forPhone.slice(0, MAX_BODY)}\n…(truncated)` : forPhone;
 const message = `[${label}] ${body}`;
 
 const state = await readState();

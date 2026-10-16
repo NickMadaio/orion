@@ -97,3 +97,16 @@ describe("local routing — texts and email (2026-10-15 live sweep)", () => {
     expect(cannotSend("text carla running late")).toBeNull();
   });
 });
+
+describe("a leading email that is a question (review, 2026-10-16)", () => {
+  it("'email from northeastern, anything new?' is a read, not a send", () => {
+    const m = "email from northeastern, anything new?";
+    expect(cannotSend(m)).toBeNull();
+    expect(isMessagesJob(m)).toBe(true);
+    expect(cannotSend("email prof that i'll be late")).toBe(CANNOT_EMAIL);
+    expect(cannotSend("email myself the list of my tasks for today")).toBe(CANNOT_EMAIL);
+  });
+  it("inbox, gmail and imessage questions are messages jobs", () => {
+    for (const m of ["whats my inbox look like", "whats my latest imessage", "whats my gmail say"]) expect(isMessagesJob(m), m).toBe(true);
+  });
+});

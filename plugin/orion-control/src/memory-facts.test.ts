@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { asksRecall, tellsFact } from "./memory-facts.js";
 import { registerLocalRouting } from "./local-routing.js";
 import type { Decision } from "./front-desk.js";
 
@@ -89,5 +90,32 @@ describe("questions about what he told ORION search the brain first (sweep 2026-
   it("questions about his day stay with the day reader", async () => {
     const t = await turn("what's my next class?", { move: "tool", tool: "agenda" });
     expect(t.prompt).not.toMatch(/Never offer to search/);
+  });
+});
+
+describe("recall, calendar statements (review, 2026-10-16)", () => {
+  it("inbox, gmail, imessage and phone time are messages questions, not recall", () => {
+    for (const m of ["whats my inbox look like", "whats my latest imessage", "whats my gmail say", "whats my phone time"]) expect(asksRecall(m), m).toBe(false);
+    expect(asksRecall("who's my lab partner")).toBe(true);
+  });
+
+  it("a statement with a day or time goes to the calendar, not memory; without one it stays a fact", async () => {
+    for (const m of ["my meeting with priya is moved to friday", "my dentist appointment is on friday at 3"]) {
+      expect(tellsFact(m), m).toBe(false);
+      expect((await turn(m, { move: "tool", tool: "reschedule" })).prompt).not.toMatch(/orion-brain learn "Nick" "fact"/);
+    }
+    expect(tellsFact("my dentist is dr smith")).toBe(true);
+    expect(tellsFact("my lab partner for ds lab is priya")).toBe(true);
+  });
+
+  it("a recall answered from brain snippets counts as provided: no revise for a claimed lookup", async () => {
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "mf-")), "r.jsonl"), clock: () => "Thu 22:25",
+      decideImpl: async () => ({ move: "ask", answer: "?" }), brainSearch: async () => "## Nick  (Nick.md)\n- DS lab partner is Priya" });
+    const ctx = { runId: "mf-prov", sessionKey: "agent:main:orion-chat-sweep" };
+    await f.fire("before_model_resolve", { prompt: "who's my lab partner" }, ctx);
+    await f.fire("before_prompt_build", { prompt: "who's my lab partner", messages: [] }, ctx);
+    const [out] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I checked your notes: your Nick note says your lab partner is Priya." }, ctx);
+    expect(out).toBeUndefined();
   });
 });

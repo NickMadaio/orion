@@ -1,14 +1,30 @@
 // Messages held back (quiet hours, a running focus session) are queued, never
 // dropped (2026-10-16 audit, finding 4: orion-reach logged "hold" and kept nothing).
 // They are released once, merged, when it is no longer quiet and no session runs.
-import { appendFileSync, readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const file = (dir) => join(dir, "held.jsonl");
 
-export function appendHeld(dir, entry) {
+// clearHeld rewrites the file; an append landing between its read and its rename was silently lost. Both go through one lock.
+function withLock(dir, fn) {
   mkdirSync(dir, { recursive: true });
-  appendFileSync(file(dir), `${JSON.stringify(entry)}\n`);
+  const lock = `${file(dir)}.lock`;
+  for (let i = 0; i < 400; i++) {
+    try { writeFileSync(lock, String(process.pid), { flag: "wx" }); }
+    catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      try { if (Date.now() - statSync(lock).mtimeMs > 10_000) rmSync(lock, { force: true }); } catch {}   // a dead holder
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      continue;
+    }
+    try { return fn(); } finally { rmSync(lock, { force: true }); }
+  }
+  return fn();   // never lose a message to a stuck lock: when unsure, deliver
+}
+
+export function appendHeld(dir, entry) {
+  withLock(dir, () => appendFileSync(file(dir), `${JSON.stringify(entry)}\n`));
 }
 
 export function readHeld(dir) {
@@ -18,10 +34,12 @@ export function readHeld(dir) {
 
 export function clearHeld(dir, released) {
   const gone = new Set(released.map((e) => e.id));
-  const keep = readHeld(dir).filter((e) => !gone.has(e.id));
-  const tmp = `${file(dir)}.tmp`;
-  writeFileSync(tmp, keep.map((e) => JSON.stringify(e)).join("\n") + (keep.length ? "\n" : ""));
-  renameSync(tmp, file(dir));
+  withLock(dir, () => {
+    const keep = readHeld(dir).filter((e) => !gone.has(e.id));
+    const tmp = `${file(dir)}.tmp`;
+    writeFileSync(tmp, keep.map((e) => JSON.stringify(e)).join("\n") + (keep.length ? "\n" : ""));
+    renameSync(tmp, file(dir));
+  });
 }
 
 /**

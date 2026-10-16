@@ -84,7 +84,8 @@ const signalAt = catchupAt ?? (flag("--at") ? new Date(flag("--at")) : now);
 let planned = null;
 try { planned = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
 const wake = alarmClock({ planned, asked: readJson(join(DIR, "wake-request.json"))?.at, today });
-const gate = shouldBrief({ signal: signalName, signalAt, now, wake, briefedToday: !!state[today] });
+const isCatchup = command === "catchup";
+const gate = shouldBrief({ catchUp: isCatchup, signal: signalName, signalAt, now, wake, briefedToday: !!state[today] });
 // Every signal and what was decided, for checking a morning afterwards.
 if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signalName} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }
 if (!gate.ok) { console.log(`No briefing: ${gate.reason}.`); process.exit(0); }
@@ -95,14 +96,19 @@ const claim = claimBriefing(DIR, today, { now: Date.now() });
 if (!claim.ok) { console.log(`No briefing: ${claim.reason}.`); process.exit(0); }
 let delivered = false;
 try {
-  const { text, view } = await gather();
+  const { text, view, day } = await gather();
+  // Review M1: a catch-up is the fallback for a missed morning, not the morning ritual. Never inside a fixed block (it would
+  // talk in a lecture); try again at the next tick.
+  const nowMinute = now.getHours() * 60 + now.getMinutes(); 
+  if (isCatchup && day.some((b) => b.fixed && b.start <= nowMinute && b.end > nowMinute)) { console.log("No briefing yet: he is in a fixed block; the catch-up waits."); releaseBriefing(DIR, today); process.exit(0); }   // process.exit skips `finally`
   // The screen, then the lights (2026-10-08): the strip coming on is the cue that ORION is about to talk.
-  showScreen(view);
-  spawnSync(process.env.ORION_LIGHTS_BIN || process.execPath, process.env.ORION_LIGHTS_BIN ? ["on", "100", "warm"] : [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
+  if (!isCatchup) showScreen(view);
+  if (!isCatchup) spawnSync(process.env.ORION_LIGHTS_BIN || process.execPath, process.env.ORION_LIGHTS_BIN ? ["on", "100", "warm"] : [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
   // --awake: the signal is proof he is up, so quiet hours do not hold it. --loud with --channel mac says it aloud
   // even when the calendar says a class is on: it went out as a silent bubble on 2026-10-15.
-  const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--awake", "--loud", "--listen",
-    "--channel", "mac", "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
+  // A catch-up uses NORMAL routing (no --loud, no forced Mac channel): it may be hours late and he may be anywhere.
+  const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--awake",
+    ...(isCatchup ? [] : ["--loud", "--listen", "--channel", "mac"]), "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
   process.stdout.write(sent.stdout ?? "");
   delivered = deliveryOutcome({ status: sent.status, stdout: sent.stdout }).said;
   if (delivered) {
@@ -130,7 +136,9 @@ function showScreen(view) {
   } catch { return false; }
 }
 
-const withTimeout = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))]);
+// A function declaration, so it is hoisted: gather() runs above this line and a const here is a temporal-dead-zone error
+// that silently turned every calendar read into "unknown" and every weather read into null (found by the review probes).
+function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))]); }
 
 async function readWeather() {
   // ORION_WEATHER_FILE is a test seam (never the network in tests); a missing or FAIL file is a failure.
@@ -161,5 +169,5 @@ async function gather() {
   const nowMinute = now.getHours() * 60 + now.getMinutes();
   const missed = day.filter((b) => isRealClass(b) && b.end <= nowMinute && classAttendance(b, { wokeAt, phone }) === "missed");
   const facts = { now, day, travel, todos, today, weather: sky, calendar, missed };
-  return { text: composeBriefing(facts), view: buildView(facts) };
+  return { text: composeBriefing(facts), view: buildView(facts), day };
 }

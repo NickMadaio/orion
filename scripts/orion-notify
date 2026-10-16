@@ -224,7 +224,7 @@ async function resolveTransport(flags) {
   return { kind: "discord" };
 }
 
-async function deliver(transport, text, dryRun) {
+async function deliver(transport, text, dryRun, { forced = false } = {}) {
   if (dryRun) {
     const where = transport.kind === "openclaw"
       ? `openclaw:${transport.channel} -> ${transport.target}`
@@ -250,7 +250,10 @@ async function deliver(transport, text, dryRun) {
     const reason = error instanceof Error ? error.message : String(error);
     console.error(`orion-notify: delivery failed: ${reason.slice(0, 200)}`);
     try {
-      await run(REACH, [text.slice(0, 900), "--channel", "phone", "--kind", "update", "--why", `orion-notify fallback: ${transport.kind} failed`], { timeout: 30_000 });
+      await run(REACH, [text.slice(0, 900), "--channel", "phone", "--kind", "update", "--why", `orion-notify fallback: ${transport.kind} failed`,
+        // A blocked / --urgent event is forced past quiet hours here, so its phone fallback is too (review H3: otherwise
+        // orion-reach would hold it); everything else obeys quiet hours on the phone as well.
+        ...(forced ? ["--urgent", "--urgent-kind", "reminder"] : [])], { timeout: 30_000 });
       console.error("orion-notify: sent through the phone instead");
       return { delivered: true, via: "phone" };
     } catch (fallback) {
@@ -260,21 +263,47 @@ async function deliver(transport, text, dryRun) {
   }
 }
 
-/** Retry what failed earlier. Stale entries are dropped out loud; the rest go out or stay queued. */
+/*
+ Retries (review M4, 2026-10-16). They run ONLY from `flush`, which is gated (quiet hours, focus session, the hourly cap),
+ at most MAX_RETRIES_PER_RUN per run, with exponential backoff per entry. Selection and the attempt bump happen inside
+ the state lock (a concurrent flush cannot pick the same entries), and each delivery is written the moment it happens, so a
+ flush killed at its timeout never re-delivers what already went out.
+*/
+const MAX_RETRIES_PER_RUN = 3;
+const MAX_ATTEMPTS = 6;
+const RETRY_BUDGET_MS = 40_000;
+const RELATIVE_TEXT = /\b(starts? in|leave in|in \d+\s*(m|min|minutes|h|hours?)\b)/i;   // "Starts in 1h 58m" is false soon after
+const RELATIVE_MAX_AGE_MS = 20 * 60_000;
+const retryKey = (r) => `${r.missionId}|${r.at}|${r.message}`;
+const maxAge = (r) => (RELATIVE_TEXT.test(r.message) ? RELATIVE_MAX_AGE_MS : RETRY_MAX_AGE_MS);
+const backoffMs = (attempts) => Math.min(60, 5 * 2 ** Math.max(0, attempts - 1)) * 60_000;
+
 async function retryPending(transport) {
-  const state = await readState();
-  if (state.notify.retry.length === 0) return;
-  const stale = state.notify.retry.filter((r) => at - r.at > RETRY_MAX_AGE_MS);
-  for (const r of stale) console.error(`orion-notify: dropped a stale retry (${Math.round((at - r.at) / 60000)} min old): ${r.message.slice(0, 80)}`);
-  const fresh = state.notify.retry.filter((r) => at - r.at <= RETRY_MAX_AGE_MS);
-  const delivered = [], still = [];
-  for (const r of fresh) {
-    const result = await deliver(transport, r.text ?? r.message, false);
-    (result.delivered ? delivered : still).push({ ...r, via: result.via });
+  const started = Date.now();
+  const claimed = [];
+  await writeState((fresh) => {
+    const hourly = fresh.notify.sent.filter((e) => at - e.at < 3_600_000).length;
+    let room = Math.max(0, GLOBAL_HOURLY_CAP - hourly);
+    const keep = [];
+    for (const r of fresh.notify.retry) {
+      if (at - r.at > maxAge(r)) { console.error(`orion-notify: dropped a stale retry (${Math.round((at - r.at) / 60000)} min old): ${r.message.slice(0, 80)}`); continue; }
+      if ((r.attempts ?? 0) >= MAX_ATTEMPTS) { console.error(`orion-notify: gave up on a retry after ${MAX_ATTEMPTS} attempts: ${r.message.slice(0, 80)}`); continue; }
+      const due = at >= (r.nextAt ?? r.at);
+      if (due && claimed.length < MAX_RETRIES_PER_RUN && room > 0) {
+        const bumped = { ...r, attempts: (r.attempts ?? 0) + 1, nextAt: at + backoffMs((r.attempts ?? 0) + 1) };
+        claimed.push(bumped); keep.push(bumped); room -= 1;
+      } else keep.push(r);
+    }
+    return { ...fresh, notify: { ...fresh.notify, retry: keep } };
+  });
+  for (const r of claimed) {
+    if (Date.now() - started > RETRY_BUDGET_MS) break;
+    const result = await deliver(transport, r.text ?? r.message, false, { forced: !!r.forced });
+    if (!result.delivered) continue;
+    await writeState((fresh) => ({ ...fresh, notify: { ...fresh.notify,
+      retry: fresh.notify.retry.filter((x) => retryKey(x) !== retryKey(r)),
+      sent: [...fresh.notify.sent, { event: r.event, missionId: r.missionId, message: r.message, at, ...(result.via ? { via: result.via } : {}) }].filter((e) => at - e.at < 24 * 3_600_000) } }));
   }
-  await writeState((fresh2) => ({ ...fresh2, notify: { ...fresh2.notify,
-    retry: still.map(({ via, ...r }) => r),
-    sent: [...fresh2.notify.sent, ...delivered.map((r) => ({ event: r.event, missionId: r.missionId, message: r.message, at, ...(r.via ? { via: r.via } : {}) }))].filter((e) => at - e.at < 24 * 3_600_000) } }));
 }
 
 /* ---------- suppression ---------- */
@@ -331,7 +360,7 @@ if (command === "status") {
 
 if (command === "flush") {
   // Held updates are released when it is neither quiet nor focus time (2026-10-16): orion-proactive's tick calls this.
-  if (!dryRun && flags.force !== true) {
+  if (!dryRun) {   // --force no longer bypasses: a forced flush used to skip quiet hours, the focus hold and the cap (review M4)
     if (inQuietHours(now)) { console.log("quiet hours: not flushing"); process.exit(0); }
     if (activeSession(process.env)) { console.log("focus session running: not flushing"); process.exit(0); }
   }
@@ -420,8 +449,7 @@ if (suppressed) {
 }
 
 const transport = await resolveTransport(flags);
-if (!dryRun) await retryPending(transport);
-const result = await deliver(transport, text, dryRun);
+const result = await deliver(transport, text, dryRun, { forced });
 
 await writeState((fresh) => ({
   ...fresh,
@@ -450,7 +478,7 @@ await writeState((fresh) => ({
           (e) => at - e.at < 24 * 3_600_000,
         ),
     retry: !dryRun && !result.delivered
-      ? [...fresh.notify.retry, { event: command, missionId, message, text, at }].slice(-20)
+      ? [...fresh.notify.retry, { event: command, missionId, message, text, at, attempts: 0, nextAt: at, ...(forced ? { forced: true } : {}) }].slice(-20)
       : fresh.notify.retry,
   },
 }));

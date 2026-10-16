@@ -59,7 +59,9 @@ if (drain) {
 if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent [--urgent-kind reminder|class]] [--channel auto|phone|mac] [--dry-run]');
 const kind = flag("--kind") ?? (drain ? "update" : "info");
 if (!["reminder", "warning", "update", "question", "info", "morning"].includes(kind)) fail("--kind must be reminder, warning, update, question, info or morning");
-const urgentKind = flag("--urgent-kind") ?? null;
+// The app's reminder service calls `--kind reminder --urgent` (AppState.swift) without --urgent-kind: that IS a reminder he set
+// (review H2), so it is urgent kind "reminder". Any other bare --urgent is still not a bypass.
+const urgentKind = flag("--urgent-kind") ?? (kind === "reminder" && args.includes("--urgent") ? "reminder" : null);
 if (urgentKind && !URGENT_KINDS.includes(urgentKind)) fail(`--urgent-kind must be one of ${URGENT_KINDS.join(", ")}`);
 const dry = args.includes("--dry-run");
 if (!dry) refuseDuringEval("reaching Nick");
@@ -79,7 +81,8 @@ const here = await presence(now, { dir: DIR, facts: givenFacts });
 // --awake: the caller has proof he is up (the morning brief runs on his wake signal), so quiet hours do not apply.
 if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
 const forced = flag("--channel");
-let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
+// A forced phone obeys quiet hours too (review H3) unless it is a genuinely urgent kind: when unsure, deliver, but never 3 AM pushes.
+let decision = forced === "phone" ? (here.quiet && !bypass ? { channel: "hold", reason: "quiet hours - it waits until morning" } : { channel: "phone", reason: "asked for the phone" })
   // --loud (the morning brief) is meant aloud: a calendar-derived "out" must not turn it into a silent bubble (2026-10-15).
   : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false, ...(args.includes("--loud") ? { out: false } : {}) }, { urgent, urgentKind })
   : chooseChannel(here, { urgent, urgentKind });
@@ -94,6 +97,8 @@ const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("-
 if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
 
 // Releasing the held queue while it is still quiet (or a session still runs): leave it, and leave no log row.
+// Review M3: inside the sleep window the queue is released only when he is at the Mac, whatever a phone sample says.
+if (drain && here.inWindow && !here.lateAwake && !bypass) decision = { channel: "hold", reason: "he is inside his sleep window" };
 if (drain && decision.channel === "hold") { console.log(`Still held (${decision.reason}).`); process.exit(0); }
 try {
   appendFileSync(LOG, `${JSON.stringify(entry)}\n`);

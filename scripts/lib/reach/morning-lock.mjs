@@ -11,19 +11,32 @@ const STALE_MS = 3 * 60_000;   // a run that died holding the claim must not blo
 export function claimBriefing(dir, date, { now = Date.now(), staleMs = STALE_MS } = {}) {
   mkdirSync(dir, { recursive: true });
   const body = JSON.stringify({ claimedAt: now, pid: process.pid });
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try { writeFileSync(file(dir, date), body, { flag: "wx" }); return { ok: true }; }
-    catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-      let held = null;
-      try { held = JSON.parse(readFileSync(file(dir, date), "utf8")); } catch {}
-      // An unreadable file is a claim being written right now (created, not yet filled): fresh unless it is old.
-      const claimedAt = held?.claimedAt ?? (() => { try { return statSync(file(dir, date)).mtimeMs; } catch { return now; } })();
-      if (held?.done || now - claimedAt <= staleMs) return { ok: false, reason: held?.done ? "already briefed this morning" : "a briefing is already being prepared" };
-      rmSync(file(dir, date), { force: true });   // stale: take it over
-    }
+  const busy = (done) => ({ ok: false, reason: done ? "already briefed this morning" : "a briefing is already being prepared" });
+  try { writeFileSync(file(dir, date), body, { flag: "wx" }); return { ok: true }; }
+  catch (error) { if (error?.code !== "EEXIST") throw error; }
+  let held = null;
+  try { held = JSON.parse(readFileSync(file(dir, date), "utf8")); } catch {}
+  // An unreadable file is a claim being written right now (created, not yet filled): fresh unless it is old.
+  const claimedAt = held?.claimedAt ?? (() => { try { return statSync(file(dir, date)).mtimeMs; } catch { return now; } })();
+  if (held?.done || now - claimedAt <= staleMs) return busy(held?.done);
+  // A stale claim is taken over under a takeover lock, so two processes that both saw it stale cannot both win (the loser used to
+  // delete the winner's fresh claim and then claim again).
+  const takeover = `${file(dir, date)}.takeover`;
+  try { writeFileSync(takeover, body, { flag: "wx" }); }
+  catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    try { if (Date.now() - statSync(takeover).mtimeMs > 30_000) rmSync(takeover, { force: true }); } catch {}
+    return busy(false);
   }
-  return { ok: false, reason: "a briefing is already being prepared" };
+  try {
+    let again = null;
+    try { again = JSON.parse(readFileSync(file(dir, date), "utf8")); } catch {}
+    if (again?.done || (again?.claimedAt && now - again.claimedAt <= staleMs)) return busy(again?.done);   // someone refreshed it meanwhile
+    rmSync(file(dir, date), { force: true });
+    writeFileSync(file(dir, date), body, { flag: "wx" });
+    return { ok: true };
+  } catch { return busy(false); }
+  finally { rmSync(takeover, { force: true }); }
 }
 
 /** The brief went out: the claim stays, marked done. */

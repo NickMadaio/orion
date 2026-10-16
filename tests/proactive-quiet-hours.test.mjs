@@ -93,7 +93,7 @@ test("incident 2026-10-16 03:09: a non-urgent push at 3 AM is held, not sent", (
 
 test("a bare --urgent bedtime nag at 3 AM is still held", () => {
   const h = harness();
-  const r = h.run(["It's 3:09 AM, bedtime.", "--kind", "reminder", "--urgent"]);
+  const r = h.run(["It's 3:09 AM, bedtime.", "--kind", "update", "--urgent"]);   // review H2: `--kind reminder --urgent` is the app's set reminder and gets through
   assert.match(r.stdout, /[Hh]eld/);
   assert.equal(h.outbox().length, 0);
 });
@@ -110,7 +110,7 @@ test("a class he is about to miss gets through at night, and is marked urgent in
 test("the outbox line carries urgent:false unless the kind is genuinely urgent", () => {
   const h = harness();
   h.run(["Rain at 3", "--kind", "info"], { at: "2026-10-16T14:00:00" });
-  h.run(["Bed soon", "--kind", "reminder", "--urgent"], { at: "2026-10-16T14:00:00" });
+  h.run(["Bed soon", "--kind", "update", "--urgent"], { at: "2026-10-16T14:00:00" });
   const lines = h.outbox();
   assert.equal(lines.length, 2);
   assert.equal(lines[0].urgent, false);

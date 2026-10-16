@@ -64,16 +64,13 @@ test("the morning brief waits for the end of a session, then goes out merged", a
   assert.equal(h.outbox("held.jsonl").length, 0, "released once");
 });
 
-test("orion-checkin: a due check-in does not fire during a session, and fires after it", async () => {
+test("orion-checkin: a check-in he set still fires once during a session (review M6); the escalation waits (see proactive-review-fixes)", async () => {
   const h = await harness();
   const nowMin = Math.floor(Date.now() / 60000);
   const loop = { blockId: "ci-1", phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] };
   writeFileSync(h.env.ORION_CHECKIN_FILE, JSON.stringify({ checkins: [{ id: "ci-1", what: "start the DS lab write-up", dueAt: nowMin - 5, createdAt: new Date().toISOString(), alerts: 0, returning: null, loop }] }));
   const during = h.run("orion-checkin", ["tick", "--json"]);
-  assert.deepEqual(JSON.parse(during.stdout), []);
-  h.end();
-  const after = h.run("orion-checkin", ["tick", "--json"]);
-  assert.equal(JSON.parse(after.stdout).length, 1, "it waited; it did not vanish");
+  assert.equal(JSON.parse(during.stdout).length, 1);
 });
 
 test("orion-notify: a non-urgent Discord update during a session is deferred; blocked still goes", async () => {

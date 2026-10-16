@@ -24,9 +24,11 @@ export function quietFacts({ now, dir, config, facts }) {
   const inWindow = isQuietNow({ minute, ...window });
   const macUp = !facts.locked && !facts.displayAsleep && Number(facts.idleSeconds) < 300;
   const signal = (readJson(join(dir, "health-log.json"))?.phoneSignals ?? []).at(-1);
-  const phoneUp = signal ? now - Date.parse(signal.at) >= 0 && now - Date.parse(signal.at) <= 5 * 60_000 : false;
+  // Review M3: one stray sample ("still", charging) is not "up". It takes the phone off the charger or real motion.
+  const MOVING = ["walking", "running", "cycling", "vehicle", "automotive"];
+  const phoneUp = signal ? now - Date.parse(signal.at) >= 0 && now - Date.parse(signal.at) <= 5 * 60_000 && (signal.charging === false || MOVING.includes(signal.motion)) : false;
   const awake = macUp || phoneUp;
-  return { quiet: inWindow && !awake, lateAwake: inWindow && macUp };
+  return { quiet: inWindow && !awake, lateAwake: inWindow && macUp, inWindow };
 }
 
 export async function presence(now = new Date(), { dir = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled"), facts: given = null } = {}) {

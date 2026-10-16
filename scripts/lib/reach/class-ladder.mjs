@@ -14,7 +14,8 @@ const strip = (t) => String(t).replace(/ — .*$/, "");
 const hm = (m) => { const h = Math.floor(((m % 1440) + 1440) % 1440 / 60), mm = ((m % 60) + 60) % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 
 /** A real class: fixed, a class, and not one ORION planned itself. */
-export const isRealClass = (b) => b.kind === "class" && b.fixed && b.source !== "orion";
+const cancelled = (b) => /^\s*(cancell?ed|canceled)\b/i.test(String(b.title ?? ""));
+export const isRealClass = (b) => b.kind === "class" && b.fixed && b.source !== "orion" && !cancelled(b);
 
 export function classLadder(ctx, say) {
   const signals = ctx.signals ?? {};
@@ -26,9 +27,14 @@ export function classLadder(ctx, say) {
     const inMin = w.start - ctx.minute;
     if (inMin < 5 || inMin > 15 || away) continue;
     const dest = blocks.filter((b) => b.fixed && b.start >= w.end - 1).sort((a, b) => a.start - b.start)[0];
-    if (dest) say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder", { urgentKind: "class", claim: `class-${dest.start}`, level: 1 });   // a class he is about to miss: gets through quiet hours, but is a plain banner
+    if (!dest || cancelled(dest)) continue;
+    // Only the PLAIN nudge checks the shared claim (checkClaim): the urgent steps below mark it but are never skipped by it
+    // (review H1: a pre-marked key used to silence the whole ladder). Only a real class bypasses quiet hours; a dinner does not.
+    say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder",
+      { ...(isRealClass(dest) ? { urgentKind: "class" } : {}), claim: `class-${dest.start}`, checkClaim: true, level: 1 });   // a class he is about to miss: gets through quiet hours, but is a plain banner
   }
-  for (const cls of blocks.filter(isRealClass).sort((a, b) => a.start - b.start)) {
+  const realClasses = blocks.filter(isRealClass).sort((a, b) => a.start - b.start);
+  for (const cls of realClasses) {
     const name = strip(cls.title);
     const attendance = classAttendance(cls, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] });
     if (attendance === "attended") continue;
@@ -37,6 +43,10 @@ export function classLadder(ctx, say) {
     const toLeave = leaveAt - ctx.minute;
     const toStart = cls.start - ctx.minute;
     if (moved) continue;
+    // Review M5: already on campus (inside the previous class, or just out of it and not known to have missed it): no "Up now".
+    const onCampus = realClasses.some((o) => o !== cls && o.start < cls.start && o.start <= ctx.minute && ctx.minute < o.end + 45
+      && classAttendance(o, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] }) !== "missed");
+    if (onCampus) continue;
     if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${cls.start}`, `You should be out the door now - ${name} is at ${hm(cls.start)}. Go, and I'll sort the rest.`, "reminder", { urgent: true, urgentKind: "class", claim: `class-${cls.start}`, level: 2 });
     if (toLeave < -10 && toStart >= -10) {
       say(`wake-${cls.start}`, toStart > 0

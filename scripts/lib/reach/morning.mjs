@@ -21,7 +21,7 @@ const parseClock = (text) => {
  * @param {{ signal: string, signalAt: Date, now: Date, wake?: string|null, briefedToday?: boolean }} input
  * @returns {{ ok: boolean, reason: string }}
  */
-export function shouldBrief({ signal, signalAt, now, wake = null, briefedToday = false }) {
+export function shouldBrief({ signal, signalAt, now, wake = null, briefedToday = false, catchUp = false }) {
   if (!SIGNALS.includes(signal)) return { ok: false, reason: `unknown signal "${signal}"` };
   if (!(signalAt instanceof Date) || Number.isNaN(signalAt.getTime())) return { ok: false, reason: "no time on the signal" };
   if (briefedToday) return { ok: false, reason: "already briefed him this morning" };
@@ -32,13 +32,16 @@ export function shouldBrief({ signal, signalAt, now, wake = null, briefedToday =
   if (stale && now.toLocaleDateString("en-CA") !== signalAt.toLocaleDateString("en-CA")) return { ok: false, reason: "the signal is from another day" };
   if (stale && minuteOf(now) >= LATEST) return { ok: false, reason: "not the morning" };
   if (signalAt - now > 2 * 60_000) return { ok: false, reason: "the signal is in the future" };
-  const at = minuteOf(signalAt);
+  const rawAt = minuteOf(signalAt);
+  // Review M2: a catch-up is judged on max(when he woke, now): he woke at 5:30 for a 7:45 alarm and the old check
+  // ("more than 45 min before his alarm") rejected the catch-up forever. A live signal is still judged on its own time.
+  const at = catchUp ? Math.max(rawAt, minuteOf(now)) : rawAt;
   if (at < EARLIEST || at >= LATEST) return { ok: false, reason: "not the morning" };
   const alarm = parseClock(wake);
   if (alarm !== null && alarm >= EARLIEST && at < alarm - BEFORE_ALARM) {
     return { ok: false, reason: `more than ${BEFORE_ALARM} min before his ${wake} alarm` };
   }
-  return { ok: true, reason: `${stale ? "catching up on a missed signal: " : ""}phone ${signal === "unplugged" ? "unplugged" : "in use"} at ${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}` };
+  return { ok: true, reason: `${stale || catchUp ? "catching up on a missed signal: " : ""}phone ${signal === "unplugged" ? "unplugged" : "in use"} at ${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}` };
 }
 
 /**

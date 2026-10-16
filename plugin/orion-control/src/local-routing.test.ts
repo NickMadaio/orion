@@ -172,20 +172,18 @@ describe("local routing — on mode", () => {
     expect(lines(logPath).at(-1)).toMatchObject({ revised: true });
   });
 
-  it("check → one retry with what to fix → then undo and say plainly, never a false 'done'", async () => {
+  // r8 (2026-10-16, q029): OpenClaw ignores a revise once a tool ran, so after an exec the honest line goes in place at once,
+  // from the scheduler's own words ("Gym did not fit"), not through two retries.
+  it("a false 'done' after a failed exec is replaced in place with the scheduler's own words, never a revise", async () => {
     const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
     await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
     const failed = { toolName: "exec", params: { command: 'orion-reschedule move "Gym" --to 19:00' }, result: "NOTHING WAS CHANGED. NOT BOOKED: Gym did not fit" };
     await f.fire("after_tool_call", failed, ctx);
-    const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx)) as Array<Record<string, any>>;
-    expect(first).toMatchObject({ action: "revise", retry: { maxAttempts: 1 } });
-    expect(first?.retry.instruction).toMatch(/did not happen|NOT BOOKED/);
-    await f.fire("after_tool_call", failed, ctx);
-    const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx)) as Array<Record<string, any>>;
-    expect(second).toMatchObject({ action: "revise" });
-    expect(second?.retry.instruction).toMatch(/undo/i);
-    const [third] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I couldn't move gym — 7 PM doesn't fit, so nothing changed." }, ctx);
-    expect(third).toBeUndefined();
+    const messages = [{ role: "user", content: "move gym to 7" }, { role: "assistant", content: [{ type: "text", text: "Done — gym is at 7." }] }];
+    const [first] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7.", messages }, ctx);
+    expect(first).toBeUndefined();
+    expect(JSON.stringify(messages[1])).toContain("Nothing was moved — Gym did not fit.");
+    expect(JSON.stringify(messages[1])).not.toContain("gym is at 7");
     expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", escalationNeeded: true });
   });
 

@@ -85,6 +85,47 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-16 — Live sweep: 111 questions, ~30 fixes, deployed (Claude; continued across two accounts)
+
+**What ran.** 111 Nick-style questions (everyday through outliers and safety) went through the real Mac-chat
+route (`openclaw agent --json`), run under launchd, which has the gateway node's Calendar grant. Each item
+was cleaned up afterwards: calendar undo plus an undo-journal restore, state-file and memory snapshots, to-dos
+completed or reopened, and a new focus session abandoned. Bank, runner and results:
+`~/.openclaw/orion-controlled/evals/sweep-20261015/`.
+Baseline: 24 pass, 24 minor, 63 fail. Median turn 9.4 s.
+
+**How it was fixed.** Haiku diagnosed slices of the results and grouped them into ~22 root causes. Opus and
+Sonnet fixers worked in `~/Desktop/ORION-worktrees/` on `sweep/*` branches; all are merged into
+`sweep/integration`. An independent Opus reviewer blocked four times, and each block was a real bug:
+- a crisis regex catching "my laptop is going to die";
+- "set a reminder to cancel netflix" cancelling a different reminder;
+- "today for my monday exam" booking Monday;
+- the answer after "What should I remind you about?" swallowing "add gym at 5 today".
+Final verdict: ship-with-fixes, with those fixes applied.
+
+**Biggest causes.**
+- OpenClaw ignores a finalize `revise` when `event.hadDeterministicSideEffect` is set
+  (dist/selection-*.js ~13371), so after any tool call a false claim went out. Now `hostDrops` substitutes
+  the honest line in place.
+- Front-desk drafts invented live facts (sunset, weather, "nothing today").
+- The calendar flow hijacked "text myself…".
+- Reminders could only set.
+- To-do commands were advertised but did not exist (`orion-tasks done` added).
+- The scheduler's window opening an hour before wake slid "7:30 am" to 9:32 and reported Done.
+
+**State.** Deployed at 73168f7 (`orion-deploy`; roll back with `orion-deploy --rollback`): plugin 712/712,
+scripts 1269/1269. `tests/agentic-halts.test.mjs` "resume inside the grace window" is a pre-existing timing
+flake. A live re-run of the 87 failed/minor items plus 6 review inputs is in progress
+(`scratchpad/sweep/rerun-results.jsonl`).
+
+**Open, needs Nick.**
+- Texting or emailing himself is not possible: the `messages_send` origin gate refuses a recipient he didn't
+  name, and `email_send` is simulate-only. This needs a design decision.
+- Sleep and duration-only workout logging don't exist.
+- Speed cause "two-pass reminders" was only partly addressed by code-built reminder calls.
+- Trap: a worktree's `node_modules` symlink got committed (the ignore rule `node_modules/` matches dirs
+  only) and wiped the real folder on merge. The ignore rule is now `node_modules`.
+
 ### 2026-10-15 — "Start a focus session" was answered with a lie: fixed (Claude)
 
 **Found state.** 21:40Z, Mac chat. Nick: "Can you go ahead and, uh, start a focus session?" The 9B replied

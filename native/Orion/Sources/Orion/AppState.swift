@@ -1955,6 +1955,8 @@ final class AppState: ObservableObject {
     }
 
     private func send(_ text: String, typed: Bool = false) {
+        // Every message he sends is a turn for the curiosity loop, and closes the ask it answers (orion-inbound-turn).
+        InboundTurnLog.record(text: text)
         questionFollowUp.answered()
         repeatFollowUpGrace = nil
         let origin: ReplyOrigin = typed ? .typed : .voice

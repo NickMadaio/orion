@@ -1,0 +1,33 @@
+#!/usr/bin/env node
+/*
+ orion-inbound-turn — Nick sent a message (awareness spec 3.5). Called by both paths: the phone (orion-remote) and the Mac
+ app (GatewayClient). It
+   1. appends { at } to inbound-turns.jsonl in the controlled dir (so an ask he ignored differs from one he answered), and
+   2. when the message answers an open curiosity ask (it carries --reply-to, or it is the first message after the newest ask
+      within 90 min), runs `orion-proactive ask-outcome <askId> answered`, or `nothing` for "nothing really".
+
+   orion-inbound-turn [--reply-to <askId|outreach id>] [--text "<his message>"]
+
+ Best effort and silent: it never blocks or fails a chat turn. Seams (tests): ORION_CONTROLLED_DIR, ORION_REACH_NOW, ORION_PROACTIVE_BIN.
+*/
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { appendTurn, askAnswered, outcomeFor, readTurns } from "./lib/curiosity/inbound.mjs";
+import { readLedger } from "./lib/curiosity/ledger.mjs";
+
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
+const replyTo = /^[A-Za-z0-9._:-]{1,80}$/.test(flag("--reply-to") ?? "") ? flag("--reply-to") : null;
+
+try {
+  const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
+  const ask = askAnswered({ asks: readLedger(DIR).asks, replyTo, turns: earlier, now: now.getTime() });
+  appendTurn(DIR, now);
+  if (ask) {
+    const bin = process.env.ORION_PROACTIVE_BIN || join(import.meta.dirname, "orion-proactive");
+    spawnSync(process.execPath, [bin, "ask-outcome", ask.askId, outcomeFor(flag("--text"))], { env: process.env, timeout: 8000, stdio: "ignore" });
+  }
+} catch { /* a chat turn never fails on this */ }

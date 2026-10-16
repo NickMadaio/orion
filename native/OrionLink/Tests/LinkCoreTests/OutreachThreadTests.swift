@@ -42,6 +42,23 @@ final class OutreachThreadTests: XCTestCase {
         XCTAssertNil(OutreachThread.entry(from: ["id": "x", "text": ""]))
     }
 
+    /// The row `orion-reach --ask` writes (tests/inbound-turn.test.mjs pins its shape): a pushed question with askId and category.
+    func testAnAskRowAsOrionReachWritesItIsAnAnswerableMessageInTheThread() throws {
+        let row: [String: Any] = ["id": "reach-1792160000000-ab12cd", "text": "What have you been up to since 1? I'll log it.", "kind": "question",
+            "push": true, "urgent": false, "timeSensitive": true, "askId": "ask-1", "category": "orion.ask",
+            "ask": ["type": "blank", "askId": "ask-1"]]
+        let entry = try XCTUnwrap(OutreachThread.entry(from: row))
+        XCTAssertEqual(entry.category, OutreachThread.askCategory, "the phone shows a text-reply field")
+        XCTAssertEqual(entry.level, 2, "timeSensitive shows time-sensitive")
+        XCTAssertTrue(entry.push)
+        let store = try ChatStore(directory: dir)
+        XCTAssertTrue(OutreachArchive.append(entry, at: at, to: store))
+        let message = try XCTUnwrap(try store.load(LinkSchema.threadID).messages.first)
+        XCTAssertEqual(message.role, .orion)
+        XCTAssertEqual(OutreachThread.replyTarget(thread: [OutreachThread.Line(id: entry.id, sentAt: at, fromORION: true)], now: at.addingTimeInterval(3000)), entry.id,
+                       "his reply carries this id back; orion-inbound-turn matches it to the ask")
+    }
+
     func testACheckinAlertIsAMessageToo() throws {
         let entry = try XCTUnwrap(OutreachThread.entry(fromCheckin: ["id": "c7", "text": "How's resume going?", "level": 2]))
         XCTAssertEqual(entry.conversationID, LinkSchema.threadID)

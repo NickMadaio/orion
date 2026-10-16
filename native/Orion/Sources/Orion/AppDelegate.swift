@@ -174,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "id" })?.value,
                let entry = Self.outreach(id: id) {
                 state.deliverReach(entry.text, aloud: entry.channel == "mac-voice", headphones: entry.headphones,
-                                   loud: entry.loud, listen: entry.listen)
+                                   loud: entry.loud, listen: entry.listen, reachID: id)
                 continue
             }
             // orion://morning-screen — the day and the weather, full screen (scripts/orion-morning).

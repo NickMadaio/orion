@@ -68,7 +68,7 @@ test("an ask that gets held is dropped, never queued; the ask is stored on the r
   h.setAwareness(rest);
   h.run("orion-reach", ["Time to start: resume.", "--kind", "question", "--ask", ask, "--valid-until", "2026-10-16T15:00:00Z"]);
   const row = h.read("outreach-outbox.jsonl")[0];
-  assert.equal(row.ask.blockId, "b1"); assert.equal(row.category, "mismatch"); assert.ok(row.askId); assert.equal(row.validUntil, "2026-10-16T15:00:00Z");
+  assert.equal(row.ask.blockId, "b1"); assert.equal(row.category, "orion.ask", "the phone notification category: a text-reply field"); assert.ok(row.askId); assert.equal(row.validUntil, "2026-10-16T15:00:00Z");
   assert.notEqual(h.run("orion-reach", ["x", "--ask", "nope"]).status, 0);
 });
 

@@ -154,8 +154,9 @@ try {
   // `urgent` reaches the phone only for a genuinely urgent kind (2026-10-16), so the app can make it time-sensitive.
   // timeSensitive lets iOS Announce read it into his AirPods, but only when the phone route is headphones.
   const phone = entry.channel === "phone";
+  // An ask gets the phone's `orion.ask` category (a text-reply field) and its askId, which the link carries into the chat thread (WP5).
   appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: phone, urgent: genuinelyUrgent, timeSensitive: phone && heard.phoneHeadphones === true,
-    ...(ask ? { ask, askId: entry.askId, category: entry.category } : {}), ...(validUntil ? { validUntil } : {}) })}\n`);
+    ...(ask ? { ask, askId: entry.askId, category: "orion.ask" } : {}), ...(validUntil ? { validUntil } : {}) })}\n`);
   // A phone delivery also posts the same row on the Mac as a silent bubble, so it is there when he is back (3.4.4).
   // Its channel is not mac-voice, so the app shows it without speaking. Best effort: the app may not be running.
   if (phone) { try { execFileSync(OPEN, ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); } catch { /* the push still reached him */ } }

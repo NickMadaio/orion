@@ -35,10 +35,11 @@ export function recordAsk(ledger, ask) {
   return { ...ledger, asks: [...keep, { answeredAt: null, outcome: null, reachId: null, window: null, cell: null, ...ask, at }] };
 }
 
-/** Close an ask by id with an outcome ("nothing" logs nothing and marks the blank answered; "declined" is not ignored). */
+/** Close an ask by id with an outcome ("nothing" logs nothing and marks the blank answered; "declined" is not ignored).
+ *  A plain "answered" (a reply arrived) may be made more exact later ("logged", "nothing", ...), never the other way. */
 export function closeAsk(ledger, askId, outcome, at = new Date().toISOString()) {
   if (!OUTCOMES.includes(outcome)) throw new Error(`outcome must be one of ${OUTCOMES.join(", ")}`);
-  return { ...ledger, asks: ledger.asks.map((a) => (a.askId === askId && !a.answeredAt ? { ...a, answeredAt: at, outcome } : a)) };
+  return { ...ledger, asks: ledger.asks.map((a) => (a.askId === askId && (!a.answeredAt || (a.outcome === "answered" && outcome !== "answered")) ? { ...a, answeredAt: a.answeredAt ?? at, outcome } : a)) };
 }
 
 /** Close asks from evidence: a logged block (tag `logged`) overlapping an open ask's window answers it as "logged". */

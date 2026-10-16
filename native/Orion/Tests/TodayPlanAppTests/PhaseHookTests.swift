@@ -72,3 +72,15 @@ final class PhaseHookTests: XCTestCase {
         XCTAssertEqual(ran.count, 1, "rest to focus: phase only, no drain fallback")
     }
 }
+
+final class InboundTurnLogTests: XCTestCase {
+    func testTheCommandCarriesTheReplyIdAndTheTextAndIsNilWhereTheScriptIsNotInstalled() {
+        let all: (String) -> Bool = { _ in true }
+        let command = InboundTurnLog.command(text: "was at the gym", replyTo: "reach-9", node: "/n/node", scriptsDir: "/s", exists: all)
+        XCTAssertEqual(command, PhaseCommand(executable: "/n/node", arguments: ["/s/orion-inbound-turn", "--reply-to", "reach-9", "--text", "was at the gym"]))
+        let plain = InboundTurnLog.command(text: "hi", replyTo: nil, node: "/n/node", scriptsDir: "/s", exists: all)
+        XCTAssertEqual(plain?.arguments, ["/s/orion-inbound-turn", "--text", "hi"])
+        XCTAssertNil(InboundTurnLog.command(text: "hi", replyTo: nil, node: "/n/node", scriptsDir: "/s", exists: { $0 != "/s/orion-inbound-turn" }))
+        XCTAssertEqual(InboundTurnLog.command(text: String(repeating: "x", count: 500), replyTo: nil, node: "n", scriptsDir: "s", exists: all)?.arguments.last?.count, 200)
+    }
+}

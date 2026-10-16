@@ -36,7 +36,7 @@
       "note": "Declared and unassigned. ORION performs no vision inference today; CameraPresence is a presence signal, not a model call. A role invented to look complete would be worse than an honest gap."
     },
     "local": {
-      "primary": "ollama/gpt-oss:20b",
+      "primary": "ollama/qwen3.5:9b",
       "fallbacks": [],
       "timeout_seconds": 300,
       "max_retries": 1,
@@ -44,7 +44,7 @@
         "input_per_mtok": 0.0,
         "output_per_mtok": 0.0
       },
-      "note": "LocalModel.defaultModel in the Swift app. Drives DistractionReasoner, NarrativeWriter and MorningBrief. Text transform, never an agent -- see LocalModel.swift for why."
+      "note": "LocalModel fallback in the Swift app: the resident qwen3.5:9b (num_ctx 32768, matching the plugin worker so Ollama never reloads). Was gpt-oss:20b until 2026-10-16; loading it evicted the voice models. Drives DistractionReasoner and NarrativeWriter. Text transform, never an agent."
     },
     "embedding": {
       "primary": "ollama/nomic-embed-text",

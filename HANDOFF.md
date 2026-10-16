@@ -20,14 +20,9 @@ Read with: `AGENTS.md` (working rules), `NICK-TODO.md` (things only Nick can do)
   (v2026.7.1-2, port 18789) and the `plugin/orion-control` plugin:
   `qwen3.5:4b-q4_K_M` is the front desk (decides answer / tool / ask / ignore),
   `qwen3.5:9b` does the work. Both run in Ollama on the Mac (M5 Pro, 48 GB).
-- This is `localRouting: "on"` under a **time-boxed testing window until
-  2026-10-16T20:58:39Z** (`localRoutingTestingUntil` in
-  `~/.openclaw/openclaw.json`). When it closes, the plugin falls back to the
-  configured cloud model, which **cannot answer** (see Anthropic below), so
-  ORION goes silent. Renew it (max 48 h, with Nick's OK) or pass the
-  acceptance gate (`~/.openclaw/orion-controlled/local-routing/acceptance.json`:
-  ≥20 real-route cases, ≥85 % pass, ≤20 s median, ≤14 days old; written by
-  `scripts/eval/v3/ops/local-acceptance.mjs`).
+- `localRouting: "on"` means **local always** (since 2026-10-16, 278d75e): no testing
+  window and no acceptance gate. `localRoutingTestingUntil` is ignored. The cloud model is
+  used only when `localRoutingScheduleToCloud` is true, for scheduling change requests.
 - **Anthropic API is unusable** (credit balance too low / usage limit until
   2026-11-01). Only Nick can fix it (console.anthropic.com). The account-health
   alert tells his phone once when that happens.
@@ -84,6 +79,23 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 ---
 
 ## Log
+
+### 2026-10-16 — Local speed fixes (Claude)
+
+Measured in `docs/audits/2026-10-16-local-speed.md`.
+- **App** (`native/Orion`): `NarrativeWriter` and `DistractionReasoner` run on the resident `qwen3.5:9b`
+  (num_ctx 32768, keep_alive 24h), not gpt-oss:20b, which evicted the voice models. The 9B read the
+  strain-vs-band health direction correctly 3/3 (`Tests/run-local-model-direction.sh`).
+  The `local` role in `model-roles.json`, both the seed and the live file, now says `qwen3.5:9b`.
+- **App**: when local routing is on, `SchedulingMemory` sends a verbatim ~1.8k digest of SCHEDULING.md:
+  priority scale, protected time, and the class wrapper with the nap/travel and 2.5 h rules. It does
+  this instead of the full 10–12k. If any section comes back empty, it fails open to the full file.
+- **Plugin** (`local-routing.ts`): stable instructions come first, and the clock and per-turn facts come
+  last, so Ollama's prefix cache holds. Prefill went from ~5 s to ~2.4 s on the directive, reminder,
+  read, day, messages and done/say prompts. Code-written replies get a one-line system prompt.
+  The plugin can't cap history or drop tool schemas, because no hook offers it.
+- Open: the Python runtime (`orion/runtime.py`, `orion/provider.py`) still names gpt-oss:20b.
+  The awareness/curiosity design is `docs/design/2026-10-16-awareness-and-curiosity.md` and is not built.
 
 ### 2026-10-16 — Rounds 8 and 8b: code reads and code replies for the remaining sweep failures (Claude)
 

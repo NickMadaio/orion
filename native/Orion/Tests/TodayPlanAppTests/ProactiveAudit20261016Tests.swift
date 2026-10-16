@@ -49,4 +49,64 @@ final class ProactiveAudit20261016Tests: XCTestCase {
         XCTAssertFalse(EnforcementGuard.allowed(consent: true, idleValid: false, name: "Safari", bundleID: nil))
         XCTAssertFalse(EnforcementGuard.allowed(consent: true, idleValid: true, name: "loginwindow", bundleID: nil))
     }
+
+    // MARK: Outreach context
+
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private func row(_ id: String, _ text: String, minutesAgo: Double, channel: String = "phone") -> OutreachRow {
+        OutreachRow(id: id, text: text, at: now.addingTimeInterval(-minutesAgo * 60), held: channel == "hold")
+    }
+
+    func testTheMostRecentRecentMessageIsAttachedWithAnHonestLabel() {
+        let tracker = OutreachTracker()
+        let prefix = tracker.prefix(rows: [row("a", "older", minutesAgo: 40), row("b", "Want me to put the oyster card there?", minutesAgo: 10)], now: now)
+        XCTAssertTrue(prefix.contains("oyster card"))
+        XCTAssertFalse(prefix.contains("older"))
+        XCTAssertTrue(prefix.contains("MAY be his answer"))
+        XCTAssertTrue(prefix.contains("10 min ago"))
+    }
+
+    func testAMessageOlderThanThirtyMinutesIsNotAttached() {
+        let tracker = OutreachTracker()
+        XCTAssertEqual(tracker.prefix(rows: [row("a", "6:54 PM question", minutesAgo: 226)], now: now), "")
+        XCTAssertEqual(tracker.prefix(rows: [row("b", "bedtime", minutesAgo: 330)], now: now), "")
+    }
+
+    func testItIsAttachedOnlyOnce() {
+        let tracker = OutreachTracker()
+        let rows = [row("a", "free until 9?", minutesAgo: 5)]
+        XCTAssertFalse(tracker.prefix(rows: rows, now: now).isEmpty)
+        XCTAssertEqual(tracker.prefix(rows: rows, now: now.addingTimeInterval(30)), "")
+        XCTAssertEqual(tracker.prefix(rows: rows, now: now.addingTimeInterval(120)), "")
+    }
+
+    func testAnotherTurnSinceItWasSentMeansItIsNoLongerTheQuestion() {
+        let tracker = OutreachTracker()
+        XCTAssertEqual(tracker.prefix(rows: [], now: now.addingTimeInterval(-120)), "")   // a turn 2 min ago
+        XCTAssertEqual(tracker.prefix(rows: [row("a", "free until 9?", minutesAgo: 5)], now: now), "")
+        // A message sent after that turn is fine.
+        let later = now.addingTimeInterval(120)
+        let newer = OutreachRow(id: "c", text: "newer", at: now.addingTimeInterval(60), held: false)
+        XCTAssertFalse(tracker.prefix(rows: [newer], now: later).isEmpty)
+    }
+
+    func testHeldMessagesAndDuplicateRowsAreIgnored() {
+        let tracker = OutreachTracker()
+        XCTAssertEqual(tracker.prefix(rows: [row("h", "held", minutesAgo: 2, channel: "hold")], now: now), "")
+        let dup = OutreachTracker()
+        let text = dup.prefix(rows: [row("x", "once", minutesAgo: 3), row("x", "once", minutesAgo: 3)], now: now)
+        XCTAssertEqual(text.components(separatedBy: "once").count - 1, 1)
+    }
+
+    func testParsingKeepsFractionalTimestampsAndSkipsGarbage() {
+        let jsonl = """
+        {"id":"r1","at":"2026-10-15T17:54:00.123Z","channel":"phone","text":"hi"}
+        not json
+        {"id":"r2","at":"2026-10-15T18:00:00Z","channel":"hold","text":"held"}
+        """
+        let rows = OutreachContext.parse(jsonl: jsonl)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.first?.id, "r1")
+        XCTAssertEqual(rows.last?.held, true)
+    }
 }

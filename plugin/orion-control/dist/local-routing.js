@@ -447,21 +447,13 @@ export function acceptanceVerdict(path, now = Date.now()) {
 export function registerLocalRouting(api, options) {
     if (options.mode === "off")
         return;
-    let on = options.mode === "on";
-    // A deliberate, time-boxed test window (Nick testing local models himself): at most 48 h ahead.
-    const testing = options.testingUntil ? Date.parse(options.testingUntil) : NaN;
-    const testingActive = Number.isFinite(testing) && testing > Date.now() && testing - Date.now() <= 48 * 3600000;
-    // Checked again on every turn below: a window that ended mid-session must not keep "on" running.
-    const windowOpen = () => !Number.isFinite(testing) || Date.now() < testing;
-    if (on && testingActive)
-        api.logger?.warn?.(`[orion-control] localRouting "on" under a TESTING WINDOW until ${options.testingUntil} — acceptance not required`);
-    if (on && !testingActive && options.acceptancePath !== undefined) {
+    const on = options.mode === "on";
+    // 2026-10-16, Nick: "i dont want to EVER have to use the cloud model unless necessary". "on" no longer needs
+    // an acceptance pass or a 48 h testing window: both assumed the cloud model was a safe fallback, and with
+    // no Anthropic credit the window closing meant ORION going silent. The acceptance score is a report now.
+    if (on && options.acceptancePath !== undefined) {
         const verdict = acceptanceVerdict(options.acceptancePath);
-        if (!verdict.ok) {
-            api.logger?.warn?.(`[orion-control] localRouting "on" REFUSED — ${verdict.why}. Running shadow: the configured model answers.`);
-            on = false;
-            options = { ...options, mode: "shadow" };
-        }
+        api.logger?.warn?.(`[orion-control] localRouting "on" (local always). Acceptance report: ${verdict.ok ? "passing" : "not passing"} — ${verdict.why}.`);
     }
     const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
     // Both local models stay loaded, at the context each is called with, checked every 5 minutes
@@ -599,8 +591,6 @@ export function registerLocalRouting(api, options) {
             runs.set(`session:${sessionKey}`, run);
         if (!on)
             return undefined; // shadow: fire and forget
-        if (options.testingUntil && !windowOpen())
-            return undefined; // the testing window closed: back to shadow
         if (sessionKey && !cutOff && options.lateFlow) {
             const late = lateTurn(sessionKey, message);
             if (late)

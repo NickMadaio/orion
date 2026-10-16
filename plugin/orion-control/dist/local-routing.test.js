@@ -194,7 +194,7 @@ describe("local routing — on mode", () => {
         const other = { runId: "c2", sessionKey: "agent:main:orion-app-v2" };
         expect(await f.fire("before_model_resolve", { prompt: "what did I write about my thesis" }, other)).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
     });
-    it("'on' is refused without a recent real-route acceptance pass — it runs shadow instead", async () => {
+    it("acceptanceVerdict still grades the record (a quality report now, not a switch)", async () => {
         const dir = mkdtempSync(join(tmpdir(), "lr-"));
         const acceptancePath = join(dir, "acceptance.json");
         const now = Date.parse("2026-10-12T10:00:00Z");
@@ -205,20 +205,24 @@ describe("local routing — on mode", () => {
         expect(acceptanceVerdict(acceptancePath, now).ok).toBe(true);
         writeFileSync(acceptancePath, JSON.stringify({ at: "2026-09-01T15:30:00Z", n: 40, pass: 36, medianMs: 12000 }));
         expect(acceptanceVerdict(acceptancePath, now).ok).toBe(false);
-        // Registered "on" with a failing record: never overrides the model.
-        writeFileSync(acceptancePath, JSON.stringify({ at: new Date().toISOString(), n: 21, pass: 7, medianMs: 35297 }));
-        const f = fakeApi();
-        registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, logPath: join(dir, "r.jsonl"), decideImpl: async () => ({ move: "escalate" }) });
-        expect(await f.fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "g1", sessionKey: "agent:main:x" })).toEqual([undefined]);
     });
-    it("a testing window (max 48 h) lets 'on' run without acceptance; a window too far ahead or past does not", async () => {
+    // 2026-10-16, Nick: "i dont want to EVER have to use the cloud model unless necessary" — local always, no
+    // time limit. The gate assumed the cloud model was the safe fallback; with no credit it meant silence.
+    it("'on' always runs local: a failing, missing or stale acceptance record and any testing window are ignored", async () => {
         const dir = mkdtempSync(join(tmpdir(), "lr-"));
-        const acceptancePath = join(dir, "none.json");
-        const reg = (testingUntil) => { const f = fakeApi(); registerLocalRouting(f.api, { warm: false, mode: "on", acceptancePath, testingUntil, logPath: join(dir, "r.jsonl"), brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }) }); return f; };
+        const failing = join(dir, "acceptance.json");
+        writeFileSync(failing, JSON.stringify({ at: new Date().toISOString(), n: 21, pass: 7, medianMs: 35297 }));
         const inHours = (h) => new Date(Date.now() + h * 3600000).toISOString();
-        expect(await reg(inHours(5)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t1", sessionKey: "agent:main:x" })).toEqual([{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }]);
-        expect(await reg(inHours(100)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t2", sessionKey: "agent:main:x" })).toEqual([undefined]);
-        expect(await reg(inHours(-1)).fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: "t3", sessionKey: "agent:main:x" })).toEqual([undefined]);
+        const local = [{ providerOverride: "ollama", modelOverride: "qwen3.5:9b" }];
+        const cases = [
+            { acceptancePath: failing }, { acceptancePath: join(dir, "none.json") },
+            { acceptancePath: failing, testingUntil: inHours(-1) }, { acceptancePath: failing, testingUntil: inHours(100) },
+        ];
+        for (const [i, c] of cases.entries()) {
+            const f = fakeApi();
+            registerLocalRouting(f.api, { warm: false, mode: "on", ...c, logPath: join(dir, "r.jsonl"), brainSearch: async () => "", decideImpl: async () => ({ move: "escalate" }) });
+            expect(await f.fire("before_model_resolve", { prompt: "move gym to 7" }, { runId: `la${i}`, sessionKey: "agent:main:x" }), JSON.stringify(c)).toEqual(local);
+        }
     });
     it("a calendar change runs through the scheduling flow; the worker only phrases the scheduler's output", async () => {
         const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");

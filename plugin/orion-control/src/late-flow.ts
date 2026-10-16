@@ -9,6 +9,7 @@
  answer to it, runs `orion-reschedule late N`, and dictates a reply built from the scheduler's own words.
 */
 import { execFile } from "node:child_process";
+import { spokenTime } from "./day-read-answers.js";
 import { RESCHEDULE, spokenFailure, spokenReply, summarize, type FlowResult } from "./schedule-flow.js";
 
 export const LATE_ASK = "How late — about how many minutes?";
@@ -16,12 +17,17 @@ export const LATE_TOO_SMALL = "I can only move things for 5 minutes or more — 
 
 export type LateExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 
-// "im running late", "gonna be a bit late", "im late": lateness with no number (a number goes to the form as before).
-const LATE_NO_MINUTES = /\b(?:i'?m|im|i am|running|gonna be|going to be|will be|be)\s+(?:(?:a\s+)?(?:bit|little|tad|few\s+min\w*)\s+)?late\b|\bbehind schedule\b/i;
+// "im running late", "gonna be a bit late", "im late": HIS OWN lateness with no number (a number goes to the form as before).
+// H2 (r8 review 1, 2026-10-16): a first-person subject at the start, nothing about texting/reminding someone, no other day, no question,
+// and nothing after "late" but a filler ("text mom I'm late", "sam is running late", "I'm late on rent" are not him moving his day).
+const LATE_NO_MINUTES = /^(?:(?:hey|ok|okay|so|yeah|um+|uh+)[,\s]+)?(?:(?:(?:i'?m|im|i am|i'?ll be|ill be|i will be|gonna be|going to be)\s+(?:running\s+)?|running\s+)(?:(?:a\s+)?(?:bit|little|tad|few\s+min\w*)\s+)?late|(?:i'?m|im|i am)\s+behind schedule)(?<tail>.*)$/i;
+const LATE_TAIL = /^[\s,.!]*(?:(?:today|now|again|rn|right now|sorry|for (?:class|lecture|lab|work|section|the \w+|my \w+))[\s,.!]*)?$/i;
+const NOT_NOW = /\b(?:tomorrow|tmrw|tonight|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b|\b(?:text|tell|message|msg|email|call|remind|dm|ping|let)\b/i;
 /** "im running late" with no minutes named: a short statement, never a question or a longer plan. */
 export function isLateWithoutMinutes(message: string): boolean {
   const m = message.trim();
-  return LATE_NO_MINUTES.test(m) && !/\d/.test(m) && !/\?\s*$/.test(m) && m.split(/\s+/).length <= 7;
+  const hit = LATE_NO_MINUTES.exec(m);
+  return !!hit && LATE_TAIL.test(hit.groups?.tail ?? "") && !NOT_NOW.test(m) && !/\d/.test(m) && !/\?\s*$/.test(m) && m.split(/\s+/).length <= 7;
 }
 
 const WORDS: Record<string, number> = { five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, "forty five": 45, "forty-five": 45, fortyfive: 45, sixty: 60 };
@@ -79,7 +85,8 @@ export async function runLateFlow({ minutes, exec, undoTop = () => null }: { min
   const failLine = failureLine(lines);
   if (code !== 0 && !summarize([out], []).changed) return say(`I couldn't move your day — ${failLine ? spokenFailure(failLine) : "the scheduler refused"}. Nothing was changed.`, [out], calls);
   if (nothing && !marks.length && !summarize([out], []).changed) return say(nothingMovedReply([out], "Nothing was moved") ?? "Nothing was moved.", [out], calls);
-  const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
+  // The scheduler can print 24:05 for a block pushed past midnight: wrap the hour (r8 review 1 LOW, 2026-10-16).
+  const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); return spokenTime((h ?? 0) % 24, m ?? 0); };
   const moved = lines.flatMap((l) => { const m = /^moved (.+?): \d{2}:\d{2} → (\d{2}:\d{2})$/.exec(l); return m ? [`${m[1]} now ${ampm(m[2]!)}`] : []; });
   const spoken = spokenReply([out]);
   const reply = moved.length ? `Done, pushed back ${n} min: ${(moved.length > 4 ? [`${moved.length} blocks moved, ${moved.slice(0, 3).join("; ")}`] : moved).join("; ")}.`

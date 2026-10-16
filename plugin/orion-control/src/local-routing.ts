@@ -130,12 +130,14 @@ type Run = {
   sessionKey?: string;
   /** Spoken and trailing off mid-sentence: nothing is done until the rest arrives. */
   cutOff?: boolean;
+  /** Tools the HOST ran this turn (after_tool_call), as opposed to the reads code pushed into `tools` itself (H4, r8 review 1, 2026-10-16). */
+  hostTools?: number;
   /** Said out loud (the app's spoken marker), not typed. */
   spoken?: boolean;
   /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
   undo?: string[];
   /** q029 (2026-10-16 r8): a "running late" turn code owns: the fixed "how late?" question, the stitched minutes answer, or the go-ahead. */
-  late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm" };
+  late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string } };
 };
 
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
@@ -545,14 +547,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const lateTurn = (key: string, message: string): Run["late"] => {
     const askedAt = lateAsk.get(key); lateAsk.delete(key);
     const pending = askedAt !== undefined && Date.now() - askedAt < STITCH_WINDOW_MS;
-    const last = lastLate.get(key);
+    // H1 (r8 review 1, 2026-10-16): the go-ahead only counts on the turn right after a late reply; any other turn clears it
+    // (a bare "yeah" after the schedule flow's own question re-ran `late 15`).
+    const last = lastLate.get(key); lastLate.delete(key);
     if (isLateWithoutMinutes(message)) return { kind: "ask" };
     if (pending) {
       const minutes = lateMinutesAnswer(message);
       if (minutes !== null) return { kind: "run", minutes };
       if (isLateConfirm(message) || isBareYes(message)) return { kind: "ask" };
     }
-    if (last && Date.now() - last.at < SESSION_CHANGE_WINDOW_MS && (isLateConfirm(message) || isBareYes(message))) return { kind: "confirm" };
+    if (last && Date.now() - last.at < SESSION_CHANGE_WINDOW_MS && (isLateConfirm(message) || isBareYes(message))) return { kind: "confirm", last };
     return undefined;
   };
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
@@ -661,7 +665,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // NOTHING WAS BOOKED and said "Your schedule has been adjusted"). Before the ignore line: "like 15 min" is "ignore".
       if (!run.flow && !run.cutOff && run.late && options.lateFlow) {
         const key = run.sessionKey ?? "";
-        const done = run.late.kind === "confirm" ? lastLate.get(key) : undefined;
+        const done = run.late.kind === "confirm" ? run.late.last : undefined;
         if (run.late.kind === "ask") { run.flow = { outcome: "say", kind: "ask", text: LATE_ASK }; if (key) lateAsk.set(key, Date.now()); }
         else if (done?.changed) run.flow = { outcome: "say", kind: "plain", text: `That's already done. ${done.reply}` };
         else {
@@ -727,7 +731,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           const now = (options.now ?? (() => new Date()))();
           // An empty read is a failed read as often as an empty day: then only the session status is said (r8 integration).
           if (day.trim()) {
-            run.tools.push({ canonical: "orion-reschedule show --json", stdout: day, exit: null });
+            run.tools.push({ canonical: "read day (code)", stdout: day, exit: null });
             markRead(run, "day");
           }
           run.flow = { outcome: "say", kind: "plain", text: day.trim() ? noSessionReply(day, `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`) : "No focus session is running right now." };
@@ -946,6 +950,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
       if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output))) recordChange(run.sessionKey, []);
     }
+    run.hostTools = (run.hostTools ?? 0) + 1;
     run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
     const made = run.tools[run.tools.length - 1]!;
     const action = run.directive?.action;
@@ -965,7 +970,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const hostDrops = event.hadDeterministicSideEffect === true;
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
-      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" || run.noTools === true, provided: run.provided ?? false });
+      const allFindings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" || run.noTools === true, provided: run.provided ?? false });
+      // H4 (r8 review 1, 2026-10-16): when only CODE read (gmail/messages/deadlines/focus) and handed the worker the data, a summary
+      // that says "found/confirmed/booked" is the data talking, not a claimed write: no done-claim finding, no replaced reply.
+      const codeReadOnly = !run.hostTools && run.provided === true;
+      const findings = codeReadOnly ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
       run.findings.push(findings);
       // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).
       const record = async (extra: Record<string, unknown> = {}) => {
@@ -1008,7 +1017,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // q029 (2026-10-16 r8): a revise is ignored once a tool ran (the 9B's exec of `late 15` printed NOTHING WAS BOOKED and
       // "Your schedule has been adjusted" went out, though the check had found it). With a tool already run, the honest
       // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
-      const honestNow = on && !flowActed && !run.reminder && (run.tools.length > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
+      const honestNow = on && !flowActed && !run.reminder && ((run.hostTools ?? 0) > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
         ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "Nothing was moved" : undefined)
           ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)))
         : undefined;

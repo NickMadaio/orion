@@ -18,13 +18,15 @@ describe("parseTodoDone", () => {
     ["ok mark the oats one done", "oats"],
     ["tick off buy oats", "buy oats"],
     ["check off the oats todo", "oats"],
-    ["done with the oats one", "oats"],
-    ["i finished buy more oats", "buy more oats"],
     ["mark buy more oats as complete", "buy more oats"],
     ["tick the oats one off", "oats"],
   ])("%s -> %s", (message, words) => expect(parseTodoDone(message)?.words).toBe(words));
   it.each([
     "took my creatine", "mark creatine as taken", "I'm done with the gym block", "mark my 3pm reminder done",
+    // H3 (2026-10-16 r8 review): statements and loose imperatives never write.
+    "i finished the milk", "done with the oats", "I'm done with work", "i finished buy more oats",
+    "check if the lights are off", "check whether the oven is off", "put my phone on do not disturb until i'm done",
+    "set the oats as done", "ok i finished the zebra painting thing and the garage tiling, check them off", "check them off", "tick it off",
     "did i finish the oats?", "mark it done", "whats the weather", "tick off the focus session",
   ])("ignores %s", (message) => expect(parseTodoDone(message)).toBeNull());
 });
@@ -44,6 +46,7 @@ describe("runTodoDone", () => {
     const s = stub('NOTHING WAS CHANGED: no to-do called "creatine" on Orion. To-dos: none', 1);
     expect(await runTodoDone({ message: "mark creatine done", exec: s.exec })).toMatchObject({ outcome: "say", text: 'I couldn\'t find a to-do matching "creatine" — nothing was changed.' });
     expect(await runTodoDone({ message: "i finished creatine", exec: s.exec })).toMatchObject({ outcome: "fallback" });
+    expect(s.calls).toEqual([["done", "creatine"]]);
   });
   it("not a completion runs nothing", async () => {
     const s = stub();

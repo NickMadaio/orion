@@ -407,6 +407,13 @@ export const liveExtractReminder = async (message: string, clock?: string): Prom
 };
 
 // "I'm currently using the ollama/qwen3.5:9b model" (q101, sweep 2026-10-15): no model, provider or setting names.
+/**
+ * 2026-10-16 (speed audit, docs/audits/2026-10-16-local-speed.md): a reply code already wrote is a one-line system prompt.
+ * The 9B only repeats it (it was called with 6.7k tokens of prompt for that, 9.1 s). The hook cannot drop history or tool
+ * schemas in this OpenClaw version, so the prompt is as small as it can be; finalize still checks the text and puts it in place.
+ */
+export const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text and nothing else, and do not call any tools:";
+
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on.";
 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
@@ -670,6 +677,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
       // (live, 2026-10-11). The worker gets what it was evaluated with instead: the tuned
       // instructions for this job, plus the time.
+      // 2026-10-16 (speed audit): every system prompt below puts the stable text first and this clock, with the per-turn
+      // facts, LAST. At the top it changed the prefix each minute and Ollama re-read the whole prompt (7.25 s against 0.05 s
+      // on a 6.7k prompt; 3.67 s against 1.09 s on a 3.8k one). The wording of each part is unchanged, only its place.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
       // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
       // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
@@ -683,7 +693,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         && !LIVE_DATA.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.settled.move !== "tool") {
         run.provided = true;
         run.noTools = true;
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\n${OVERWHELMED_NOTE}` };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${OVERWHELMED_NOTE}\n\n${now}` };
       }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
       if (run.cutOff && !run.flow) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
@@ -791,7 +801,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
         if (plan?.kind === "call") {
           run.reminder = { args: plan.args, say: plan.reply, action: plan.action, ...(plan.label && plan.at ? { label: plan.label, at: plan.at } : {}) };
-          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this for Nick now with ${taskRunCall(plan.args)}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.`,
+          return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this for Nick now with ${taskRunCall(plan.args)}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.\n\n${now}`,
             appendContext: `[ORION: ${taskRunNow(plan.args)}]` };
         }
         // A reminder turn the plan could not work out gets a fixed reply, never the old free-form prompt (review, 2026-10-16).
@@ -842,7 +852,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (moved?.kind === "say") run.flow = { outcome: "say", kind: "plain", text: moved.text };
       if (moved?.kind === "call") {
         run.directive = moved;
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this with ${taskRunCall(moved.args)}\n${moved.note} If it failed, say so plainly.`,
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this with ${taskRunCall(moved.args)}\n${moved.note} If it failed, say so plainly.\n\n${now}`,
           appendContext: `[ORION: ${taskRunNow(moved.args)}]` };
       }
       // Texts and email (messages-route.ts). Live sweep 2026-10-15: "read my last 3 texts" read the manual
@@ -863,11 +873,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             else {
               run.provided = true;
               run.codeRead = true;
-              return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\n${readNote(req, read.data)}`, appendContext: "[ORION: the read already ran — summarize it from the system prompt, do not call tools.]" };
+              return { systemPrompt: `${LOCAL_IDENTITY}\n\n${readNote(req, read.data)}\n\n${now}`, appendContext: "[ORION: the read already ran — summarize it from the system prompt, do not call tools.]" };
             }
           }
         }
-        if (!run.flow && isMessagesJob(run.message)) return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${now}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}` };
+        if (!run.flow && isMessagesJob(run.message)) return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}\n\n${now}` };
       }
       // H1 (r8 review 3, 2026-10-16): his answer to the add flow's own question is the flow's, never the worker's
       // (an unanchored add on "yes" / "laundry" was the live 5:50 PM bug). A title or yes runs through the flow with
@@ -919,19 +929,19 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const present = day && !absent ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now)) : null;
         if (absent) run.flow = { outcome: "say", kind: "plain", text: absent };
         else if (present) { run.flow = { outcome: "say", kind: "plain", text: present.text }; if (run.sessionKey) dayMemory.set(run.sessionKey, { at: Date.now(), memory: present.memory }); }
-        else if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times; "All day:" lines are events with no time, say them as all day. ${DAY_QUESTION_NOTE} Do not call any tools.` };
+        else if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\nAnswer his question from the list of his day below only, in one or two short spoken sentences with 12-hour times; "All day:" lines are events with no time, say them as all day. ${DAY_QUESTION_NOTE} Do not call any tools.\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\n${now}` };
       }
       if (run.flow?.outcome === "done") {
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
         // it said "before you head to the spit" for a plan that starts there, 2026-10-12). It goes in the
         // LATEST message too: from the system prompt alone the 9B paraphrased old turns (live gauntlet).
         const exact = exactReply(run.flow);
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou already made this change. Reply to Nick with exactly this text and nothing else, and do not call any tools:\n${exact}`,
+        return { systemPrompt: `You already made this change. ${EXACT_REPLY_PROMPT}\n${exact}`,
           appendContext: `[ORION scheduler — already done. Your whole reply must be exactly: ${exact}]` };
       }
       if (run.flow?.outcome === "say") {
         const exact = exactReply(run.flow);
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nReply to Nick with exactly this text and nothing else, and do not call any tools:\n${exact}`,
+        return { systemPrompt: `${EXACT_REPLY_PROMPT}\n${exact}`,
           appendContext: `[ORION scheduler — nothing was changed. Your whole reply must be exactly: ${exact}]` };
       }
       // Only a plain answer is handed over as a draft. "ask" goes to the worker with the job's
@@ -945,20 +955,20 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
         // "the front desk drafted…", and "otherwise answer him yourself" swapped a right draft for the model's
         // name. The draft is now his reply, with no source and no licence to rewrite it.
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou drafted this reply: "${draft}". Send exactly that as your whole reply, no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
+        return { systemPrompt: `Send the reply you drafted, exactly, as your whole reply: no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk. Never name the model, provider or settings you run on.\n\nYou drafted this reply: "${draft}".` };
       }
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
       // Snippets answer questions about his notes, never live data: "I checked the weather" beside a weather
       // note is still made up (review, 2026-10-16).
       if (fetched && !LIVE_DATA.test(run.message) && !asksCurrentTask(run.message)) { run.provided = true; markRead(run, "notes"); }
-      const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
+      const brainFetched = fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : "";
       const askNote = run.settled.move === "ask" && run.settled.answer
         // "The front desk mentioned they don't have it either" (q063, sweep 2026-10-15): no source named.
         ? `\n\nYou might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
       const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
       // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
       const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
     });
   }
 

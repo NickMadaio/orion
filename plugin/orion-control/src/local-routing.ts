@@ -121,8 +121,10 @@ const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|w
 export const GO_ON = "Go on.";
 const LABEL_COMMANDS = /\b(turn|open|play|start|text|email|add|move|cancel|set|what|whats|what's|how|when)\b/i;
 /** An answer to "what should I remind you about?" is a plain label: no change, calendar, live-data or command word, and no tool/escalate from the front desk (review, 2026-10-16). */
+// A weekday, a cancel, "instead" or a before/after word is a statement about his day, never a label (final round, 2026-10-16).
+const LABEL_DAYWORDS = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?s?\b|\bcancel\w*|\b(instead|after|before|until)\b/i;
 const answersLabel = (message: string, move?: string): boolean =>
-  move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, ...(move === "answer" ? [] : [SCHEDULING]), LIVE_DATA, LABEL_COMMANDS].some((re) => re.test(message)); // a calendar word alone (class, lab) is a label when the front desk answered (final round, 2026-10-16)
+  move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, ...(move === "answer" ? [] : [SCHEDULING]), LIVE_DATA, LABEL_COMMANDS, LABEL_DAYWORDS].some((re) => re.test(message)); // a calendar word alone (class, lab) is a label when the front desk answered (final round, 2026-10-16)
 const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];

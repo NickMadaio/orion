@@ -370,8 +370,18 @@ const wroteThisTurn = (tools: ToolResult[]): boolean =>
 /** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id). */
 const directiveCalled = (run: Run): boolean => !!run.directive && run.tools.some((t) => /orion_task_run/.test(t.canonical) && t.canonical.includes(`"${run.directive!.action}"`));
 
-/** A tool result this turn that shows a change: NOTHING WAS CHANGED, an error or a refusal is not one. */
-const anotherToolSucceeded = (tools: ToolResult[]): boolean => tools.some((t) => outcomeOf(t) === "success");
+/** The tool family that can stand in for each directive action (re-review, 2026-10-16): an unrelated success
+ *  (lights, supplement_add) must not carry a reply about weather or a dose. */
+const DIRECTIVE_FAMILY: Record<string, RegExp> = {
+  weather_now: /weather/i,
+  supplement_take: /"supplement_take"|orion-log\s+(supplement|take)/i,
+  timer_set: /"timer_set"/,
+  supplement_status: /"supplement_status"/,
+};
+/** A result this turn from the directive's own family that shows a change: NOTHING WAS CHANGED, an error or a
+ *  refusal is not one. No family known: no stand-in, the fail line stays. */
+const anotherToolSucceeded = (tools: ToolResult[], action: string): boolean =>
+  tools.some((t) => DIRECTIVE_FAMILY[action]?.test(t.canonical) === true && (outcomeOf(t) === "success" || (action === "supplement_status" && outcomeOf(t) === "read")));
 
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
@@ -778,7 +788,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // reply also claimed a lookup ("I checked the weather…", q007) owes both — that nothing was checked, and why.
       // Another tool succeeded this turn ("took my creatine" logged by exec orion-log): the worker's reply stands
       // (it went through the work check above), not the fail line (review, 2026-10-16).
-      if (on && run.directive && !directiveCalled(run) && !anotherToolSucceeded(run.tools)) {
+      if (on && run.directive && !directiveCalled(run) && !anotherToolSucceeded(run.tools, run.directive.action)) {
         const claimedLookup = findings.some((f) => LOOKUP_CLAIM.test(f));
         owed = claimedLookup ? `${LOOKUP_UNCHECKED} ${run.directive.failLine}` : run.directive.failLine;
         remember([runId, sessionKeyNow], owed);

@@ -1,6 +1,6 @@
 // Messages held back (quiet hours, a running focus session) are queued, never
 // dropped (2026-10-16 audit, finding 4: orion-reach logged "hold" and kept nothing).
-// They are released once, merged, when it is no longer quiet and no session runs.
+// They are released once, merged, when the gate allows it: a break, the end of a session, morning, the end of class.
 import { appendFileSync, readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -42,19 +42,35 @@ export function clearHeld(dir, released) {
   });
 }
 
+const LABELS = { focus: "While you were focused", quiet: "While you were asleep", class: "While you were in class" };
+const MAX_LINES = 3;
+const strip = (t) => t.replace(/[.!]$/, "");
+
 /**
- * One message from everything held: stale entries (older than maxAgeMs, or marked
- * `expires`, like a bedtime nag that is pointless in the morning) are left out.
- * @returns { text, used, stale } text is null when nothing is worth saying
+ * One message from everything held, by a code template (no LLM). Stale entries are left out: older than maxAgeMs,
+ * marked `expires` (a bedtime nag is pointless in the morning), past their own `validUntil`, or a question with an
+ * `ask` (stale by definition; the loop re-decides it with fresh facts).
+ * One item is said as itself. Several share a label when they were held for the same reason ("While you were
+ * focused: A. B."), at most 3 lines and then "+N more in chat".
+ * @returns { text, used, stale, lines, label } text is null when nothing is worth saying. `lines` and `label` let
+ *   the session-done line absorb a focus merge.
  */
 export function mergeHeld(entries, { now = Date.now(), maxAgeMs = 12 * 3600_000 } = {}) {
   const fresh = [], stale = [];
-  for (const e of entries.filter((x) => x.via !== "alerts-outbox")) (e.expires || now - Date.parse(e.at) > maxAgeMs ? stale : fresh).push(e);
+  for (const e of entries.filter((x) => x.via !== "alerts-outbox")) {
+    const old = e.expires || now - Date.parse(e.at) > maxAgeMs || (e.validUntil && Date.parse(e.validUntil) < now) || (e.kind === "question" && e.ask);
+    (old ? stale : fresh).push(e);
+  }
   const seen = new Set();
-  const lines = fresh.map((e) => String(e.text).trim()).filter((t) => t && !seen.has(t) && seen.add(t));
-  if (!lines.length) return { text: null, used: fresh, stale };
-  const text = lines.length === 1 ? lines[0] : `While you were out of reach: ${lines.map((t) => t.replace(/[.!]$/, "")).join(". ")}.`;
-  return { text, used: fresh, stale };
+  const unique = fresh.filter((e) => { const t = String(e.text).trim(); return t && !seen.has(t) && seen.add(t); });
+  const lines = unique.map((e) => String(e.text).trim());
+  if (!lines.length) return { text: null, used: fresh, stale, lines, label: null };
+  const reasons = new Set(unique.map((e) => e.heldFor));
+  const label = reasons.size === 1 && LABELS[[...reasons][0]] ? LABELS[[...reasons][0]] : "While you were out of reach";
+  if (lines.length === 1) return { text: lines[0], used: fresh, stale, lines, label };
+  const shown = lines.slice(0, MAX_LINES).map(strip).join(". ");
+  const more = lines.length > MAX_LINES ? ` +${lines.length - MAX_LINES} more in chat.` : "";
+  return { text: `${label}: ${shown}.${more}`, used: fresh, stale, lines, label };
 }
 
 /**

@@ -34,7 +34,7 @@ import { classReminders } from "./lib/life/class-reminders.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { announced, markAnnounced } from "./lib/reach/announce.mjs";
 import { appendHeld } from "./lib/reach/held.mjs";
-import { activeSession } from "./lib/reach/focus-hold.mjs";
+import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 // A watcher invoked by an evaluation must not mutate live state or queue alerts.
 if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -206,11 +206,15 @@ if (awake && free >= 180) {
   }
 }
 if (brief) alerts.unshift({ id: "watch-brief", level: 1, text: `Morning. ${brief}` });
-// A focus session is running: everything but a class reminder waits in the held queue until it ends
-// (2026-10-16 audit: watchers ignored the session). Released by orion-proactive's tick.
-const session = dry ? null : activeSession(process.env);
-const deliverNow = session ? alerts.filter((a) => a.id.startsWith("class-")) : alerts;
-const heldAlerts = session ? alerts.filter((a) => !a.id.startsWith("class-")) : [];
+// One delivery gate (awareness 3.2): everything but a class reminder waits in the held queue during focus, the first
+// minutes of a pause and class, and is released on a break or the end. His own wake/awake test above already says he is
+// up, so sleep never holds these. Released by orion-reach --drain-held / orion-proactive's tick.
+const aw = resolveAwareness({ dir: CONTROLLED, now, env: process.env, probe: !dry });
+if (awake) aw.sleep = { state: "awake", source: "watch" };
+const verdictFor = (a) => gate(aw, { kind: "checkin", urgentKind: a.id.startsWith("class-") ? "class" : null, now });
+const verdicts = alerts.map((a) => ({ a, v: verdictFor(a) }));
+const deliverNow = dry ? alerts : verdicts.filter((x) => x.v.action === "deliver").map((x) => x.a);
+const heldAlerts = dry ? [] : verdicts.filter((x) => x.v.action === "hold");
 if (deliverNow.length) {
   day.lastQuestion = deliverNow.at(-1).text;
   day.lastQuestionAt = now.toISOString();
@@ -219,7 +223,7 @@ if (alerts.length) {
   mkdirSync(CONTROLLED, { recursive: true });
   if (!dry) {
     for (const a of deliverNow) appendFileSync(OUTBOX, `${JSON.stringify({ ...a, kind: "checkin" })}\n`);
-    for (const a of heldAlerts) appendHeld(CONTROLLED, { id: `held-${Date.now()}-${a.id}`, alertId: a.id, at: now.toISOString(), text: a.text, level: a.level, via: "alerts-outbox", heldFor: "focus" });
+    for (const { a, v } of heldAlerts) appendHeld(CONTROLLED, { id: `held-${Date.now()}-${a.id}`, alertId: a.id, at: now.toISOString(), text: a.text, level: a.level, via: "alerts-outbox", heldFor: v.heldFor ?? "focus" });
   }
 }
 if (!dry) { save(); summarize(log); }

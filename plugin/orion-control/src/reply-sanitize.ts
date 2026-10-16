@@ -18,6 +18,7 @@ const GMAIL_OTHER = "I couldn't read your Gmail just now.";
 const NETWORK = /no such host|dial tcp|network is unreachable|could not resolve|getaddrinfo|ENOTFOUND|timed? ?out|connection refused/i;
 const mailLine = (text: string): string => /invalid_grant/i.test(text) ? GMAIL_SIGN_IN : NETWORK.test(text) ? GMAIL_OFFLINE : GMAIL_OTHER;
 // A change claim left standing after a failure tail was cut ("Done. ⚠️ Exec failed: …", review 6 M-B).
+const NEGATED = /\b(?:no|nothing|not|never|none)\b|n't\b/i; // "Nothing was moved — Gym is not on Friday." is an honest reply (review 7 M2)
 const CHANGE_CLAIM = /\b(?:done|added|moved|booked|scheduled|pushed|set|cancell?ed|removed|sent|logged|saved)\b/i;
 const FULL_DISK = "I can't read your texts — ORION needs Full Disk Access.";
 export const REPLY_FAILED = "I couldn't finish that just now.";
@@ -92,6 +93,6 @@ export function sanitizeReply(reply: string, ctx: SanitizeContext = {}): string 
   const unique = out.filter((l, i) => !l.trim() || out.indexOf(l) === i);
   const text = unique.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   // "Done." with the failure that followed it cut away would be a false claim (review 6 M-B).
-  if (execCut && CHANGE_CLAIM.test(text) && text.split(/\s+/).length <= 12) return REPLY_FAILED;
+  if (execCut && CHANGE_CLAIM.test(text) && !NEGATED.test(text) && text.split(/\s+/).length <= 12) return REPLY_FAILED;
   return text || REPLY_FAILED;
 }

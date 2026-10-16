@@ -35,7 +35,7 @@ describe("H-C / M-A: not titles", () => {
   for (const m of ["great idea", "nice one", "cool cool", "awesome sauce", "sounds great", "that's great", "good", "fine by me", "hm ok", "turn off the lights", "play some music", "open spotify", "set a timer", "pause music", "lights off", "unlock my phone", "log water"]) {
     it(`"${m}" is not booked`, () => expect(titleAnswer(m)).toBeNull());
   }
-  for (const [m, t] of [["great gatsby reading", "Great gatsby reading"], ["cool down stretch", "Cool down stretch"], ["call mom", "Call mom"], ["set up my desk", "Set up my desk"], ["log my expenses", "Log my expenses"], ["yes, laundry", "Laundry"]]) {
+  for (const [m, t] of [["light jog", "Light jog"], ["open office hours", "Open office hours"], ["play rehearsal", "Play rehearsal"], ["pause and reflect journal", "Pause and reflect journal"], ["unlock bike", "Unlock bike"], ["great gatsby reading", "Great gatsby reading"], ["cool down stretch", "Cool down stretch"], ["call mom", "Call mom"], ["set up my desk", "Set up my desk"], ["log my expenses", "Log my expenses"], ["yes, laundry", "Laundry"]]) {
     it(`"${m}" is a title`, () => expect(titleAnswer(m)).toBe(t));
   }
 });
@@ -43,6 +43,9 @@ describe("H-C / M-A: not titles", () => {
 describe("M-B / M-D / M-C", () => {
   it("a cut failure tail leaves no bare 'Done.'", () => {
     expect(sanitizeReply("Done. ⚠️ 🛠️ Exec failed: `~/Desktop/ORION/scripts/orion-reschedule move \"Gym\" --to 18:00`")).toBe(REPLY_FAILED);
+  });
+  it("an honest 'nothing changed' reply survives a cut tail (review 7 M2)", () => {
+    expect(sanitizeReply("Nothing moved — Gym is not on Friday.\n⚠️ 🛠️ Exec failed: `~/Desktop/ORION/scripts/orion-reschedule move \"Gym\" --to 18:00`")).toBe("Nothing moved — Gym is not on Friday.");
   });
   it("a real answer before a cut tail stays", () => {
     expect(sanitizeReply("I checked your inbox.\n\n⚠️ 🛠️ Exec failed: `~/Desktop/ORION/scripts/orion-gmail-search \"from:northeastern is:unread\"`")).toBe("I checked your inbox.");

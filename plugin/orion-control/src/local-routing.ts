@@ -127,6 +127,9 @@ const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomor
 // A short "never mind" after "What time?" drops the reminder instead of being read as its answer.
 const REMINDER_DROPPED = /^(never ?mind|nvm|forget it|no|nah|ok|okay|thanks?|thank you|cancel)\b/i;
 const CORRECTION_WINDOW_MS = 10 * 60_000;
+// "im running late" got the front desk's "Got it. Hope you make it safely." and "the lecture ran over"
+// never reached the scheduler's late/overrun (sweep q029, 2026-10-15). Not "stayed up late".
+const RUNNING_LATE = /\b(?:(?:i'?m|im|i am|running|gonna be|going to be|will be|be)\s+(?:\d+\s*(?:min\w*|m)?\s+|(?:a )?(?:bit|little|few min\w*)\s+)?(?:late|behind)|(?:ran|running|run|went|going|gone)\s+(?:\d+\s*(?:min\w*)?\s+)?over|overr[au]n)\b/i;
 const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
@@ -228,7 +231,7 @@ export function canonicalCall(toolName: string, params: unknown): string {
 /** The worker's instructions for this job. */
 export function instructionsFor(decision: Decision | undefined, message: string): string {
   if (decision?.tool === "brain" || decision?.tool === "repair_note" || (!decision?.tool && BRAIN.test(message))) return BRAIN_INSTRUCTIONS;
-  if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message)) return SCHEDULING_INSTRUCTIONS;
+  if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message) || RUNNING_LATE.test(message)) return SCHEDULING_INSTRUCTIONS;
   return GENERAL_INSTRUCTIONS;
 }
 
@@ -498,6 +501,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
+      if (run && RUNNING_LATE.test(run.message)) return undefined; // the calendar flow, never a drafted "no problem"
       if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !LIVE_DATA.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
@@ -517,7 +521,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
       // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.
       // Only when he asks for nothing else: "i'm so stressed, remind me at 3" still sets the reminder (review, 2026-10-16).
-      if (!run.flow && isOverwhelmed(run.message) && !CHANGE_REQUEST.test(run.message) && !REMINDER.test(run.message) && !isSessionStart(run.message)
+      if (!run.flow && isOverwhelmed(run.message) && !CHANGE_REQUEST.test(run.message) && !REMINDER.test(run.message) && !RUNNING_LATE.test(run.message) && !isSessionStart(run.message)
         && !LIVE_DATA.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.settled.move !== "tool") {
         run.provided = true;
         run.noTools = true;
@@ -612,7 +616,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      if (SCHEDULING.test(run.message) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled)) {
+      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message)) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         run.flow = options.scheduleFlow

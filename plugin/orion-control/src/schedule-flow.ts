@@ -144,16 +144,22 @@ function messageNames(message: string, b: DayBlock, day?: Day): boolean {
   if (initials.length >= 2 && said.includes(initials)) return true;
   if (b.fixed && said.some((w) => w === "class" || w === "classes" || w === "lecture")) return true;
   const [bh, bm] = b.start.split(":").map(Number) as [number, number];
-  for (const m of message.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(?:the|at)\s+(\d{1,2})(?::(\d{2}))?\b/gi)) {
+  // "the 2 hour block" is a length, not 2 PM (review, 2026-10-16).
+  for (const m of message.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(?:the|at)\s+(\d{1,2})(?::(\d{2}))?\b(?!\s*(?:hours?|hrs?|h|minutes?|mins?|m)\b)/gi)) {
     const h = Number(m[1] ?? m[4]); const min = Number(m[2] ?? m[5] ?? 0); const ap = m[3]?.toLowerCase();
     const hours = ap ? [(h % 12) + (ap === "pm" ? 12 : 0)] : [h % 24, (h % 12) + 12];
     if (min === bm && hours.includes(bh)) return true;
   }
   const anchor = message.match(/\b(after|before)\s+(?:my|the)?\s*([^,.;!?]+)/i);
   if (anchor && day) {
+    // Only the block right after the anchor (right before, for "before"), not any later one (review, 2026-10-16).
     const a = day.blocks.find((x) => x !== b && messageNames(anchor[2]!, x));
     const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
-    if (a && (anchor[1]!.toLowerCase() === "after" ? toMin(b.start) >= toMin(a.end) : toMin(b.end) <= toMin(a.start))) return true;
+    const sorted = [...day.blocks].sort((x, y) => toMin(x.start) - toMin(y.start));
+    if (a) {
+      const i = sorted.indexOf(a);
+      if (anchor[1]!.toLowerCase() === "after" ? sorted[i + 1] === b : sorted[i - 1] === b) return true;
+    }
   }
   return false;
 }
@@ -177,6 +183,12 @@ export function guardSteps(message: string, steps: Intent[], day: Day): { say: "
   const gone = `I didn't make that change — ${onDay ? `you asked to take ${obj} off, not to add anything` : `there's no ${obj ?? "such block"} on ${day.now ? "today's" : "that day's"} calendar`}`;
   // A skip only ever takes something off: "skip gym today" (no gym) became add gym 15:05 and "Done" (q019).
   if (REMOVE_VERB.test(message) && !ADD_CUE.test(message) && steps.some((s) => ["add", "fill_between", "plan"].includes(s.do))) return { say: "cannot", text: gone };
+  // Whatever the cues, never add or fill the very thing he asked to remove ("skip yoga today, i'll go tomorrow" wrote
+  // yoga today; review, 2026-10-16). Swapping in something else ("skip lunch, i'll go for a walk") is fine.
+  if (obj) {
+    const gone = words(obj);
+    if (steps.some((s) => ["add", "fill_between"].includes(s.do) && s.what && !/^B\d+$/.test(s.what) && words(s.what).some((w) => gone.some((g) => sameWord(w, g))))) return { say: "cannot", text: `I didn't make that change — you asked to skip ${obj}, so I won't add it` };
+  }
   // Any skip/drop must land on a block he named: "cancel my lab" removed the MKTG lecture (q098).
   for (const s of steps) {
     if (s.do !== "skip" && s.do !== "drop") continue;

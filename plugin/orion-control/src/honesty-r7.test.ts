@@ -56,11 +56,11 @@ describe("what he is working on and his nap block (q050, q015)", () => {
     expect(out.calls.status).toBe(1);
     expect(out.prompt).toMatch(/exactly this text[\s\S]*Your focus session is running/);
   });
-  it("q050: with no session running, the day is read instead", async () => {
+  it("q050: with no session running, the day is read and code says the reply (r8, 2026-10-16)", async () => {
     const h = setup({ move: "ask", answer: "?" }, { sessionText: "No focus session is running right now." });
     const out = await h.turn("what am i supposed to be working on right now");
     expect(out.calls.day).toBe(1);
-    expect(out.prompt).toMatch(/read just now from his calendar/);
+    expect(out.prompt).toMatch(/exactly this text[\s\S]*No focus session is running, and nothing else is on your calendar today\./);
   });
   it("q015: a session-status pick for a nap block question reads the day, not the session", async () => {
     const h = setup({ move: "tool", tool: "session", args: { do: "status" } });

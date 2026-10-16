@@ -2,7 +2,7 @@ import Foundation
 
 enum SchedulingMemory {
     /// The most characters of SCHEDULING.md a LOCAL turn carries.
-    static let localDigestLimit = 800
+    static let localDigestLimit = 2100
 
     /// 2026-10-16 (speed audit): the message is prefixed with up to 12k chars
     /// (about 2.7k tokens) whenever it says schedule|plan|class|nap|commute, and
@@ -13,7 +13,7 @@ enum SchedulingMemory {
     /// (every orion-reschedule / orion-tasks verb and how to choose one), so the
     /// tool half of SCHEDULING.md is a duplicate. What the plugin does NOT carry is
     /// Nick's standing preferences: protected time and minimums, the priority scale,
-    /// the class/commute wrapper. Only those survive, in `localDigestLimit` chars.
+    /// the class/commute wrapper. Only those survive, in about `localDigestLimit` chars (2.1k, was 12k; the real rules need ~2k verbatim).
     /// Cloud turns (routing off, shadow, or schedule-to-cloud on) keep the full file.
     static func context(for text: String) -> String {
         context(for: text, localRouting: LocalRoutingMode.current(),
@@ -32,58 +32,68 @@ enum SchedulingMemory {
         }
         if localRouting.servesSchedulingLocally {
             let digest = localDigest(rules, limit: localDigestLimit)
-            return digest.isEmpty ? "" : "[Nick's scheduling preferences]\n" + digest + "\n\n[Current user request]\n"
+            // Fail open: a digest that found nothing must not silently drop the rules.
+            if !digest.isEmpty { return "[Nick's scheduling preferences]\n" + digest + "\n\n[Current user request]\n" }
         }
         return "[ORION scheduling preferences — consult with current calendar and Orion to-dos]\n" + String(rules.prefix(12000)) + "\n\n[Current user request]\n"
     }
 
-    /// Preference sections and each one's share of the budget, in order. Sections
-    /// that are mostly command usage (they name `orion-` tools three or more
-    /// times) are the plugin's job and are skipped.
-    private static let preferenceSections: [(heading: String, share: Double)] =
-        [("protected time", 0.42), ("priority scale", 0.30), ("class wrapper", 0.28)]
+    /// Sections whose rules the plugin does not carry, in the order they are sent,
+    /// each with its own cap. Rule lines are taken VERBATIM, whole, in file order:
+    /// an earlier sentence-ranking version dropped "high: sleep and gym protected",
+    /// "low", and "Nothing (a nap...) goes into travel time" (the 2026-10-05 nap
+    /// incident), which is the opposite of what a digest is for.
+    private static let digestSections: [(heading: String, cap: Int, firstParagraphOnly: Bool)] = [
+        ("priority scale", 700, false),
+        ("protected time", 720, false),
+        ("class wrapper", 600, true),
+    ]
 
+    /// Fails OPEN: if fewer than two sections are found (the file was reorganised)
+    /// or the digest is empty, the caller sends the whole file instead.
     static func localDigest(_ rules: String, limit: Int) -> String {
         let sections = rules.components(separatedBy: "\n## ").dropFirst().map { chunk -> (heading: String, body: String) in
-            let lines = chunk.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+            let lines = chunk.components(separatedBy: "\n")
             return ((lines.first ?? "").lowercased(), lines.dropFirst().joined(separator: "\n"))
         }
         var parts: [String] = []
-        for (heading, share) in preferenceSections {
-            guard let section = sections.first(where: { $0.heading.contains(heading) }),
-                  section.body.components(separatedBy: "orion-").count - 1 < 3
-            else { continue }
-            let text = sentences(of: section.body, within: Int(Double(limit) * share))
+        for spec in digestSections {
+            guard let section = sections.first(where: { $0.heading.contains(spec.heading) }) else { continue }
+            let text = ruleLines(of: section.body, cap: spec.cap, firstParagraphOnly: spec.firstParagraphOnly)
             if !text.isEmpty { parts.append(text) }
         }
-        return String(parts.joined(separator: " ").prefix(limit))
+        guard parts.count >= 2 else { return "" }
+        return String(parts.joined(separator: "\n").prefix(limit))
     }
 
-    /// Whole sentences of a section, flattened to one line, until `budget` chars.
-    /// The "(Why this is written down ...)" story is history, not a rule.
-    private static func sentences(of body: String, within budget: Int) -> String {
-        var flat = body.replacingOccurrences(of: "**", with: "")
-        if let why = flat.range(of: "(Why this is written down") { flat = String(flat[..<why.lowerBound]) }
-        flat = flat.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0 }
-            .joined(separator: " ")
-        // Rules first: a sentence with a number or a hard word ("at least", "never",
-        // "protected") is a preference; the rest is explanation. Kept in file order.
-        let pieces = flat.components(separatedBy: ". ").filter { !$0.isEmpty }
-            .map { $0.hasSuffix(".") ? $0 : $0 + "." }
-        let hard = ["at least", "never", "protect", "must", "always", "first class", "last class", "keep ", "real classes"]
-        func score(_ sentence: String) -> Int {
-            let lower = sentence.lowercased()
-            return (lower.contains(where: \.isNumber) ? 1 : 0) + (hard.contains(where: lower.contains) ? 2 : 0)
+    /// Whole bullets (or paragraphs) of a section, verbatim apart from line
+    /// wrapping, until `cap`. Bullets that are about tool commands or the machine
+    /// config, or that duplicate the class wrapper, are the plugin's job.
+    private static func ruleLines(of body: String, cap: Int, firstParagraphOnly: Bool) -> String {
+        var units: [String] = []
+        var current: [String] = []
+        func flush() {
+            if !current.isEmpty { units.append(current.joined(separator: " ")) }
+            current = []
         }
-        var chosen = Set<Int>(), used = 0
-        for index in pieces.indices.sorted(by: { (score(pieces[$0]), -$0) > (score(pieces[$1]), -$1) }) {
-            let cost = pieces[index].count + 1
-            if used + cost > budget { continue }
-            chosen.insert(index); used += cost
+        for raw in body.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { if firstParagraphOnly && !current.isEmpty { break }; flush(); continue }
+            if line.hasPrefix("(Why this is written down") { break }
+            if line.hasPrefix("- ") { flush() }
+            current.append(line)
         }
-        return pieces.indices.filter(chosen.contains).map { pieces[$0] }.joined(separator: " ")
+        flush()
+        // Prose paragraphs of a bulleted section (e.g. "His own words override...")
+        // are not rules; only bullets count there. A prose-only section keeps its text.
+        if units.contains(where: { $0.hasPrefix("- ") }) { units = units.filter { $0.hasPrefix("- ") } }
+        let skip = ["orion-", "life-config", "School \u{2192} dorm"]
+        var out: [String] = [], used = 0
+        for unit in units where !skip.contains(where: unit.contains) {
+            if used + unit.count + 1 > cap { continue }
+            out.append(unit); used += unit.count + 1
+        }
+        return out.joined(separator: "\n")
     }
 
     static func minimumMinutes(for title: String) -> Int {

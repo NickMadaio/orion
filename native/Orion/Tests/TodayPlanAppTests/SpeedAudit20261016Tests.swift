@@ -98,6 +98,7 @@ final class SpeedAudit20261016Tests: XCTestCase {
         let local = LocalRoutingMode(mode: "on", scheduleToCloud: false)
         let out = SchedulingMemory.context(for: schedulingText, localRouting: local, rules: { self.rules })
         XCTAssertLessThan(out.count, SchedulingMemory.localDigestLimit + 120)
+        XCTAssertTrue(out.contains("**high**: sleep, the gym. Protected."), out)
         XCTAssertTrue(out.contains("Naps are at least 75 minutes"), out)
         XCTAssertTrue(out.contains("Never moved"), out)
         XCTAssertTrue(out.contains("FIRST class"), out)
@@ -105,12 +106,28 @@ final class SpeedAudit20261016Tests: XCTestCase {
         XCTAssertFalse(out.contains("Why this is written down"))
     }
 
-    func testLocalDigestOfTheRealFileIsWithinBudget() throws {
-        let file = SchedulingMemory.rulesFile
-        guard let real = try? String(contentsOf: file, encoding: .utf8) else { throw XCTSkip("no SCHEDULING.md here") }
+    func testDigestThatFindsTooLittleFailsOpenToTheFullFile() {
+        let local = LocalRoutingMode(mode: "on", scheduleToCloud: false)
+        let reorganised = "# Scheduling\n\n## Something else\n\nUse orion-tasks add.\n\n## Priority scale\n\n- **high**: sleep.\n"
+        let out = SchedulingMemory.context(for: schedulingText, localRouting: local, rules: { reorganised })
+        XCTAssertTrue(out.contains("orion-tasks add"), "only one section matched, so send everything")
+        XCTAssertTrue(out.hasPrefix("[ORION scheduling preferences"))
+    }
+
+    func testResidentContextIsExactPerModel() {
+        XCTAssertEqual(LocalModel.profile(for: "qwen3.5:9b").numCtx, 32768)
+        XCTAssertEqual(LocalModel.profile(for: "qwen3.5:4b-q4_K_M").numCtx, 16384)
+        XCTAssertFalse(LocalModel.profile(for: "qwen3.5:27b").resident, "unknown qwen3.5 tag is not assumed resident")
+    }
+
+    func testLocalDigestOfTheRealFileKeepsTheRulesThatMatter() throws {
+        guard let real = try? String(contentsOf: SchedulingMemory.rulesFile, encoding: .utf8) else { throw XCTSkip("no SCHEDULING.md here") }
         let digest = SchedulingMemory.localDigest(real, limit: SchedulingMemory.localDigestLimit)
-        XCTAssertFalse(digest.isEmpty)
         XCTAssertLessThanOrEqual(digest.count, SchedulingMemory.localDigestLimit)
+        for needle in ["**fixed**", "**high**", "**medium**", "**low**", "Protected", "Nothing (a nap", "2.5 hours", "Naps are at least 75"] {
+            XCTAssertTrue(digest.contains(needle), "digest lost \(needle):\n\(digest)")
+        }
         XCTAssertFalse(digest.contains("orion-reschedule"))
+        XCTAssertFalse(digest.contains("Why this is written down"))
     }
 }

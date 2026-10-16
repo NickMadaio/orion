@@ -38,10 +38,10 @@ final class LocalModelReasoner: DistractionReasoning {
         // would be rejected as truncated every single time.
         //
         // A larger budget than the default because this answer has a line per
-        // running app. 2026-10-16: 600 on the resident 9B (think off); LocalModel
+        // running app. 2026-10-16: 1000 on the resident 9B (think off); LocalModel
         // scales it up for a reasoning model that spends tokens on a scratchpad
         // first, which was the reason this was 2400 for gpt-oss.
-        try LocalModel.complete(prompt: prompt, maxTokens: 600, temperature: 0.1,
+        try LocalModel.complete(prompt: prompt, maxTokens: 1000, temperature: 0.1,
                                 timeout: timeout, requireSentenceEnding: false)
     }
 }

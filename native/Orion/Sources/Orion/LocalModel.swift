@@ -68,11 +68,16 @@ enum LocalModel {
     /// The voice worker's model, resident with keep_alive 24h.
     static let fallbackModel = "qwen3.5:9b"
 
-    /// Models Ollama already keeps loaded for voice, with the options they are
-    /// loaded with. Asking for a different num_ctx makes Ollama RELOAD the model,
-    /// so this must equal FORM_OPTIONS.num_ctx in
-    /// plugin/orion-control/src/schedule-flow.ts.
-    static let residentNumCtx = 32768
+    /// Models Ollama already keeps loaded for voice, with the num_ctx each is
+    /// loaded with. Asking for a different num_ctx makes Ollama RELOAD the model.
+    /// 2026-10-16: an exact map, not a prefix: the 9B is 32768
+    /// (FORM_OPTIONS.num_ctx, plugin/orion-control/src/schedule-flow.ts) but the
+    /// 4B front desk is 16384 (FRONT_DESK_CTX, plugin/orion-control/src/front-desk.ts),
+    /// and a prefix match would have sent the 4B the 9B's context.
+    static let residentNumCtx: [String: Int] = [
+        "qwen3.5:9b": 32768,
+        "qwen3.5:4b-q4_K_M": 16384,
+    ]
 
     /// How a request for `model` is shaped.
     ///
@@ -91,8 +96,8 @@ enum LocalModel {
     }
 
     static func profile(for model: String) -> Profile {
-        if model.hasPrefix("qwen3.5:") {
-            return Profile(resident: true, numCtx: residentNumCtx, keepAlive: "24h", think: false, budgetMultiplier: 1)
+        if let numCtx = residentNumCtx[model] {
+            return Profile(resident: true, numCtx: numCtx, keepAlive: "24h", think: false, budgetMultiplier: 1)
         }
         return Profile(resident: false, numCtx: nil, keepAlive: "0", think: nil, budgetMultiplier: 4)
     }

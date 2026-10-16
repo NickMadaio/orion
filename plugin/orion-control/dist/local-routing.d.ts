@@ -5,7 +5,7 @@ import { type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
 import { type FocusRow } from "./focus-status.js";
 import { type PendingRun } from "./schedule-pending.js";
-import { type FlowResult } from "./schedule-flow.js";
+import { type AskContext, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 type HookApi = {
@@ -34,6 +34,7 @@ export type LocalRoutingOptions = {
     scheduleFlow?: (message: string, clock: string, opts?: {
         undo?: string[];
         pending?: PendingRun;
+        askContext?: AskContext;
     }) => Promise<FlowResult>;
     /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
     lateFlow?: (minutes: number) => Promise<FlowResult>;
@@ -78,8 +79,10 @@ export declare const GO_ON = "Go on.";
 export declare const UNDO_NOTHING_TO_UNDO = "I haven't changed your calendar in this chat. What should I cancel?";
 /** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
 export declare const isBareUndo: (message: string) => boolean;
+/** An open ask forces the schedule flow only for a reply that plausibly answers it, not for any message in the next 90 minutes. */
+export declare function answersAsk(message: string): boolean;
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
-export declare function isCalendarTurn(message: string, settled: Decision): boolean;
+export declare function isCalendarTurn(message: string, settled: Decision, askOpen?: boolean): boolean;
 /** The front desk's session start, task and length (sweep 2026-10-15, q051: it read "focus mode on for an
  *  hour, leetcode" right — session start, task leetcode — and the calendar flow booked "focus mode"). */
 export declare function sessionHint(d: Decision | undefined): SessionHint;
@@ -108,6 +111,7 @@ export declare function undoJournalTop(home?: string, now?: number): string | nu
 export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     undo?: string[];
     pending?: PendingRun;
+    askContext?: AskContext;
 }) => Promise<FlowResult>;
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export declare const liveExtractReminder: (message: string, clock?: string) => Promise<{

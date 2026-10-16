@@ -21,6 +21,21 @@ export function blockList(day) {
     const now = day.now ? toMin(day.now) : null;
     return day.blocks.map((b, i) => `B${i + 1} ${b.start}–${b.end} ${b.title}${b.fixed ? " (FIXED)" : ""}${now !== null && toMin(b.end) <= now ? " (already happened)" : ""}`).join("\n");
 }
+const hm = (t) => t.padStart(5, "0");
+/** Reads `[ORION context: ... (blank ask about 14:00-now ...)]` or `(finish resume, planned 14:00-16:00, not started)`; undefined when no ask is open. */
+export function parseAskContext(prompt) {
+    const label = prompt.match(/\[ORION context:([^\]]*)\]/)?.[1];
+    if (!label)
+        return undefined;
+    const window = label.match(/blank ask about (\d{1,2}:\d{2})\s*[-–]\s*(now|\d{1,2}:\d{2})/i);
+    const mismatch = label.match(/\(([^()]+?), planned (\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2}), not started\)/i);
+    if (!window && !mismatch)
+        return undefined;
+    return { ...(window ? { start: hm(window[1]), end: window[2].toLowerCase() === "now" ? "now" : hm(window[2]) } : {}),
+        ...(mismatch ? { block: { title: mismatch[1].trim(), start: hm(mismatch[2]), end: hm(mismatch[3]) } } : {}) };
+}
+/** "nothing", "nothing really", "just chilling": his answer to a blank ask that logs nothing. */
+export const NOTHING_REPLY = /^\s*(?:(?:um+|uh+|well|oh|nah|nope|no)[,.\s]+)?(?:nothing(?: much| really| special)?|not much|just (?:chilling|relaxing|resting|hanging out)|(?:i was )?(?:just )?chilling)\s*[.!]*\s*$/i;
 /** JSON schema for the form; block references are enums of today's real ids. */
 export function intentSchema(day) {
     const ids = day.blocks.map((_, i) => `B${i + 1}`);
@@ -29,12 +44,13 @@ export function intentSchema(day) {
         type: "object",
         properties: {
             steps: { type: "array", maxItems: 4, items: { type: "object", properties: {
-                        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "late", "overrun", "cannot", "ask", "answer"] },
+                        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "late", "overrun", "log", "cannot", "ask", "answer"] },
                         where: { type: "string", maxLength: 40 }, travel: { type: "number" },
                         items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title"] } },
                         what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
-                        after: ref, before: ref, with: ref,
-                        to: { type: "string", description: "HH:MM" }, until: { type: "string", description: "HH:MM" },
+                        after: ref, before: ref, with: ref, instead: ref,
+                        from: { type: "string", description: "log: HH:MM he started" },
+                        to: { type: "string", description: "HH:MM (log: or now)" }, until: { type: "string", description: "HH:MM" },
                         minutes: { type: "number" }, by: { type: "number" }, text: { type: "string", maxLength: 200, description: "for cannot/ask/answer: one plain sentence" },
                     }, required: ["do"] } },
         },
@@ -59,6 +75,7 @@ Steps:
 - swap: block "what" with block "with" · tidy: separate overlaps
 - late: he is running "minutes" late right now ("I'm running 15 late") — everything not yet done slides back
 - overrun: class "what" runs "minutes" over, or he is late to it and wants what comes after it pushed back by "minutes"
+- log: he says what he did or is doing, which may be over a planned block ("i'm at the gym", "was at the library since 2", "gym 2-4", "did gym instead of resume"): "what" is his own short title, "from" when he started (24-hour HH:MM), "to" when it ended (HH:MM) or "now" if he is still at it, "instead" the block id it replaced if he says so. A time he does not give is left out — code fills it in. "nothing", "nothing really", "just chilling" is NOT a log: answer
 - cannot: it cannot be done — say why in "text" · ask: only if no block tells you — question in "text" · answer: he only asked a question — reply in "text"
 
 Examples, for this SAMPLE day only (his real day below has its own ids — never copy these ids):
@@ -75,6 +92,12 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "add a 15 minute stretch block tomorrow at 7:30 am" → {"steps":[{"do":"add","what":"stretch","minutes":15,"to":"07:30"}]}   (a time he says goes in "to", 24-hour — never leave it out; "tomorrow" is the day shown, not part of the step)
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
 - "I'm in a time block but I don't need it. I'm gonna meal prep — put it from 12:45 to 1:45 and push everything else to follow" → {"steps":[{"do":"add","what":"meal prep","to":"12:45","until":"13:45"}]}   (one step: the scheduler cuts short the block he is in and slides everything after it — never move the blocks after it yourself)
+
+- "i'm at the gym" → {"steps":[{"do":"log","what":"gym"}]}   (no times said: leave from and to out)
+- "was at the library since 2" → {"steps":[{"do":"log","what":"library","from":"14:00","to":"now"}]}
+- "gym 2-4" → {"steps":[{"do":"log","what":"gym","from":"14:00","to":"16:00"}]}
+- "did gym instead of resume" → {"steps":[{"do":"log","what":"gym","instead":"B3"}]}   (B3 = the resume block on that day)
+- "nothing really" → {"steps":[{"do":"answer","text":"Okay, nothing logged."}]}
 
 Never drop a block and add it again — move it (or fill_between). Name blocks by their id. Classes he mentions by name or nickname ("DS" = Discrete Structures, "my lab", "program design") are the matching blocks. Only what he asked for.
 Output JSON only: {"steps":[...]}`;
@@ -283,7 +306,7 @@ export function compile(input, day, message, opts = {}) {
     if (step.what && !/^B\d+$/.test(step.what) && step.do !== "plan") {
         const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
         const i = day.blocks.findIndex((b) => !b.fixed && (norm(b.title).includes(norm(step.what)) || norm(step.what).includes(norm(b.title))));
-        if (i >= 0 && step.do !== "add")
+        if (i >= 0 && step.do !== "add" && step.do !== "log")
             step = { ...step, what: `B${i + 1}` };
     }
     // "skip gym today" with no gym on his day: the correction hint ("use its name as a new title") turned it
@@ -421,6 +444,7 @@ export function compile(input, day, message, opts = {}) {
         case "tidy": return { args: ["tidy"] };
         // orion-reschedule had late/overrun all along, but the form could not say them: "running 20 min late,
         // push the stuff after it back" became one move of one block (sweep q017/q029, 2026-10-15).
+        case "log": return compileLog(step, day, opts.askContext);
         case "late": {
             if (!Number.isFinite(step.minutes) || step.minutes < 5)
                 return { error: "late needs how many minutes (5 or more)" };
@@ -438,6 +462,37 @@ export function compile(input, day, message, opts = {}) {
         }
         default: return { error: `unknown step ${String(step.do)}` };
     }
+}
+/** "since 2" said at 4 PM, written 02:00: nothing is logged before 04:00, so an early hour that PM would make a past time is PM. */
+function sensibleTime(t, now) {
+    const m = toMin(t);
+    return m < 240 && m + 720 <= now ? hhmm(m + 720) : t;
+}
+/** log: what he really did → `log <title> --from HH:MM --to HH:MM|now [--instead <planned>]`. The ask window or the planned block
+ *  he was asked about (his prompt's context line) fills what he did not say; with no times at all, ask since when. */
+function compileLog(step, day, ctx) {
+    if (!day.now)
+        return { say: "cannot", text: "I can only log what happened today" };
+    const now = toMin(day.now);
+    const ref = (v) => (v && /^B\d+$/.test(v) ? day.blocks[Number(v.slice(1)) - 1] : undefined);
+    const title = (ref(step.what)?.title ?? String(step.what ?? "")).replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!title)
+        return { error: "log needs what he did" };
+    const named = ref(step.instead) ?? (step.instead ? day.blocks.find((b) => !b.fixed && normTitle(b.title).includes(normTitle(step.instead))) : undefined);
+    const ctxBlock = ctx?.block ? day.blocks.find((b) => normTitle(b.title) === normTitle(ctx.block.title)) : undefined;
+    if (named?.fixed)
+        return { error: `${named.title} is a class or a plan with people — it cannot be replaced` };
+    const over = (b) => (toMin(b.end) <= now ? b.end : "now");
+    const t = (v) => (v && /^\d{1,2}:\d{2}$/.test(v) ? sensibleTime(v.padStart(5, "0"), now) : undefined);
+    const said = { from: t(step.from), to: step.to === "now" ? "now" : t(step.to) };
+    const planned = named ?? ctxBlock;
+    const fallback = named ? { from: named.start, to: over(named) } : ctx?.start ? { from: ctx.start, to: ctx.end ?? "now" } : ctxBlock ? { from: ctxBlock.start, to: over(ctxBlock) } : {};
+    const from = said.from ?? (said.to && said.to !== "now" ? undefined : fallback.from);
+    const to = said.to ?? (said.from ? "now" : fallback.to);
+    if (!from)
+        return { say: "ask", text: `Since when — what time did you start ${title}?` };
+    const place = step.where && /^[a-z0-9_-]{1,40}$/.test(step.where) ? ["--where", step.where] : [];
+    return { args: ["log", title, "--from", from, "--to", to ?? "now", ...(planned ? ["--instead", planned.title] : []), ...place] };
 }
 const FAILED = /NOT BOOKED|NOTHING WAS|did not fit|usage:|not a real block|is in the past|no block called|Error/i;
 /** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
@@ -471,7 +526,7 @@ export function spokenFailure(line) {
 /** What to tell Nick, from the scheduler's own output only. */
 export function summarize(outputs, said) {
     const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
-    const changes = lines.filter((l) => /moved|planned|added|cleared|is now|skipped|resized|extended|swapped|separated|booked/i.test(l) && !FAILED.test(l) && !/^Changed|^Would change|^Written/.test(l));
+    const changes = lines.filter((l) => /moved|planned|added|cleared|is now|skipped|resized|extended|swapped|separated|booked|logged/i.test(l) && !FAILED.test(l) && !/^Changed|^Would change|^Written/.test(l));
     const failed = lines.filter((l) => FAILED.test(l));
     const parts = [];
     if (changes.length)
@@ -557,7 +612,7 @@ async function execute(argvs, { exec, undoTop, when, undone }) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending }) {
+export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext }) {
     if (pending?.kind === "push")
         return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
     const titled = pending?.kind === "title" ? pending : undefined;
@@ -584,11 +639,14 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     catch {
         return { outcome: "fallback", reason: "could not read the day" };
     }
+    // "nothing" / "just chilling" to a blank ask logs nothing: the blank is answered, no calendar call (spec 3.5 step 6).
+    if (!titled && askContext && NOTHING_REPLY.test(message))
+        return takenBack({ outcome: "say", kind: "plain", text: "Okay — I'll leave that time as it is." });
     const clash = titled ? undefined : contradiction(message);
     if (clash)
         return takenBack({ outcome: "say", text: clash, kind: "ask" });
     // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
-    const build = (list) => list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1 }));
+    const build = (list) => list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) }));
     let steps;
     let compiled;
     let bad;
@@ -715,6 +773,7 @@ export function spokenReply(outputs, when) {
     const said = [];
     const cut = [];
     const followed = [];
+    let logged = "";
     for (const l of lines) {
         // The block he was in, cut short for a time he stated; the blocks that slid after a change.
         let c = l.match(/^(.+?) now ends at (\d{2}:\d{2})$/);
@@ -747,6 +806,10 @@ export function spokenReply(outputs, when) {
             said.push(`cleared ${m[1]}`);
             continue;
         }
+        if (/^Logged .+/.test(l)) {
+            logged = l;
+            continue;
+        }
         m = l.match(/^(?:Undone: )?skipped (.+?)(?: today|$)/i);
         if (m) {
             said.push(`${m[1]} is off today`);
@@ -761,5 +824,8 @@ export function spokenReply(outputs, when) {
     const all = said.length ? [...said, ...cut, ...rest] : [];
     // when: the day it was for ("Done: resume work 5:50 PM" for tomorrow sounded like today, q020).
     const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
+    // A log carries its own one-line summary (what was logged, what moved, what is off today).
+    if (logged)
+        return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");
     return parts.join(" ") || "Nothing on your day changed.";
 }

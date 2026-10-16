@@ -98,6 +98,15 @@ describe("orion-agenda wrapper misuse", () => {
   });
 });
 
+describe("orion-agenda fixes (review 5 LOW)", () => {
+  it("--date=friday and ~/ paths are repaired", () => {
+    const a = guardToolCall("exec", { command: "orion-agenda day --date=friday" }, deps) as any;
+    expect(a.params.command).toBe(`${SCRIPTS}/orion-agenda day friday`);
+    const b = guardToolCall("exec", { command: "~/Desktop/ORION/scripts/orion-agenda --date=2026-10-17" }, deps) as any;
+    expect(b.params.command).toBe(`${SCRIPTS}/orion-agenda day 2026-10-17`);
+  });
+});
+
 describe("invented ids through tool_call", () => {
   const TASK = "openclaw:orion-control:orion_task_run";
   it("a catalog action becomes an orion_task_run step, parsing string args", () => {

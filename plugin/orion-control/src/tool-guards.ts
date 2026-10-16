@@ -45,7 +45,7 @@ const BARE_ORION = /^orion-[a-z0-9-]+$/;
 const AGENDA_USAGE =
   "orion-agenda reads only: `today`, `upcoming`, `tasks`, or `day <when>` (<when> is a date like 2026-10-17, a weekday, `today` or `tomorrow`). There is no --help, `events` or --date.";
 const WHEN = /^(today|tomorrow|mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?|\d{4}-\d{2}-\d{2})$/i;
-const PLAIN_TOKEN = /^[\w.:-]+$/;
+const PLAIN_TOKEN = /^[\w.:=-]+$/; // "=" allowed so `--date=friday` is read (review 5 LOW, 2026-10-16)
 
 function distance(a: string, b: string): number {
   const row = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -97,7 +97,8 @@ function guardExec(toolName: string, params: Rec, deps: GuardDeps): GuardResult 
   const trimmed = (params[key] as string).trim();
   const m = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed);
   if (!m) return undefined;
-  const head = m[1] as string;
+  // review 5 LOW (2026-10-16): `~/Desktop/ORION/scripts/orion-agenda` is the same file as the absolute path.
+  const head = (m[1] as string).replace(/^~\/Desktop\/ORION\/scripts\//, `${SCRIPTS_DIR}/`);
   let rest = m[2] ?? "";
   let abs = head;
   let name = head.startsWith(`${SCRIPTS_DIR}/`) ? head.slice(SCRIPTS_DIR.length + 1) : undefined;

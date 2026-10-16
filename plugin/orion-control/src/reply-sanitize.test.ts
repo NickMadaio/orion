@@ -11,7 +11,7 @@ describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
   });
   it("drops banners, flag lines and 'If he meant'", () => {
     const raw = "Your gym moved.\nNOTHING WAS BOOKED: no room.\nRun orion-reschedule `scripts/orion-reschedule add x --date 2026-10-16`.\nIf he meant tomorrow, say so.";
-    expect(sanitizeReply(raw)).toBe("Your gym moved.\nRun orion-reschedule.");
+    expect(sanitizeReply(raw)).toBe("Your gym moved.\nNothing was booked: no room.\nRun orion-reschedule."); // review 6 H-B: the honest line stays, in plain words
   });
   it("a reply that was only raw gets a plain failure line; clean replies are untouched", () => {
     expect(sanitizeReply("⚠️ 🛠️ Exec failed: `orion-x`")).toBe(REPLY_FAILED);
@@ -39,13 +39,13 @@ describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
     expect(sanitizeReply("Exec failed: `~/Desktop/ORION/scripts/orion-gmail-search x`")).toBe(REPLY_FAILED);
     expect(sanitizeReply("You have two classes. ⚠️ 🛠️ Exec failed: `orion-x`")).toBe("You have two classes.");
   });
-  it("known tool banners are dropped, other all-caps labels are not", () => {
-    expect(sanitizeReply("NOTHING WAS BOOKED: Walk did not fit.\nWant me to try later?")).toBe("Want me to try later?");
+  it("known tool banners are said in plain words (review 6 H-B), other all-caps labels are untouched", () => {
+    expect(sanitizeReply("NOTHING WAS BOOKED: Walk did not fit.\nWant me to try later?")).toBe("Nothing was booked: Walk did not fit.\nWant me to try later?");
     expect(sanitizeReply("CHEM LAB: 1:30 PM")).toBe("CHEM LAB: 1:30 PM");
   });
-  it("oauth / permission lines are rewritten only after a failed mail read", () => {
+  it("the sign-in line is said only after a failed mail read; the raw shape is cut on any turn (review 6 M-D)", () => {
     const raw = 'Get "https://gmail.googleapis.com/x": oauth2: "invalid_grant"';
-    expect(sanitizeReply(raw)).toBe(raw);
+    expect(sanitizeReply(raw)).toBe(REPLY_FAILED);
     expect(sanitizeReply(raw, { mailFailed: true })).toBe("I can't read your Gmail right now — it needs signing in again.");
     expect(sanitizeReply("Operation not permitted", { mailFailed: true })).toBe("I can't read your texts — ORION needs Full Disk Access.");
     expect(mailReadFailed([{ canonical: 'exec orion-gmail-search "x"', stdout: "oops", exit: 1 }])).toBe(true);

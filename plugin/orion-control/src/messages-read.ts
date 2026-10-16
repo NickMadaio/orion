@@ -76,8 +76,9 @@ const label = (r: MessagesRead): string => r.kind === "gmail" ? "Gmail" : "texts
 const GMAIL_SIGN_IN = "I can't read your Gmail right now — it needs signing in again.";
 const FULL_DISK = "I can't read your texts — ORION needs Full Disk Access.";
 export function failureLine(req: MessagesRead, out: string): string {
-  if (/invalid_grant|oauth|not signed in|sign(?:ed)?[ -]?in|unauthori[sz]ed|credentials/i.test(out) && (req.kind === "gmail" || /invalid_grant|oauth/i.test(out))) return GMAIL_SIGN_IN;
-  if (/no such host|dial tcp|network is unreachable|could not resolve|getaddrinfo|ENOTFOUND|offline|timed? ?out/i.test(out) && req.kind === "gmail") return "I couldn't reach Gmail just now.";
+  // Review 6 H-A (2026-10-16): network shapes first — an offline oauth refresh prints "oauth2: cannot fetch token … no such host".
+  if (/no such host|dial tcp|network is unreachable|could not resolve|getaddrinfo|ENOTFOUND|offline|timed? ?out|connection refused/i.test(out) && req.kind === "gmail") return "I couldn't reach Gmail just now.";
+  if (/invalid_grant|not signed in|sign(?:ed)?[ -]?in (?:again|required)|unauthori[sz]ed|credentials/i.test(out) && (req.kind === "gmail" || /invalid_grant/i.test(out))) return GMAIL_SIGN_IN;
   if (/full disk access|operation not permitted|authorization denied|not authori[sz]ed to (?:open|read)/i.test(out)) return FULL_DISK;
   return `I couldn't read your ${label(req)} just now. Nothing was sent or changed.`;
 }

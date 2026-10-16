@@ -205,6 +205,32 @@ describe("reminders — create vs cancel, corrections, stitching (review, 2026-1
   });
 });
 
+describe("reminders — re-review fixes (2026-10-16)", () => {
+  const stored: Stored[] = [{ id: "c1", label: "call mom", dueAt: at(2026, 10, 16, 17, 0).getTime() }, { id: "r2", label: "alarm 7", dueAt: at(2026, 10, 16, 19, 0).getTime() }];
+  it("HIGH 1: 'I set' / 'you set' / 'set up' do not turn a cancel into a create", async () => {
+    for (const said of ["remove the reminder i set for 5pm", "delete the alarm you set for 7pm", "cancel my reminder to set up the router"]) {
+      const h = harness({ now: at(2026, 10, 16, 12, 0), stored, extract: () => ({ time: "17:00", label: "x" }) });
+      const prompt = await h.turn(said);
+      expect(prompt, said).not.toMatch(/alarm_set/);
+      expect(prompt, said).not.toMatch(/What time should I remind/);
+    }
+  });
+  it("HIGH 3: a new request after 'What time?' is not stitched, whatever the front desk picked", async () => {
+    const h = harness({ now: at(2026, 10, 16, 12, 0), decision: { move: "escalate", tier: "standard" }, extract: () => ({ time: null, label: "call mom" }) });
+    await h.turn("remind me to call mom");
+    await h.turn("add gym at 5 today");
+    expect(h.extracted).toEqual(["remind me to call mom"]);
+  });
+  it("HIGH 3: bare times still stitch", async () => {
+    for (const said of ["at 5", "5:30", "tomorrow at 9", "in 20 min"]) {
+      const h = harness({ now: at(2026, 10, 16, 12, 0), decision: { move: "escalate", tier: "standard" }, extract: () => ({ time: null, label: "call mom" }) });
+      await h.turn("remind me to call mom");
+      await h.turn(said);
+      expect(h.extracted[1], said).toBe(`remind me to call mom ${said}`);
+    }
+  });
+});
+
 describe("reminders — the host drops a revise (review, 2026-10-16)", () => {
   it("hostDrops on reminder-cancel puts the honest cancel line in place", async () => {
     const h = harness({ now: at(2026, 10, 16, 12, 0), stored: [{ id: "c1", label: "call mom", dueAt: at(2026, 10, 16, 17, 0).getTime() }] });

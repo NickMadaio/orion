@@ -19,7 +19,7 @@ export type StoredReminder = { id: string; label: string; dueAt: number };
 export type Extracted = { time: string | null; label: string } | null;
 /** What the reminder turn is: a fixed reply (no tool), or one orion_task_run call for the worker to make. */
 export type ReminderPlan =
-  | { kind: "say"; text: string; pending?: boolean }
+  | { kind: "say"; text: string; pending?: boolean; askLabel?: boolean }
   | { kind: "call"; args: string; reply: string; action: "alarm_set" | "reminder_cancel"; label?: string; at?: string };
 export type ReminderInput = {
   message: string;
@@ -54,12 +54,14 @@ export function isCorrection(message: string): boolean {
 }
 /** His whole answer is a time or day ("at 5pm", "tomorrow at 9"): safe to read together with the reminder it answers. */
 export function isBareTime(message: string): boolean {
-  return (CLOCK.test(message) || RELATIVE.test(message) || meansTomorrow(message, new Date())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
+  return (CLOCK.test(message) || /\bat\s+\d{1,2}\b/i.test(message) || RELATIVE.test(message) || meansTomorrow(message, new Date())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
 }
 /** Cancel, not create: the cancel word comes before the reminder word and no create verb is present (review, 2026-10-16). */
 function isCancel(message: string): boolean {
-  const c = CANCEL.exec(message), r = REMINDER_WORD.exec(message);
-  return !!c && !!r && c.index < r.index && !CREATE.test(message);
+  // A create word counts only before the cancel word, and "the reminder I set" is not one (re-review, 2026-10-16).
+  const m = message.replace(/\b(i|you|we)\s+(set|made|added)\b/gi, " ");
+  const c = CANCEL.exec(m), r = REMINDER_WORD.exec(m), k = CREATE.exec(m);
+  return !!c && !!r && c.index < r.index && !(k && k.index < c.index);
 }
 
 /** Whether this turn is about reminders at all (anything planReminder handles). */
@@ -151,7 +153,7 @@ export async function planReminder(input: ReminderInput): Promise<ReminderPlan |
   const got = await extract(message).catch(() => null);
   if (!got) return undefined;
   const label = correcting && last ? last.label : got.label.trim();
-  if (!label || VAGUE_LABEL.test(label)) return { kind: "say", text: "What should I remind you about, and when?", pending: true };
+  if (!label || VAGUE_LABEL.test(label)) return { kind: "say", text: "What should I remind you about, and when?", pending: true, askLabel: true };
   const due = dueFor(message, got.time, now, correcting && last ? last.at.slice(0, 10) : undefined);
   if (!due) return { kind: "say", text: correcting ? "What time should I move it to?" : "What time should I remind you?", pending: !correcting };
   if ("past" in due) return { kind: "say", text: `It's already past ${ampm12(due.past)} today, so nothing was set. Want it tomorrow instead?` };

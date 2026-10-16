@@ -85,6 +85,83 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-16 — Rounds 8 and 8b: code reads and code replies for the remaining sweep failures (Claude)
+
+**What changed (all in `plugin/orion-control/src`, plus three scripts).** Each remaining failure now runs on code: code reads the
+data, and code either dictates the reply or hands the worker the data with "do not call tools".
+- Late flow (`late-flow.ts`): "im running late" asks "How late — about how many minutes?". The answer is stitched to it, and a
+  go-ahead runs the same move only on the turn right after a late question. A host-run tool plus a false claim now puts the honest
+  line in place (`run.hostTools`), using the scheduler's own words on NOTHING WAS BOOKED (q029).
+- To-dos (`todo-done-flow.ts`): "mark/tick/check/cross X done" runs `orion-tasks done` before any front-desk tool move. Statements
+  like "i finished the milk" never write (q042).
+- Day reads (`day-read-answers.ts`):
+  - `orion-reschedule show --json` now carries `allDay`, so the day read includes all-day items (q004).
+  - A named block that is absent gets "There's no nap block…" (q015).
+  - A named block that is present gets its time from code: "Your CS Lab starts at 7:25 PM, in about 7 h 17 min." This covers
+    "is today a lab day" and "next class" / "and after that?" (q006, q009, q013).
+- Deadlines (`deadline-read.ts`, `orion-agenda deadlines --json`): "what's due this week/next week/friday" is built by code, using
+  calendar weeks and all-day items, plus to-dos with due dates (q041).
+- Focus (`focus-status.ts`): status, "what am i supposed to be working on" and "how long have i been focusing today" are read and
+  answered by code (q050, q052, q053).
+- Texts and Gmail (`messages-read.ts`): plain reads run by code. Failures become short lines ("needs signing in again" only on
+  invalid_grant; "couldn't reach Gmail" when offline) (q066, q069).
+- Adds (`schedule-flow.ts`, `schedule-pending.ts`). The live bug, 10:45 today: "…throw something in before my class? Just
+  something small." booked "small task" at 5:50 PM and pushed three blocks. Now:
+  - Anchors come from his words ("before my class" becomes `--before 13:30`).
+  - An unnamed thing asks "What should I put before your 1:30 PM class?".
+  - Every unpinned add is previewed with `--dry-run`, and asks before it pushes or removes other blocks.
+  - The answer is kept per session for 3 minutes: yes runs the stored argv, a title compiles again, no declines.
+  - In `orion-reschedule`, an open-ended `add --after X` is a floor, so it no longer moves X.
+- Replies (`reply-sanitize.ts`, at finalize): Exec-failed tails, backticked script paths, flags and raw oauth/URL error shapes are
+  cut. NOT BOOKED lines are kept but said in plain words.
+- Tools (`tool-guards.ts`, `shell-operators.ts`, index.ts `before_tool_call`):
+  - A bare `orion-*` exec is rewritten to its absolute path. A bare `orion-reschedule` write is blocked; describe the change instead.
+  - The operator check is quote-aware, and `$'…'` counts as an operator.
+  - Invented catalog ids are rewritten to `orion_task_run`.
+  - A turn's budget is 8 host tool calls.
+- Cut-offs: "can/could/is/are/was/just/like/i/i'm" at the end of a spoken message is held. Complete questions are not, and the
+  worker gets the joined text.
+- Phone (`scripts/lib/remote/phone-context.mjs`): under local routing, a phone turn carries about 2.8k chars of context instead of
+  18.6k. SCHEDULING.md is now a pointer, and the brief is compact.
+- Routing log: each entry has `provided` and `reads` (day, day-tomorrow, deadlines, focus-status, focus-today, messages, gmail,
+  notes, learned). Graders can tell a code-read day from a missing lookup ("notes" means brain snippets only).
+
+**Reviews.** Seven independent Opus reviews. Every round until the last found real HIGHs where one fix broke another:
+- a "yeah" re-running a late move;
+- "text mom I'm late" triggering the late flow;
+- "i finished the milk" ticking off "Buy milk";
+- the safety net replacing correct Gmail summaries;
+- reply titles like "turn off the lights" and "great idea" being booked;
+- `add --after` breaking fixed adds;
+- the sanitizer deleting NOT BOOKED lines.
+
+Final verdict: ship. The findings are in `~/.openclaw/orion-controlled/evals/sweep-20261015/round8/`.
+
+**Deployed.**
+- Round 8 at 566ae06 (plugin 25a57b7815e7).
+- Round 8b at d829738 (plugin 1ff8574d0340, backup 20261016-120536). `orion-remote-install` re-run.
+- Suites at d829738: plugin 1172/1172, scripts 1384/1385. The one failure is the known `agentic-halts` timing test, 5/5 alone.
+
+**Live re-runs (read-only, READONLY=1, because Nick was awake).** On the same 16 read items:
+- Round 7: 1 pass / 1 minor / 14 fail.
+- Round 8: 8 / 5 / 3.
+- Round 8b: 12 / 4 / 0.
+
+Medians were 7–9 s, and the undo journal was byte-identical after each run. Results and grades are in `round8/`. The 11 write items
+(q016 q017 q019 q024 q029 q042 q045 q072 q020 r05, and a01 = Nick's "something small" sentence) are deferred to a night run:
+`round8/rerun3-writes.json`, using the same runner.
+
+**Still open.**
+- q070: the host appends its own "⚠️ 🛠️ Exec failed: …" payload after the plugin's last hook, so the sanitizer cannot reach it. The
+  fix is to route "any new emails from X" through the code-run Gmail read (messages-read), so no host exec fails. Alternatively,
+  strip it in the native app.
+- q066 summarises one exchange, not three texts. q004 omits finish resume's start time. q044 omits due dates.
+- Phone gate: after `fix/local-always` (278d75e), `phone-context.mjs` still mirrored the old window/acceptance gate. The fix is
+  `localRouting === "on"` (45dcfbd, on this branch). Re-run `orion-remote-install` after it lands.
+- Adds: "before my 2pm" and "before my second class" are still unanchored; the preview guards them. A "no" after a question that
+  followed a take-back says "left your day as it is". A cleared block that gets re-planned is not reported as displaced.
+- Gmail is not signed in (invalid_grant). Only Nick can fix that.
+
 ### 2026-10-16 — Live sweep: 111 questions, ~30 fixes, deployed (Claude; continued across two accounts)
 
 **What ran.** 111 Nick-style questions (everyday through outliers and safety) went through the real Mac-chat

@@ -7,6 +7,8 @@
 //   phase, remainingSeconds, blockNumber, totalBlocks, sessionId, endedMinute? },
 //   out, where, idleSeconds, bed, wake, focusToday, sent: { key: true } }
 
+import { classLadder } from "./class-ladder.mjs";
+
 const hm = (m) => { const h = Math.floor(((m % 1440) + 1440) % 1440 / 60), mm = ((m % 60) + 60) % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 const toMin = (t) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + m; };
 const span = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h ? `${h}h${m ? ` ${m}m` : ""}` : `${m} min`; };
@@ -37,13 +39,9 @@ export function decide(ctx) {
 
   const strip = (t) => String(t).replace(/ — .*$/, "");
   const blocks = ctx.day ?? [];
-  // Leave soon: travel starts in 5–15 minutes (even mid-session — missing class matters more).
-  for (const w of ctx.travel ?? []) {
-    const inMin = w.start - ctx.minute;
-    if (inMin < 5 || inMin > 15 || away) continue;
-    const dest = blocks.filter((b) => b.fixed && b.start >= w.end - 1).sort((a, b) => a.start - b.start)[0];
-    if (dest) say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder");
-  }
+  // Classes (priority 1): leave nudge, urgent, wake-up call, then one replan if he missed it
+  // (even mid-session: missing class matters more). See class-ladder.mjs.
+  classLadder(ctx, say);
   const open = (ctx.todos ?? []).filter((t) => !t.booked && !t.waiting);
   // Free time worth using: daytime, home, no session, nothing now and an hour+ clear.
   if (!busy && !away && ctx.minute >= 9 * 60 && ctx.minute <= 20 * 60 + 30 && open.length) {

@@ -3,7 +3,7 @@
 // about) → the hologram with a silent bubble; at the Mac at home, or with
 // headphones in → the hologram, out loud. Pure: facts in, a decision out.
 
-import { mayBypassQuiet } from "./quiet.mjs";
+import { bypassesQuiet } from "./quiet.mjs";
 
 export const IDLE_AWAY_SECONDS = 5 * 60;
 
@@ -17,7 +17,7 @@ export function chooseChannel(facts, { urgent = false, urgentKind = null } = {})
   if (!facts || typeof facts !== "object") throw new TypeError("facts required");
   const away = facts.locked || facts.displayAsleep || !(Number(facts.idleSeconds) < IDLE_AWAY_SECONDS);
   // 2026-10-16: only a reminder he set or a class he is about to miss bypasses quiet hours; a bare urgent flag no longer does.
-  if (facts.quiet && !mayBypassQuiet({ urgent, urgentKind })) return { channel: "hold", reason: "quiet hours — it waits until morning" };
+  if (facts.quiet && !bypassesQuiet({ urgentKind })) return { channel: "hold", reason: "quiet hours — it waits until morning" };
   if (away) return { channel: "phone", reason: facts.locked ? "the Mac is locked" : `no activity on the Mac for ${Math.round((facts.idleSeconds ?? 0) / 60)} min` };
   // Awake at the Mac inside his sleep window: never aloud (someone may be asleep).
   if (facts.lateAwake) return { channel: "mac-bubble", reason: "he's up inside his sleep window - no sound" };

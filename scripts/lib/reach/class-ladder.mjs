@@ -1,0 +1,52 @@
+// Defending priority 1 (classes) before, at and after the start (2026-10-16 audit, finding 1).
+// 2026-10-15: CS1800 at 9:00, WHOOP says he woke at 9:29. ORION sent one "Leave in 12 min"
+// banner and then nothing for 2.5 h, and the afterClass line called the class "done".
+//
+// The ladder, per fixed class, each rung once (its `sent` key):
+//   leave-<start>        5-15 min before leave time: a plain nudge
+//   leave-late-<start>   leave time to +10 min, he has not moved: urgent (time-sensitive), calm
+//   wake-<start>         until 10 min after the start, still no sign of him: the wake-up call (urgent, aloud if the Mac is up)
+//   class-missed-<start> 15+ min after the start, with EVIDENCE he missed it: one kind replan, never a scolding
+// "Moved" is evidence (the phone off its charger and moving, lib/life/attendance.mjs). No evidence of a miss, no replan.
+import { classAttendance } from "../life/attendance.mjs";
+
+const strip = (t) => String(t).replace(/ — .*$/, "");
+const hm = (m) => { const h = Math.floor(((m % 1440) + 1440) % 1440 / 60), mm = ((m % 60) + 60) % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
+
+/** A real class: fixed, a class, and not one ORION planned itself. */
+export const isRealClass = (b) => b.kind === "class" && b.fixed && b.source !== "orion";
+
+export function classLadder(ctx, say) {
+  const signals = ctx.signals ?? {};
+  const blocks = ctx.day ?? [];
+  const away = ctx.out;
+  const moved = signals.leftAt != null;
+  // Leave soon: travel starts in 5-15 minutes, for any fixed destination.
+  for (const w of ctx.travel ?? []) {
+    const inMin = w.start - ctx.minute;
+    if (inMin < 5 || inMin > 15 || away) continue;
+    const dest = blocks.filter((b) => b.fixed && b.start >= w.end - 1).sort((a, b) => a.start - b.start)[0];
+    if (dest) say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder", { urgentKind: "class", claim: `class-${dest.start}`, level: 1 });   // a class he is about to miss: gets through quiet hours, but is a plain banner
+  }
+  for (const cls of blocks.filter(isRealClass).sort((a, b) => a.start - b.start)) {
+    const name = strip(cls.title);
+    const attendance = classAttendance(cls, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] });
+    if (attendance === "attended") continue;
+    const wall = (ctx.travel ?? []).find((w) => /^(commute to|getting to)/i.test(w.title) && w.end >= cls.start - 1 && w.end <= cls.start + 1);
+    const leaveAt = wall ? wall.start : cls.start - 30;
+    const toLeave = leaveAt - ctx.minute;
+    const toStart = cls.start - ctx.minute;
+    if (moved) continue;
+    if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${cls.start}`, `You should be out the door now - ${name} is at ${hm(cls.start)}. Go, and I'll sort the rest.`, "reminder", { urgent: true, urgentKind: "class", level: 2 });
+    if (toLeave < -10 && toStart >= -10) {
+      say(`wake-${cls.start}`, toStart > 0
+        ? `${name} starts in ${toStart} min. Up now - you can still make most of it.`
+        : `${name} started ${-toStart} min ago. Go now and you'll still catch part of it.`, "reminder", { urgent: true, urgentKind: "class", loud: true, level: 3 });
+    }
+    if (attendance === "missed" && ctx.minute >= cls.start + 15 && ctx.minute <= cls.end + 90) {
+      const next = blocks.filter((b) => b.start > ctx.minute && b.id !== cls.id).sort((a, b) => a.start - b.start)[0];
+      const where = next ? `Next up: ${strip(next.title)} at ${hm(next.start)}.` : "The rest of today is open.";
+      say(`class-missed-${cls.start}`, `Looks like ${name} didn't happen today - it happens. ${where} Want me to fit in time to catch up on it (the recording or notes), or leave it?`, "question", { level: 0 });
+    }
+  }
+}

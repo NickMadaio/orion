@@ -77,7 +77,7 @@ if (dry) { console.log(`DRY RUN — would say aloud (${gate.reason}): ${text}`);
 // The screen, then the lights (2026-10-08): the strip coming on is the cue that ORION is about to talk.
 showScreen(view);
 spawnSync(process.execPath, [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
-const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--urgent", "--loud", "--listen",
+const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--awake", "--loud", "--listen",
   "--channel", "mac", "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
 process.stdout.write(sent.stdout ?? "");
 if (sent.status === 0 && /^Sent/.test(sent.stdout ?? "")) {

@@ -8,7 +8,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { isQuietNow, sleepWindowFor, mayBypassQuiet } from "../scripts/lib/reach/quiet.mjs";
+import { isQuietNow, sleepWindowFor, bypassesQuiet, isUrgentNotification } from "../scripts/lib/reach/quiet.mjs";
 import { chooseChannel } from "../scripts/lib/reach/route.mjs";
 
 const m = (h, mm = 0) => h * 60 + mm;
@@ -39,18 +39,21 @@ test("the window comes from night.json, then sleep-actual, then the life config"
 });
 
 test("only a reminder he set, or a class he is about to miss, may bypass quiet hours", () => {
-  assert.equal(mayBypassQuiet({ urgent: true, urgentKind: "reminder" }), true);
-  assert.equal(mayBypassQuiet({ urgent: true, urgentKind: "class" }), true);
-  assert.equal(mayBypassQuiet({ urgent: true, urgentKind: "bedtime" }), false);
-  assert.equal(mayBypassQuiet({ urgent: true, urgentKind: "checkin" }), false);
-  assert.equal(mayBypassQuiet({ urgent: true }), false, "a bare --urgent is not enough any more");
-  assert.equal(mayBypassQuiet({ urgent: false, urgentKind: "class" }), false);
+  assert.equal(bypassesQuiet({ urgentKind: "reminder" }), true);
+  assert.equal(bypassesQuiet({ urgentKind: "class" }), true);
+  for (const kind of ["bedtime", "checkin", "nudge", null]) assert.equal(bypassesQuiet({ urgentKind: kind }), false, String(kind));
+});
+
+test("the phone sees it as urgent only for the flag AND a genuine kind", () => {
+  assert.equal(isUrgentNotification({ urgent: true, urgentKind: "class" }), true);
+  assert.equal(isUrgentNotification({ urgent: true }), false, "a bare --urgent is not enough any more");
+  assert.equal(isUrgentNotification({ urgent: false, urgentKind: "class" }), false);
 });
 
 test("route: quiet holds, unless a genuinely urgent kind", () => {
   const f = { idleSeconds: 9999, quiet: true };
   assert.equal(chooseChannel(f).channel, "hold");
-  assert.equal(chooseChannel(f, { urgent: true }).channel, "hold");
+  assert.equal(chooseChannel(f, { urgent: true }).channel, "hold", "a bare urgent flag does not bypass");
   assert.equal(chooseChannel(f, { urgent: true, urgentKind: "bedtime" }).channel, "hold");
   assert.equal(chooseChannel(f, { urgent: true, urgentKind: "class" }).channel, "phone");
   assert.equal(chooseChannel(f, { urgent: true, urgentKind: "reminder" }).channel, "phone");

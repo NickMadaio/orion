@@ -17,6 +17,7 @@
  a focus session is running   → held and batched until it ends (same two exceptions).
  No repeats within 2 hours, at most 6 an hour. Never during an evaluation.
  Exit codes: 0 sent, held, or already said; 3 NOT SENT (rate cap); 4 delivery failed.
+ --awake: the caller has proof he is up (the morning brief): quiet hours do not apply.
  --no-queue: if held, drop instead of queueing (bedtime nags are pointless in the morning).
  --drain-held: send everything held, merged, once it is neither quiet nor focus time.
  --loud: aloud at full volume (the morning briefing; the volume goes back after).
@@ -29,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { allowed, chooseChannel } from "./lib/reach/route.mjs";
 import { presence } from "./lib/reach/presence.mjs";
-import { mayBypassQuiet, URGENT_KINDS } from "./lib/reach/quiet.mjs";
+import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/quiet.mjs";
 import { appendHeld, readHeld, clearHeld, mergeHeld } from "./lib/reach/held.mjs";
 import { activeSession } from "./lib/reach/focus-hold.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
@@ -72,15 +73,18 @@ if (!gate.ok && gate.duplicate) { console.log(`Already said: ${gate.reason}.`); 
 if (!gate.ok) { console.log(`NOT SENT: ${gate.reason}.`); process.exit(3); }
 
 const urgent = args.includes("--urgent");
-const genuinelyUrgent = mayBypassQuiet({ urgent, urgentKind });
+const genuinelyUrgent = isUrgentNotification({ urgent, urgentKind });
+const bypass = bypassesQuiet({ urgentKind });
 const here = await presence(now, { dir: DIR, facts: givenFacts });
+// --awake: the caller has proof he is up (the morning brief runs on his wake signal), so quiet hours do not apply.
+if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
 const forced = flag("--channel");
 let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
   : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false }, { urgent, urgentKind })
   : chooseChannel(here, { urgent, urgentKind });
 // A focus session is running: batch everything but the two genuinely urgent kinds until it ends.
 const session = dry ? null : activeSession(process.env);
-if (session && !genuinelyUrgent) decision = { channel: "hold", reason: "a focus session is running - batched until it ends", heldFor: "focus" };
+if (session && !bypass) decision = { channel: "hold", reason: "a focus session is running - batched until it ends", heldFor: "focus" };
 if (args.includes("--silent") && decision.channel === "mac-voice") decision = { channel: "mac-bubble", reason: `${decision.reason}; silent was asked for` };
 const id = `reach-${now.getTime()}-${randomUUID().slice(0, 6)}`;
 const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, urgentKind, headphones: !!here.headphones,

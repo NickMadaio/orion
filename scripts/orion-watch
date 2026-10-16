@@ -31,6 +31,7 @@ import { summarize } from "./lib/life/history.mjs";
 
 import { evalMode } from "./lib/eval-mode.mjs";
 import { classReminders } from "./lib/life/class-reminders.mjs";
+import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 // A watcher invoked by an evaluation must not mutate live state or queue alerts.
 if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -171,7 +172,8 @@ if (awake && minute < 780 && day.calendar === "ok" && !day.asked.includes("brief
 }
 
 // 1. An empty day: ask, don't guess.
-const free = awake ? freeLeft() : 0;
+// An unreadable calendar is unknown, never an empty day (2026-10-16: never say "nothing on the calendar" blind).
+const free = awake && day.calendar === "ok" ? freeLeft() : 0;
 if (awake && free >= 180) {
   if (!day.asked.includes("morning") && minute < 780) {
     day.asked.push("morning");
@@ -182,9 +184,18 @@ if (awake && free >= 180) {
       : `Morning. Nothing's on the calendar today. What's the plan? Tell me what's fixed and I'll fill in the rest.` });
     brief = null;
   } else if (!day.asked.includes("afterClass") && lastClass && minute >= lastClass.end && minute <= lastClass.end + 45) {
-    day.asked.push("afterClass");
-    alerts.push({ id: "watch-after-class", level: 1,
-      text: `${short_(lastClass.title)}'s done. The rest of today is open — what's the plan? Anything fixed tonight? I'll fill in the rest around it.` });
+    // 2026-10-16 audit, finding 1: on 2026-10-15 this said "Discrete Structures's done" about a class he
+    // slept through (WHOOP: woke 9:29 for a 9:00 class). "Done" needs evidence he was there.
+    const attendance = classAttendance(lastClass, { wokeAt: actualWake(localDate(now), evidence)?.minute ?? null, phone: phoneMinutes(log.phoneSignals, localDate(now)) });
+    const open = "The rest of today is open - what's the plan? Anything fixed tonight? I'll fill in the rest around it.";
+    if (attendance === "missed") {
+      day.asked.push("afterClass");   // the one kind replan about a missed class belongs to orion-proactive (class-missed)
+    } else {
+      day.asked.push("afterClass");
+      alerts.push({ id: "watch-after-class", level: 1, text: attendance === "attended"
+        ? `${short_(lastClass.title)} is done. ${open}`
+        : `${short_(lastClass.title)} is over - I can't tell if you got to it, did you make it? ${open}` });
+    }
   }
 }
 if (brief) alerts.unshift({ id: "watch-brief", level: 1, text: `Morning. ${brief}` });

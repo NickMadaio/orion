@@ -41,6 +41,8 @@ import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distr
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
+import { dayRead, noBlockReply } from "./day-read-answers.js";
+import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -76,6 +78,8 @@ export type LocalRoutingOptions = {
   now?: () => Date;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
   readDay?: (tomorrow: boolean) => Promise<string>;
+  /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
+  readDeadlines?: () => Promise<DeadlineRead | null>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
   brainSearch?: (query: string) => Promise<string>;
   /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
@@ -101,6 +105,8 @@ type Run = {
   reminder?: { args: string; say: string; action?: "alarm_set" | "reminder_cancel"; label?: string; at?: string };
   /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): no lookup is owed. */
   provided?: boolean;
+  /** What code read for the worker this turn ("day", "day-tomorrow", "notes", "learned", "deadlines", ...), for the routing log (2026-10-16 r8). */
+  reads?: string[];
   /** A recall turn: the lines he told ORION (his Nick note's Learned section), for the "you told me" check (2026-10-16). */
   recall?: { learned: string[] };
   /** The prompt forbade tools (the overwhelm note): no promise or lookup check can be met by acting. */
@@ -117,6 +123,9 @@ type Run = {
   /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
   undo?: string[];
 };
+
+/** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
+const markRead = (run: Run, name: string): void => { if (!(run.reads ?? []).includes(name)) run.reads = [...(run.reads ?? []), name]; };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
 // One spoken request can arrive as two turns: the app sends what it heard when he pauses, and the rest
@@ -309,7 +318,7 @@ const DAY_QUESTION_NOTE = "Morning means before 12:00, afternoon 12:00 to 17:00,
 
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
 export const liveReadDay = (tomorrow: boolean): Promise<string> => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...(tomorrow ? ["--date", "tomorrow"] : [])], { timeout: 30000 }, (_e, stdout) => {
-  try { resolve(blockList(JSON.parse(String(stdout)))); } catch { resolve(""); }
+  try { resolve(dayRead(JSON.parse(String(stdout)))); } catch { resolve(""); }
 }));
 
 /** The stamp of the newest change in the scheduler's undo journal (the entry "orion-reschedule undo"
@@ -681,18 +690,28 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const fact = keepsFact(run.message);
         const fetched = fact || !run.brain ? "" : brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))]));
         // The snippets are what he is answered from: not a claimed lookup (review, 2026-10-16).
-        if (fetched) run.provided = true;
+        if (fetched) { run.provided = true; markRead(run, "notes"); }
         // q064 (2026-10-16): the search snippet is the top of the Nick note, so a fact learned seconds ago, at the
         // bottom, never reached the worker. Recall reads the note directly and hands over what he told ORION.
         const learned = fact ? [] : learnedLines((options.nickNote ?? readNickNote)());
         if (!fact) run.recall = { learned };
-        if (learned.length) run.provided = true;
+        if (learned.length) { run.provided = true; markRead(run, "learned"); }
         const told = learned.length ? `\n\nWhat he told you (saved in his "Nick" note; only these are "you told me"):\n${learned.map((l) => `- ${l}`).join("\n")}` : "";
         return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${told}${fetched ? `\n\nFrom his notes and documents, matched to this message (NOT things he said; q056 2026-10-16: never "you told me" for these, say "your notes say"):\n${fetched}` : ""}\n\n${now}`,
           appendContext: fact ? FACT_NOW : RECALL_NOW };
       }
       // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
       // a timer and supplements answered with no call or the wrong one). Before the calendar flow.
+      // q041 (2026-10-16 r8): "whats due this week" is read and worded by code (the 9B read a lecture's time out as the all-day quiz's).
+      if (!run.flow && !run.cutOff && options.readDeadlines && isQuestion(run.message) && asksDeadlines(run.message)) {
+        const read = await options.readDeadlines().catch(() => null);
+        if (read) {
+          run.provided = true;
+          markRead(run, "deadlines");
+          run.tools.push({ canonical: "orion-agenda deadlines --json; orion-tasks list", stdout: `${read.events.length} events, ${read.tasks.length} dated to-dos`, exit: null });
+          run.flow = { outcome: "say", kind: "plain", text: deadlineReply(run.message, read, (options.now ?? (() => new Date()))()) };
+        }
+      }
       const moved = !run.flow && !run.cutOff ? toolDirective(run.settled, run.message) : null;
       if (moved?.kind === "say") run.flow = { outcome: "say", kind: "plain", text: moved.text };
       if (moved?.kind === "call") {
@@ -715,9 +734,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message)) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
+        // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
+        let flowRan = false;
         run.flow = options.scheduleFlow
-          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [] }).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
+          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [] }).then((r) => { flowRan = true; return r; }, (e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
           : { outcome: "fallback", reason: "no scheduling flow wired" };
+        if (flowRan) markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
         if (run.flow.outcome === "done") {
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
           const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
@@ -729,8 +751,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && isQuestion(run.message) && options.readDay && !run.flow) {
         const tomorrow = meansTomorrow(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
-        if (day) run.provided = true;
-        if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. ${DAY_QUESTION_NOTE} Do not call any tools.` };
+        if (day) { run.provided = true; markRead(run, tomorrow ? "day-tomorrow" : "day"); }
+        // q015 (2026-10-16 r8): a question that names a kind of block the day does not have ("my nap block") is answered by code.
+        const absent = day ? noBlockReply(run.message, day, tomorrow) : null;
+        if (absent) run.flow = { outcome: "say", kind: "plain", text: absent };
+        else if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times; "All day:" lines are events with no time, say them as all day. ${DAY_QUESTION_NOTE} Do not call any tools.` };
       }
       if (run.flow?.outcome === "done") {
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
@@ -761,7 +786,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
       // Snippets answer questions about his notes, never live data: "I checked the weather" beside a weather
       // note is still made up (review, 2026-10-16).
-      if (fetched && !LIVE_DATA.test(run.message) && !asksCurrentTask(run.message)) run.provided = true;
+      if (fetched && !LIVE_DATA.test(run.message) && !asksCurrentTask(run.message)) { run.provided = true; markRead(run, "notes"); }
       const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
       const askNote = run.settled.move === "ask" && run.settled.answer
         // "The front desk mentioned they don't have it either" (q063, sweep 2026-10-15): no source named.
@@ -844,7 +869,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const record = async (extra: Record<string, unknown> = {}) => {
         const decision = run.settled ?? (await settle(run));
         log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
-          ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+          ...(run.cutOff ? { heldCutOff: true } : {}), provided: run.provided ?? false, reads: run.reads ?? [], cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
           ...(on ? { escalationNeeded: findings.length > 0 } : {}), ...extra, turnMs: Date.now() - run.started });
       };
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry

@@ -414,3 +414,21 @@ test("show --json lists every block of the day, past ones included, with fixed/k
   assert.equal(day.date, DATE);
   assert.deepEqual(day.blocks.map((b) => [b.title.slice(0, 6), b.start, b.end, b.fixed]), [["CS1800", "11:00", "12:30", true], ["CS2101", "15:30", "17:10", true], ["do cer", "17:50", "21:50", false]]);
 });
+
+// q004 (2026-10-16 r8): "whats on today like all of it" left out the all-day "Macro (ECON1115) — Quiz 1": show --json only had
+// timed blocks. The all-day events come in their own field, never as blocks (the scheduler and the form must not plan around them).
+test("show --json names the day's all-day events in `allDay`, apart from the blocks", (t) => {
+  const day0 = new Date(2030, 9, 2).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const day1 = new Date(2030, 9, 3).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const day2 = new Date(2030, 9, 4).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const { run } = world(t, [
+    { title: "Macro (ECON1115) — Quiz 1", start: day0, end: day1, allDay: "true" },
+    { title: "Hanukkah", start: day1, end: day2, allDay: "true" },
+    { title: "MKTG2201 Introduction to Marketing — Lecture", start: iso(13, 30), end: iso(15), allDay: "false" },
+  ]);
+  const r = run("show", "--json");
+  assert.equal(r.code, 0, r.out);
+  const day = JSON.parse(r.out);
+  assert.deepEqual(day.allDay, ["Macro (ECON1115) — Quiz 1"]);
+  assert.deepEqual(day.blocks.map((b) => b.title.slice(0, 8)), ["MKTG2201"]);
+});

@@ -10,10 +10,13 @@ import { isSkipped } from "./skips.mjs";
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
 
+/** What makes a title a deadline (shared: classify below, orion-agenda deadlines --json, the plugin's "what's due" read). */
+export const DEADLINE_TITLE = /^due\b|\bquiz|exam|deadline|submission\b/i;
+
 export function classify(title) {
   const t = title.toLowerCase();
   if (/\b(lecture|seminar|lab|workshop|tutorial|class)\b|\b(cs|econ|mktg)\d{3,4}\b/.test(t)) return "class";
-  if (/^due\b|\bquiz|exam|deadline|submission\b/.test(t)) return "deadline";
+  if (DEADLINE_TITLE.test(t)) return "deadline";
   if (/\bgym|workout|lift|run(ning)?\b/.test(t)) return "gym";
   if (/\bstudy|revise|revision|homework|problem set|reading\b/.test(t)) return "study";
   if (/\byoutube|video|edit(ing)?|content|side project|thumbnail|film(ing)?\b/.test(t)) return "side_project";
@@ -56,6 +59,13 @@ export function toBlocks(events, date) {
                calendarId: e.identifier ?? null };
     })
     .sort((a, b) => a.start - b.start);
+}
+
+/** The day's all-day events (q004, 2026-10-16 r8): said in a read of his day, never planned around, so never blocks. */
+export function allDayTitles(events, date) {
+  return events
+    .filter((e) => e.allDay === "true" && localDate(new Date(e.start)) <= date && (localDate(new Date(e.start)) === date || date < localDate(new Date(e.end))))
+    .map((e) => String(e.title ?? "Event").slice(0, 120));
 }
 
 export async function calendarEvents() {

@@ -43,6 +43,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { DEADLINE_TITLE } from "./lib/life/live-day.mjs";
 import { ignoredEvent, loadConfig } from "./lib/life/config.mjs";   // events he never goes to ("(optional)" workshops)
 
 import { sandbox, bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
@@ -294,8 +295,14 @@ switch (command) {
   case "deadlines": {
     // One-off events for the next 90 days: quizzes, submissions, trips. Weekly
     // classes are left out so they cannot crowd the list.
+    const listed = unpack(await ask("list_deadlines"), "events_json");
+    // --json (q041, 2026-10-16 r8): the same events, each marked `isDeadline` by live-day's rule (due/quiz/exam/deadline/submission).
+    if (rest.includes("--json")) {
+      console.log(JSON.stringify(listed.filter((e) => !ignoredEvent(e.title)).map((e) => ({ ...e, isDeadline: DEADLINE_TITLE.test(String(e.title ?? "")) })), null, 2));
+      break;
+    }
     printGrounding(null);
-    describeEvents(unpack(await ask("list_deadlines"), "events_json"), { onlyToday: false });
+    describeEvents(listed, { onlyToday: false });
     break;
   }
 

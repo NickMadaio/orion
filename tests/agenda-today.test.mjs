@@ -83,3 +83,18 @@ test("`upcoming` stays upcoming-only and `today --json` is unchanged (orion-focu
   const json = JSON.parse(run("today", "--json").out);
   assert.deepEqual(json.map((e) => e.title), ["DS Lab", "Review spending"]);
 });
+
+// q041 (2026-10-16 r8): `deadlines` also lists lectures, holidays and people; --json marks which are deadlines (live-day's rule),
+// so the plugin can answer "what's due this week" without the model reading the noise.
+test("q041: deadlines --json marks deadline-like titles and keeps all-day", (t) => {
+  const r = agenda(t, [
+    { title: "Macro (ECON1115) — Quiz 1", start: at(0), end: at(23, 59), allDay: "true" },
+    { title: "MKTG2201 Introduction to Marketing — Lecture", start: at(13, 30), end: at(15) },
+    { title: "Annika", start: at(22, 30), end: at(23) },
+    { title: "DUE 13:00 — Marketing: Slides", start: at(13), end: at(13, 30) },
+  ], at(1))("deadlines", "--json");
+  assert.equal(r.code, 0, r.out);
+  const events = JSON.parse(r.out);
+  assert.deepEqual(events.filter((e) => e.isDeadline).map((e) => e.title), ["Macro (ECON1115) — Quiz 1", "DUE 13:00 — Marketing: Slides"]);
+  assert.equal(events.find((e) => /Quiz/.test(e.title)).allDay, "true");
+});

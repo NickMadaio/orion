@@ -23,7 +23,7 @@ describe("distress detection", () => {
   });
 
   it("keeps round 6 idioms clear", () => {
-    for (const m of ["i want to disappear into my bed for a nap lol", "ending it with a bang", "the movie was ending", "end it at 5", "i'm thinking of ending it with him on friday", "i want this meeting to end"])
+    for (const m of ["make my alarm louder, i never wake up to it", "i never wake up on time", "i'm going to end it here for today", "gonna end it early", "nobody will miss me if i skip the party", "i want to disappear into my bed for a nap lol", "ending it with a bang", "the movie was ending", "end it at 5", "i'm thinking of ending it with him on friday", "i want this meeting to end"])
       expect(isCrisis(m), m).toBe(false);
   });
 

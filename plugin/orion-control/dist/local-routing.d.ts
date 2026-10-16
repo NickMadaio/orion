@@ -114,6 +114,12 @@ export declare const liveExtractReminder: (message: string, clock?: string) => P
     time: string | null;
     label: string;
 } | null>;
+/**
+ * 2026-10-16 (speed audit, docs/audits/2026-10-16-local-speed.md): a reply code already wrote is a one-line system prompt.
+ * The 9B only repeats it (it was called with 6.7k tokens of prompt for that, 9.1 s). The hook cannot drop history or tool
+ * schemas in this OpenClaw version, so the prompt is as small as it can be; finalize still checks the text and puts it in place.
+ */
+export declare const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text and nothing else, and do not call any tools:";
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export declare function dateLine(now?: Date): string;
 export declare const PRODUCTION_NOTES: string;

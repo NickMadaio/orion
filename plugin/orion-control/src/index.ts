@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
+import { registerTestingWindowNotice } from "./testing-window-notice.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
 import { liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting, undoJournalTop } from "./local-routing.js";
 import { liveLateFlow } from "./late-flow.js";
@@ -1704,6 +1705,15 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     });
   }
   const localRouting = api.pluginConfig?.localRouting;
+  if (localRouting === "on" && typeof api.pluginConfig?.localRoutingTestingUntil === "string") {
+    const controlled = path.join(os.homedir(), ".openclaw", "orion-controlled");
+    registerTestingWindowNotice({
+      testingUntil: api.pluginConfig.localRoutingTestingUntil,
+      statePath: path.join(controlled, "testing-window-notice.json"),
+      outboxPath: path.join(controlled, "alerts-outbox.jsonl"),
+      warn: (message) => api.logger?.warn?.(`[orion-control] ${message}`),
+    });
+  }
   if (localRouting === "shadow" || localRouting === "on") {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,

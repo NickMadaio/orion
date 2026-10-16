@@ -36,7 +36,7 @@ import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-
 import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
-import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
+import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
@@ -74,6 +74,8 @@ export type LocalRoutingOptions = {
   readDay?: (tomorrow: boolean) => Promise<string>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
   brainSearch?: (query: string) => Promise<string>;
+  /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
+  nickNote?: () => string;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
   acceptancePath?: string;
   /** Load the front desk at registration (off in tests). */
@@ -95,6 +97,8 @@ type Run = {
   reminder?: { args: string; say: string; action?: "alarm_set" | "reminder_cancel"; label?: string; at?: string };
   /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): no lookup is owed. */
   provided?: boolean;
+  /** A recall turn: the lines he told ORION (his Nick note's Learned section), for the "you told me" check (2026-10-16). */
+  recall?: { learned: string[] };
   /** The prompt forbade tools (the overwhelm note): no promise or lookup check can be met by acting. */
   noTools?: boolean;
   /** A front-desk tool move code worked out (tool-moves.ts): the one call the worker must make. */
@@ -264,6 +268,8 @@ export function brainSnippets(output: string, maxChars = 1400): string {
   return picked.join("\n\n");
 }
 const ORION_BRAIN = "/Users/nickmadaio/Desktop/ORION/scripts/orion-brain";
+const NICK_NOTE = join(homedir(), "Documents/orionBrain/20 Areas/Me/Nick.md");
+const readNickNote = (): string => { try { return readFileSync(NICK_NOTE, "utf8"); } catch { return ""; } };
 const defaultBrainSearch = (query: string): Promise<string> => new Promise((resolve) => {
   execFile(ORION_BRAIN, ["search", query.slice(0, 200)], { timeout: 8000, maxBuffer: 1 << 20 }, (_e, stdout) => resolve(String(stdout ?? "")));
 });
@@ -614,7 +620,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const fetched = fact || !run.brain ? "" : brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))]));
         // The snippets are what he is answered from: not a claimed lookup (review, 2026-10-16).
         if (fetched) run.provided = true;
-        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${fetched ? `\n\nFrom his brain, matched to this message (may help; not necessarily something he told you):\n${fetched}` : ""}\n\n${now}`,
+        // q064 (2026-10-16): the search snippet is the top of the Nick note, so a fact learned seconds ago, at the
+        // bottom, never reached the worker. Recall reads the note directly and hands over what he told ORION.
+        const learned = fact ? [] : learnedLines((options.nickNote ?? readNickNote)());
+        if (!fact) run.recall = { learned };
+        if (learned.length) run.provided = true;
+        const told = learned.length ? `\n\nWhat he told you (saved in his "Nick" note; only these are "you told me"):\n${learned.map((l) => `- ${l}`).join("\n")}` : "";
+        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${told}${fetched ? `\n\nFrom his notes and documents, matched to this message (NOT things he said; q056 2026-10-16: never "you told me" for these, say "your notes say"):\n${fetched}` : ""}\n\n${now}`,
           appendContext: fact ? FACT_NOW : RECALL_NOW };
       }
       // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
@@ -702,7 +714,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   if (on) api.on("reply_payload_sending", (event) => {
     const keys = [str(event.runId) ?? "", `session:${str(event.sessionKey) ?? ""}`];
     const hit = keys.map((k) => finalText.get(k)).find((v) => v && Date.now() - v.at < 120000);
-    if (!hit) return undefined;
+    if (!hit) {
+      // The host's raw "Exec failed" line is never spoken (q059, 2026-10-16).
+      const raw = str(((event.payload ?? {}) as Record<string, unknown>).text);
+      return raw && stripExecFailed(raw) !== raw ? { payload: { ...(event.payload as Record<string, unknown>), text: stripExecFailed(raw) }, reason: "orion-control: no raw exec failure" } : undefined;
+    }
     keys.forEach((k) => finalText.delete(k));
     const payload = (event.payload ?? {}) as Record<string, unknown>;
     return { payload: { ...payload, text: hit.text }, reason: "orion-control: the scheduler's own reply" };
@@ -801,6 +817,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const claimedLookup = findings.some((f) => LOOKUP_CLAIM.test(f));
         owed = claimedLookup ? `${LOOKUP_UNCHECKED} ${run.directive.failLine}` : run.directive.failLine;
         remember([runId, sessionKeyNow], owed);
+      }
+      // Recall (2026-10-16): a refused search never reaches him as "Exec failed" or a guess (q059), and a document's
+      // words are not "you told me" (q056).
+      if (on && run.recall && !owed) {
+        if (searchRefused(run.tools.map((t) => t.stdout)) && !run.recall.learned.length) owed = SEARCH_UNAVAILABLE;
+        else {
+          const clean = reframeDocumentRecall(stripExecFailed(reply), run.message, run.recall.learned);
+          if (clean && clean !== reply) owed = clean;
+        }
+        if (owed) remember([runId, sessionKeyNow], owed);
       }
       if (on && owed) putReplyInPlace(event.messages, owed);
       await record();

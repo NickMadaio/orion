@@ -311,6 +311,7 @@ export const honestLine = (calendar: boolean): string => calendar
   : "I didn't actually do that — nothing was started or changed. Can you say it again?";
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 const LOOKUP_CLAIM = /claims a lookup/;
+const LOOKUP_UNCHECKED = "I didn't actually check that.";
 export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
 const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
@@ -691,7 +692,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         remember([runId, sessionKeyNow], owed);
       }
       // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
-      if (on && run.directive && !directiveCalled(run)) { owed = run.directive.failLine; remember([runId, sessionKeyNow], owed); }
+      // Merge of r2-front-desk-tools (tool-move fail line) with 9a3a25a (LOOKUP_HONEST): a missed tool move whose
+      // reply also claimed a lookup ("I checked the weather…", q007) owes both — that nothing was checked, and why.
+      if (on && run.directive && !directiveCalled(run)) {
+        const claimedLookup = findings.some((f) => LOOKUP_CLAIM.test(f));
+        owed = claimedLookup ? `${LOOKUP_UNCHECKED} ${run.directive.failLine}` : run.directive.failLine;
+        remember([runId, sessionKeyNow], owed);
+      }
       if (on && owed) putReplyInPlace(event.messages, owed);
       await record();
       done();

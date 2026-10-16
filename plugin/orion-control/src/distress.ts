@@ -15,12 +15,18 @@ const CRISIS = new RegExp([
   String.raw`\bend (it all|my life)\b`,
   // Ongoing or intended, not "i hurt myself at the gym".
   String.raw`\b(keep|kept) (hurting|harming) myself\b|\b(want to|wanna|going to|gonna|thinking (about|of)) (hurt|harm)(ing)? myself\b`,
-  String.raw`\bsuicid\w*|\bself[- ]harm\w*`,
+  // 2026-10-16 (review HIGH 5): "suicide squad" is a film. \b after \w* stops backtracking from dodging the lookahead.
+  String.raw`\bsuicid\w*\b(?!\s+squad)|\bself[- ]harm\w*`,
   String.raw`\bno (reason|point) (to live|in living|going on)\b|\bbetter off (dead|without me)\b`,
-  String.raw`\b(don['’]?t|do not) want to (be alive|live|wake up|be here)\b`,
+  // 2026-10-16 (review HIGH 5): "dont want to wake up at 6" / "be here for the standup" / "live in london" are plans.
+  // "be alive" always counts; live / wake up / be here count only when they end the message or carry "anymore" /
+  // "tomorrow" / "at all" with nothing after. A false alarm is cheaper than a miss, so the tail is kept loose.
+  String.raw`\b(don['’]?t|do not) want to be alive\b|\b(don['’]?t|do not) want to (live|wake up|be here)(\s+(any ?more|at all)\b|(\s+(tomorrow|today|tonight|like this))?\s*[.!]*$)`,
   String.raw`\bwhat['’]?s the point( of (anything|living|it all|life|trying))?\s*[.?!]*$`,
   // "hopeless" counts only about himself or his life — not "this code is hopeless" or "hopeless at cooking".
-  String.raw`\b(i|i['’]?m|im|i am|feel\w*|everything(?:['’]s| is)?|it all(?: is)?|life(?: is)?)\s+(?:\w+\s+)?hopeless\b(?!\s+(at|with))`,
+  // 2026-10-16: "i'm a hopeless romantic" is an idiom, so an article before "hopeless" no longer counts.
+  // "want to die laughing" stays excluded above: the explicit "laughing" makes the idiom unambiguous.
+  String.raw`\b(i|i['’]?m|im|i am|feel\w*|everything(?:['’]s| is)?|it all(?: is)?|life(?: is)?)\s+(?:(?!an?\b)\w+\s+)?hopeless\b(?!\s+(at|with|romantic))`,
 ].join("|"), "i");
 
 // Heavy but not a crisis: he needs warmth and one small step, not a lookup.

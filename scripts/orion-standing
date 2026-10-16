@@ -53,6 +53,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { imminentWorthSaying, eventKey } from "./lib/reach/imminent.mjs";
 import { announced } from "./lib/reach/announce.mjs";
+import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { calendarEvents } from "./lib/life/live-day.mjs";
 
 const run = promisify(execFile);
@@ -807,9 +808,12 @@ async function main() {
         ? eveningFindings({ calendar, loops, location, day })
         : imminentFindings({ calendar, worthSaying: await imminentFilter() });
 
-  // Quiet hours drop everything that is not genuinely time-critical. A 6am
-  // flight still gets through at 5am; "Reminders is still not granted" does not.
-  const quiet = hour >= QUIET_FROM || hour < QUIET_UNTIL;
+  // Quiet hours come from the delivery gate (his sleep, awareness 3.2; the fixed hours only when sleep is unknown).
+  // An urgent finding is no longer a bypass: only a class he is about to miss is, and that is orion-watch's and
+  // orion-proactive's, not a standing order's. Urgent ones still reach orion-notify, which holds them until morning.
+  const dir = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+  const fixedQuiet = hour >= QUIET_FROM || hour < QUIET_UNTIL;
+  const quiet = gate(resolveAwareness({ dir, now, env: process.env, legacy: { quiet: fixedQuiet }, probe: false }), { kind: "info", now }).heldFor === "quiet";
   const speaking = quiet && !force ? findings.filter((f) => f.severity === "urgent") : findings;
 
   if (explain) {
@@ -837,20 +841,18 @@ async function main() {
    said he did not want — a proactive assistant that becomes noise. One throat to
    choke, one rate limiter.
 
-   Anything urgent is BLOCKED (it wants a human); everything else is a milestone.
+   Everything goes as a milestone: an urgent finding that is not a class gets no bypass (2026-10-16).
   */
   if (!wantsNotify) return;
 
-  const urgent = speaking.some((finding) => finding.severity === "urgent");
   try {
     await run(
       process.execPath,
       [
         join(HERE, "orion-notify"),
-        urgent ? "blocked" : "milestone",
+        "milestone",   // never "blocked" or --urgent: those bypass the gate, and a non-class finding must not
         `standing-${resolved}`,
         text,
-        ...(urgent ? ["--urgent"] : []),
       ],
       { timeout: 60000 },
     );

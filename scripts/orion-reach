@@ -2,7 +2,7 @@
 /*
  orion-reach — ORION starts the conversation (2026-10-07).
 
-   orion-reach "<message>" [--kind reminder|warning|update|question|info]
+   orion-reach "<message>" [--kind reminder|warning|update|question|info|checkin]
                [--why "<what prompted it>"] [--urgent] [--silent] [--channel auto|phone|mac]
                [--loud] [--listen] [--dry-run] [--json]
 
@@ -22,22 +22,31 @@
  --drain-held: send everything held, merged, once it is neither quiet nor focus time.
  --loud: aloud at full volume (the morning briefing; the volume goes back after).
  --listen: after saying it aloud, listen a few seconds for an answer.
+ --ask '<json>': this message is a question (contract C4); stored on the row and the outbox row. A held ask is
+   dropped, never queued: the loop re-decides it with fresh facts.
+ --reason break|end|wake: with --drain-held, why it is being released (the gate still decides).
+ --valid-until ISO: after this the message is pointless; a held copy is dropped, not released.
+ Delivery policy is one gate (lib/reach/gate.mjs, awareness spec 3.2): a break releases held messages, and the
+ bubble always shows while speech needs him home or in headphones (3.4.4). Daily ceiling: dailyReachCeiling (20)
+ counts proactive:/plan:/curiosity: messages, never a reminder he set or a class nudge (exit 3, reason ceiling).
 */
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { allowed, chooseChannel } from "./lib/reach/route.mjs";
+import { allowed, chooseChannel, speakOnMac, countedToday } from "./lib/reach/route.mjs";
+import { gate, resolveAwareness, audienceOf } from "./lib/reach/gate.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
+import { localDate } from "./lib/life/live-day.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/quiet.mjs";
 import { appendHeld, readHeld, clearHeld, mergeHeld } from "./lib/reach/held.mjs";
-import { activeSession } from "./lib/reach/focus-hold.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind"];
+const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until"];
 const drain = args.includes("--drain-held");
 const fail = (m, c = 2) => { console.error(m); process.exit(c); };
 
@@ -58,41 +67,66 @@ if (drain) {
 }
 if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent [--urgent-kind reminder|class]] [--channel auto|phone|mac] [--dry-run]');
 const kind = flag("--kind") ?? (drain ? "update" : "info");
-if (!["reminder", "warning", "update", "question", "info", "morning"].includes(kind)) fail("--kind must be reminder, warning, update, question, info or morning");
+if (!["reminder", "warning", "update", "question", "info", "morning", "checkin"].includes(kind)) fail("--kind must be reminder, warning, update, question, info, morning or checkin");
 // The app's reminder service calls `--kind reminder --urgent` (AppState.swift) without --urgent-kind: that IS a reminder he set
 // (review H2), so it is urgent kind "reminder". Any other bare --urgent is still not a bypass.
 const urgentKind = flag("--urgent-kind") ?? (kind === "reminder" && args.includes("--urgent") ? "reminder" : null);
 if (urgentKind && !URGENT_KINDS.includes(urgentKind)) fail(`--urgent-kind must be one of ${URGENT_KINDS.join(", ")}`);
+let ask = null;
+if (flag("--ask") !== undefined) {
+  try { ask = JSON.parse(flag("--ask")); } catch { /* checked below */ }
+  if (!ask || typeof ask !== "object" || Array.isArray(ask)) fail("--ask must be a JSON object");
+}
+const validUntil = flag("--valid-until") ?? null;
+if (validUntil && Number.isNaN(Date.parse(validUntil))) fail("--valid-until must be an ISO timestamp");
+const drainReason = flag("--reason") ?? null;
+if (drainReason && !["break", "end", "wake"].includes(drainReason)) fail("--reason must be break, end or wake");
 const dry = args.includes("--dry-run");
 if (!dry) refuseDuringEval("reaching Nick");
 
 mkdirSync(DIR, { recursive: true });
 const history = existsSync(LOG) ? readFileSync(LOG, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : [];
 
-const gate = allowed(text, history, { now: now.getTime() });
-if (!gate.ok && gate.duplicate) { console.log(`Already said: ${gate.reason}.`); process.exit(0); }
-// 2026-10-16: a refusal is not "said". Exit 3 so a caller (orion-proactive) does not mark its key done.
-if (!gate.ok) { console.log(`NOT SENT: ${gate.reason}.`); process.exit(3); }
+const burst = allowed(text, history, { now: now.getTime() });
+if (!burst.ok && burst.duplicate) { console.log(`Already said: ${burst.reason}.`); process.exit(0); }
 
 const urgent = args.includes("--urgent");
 const genuinelyUrgent = isUrgentNotification({ urgent, urgentKind });
 const bypass = bypassesQuiet({ urgentKind });
+// The daily ceiling is a runaway guard (3.4.3): the loop's own messages stop at it, dropped not held. A reminder he set
+// and a class nudge are neither counted nor blocked.
+const ceiling = Number(loadConfig().dailyReachCeiling ?? 20);
+const ceilingHit = !bypass && /^(proactive|plan|curiosity):/.test(flag("--why") ?? "") && countedToday(history, localDate(now), localDate) >= ceiling;
+if (ceilingHit) {
+  if (!dry) { try { appendFileSync(LOG, `${JSON.stringify({ id: `reach-${now.getTime()}-ceiling`, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: "hold", status: "dropped", reason: "ceiling" })}\n`); } catch {} }
+  console.log(`NOT SENT: ceiling - already reached him ${ceiling} times today.`);
+  process.exit(3);
+}
+// 2026-10-16: a refusal is not "said". Exit 3 so a caller (orion-proactive) does not mark its key done.
+if (!burst.ok) { console.log(`NOT SENT: ${burst.reason}.`); process.exit(3); }
+
 const here = await presence(now, { dir: DIR, facts: givenFacts });
 // --awake: the caller has proof he is up (the morning brief runs on his wake signal), so quiet hours do not apply.
 if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
+const aw = resolveAwareness({ dir: DIR, now, env: process.env, legacy: here, probe: !dry });
+if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: "awake", source: "caller" };
+const verdict = gate(aw, { kind, urgentKind, now });
+const heard = audienceOf(aw);
+const headphones = heard.macHeadphones ?? !!here.headphones;
 const forced = flag("--channel");
-// A forced phone obeys quiet hours too (review H3) unless it is a genuinely urgent kind: when unsure, deliver, but never 3 AM pushes.
-let decision = forced === "phone" ? (here.quiet && !bypass ? { channel: "hold", reason: "quiet hours - it waits until morning" } : { channel: "phone", reason: "asked for the phone" })
-  // --loud (the morning brief) is meant aloud: a calendar-derived "out" must not turn it into a silent bubble (2026-10-15).
-  : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false, ...(args.includes("--loud") ? { out: false } : {}) }, { urgent, urgentKind })
-  : chooseChannel(here, { urgent, urgentKind });
-// A focus session is running: batch everything but the two genuinely urgent kinds until it ends.
-const session = dry ? null : activeSession(process.env);
-if (session && !bypass) decision = { channel: "hold", reason: "a focus session is running - batched until it ends", heldFor: "focus" };
+// speech needs home or headphones (3.4.4); --loud (the morning brief) is meant aloud, so it asks for speech itself.
+const facts = { ...here, quiet: false, atHome: heard.atHome, headphones,
+  speakOnMac: args.includes("--loud") ? !here.lateAwake : speakOnMac({ atHome: heard.atHome, headphones, lateAwake: here.lateAwake }) };
+let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
+  : forced === "mac" ? chooseChannel({ ...facts, idleSeconds: 0, locked: false, displayAsleep: false }, { urgent, urgentKind })
+  : chooseChannel(facts, { urgent, urgentKind });
+// The gate: sleep, a focus session, the first 3 min of a pause, a class. Held means kept, until a break or the end.
+if (verdict.action === "hold") decision = { channel: "hold", reason: verdict.reason, heldFor: verdict.heldFor };
 if (args.includes("--silent") && decision.channel === "mac-voice") decision = { channel: "mac-bubble", reason: `${decision.reason}; silent was asked for` };
 const id = `reach-${now.getTime()}-${randomUUID().slice(0, 6)}`;
-const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, urgentKind, headphones: !!here.headphones,
-  loud: args.includes("--loud") && !here.headphones, listen: args.includes("--listen") };
+const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, urgentKind, headphones,
+  loud: args.includes("--loud") && !headphones, listen: args.includes("--listen"),
+  ...(ask ? { ask, askId: ask.askId ?? id, category: ask.type ?? null } : {}), ...(validUntil ? { validUntil } : {}) };
 
 if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
 
@@ -104,7 +138,8 @@ try {
   appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
   if (decision.channel === "hold") {
     // Held means kept, not dropped (2026-10-16): queued, released once and merged.
-    if (!drain && !args.includes("--no-queue")) appendHeld(DIR, { id, at: entry.at, text: entry.text, kind, why: entry.why, heldFor: decision.heldFor ?? "quiet" });
+    // An ask is stale by definition once held: dropped, and the loop asks again with fresh facts.
+    if (!drain && !ask && !args.includes("--no-queue")) appendHeld(DIR, { id, at: entry.at, text: entry.text, kind, why: entry.why, heldFor: decision.heldFor ?? "quiet", ...(validUntil ? { validUntil } : {}) });
     console.log(args.includes("--json") ? JSON.stringify(entry) : `Held — ${describe(entry)}`);
     process.exit(0);
   }
@@ -115,7 +150,13 @@ try {
   }
   // Into his chat thread everywhere; a phone notification only when that is how he is reached.
   // `urgent` reaches the phone only for a genuinely urgent kind (2026-10-16), so the app can make it time-sensitive.
-  appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: entry.channel === "phone", urgent: genuinelyUrgent })}\n`);
+  // timeSensitive lets iOS Announce read it into his AirPods, but only when the phone route is headphones.
+  const phone = entry.channel === "phone";
+  appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: phone, urgent: genuinelyUrgent, timeSensitive: phone && heard.phoneHeadphones === true,
+    ...(ask ? { ask, askId: entry.askId, category: entry.category } : {}), ...(validUntil ? { validUntil } : {}) })}\n`);
+  // A phone delivery also posts the same row on the Mac as a silent bubble, so it is there when he is back (3.4.4).
+  // Its channel is not mac-voice, so the app shows it without speaking. Best effort: the app may not be running.
+  if (phone) { try { execFileSync(OPEN, ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); } catch { /* the push still reached him */ } }
 } catch (error) {
   // 2026-10-16 audit, finding 6: a failed send used to print and exit 0 and the caller marked it said.
   // Recorded as failed (so it neither blocks a retry nor eats the hourly allowance) and exit 4.

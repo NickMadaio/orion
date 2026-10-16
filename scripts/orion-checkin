@@ -5,6 +5,8 @@
 // quiet and checks the work is still going; done or cancelled, it stops.
 //
 //   orion-checkin add <minutes> "<what>" [--because "<reason>"]   schedule a check-in
+//       [--by orion --block <blockId> [--window HH:MM-HH:MM]]      a plan loop (awareness C9): 5 alerts at most, sent
+//                                                                  through orion-reach; on give-up or cancel the day is re-weighed
 //   orion-checkin started|done [id]                                 he began / finished
 //   orion-checkin started "<what>"                                  he began something with no check-in
 //   orion-checkin defer <minutes> [id] [--because "<reason>"]       a real pause
@@ -25,13 +27,17 @@ import { recordOutcome, loadPatterns, lateHabit } from "./lib/life/history.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { inClass, realClasses } from "./lib/life/class-reminders.mjs";
 import { classify } from "./lib/life/live-day.mjs";
-import { activeSession } from "./lib/reach/focus-hold.mjs";
+import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
+import { spawnSync } from "node:child_process";
 import { isClassAttendanceCheckin } from "./lib/life/checkin-class.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
 const evaluating = evalMode();
 const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(homedir(), ".openclaw/orion-controlled/checkins.json");
 const MAX_ALERTS = 8;
+const PLAN_MAX_ALERTS = 5;   // a plan loop is ORION's own; it stops sooner than one he set (spec 3.4.3)
+const HERE = import.meta.dirname;
+const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const nowMinute = () => Math.floor(Date.now() / 60000);
 const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };
 const save = (state) => {
@@ -79,6 +85,18 @@ export function message(c, now) {
   }
 }
 
+/** A plan loop that ends without the block happening re-weighs the day (C11). Best effort: WP6's CLI may be absent. */
+function displace(c, why) {
+  if (evaluating) return;
+  try { spawnSync(process.env.ORION_RESCHEDULE_BIN || join(HERE, "orion-reschedule"), ["displace", c.what, "--why", why], { encoding: "utf8", timeout: 30_000, env: process.env }); } catch { /* the next tick of the day review still lists the slip */ }
+}
+
+/** A plan alert goes through orion-reach (gate, the bubble/voice rule and the ceiling apply), not the phone's alerts outbox. */
+function sendPlan(c, level, text) {
+  const ask = { type: "mismatch", blockId: c.block, window: c.window ?? null, level };
+  try { spawnSync(process.env.ORION_REACH_BIN || join(HERE, "orion-reach"), [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--ask", JSON.stringify(ask)], { encoding: "utf8", timeout: 30_000, env: process.env }); } catch { /* a lost nudge is re-decided by the loop's next step */ }
+}
+
 const state = load();
 const now = nowMinute();
 
@@ -89,6 +107,7 @@ switch (command) {
     const id = `ci-${randomBytes(3).toString("hex")}`;
     const because = flag("--because");
     const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
+                ...(flag("--block") ? { block: String(flag("--block")).slice(0, 80), window: flag("--window") ?? null } : {}),
                 returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
                 loop: startLoop({ id, start: now + minutes }, now) };
     state.checkins = [...state.checkins.filter(open), c].slice(-20);
@@ -138,6 +157,7 @@ switch (command) {
     const c = pick(state, rest[0]);
     c.loop = step(c.loop, { type: "cancelled", reason: flag("--because") ?? "" }, now);
     save(state);
+    if (c.block) displace(c, "cancel");
     console.log(`Cancelled: ${c.what}. Plans changed; no follow-up.`);
     break;
   }
@@ -152,9 +172,11 @@ switch (command) {
   }
   case "tick": {
     if (evaluating) { console.log(args.includes("--json") ? "[]" : "No live notifications during evaluation."); break; }
-    // A focus session is running (2026-10-16 audit): a check-in HE set (the default) fires at any level; one ORION generated
-    // itself (--by orion) waits for the end.
-    const inSession = activeSession(process.env) !== null;
+    // One gate for every sender (awareness 3.2): a check-in HE set counts as a reminder and fires through focus and class;
+    // one ORION generated waits for a break. Quiet hours hold both (G10). A held check-in is not stepped, so its level does
+    // not climb while he cannot act, and it is due again at the first tick after the gate opens.
+    const aw = resolveAwareness({ dir: CONTROLLED, now: Date.now(), env: process.env });
+    const held = (c) => gate(aw, { kind: "checkin", urgentKind: c.by !== "orion" && aw.sleep?.state !== "asleep" ? "reminder" : null, now: Date.now() }).action === "hold";
     const alerts = [];
     let duringClass = false, classes = [];
     try { const blocks = toBlocks(await calendarEvents(), localDate(new Date())); classes = realClasses(blocks); duringClass = inClass(blocks, new Date().getHours()*60+new Date().getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
@@ -168,7 +190,7 @@ switch (command) {
         c.loop = step(c.loop, {type: "cancelled"}, now); continue;
       }
       if (duringClass) continue;
-      if (inSession && c.by === "orion") continue;
+      if (held(c)) continue;
       const before = c.loop;
       const after = step(before, { type: "tick" }, now);
       if (after === before) {
@@ -181,10 +203,17 @@ switch (command) {
       }
       c.loop = after;
       c.alerts += 1;
+      if (c.block && c.alerts >= PLAN_MAX_ALERTS) {
+        !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
+        c.loop = { ...after, phase: "given_up", nextCheckAt: null };
+        sendPlan(c, 5, `I'll stop pinging about ${c.what} - I've moved what I could.`);
+        displace(c, "gave-up"); continue;
+      }
       if (c.alerts > MAX_ALERTS) {
         !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
         c.loop = { ...after, phase: "given_up", nextCheckAt: null }; alerts.push({ id: c.id, level: 4, text: `I'll stop pinging about ${c.what}. Tell me when you want to pick it back up.` }); continue; }
-      alerts.push({ id: c.id, level: after.level, text: message(c, now) });
+      if (c.block) sendPlan(c, after.level, message(c, now));
+      else alerts.push({ id: c.id, level: after.level, text: message(c, now) });
       c.returning = null;
     }
     save(state);

@@ -45,7 +45,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
-import { activeSession } from "./lib/reach/focus-hold.mjs";
+import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 
 const run = promisify(execFile);
 
@@ -309,10 +309,18 @@ async function retryPending(transport) {
 
 /* ---------- suppression ---------- */
 
+// The fixed 23:00-08:00 is only the fallback for when his sleep is unknown (awareness 3.1); otherwise `sleep.state` decides.
 const inQuietHours = (now) => {
   const hour = now.getHours();
   return hour >= QUIET_FROM || hour < QUIET_UNTIL;
 };
+
+/** The one delivery gate (awareness 3.2) for an update that is neither a reminder he set nor a class. */
+function notifyGate({ probe = true } = {}) {
+  const dir = process.env.ORION_CONTROLLED_DIR || dirname(STATE);
+  const aw = resolveAwareness({ dir, now, env: process.env, legacy: { quiet: inQuietHours(now) }, probe });
+  return gate(aw, { kind: "info", now });
+}
 
 function suppressionReason(state, { event, missionId, message, at }) {
   const sent = state.notify.sent;
@@ -362,8 +370,8 @@ if (command === "status") {
 if (command === "flush") {
   // Held updates are released when it is neither quiet nor focus time (2026-10-16): orion-proactive's tick calls this.
   if (!dryRun) {   // --force no longer bypasses: a forced flush used to skip quiet hours, the focus hold and the cap (review M4)
-    if (inQuietHours(now)) { console.log("quiet hours: not flushing"); process.exit(0); }
-    if (activeSession(process.env)) { console.log("focus session running: not flushing"); process.exit(0); }
+    const verdict = notifyGate();
+    if (verdict.action === "hold") { console.log(verdict.heldFor === "quiet" ? "quiet hours: not flushing" : `${verdict.heldFor === "focus" ? "focus session running" : verdict.reason}: not flushing`); process.exit(0); }
   }
   if (!dryRun) await retryPending(await resolveTransport(flags));
   const state = await readState();
@@ -408,9 +416,10 @@ const approvalId = approval ? `ap-${randomBytes(4).toString("hex")}` : null;
 const text = render({ event: command, missionId, message, approvalId, approval });
 
 const forced = ALWAYS_DELIVER.has(command) || flags.urgent === true;
-const quiet = !forced && inQuietHours(now);
-// A focus session is running: everything but blocked/--urgent is deferred until it ends (2026-10-16 audit).
-const focusHeld = !forced && !quiet && !dryRun && activeSession(process.env) !== null;
+// `blocked` (and --urgent) still wants a human and goes through; everything else obeys the gate: sleep, focus, a short pause, class.
+const verdict = forced || dryRun ? { action: "deliver" } : notifyGate();
+const quiet = verdict.action === "hold" && verdict.heldFor === "quiet";
+const focusHeld = verdict.action === "hold" && !quiet;
 const suppressed = forced ? null : suppressionReason(state, { event: command, missionId, message, at });
 
 const mission = state.missions[missionId] ?? { priority: "normal", history: [] };
@@ -439,7 +448,7 @@ if (quiet || focusHeld) {
     pending: approvalId ? { ...fresh.pending, [approvalId]: nextPending[approvalId] } : fresh.pending,
     notify: { ...fresh.notify, deferred: [...fresh.notify.deferred, { event: command, missionId, message, at }] },
   }));
-  console.log(focusHeld ? "deferred (focus session running) - will go out with the next flush" : `deferred (quiet hours ${QUIET_FROM}:00-0${QUIET_UNTIL}:00) - will go out with the next flush`);
+  console.log(focusHeld ? `deferred (${verdict.heldFor === "class" ? "in class" : "focus session running"}) - will go out with the next flush` : `deferred (quiet hours ${QUIET_FROM}:00-0${QUIET_UNTIL}:00) - will go out with the next flush`);
   process.exit(0);
 }
 

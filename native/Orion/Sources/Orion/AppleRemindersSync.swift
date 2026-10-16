@@ -119,6 +119,7 @@ final class AppleRemindersSync: ObservableObject {
             }
             // A backstop for the case where the change notification does not
             // arrive — a sleeping Mac, or an iCloud push that lands quietly.
+            self.refreshTimer?.invalidate()
             self.refreshTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
                 DispatchQueue.main.async { self?.refresh() }
             }

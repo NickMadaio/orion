@@ -240,6 +240,7 @@ final class AppleCalendarSync: ObservableObject {
                 // Five minutes: an agenda that is a few minutes stale is fine,
                 // and the alternative is waking the store constantly for a
                 // screen that is usually not being looked at.
+                self.refreshTimer?.invalidate()
                 self.refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
                     DispatchQueue.main.async { self?.refresh() }
                 }
@@ -399,7 +400,8 @@ final class AppleCalendarSync: ObservableObject {
                 self.windowEvents = mapped
                 self.calendars = described
                 self.lastSyncedAt = Date()
-                OrionLog.write(summary)
+                // 2026-10-16 UI audit #7: identical every 5 min poll; on change, or hourly.
+                OrionLog.write(summary, key: "calendar-summary", repeatAfter: 3600)
             }
         }
     }

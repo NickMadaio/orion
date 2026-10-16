@@ -886,8 +886,17 @@ final class AppState: ObservableObject {
             OrionLog.write("[session] no session running")
         }
 
-        clipPlayer.onLog = { OrionLog.write($0) }
-        clipPlayer.onFailure = { OrionLog.write("[clip] \($0)") }
+        // 2026-10-16 UI audit #7: "[clip] ... is no longer in focus-clips" x54.
+        // A failure is logged when it changes; onLog already carries it once,
+        // so onFailure no longer writes the same line a second time.
+        clipPlayer.onLog = { line in
+            if line.contains("is no longer in") || line.contains("cannot be played") {
+                OrionLog.write(line, key: "clip-failure")
+            } else {
+                OrionLog.write(line)
+            }
+        }
+        clipPlayer.onFailure = { _ in }
         musicControl.onLog = { OrionLog.write($0) }
         focusShield.onLog = { OrionLog.write($0) }
         focusShield.onReleaseGuard = { [weak self] in self?.sessionTabModel.release() }

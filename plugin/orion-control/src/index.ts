@@ -7,6 +7,7 @@ import { liveReadDeadlines } from "./deadline-read.js";
 import { readReminders, remindersPath } from "./ambient.js";
 import { liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveWakeFlow } from "./wake-flow.js";
+import { liveTodoDoneFlow } from "./todo-done-flow.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -1690,6 +1691,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       wakeFlow: liveWakeFlow,
       lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),
       messagesRead: liveMessagesRead,
+      todoDoneFlow: liveTodoDoneFlow,
       ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
       acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,

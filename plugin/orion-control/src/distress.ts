@@ -21,7 +21,10 @@ const CRISIS = new RegExp([
   // 2026-10-16 (review HIGH 5): "dont want to wake up at 6" / "be here for the standup" / "live in london" are plans.
   // "be alive" always counts; live / wake up / be here count only when they end the message or carry "anymore" /
   // "tomorrow" / "at all" with nothing after. A false alarm is cheaper than a miss, so the tail is kept loose.
-  String.raw`\b(don['’]?t|do not) want to be alive\b|\b(don['’]?t|do not) want to (live|wake up|be here)(\s+(any ?more|at all)\b|(\s+(tomorrow|today|tonight|like this))?\s*[.!]*$)`,
+  // 2026-10-16 (re-review): the first narrowing missed "live like this anymore", "be here, i'm done", "wake up ever again".
+  // Now: any of anymore / at all / ever again / like this (in any order) counts with anything after; otherwise an optional
+  // tomorrow/today/tonight must end the clause (comma, full stop or end of message). Loose on purpose: a miss costs more.
+  String.raw`\b(don['’]?t|do not) want to be alive\b|\b(don['’]?t|do not) want to (live|wake up|be here)(?:(?:\s+(?:any ?more|at all|ever again|like this))+\b|(?:\s+(?:tomorrow|today|tonight))?(?=\s*(?:[,.;!?]|$)))`,
   String.raw`\bwhat['’]?s the point( of (anything|living|it all|life|trying))?\s*[.?!]*$`,
   // "hopeless" counts only about himself or his life — not "this code is hopeless" or "hopeless at cooking".
   // 2026-10-16: "i'm a hopeless romantic" is an idiom, so an article before "hopeless" no longer counts.

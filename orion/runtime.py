@@ -63,7 +63,7 @@ class OrionRuntime:
         def setting(name: str, default: str | None = None) -> str | None:
             return configured_value(name, project_root) or default
 
-        local_model = model or setting("ORION_MODEL_LOCAL", "gpt-oss:20b")
+        local_model = model or setting("ORION_MODEL_LOCAL", "qwen3.5:9b")
         self.provider = OllamaProvider(model=local_model)
 
         api_key = setting("ANTHROPIC_API_KEY")

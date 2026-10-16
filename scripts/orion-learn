@@ -29,6 +29,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { heavyOptions, nickIsAway } from "./lib/local-model.mjs";
 
 const HOME = homedir();
 const SESSIONS = join(HOME, ".openclaw/agents/main/sessions");
@@ -426,7 +427,7 @@ function proposals() {
 /*
  A local second opinion before a human spends attention on this. Cheap insurance
  against a confidently-worded proposal built on a bad heuristic. gpt-oss:20b
- because llama3.2:3b misreads numbers, and this report is entirely numbers.
+ (unloaded after each run) because llama3.2:3b misreads numbers, and this report is entirely numbers.
 */
 async function judge(items) {
   return Promise.all(
@@ -436,7 +437,7 @@ async function judge(items) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            model: "gpt-oss:20b",
+            ...heavyOptions(),
             stream: false,
             prompt: `You review proposed changes to a voice assistant's instructions. Be terse and sceptical.\n\nPROBLEM: ${p.title}\nEVIDENCE: ${p.signal}\nDIAGNOSIS: ${p.diagnosis}\nPROPOSED FIX: ${p.change.slice(0, 400)}\n\nIn under 40 words: is the fix aimed at the real cause? Start with SOUND: or DOUBTFUL: then why.`,
           }),
@@ -454,7 +455,10 @@ async function judge(items) {
 }
 
 const items = proposals();
-const verdicts = options.judge ? await judge(items) : [];
+// gpt-oss:20b is loaded only when Nick is away from the Mac or it is the small hours, and unloaded right after (keep_alive 0).
+const judgeNow = options.judge && nickIsAway();
+if (options.judge && !judgeNow) console.error("orion-learn: --judge skipped, Nick is at the Mac (the large model runs when he is away or overnight).");
+const verdicts = judgeNow ? await judge(items) : [];
 
 const report = `# Orion — learning proposals
 

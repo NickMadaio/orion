@@ -41,7 +41,7 @@
    ... --now 2026-08-10T07:30        pretend it is that local wall-clock moment
    ... --explain                     source-by-source status on stderr
    ... --force                       ignore quiet hours
-   ... --polish                      let gpt-oss:20b tighten the wording
+   ... --polish                      let the resident local model (qwen3.5:9b) tighten the wording
 */
 
 import { execFile } from "node:child_process";
@@ -55,6 +55,7 @@ import { imminentWorthSaying, eventKey } from "./lib/reach/imminent.mjs";
 import { announced } from "./lib/reach/announce.mjs";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { calendarEvents } from "./lib/life/live-day.mjs";
+import { residentOptions } from "./lib/local-model.mjs";
 
 const run = promisify(execFile);
 
@@ -720,9 +721,8 @@ async function polish(text) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-oss:20b",
+        ...residentOptions({ temperature: 0.2 }),
         stream: false,
-        options: { temperature: 0.2 },
         prompt:
           "Rewrite the following assistant notification so it reads naturally and briefly. " +
           "Keep every fact, every name and every number exactly as given. Add nothing. " +

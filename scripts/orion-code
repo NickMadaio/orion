@@ -173,6 +173,9 @@ def ask_model(prompt: str, timeout: int = 1800) -> tuple[str, float, dict]:
         # unattended on tasks with many interacting parts, where being wrong
         # quietly costs far more than being slow.
         "think": THINK,
+        # The large model is loaded for this run and unloaded right after, so it never keeps the resident
+        # qwen3.5:9b (front desk, polish, focus judge) out of memory while Nick works.
+        "keep_alive": 0,
         "options": {
             "temperature": 0.2,
             "num_predict": 16000,

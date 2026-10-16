@@ -41,6 +41,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { RESIDENT_MODEL, residentOptions } from "./lib/local-model.mjs";
 
 const run = promisify(execFile);
 
@@ -50,7 +51,7 @@ const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const STATE = join(homedir(), ".openclaw/orion-controlled/focus.json");
-const MODEL = "gpt-oss:20b";
+const MODEL = RESIDENT_MODEL;
 
 // Apps that are never a distraction: Orion himself needs to be reachable, and
 // locking someone out of Finder or their password manager is just cruelty.
@@ -455,7 +456,7 @@ Rules for deciding:
         [
           "-c",
           `curl -s -m 180 http://127.0.0.1:11434/api/generate -d @- <<'JSON' | /usr/bin/python3 -c "import sys,json;print(json.load(sys.stdin)['response'])"
-${JSON.stringify({ model: MODEL, stream: false, prompt })}
+${JSON.stringify({ ...residentOptions(), stream: false, prompt })}
 JSON`,
         ],
         { timeout: 200000, maxBuffer: 1024 * 1024 * 8 },

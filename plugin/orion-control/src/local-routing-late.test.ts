@@ -48,6 +48,22 @@ describe("running late reaches the calendar flow", () => {
     expect(instructionsFor(undefined, "im running late")).toBe(SCHEDULING_INSTRUCTIONS);
   });
 
+  // (review, 2026-10-16) "over"/"behind" matched plain talk and wrote blocks.
+  for (const msg of ["i'm going over my notes for the exam", "just going over the slides", "the talk went over well", "i almost got run over by a bike", "i'm behind on my reading"]) {
+    it(`"${msg}" is not running late`, async () => {
+      const h = harness({ move: "answer", answer: "Sounds good." });
+      await h.turn(msg);
+      expect(h.flows).toEqual([]);
+    });
+  }
+  for (const msg of ["the lecture ran over", "my meeting ran 20 over", "i'm behind schedule", "i'm 15 min behind", "class ran over"]) {
+    it(`"${msg}" still is`, async () => {
+      const h = harness({ move: "answer", answer: "Got it." });
+      await h.turn(msg);
+      expect(h.flows).toEqual([msg]);
+    });
+  }
+
   it("'I stayed up late' is not running late", async () => {
     const h = harness({ move: "answer", answer: "Get some rest." });
     expect(await h.turn("i stayed up late")).toEqual([{ handled: true, reply: { text: "Get some rest." }, reason: "front desk answered" }]);

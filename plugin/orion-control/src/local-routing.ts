@@ -130,7 +130,9 @@ const REMINDER_DROPPED = /^(never ?mind|nvm|forget it|no|nah|ok|okay|thanks?|tha
 const CORRECTION_WINDOW_MS = 10 * 60_000;
 // "im running late" got the front desk's "Got it. Hope you make it safely." and "the lecture ran over"
 // never reached the scheduler's late/overrun (sweep q029, 2026-10-15). Not "stayed up late".
-const RUNNING_LATE = /\b(?:(?:i'?m|im|i am|running|gonna be|going to be|will be|be)\s+(?:\d+\s*(?:min\w*|m)?\s+|(?:a )?(?:bit|little|few min\w*)\s+)?(?:late|behind)|(?:ran|running|run|went|going|gone)\s+(?:\d+\s*(?:min\w*)?\s+)?over|overr[au]n)\b/i;
+// (review, 2026-10-16) "going over my notes", "went over well", "run over by a bike", "behind on my reading" were
+// read as lateness and wrote blocks: "over" needs a number or a class word, "behind" a number or "schedule".
+const RUNNING_LATE = /\b(?:(?:i'?m|im|i am|running|gonna be|going to be|will be|be)\s+(?:(?:\d+\s*(?:min\w*|m)?\s+|(?:a )?(?:bit|little|few min\w*)\s+)?late|\d+\s*(?:min\w*|m)?\s+behind|behind\s+schedule)|(?:ran|running|run|went|going|gone)\s+\d+\s*(?:min\w*)?\s+over|(?:class|lecture|lab|meeting|seminar|section|recitation|session)\s+(?:ran|is running|was running|running)\s+over|overr[au]n)\b/i;
 const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
@@ -261,8 +263,9 @@ const defaultBrainSearch = (query: string): Promise<string> => new Promise((reso
 // on my schedule" went to the change flow ("a question, not a change") and the worker, with no rule for
 // it, read 1:30 PM and 3:30 PM out as "morning" (q014). A message that opens with a question word (after
 // a filler) is a question too, unless it also asks for a change ("my schedule" is a noun, not a verb).
+// (review, 2026-10-16) "when" only as "when is|does|do|am|will": "when i get home i'll do laundry" is a plan.
 // "do"/"does" only before a pronoun ("do my laundry at 6" is a plan); "how about" / "what if" suggest.
-const QUESTION_OPENER = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait)[,\s]+)*(?:(?!how about|what if)(?:what|whats|what's|when|whens|when's|how|is|are|which|who)|do(?:es)?\s+(?:i|we|my|he|she|they))\b/i;
+const QUESTION_OPENER = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait)[,\s]+)*(?:(?!how about|what if)(?:what|whats|what's|when(?=\s+(?:is|does|do|am|will)\b)|whens|when's|how|is|are|which|who)|do(?:es)?\s+(?:i|we|my|he|she|they))\b/i;
 export const isQuestion = (message: string): boolean =>
   /\?\s*$/.test(message.trim()) || (QUESTION_OPENER.test(message.trim()) && !CHANGE_REQUEST.test(message.replace(/\b(my|the|his|your) schedule\b/gi, "")));
 // The day read has no window rule of its own: "tomorrow morning" listed afternoon classes (q014).

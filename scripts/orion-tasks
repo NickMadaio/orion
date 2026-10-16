@@ -84,11 +84,14 @@ function find(list, wanted) {
 // the reply said it was done anyway. Exact title first, else the to-dos that have all his words; two
 // or more is a question for him, never a guess (the same rule as orion-agenda-change task-done).
 const FILLER = new Set(["the", "one", "thing", "that", "this", "task", "todo", "and", "off", "for", "with"]);
+// Two-letter words count ("ds lab" is not "cs lab"), and every word he said must be in the title (review, 2026-10-16).
+const words2 = (t) => String(t).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length >= 2);
+const hasAll = (said, title) => said.length > 0 && said.every((w) => words2(title).includes(w));
 function pickOne(list, wanted) {
-  const said = words(wanted).filter((w) => !FILLER.has(w)).join(" ");
+  const said = words2(wanted).filter((w) => !FILLER.has(w));
   const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();   // keeps "cs" vs "ds"
   const exact = list.filter((t) => norm(t.title) === norm(wanted));
-  const hits = exact.length ? exact : list.filter((t) => same(said, t.title));
+  const hits = exact.length ? exact : list.filter((t) => hasAll(said, t.title));
   if (!hits.length) fail(`NOTHING WAS CHANGED: no to-do called "${wanted}" on ${config.todoList}. To-dos: ${list.map((t) => t.title).join(", ") || "none"}`, 1);
   if (hits.length > 1) fail(`NOTHING WAS CHANGED: more than one to-do matches "${wanted}": ${hits.map((t) => `"${t.title}"`).join(", ")} — ask him which`, 1);
   return hits[0];

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registerLocalRouting } from "./local-routing.js";
 import { runSessionStatus } from "./session-flow.js";
+import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import type { Decision } from "./front-desk.js";
 
 // Live sweep 2026-10-15 (front-desk-tools): a front-desk "tool" move was only a hint. Weather and
@@ -137,5 +138,45 @@ describe("front-desk tool moves are carried out, not left as hints (sweep 2026-1
     expect(callIn(await todo.build("ok mark the oats one done"))).toBeNull();
     const two = setup({ move: "escalate", tier: "quick" });
     expect(callIn(await two.build("can u push my 4pm to 5 and also whats the weather tmrw"))).toBeNull();
+  });
+  // Review, 2026-10-16 (MEDIUM 9): a cancel or a question about a timer started a new one.
+  it("cancelling or asking about a timer never sets one", async () => {
+    for (const said of ["cancel the timer for 10 min", "stop the timer for 5 minutes", "is my timer for 20 min still running"]) {
+      expect(toolDirective({ move: "tool", tool: "session", args: { do: "start" } }, said), said).toBeNull();
+      expect(isTimerRequest(said), said).toBe(false);
+    }
+    expect(toolDirective({ move: "tool", tool: "session", args: {} }, "set a timer for 25 min")).toMatchObject({ kind: "call", action: "timer_set" });
+  });
+
+  // Review, 2026-10-16 (regression, held up): the host drops a revise once a tool has run.
+  it("hostDrops on the tool-move retry puts the fail line in place", async () => {
+    const { f, ctx, build } = setup({ move: "tool", tool: "weather", args: { days: "1" } });
+    await build("whats the weather like rn");
+    const messages = [{ role: "assistant", content: [{ type: "text", text: "It's sunny." }] }];
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "It's sunny.", hadDeterministicSideEffect: true, messages }, ctx);
+    expect(JSON.stringify(messages)).toMatch(/couldn't check the weather/);
+  });
+
+  // Review, 2026-10-16 (MEDIUM 13): the check looked only at the action name and overwrote a success.
+  it("another tool's success is delivered, not overwritten by the fail line ('took my creatine')", async () => {
+    const { f, ctx, build } = setup({ move: "tool", tool: "supplements", args: { do: "take", name: "creatine" } });
+    await build("took my creatine");
+    await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-log water 1" }, result: "Logged 1 bottle: 3 of 9 today." }, ctx);
+    const reply = "Logged your creatine.";
+    const messages = [{ role: "assistant", content: [{ type: "text", text: reply }] }];
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply, hadDeterministicSideEffect: true, messages }, ctx);
+    expect(JSON.stringify(messages)).toContain(reply);
+    expect(JSON.stringify(messages)).not.toMatch(/didn't manage/);
+  });
+
+  it("a nothing-changed or error result from another tool still gets the fail line", async () => {
+    for (const result of ["NOTHING WAS CHANGED: no such thing", "Error: exec denied"]) {
+      const { f, ctx, build } = setup({ move: "tool", tool: "supplements", args: { do: "take", name: "creatine" } });
+      await build("took my creatine");
+      await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-log water 1" }, result }, ctx);
+      const messages = [{ role: "assistant", content: [{ type: "text", text: "Logged your creatine." }] }];
+      await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Logged your creatine.", hadDeterministicSideEffect: true, messages }, ctx);
+      expect(JSON.stringify(messages)).toMatch(/didn't manage to log your creatine/);
+    }
   });
 });

@@ -33,6 +33,8 @@ export function hasShellOperator(command: string): boolean {
     }
     if (OPERATOR_CHARS.has(ch) || ch === "`" || ch === "\n" || ch === "\r") return true;
     if (ch === "$" && command[i + 1] === "(") return true;
+    // review 5 M1 (2026-10-16): bash's $'…' and $"…" quoting (an escaped quote inside $'…') is not tokenised here: refuse it.
+    if (ch === "$" && (command[i + 1] === "'" || command[i + 1] === '"')) return true;
   }
   return quote !== "";
 }

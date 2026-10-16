@@ -1679,6 +1679,14 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       });
     }
   });
+  // review 5 M3 (2026-10-16): a finalize "revise" ("call tool_call now") re-enters the SAME run; the model reached finalize, so the
+  // calls so far were answered. A new allowance for the retry keeps the budget from blocking the call the revise asked for
+  // (the revise count itself is bounded by the finalize hooks' maxAttempts).
+  api.on("before_agent_finalize", (event, hookContext) => {
+    const runId = field(event, "runId") ?? field(hookContext, "runId");
+    if (typeof runId === "string") toolBudget.end(`run:${runId}`);
+    return undefined;
+  });
   api.on("agent_end", (event, hookContext) => {
     const runId = field(event, "runId") ?? field(hookContext, "runId");
     const sessionKey = field(event, "sessionKey") ?? field(hookContext, "sessionKey");

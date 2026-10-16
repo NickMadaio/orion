@@ -120,10 +120,11 @@ describe("invented ids through tool_call", () => {
     expect(r.block).toBe(true);
     expect(r.blockReason).toContain(`exec: ${SCRIPTS}/orion-agenda`);
   });
-  it("anything else invented is blocked and points to tool_search", () => {
-    const r = guardToolCall("tool_call", { id: "make_coffee" }, deps) as any;
-    expect(r.block).toBe(true);
-    expect(r.blockReason).toContain("tool_search");
+  // review 5 M2 (2026-10-16): only orion-* and catalog-shaped ids are rewritten or blocked; the host resolves the rest.
+  it("host and MCP ids pass through; the host's own 'Unknown tool id' handles truly unknown ones", () => {
+    for (const id of ["brain__search_notes", "brain__read_note", "code_execution", "x_search", "heartbeat_respond", "music_generate", "video_generate", "make_coffee", "mcp:bundle-mcp:brain__read_note"]) {
+      expect(guardToolCall("tool_call", { id, args: {} }, deps), id).toBeUndefined();
+    }
   });
   it("real ids are untouched; a JSON-string args on a real id is parsed", () => {
     expect(guardToolCall("tool_call", { id: TASK, args: { steps: [] } }, deps)).toBeUndefined();
@@ -134,6 +135,15 @@ describe("invented ids through tool_call", () => {
   });
   it("other tools are untouched", () => {
     expect(guardToolCall("read", { path: "/x" }, deps)).toBeUndefined();
+  });
+});
+
+describe("hasShellOperator: bash $'…' quoting (review 5 M1)", () => {
+  it("refuses $' and $\" outside quotes, including the review's injection", () => {
+    expect(hasShellOperator(`orion-agenda $'\\'' ; ${SCRIPTS}/orion-notify hi ; ls '\\'`)).toBe(true);
+    expect(hasShellOperator(`orion-agenda $'x'`)).toBe(true);
+    expect(hasShellOperator(`orion-agenda $"x"`)).toBe(true);
+    expect(hasShellOperator(`orion-agenda "cost $5" 'a$'`)).toBe(false);
   });
 });
 
@@ -151,6 +161,12 @@ describe("ToolBudget", () => {
   it("does not count the same tool call id twice", () => {
     const b = new ToolBudget();
     for (let i = 0; i < TOOL_BUDGET * 2; i++) expect(b.take("r", "same")).toBeUndefined();
+  });
+  it("review 5 M3: a wrapped inner call (tool_search_code:…) is not charged", () => {
+    const b = new ToolBudget();
+    for (let i = 0; i < TOOL_BUDGET * 3; i++) expect(b.take("r", `tool_search_code:${i}`)).toBeUndefined();
+    for (let i = 0; i < TOOL_BUDGET; i++) expect(b.take("r", `w${i}`)).toBeUndefined();
+    expect(b.take("r", "over")?.block).toBe(true);
   });
   it("evicts old runs", () => {
     const b = new ToolBudget();

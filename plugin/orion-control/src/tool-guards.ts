@@ -146,9 +146,6 @@ const parseArgs = (raw: unknown): Rec | undefined | "bad" => {
   return "bad";
 };
 
-/** Bare ids the host's tool_call wrapper resolves for real (host tools and this plugin's own tools). */
-const REAL_BARE = /^(orion_\w+|tool_\w+|sessions?_\w+|memory_\w+|web_\w+|image\w*|pdf|cron|gateway|message|nodes|canvas|tts|subagents|agents_list|update_plan)$/;
-
 function guardToolCallWrapper(params: Rec, deps: GuardDeps): GuardResult {
   const id = typeof params.id === "string" ? params.id.trim() : "";
   if (id === "") return undefined;
@@ -166,15 +163,10 @@ function guardToolCallWrapper(params: Rec, deps: GuardDeps): GuardResult {
         : `\`${id}\` is not a tool id or a known program. Programs run with exec by absolute path under ${SCRIPTS_DIR}/ (for example orion-agenda today).`,
     );
   }
-  if (id.includes(":") || REAL_BARE.test(id) || TOOL_IDS.has(id)) {
-    // A real id: only repair args that arrived as a JSON string ("args: must be object").
-    if (typeof params.args === "string" && args !== "bad" && args !== undefined) return { params: { ...params, args } };
-    return undefined;
-  }
-  return block(
-    `Unknown tool id \`${id}\`. Do not guess ids. Use tool_search to list the real ones. ` +
-      `Calendar, reminders, media, apps and the like run through ${TASK_RUN_ID}; programs run with exec by absolute path under ${SCRIPTS_DIR}/.`,
-  );
+  // review 5 M2 (2026-10-16): everything else is the host's to resolve (brain__*, code_execution, x_search, heartbeat_respond,
+  // music_generate, … are real, and its own "Unknown tool id" handles the rest). Only repair args that arrived as a JSON string.
+  if (typeof params.args === "string" && args !== "bad" && args !== undefined) return { params: { ...params, args } };
+  return undefined;
 }
 
 /** The before_tool_call guards for exec and the tool_call wrapper. Undefined means "no opinion". */
@@ -199,6 +191,9 @@ export class ToolBudget {
 
   /** Counts one call (once per toolCallId) and returns a block when the run is over budget. */
   take(runKey: string, toolCallId?: string): { block: true; blockReason: string } | undefined {
+    // review 5 M3 (2026-10-16): a tool_call wrapper fires before_tool_call twice (the wrapper, then the inner call under its
+    // own `tool_search_code:…` id); only the wrapper is charged, so one call counts once.
+    if (toolCallId?.startsWith("tool_search_code:")) return undefined;
     const seen = this.runs.get(runKey) ?? new Set<string>();
     const idKey = toolCallId ?? `anon:${this.anon++}`;
     if (!seen.has(idKey)) {

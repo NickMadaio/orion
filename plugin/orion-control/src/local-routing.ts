@@ -38,6 +38,7 @@ import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
+import { isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -63,8 +64,12 @@ export type LocalRoutingOptions = {
   sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
-  /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
-  extractReminder?: (message: string) => Promise<{ time: string; label: string } | null>;
+  /** Pulls {time "HH:MM" or null, label} out of a reminder request (tests pass a stub; wired from index.ts). */
+  extractReminder?: (message: string, clock?: string) => Promise<{ time: string | null; label: string } | null>;
+  /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
+  listReminders?: () => Promise<StoredReminder[]>;
+  /** The current time for reminder arithmetic (tests pin it). */
+  now?: () => Date;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
   readDay?: (tomorrow: boolean) => Promise<string>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
@@ -87,7 +92,7 @@ type Run = {
   findings: string[][];
   cloud?: boolean;
   /** A reminder the worker must set: the exact orion_task_run arguments and what to tell him. */
-  reminder?: { args: string; say: string };
+  reminder?: { args: string; say: string; action?: "alarm_set" | "reminder_cancel"; label?: string; at?: string };
   /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): no lookup is owed. */
   provided?: boolean;
   /** The prompt forbade tools (the overwhelm note): no promise or lookup check can be met by acting. */
@@ -119,6 +124,9 @@ const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
 // loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
 const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resiz|extend|shorten|shorter|longer|clear|drop|ditch|nuke|scrap|cancel|skip|free|fit|stick|put|add|slot|book|class|lab\b|lectur|seminar|stud|revis|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|commute|after my|before my|between|out from|leaving at|leetcode|deck|presentation)\w*|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
+// A short "never mind" after "What time?" drops the reminder instead of being read as its answer.
+const REMINDER_DROPPED = /^(never ?mind|nvm|forget it|no|nah|ok|okay|thanks?|thank you|cancel)\b/i;
+const CORRECTION_WINDOW_MS = 10 * 60_000;
 const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
@@ -294,14 +302,17 @@ function exactReply(flow: FlowResult): string {
 const ampm12 = (t: string): string => { const [h, m] = t.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
 
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
-export const liveExtractReminder = async (message: string): Promise<{ time: string; label: string } | null> => {
+export const liveExtractReminder = async (message: string, clock?: string): Promise<{ time: string | null; label: string } | null> => {
   try {
     const res = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(30000),
       body: JSON.stringify({ model: WORKER_MODEL, stream: false, think: false, options: FORM_OPTIONS, keep_alive: "24h",
-        format: { type: "object", properties: { time: { type: "string", pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }, label: { type: "string", maxLength: 100 } }, required: ["time", "label"] },
-        messages: [{ role: "system", content: "From Nick's message, give the time of day for his reminder (24-hour HH:MM; \"around 11\" or \"11 am\" = 11:00, \"5ish\" in the afternoon = 17:00) and a short label of what it is for, in his words. JSON only: {\"time\":\"HH:MM\",\"label\":\"…\"}" }, { role: "user", content: message }] }) });
+        // An empty time means he gave none: the forced HH:MM made it invent noon for "remind me about the
+        // thing" and the peanut fact (sweep 2026-10-15). Relative times ("in 10 min") are code's arithmetic.
+        format: { type: "object", properties: { time: { type: "string", pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9])?$" }, label: { type: "string", maxLength: 100 } }, required: ["time", "label"] },
+        messages: [{ role: "system", content: `${clock ? `Now: ${clock}. ` : ""}From Nick's message, give the time of day for his reminder (24-hour HH:MM; \"around 11\" or \"11 am\" = 11:00, \"5ish\" in the afternoon = 17:00) and a short label of what it is for, in his words. If he names no time of day at all, time is \"\" — never guess one. JSON only: {\"time\":\"HH:MM\",\"label\":\"…\"}` }, { role: "user", content: message }] }) });
     const out = JSON.parse(((await res.json()) as { message?: { content?: string } }).message?.content ?? "");
-    return /^\d{2}:\d{2}$/.test(out.time) && out.label ? out : null;
+    if (!out.label) return null;
+    return { time: /^\d{2}:\d{2}$/.test(out.time) ? out.time : null, label: out.label };
   } catch { return null; }
 };
 
@@ -421,6 +432,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const runs = new Map<string, Run>();
   /** Per session: his last message (stitched) and the scheduler changes it made. */
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
+  /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
+  const lastReminder = new Map<string, { label: string; at: string; set: number }>();
+  const reminderAsk = new Map<string, { text: string; at: number }>();
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
   const log = (entry: Record<string, unknown>) => {
     try {
@@ -531,18 +545,31 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && !run.cutOff && run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && options.sessionStatus) {
         run.flow = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
       }
-      // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
-      // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
-      // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
-      if (!run.flow && !run.cutOff && (keepsFact(run.message) || asksRecall(run.message))) {
-        const fact = keepsFact(run.message);
-        const fetched = fact || !run.brain ? "" : brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))]));
-        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${fetched ? `\n\nFrom his brain, matched to this message (may help; not necessarily something he told you):\n${fetched}` : ""}\n\n${now}`,
-          appendContext: fact ? FACT_NOW : RECALL_NOW };
-      }
       // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
       // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).
-      if (REMINDER.test(run.message) && !run.cutOff && !run.flow) {
+      // What kind of reminder turn it is — list, cancel, move the one just set, set, or ask — is code's call
+      // (reminder-flow.ts): in the sweep of 2026-10-15 every one of them became a new alarm (q030–q038, q058, q091).
+      if (!run.cutOff && !run.flow) {
+        const key = run.sessionKey ?? "";
+        const asked = reminderAsk.get(key);
+        reminderAsk.delete(key);
+        // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
+        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
+        const last = lastReminder.get(key);
+        const plan = await planReminder({ message: followUp ?? run.message, now: (options.now ?? (() => new Date()))(),
+          extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
+          list: options.listReminders ?? (async () => []), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
+        if (plan?.kind === "say") {
+          run.flow = { outcome: "say", kind: "plain", text: plan.text };
+          if (plan.pending && key) reminderAsk.set(key, { text: followUp ?? run.message, at: Date.now() });
+        }
+        if (plan?.kind === "call") {
+          run.reminder = { args: plan.args, say: plan.reply, action: plan.action, ...(plan.label && plan.at ? { label: plan.label, at: plan.at } : {}) };
+          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this for Nick now with ONE orion_task_run call using exactly these arguments:\n${plan.args}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.`,
+            appendContext: `[ORION: call orion_task_run now with exactly ${plan.args} — do not reply before calling it.]` };
+        }
+      }
+      if (REMINDER.test(run.message) && isReminderTurn(run.message) && !run.cutOff && !run.flow) {
         const day = new Date(Date.now() + (meansTomorrow(run.message) ? 86400000 : 0));
         const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
         const weekday = day.toLocaleDateString("en-GB", { weekday: "long" });
@@ -554,6 +581,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             appendContext: `[ORION: call orion_task_run now with exactly ${run.reminder.args} — do not reply before calling it.]` };
         }
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}. Set it with ONE orion_task_run call: {"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM>","label":"<what it is for>"}]}. Never use orion-tasks. Reply only after the tool result shows it was set.` };
+      }
+      // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
+      // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
+      // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
+      if (!run.flow && !run.cutOff && (keepsFact(run.message) || asksRecall(run.message))) {
+        const fact = keepsFact(run.message);
+        const fetched = fact || !run.brain ? "" : brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))]));
+        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${fetched ? `\n\nFrom his brain, matched to this message (may help; not necessarily something he told you):\n${fetched}` : ""}\n\n${now}`,
+          appendContext: fact ? FACT_NOW : RECALL_NOW };
       }
       // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
       // a timer and supplements answered with no call or the wrong one). Before the calendar flow.
@@ -679,13 +715,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // with tools let the model act on its own).
       const sessionKeyNow = `session:${pick(event, ctx, "sessionKey") ?? ""}`;
       if (on && run.reminder) {
-        const called = run.tools.some((t) => t.canonical.startsWith("orion_task_run") && /alarm_set/.test(t.canonical));
+        const action = run.reminder.action ?? "alarm_set";
+        const called = run.tools.some((t) => t.canonical.startsWith("orion_task_run") && t.canonical.includes(action));
+        if (called && run.reminder.label && run.reminder.at && run.sessionKey) lastReminder.set(run.sessionKey, { label: run.reminder.label, at: run.reminder.at, set: Date.now() });
         if (!called && run.passes < 2 && !hostDrops) {
           run.passes += 1;
           await record({ revised: true });
           return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call orion_task_run now with exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
-        if (!called) { owed = "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
+        if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?" : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
       }
       if (on && (run.flow?.outcome === "done" || run.flow?.outcome === "say")) {
         const expected = exactReply(run.flow);

@@ -1,0 +1,139 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { registerLocalRouting } from "./local-routing.js";
+import { resolveAlarmTime } from "./ambient.js";
+import type { Decision } from "./front-desk.js";
+
+// Built from the live sweep of 2026-10-15 (items q030, q033–q038, q058, q091): every reminder turn became a
+// new alarm, at a time the extractor made up, on today's date.
+type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
+type Stored = { id: string; label: string; dueAt: number };
+function harness(opts: { now: Date; decision?: Decision; extract?: (m: string) => { time: string | null; label: string } | null; stored?: Stored[] }) {
+  const handlers = new Map<string, Handler[]>();
+  const api = { on: (name: string, fn: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) };
+  const fire = async (name: string, event: Record<string, unknown>, ctx: Record<string, unknown>) => {
+    const out: unknown[] = [];
+    for (const fn of handlers.get(name) ?? []) out.push(await fn(event, ctx));
+    return out;
+  };
+  const extracted: string[] = [];
+  let flowRan = false;
+  const hh = `${String(opts.now.getHours()).padStart(2, "0")}:${String(opts.now.getMinutes()).padStart(2, "0")}`;
+  registerLocalRouting(api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "rf-")), "r.jsonl"), brainSearch: async () => "",
+    clock: () => `Thu ${hh}`, now: () => opts.now,
+    decideImpl: async () => opts.decision ?? { move: "tool", tool: "alarm" },
+    scheduleFlow: async () => { flowRan = true; return { outcome: "fallback", reason: "t" }; },
+    extractReminder: async (m) => { extracted.push(m); return opts.extract ? opts.extract(m) : null; },
+    listReminders: async () => opts.stored ?? [] });
+  let n = 0;
+  const turn = async (said: string, toolCall?: { args: string; result: string }) => {
+    const ctx = { runId: `rf${(n += 1)}`, sessionKey: "agent:main:orion-chat-sweep" };
+    await fire("before_model_resolve", { prompt: said }, ctx);
+    const [built] = (await fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt?: string; appendContext?: string } | undefined>;
+    if (toolCall) await fire("after_tool_call", { toolName: "orion_task_run", params: JSON.parse(toolCall.args), result: toolCall.result }, ctx);
+    await fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok" }, ctx);
+    return `${built?.systemPrompt ?? ""}\n${built?.appendContext ?? ""}`;
+  };
+  return { turn, extracted, flowRan: () => flowRan };
+}
+const at = (y: number, mo: number, d: number, h: number, mi: number) => new Date(y, mo - 1, d, h, mi);
+
+describe("reminders — what he asks for, not always a new alarm (sweep 2026-10-15)", () => {
+  it("q035 'cancel the 3pm reminder' cancels the 3 PM one by id and sets nothing", async () => {
+    const h = harness({ now: at(2026, 10, 15, 12, 0), decision: { move: "tool", tool: "alarm", args: { do: "delete" } },
+      stored: [{ id: "a1x2y", label: "call mum", dueAt: at(2026, 10, 15, 15, 0).getTime() }, { id: "a9z8w", label: "drink water", dueAt: at(2026, 10, 15, 18, 0).getTime() }] });
+    const prompt = await h.turn("cancel the 3pm reminder");
+    expect(prompt).toMatch(/"action":"reminder_cancel","id":"a1x2y"/);
+    expect(prompt).not.toMatch(/alarm_set/);
+    expect(h.flowRan()).toBe(false);
+  });
+
+  it("cancelling a reminder that does not exist says so, with no tool", async () => {
+    const h = harness({ now: at(2026, 10, 15, 12, 0), stored: [] });
+    const prompt = await h.turn("cancel the 3pm reminder");
+    expect(prompt).not.toMatch(/alarm_set|reminder_cancel/);
+    expect(prompt).toMatch(/don't have a reminder at 3:00 PM/);
+  });
+
+  it("q034 'whats my reminders today' lists the stored reminders, not his to-dos", async () => {
+    const h = harness({ now: at(2026, 10, 15, 12, 0), decision: { move: "escalate", tier: "standard" },
+      stored: [{ id: "a1x2y", label: "call the dentist", dueAt: at(2026, 10, 15, 17, 0).getTime() }] });
+    const prompt = await h.turn("whats my reminders today");
+    expect(prompt).toMatch(/call the dentist at 5:00 PM/);
+    expect(prompt).not.toMatch(/orion-tasks|alarm_set/);
+    expect(h.flowRan()).toBe(false);
+  });
+
+  it("q030 'no wait make it 5:30' moves the 5 PM reminder: cancel the old one, set the new one", async () => {
+    const h = harness({ now: at(2026, 10, 15, 12, 0), extract: (m) => ({ time: /5:30/.test(m) ? "17:30" : "17:00", label: /dentist/.test(m) ? "call the dentist" : "make it 5:30" }),
+      stored: [{ id: "a5abc", label: "call the dentist", dueAt: at(2026, 10, 15, 17, 0).getTime() }] });
+    const first = await h.turn("remind me to call the dentist at 5", { args: '{"steps":[{"action":"alarm_set","at":"2026-10-15T17:00","label":"call the dentist"}]}', result: "executed=true a5abc" });
+    expect(first).toMatch(/"at":"2026-10-15T17:00","label":"call the dentist"/);
+    const second = await h.turn("no wait make it 5:30");
+    expect(second).toMatch(/"action":"reminder_cancel","id":"a5abc"\},\{"action":"alarm_set","at":"2026-10-15T17:30","label":"call the dentist"\}/);
+  });
+
+  it("q058 'dont let me forget that' with no time is not an alarm", async () => {
+    const h = harness({ now: at(2026, 10, 15, 12, 0), decision: { move: "tool", tool: "supplements" }, extract: () => ({ time: "12:00", label: "peanut allergy reminder" }) });
+    const prompt = await h.turn("im allergic to peanuts btw, dont let me forget that");
+    expect(prompt).not.toMatch(/"action":"alarm_set"|Nick wants a reminder/);
+    expect(h.extracted).toEqual([]);
+  });
+
+  it("q091 'remind me about the thing' asks; the answers are read together until there is a time", async () => {
+    const h = harness({ now: at(2026, 10, 15, 14, 0), decision: { move: "ask", answer: "Which thing?" },
+      extract: (m) => ({ time: /at 9/.test(m) ? "09:00" : null, label: /form/.test(m) ? "the form" : "the thing" }) });
+    const t1 = await h.turn("remind me about the thing");
+    expect(t1).not.toMatch(/alarm_set/);
+    expect(t1).toMatch(/What should I remind you about/);
+    const t2 = await h.turn("the one with the form");
+    expect(t2).not.toMatch(/alarm_set/);
+    expect(t2).toMatch(/What time/);
+    const t3 = await h.turn("tomorrow at 9");
+    expect(t3).toMatch(/"action":"alarm_set","at":"2026-10-16T09:00","label":"the form"/);
+  });
+});
+
+describe("reminders — the time is worked out by code (sweep 2026-10-15)", () => {
+  it("q033 'in like 10 min' at 23:32 is 23:42 today, whatever the extractor guessed", async () => {
+    const h = harness({ now: at(2026, 10, 15, 23, 32), extract: () => ({ time: "11:10", label: "drink water" }) });
+    const prompt = await h.turn("remind me in like 10 min to drink water");
+    expect(prompt).toMatch(/"at":"2026-10-15T23:42","label":"drink water"/);
+  });
+
+  it("q036 'like 45 min' is now plus 45 minutes", async () => {
+    const h = harness({ now: at(2026, 10, 15, 16, 10), extract: () => ({ time: "17:45", label: "laundry" }) });
+    const prompt = await h.turn("ping me when the laundry should be done, like 45 min");
+    expect(prompt).toMatch(/"at":"2026-10-15T16:55","label":"laundry"/);
+  });
+
+  it("a time already past today goes to tomorrow, and the reply names that day", async () => {
+    const h = harness({ now: at(2026, 10, 15, 18, 0), extract: () => ({ time: "17:00", label: "call the dentist" }) });
+    const prompt = await h.turn("remind me to call the dentist at 5");
+    expect(prompt).toMatch(/"at":"2026-10-16T17:00"/);
+    expect(prompt).toMatch(/Friday at 5:00 PM/);
+  });
+
+  it("no time at all asks for one instead of inventing noon", async () => {
+    const h = harness({ now: at(2026, 10, 15, 14, 0), extract: () => ({ time: null, label: "pay rent" }) });
+    const prompt = await h.turn("remind me to pay rent");
+    expect(prompt).not.toMatch(/alarm_set/);
+    expect(prompt).toMatch(/What time/);
+  });
+
+  it("q038 'alarm for 6:45 weekdays' says repeating alarms aren't supported and sets nothing", async () => {
+    const h = harness({ now: at(2026, 10, 15, 12, 0), extract: () => ({ time: "06:45", label: "alarm for 6:45 weekdays" }) });
+    const prompt = await h.turn("alarm for 6:45 weekdays pls");
+    expect(prompt).not.toMatch(/alarm_set/);
+    expect(prompt).toMatch(/repeating/i);
+  });
+
+  it("alarm_set refuses a timestamp that has already passed instead of storing it as due in 0 seconds", () => {
+    const now = at(2026, 10, 15, 23, 32);
+    expect(() => resolveAlarmTime("2026-10-15T11:10", now)).toThrow(/already passed/);
+    expect(resolveAlarmTime("2026-10-15T23:42", now)).toBe(at(2026, 10, 15, 23, 42).getTime());
+    expect(resolveAlarmTime("11:10", now)).toBe(at(2026, 10, 16, 11, 10).getTime());
+  });
+});

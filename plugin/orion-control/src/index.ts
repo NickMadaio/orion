@@ -1,6 +1,7 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting } from "./local-routing.js";
+import { readReminders, remindersPath } from "./ambient.js";
 import { liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
@@ -1677,6 +1678,8 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       scheduleFlow: liveScheduleFlow,
       readDay: liveReadDay,
       extractReminder: liveExtractReminder,
+      // Read-only: listing and finding the id to cancel; every change still goes through orion_task_run.
+      listReminders: () => readReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined)),
       sessionFlow: liveSessionFlow,
       sessionStatus: liveSessionStatus,
       ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),

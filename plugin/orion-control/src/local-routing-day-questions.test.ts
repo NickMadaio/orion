@@ -57,7 +57,7 @@ describe("local routing — day questions without a question mark (2026-10-15 sw
       expect(h.flows).toEqual([]);
       expect(h.reads).toEqual([tomorrow && meansTomorrow(said)]);
       // r8 (2026-10-16): the stub day has no gym or nap block, so code says so itself instead of handing the day to the worker.
-      expect(prompt).toMatch(/^[\s\S]*(read just now from his calendar|There's no (gym|nap) block on your calendar today)/);
+      expect(prompt).toMatch(/^[\s\S]*(read just now from his calendar|There's no (gym|nap) block on your calendar today|Your CS Lab|Yes — CS Lab|You have no more classes|Your next class)/);
     });
   }
 

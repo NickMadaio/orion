@@ -17,7 +17,7 @@ async function run(message: string, steps: Intent[], now = new Date(2026, 9, 16,
     exec: async (a) => { calls.push(a); return { stdout: a[0] === "show" ? JSON.stringify(day) : "planned x: 15:05–15:25\n", code: 0 }; },
     ask: async () => ({ steps }),
   });
-  return { r, writes: calls.filter((a) => a[0] !== "show") };
+  return { r, writes: calls.filter((a) => a[0] !== "show" && !a.includes("--dry-run")) };
 }
 
 describe("a skip can never add (q019)", () => {

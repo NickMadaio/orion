@@ -374,10 +374,13 @@ if (command === "late") {
   const afterTitle = flag("--after");
   const anchor = afterTitle ? blocks.find((b) => sameThingEarly(afterTitle, b.title) || sameThingEarly(b.title, afterTitle)) : null;
   if (afterTitle && !anchor) fail(`NOTHING WAS CHANGED: no "${afterTitle}" on ${date} to put it after.`, 2);
-  const at = anchor ? anchor.end : minute(flag("--at")); const before = minute(flag("--before"));
+  // r8 review 3 M3 (2026-10-16): --after is a floor (his end; the planner adds the buffer), not an exact start: an exact start
+  // at his end collided with the next block and the planner moved the anchor itself ("moved Lunch: 12:15 → 13:40").
+  const at = anchor ? null : minute(flag("--at")); const before = minute(flag("--before"));
+  const afterFloor = anchor ? anchor.end : null; // the planner adds its own buffer to a floor, as for "X after Y"
   const fixed = args.includes("--fixed") || isSocial(title);
   if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
-  add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(before !== null ? { before } : {}), fixed });
+  add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(afterFloor !== null ? { after: afterFloor } : {}), ...(before !== null ? { before } : {}), fixed });
 } else if (command === "now") {
   /*
    "I only just got home. I'm going to eat now, so put my break now and rearrange

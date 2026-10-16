@@ -36,11 +36,11 @@ const namedAs = (k: Kind): RegExp => new RegExp(`\\b(?:my|the|a|an)\\s+(?:\\w+\\
 const FITTING = /\b(?:time for|room for|squeeze|fit)\b/i;
 
 const BLOCK = /^B\d+ (\d{2}):(\d{2})–(\d{2}):(\d{2}) (.*?)(?: \(FIXED\))?(?: \(already happened\))?$/;
-type Row = { hour: number; minute: number; title: string; over: boolean };
+type Row = { hour: number; minute: number; endHour: number; endMinute: number; title: string; over: boolean };
 function rows(day: string): Row[] {
   return day.split("\n").flatMap((line) => {
     const m = BLOCK.exec(line.trim());
-    return m ? [{ hour: Number(m[1]), minute: Number(m[2]), title: m[5]!, over: /\(already happened\)\s*$/.test(line.trim()) }] : [];
+    return m ? [{ hour: Number(m[1]), minute: Number(m[2]), endHour: Number(m[3]), endMinute: Number(m[4]), title: m[5]!, over: /\(already happened\)\s*$/.test(line.trim()) }] : [];
   });
 }
 
@@ -56,8 +56,12 @@ const HOURS = /\b(?:open|opens|opening|close|closes|closed|closing|hours)\b/i;
 const ADVICE = /\b(should|supposed to|recommend\w*|ideal|healthy|best)\b/i;
 
 /** The reply when the question names a kind of block and none is on the day; null when one is, or none is named. */
+const namedKind = (message: string): Kind | undefined =>
+  ABOUT_TIME.test(message) && !ADVICE.test(message) && !FITTING.test(message) && !HOURS.test(message) ? KINDS.find((k) => namedAs(k).test(message)) : undefined;
+const isKind = (kind: Kind, r: Row): boolean => kind.title.test(r.title) || new RegExp(`\\b(?:${kind.asked})`, "i").test(r.title);
+
 export function noBlockReply(message: string, day: string, tomorrow: boolean): string | null {
-  const kind = ABOUT_TIME.test(message) && !ADVICE.test(message) && !FITTING.test(message) && !HOURS.test(message) ? KINDS.find((k) => namedAs(k).test(message)) : undefined;
+  const kind = namedKind(message);
   const all = rows(day);
   if (!kind || !all.length && !day.trim()) return null;
   // M3: the asked word anywhere in a title ("CHEM1211 Labs", "Meal-prep") is the block, whatever its synonym list says.
@@ -69,4 +73,81 @@ export function noBlockReply(message: string, day: string, tomorrow: boolean): s
   if (!all.length) return head;
   if (!left.length) return `${head} Everything on it has already happened.`;
   return `${head} You have ${joinList(left.map((r) => `${spokenTitle(r.title)} at ${spokenTime(r.hour, r.minute)}`))}.`;
+}
+
+// ---- r8b2 (2026-10-16): a named block that IS on the day is answered by code too ----
+// q009 "how many minutes until the lab starts" → the 9B said "8:10 PM, about 9 hours away" (the lab is 7:25 PM, 8 h 17 min);
+// q013 "is today a lab day or nah" → "Yes … 8:15 PM to 9:10 PM" (wrong); q006 "and after that?" → "3:45 PM" (ECON1115 is 3:30 PM).
+const minutesOf = (h: number, m: number): number => h * 60 + m;
+const range = (r: Row): string => {
+  const a = spokenTime(r.hour, r.minute);
+  const b = spokenTime(r.endHour, r.endMinute);
+  return a.slice(-2) === b.slice(-2) ? `${a.slice(0, -3)} to ${b}` : `${a} to ${b}`;
+};
+/** "in about 8 h 17 min" / "in about 25 min" / "in about 2 h". */
+export function spokenSpan(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return h ? (rest ? `${h} h ${rest} min` : `${h} h`) : `${m} min`;
+}
+const WANTS_SPAN = /\b(?:how (?:long|many minutes|much time|soon)|minutes?\b.*\b(?:until|till|before|to)|(?:until|till)\b)/i;
+const WANTS_END = /\b(?:ends?|over|finish\w*|done)\b/i;
+const IS_DAY = /\bis (?:today|tomorrow|there)\b|\bdo i have\b|\bhave a\b/i;
+
+/** The reply when the question names a kind of block that IS on the day (start, end, time left); null otherwise. */
+export function presentBlockReply(message: string, day: string, tomorrow: boolean, nowMin: number): { text: string; memory: DayMemory } | null {
+  const kind = namedKind(message);
+  if (!kind) return null;
+  const all = rows(day);
+  const hits = all.filter((r) => isKind(kind, r));
+  if (!hits.length) return null;
+  const reply = (text: string, r: Row) => ({ text, memory: { index: all.indexOf(r), classOnly: false } });
+  const say = (r: Row) => `${spokenTitle(r.title)}, ${range(r)}`;
+  if (IS_DAY.test(message) && !WANTS_SPAN.test(message) && !/\bwhen|what time\b/i.test(message)) return reply(hits.length === 1 ? `Yes — ${say(hits[0]!)}.` : `Yes — ${joinList(hits.map(say))}.`, hits[hits.length - 1]!);
+  const startOf = (r: Row) => minutesOf(r.hour, r.minute);
+  const endOf = (r: Row) => minutesOf(r.endHour, r.endMinute);
+  const when = tomorrow ? " tomorrow" : "";
+  const upcoming = tomorrow ? hits : hits.filter((r) => endOf(r) > nowMin);
+  if (!upcoming.length) return reply(`Your ${hits.length === 1 ? spokenTitle(hits[0]!.title) : kind.label} already ended today.`, hits[hits.length - 1]!);
+  const next = upcoming[0]!;
+  const name = spokenTitle(next.title);
+  const span = WANTS_SPAN.test(message) && !tomorrow;
+  const rest = upcoming.length > 1 ? ` After that: ${joinList(upcoming.slice(1).map((r) => `${spokenTitle(r.title)} at ${spokenTime(r.hour, r.minute)}`))}.` : "";
+  if (!tomorrow && startOf(next) <= nowMin) return reply(`Your ${name} is on now, until ${spokenTime(next.endHour, next.endMinute)}${span ? `, ${spokenSpan(endOf(next) - nowMin)} left` : ""}.${rest}`, next);
+  if (span && WANTS_END.test(message)) return reply(`Your ${name} ends at ${spokenTime(next.endHour, next.endMinute)}${when}.${rest}`, next);
+  if (span) return reply(`Your ${name} starts at ${spokenTime(next.hour, next.minute)}, in about ${spokenSpan(startOf(next) - nowMin)}.${rest}`, next);
+  return reply(`Your ${name} starts at ${spokenTime(next.hour, next.minute)}${when} and ends at ${spokenTime(next.endHour, next.endMinute)}.${rest}`, next);
+}
+
+// "next class" and the follow-up "and after that?": a class is a course code or a lecture-like title.
+const CLASS_TITLE = /\b[A-Z]{2,5}\s?\d{3,4}\b|\b(?:lecture|class|seminar|recitation)\b/i;
+const NEXT_CLASS = /\b(?:next|upcoming)\s+class(?:es)?\b|\bwhen(?:'s| is)?\s+my\s+(?:first|next)\s+class\b/i;
+const AFTER_THAT = /^\W*(?:and\s+|so\s+|ok(?:ay)?\s+)?(?:then\s+)?(?:what(?:'s|s| is)?\s+)?(?:(?:what|how)\s+about\s+)?(?:after\s+(?:that|this|it)|then|next|the\s+one\s+after(?:\s+that)?)(?:\s+one)?\W*$/i;
+/** Short memory of the block the last day answer named, per session: what "and after that?" means. */
+export type DayMemory = { index: number; classOnly: boolean };
+
+export const isNextClassQuestion = (message: string): boolean => NEXT_CLASS.test(message);
+export const isAfterThat = (message: string): boolean => AFTER_THAT.test(message.trim());
+
+/** "next class" / "and after that?" from the day read. `memory` is what the last answer named (after-that only). */
+export function nextBlockReply(message: string, day: string, tomorrow: boolean, nowMin: number, memory?: DayMemory): { text: string; memory: DayMemory } | null {
+  const all = rows(day);
+  if (isAfterThat(message)) {
+    if (!memory) return null;
+    const after = all.map((r, index) => ({ r, index })).find(({ r, index }) => index > memory.index && (!memory.classOnly || CLASS_TITLE.test(r.title)));
+    if (!after) return { text: `Nothing after that${tomorrow ? " tomorrow" : " today"}.`, memory };
+    return { text: `After that: ${spokenTitle(after.r.title)} at ${spokenTime(after.r.hour, after.r.minute)}.`, memory: { index: after.index, classOnly: memory.classOnly } };
+  }
+  if (!isNextClassQuestion(message)) return null;
+  const next = all.map((r, index) => ({ r, index })).find(({ r }) => CLASS_TITLE.test(r.title) && (tomorrow || minutesOf(r.hour, r.minute) > nowMin));
+  if (!next) return { text: `You have no more classes ${tomorrow ? "tomorrow" : "today"}.`, memory: { index: all.length, classOnly: true } };
+  const span = !tomorrow && WANTS_SPAN.test(message);
+  const text = `Your next class is ${spokenTitle(next.r.title)} at ${spokenTime(next.r.hour, next.r.minute)}${span ? `, in about ${spokenSpan(minutesOf(next.r.hour, next.r.minute) - nowMin)}` : ""}.`;
+  return { text, memory: { index: next.index, classOnly: true } };
+}
+
+/** Everything above in one call: the next-class / after-that answers, then a named block that is present. */
+export function codeDayAnswer(message: string, day: string, tomorrow: boolean, nowMin: number, memory?: DayMemory): { text: string; memory: DayMemory } | null {
+  return nextBlockReply(message, day, tomorrow, nowMin, memory) ?? presentBlockReply(message, day, tomorrow, nowMin);
 }

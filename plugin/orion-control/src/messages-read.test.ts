@@ -60,9 +60,18 @@ describe("runMessagesRead", () => {
   });
   it("says a failure exactly, and an empty result plainly", async () => {
     const fda = await runMessagesRead({ kind: "recent", limit: 3 }, stub("orion-messages: Full Disk Access is required to read Messages, and the process running this does not have it.", 1).exec);
-    expect(fda.say).toBe("I couldn't read your texts: Full Disk Access is required to read Messages, and the process running this does not have it. Nothing was sent or changed.");
+    expect(fda.say).toBe("I can't read your texts — ORION needs Full Disk Access.");
     const none = await runMessagesRead({ kind: "gmail", query: "internship offer" }, stub('No mail matched "internship offer".').exec);
     expect(none.say).toBe('Nothing in your Gmail matched "internship offer".');
+  });
+  // q069 (2026-10-16 r8b2): the reply was `Get "https://gmail.googleapis.com/…": … oauth2: "invalid_grant" …`.
+  it("never speaks raw CLI or URL text: known failures get a short line, unknown ones a generic one", async () => {
+    const raw = 'orion-gmail-search: Get "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=x": oauth2: "invalid_grant" "Token has been expired or revoked."';
+    const g = await runMessagesRead({ kind: "gmail", query: "internship offer" }, stub(raw, 1).exec);
+    expect(g.say).toBe("I can't read your Gmail right now — it needs signing in again.");
+    const odd = await runMessagesRead({ kind: "recent", limit: 3 }, stub("orion-messages: sqlite3 exploded at /Users/nickmadaio/Library/Messages/chat.db --foo", 1).exec);
+    expect(odd.say).toBe("I couldn't read your texts just now. Nothing was sent or changed.");
+    expect(`${g.say}${odd.say}`).not.toMatch(/https?:|\/Users|--/);
   });
   it("readCommand names the script", () => {
     expect(readCommand({ kind: "from", person: "Carla", limit: 5 }).args).toEqual(["from", "Carla", "5"]);

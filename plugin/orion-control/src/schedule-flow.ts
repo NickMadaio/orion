@@ -121,6 +121,54 @@ function namesABlock(title: string, day: Day): boolean {
   return words.some((w) => day.blocks.some((b) => normTitle(b.title).split(" ").some((t) => t.startsWith(w) || w.startsWith(t) && t.length >= 3)));
 }
 
+// ---- Code-level guards (2026-10-16, live re-run q019/q098): whatever the 9B fills in, these cannot write the wrong thing.
+const STOP = new Set(["the", "and", "for", "with", "that", "this", "all", "also", "sure", "make", "need", "want", "today", "tomorrow", "tonight", "please", "going", "not", "but", "then", "just", "from", "into", "his", "her", "our", "your"]);
+const REMOVE_VERB = /\b(skip|cancel|ditch|drop|delete|remove|bail on|not going to|won'?t (?:be )?(?:going|at|making))\b/i;
+const ADD_CUE = /\b(add|put|schedule|book|create|set up|block (?:off|out)|plan)\b/i;
+const PRESENCE = /\b(make sure (?:i'?m|im|i am|i'?ll be)|be (?:in|at)|i'?m (?:in|at)|im (?:in|at)|attend|go to|still (?:go|be|need))\b/i;
+const words = (t: string): string[] => normTitle(t).split(" ").filter((w) => w.length >= 3 && !FILLER.has(w) && !STOP.has(w));
+const sameWord = (a: string, b: string): boolean => a === b || (Math.min(a.length, b.length) >= 3 && (a.startsWith(b) || b.startsWith(a)));
+/** What he asked to be removed ("cancel my lab and …" → "lab"). */
+function removalObject(message: string): string | undefined {
+  const m = message.match(/\b(?:skip|cancel|ditch|drop|delete|remove|bail on|not going to)\s+(?:out of\s+)?(?:my|the|our|a|an)?\s*([^,.;!?]+?)(?=\s+(?:today|tomorrow|tonight|and|but|then|so)\b|[,.;!?]|$)/i);
+  return m?.[1]?.trim() || undefined;
+}
+/** Whether what he said names this block: a word of its title, its course code, or its initials ("DS" = Discrete Structures). */
+function messageNames(message: string, b: DayBlock): boolean {
+  const said = normTitle(message).split(" ").filter(Boolean);
+  const title = words(b.title);
+  if (said.some((w) => w.length >= 3 && title.some((t) => sameWord(w, t)))) return true;
+  const initials = normTitle(b.title).split(" ").filter((w) => w.length > 2 && !/\d/.test(w) && !["lecture", "lab", "class", "for", "and", "the", "seminar", "tutorial"].includes(w)).map((w) => w[0]).join("");
+  if (initials.length >= 2 && said.includes(initials)) return true;
+  return b.fixed && said.some((w) => w === "class" || w === "classes" || w === "lecture");
+}
+
+/** The message asks for two opposite things about one noun ("cancel my lab and also make sure I'm in the lab at 2"). */
+export function contradiction(message: string): string | undefined {
+  const obj = removalObject(message);
+  if (!obj) return undefined;
+  const at = message.toLowerCase().indexOf(obj.toLowerCase());
+  const rest = message.slice(at + obj.length);
+  const noun = words(obj);
+  if (!PRESENCE.test(rest) || !words(rest).some((w) => noun.some((n) => sameWord(w, n)))) return undefined;
+  return `You said to cancel ${/^(my|the)\b/i.test(obj) ? "" : "the "}${obj} and also to be there. Which do you want: drop it, or keep it (at the time you said)?`;
+}
+
+/** Steps that would write something he did not ask for, as what to say instead. null = fine. */
+export function guardSteps(message: string, steps: Intent[], day: Day): { say: "cannot"; text: string } | null {
+  const obj = removalObject(message);
+  const gone = `there's no ${obj ?? "such block"} on ${day.now ? "today's" : "that day's"} calendar`;
+  // A skip only ever takes something off: "skip gym today" (no gym) became add gym 15:05 and "Done" (q019).
+  if (REMOVE_VERB.test(message) && !ADD_CUE.test(message) && steps.some((s) => ["add", "fill_between", "plan"].includes(s.do))) return { say: "cannot", text: gone };
+  // Any skip/drop must land on a block he named: "cancel my lab" removed the MKTG lecture (q098).
+  for (const s of steps) {
+    if (s.do !== "skip" && s.do !== "drop") continue;
+    const id = s.what && /^B\d+$/.test(s.what) ? day.blocks[Number(s.what.slice(1)) - 1] : day.blocks.find((b) => s.what && normTitle(b.title).includes(normTitle(s.what)));
+    if (id && !messageNames(message, id)) return { say: "cannot", text: gone };
+  }
+  return null;
+}
+
 type Compiled = { args: string[] } | { say: "cannot" | "ask" | "answer"; text: string } | { error: string };
 
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
@@ -301,6 +349,14 @@ const inPassing = (message: string, m: RegExpMatchArray): boolean =>
  *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
 export function dayArgsFor(message: string, now: Date = new Date()): { args: string[]; label: string | undefined; ask?: string } {
   if (meansTomorrow(message, now)) return { args: ["--date", "tomorrow"], label: "tomorrow" };
+  // 2026-10-16 (live re-run q020, 01:11): before 5 AM "tomorrow" is today's date for a reminder, but a calendar
+  // write that drops --date lands on today while the message says tomorrow — and the reply never said which.
+  // The day words and the compiled --date must agree; when they cannot be known to, ask and write nothing.
+  if (TOMORROW.test(message)) {
+    const tmr = new Date(now.getTime() + 86400000);
+    const dn = (d: Date) => WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase());
+    return { args: [], label: undefined, ask: `It's after midnight: do you mean later today (${dn(now)}) or tomorrow (${dn(tmr)})?` };
+  }
   // (review, 2026-10-16) no weekday means today; "my monday exam", "wednesday's quiz",
   // "for the tuesday deadline" name a weekday in passing, not the day of the change, but a weekday he names as the target beats a later "today" (re-review, 2026-10-16).
   const m = message.match(WEEKDAY);
@@ -346,6 +402,8 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
   if (whichDay) return { outcome: "say", text: whichDay, kind: "ask" };
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
+  const clash = contradiction(message);
+  if (clash) return { outcome: "say", text: clash, kind: "ask" };
   const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
   let out = await ask(FORM_PROMPT, user, intentSchema(day));
   let compiled = (out?.steps ?? []).map((s) => compile(s, day));
@@ -365,6 +423,8 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     compiled = merged.map((st) => compile(st, day));
     bad = compiled.find((c) => "error" in c);
   }
+  const stopped = guardSteps(message, steps, day);
+  if (stopped) return { outcome: "say", text: stopped.text, kind: stopped.say };
   if (!compiled.length) return { outcome: "fallback", reason: "no steps" };
   if (bad && "error" in bad) return { outcome: "fallback", reason: bad.error };
   const said = compiled.find((c) => "say" in c && c.say !== "answer");

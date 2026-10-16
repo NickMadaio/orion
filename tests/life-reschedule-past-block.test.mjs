@@ -20,11 +20,11 @@ const thursday = [
   { title: "Review spending", start: at(14, 45), end: at(15, 30), orion: "other" },
 ];
 
-function world(t, now) {
+function world(t, now, config = {}) {
   const home = mkdtempSync(join(tmpdir(), "orion-past-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   mkdirSync(join(home, ".openclaw/orion-controlled"), { recursive: true });
-  writeFileSync(join(home, "life.json"), "{}");
+  writeFileSync(join(home, "life.json"), JSON.stringify(config));
   const calendar = join(home, "calendar.json");
   writeFileSync(calendar, JSON.stringify(thursday.map((e, i) => ({ identifier: `seed-${i}`, ...e }))));
   const run = (...args) => {
@@ -76,4 +76,31 @@ test("a stated time more than 2 h before his usual wake is not kept (review LOW)
   const r = run("add", "stretch", "15", "--at", "03:00", "--date", "2030-10-04", "--dry-run");
   assert.doesNotMatch(r.out, /planned stretch: 03:00/, r.out);
   assert.equal(titles().length, 3);
+});
+
+// Live re-run 2026-10-16 (r05): "add a 15 minute stretch block tomorrow at 7:30 am" ran
+// `add Stretch 15 --at 07:30 --date tomorrow` and was booked 08:32 with "7:30 has passed". The clock was
+// right (tomorrow is never behind today's clock); the 2 h cap bit: a late riser's wake (10:32) put the window's
+// start at 08:32, and replan reads anything before the window as "already past". A stated time on another day
+// is never past; only an absolute 05:00 floor keeps a stated 03:00 from opening the whole night.
+test("a stated 07:30 tomorrow is kept for a late riser, even at 01:11 (r05)", (t) => {
+  const { run } = world(t, [1, 11], { usualWake: "10:32" });
+  const r = run("add", "Stretch", "15", "--at", "07:30", "--date", "2030-10-04", "--dry-run");
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /planned Stretch: 07:30–07:45/, r.out);
+  assert.doesNotMatch(r.out, /SHIFTED|has passed/, r.out);
+});
+
+test("the 05:00 floor still holds for a late riser (r05)", (t) => {
+  const { run } = world(t, [1, 11], { usualWake: "10:32" });
+  const r = run("add", "stretch", "15", "--at", "03:00", "--date", "2030-10-04", "--dry-run");
+  assert.doesNotMatch(r.out, /planned stretch: 03:00/, r.out);
+});
+
+test("today: a stated time that is still ahead is kept before a late wake, one behind us is not (r05)", (t) => {
+  const { run } = world(t, [1, 11], { usualWake: "10:32" });
+  const ahead = run("add", "Stretch", "15", "--at", "07:30", "--dry-run");
+  assert.match(ahead.out, /planned Stretch: 07:30–07:45/, ahead.out);
+  const behind = world(t, [9, 0], { usualWake: "10:32" }).run("add", "Stretch", "15", "--at", "07:30", "--dry-run");
+  assert.doesNotMatch(behind.out, /planned Stretch: 07:30/, behind.out);
 });

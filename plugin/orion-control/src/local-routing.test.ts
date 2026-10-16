@@ -119,10 +119,12 @@ describe("local routing — on mode", () => {
       const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
       expect(built?.systemPrompt).toContain(`drafted this reply: "${draft}"`);
     }
-    const { f, ctx } = setup({ move: "answer", answer: "You've been coding for hours and your brain needs rest, so sleep now." });
+    const { f, ctx } = setup({ move: "answer", answer: "You've been coding for hours and your brain needs rest, so sleep now. Rest is how it sticks." });
     await f.fire("before_model_resolve", { prompt: "should i sleep now or finish leetcode, be honest" }, ctx);
     const [built] = (await f.fire("before_prompt_build", { prompt: "should i sleep now or finish leetcode, be honest", messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
-    expect(built?.systemPrompt).toMatch(/drafted this reply/);
+    // r7 (2026-10-16): the claim sentence is cut by code, not left to the 9B to leave out.
+    expect(built?.systemPrompt).toContain('drafted this reply: "Rest is how it sticks."');
+    expect(built?.systemPrompt).not.toMatch(/coding for hours/);
     expect(built?.systemPrompt).toMatch(/leave (it|that) out/);
     expect(built?.systemPrompt).toMatch(/never mention the draft or the front desk/i);
   });

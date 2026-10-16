@@ -12,6 +12,8 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 
+import { denialContradictsMessages } from "./message-claims.js";
+
 export type ToolResult = { canonical: string; stdout: string; exit?: number | null };
 type Outcome = "success" | "partial" | "nothing" | "pending" | "failed" | "read";
 type Graded = ToolResult & { outcome: Outcome };
@@ -49,7 +51,8 @@ const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in p
 // A promise names an action: "I'll be right here" and "let me know" promise nothing (review, 2026-10-16).
 const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\s+(just\s+|go ahead and\s+|quickly\s+)?(note|add|set|save|log|move|book|remind|start|check|look|turn|send|text|email|mark|put|schedule|create|update|change|cancel|remove|delete|find|pull|get|make|write|record|track|open|play|search|read)\b/i;
 /** Reports of a lookup or a live status: true only if a tool looked this turn (2026-10-16 sweep). */
-const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
+// 2026-10-16 r7: "I'm reading your texts now" / "I'm checking for emails" (q066, q070) with no call is a claimed lookup too.
+const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|I'?m (just |now )?(checking|reading|looking|pulling|searching|fetching|grabbing)\b(?! (in|forward))|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
 // "Nothing is scheduled" / "no lab scheduled" reports an empty calendar; it is not a claim that something
@@ -207,6 +210,8 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
   if (!dictated && !provided && turnResults.length === 0 && claimsIn(reply).some((c) => c.kind === "read")) findings.push("claims a lookup it did not do");
   // "I can't check that right now." is the sentence the live-data prompt asks for when no tool can get it.
   if (!dictated && !provided && turnResults.length === 0 && sentences(reply).some((s) => NO_ACCESS.test(s) && !/\?\s*$/.test(s) && !CANT_CHECK.test(s))) findings.push("said it can't without checking");
+  // q065 (2026-10-16): "No one texted you recently. Your last messages were from Gia…" contradicted itself.
+  if (!dictated && denialContradictsMessages(reply, turnResults)) findings.push("denies messages it shows");
   if (v.falseClaim) findings.push("claims what the tools don't show");
   if (v.omittedFailure) findings.push("failure not mentioned");
   if (v.wrongDetail) findings.push("reply times don't match");
@@ -222,6 +227,7 @@ const FIX: Record<string, string> = {
   "claims a lookup it did not do": "Your reply reports something looked up (checked, found, a status, minutes left) but you ran no tool this turn. Look it up now with the right tool and answer from what it prints, or say you don't know.",
   "said it can't without checking": "You said you can't see or reach that, but you ran no tool. Check with the right tool first (health log, memory, calendar, tasks, messages); only if none can, say so plainly.",
   "asked instead of acting": "He already told you what he wants. Do it now (read his day if you need the times, then make the change in one orion-reschedule call) and tell him what changed. Ask only if it truly cannot be done without his answer.",
+  "denies messages it shows": "Your reply says nobody wrote, but the messages (your own sentence or the tool output) show some. Report the messages the tool returned: who, when, what.",
   "claims what the tools don't show": "Your reply says something happened that the tool output does not show (NOT BOOKED / NOTHING WAS … means it did not happen). Fix it or say plainly what did not happen.",
   "failure not mentioned": "A tool reported a failure that your reply does not mention. Say what did not happen.",
   "reply times don't match": "Your reply quotes times that are not in the tool output. Quote times only from the output.",

@@ -110,7 +110,7 @@ describe("schedule flow — a weekday in passing is not the date (review HIGH 4)
 // (re-review, 2026-10-16) "today" beats only a weekday in passing, never one he names as the target.
 describe("schedule flow — a named weekday beats a later 'today' (re-review MEDIUM 5)", () => {
   const thu = new Date(2026, 9, 15, 10, 0);
-  for (const [msg, day] of [["plan my friday, today is too packed", "friday"], ["friday i want gym at 6, today i'm resting", "friday"]] as const) {
+  for (const [msg, day] of [["plan my friday, today is too packed", "friday"]] as const) {
     it(`"${msg}" is ${day}`, () => expect(dayArgsFor(msg, thu).args).toEqual(["--date", day]));
   }
 });
@@ -126,5 +126,13 @@ describe("schedule flow — today and a weekday together is a question (round 6 
       expect(r).toMatchObject({ outcome: "say", kind: "ask", text: `Today or ${day}?` });
       expect(calls).toEqual([]);
     });
+  }
+});
+
+// (final round, 2026-10-16) A weekday before "today" is just as ambiguous.
+describe("schedule flow — a weekday before today asks too (final round)", () => {
+  const thu = new Date(2026, 9, 15, 10, 0);
+  for (const [msg, day] of [["i'll go saturday instead of today, skip gym", "Saturday"], ["move my friday gym to today", "Friday"], ["friday i want gym at 6, today i'm resting", "Friday"]] as const) {
+    it(`"${msg}" asks`, () => expect(dayArgsFor(msg, thu)).toEqual({ args: [], label: undefined, ask: `Today or ${day}?` }));
   }
 });

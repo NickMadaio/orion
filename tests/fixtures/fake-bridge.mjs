@@ -37,6 +37,13 @@ switch (request.action) {
       ...(p.due_at !== undefined ? { due } : {}) }))));
     reply({ status: "updated", identifier: p.identifier }); break;
   }
+  case "complete_reminder": {
+    const file = process.env.FAKE_REMINDERS;
+    const all = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return []; } })();
+    if (!all.some((r) => r.identifier === p.identifier)) { process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: "no such reminder" })}\n`); break; }
+    writeFileSync(file, JSON.stringify(all.map((r) => (r.identifier === p.identifier ? { ...r, completed: true } : r))));
+    reply({ status: "completed", identifier: p.identifier }); break;
+  }
   case "create_calendar_event": {
     const identifier = `ev-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
     save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.orionKind ? { orion: p.orionKind } : {}) }]);

@@ -12,31 +12,14 @@ import { join } from "node:path";
 
 export const MARKER = "--- Nick's message follows ---";
 
-/** Mirrors the plugin's gate (local-routing.ts registerLocalRouting + acceptanceVerdict). */
-const ACCEPTANCE = { minPassRate: 0.85, maxMedianMs: 20000, maxAgeDays: 14, minCases: 20 };
-const MAX_WINDOW_MS = 48 * 3600000;
-
-function acceptanceOk(home, now) {
-  try {
-    const rec = JSON.parse(readFileSync(join(home, ".openclaw/orion-controlled/local-routing/acceptance.json"), "utf8"));
-    const { at, n = 0, pass = 0, medianMs = Infinity } = rec;
-    const age = at ? (now - Date.parse(at)) / 86400000 : Infinity;
-    return age <= ACCEPTANCE.maxAgeDays && n >= ACCEPTANCE.minCases && pass / n >= ACCEPTANCE.minPassRate && medianMs <= ACCEPTANCE.maxMedianMs;
-  } catch { return false; }
-}
-
 /**
- * True only when the plugin really routes locally (review 5 M4, 2026-10-16): localRouting "on" in openclaw.json
- * (plugins.entries.orion-control.config) AND (an open testing window, localRoutingTestingUntil at most 48 h ahead, OR a passing
- * acceptance record). Otherwise the plugin falls back to shadow and the cloud model needs the full text.
+ * True when the plugin routes locally: localRouting "on" in openclaw.json (plugins.entries.orion-control.config). Since
+ * 2026-10-16 (278d75e, "local always") the plugin has no acceptance gate and no testing window, so neither does this
+ * (review 5 M4 had mirrored the old gate). Otherwise the configured model answers and needs the full text.
  */
-export function localRoutingOn(home, now = Date.now()) {
+export function localRoutingOn(home) {
   try {
-    const cfg = JSON.parse(readFileSync(join(home, ".openclaw/openclaw.json"), "utf8"))?.plugins?.entries?.["orion-control"]?.config;
-    if (cfg?.localRouting !== "on") return false;
-    const until = typeof cfg.localRoutingTestingUntil === "string" ? Date.parse(cfg.localRoutingTestingUntil) : NaN;
-    if (Number.isFinite(until) && until > now && until - now <= MAX_WINDOW_MS) return true;
-    return acceptanceOk(home, now);
+    return JSON.parse(readFileSync(join(home, ".openclaw/openclaw.json"), "utf8"))?.plugins?.entries?.["orion-control"]?.config?.localRouting === "on";
   } catch { return false; }
 }
 

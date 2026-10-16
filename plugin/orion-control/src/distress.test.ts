@@ -8,7 +8,7 @@ describe("distress detection", () => {
   });
 
   it("still catches the plain forms after the 2026-10-16 narrowing", () => {
-    for (const m of ["i dont want to wake up tomorrow", "i don't want to be here anymore", "i dont want to live anymore", "i feel hopeless", "kms", "i want to kill myself", "thinking about suicide", "what's the point of anything"])
+    for (const m of ["i dont want to wake up tomorrow", "i don't want to be here anymore", "i dont want to live anymore", "i feel hopeless", "kms", "i want to kill myself", "thinking about suicide", "what's the point of anything", "i don't want to live like this anymore", "i dont want to be here, i'm done", "i don't want to wake up ever again", "i dont want to be here anymore honestly", "i don't want to live, i'm so tired", "i really dont want to wake up tomorrow"])
       expect(isCrisis(m), m).toBe(true);
   });
 

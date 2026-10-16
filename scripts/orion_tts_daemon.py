@@ -537,6 +537,43 @@ def spoken_times(text: str) -> str:
     return _CLOCK.sub(say, text)
 
 
+# A course code as his calendar writes it: letters glued to four digits ("CS2100", "MKTG2201").
+# "UK 1234" (a space) and "A101" (one letter) are not codes.
+_COURSE = re.compile(r"\b([A-Z]{2,4})(\d{4})\b")
+_TITLE_AFTER = re.compile(r"\s+(?=[A-Z][a-z])")
+_KIND_DASH = re.compile(r"\s+[—–-]\s+(Lecture|Lab|Seminar|Tutorial|Recitation|Discussion|Section)\b")
+
+
+def _year_style(number: str) -> str:
+    """2100 -> "twenty-one hundred", 2201 -> "twenty-two oh one", 1115 -> "eleven fifteen"."""
+    def pair(n: int) -> str:
+        if n < 20:
+            return _ONES[n]
+        tens, ones = divmod(n, 10)
+        names = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+        return names[tens] + (f"-{_ONES[ones]}" if ones else "")
+    high, low = int(number[:2]), int(number[2:])
+    if low == 0:
+        return f"{pair(high)} hundred"
+    return f"{pair(high)} {'oh ' + _ONES[low] if low < 10 else pair(low)}"
+
+
+def spoken_course_codes(text: str) -> str:
+    """Course codes said the way people say them (2026-10-16).
+
+    Nick: "he says the 'CS 2100' before saying the rest… it sounds terrible". Before its title the code is
+    dropped ("MKTG2201 Introduction to Marketing — Lecture" -> "Introduction to Marketing lecture"); on its
+    own it is spelled and read like a year ("CS2100" -> "C S twenty-one hundred").
+    """
+    def say(match: "re.Match[str]") -> str:
+        if _TITLE_AFTER.match(text, match.end()):
+            return "\x00"  # dropped together with the space after it, below
+        return f"{' '.join(match.group(1))} {_year_style(match.group(2))}"
+    out = _COURSE.sub(say, text)
+    out = re.sub(r"\x00\s+", "", out)
+    return _KIND_DASH.sub(lambda m: f" {m.group(1).lower()}", out)
+
+
 def split_sentences(text: str) -> list[str]:
     """Split text into sentences without losing any characters.
 
@@ -1952,7 +1989,7 @@ class Synthesizer:
         emit: Callable[[dict[str, Any]], None],
     ) -> None:
         job_id = str(request.get("id") or f"job-{uuid.uuid4().hex[:10]}")
-        text = spoken_times(str(request.get("text") or ""))
+        text = spoken_times(spoken_course_codes(str(request.get("text") or "")))
         mode = str(request.get("mode") or "file").lower()
         voice = str(request.get("voice") or self.config.voice)
         speed = float(request.get("speed") or self.config.speed)

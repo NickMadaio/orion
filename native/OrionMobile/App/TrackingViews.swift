@@ -173,7 +173,7 @@ struct TodayTracking: View {
                 Image(systemName: "plus").font(.system(size: 12, weight: .bold)).foregroundStyle(tint)
             }
             .padding(12)
-            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Phone.wash(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(tint.opacity(0.25), lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -242,7 +242,6 @@ struct FoodSheet: View {
             .onAppear { focused = recents.isEmpty }
         }
         .presentationDetents([.medium, .large])
-        .preferredColorScheme(.dark)
     }
 
     private func number(_ label: String, _ unit: String, _ value: Binding<String>) -> some View {
@@ -301,7 +300,7 @@ struct Meter: View {
         GeometryReader { geometry in
             let fraction = goal > 0 ? min(1, CGFloat(value) / CGFloat(goal)) : 0
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.08))
+                Capsule().fill(Phone.wash(0.08))
                 Capsule().fill(value > goal ? Phone.red : tint).frame(width: max(height, geometry.size.width * fraction))
                     .opacity(value == 0 ? 0 : 1)
             }

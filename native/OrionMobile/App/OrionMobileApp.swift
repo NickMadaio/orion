@@ -172,27 +172,64 @@ struct PhoneRootView: View {
     @State private var sampleError: String?
     private let sampleNow = Date(timeIntervalSince1970: 1_788_948_000) // 2026-09-09 10:00 UTC
 
-    /// Which tab opens. `--tab plan` (Simulator only) opens another, so a
-    /// screenshot check can reach every screen without taps.
+    /// Which screen is up: "orion" is the chat (home); anything else is a sheet over it
+    /// ("today", "plan", "health", "control"). `--tab plan` (Simulator only) opens one,
+    /// so a screenshot check can reach every screen without taps.
     @State private var tab: String = {
         #if targetEnvironment(simulator)
         let arguments = ProcessInfo.processInfo.arguments
         if let index = arguments.firstIndex(of: "--tab"), index + 1 < arguments.count { return arguments[index + 1] }
         #endif
-        return "today"
+        return "orion"
     }()
+    @State private var drawerOpen: Bool = {
+        #if targetEnvironment(simulator)
+        return ProcessInfo.processInfo.arguments.contains("--drawer")
+        #else
+        return false
+        #endif
+    }()
+    @State private var conversationID: String?
+    @AppStorage("orion.appearance") private var appearance = "dark"
+
+    private var sheetOpen: Binding<Bool> {
+        Binding(get: { tab != "orion" }, set: { if !$0 { tab = "orion" } })
+    }
+    private var colorScheme: ColorScheme? { appearance == "light" ? .light : appearance == "system" ? nil : .dark }
+
+    private var shell: some View {
+        PhoneDrawerHost(open: $drawerOpen) {
+            NavigationStack { ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true }) }
+        } drawer: {
+            PhoneDrawer(chats: ChatSummary.list(from: remote.conversation), currentChat: conversationID,
+                        waitingApprovals: remote.snapshot?.approvals.count ?? 0, online: remote.presence == .online,
+                        appearance: $appearance,
+                        onNewChat: { conversationID = UUID().uuidString; drawerOpen = false },
+                        onOpenChat: { conversationID = $0; drawerOpen = false },
+                        onOpenSection: { tab = $0; drawerOpen = false })
+        }
+    }
+
+    @ViewBuilder private var sectionScreen: some View {
+        switch tab {
+        case "plan": plan
+        case "health": HealthView(remote: remote)
+        case "control": control
+        default: today
+        }
+    }
+
+    private var sheetContent: some View {
+        PhoneSheetFrame(close: { tab = "orion" }) { sectionScreen }
+            .tint(Phone.accent).preferredColorScheme(colorScheme)
+    }
 
     var body: some View {
-        TabView(selection: $tab) {
-            NavigationStack { today }.tabItem { Label("Today", systemImage: "sun.max") }.tag("today")
-            NavigationStack { plan }.tabItem { Label("Plan", systemImage: "calendar") }.tag("plan")
-            NavigationStack { ConversationView(remote: remote) }.tabItem { Label("ORION", systemImage: "waveform") }.tag("orion")
-            NavigationStack { HealthView(remote: remote) }.tabItem { Label("Health", systemImage: "heart") }.tag("health")
-            NavigationStack { control }.tabItem { Label("Control", systemImage: "slider.horizontal.3") }.tag("control")
-        }
+        shell
+        .sheet(isPresented: sheetOpen) { sheetContent }
         .tint(Phone.accent)
-        .preferredColorScheme(.dark)
-        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in tab = "orion" }
+        .preferredColorScheme(colorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in tab = "orion"; drawerOpen = false }
         .onAppear { if ThreadTarget.pending != nil { tab = "orion" } }
         .task {
             #if targetEnvironment(simulator)
@@ -279,6 +316,7 @@ struct PhoneRootView: View {
             case "orion", "chat": tab = "orion"
             default: tab = "today"
             }
+            drawerOpen = false
         }
     }
 

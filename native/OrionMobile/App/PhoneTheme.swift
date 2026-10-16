@@ -10,18 +10,30 @@ import SwiftUI
  rings instead of filled chrome; mono for labels and every number.
 */
 enum Phone {
-    static let ink = Color(red: 0.035, green: 0.04, blue: 0.056)
-    static let text = Color.white.opacity(0.94)
-    static let soft = Color.white.opacity(0.62)
-    static let dim = Color.white.opacity(0.38)
-    static let hairline = Color.white.opacity(0.08)
+    /// A colour that is one value in dark mode and another in light.
+    static func adaptive(dark: UIColor, light: UIColor) -> Color {
+        Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
+    /// Foreground ink at an opacity: white on dark, black on light. For hairlines and washes.
+    static func wash(_ opacity: Double) -> Color {
+        adaptive(dark: UIColor.white.withAlphaComponent(opacity), light: UIColor.black.withAlphaComponent(opacity))
+    }
 
-    // The Mac's palette, so the two apps read as one product.
-    static let accent = Color(red: 0.18, green: 0.83, blue: 1.00)
-    static let green = Color(red: 0.36, green: 0.92, blue: 0.60)
-    static let orange = Color(red: 1.00, green: 0.58, blue: 0.20)
-    static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
-    static let red = Color(red: 1.00, green: 0.38, blue: 0.38)
+    // Calm, near-black in dark mode (first), warm off-white in light.
+    static let ink = adaptive(dark: UIColor(red: 0.035, green: 0.04, blue: 0.05, alpha: 1),
+                              light: UIColor(red: 0.975, green: 0.975, blue: 0.97, alpha: 1))
+    static let text = adaptive(dark: UIColor.white.withAlphaComponent(0.92), light: UIColor.black.withAlphaComponent(0.88))
+    static let soft = wash(0.62)
+    static let dim = wash(0.40)
+    static let hairline = wash(0.09)
+
+    // One accent: ORION's cyan, a touch calmer. The rest only mark status.
+    static let accent = adaptive(dark: UIColor(red: 0.33, green: 0.80, blue: 0.96, alpha: 1),
+                                 light: UIColor(red: 0.04, green: 0.50, blue: 0.70, alpha: 1))
+    static let green = Color(red: 0.30, green: 0.80, blue: 0.52)
+    static let orange = Color(red: 0.96, green: 0.56, blue: 0.20)
+    static let violet = accent
+    static let red = Color(red: 0.95, green: 0.36, blue: 0.36)
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
@@ -40,17 +52,10 @@ enum Phone {
     }
 }
 
-/// The screen behind everything: ink, with the accent glowing faintly from the top.
+/// The screen behind everything: flat, calm ink. No glow, no gradient.
 struct PhoneBackdrop: View {
     var tint: Color = Phone.accent
-    var body: some View {
-        ZStack {
-            Phone.ink
-            RadialGradient(colors: [tint.opacity(0.16), .clear], center: .topLeading, startRadius: 0, endRadius: 420)
-            RadialGradient(colors: [Phone.violet.opacity(0.07), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 380)
-        }
-        .ignoresSafeArea()
-    }
+    var body: some View { Phone.ink.ignoresSafeArea() }
 }
 
 /// A screen's own header: a mono date line and one large title. The navigation
@@ -211,5 +216,23 @@ extension View {
             .scrollContentBackground(.hidden)
             .background(PhoneBackdrop())
             .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+/// A secondary screen shown over the chat: its own navigation stack and a quiet close button.
+struct PhoneSheetFrame<Content: View>: View {
+    let close: () -> Void
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        NavigationStack { content() }
+            .overlay(alignment: .topTrailing) {
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Phone.soft)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .padding(.top, 6).padding(.trailing, 8)
+                .accessibilityLabel("Close").accessibilityIdentifier("closeSheet")
+            }
+            .background(Phone.ink.ignoresSafeArea())
     }
 }

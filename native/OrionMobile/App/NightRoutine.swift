@@ -531,6 +531,5 @@ struct RoutineSettingsSheet: View {
             .navigationTitle("Tonight").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .preferredColorScheme(.dark)
     }
 }

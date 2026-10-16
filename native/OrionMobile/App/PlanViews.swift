@@ -277,7 +277,6 @@ struct EventEditor: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .tint(Phone.accent)
     }
 }
@@ -302,7 +301,6 @@ struct OrionBlockSheet: View {
             .background(PhoneBackdrop(tint: item.tint))
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .preferredColorScheme(.dark)
         .presentationDetents([.medium])
     }
 }

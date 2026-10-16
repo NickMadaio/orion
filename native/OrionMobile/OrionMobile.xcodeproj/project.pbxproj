@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0000000000000000000C5002 /* App/PhoneDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C5001 /* App/PhoneDrawer.swift */; };
+		0000000000000000000C4002 /* App/ChatTopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C4001 /* App/ChatTopBar.swift */; };
+		0000000000000000000C3002 /* App/ChatTalkingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C3001 /* App/ChatTalkingView.swift */; };
+		0000000000000000000C2002 /* App/ChatComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C2001 /* App/ChatComposer.swift */; };
+		0000000000000000000C1002 /* App/ChatMessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C1001 /* App/ChatMessageViews.swift */; };
 		00000000000000000000000D /* App/OrionMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* App/OrionMobileApp.swift */; };
 		00000000000000000000000E /* AppUITests/PhoneShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* AppUITests/PhoneShellTests.swift */; };
 		000000000000000000000020 /* MobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 00000000000000000000001F /* MobileCore */; };
@@ -94,6 +99,11 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0000000000000000000C5001 /* App/PhoneDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDrawer.swift; sourceTree = "<group>"; };
+		0000000000000000000C4001 /* App/ChatTopBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatTopBar.swift; sourceTree = "<group>"; };
+		0000000000000000000C3001 /* App/ChatTalkingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatTalkingView.swift; sourceTree = "<group>"; };
+		0000000000000000000C2001 /* App/ChatComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatComposer.swift; sourceTree = "<group>"; };
+		0000000000000000000C1001 /* App/ChatMessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatMessageViews.swift; sourceTree = "<group>"; };
 		000000000000000000000006 /* App/OrionMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/OrionMobileApp.swift; sourceTree = "<group>"; };
 		000000000000000000000007 /* AppUITests/PhoneShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUITests/PhoneShellTests.swift; sourceTree = "<group>"; };
 		000000000000000000000008 /* OrionPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = OrionPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -206,6 +216,11 @@
 				000000000000000000000D01 /* App/FinishEarly.swift */,
 				000000000000000000000D03 /* App/FocusLists.swift */,
 				000000000000000000000D05 /* App/PhoneOrb.swift */,
+				0000000000000000000C5001 /* App/PhoneDrawer.swift */,
+				0000000000000000000C4001 /* App/ChatTopBar.swift */,
+				0000000000000000000C3001 /* App/ChatTalkingView.swift */,
+				0000000000000000000C2001 /* App/ChatComposer.swift */,
+				0000000000000000000C1001 /* App/ChatMessageViews.swift */,
 				000000000000000000000023 /* App/PhoneDeviceIdentity.swift */,
 				000000000000000000000006 /* App/OrionMobileApp.swift */,
 				000000000000000000000007 /* AppUITests/PhoneShellTests.swift */,
@@ -407,6 +422,11 @@
 				000000000000000000000D02 /* App/FinishEarly.swift in Sources */,
 				000000000000000000000D04 /* App/FocusLists.swift in Sources */,
 				000000000000000000000D06 /* App/PhoneOrb.swift in Sources */,
+				0000000000000000000C5002 /* App/PhoneDrawer.swift in Sources */,
+				0000000000000000000C4002 /* App/ChatTopBar.swift in Sources */,
+				0000000000000000000C3002 /* App/ChatTalkingView.swift in Sources */,
+				0000000000000000000C2002 /* App/ChatComposer.swift in Sources */,
+				0000000000000000000C1002 /* App/ChatMessageViews.swift in Sources */,
 				000000000000000000000024 /* App/PhoneDeviceIdentity.swift in Sources */,
 				000000000000000000000026 /* App/PairingApprovalView.swift in Sources */,
 				000000000000000000000028 /* App/PhoneHTTPReadSession.swift in Sources */,

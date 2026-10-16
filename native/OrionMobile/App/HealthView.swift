@@ -102,7 +102,7 @@ struct RecoveryRing: View {
     }
     var body: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.08), lineWidth: 9)
+            Circle().stroke(Phone.wash(0.08), lineWidth: 9)
             Circle().trim(from: 0, to: CGFloat(value ?? 0) / 100)
                 .stroke(Self.tint(value), style: StrokeStyle(lineWidth: 9, lineCap: .round))
                 .rotationEffect(.degrees(-90))

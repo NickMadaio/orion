@@ -104,9 +104,18 @@ final class RemoteStore: ObservableObject {
             plan: Self.fixturePlan(now),
             planRequest: .init(id: "p1", action: "plan", state: .done, message: "3 tasks placed · 150 min kept free", at: now.addingTimeInterval(-300)))
         conversation = [
+            .init(id: "m0", text: "", sentAt: now.addingTimeInterval(-3 * 3600), kind: .chat, status: .done,
+                  reply: "Morning. Your recovery is 84%, so today is a good one for the hard session. What are you planning to get done before the seminar?",
+                  repliedAt: now.addingTimeInterval(-3 * 3600), askID: "ask-1"),
+            .init(id: "m0b", text: "Essay outline, then the gym after.", sentAt: now.addingTimeInterval(-3 * 3600 + 120), kind: .chat, status: .done,
+                  reply: "Good. I put the **essay outline** at 10:00 and kept **gym** for 6pm. Reply to Prof. Hale fits in the gap before the seminar.",
+                  repliedAt: now.addingTimeInterval(-3 * 3600 + 130)),
             .init(id: "m1", text: "What does my day look like?", sentAt: now.addingTimeInterval(-600), kind: .chat, status: .done,
                   reply: "Seminar at 2pm, then nothing booked until your 6pm run. You have about three free hours this afternoon — the best block is 3 to 5.", repliedAt: now.addingTimeInterval(-594)),
-            .init(id: "m2", text: "How is the agent run going?", sentAt: now.addingTimeInterval(-60), kind: .chat, status: .running),
+            .init(id: "m2", text: "How is the agent run going?", sentAt: now.addingTimeInterval(-60), kind: .chat, status: .done,
+                  reply: "It is on task 3 of 5, writing the tests. 11 of 30 changes are accepted so far and nothing is blocked.", repliedAt: now.addingTimeInterval(-50)),
+            .init(id: "m3", text: "", sentAt: now.addingTimeInterval(-20), kind: .chat, status: .done,
+                  reply: "The seminar starts in 20 minutes. Do you want me to move the Hale reply to this evening?", repliedAt: now.addingTimeInterval(-20), askID: "ask-2"),
         ]
     }
     #endif
@@ -595,7 +604,7 @@ struct ProgressStrip: View {
     var body: some View {
         HStack(spacing: total > 24 ? 1.5 : 3) {
             ForEach(0..<max(total, 1), id: \.self) { index in
-                Capsule().fill(index < done ? Phone.green : Color.white.opacity(0.12)).frame(height: 5)
+                Capsule().fill(index < done ? Phone.green : Phone.wash(0.12)).frame(height: 5)
             }
         }
         .accessibilityLabel("\(done) of \(total) done")

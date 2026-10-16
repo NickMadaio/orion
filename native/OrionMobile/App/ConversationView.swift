@@ -2,23 +2,27 @@ import SwiftUI
 import MobileCore
 
 /*
- Talking to ORION from the phone (2026-09-28).
+ The chat is the home screen (redesigned 2026-10-16, after "looks terrible").
 
  Each message is a `LinkCommand` of kind "chat" in Nick's private iCloud; the
  Mac hands it to ORION's brain through orion-remote — the same conversation the
- Mac app, voice and Discord share — and writes the answer onto the same record.
- So the history survives reinstalls and is the same on every device.
+ Mac app, voice and Discord share. The look follows the Claude and ChatGPT apps:
+ ORION is plain left-aligned text, Nick a quiet bubble on the right, a minimal
+ top bar (drawer, title, new chat) and a simple composer. Everything else lives
+ in the drawer (PhoneDrawer) and its sheets.
 
- Styled like the rest of ORION: text on the backdrop, not bubbles in boxes.
- Nick's lines sit right in the accent colour; ORION's answers read as prose.
+ Pushed messages (an askId) are ORION speaking first. A tap on one scrolls here
+ through `ThreadTarget` / `.orionOpenThread`; that wiring is unchanged.
 */
 struct ConversationView: View {
     @ObservedObject var remote: RemoteStore
+    /// The chat shown: nil is the whole history, otherwise one conversation id.
+    @Binding var conversationID: String?
+    let onMenu: () -> Void
     @StateObject private var voice = PhoneVoice()
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     @State private var showingTalk = false
-    @State private var conversationID: String?
     @State private var selectedModel: String?
     @FocusState private var typing: Bool
     /// The pushed message he tapped (or nil): a reply answers it, and the thread scrolls to it.
@@ -31,23 +35,48 @@ struct ConversationView: View {
         "What should I focus on next?",
     ]
 
+    private var visible: [CloudLink.Message] {
+        remote.conversation.filter { conversationID == nil || $0.conversationID == conversationID || $0.askID != nil }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            ChatTopBar(title: "ORION", subtitle: presenceLine, online: remote.presence == .online, models: remote.snapshot?.chatModels ?? [],
+                       selectedModel: $selectedModel, onMenu: onMenu, onNew: { conversationID = UUID().uuidString })
+            thread
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ChatComposer(draft: $draft, voice: voice, typing: $typing, replyingTo: tappedAsk,
+                         onClearReply: { tappedAsk = nil }, onSend: send, onTalk: talk)
+        }
+        .background(Phone.ink.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .fullScreenCover(isPresented: $showingTalk, onDismiss: { voice.stop() }) {
+            ChatTalkingView(voice: voice, onClose: { voice.stop(); showingTalk = false }, onRetry: talk)
+        }
+    }
+
+    private var thread: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
-                    PhoneHeader(eyebrow: presenceLine, title: "ORION")
-                    PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level, size: 56)
-                        .frame(maxWidth: .infinity)
-                    if remote.conversation.isEmpty { emptyState }
-                    ForEach(remote.conversation.filter { conversationID == nil || $0.conversationID == conversationID || $0.askID != nil }) { message in
-                        exchange(message).id(message.id)
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    if visible.isEmpty {
+                        ChatEmptyState(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level,
+                                       suggestions: suggestions) { remote.say($0, conversation: conversationID, model: selectedModel) }
+                    }
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
+                        if index == 0 || message.sentAt.timeIntervalSince(visible[index - 1].sentAt) > 3600 { ChatTimeMarker(date: message.sentAt) }
+                        ChatExchange(message: message, awaitingReplyTo: replyTarget, waitingText: waitingText,
+                                     onReply: { tappedAsk = $0; typing = true },
+                                     onDecline: { id in remote.say("Not now", conversation: conversationID, model: selectedModel, replyTo: id); tappedAsk = nil })
+                            .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .background(Color.clear.contentShape(Rectangle()).onTapGesture { typing = false })
-                .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 20)
+                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
             }
             .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.bottom)
             .onChange(of: remote.conversation) { _, messages in
                 withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 for message in messages where message.status == .done || message.status == .failed {
@@ -70,26 +99,6 @@ struct ConversationView: View {
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
             }
         }
-        .safeAreaInset(edge: .bottom) { inputBar }
-        .phoneScreen()
-        .fullScreenCover(isPresented: $showingTalk, onDismiss: { voice.stop() }) {
-            talkingView
-        }
-        .navigationTitle("ORION")
-        .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { Menu("Chats") {
-                Button("New chat") { conversationID = UUID().uuidString }
-                Button("All history") { conversationID = nil }
-                ForEach(Array(Set(remote.conversation.compactMap(\.conversationID))).sorted(), id: \.self) { id in
-                    Button(remote.conversation.first { $0.conversationID == id }?.text.prefix(40).description ?? "Chat") { conversationID = id }
-                }
-            } }
-            ToolbarItem(placement: .topBarLeading) { Menu("Model") {
-                Button("Default") { selectedModel = nil }
-                ForEach(remote.snapshot?.chatModels ?? []) { model in Button(model.label) { selectedModel = model.id } }
-            } }
-        }
     }
 
     /// The pushed message a reply answers: the one he tapped, else the latest he has not answered (MobileCore's rule).
@@ -105,51 +114,10 @@ struct ConversationView: View {
 
     private var presenceLine: String {
         switch remote.presence {
-        case .online: return "Your Mac is online"
-        case .stale: return "Your Mac is slow to respond"
-        case .offline: return "Your Mac is offline · ORION answers from your iPhone"
-        case .unknown: return "Waiting to hear from your Mac"
-        }
-    }
-
-    // MARK: Messages
-
-    private func exchange(_ message: CloudLink.Message) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // ORION started this one (orion-reach): no words from Nick to show.
-            if !message.text.isEmpty { HStack {
-                Spacer(minLength: 48)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(message.text).font(.system(size: 16, weight: .medium)).foregroundStyle(Phone.accent)
-                        .multilineTextAlignment(.trailing).textSelection(.enabled)
-                    Text(message.sentAt.formatted(date: .omitted, time: .shortened))
-                        .font(Phone.mono(10, .medium)).foregroundStyle(Phone.dim)
-                }
-            } }
-            reply(message)
-        }
-    }
-
-    @ViewBuilder
-    private func reply(_ message: CloudLink.Message) -> some View {
-        switch message.status {
-        case .pending, .running:
-            HStack(spacing: 10) {
-                PhoneOrb(mood: .thinking, size: 20)
-                Text(message.status == .pending ? waitingText : "ORION is thinking…")
-                    .font(.system(size: 14)).foregroundStyle(Phone.dim)
-            }
-        case .done, .failed:
-            VStack(alignment: .leading, spacing: 6) {
-                Text(message.id.hasPrefix("local-") ? "ORION · ON YOUR IPHONE" : "ORION").font(Phone.mono(9, .semibold)).tracking(1.4)
-                    .foregroundStyle(message.status == .failed ? Phone.orange : Phone.violet)
-                if let thinking = message.thinking, !thinking.isEmpty { DisclosureGroup("Thinking") { Text(thinking).font(.system(size: 12)).textSelection(.enabled) }.foregroundStyle(Phone.dim) }
-                Text(Self.rendered(message.reply ?? "No answer came back."))
-                    .font(.system(size: 16)).lineSpacing(3)
-                    .foregroundStyle(message.status == .failed ? Phone.orange : Phone.text)
-                    .textSelection(.enabled)
-            }
-            .padding(.trailing, 36)
+        case .online: return "Mac online"
+        case .stale: return "Mac slow to respond"
+        case .offline: return "Mac offline"
+        case .unknown: return "Connecting"
         }
     }
 
@@ -163,36 +131,6 @@ struct ConversationView: View {
         remote.presence == .online ? "Sent to your Mac…" : "Waiting for your Mac to come online…"
     }
 
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Ask anything. ORION answers from your Mac, with your calendar, tasks, projects and memory.")
-                .font(.system(size: 15)).foregroundStyle(Phone.soft)
-            ForEach(suggestions, id: \.self) { suggestion in
-                Button { remote.say(suggestion) } label: {
-                    HStack {
-                        Text(suggestion).font(.system(size: 15, weight: .medium)).foregroundStyle(Phone.text)
-                        Spacer()
-                        Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Phone.accent)
-                    }
-                    .padding(.vertical, 12)
-                    .overlay(alignment: .bottom) { Rectangle().fill(Phone.hairline).frame(height: 1) }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    // MARK: Input
-
-    private var inputBar: some View {
-        VStack(spacing: 0) {
-            VoiceBar(voice: voice)
-            typingBar
-        }
-        .background(.ultraThinMaterial)
-    }
-
     private func talk() {
         typing = false
         showingTalk = true
@@ -201,88 +139,6 @@ struct ConversationView: View {
                 remote.say(text, conversation: conversationID, model: selectedModel, replyTo: replyTarget) { id in voice.sent(id: id) }
             }
         }
-    }
-
-    private var talkingView: some View {
-        GeometryReader { geometry in
-        VStack(spacing: 20) {
-            HStack {
-                Text("ORION").font(Phone.mono(12, .semibold)).tracking(2).foregroundStyle(Phone.accent)
-                Spacer()
-                Button { voice.stop(); showingTalk = false } label: {
-                    Label("Back to chat", systemImage: "chevron.down")
-                        .font(.system(size: 14, weight: .medium)).foregroundStyle(Phone.soft)
-                }.accessibilityIdentifier("closeTalkingMode")
-            }
-            Spacer(minLength: 20)
-            PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: false), level: voice.level, size: min(300, geometry.size.width - 48), fullProjection: true)
-                .accessibilityIdentifier("talkingHologram")
-            Text(talkingStatus).font(Phone.mono(12, .medium)).tracking(1.5).foregroundStyle(Phone.accent)
-            Text(voice.heard.isEmpty ? "Speak, then pause when you’re done." : voice.heard)
-                .font(.system(size: 17)).foregroundStyle(Phone.soft)
-                .multilineTextAlignment(.center).lineLimit(4).frame(minHeight: 80)
-            if case .unavailable(let reason) = voice.phase {
-                Text(reason).font(.system(size: 14)).foregroundStyle(Phone.orange).multilineTextAlignment(.center)
-                Button("Try again", action: talk).foregroundStyle(Phone.accent)
-            }
-            Spacer(minLength: 20)
-            Button("End conversation") { voice.stop(); showingTalk = false }
-                .font(.system(size: 15, weight: .medium)).foregroundStyle(Phone.text)
-                .padding(.horizontal, 24).padding(.vertical, 14)
-                .background(Color.white.opacity(0.08), in: Capsule())
-                .accessibilityIdentifier("endTalkingMode")
-        }
-        .padding(24).background(Phone.ink.ignoresSafeArea())
-        .onChange(of: voice.phase) { _, phase in
-            if phase == .off { showingTalk = false }
-        }
-        }
-    }
-
-    private var talkingStatus: String {
-        switch voice.phase {
-        case .off: "GETTING READY"
-        case .listening: "LISTENING"
-        case .sending, .waiting: "THINKING"
-        case .speaking: "SPEAKING"
-        case .unavailable: "MICROPHONE UNAVAILABLE"
-        }
-    }
-
-    private var typingBar: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            if typing {
-                Button { typing = false } label: {
-                    Image(systemName: "chevron.down").foregroundStyle(Phone.dim).frame(width: 28, height: 28)
-                }.buttonStyle(.plain).accessibilityLabel("Hide keyboard")
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-            TextField("Message ORION", text: $draft, axis: .vertical)
-                .lineLimit(1...4).font(.system(size: 15)).focused($typing)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(typing ? Phone.accent.opacity(0.5) : Phone.hairline, lineWidth: 1))
-                .animation(.easeOut(duration: 0.2), value: typing)
-                .submitLabel(.send)
-                .onSubmit(send)
-            if canSend || voice.active {
-                Button(action: send) {
-                    Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold)).foregroundStyle(.black)
-                        .frame(width: 34, height: 34)
-                        .background(canSend ? Phone.accent : Color.white.opacity(0.15), in: Circle())
-                }
-                .buttonStyle(.plain).disabled(!canSend).accessibilityLabel("Send")
-            } else {
-                Button(action: talk) {
-                    Image(systemName: "waveform").font(.system(size: 14, weight: .bold)).foregroundStyle(.black)
-                        .frame(width: 34, height: 34)
-                        .background(Phone.accent, in: Circle())
-                }
-                .buttonStyle(.plain).accessibilityLabel("Talk to ORION").accessibilityIdentifier("talk")
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .animation(.easeOut(duration: 0.2), value: typing)
     }
 
     private var waiting: Bool { remote.conversation.contains { $0.status == .pending || $0.status == .running } }
@@ -295,23 +151,5 @@ struct ConversationView: View {
         draft = ""
         remote.say(text, conversation: conversationID, model: selectedModel, replyTo: replyTarget)
         tappedAsk = nil
-    }
-}
-
-/// Three dots that breathe while ORION works on an answer.
-struct PhoneThinkingDots: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 4) {
-                ForEach(0..<3) { index in
-                    let phase = (sin(t * 5 - Double(index) * 0.8) + 1) / 2
-                    Circle().fill(Phone.violet.opacity(0.35 + 0.65 * phase)).frame(width: 6, height: 6)
-                        .offset(y: -2.5 * phase)
-                }
-            }
-        }
-        .accessibilityHidden(true)
     }
 }

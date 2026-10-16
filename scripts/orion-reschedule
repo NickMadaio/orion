@@ -234,8 +234,11 @@ if (flag("--until") !== undefined && !["extend", "move"].includes(command) && un
 // "a stretch block tomorrow at 7:30 am" was booked 9:32 as "already past" and reported Done (smoke test, 2026-10-16).
 // Only a time that really is behind us today stays past. The window opens at most 2 h before his usual wake:
 // a stated 03:00 no longer widens it to 3 AM (review, 2026-10-16).
+// 2026-10-16 (live r05): the cap was wake - 2 h, so a late riser (usual wake 10:32) got a window opening at 08:32 and a
+// stated 07:30 TOMORROW was "already past" (replan reads anything before the window as past, on any day). The cap is now an
+// absolute 05:00: a time on another day, or still ahead today, is never past; only a stated 03:00 stays out.
 const statedStart = command === "add" ? minute(flag("--at")) : null;
-const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, wakeMinute - 120)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
+const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, 300)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
 // Words keep five letters ("studying" ~ "study"), but a word with a digit is a code and stays whole:
 // cut to five, CS2101 and CS2100 were both "cs210" (2026-10-11).

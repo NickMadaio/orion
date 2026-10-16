@@ -20,10 +20,15 @@ final class ScheduleFocusWatcher {
             var text: CFTypeRef?
             if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &text) == .success { title = text as? String ?? "" }
         }
-        if !["Instagram", "TikTok", "Reddit", "X", "Twitter", "Facebook", "YouTube"].contains(name), name != "Orion" { lastWorkApp = name }
+        let bundleID = app.bundleIdentifier
+        let neverTarget = EnforcementGuard.isNeverATarget(name: name, bundleID: bundleID)
+        // 2026-10-16: loginwindow and the lock screen are not work apps and not targets.
+        if !neverTarget, !["Instagram", "TikTok", "Reddit", "X", "Twitter", "Facebook", "YouTube"].contains(name), name != "Orion" { lastWorkApp = name }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let file = home.appendingPathComponent(".openclaw/orion-controlled/focus-activity.json")
-        let object: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "app": name, "title": title, "idleSeconds": CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .null), "enforcementAllowed": enforcement, "workApp": lastWorkApp ?? ""]
+        // 2026-10-16: nil means the system gave nonsense (it said 11.8 days for 40 s); report 0 and switch enforcement off for this tick.
+        let idle = IdleReading.current()
+        let object: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "app": name, "title": title, "idleSeconds": idle ?? 0, "idleValid": idle != nil, "enforcementAllowed": EnforcementGuard.allowed(consent: enforcement, idleValid: idle != nil, name: name, bundleID: bundleID), "workApp": lastWorkApp ?? ""]
         guard let data = try? JSONSerialization.data(withJSONObject: object), (try? data.write(to: file, options: .atomic)) != nil else { return }
         running = true
         DispatchQueue.global(qos: .utility).async { [weak self] in

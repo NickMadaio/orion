@@ -110,7 +110,9 @@ const here = await presence(now, { dir: DIR, facts: givenFacts });
 if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
 const aw = resolveAwareness({ dir: DIR, now, env: process.env, legacy: here, probe: !dry });
 if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: "awake", source: "caller" };
-const verdict = gate(aw, { kind, urgentKind, now });
+let verdict = gate(aw, { kind, urgentKind, now });
+// --awake is proof he is up and at hand (his wake signal), so a calendar "in class" does not hold the brief for hours.
+if (args.includes("--awake") && verdict.heldFor === "class") verdict = { action: "deliver", reason: "he is up (the caller has proof); a class on the calendar does not hold it" };
 const heard = audienceOf(aw);
 const headphones = heard.macHeadphones ?? !!here.headphones;
 const forced = flag("--channel");

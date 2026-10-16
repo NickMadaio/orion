@@ -144,7 +144,10 @@ function notifyWorld() {
   const log = join(home, "calls.log");
   const disc = exe(home, "discord", `echo "discord $1" | tr '\\n' ' ' | head -c 60 >> ${log}; echo >> ${log}\n[ -f ${home}/discord-up ] && exit 0\nexit 1`);
   const reach = exe(home, "reach", `[ -f ${home}/reach-up ] || exit 4\nsleep 1\necho "reach $1" | tr '\\n' ' ' | head -c 70 >> ${log}; echo >> ${log}\nexit 0`);
-  const env = { PATH: process.env.PATH, HOME: home, ORION_DISCORD_ALERT_BIN: disc, ORION_REACH_BIN: reach, ORION_SESSION_SOCKET: join(home, "no.sock") };
+  // His sleep window decides quiet now (awareness 3.1); the old fixed 23:00-08:00 is only the fallback, so the test sets it as his window.
+  writeFileSync(join(home, "config.json"), JSON.stringify({ bedtime: "23:00", usualWake: "08:00" }));
+  const env = { PATH: process.env.PATH, HOME: home, ORION_LIFE_CONFIG: join(home, "config.json"), ORION_DISCORD_ALERT_BIN: disc, ORION_REACH_BIN: reach, ORION_SESSION_SOCKET: join(home, "no.sock"),
+    ORION_REACH_FACTS: JSON.stringify({ idleSeconds: 9999, locked: true }) };   // awareness refresh must not read the real Mac
   const run = (args, timeout = 120000) => spawnSync(process.execPath, [join(W, "scripts/orion-notify"), ...args], { encoding: "utf8", env, timeout });
   const state = () => JSON.parse(readFileSync(join(home, ".openclaw/orion-controlled/remote.json"), "utf8"));
   const calls = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);

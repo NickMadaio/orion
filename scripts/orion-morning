@@ -138,7 +138,12 @@ function showScreen(view) {
 
 // A function declaration, so it is hoisted: gather() runs above this line and a const here is a temporal-dead-zone error
 // that silently turned every calendar read into "unknown" and every weather read into null (found by the review probes).
-function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))]); }
+// The timer is cleared when the race ends: a live 20 s timer kept the finished process open for 20 s.
+function withTimeout(promise, ms) {
+  let timer;
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timed out")), ms); });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
 
 async function readWeather() {
   // ORION_WEATHER_FILE is a test seam (never the network in tests); a missing or FAIL file is a failure.

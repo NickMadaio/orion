@@ -59,3 +59,8 @@ export function gather({ dir, now = new Date(), audio = false, headphones = true
     ...(audio ? parseVolume(sh("/usr/bin/osascript", ["-e", "get volume settings"])) : {}),
   };
 }
+
+/** The tests' fixed-Mac-facts seam (ORION_REACH_FACTS). Every awareness reader and refresh honours it, so none reads the real Mac under test. */
+export function seamFacts(env = process.env) {
+  try { return env.ORION_REACH_FACTS ? JSON.parse(env.ORION_REACH_FACTS) : null; } catch { return null; }
+}

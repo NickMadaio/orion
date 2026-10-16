@@ -14,7 +14,7 @@
    orion-awareness place learn [--apply]       propose home from overnight charging; never overrides a confirmed home
    orion-awareness curiosity pause --days N
 
- Seams (tests): ORION_REACH_NOW, ORION_CONTROLLED_DIR, ORION_SESSION_SOCKET, ORION_REACH_BIN, ORION_PROACTIVE_BIN.
+ Seams (tests): ORION_REACH_NOW, ORION_REACH_FACTS (fixed Mac facts, no real Mac read), ORION_CONTROLLED_DIR, ORION_SESSION_SOCKET, ORION_REACH_BIN, ORION_PROACTIVE_BIN.
 */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, statSync, writeFileSync, utimesSync } from "node:fs";
@@ -23,8 +23,10 @@ import { readAwareness, writeAwareness, controlledDir } from "./lib/awareness/st
 import { sessionFacet, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, isFresh, LIMITS } from "./lib/awareness/facets.mjs";
 import { readJson, updateJson } from "./lib/awareness/io.mjs";
 import { readKnownPlaces, writeKnownPlaces, learnHome, reconcileHome, matchPlace, isNickConfirmed } from "./lib/awareness/places.mjs";
-import { gather } from "./lib/reach/facts.mjs";
+import { gather, seamFacts } from "./lib/reach/facts.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
+import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
+import { actualWake } from "./lib/life/night.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
@@ -51,10 +53,21 @@ async function calendarNow(previous) {
   } catch { return calendarFacet(null, [], now); }
 }
 
+/** "In class" holds the gate, but not for a class he is evidently not at (slept through it): then `now.missed` (spec 4.0). */
+function markMissedClass(calendar, log, at) {
+  const cls = calendar?.state === "ok" && calendar.now?.kind === "class" ? calendar.now : null;
+  if (!cls) return calendar;
+  const date = at.toLocaleDateString("en-CA");
+  const wokeAt = actualWake(date, { nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [], sleepLog: log.sleepLog ?? [], phoneSignals: log.phoneSignals ?? [], now: at })?.minute ?? null;
+  const verdict = classAttendance({ start: cls.start, end: cls.end }, { wokeAt, phone: phoneMinutes(log.phoneSignals, date) });
+  return verdict === "missed" ? { ...calendar, now: { ...cls, missed: true } } : calendar;
+}
+
 async function refresh({ session } = {}) {
   const prev = readAwareness({ dir: DIR, now, maxAgeMs: Infinity });
   const raw = readJson(join(DIR, "awareness.json"));
-  const activity = readJson(join(DIR, "focus-activity.json"));
+  const given = seamFacts();   // tests: fixed Mac facts, so neither focus-activity.json nor the real Mac is read
+  const activity = given ? null : readJson(join(DIR, "focus-activity.json"));
   const log = readJson(join(DIR, "health-log.json")) ?? {};
   const places = readKnownPlaces(DIR);
   const sessionF = session ? sessionFacet(session, now, { source: "phase-hook", previous: raw?.session })
@@ -63,7 +76,7 @@ async function refresh({ session } = {}) {
   let macF = macFacet(activity, null, now);
   let macFacts = { idleSeconds: macF.idleSeconds, locked: macF.state === "locked", displayAsleep: macF.state === "asleep" };
   if (macF.state === "unknown") {
-    const g = gather({ dir: DIR, now, headphones: false });
+    const g = given ?? gather({ dir: DIR, now, headphones: false });
     macFacts = { idleSeconds: g.idleSeconds, locked: g.locked, displayAsleep: g.displayAsleep };
     macF = macFacet({ at: now.toISOString(), idleSeconds: g.idleSeconds, idleValid: g.idleSeconds !== null, locked: g.locked }, null, now);
   }
@@ -73,7 +86,7 @@ async function refresh({ session } = {}) {
   const newestEvent = events.map((e) => e.at).sort().at(-1) ?? null;
   const aw = {
     schema: "orion.awareness.v1", at: now.toISOString(),
-    session: sessionF, calendar: await calendarNow(raw?.calendar), location, mac: macF, phone: phoneFacet(log, now),
+    session: sessionF, calendar: markMissedClass(await calendarNow(raw?.calendar), log, now), location, mac: macF, phone: phoneFacet(log, now),
     audio: audioFacet(activity, log.phoneSignals, now),
     sleep: sleepFacet({ now, config: loadConfig(), night: readJson(join(DIR, "night.json")),
       nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [], mac: macFacts, signal }),

@@ -3,7 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { gate, loadAwareness, resolveAwareness, audienceOf, sessionFromStatus } from "../scripts/lib/reach/gate.mjs";
+import { readAwareness } from "../scripts/lib/awareness/state.mjs";
+import { gate, resolveAwareness, audienceOf, sessionFromStatus } from "../scripts/lib/reach/gate.mjs";
 import { chooseChannel, speakOnMac } from "../scripts/lib/reach/route.mjs";
 import { awareness, harness, NOW } from "./delivery-helpers.mjs";
 
@@ -36,27 +37,27 @@ test("no awareness at all delivers (unknown is never a reason to hold)", () => {
   assert.equal(gate({}, { now: NOW }).action, "deliver");
 });
 
-test("loadAwareness: a facet past its limit is unknown, whatever it says", () => {
+test("readAwareness (the one reader): a facet past its limit is unknown, whatever it says", () => {
   const h = harness();
   h.setAwareness({ session: { state: "focus", at: at(120) }, sleep: { state: "asleep", at: at(60) }, location: { state: "home", source: "sample", at: at(30 * 60) },
     audio: { mac: { headphones: true, at: at(120) }, phone: { headphones: true, at: at(600) } } });
-  const loaded = loadAwareness({ dir: h.dir, now: NOW });
+  const loaded = readAwareness({ dir: h.dir, now: new Date(NOW) });
   assert.equal(loaded.session.state, "unknown", "90 s limit");
-  assert.equal(loaded.sleep.state, "asleep", "sleep is fresh for 15 min");
+  assert.equal(loaded.sleep.state, "asleep", "sleep is fresh for 10 min");
   assert.equal(loaded.location.state, "unknown", "a sample is good for 20 min");
   assert.equal(loaded.audio.mac.headphones, null);
   assert.equal(loaded.audio.phone.headphones, true, "phone audio is good for 20 min");
-  assert.equal(loadAwareness({ dir: join(h.dir, "nope"), now: NOW }).session.state, "unknown");
+  assert.equal(readAwareness({ dir: join(h.dir, "nope"), now: new Date(NOW) }).session.state, "unknown");
 });
 
 test("a region fix is good for 12 h; home is true only when known", () => {
   const h = harness();
   h.setAwareness({ location: { state: "home", placeId: "home", source: "region", at: at(5 * 3600) } });
-  assert.equal(audienceOf(loadAwareness({ dir: h.dir, now: NOW })).atHome, true);
+  assert.equal(audienceOf(readAwareness({ dir: h.dir, now: new Date(NOW) })).atHome, true);
   h.setAwareness({ location: { state: "elsewhere", placeId: null, source: "sample", at: at(10) } });
-  assert.equal(audienceOf(loadAwareness({ dir: h.dir, now: NOW })).atHome, false);
+  assert.equal(audienceOf(readAwareness({ dir: h.dir, now: new Date(NOW) })).atHome, false);
   h.setAwareness({ location: { state: "unknown", at: at(10) } });
-  assert.equal(audienceOf(loadAwareness({ dir: h.dir, now: NOW })).atHome, null);
+  assert.equal(audienceOf(readAwareness({ dir: h.dir, now: new Date(NOW) })).atHome, null);
 });
 
 test("resolveAwareness fills an unknown session from the socket status and unknown sleep from the legacy window", () => {

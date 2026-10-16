@@ -69,8 +69,7 @@ if (sandbox()) process.exit(0);
 
 const run = (script, args) => { try { return execFileSync(process.execPath, [join(here, script), ...args], { encoding: "utf8", timeout: 15000 }); } catch { return ""; } };
 const minute = now.getHours() * 60 + now.getMinutes();
-// (ORION_REACH_FACTS is the tests' fixed-Mac-facts seam: awareness refresh would read the real Mac, so it is skipped)
-if (!dry && !process.env.ORION_REACH_FACTS) refreshIfOld({ dir: DIR, now });
+if (!dry) refreshIfOld({ dir: DIR, now });
 let aw = readAwareness({ dir: DIR, now });
 // A facet awareness cannot vouch for (no writer yet, or too old) falls back to what this script read before: the session
 // socket and his sleep window. Unknown stays unknown otherwise; these are only the old sources of the same facts.

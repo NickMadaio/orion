@@ -2,6 +2,7 @@
 // A facet older than its limit reads as `unknown` whatever it says; nothing here guesses.
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { LIMITS, UNKNOWN, derive, isFresh } from "./facets.mjs";
 import { readJson, writeJsonAtomic } from "./io.mjs";
@@ -55,9 +56,15 @@ export function fileAgeMs(dir, now = new Date()) {
   return Number.isNaN(at) ? Infinity : now.getTime() - at;
 }
 
-/** The lazy refresh (spec 3.1, 4): run `orion-awareness refresh` when the file is older than `maxAgeMs` (2 min). */
+/**
+ * The lazy refresh (spec 3.1, 4): run `orion-awareness refresh` when the file is older than `maxAgeMs` (2 min).
+ * A no-op where the writer is not installed or ORION_AWARENESS_NO_REFRESH=1 (tests). The writer itself honours the
+ * ORION_REACH_FACTS / ORION_REACH_NOW / ORION_SESSION_SOCKET seams, so a test never reads the real Mac through it.
+ */
 export function refreshIfOld({ dir = controlledDir(), now = new Date(), maxAgeMs = 120_000, env = process.env } = {}) {
-  if (fileAgeMs(dir, now) <= maxAgeMs) return false;
   const bin = join(import.meta.dirname, "../../orion-awareness");
-  return spawnSync(process.execPath, [bin, "refresh"], { env, timeout: 8000, stdio: "ignore" }).status === 0;
+  if (env.ORION_AWARENESS_NO_REFRESH === "1" || !existsSync(bin)) return false;
+  if (fileAgeMs(dir, now) <= maxAgeMs) return false;
+  // the writer composes at the caller's clock, so a fixed test clock (--now, ORION_REACH_NOW) is the writer's clock too
+  return spawnSync(process.execPath, [bin, "refresh"], { env: { ...env, ORION_REACH_NOW: now.toISOString() }, timeout: 8000, stdio: "ignore" }).status === 0;
 }

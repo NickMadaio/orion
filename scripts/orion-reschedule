@@ -71,6 +71,7 @@ import { earlyContext, finishEarly } from "./lib/life/early.mjs";
 import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 import { planLog, planDisplace, dueAnchors, clock as clockOf, slipRow } from "./lib/life/reality.mjs";
 import { weightOf } from "./lib/life/priority.mjs";
+import { sandbox } from "./lib/life/bridge-path.mjs";
 import { appendSlips, touchDirty } from "./lib/life/slips.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -83,7 +84,7 @@ const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--anchors", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -1116,7 +1117,10 @@ if (!dry && (command === "fill" || args.includes("--fill")) && (squeezed.length 
     ...result.moves.filter((m) => m.to !== m.from).map((m) => `moved ${m.title} from ${clockOf(m.from)} to ${clockOf(m.to)}`),
     ...squeezed.map((b) => `took ${b.title} (${clockOf(b.start)}-${clockOf(b.end)}) off today`),
   ];
-  spawnSync(process.env.ORION_REACH_BIN || joinPath(fileURLToPath(new URL(".", import.meta.url)), "orion-reach"),
+  // Only for an automatic fill (--auto, passed by orion-proactive): when Nick asks for the fill, the reply already says it.
+  // Guarded like touchDirty: a test bridge or an evaluation sandbox never reaches the real `open orion://reach` (ORION_REACH_BIN is the seam).
+  const mayReach = args.includes("--auto") && (process.env.ORION_REACH_BIN || (!process.env.ORION_BRIDGE_BIN && !sandbox()));
+  if (mayReach) spawnSync(process.env.ORION_REACH_BIN || joinPath(fileURLToPath(new URL(".", import.meta.url)), "orion-reach"),
     [`To fit ${made} I ${said.join(" and ")}.`, "--kind", "update", "--why", "reality: fill"], { stdio: "ignore", timeout: 30000 });
 }
 // 2026-09-29: "could not fit side project today" came back and ORION told Nick

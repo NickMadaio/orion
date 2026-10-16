@@ -104,7 +104,7 @@ test("review 10: when `day --fill` does take one of his blocks off the day, he i
   const w = world(t, events);
   const home = join(w.config, "..");
   const reach = join(home, "reach"); writeFileSync(reach, `#!/bin/sh\necho "$@" >> "${home}/reach.log"\necho "Sent - fake"\n`); chmodSync(reach, 0o755);
-  const r = spawnSync(process.execPath, [SCRIPT, "day", "--fill", "--date", DATE], { encoding: "utf8",
+  const r = spawnSync(process.execPath, [SCRIPT, "day", "--fill", ...(process.env.AUTO_NOTIFY === "0" ? [] : ["--auto"]), "--date", DATE], { encoding: "utf8",
     env: { ...process.env, HOME: home, ORION_CONTROLLED_DIR: join(home, ".openclaw/orion-controlled"), ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "calendar.json"), ORION_LIFE_CONFIG: w.config,
       ORION_RESCHEDULE_UNDO: join(home, "undo.json"), ORION_RESCHEDULE_PINS: join(home, "pins.json"), ORION_RESCHEDULE_NOW: new Date(2030, 9, 1, 8, 0).toISOString(), ORION_REACH_BIN: reach } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -113,4 +113,18 @@ test("review 10: when `day --fill` does take one of his blocks off the day, he i
   assert.match(said[0], /took YouTube \(2:30 PM-11:30 PM\) off today|took YouTube \(14:30-23:30\) off today/);
   const slips = readFileSync(join(home, ".openclaw/orion-controlled/slips.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.deepEqual([slips[0].planned.title, slips[0].reason, slips[0].missedMinutes], ["YouTube", "no-room", 540]);
+});
+
+test("review follow-up: without --auto (he asked for the fill himself) no second message is sent, but the slip is still kept", (t) => {
+  const events = [lecture, { title: "Dinner with Sam", start: at(18), end: at(19) },
+    { title: "YouTube", start: at(14, 30), end: at(23, 30), orion: "side_project", orionTags: "side_project,rank-low" }];
+  const w = world(t, events);
+  const home = join(w.config, "..");
+  const reach = join(home, "reach"); writeFileSync(reach, `#!/bin/sh\necho "$@" >> "${home}/reach.log"\n`); chmodSync(reach, 0o755);
+  const r = spawnSync(process.execPath, [SCRIPT, "day", "--fill", "--date", DATE], { encoding: "utf8",
+    env: { ...process.env, HOME: home, ORION_CONTROLLED_DIR: join(home, ".openclaw/orion-controlled"), ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "calendar.json"), ORION_LIFE_CONFIG: w.config,
+      ORION_RESCHEDULE_UNDO: join(home, "undo.json"), ORION_RESCHEDULE_PINS: join(home, "pins.json"), ORION_RESCHEDULE_NOW: new Date(2030, 9, 1, 8, 0).toISOString(), ORION_REACH_BIN: reach } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.throws(() => readFileSync(join(home, "reach.log")), /ENOENT/);
+  assert.match(readFileSync(join(home, ".openclaw/orion-controlled/slips.jsonl"), "utf8"), /YouTube/);
 });

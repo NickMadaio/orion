@@ -219,7 +219,7 @@ if (!dry && !heldBack && !sleeping) {
 const resched = process.env.ORION_RESCHEDULE_BIN || join(here, "orion-reschedule");   // a node script; ORION_RESCHEDULE_BIN is the tests' seam
 const knowsAnchors = (() => { try { return readFileSync(resched, "utf8").includes("--anchors"); } catch { return false; } })();
 if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && !sent[`anchors-${dayKey}`]) {
-  const r = spawnSync(process.execPath, [resched, "fill", "--anchors", "--date", localDate(now)], { encoding: "utf8", timeout: 60000 });
+  const r = spawnSync(process.execPath, [resched, "fill", "--anchors", "--auto", "--date", localDate(now)], { encoding: "utf8", timeout: 60000 });
   if (r.status === 0) { sent[`anchors-${dayKey}`] = true; closed.push("anchors"); }
   // It did not fit without moving something: nothing was written; he is asked once (skip it, or drop the cheapest block).
   else if (r.status === 1 && /ASK: /.test(r.stdout ?? "") && !sent[`anchors-ask-${dayKey}`]) {

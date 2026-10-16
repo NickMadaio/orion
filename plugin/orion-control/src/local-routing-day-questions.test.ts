@@ -82,7 +82,7 @@ describe("isQuestion — a 'when' clause is a plan, not a question", () => {
   for (const said of ["when i get back from lab i'm going to study until dinner", "when i get home i'll do laundry then gym"]) {
     it(`"${said}" is not a question`, () => expect(isQuestion(said)).toBe(false));
   }
-  for (const said of ["when is my next class", "when does lab start", "when's my gym thing today", "when do i eat dinner"]) {
+  for (const said of ["when is my next class", "when does lab start", "when's my gym thing today", "when do i eat dinner", "when are my classes tomorrow", "when should i go to the gym today", "when can i nap today"]) {
     it(`"${said}" is a question`, () => expect(isQuestion(said)).toBe(true));
   }
 });

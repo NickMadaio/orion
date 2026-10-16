@@ -64,6 +64,18 @@ describe("running late reaches the calendar flow", () => {
     });
   }
 
+  // (re-review, 2026-10-16) No change word and the front desk answered: chit-chat, not a calendar turn.
+  it("'the meeting went over well' is answered, not sent to the flow", async () => {
+    const h = harness({ move: "answer", answer: "Glad it went well." });
+    await h.turn("the meeting went over well");
+    expect(h.flows).toEqual([]);
+  });
+  it("a calendar statement with no change verb still reaches the flow", async () => {
+    const h = harness({ move: "answer", answer: "Ok." });
+    await h.turn("after my lab i'm going to study until dinner");
+    expect(h.flows).toEqual(["after my lab i'm going to study until dinner"]);
+  });
+
   it("'I stayed up late' is not running late", async () => {
     const h = harness({ move: "answer", answer: "Get some rest." });
     expect(await h.turn("i stayed up late")).toEqual([{ handled: true, reply: { text: "Get some rest." }, reason: "front desk answered" }]);

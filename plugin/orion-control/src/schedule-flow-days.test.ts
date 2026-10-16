@@ -106,3 +106,11 @@ describe("schedule flow — a weekday in passing is not the date (review HIGH 4)
   }
   it("a real day still counts", () => expect(dayArgsFor("add revision on monday at 4pm", fri).args).toEqual(["--date", "monday"]));
 });
+
+// (re-review, 2026-10-16) "today" beats only a weekday in passing, never one he names as the target.
+describe("schedule flow — a named weekday beats a later 'today' (re-review MEDIUM 5)", () => {
+  const thu = new Date(2026, 9, 15, 10, 0);
+  for (const [msg, day] of [["plan my friday, today is too packed", "friday"], ["friday i want gym at 6, today i'm resting", "friday"]] as const) {
+    it(`"${msg}" is ${day}`, () => expect(dayArgsFor(msg, thu).args).toEqual(["--date", day]));
+  }
+});

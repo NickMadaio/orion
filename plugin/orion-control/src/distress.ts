@@ -6,7 +6,22 @@
 // Words that may mean he is not safe. Narrow on purpose: "I can't do this task", "end it at 5" or
 // "kill the lights" are ordinary requests, so every phrase here needs its "anymore"/"all"/"myself".
 // "hopeless" counts only about himself or his life — "this code is hopeless" is a bug report.
-const CRISIS = /\b(can['’]?t|cannot) (do|take|handle) (this|it) (any ?more|no more)\b|\bcan['’]?t go on( like this| any ?more)?\s*[.!]*$|\b(want|wanna|going) to die\b|\bkill(ing)? myself\b|\bend (it all|my life)\b|\b(hurt|harm)(ing)? myself\b|\bsuicid\w*|\bself[- ]harm\w*|\bno (reason|point) (to live|in living|going on)\b|\b(i|i'?m|i am|feel\w*|everything(?:'s| is)?|it all(?: is)?|life(?: is)?)\s+(?:\w+\s+)?hopeless\b|\bbetter off (dead|without me)\b/i;
+const CRISIS = new RegExp([
+  String.raw`\b(can['’]?t|cannot) (do|take|handle) (this|it) (any ?more|no more)\b`,
+  String.raw`\bcan['’]?t go on( like this| any ?more)?\s*[.!]*$`,
+  // About himself only: "my laptop is going to die" and "I'm going to die if I miss this bus" are not (review, 2026-10-16).
+  String.raw`\b(i|i['’]?m|im|i am)\s+(\w+\s+)?(want|wanna|going|gonna) to die\b(?!\s+(if|of|from|when|laughing))`,
+  String.raw`\bkill(ing)? myself\b|\bkms\b|\bunalive\b`,
+  String.raw`\bend (it all|my life)\b`,
+  // Ongoing or intended, not "i hurt myself at the gym".
+  String.raw`\b(keep|kept) (hurting|harming) myself\b|\b(want to|wanna|going to|gonna|thinking (about|of)) (hurt|harm)(ing)? myself\b`,
+  String.raw`\bsuicid\w*|\bself[- ]harm\w*`,
+  String.raw`\bno (reason|point) (to live|in living|going on)\b|\bbetter off (dead|without me)\b`,
+  String.raw`\b(don['’]?t|do not) want to (be alive|live|wake up|be here)\b`,
+  String.raw`\bwhat['’]?s the point( of (anything|living|it all|life|trying))?\s*[.?!]*$`,
+  // "hopeless" counts only about himself or his life — not "this code is hopeless" or "hopeless at cooking".
+  String.raw`\b(i|i['’]?m|im|i am|feel\w*|everything(?:['’]s| is)?|it all(?: is)?|life(?: is)?)\s+(?:\w+\s+)?hopeless\b(?!\s+(at|with))`,
+].join("|"), "i");
 
 // Heavy but not a crisis: he needs warmth and one small step, not a lookup.
 const OVERWHELMED = /\b(overwhelm\w*|stressed out|so stressed|burn(t|ed) out|freaking out|panick?ing|so anxious|can['’]?t cope|falling apart|(don['’]?t|do not) (even )?know where to (start|begin))\b/i;

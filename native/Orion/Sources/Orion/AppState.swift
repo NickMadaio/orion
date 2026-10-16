@@ -480,6 +480,17 @@ final class AppState: ObservableObject {
     /// What ORION started saying, shown as a bubble on the summoned hologram.
     @Published var reachMessage: String?
     private var reachClear: DispatchWorkItem?
+    /// Focus session phase changes go to the awareness core at once (PhaseHook).
+    private let phaseHook = PhaseHook()
+    /// Unanswered spoken question: asked once more at ~20 s (SpokenQuestionFollowUp).
+    private lazy var questionFollowUp = SpokenQuestionDriver(
+        idle: { IdleReading.current() },
+        locked: { ScreenState.current().locked },
+        busy: { [weak self] in self.map { $0.phase == .listening || $0.phase == .thinking || $0.phase == .speaking } ?? false },
+        onRepeatAloud: { [weak self] text in self?.repeatQuestionAloud(text) },
+        onSendToPhone: { [weak self] text in self?.sendQuestionToPhone(text) })
+    /// A longer follow-up ear for the repeated question (10 s instead of 6 s).
+    private var repeatFollowUpGrace: TimeInterval?
 
     /// He is at the Mac: pop the hologram with the message; aloud when he is at
     /// home or has headphones in (volume brought to a sensible level first).
@@ -490,7 +501,7 @@ final class AppState: ObservableObject {
     /// speech finishes, listen for a few seconds as a follow-up.
     private var listenAfterReach = false
 
-    func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false) {
+    func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false, reachID: String? = nil, keepFor: TimeInterval = 120) {
         append(.orion, text)
         if dashboardVisible?() == true {
             // The pop-up never layers over the open dashboard: put it in its chat.
@@ -503,8 +514,13 @@ final class AppState: ObservableObject {
         reachClear?.cancel()
         let clear = DispatchWorkItem { [weak self] in self?.reachMessage = nil }
         reachClear = clear
-        DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: clear)
+        DispatchQueue.main.asyncAfter(deadline: .now() + keepFor, execute: clear)
         OrionLog.write("[reach] \(aloud ? "aloud" : "silent bubble") — \(text.count) chars")
+        // A question he can hear (or a briefing that listens) is asked once more if it goes unanswered.
+        if (aloud || listen), listen || SpokenQuestionFollowUp.isQuestion(text) {
+            OutreachReplyTo.current = reachID
+            questionFollowUp.arm(text: text, reachID: reachID)
+        }
         guard aloud else { return }
         if loud {
             // "outloud with max volume" (2026-10-08): the morning briefing has to
@@ -766,9 +782,36 @@ final class AppState: ObservableObject {
             statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
             return
         }
+        if SpokenQuestionFollowUp.isQuestion(text) { questionFollowUp.arm(text: text) }
         setPhase(.speaking)
         statusLine = "Speaking…"
         speechOutput.speak(text)
+    }
+
+    /// At the Mac and silent for 20 s: "Nick? ..." once, bubble kept 10 min, ear open 10 s.
+    private func repeatQuestionAloud(_ spoken: String) {
+        OrionLog.write("[question] repeating aloud after silence")
+        let question = spoken.hasPrefix("Nick? ") ? String(spoken.dropFirst(6)) : spoken
+        deliverReach(question, aloud: false, headphones: false, keepFor: 600)
+        repeatFollowUpGrace = 10
+        listenAfterReach = true
+        activeReplyOrigin = .voice
+        speak(spoken, origin: .voice)
+    }
+
+    /// Idle or away: the question goes to his phone (replies link back via OutreachContext).
+    private func sendQuestionToPhone(_ text: String) {
+        OrionLog.write("[question] sending to phone after silence")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard let command = SpokenQuestionDriver.phoneCommand(
+            text: text, node: home + "/.openclaw/tools/node-v24.15.0/bin/node",
+            scriptsDir: home + "/.openclaw/orion-remote/scripts",
+            exists: { FileManager.default.fileExists(atPath: $0) }) else {
+            OrionLog.write("[question] phone send skipped (orion-reach not installed)"); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            if !PhaseHook.spawn(command) { OrionLog.write("[question] phone send failed") }
+        }
     }
 
     func shutDown() {
@@ -930,6 +973,7 @@ final class AppState: ObservableObject {
             if !focusing { self.focusShield.dismiss(restoreWork: false) }
             self.enforcer.evaluate(sessionIsFocusing: focusing)
             self.sessionTabModel.adopt(snapshot)
+            self.phaseHook.observe(SessionPhaseInfo(snapshot: snapshot))
             self.updateBreakSurface(snapshot)
             self.extrasCoordinator.apply(snapshot)
         }
@@ -1049,6 +1093,7 @@ final class AppState: ObservableObject {
         }
         speechOutput.onFinished = { [weak self] in
             guard let self else { return }
+            self.questionFollowUp.speechEnded()
             guard self.phase == .speaking else { return }
             // A briefing that asked a question waits a few seconds for an answer
             // (the follow-up grace); nothing heard and the exchange closes.
@@ -1670,7 +1715,7 @@ final class AppState: ObservableObject {
             }
             // Waiting for the rest of a cut-off sentence is short: nothing more
             // within 2.5 s and what he said is sent as it is.
-            let grace = preservedTranscript.isEmpty ? AppState.followUpGrace : AppState.continuationGrace
+            let grace = preservedTranscript.isEmpty ? (repeatFollowUpGrace ?? AppState.followUpGrace) : AppState.continuationGrace
             if now.timeIntervalSince(handsFreeStartedAt) >= grace {
                 // Nothing came. The exchange is over; go back to waiting for
                 // the wake word rather than sitting here with the ear open.
@@ -1698,6 +1743,8 @@ final class AppState: ObservableObject {
     /// sent rather than dropped, which is the same "never lose the words"
     /// rule `handleFinalTranscript` follows.
     private func endConversation() {
+        // The 6 s window lapsed: the question's own 20 s clock keeps running (SpokenQuestionFollowUp).
+        repeatFollowUpGrace = nil
         conversationOpen = false
         awaitingFollowUp = false
         stopHandsFree()
@@ -1908,6 +1955,8 @@ final class AppState: ObservableObject {
     }
 
     private func send(_ text: String, typed: Bool = false) {
+        questionFollowUp.answered()
+        repeatFollowUpGrace = nil
         let origin: ReplyOrigin = typed ? .typed : .voice
         activeReplyOrigin = origin
         // "Continue" / "keep going" / "what were you saying" resumes an

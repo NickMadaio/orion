@@ -42,6 +42,17 @@ final class LifeWatch {
             watches.standardError = FileHandle.nullDevice
             try? watches.run()
             watches.waitUntilExit()
+            // Awareness first, so the tick below reads a fresh awareness.json. Missing script: skip.
+            let awareness = script.deletingLastPathComponent().appendingPathComponent("orion-awareness")
+            if FileManager.default.fileExists(atPath: awareness.path) {
+                let refresh = Process()
+                refresh.executableURL = node
+                refresh.arguments = [awareness.path, "refresh"]
+                refresh.standardOutput = FileHandle.nullDevice
+                refresh.standardError = FileHandle.nullDevice
+                try? refresh.run()
+                refresh.waitUntilExit()
+            }
             // Speaking first, with context: session ends, bedtime only when it fits (orion-proactive).
             let proactive = Process()
             proactive.executableURL = node

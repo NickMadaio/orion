@@ -161,7 +161,7 @@ describe("front-desk tool moves are carried out, not left as hints (sweep 2026-1
   it("another tool's success is delivered, not overwritten by the fail line ('took my creatine')", async () => {
     const { f, ctx, build } = setup({ move: "tool", tool: "supplements", args: { do: "take", name: "creatine" } });
     await build("took my creatine");
-    await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-log water 1" }, result: "Logged 1 bottle: 3 of 9 today." }, ctx);
+    await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-log supplement creatine" }, result: "Logged creatine: taken today." }, ctx);
     const reply = "Logged your creatine.";
     const messages = [{ role: "assistant", content: [{ type: "text", text: reply }] }];
     await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply, hadDeterministicSideEffect: true, messages }, ctx);
@@ -177,6 +177,22 @@ describe("front-desk tool moves are carried out, not left as hints (sweep 2026-1
       const messages = [{ role: "assistant", content: [{ type: "text", text: "Logged your creatine." }] }];
       await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Logged your creatine.", hadDeterministicSideEffect: true, messages }, ctx);
       expect(JSON.stringify(messages)).toMatch(/didn't manage to log your creatine/);
+    }
+  });
+
+  // Review, 2026-10-16 (re-review): only a success from the directive's own tool family keeps the worker's reply.
+  it("an unrelated tool's success does not keep the worker's reply", async () => {
+    const cases: Array<[Decision, string, string, Record<string, unknown>, string, string]> = [
+      [{ move: "tool", tool: "weather", args: { days: "1" } }, "is it gonna rain later", "exec", { command: "orion-lights off" }, "Lights: sent off", "No rain expected this afternoon."],
+      [{ move: "tool", tool: "supplements", args: { do: "take", name: "creatine" } }, "took my creatine", "orion_task_run", { steps: [{ action: "supplement_add", name: "creatine" }] }, "Added creatine to your list. executed=true", "Logged your creatine for today."],
+    ];
+    for (const [decision, said, toolName, params, result, reply] of cases) {
+      const { f, ctx, build } = setup(decision);
+      await build(said);
+      await f.fire("after_tool_call", { toolName, params, result }, ctx);
+      const messages = [{ role: "assistant", content: [{ type: "text", text: reply }] }];
+      await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply, hadDeterministicSideEffect: true, messages }, ctx);
+      expect(JSON.stringify(messages), said).not.toContain(reply);
     }
   });
 });

@@ -129,7 +129,8 @@ export function compile(input: Intent, day: Day): Compiled {
   switch (step.do) {
     case "cannot": case "ask": case "answer": {
       // Nick hears blocks by name: the form wrote "Cannot swap B2 (a FIXED class)" and "DS Lab (B3)" (sweep 2026-10-16).
-      const text = String(step.text ?? "").replace(/\s*\(B\d+\)/g, "").replace(/\bB(\d+)\b/g, (id, n) => day.blocks[Number(n) - 1]?.title ?? id).replace(/\bFIXED\b/g, "fixed").trim();
+      // Not a vitamin: "your B12 supplement" stayed B12, not block 12's title (review, 2026-10-16).
+      const text = String(step.text ?? "").replace(/\s*\(B\d+\)/g, "").replace(/(?<!\b(?:[Vv]itamins?|[Yy]our|[Tt]ake|[Tt]aking|[Ss]ome)\s)\bB(\d+)\b(?!\s*(?:vitamins?|supplements?|tablets?|pills?|shots?|complex)\b)/g, (id, n) => day.blocks[Number(n) - 1]?.title ?? id).replace(/\bFIXED\b/g, "fixed").trim();
       return { say: step.do, text: text || (step.do === "cannot" ? "That can't be done today." : "") };
     }
     case "fill_between": {

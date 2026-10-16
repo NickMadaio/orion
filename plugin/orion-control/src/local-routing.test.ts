@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { acceptanceVerdict, honestLine, registerLocalRouting, userText } from "./local-routing.js";
+import { acceptanceVerdict, honestLine, isCalendarTurn, putReplyInPlace, registerLocalRouting, userText } from "./local-routing.js";
 import { writeFileSync } from "node:fs";
 import type { Decision } from "./front-desk.js";
 import type { FlowResult } from "./schedule-flow.js";
@@ -520,6 +520,18 @@ describe("local routing — distress (2026-10-16 live sweep)", () => {
     expect(lines(logPath).at(-1)).toMatchObject({ flow: { outcome: "say" }, tools: 0 });
   });
 
+  it("text owed by an earlier turn is never delivered on the next turn in that session (review LOW)", async () => {
+    const said = "i literally cant do this anymore";
+    const { f, ctx } = setup({ move: "escalate", tier: "standard" });
+    await f.fire("before_model_resolve", { prompt: said }, ctx);
+    await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx);
+    for (let i = 0; i < 3; i++) await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok" }, ctx);
+    const next = { runId: "d2", sessionKey: ctx.sessionKey };
+    await f.fire("before_model_resolve", { prompt: "thanks, I'm ok now" }, next);
+    const [sent] = (await f.fire("reply_payload_sending", { payload: { text: "Glad to hear it." }, runId: "d2", sessionKey: ctx.sessionKey }, {})) as Array<Record<string, any> | undefined>;
+    expect(sent?.payload?.text ?? "Glad to hear it.").not.toMatch(/Samaritans/);
+  });
+
   it("q102: 'im so overwhelmed i dont even know where to start' gets empathy and one small step, with no lookups", async () => {
     const said = "im so overwhelmed i dont even know where to start";
     const { f, ctx, flows } = setup({ move: "escalate", tier: "standard" });
@@ -538,5 +550,138 @@ describe("local routing — distress (2026-10-16 live sweep)", () => {
     const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
     expect(flows).toEqual([said]);
     expect(built?.systemPrompt).not.toMatch(/Samaritans|overwhelmed/);
+  });
+});
+
+describe("local routing — review of the 2026-10-16 sweep fixes", () => {
+  const setup = (decision: Decision, opts: { readDay?: () => Promise<string>; brainSearch?: () => Promise<string> } = {}) => {
+    const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
+    const f = fakeApi();
+    const flows: string[] = [];
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Fri 10:00",
+      brainSearch: opts.brainSearch ?? (async () => ""), readDay: opts.readDay ?? (async () => "1. Gym 17:00"),
+      scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "test" }; } });
+    return { f, flows, ctx: { runId: "rv1", sessionKey: "agent:main:orion-chat-rv" } };
+  };
+  const build = async (f: ReturnType<typeof fakeApi>, ctx: Record<string, unknown>, said: string) => {
+    await f.fire("before_model_resolve", { prompt: said }, ctx);
+    const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string } | undefined>;
+    return built;
+  };
+
+  it("overwhelm with a real request in it still does the request", async () => {
+    for (const [said, decision] of [
+      ["i'm so stressed, remind me at 3 to call mom", { move: "tool", tool: "alarm" }],
+      ["im overwhelmed, start a focus session for 25 minutes", { move: "tool", tool: "session" }],
+      ["i'm burnt out, what's on my calendar today?", { move: "tool", tool: "agenda" }],
+    ] as Array<[string, Decision]>) {
+      const { f, ctx } = setup(decision);
+      const built = await build(f, ctx, said);
+      expect(built?.systemPrompt ?? "", said).not.toMatch(/Do not call any tools, do not look anything up/);
+    }
+  });
+
+  it("overwhelm alone gets the warm note, and a warm 'I'll be here' reply is delivered as is", async () => {
+    const { f, ctx } = setup({ move: "answer", answer: "hang in there" });
+    const built = await build(f, ctx, "im so overwhelmed i dont even know where to start");
+    expect(built?.systemPrompt).toMatch(/Do not call any tools/);
+    const reply = "I hear you, Nick. Take one slow breath and write down the one thing due first — I'll be right here.";
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply, messages: [{ role: "user", content: "x" }, { role: "assistant", content: [{ type: "text", text: reply }] }] }, ctx)).toEqual([undefined]);
+  });
+
+  it("an answer from the day code read is not sent back to 'look it up', and never told to undo", async () => {
+    const { f, ctx } = setup({ move: "tool", tool: "agenda" });
+    await build(f, ctx, "what's on my calendar tomorrow?");
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "According to your calendar, you have gym at 5 PM." }, ctx)).toEqual([undefined]);
+  });
+
+  it("the honest-stop retry only says 'undo' when this turn wrote something", async () => {
+    const { f, ctx } = setup({ move: "escalate", tier: "standard" });
+    await build(f, ctx, "ok mark the oats one done");
+    const lie = "The task \"buy more oats\" has been marked as done.";
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie }, ctx);
+    const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie }, ctx)) as Array<Record<string, any>>;
+    expect(second?.retry.instruction).not.toMatch(/undo/i);
+    expect(second?.retry.instruction).toMatch(/exactly this text/);
+  });
+
+  it("a made-up lookup that survives both retries is replaced by an honest line", async () => {
+    const { f, ctx } = setup({ move: "tool", tool: "weather" });
+    await build(f, ctx, "is it gonna rain later this week");
+    const lie = "I checked the weather for London and it's not expected to rain later this week.";
+    const messages = [{ role: "user", content: "is it gonna rain" }, { role: "assistant", content: [{ type: "text", text: lie }] }];
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie, messages }, ctx);
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie, messages }, ctx);
+    await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie, messages }, ctx);
+    expect((messages[1]!.content as Array<{ text: string }>)[0]!.text).toMatch(/didn't actually check/);
+  });
+
+  it("putReplyInPlace never rewrites an earlier turn's reply when this turn has none", () => {
+    const messages = [{ role: "user", content: "a" }, { role: "assistant", content: [{ type: "text", text: "old answer" }] }, { role: "user", content: "b" }];
+    expect(putReplyInPlace(messages, "honest line")).toBe(false);
+    expect((messages[1]!.content as Array<{ text: string }>)[0]!.text).toBe("old answer");
+  });
+
+  it("a front-desk 'tasks' pick does not stop a real calendar change with a time; 'plan my day around my todos' still plans", () => {
+    expect(isCalendarTurn("add gym at 5 today", { move: "tool", tool: "tasks" } as Decision)).toBe(true);
+    expect(isCalendarTurn("plan my day around my todos", { move: "escalate", tier: "standard" } as Decision)).toBe(true);
+    expect(isCalendarTurn("add a todo to email prof about office hours by thurs", { move: "tool", tool: "tasks" } as Decision)).toBe(false);
+    expect(isCalendarTurn("focus mode on for an hour, leetcode", { move: "tool", tool: "session" } as Decision)).toBe(false);
+  });
+  it("overwhelm with a request in it is not swallowed, whatever the front desk picked (HIGH 4)", async () => {
+    for (const said of ["i'm so stressed, remind me at 3 to call mom", "im overwhelmed, start a focus session for 25 minutes", "panicking, text mom im late", "i'm burnt out, what's on my calendar today?"]) {
+      const { f, ctx } = setup({ move: "escalate", tier: "standard" });
+      const built = await build(f, ctx, said);
+      expect(built?.systemPrompt ?? "", said).not.toMatch(/Do not call any tools, do not look anything up/);
+    }
+  });
+
+  it("an overwhelm reply is never sent back for tools: the note forbade them (HIGH 1)", async () => {
+    const { f, ctx } = setup({ move: "answer", answer: "hang in there" });
+    await build(f, ctx, "im so overwhelmed i dont even know where to start");
+    const reply = "That sounds like a lot, Nick. Write down the one thing due first, and I'll check in with you in a bit.";
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply }, ctx)).toEqual([undefined]);
+  });
+
+  it("the live-data 'can't check' sentence with a small tail is still the honest answer (HIGH 2c)", async () => {
+    const { f, ctx } = setup({ move: "escalate", tier: "standard" });
+    await build(f, ctx, "did anyone text me");
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Sorry Nick, I can't check that right now." }, ctx)).toEqual([undefined]);
+  });
+
+  it("real live-data phrasings get the live-data note (LOW)", async () => {
+    for (const said of ["how cold is it", "any new mail", "how long is left in my focus"]) {
+      const { f, ctx } = setup({ move: "escalate", tier: "standard" });
+      const built = await build(f, ctx, said);
+      expect(built?.systemPrompt ?? "", said).toMatch(/can't check that right now/);
+    }
+  });
+
+  it("the front desk's tool pick is only a hint for a real calendar change (MEDIUM 3)", () => {
+    expect(isCalendarTurn("add 2 hours of study this afternoon", { move: "tool", tool: "tasks" } as Decision)).toBe(true);
+    expect(isCalendarTurn("add gym at 5 today", { move: "tool", tool: "brain" } as Decision)).toBe(true);
+    expect(isCalendarTurn("turn the lights off at 11", { move: "tool", tool: "lights" } as Decision)).toBe(false);
+    expect(isCalendarTurn("what's the weather at 5", { move: "tool", tool: "weather" } as Decision)).toBe(false);
+    expect(isCalendarTurn("buy oats", { move: "tool", tool: "tasks" } as Decision)).toBe(false);
+  });
+
+  it("to-dos are a capture only when he adds one (MEDIUM 4)", () => {
+    const esc = { move: "escalate", tier: "standard" } as Decision;
+    expect(isCalendarTurn("fit my to-dos into this afternoon", esc)).toBe(true);
+    expect(isCalendarTurn("make time for my todos this afternoon", esc)).toBe(true);
+    expect(isCalendarTurn("add gym to my todos", esc)).toBe(false);
+    expect(isCalendarTurn("new todo: call the bank", esc)).toBe(false);
+  });
+  it("brain snippets in the prompt never excuse a made-up live lookup (HIGH 2b)", async () => {
+    const { f, ctx } = setup({ move: "escalate", tier: "standard" }, { brainSearch: async () => "## Weather notes  (Areas/Weather.md)\n- he hates rain" });
+    await build(f, ctx, "is it gonna rain later this week");
+    const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I checked the weather and it's not expected to rain." }, ctx)) as Array<Record<string, any>>;
+    expect(first?.action).toBe("revise");
+  });
+
+  it("an answer from brain snippets is not a fabricated lookup (HIGH 2b)", async () => {
+    const { f, ctx } = setup({ move: "escalate", tier: "standard" }, { brainSearch: async () => "## Scheduling Rules  (20 Areas/Routine/Scheduling Rules.md)\n- [minimum] nap: at least 75 minutes" });
+    await build(f, ctx, "how long should my naps be");
+    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I found in your notes that a nap should be at least 75 minutes." }, ctx)).toEqual([undefined]);
   });
 });

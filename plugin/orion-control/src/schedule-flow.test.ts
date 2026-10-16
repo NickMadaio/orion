@@ -192,6 +192,11 @@ describe("schedule flow", () => {
     expect(compile({ do: "cannot", text: "Cannot swap B1 (a FIXED class) with DS Lab (B3)." }, thursday)).toEqual({ say: "cannot", text: "Cannot swap CS1800 Discrete Structures — Lecture (a fixed class) with DS Lab." });
   });
 
+  it("a vitamin in the form's sentence is not a block id (review 2026-10-16: 'B12' would become block 12)", () => {
+    expect(compile({ do: "answer", text: "Take your B1 vitamin with lunch, then B2 is next." }, thursday)).toEqual({ say: "answer", text: `Take your B1 vitamin with lunch, then ${thursday.blocks[1]!.title} is next.` });
+    expect(compile({ do: "answer", text: "Have the B12 supplement after B1." }, thursday)).toEqual({ say: "answer", text: `Have the B12 supplement after ${thursday.blocks[0]!.title}.` });
+  });
+
   it("a change made for tomorrow says so (q020: 'Done: resume work 5:50 PM–6:35 PM.' with no day)", async () => {
     const exec = async (args: string[]) => (args[0] === "show" ? { stdout: JSON.stringify(thursday), code: 0 } : { stdout: "Changed Friday:\n  planned resume work: 17:50–18:35", code: 0 });
     const result = await runScheduleFlow({ message: "resume work tomorrow at 5:50", clock: "Thu 12:00", now: new Date(2026, 9, 15, 12, 0), exec, ask: async () => ({ steps: [{ do: "add" as const, what: "resume work", minutes: 45, to: "17:50" }] }) });

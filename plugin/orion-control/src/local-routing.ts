@@ -83,6 +83,10 @@ type Run = {
   cloud?: boolean;
   /** A reminder the worker must set: the exact orion_task_run arguments and what to tell him. */
   reminder?: { args: string; say: string };
+  /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): no lookup is owed. */
+  provided?: boolean;
+  /** The prompt forbade tools (the overwhelm note): no promise or lookup check can be met by acting. */
+  noTools?: boolean;
   brain?: Promise<string>;
   flow?: FlowResult;
   sessionKey?: string;
@@ -112,7 +116,7 @@ const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|c
 // Live data the front desk cannot know: its "answer" drafts made these up and went out unchecked
 // ("Sunset is at 6:42 PM today.", "it's still warm outside", "I haven't seen any new messages"; live sweep
 // 2026-10-15). A message about these is a lookup: the worker gets the job's tools and no draft.
-const LIVE_DATA = /\b(weather|forecast|rain\w*|snow\w*|sunny|temperature|degrees|(cold|warm|hot|dark) (out|outside)|jacket|coat|umbrella|sunset|sunrise|sun (sets?|rises?|goes down|comes up)|texts?|texted|messages?|messaged|emails?|emailed|inbox|missed calls?|voicemails?)\b|\bmy (calendar|day|schedule|agenda|session|supplements?|to-?dos?|tasks|reminders|alarms?)\b/i;
+const LIVE_DATA = /\b(weather|forecast|rain\w*|snow\w*|sunny|temperature|degrees|(cold|warm|hot|dark) (out|outside)|jacket|coat|umbrella|sunset|sunrise|sun (sets?|rises?|goes down|comes up)|texts?|texted|messages?|messaged|emails?|emailed|inbox|missed calls?|voicemails?|mail)\b|\bhow (cold|warm|hot)\b|\bmy (calendar|day|schedule|agenda|session|focus|supplements?|to-?dos?|tasks|reminders|alarms?)\b/i;
 const LIVE_NOTE = "This needs live data (weather, sun times, his messages, his day). Answer only from what a tool returns just now; if none of your tools can get it, say \"I can't check that right now.\" Never guess it.";
 // 2026-10-15 sweep: SCHEDULING alone ran the calendar flow, whatever the front desk decided. "text myself
 // bring the charger to lab" booked "bring the charger" at 11:45 PM, "add a todo to email prof…" ran add … 0,
@@ -120,7 +124,9 @@ const LIVE_NOTE = "This needs live data (weather, sun times, his messages, his d
 // and "cancel that" / "make it longer" (no history reaches the form) dropped and resized "finish resume".
 const CALENDAR_TOOLS = new Set(["reschedule", "agenda"]);
 // A message to send or something to capture, not a block: "text myself…", "email prof…", "add a todo…".
-const SEND_OR_CAPTURE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion|can you|could you|would you)[,\s]+)*(?:text|message|imessage|email|send|remind|note|jot)\b|\bto-?dos?\b|\bto do list\b/i;
+// A to-do counts only when he adds one: "plan my day around my todos" and "fit my to-dos into this
+// afternoon" are calendar requests and skipped the flow (review, 2026-10-16).
+const SEND_OR_CAPTURE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion|can you|could you|would you)[,\s]+)*(?:text|message|imessage|email|send|remind|note|jot)\b|\b(?:add|put|create|make|jot)\s+(?:an?\s+|another\s+|new\s+)*to-?dos?\b|\bto (?:my|the) to-?dos?\b|\bnew to-?dos?\b|\bto-?do\s*:|\bto do list\b/i;
 // A habit he is telling ORION about ("i take creatine every morning at 8"), to remember, not to book today.
 const HABIT = /\bi\s+(?:usually\s+|always\s+|normally\s+)?(?:take|have|drink|eat|do|go|run|lift|wake)\b.*\b(?:every|each)\s+(?:day|morning|night|evening|week|mon|tues|wednes|thurs|fri|satur|sun)\w*/i;
 // Booking travel or a table is not a calendar block ("book me a flight to mars" → "That doesn't fit: …").
@@ -131,9 +137,15 @@ const NAMES_NOTHING = (message: string) => {
   const words = message.toLowerCase().match(/[a-z0-9']+/g) ?? [];
   return words.length > 0 && words.every((w) => VAGUE.has(w));
 };
+// Tools that can never be a change to his day, whatever the message says.
+const NOT_CALENDAR_TOOLS = new Set(["weather", "lights", "alarm", "wake", "session", "phone_time", "app_open", "browser", "media", "log_intake", "supplements", "show", "repair_note"]);
+// A time or a length in the message: what makes a "tasks" or "brain" pick worth a second look.
+const WHEN_OR_HOW_LONG = /\bat \d{1,2}(:\d{2})?\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(am|pm)\b|\b\d+(\.\d+)?\s*(h|hrs?|hours?|mins?|minutes?)\b|\b(an?|half an?) hour\b|\b(this|tomorrow) (morning|afternoon|evening)\b|\b(today|tonight|tomorrow|tmrw)\b/i;
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
 export function isCalendarTurn(message: string, settled: Decision): boolean {
-  if (settled.move === "tool" && !CALENDAR_TOOLS.has(settled.tool ?? "")) return false;
+  // The 4B's tool pick is a hint, not a fact (review, 2026-10-16): "add gym at 5 today" picked as "tasks"
+  // is still a block. A clearly unrelated tool skips the flow; "tasks" or "brain" only with no time or length.
+  if (settled.move === "tool" && !CALENDAR_TOOLS.has(settled.tool ?? "") && (NOT_CALENDAR_TOOLS.has(settled.tool ?? "") || !WHEN_OR_HOW_LONG.test(message))) return false;
   if (SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message)) return false;
   if (HABIT.test(message) && !CHANGE_REQUEST.test(message)) return false;
   if (settled.move === "ask" && NAMES_NOTHING(message)) return false;
@@ -278,6 +290,12 @@ export const honestLine = (calendar: boolean): string => calendar
   ? "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?"
   : "I didn't actually do that — nothing was started or changed. Can you say it again?";
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
+const LOOKUP_CLAIM = /claims a lookup/;
+export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
+const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
+/** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
+const wroteThisTurn = (tools: ToolResult[]): boolean =>
+  tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
 
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
@@ -287,7 +305,11 @@ const FALSE_CLAIM = /claims what the tools|promised but did not act/;
  *  mutation here: the host owns the object). "buy more oats has been marked as done" went out after
  *  three flagged passes. Thinking and tool blocks are kept; the text blocks become this one. */
 export function putReplyInPlace(messages: unknown, text: string): boolean {
-  const last = Array.isArray(messages) ? [...messages].reverse().find((m) => (m as { role?: unknown })?.role === "assistant") as { content?: unknown } | undefined : undefined;
+  // Only this turn's reply: with no assistant message after the last user message, an earlier turn's
+  // reply must never be rewritten (review, 2026-10-16).
+  const list = Array.isArray(messages) ? (messages as Array<{ role?: unknown; content?: unknown }>) : [];
+  const turnStart = list.map((m) => m?.role).lastIndexOf("user") + 1;
+  const last = list.slice(turnStart).reverse().find((m) => m?.role === "assistant");
   if (!last) return false;
   if (!Array.isArray(last.content)) { last.content = text; return true; }
   const blocks = last.content as Array<{ type?: unknown }>;
@@ -376,6 +398,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const message = stitch ? `${stitch.text} ${said.replace(CONTINUING, "")}` : said;
     const cutOff = SPOKEN.test(raw) && TRAILS_OFF.test(message);
     if (sessionKey) lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
+    // Text owed by an earlier turn in this session is never delivered on this one (review, 2026-10-16).
+    if (sessionKey) finalText.delete(`session:${sessionKey}`);
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : Promise.resolve()
@@ -421,10 +445,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
       // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
       // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
+      // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers
+      // him itself, which is intended: the fixed reply exists to guard the small local models.
       if (isCrisis(run.message)) run.flow = { outcome: "say", kind: "plain", text: CRISIS_REPLY };
       // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
       // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.
-      if (!run.flow && isOverwhelmed(run.message) && !CHANGE_REQUEST.test(run.message)) {
+      // Only when he asks for nothing else: "i'm so stressed, remind me at 3" still sets the reminder (review, 2026-10-16).
+      if (!run.flow && isOverwhelmed(run.message) && !CHANGE_REQUEST.test(run.message) && !REMINDER.test(run.message) && !isSessionStart(run.message)
+        && !LIVE_DATA.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.settled.move !== "tool") {
+        run.provided = true;
+        run.noTools = true;
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\n${OVERWHELMED_NOTE}` };
       }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
@@ -474,6 +504,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay && !run.flow) {
         const tomorrow = meansTomorrow(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
+        if (day) run.provided = true;
         if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. Do not call any tools.` };
       }
       if (run.flow?.outcome === "done") {
@@ -500,6 +531,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
       }
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
+      // Snippets answer questions about his notes, never live data: "I checked the weather" beside a weather
+      // note is still made up (review, 2026-10-16).
+      if (fetched && !LIVE_DATA.test(run.message)) run.provided = true;
       const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
       const askNote = run.settled.move === "ask" && run.settled.answer
         ? `\n\nThe front desk thought you might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
@@ -537,7 +571,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     let owed: string | undefined;
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
-      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" });
+      const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" || run.noTools === true, provided: run.provided ?? false });
       run.findings.push(findings);
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
       // with tools let the model act on its own).
@@ -565,15 +599,24 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         run.passes += 1;
         const calendar = SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical));
         const claimed = findings.some((f) => FALSE_CLAIM.test(f));
+        const lookedUp = !claimed && findings.some((f) => LOOKUP_CLAIM.test(f));
+        // "Undo" only after this turn wrote something: told to undo with nothing to undo, the 9B could take
+        // back an earlier turn's change from the journal (review, 2026-10-16).
+        const stop = wroteThisTurn(run.tools) ? HONEST_STOP : HONEST_STOP_NO_WRITE;
         const instruction = run.passes === 1 ? retryInstruction(findings)
-          : claimed ? `${HONEST_STOP}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar)}`
-          : HONEST_STOP;
+          : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar)}`
+          : lookedUp ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${LOOKUP_HONEST}`
+          : stop;
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       const decision = run.settled ?? (await settle(run));
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
       if (on && !flowActed && !run.reminder && findings.some((f) => FALSE_CLAIM.test(f))) {
         owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)));
+        remember([runId, sessionKeyNow], owed);
+      } else if (on && !flowActed && !run.reminder && findings.some((f) => LOOKUP_CLAIM.test(f))) {
+        // "I checked the weather… no rain" with no lookup, after both retries (review, 2026-10-16).
+        owed = LOOKUP_HONEST;
         remember([runId, sessionKeyNow], owed);
       }
       if (on && owed) putReplyInPlace(event.messages, owed);

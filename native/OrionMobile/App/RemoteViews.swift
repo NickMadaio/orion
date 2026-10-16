@@ -219,7 +219,7 @@ final class RemoteStore: ObservableObject {
 
     /// A message to ORION, from the conversation tab.
     /// `sent` gets the message's id at once, so voice mode knows which reply to read.
-    func say(_ text: String, conversation: String? = nil, model: String? = nil, sent: ((String) -> Void)? = nil) {
+    func say(_ text: String, conversation: String? = nil, model: String? = nil, replyTo: String? = nil, sent: ((String) -> Void)? = nil) {
         let id = UUID().uuidString
         #if targetEnvironment(simulator)
         if Self.fixture { sent?(id); return }
@@ -235,7 +235,7 @@ final class RemoteStore: ObservableObject {
         Task {
             // The lock state goes first, so ORION knows it before reading "unlock my apps".
             if let state = try? FocusLock.screenState().validated().encoded() { _ = await link.send(state, kind: .log) }
-            await link.send(text, kind: .chat, id: id, conversation: conversation, model: model)
+            await link.send(text, kind: .chat, id: id, conversation: conversation, model: model, replyTo: replyTo)
         }
     }
 
@@ -273,7 +273,7 @@ final class RemoteStore: ObservableObject {
                 }
             case let .supplement(id, taken):
                 if let index = value.supplements.firstIndex(where: { $0.id == id }) { value.supplements[index].taken = taken }
-            case .sleep, .signal, .screen, .checkin, .note:
+            case .sleep, .signal, .place, .screen, .checkin, .note:
                 break
             }
         }

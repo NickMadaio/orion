@@ -17,6 +17,8 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // NightRoutine registers its category by replacing all of them: let it go first, then merge ours in.
+        MainActor.assumeIsolated { _ = NightRoutine.shared }
         registerCheckinActions()
         MainActor.assumeIsolated {
             BackgroundRefresh.register()
@@ -43,7 +45,10 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         return true
     }
 
-    static let checkinCategory = "orion.checkin"
+    static let checkinCategory = OutreachThread.checkinCategory
+    static let askCategory = OutreachThread.askCategory
+    static let askReplyAction = "orion.ask.reply"
+    static let askLaterAction = "orion.ask.later"
 
     /// Bedtime nudges show even while ORION is open: that is exactly when he is on the phone.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
@@ -52,6 +57,18 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     /// "Going to bed" and "15 more min" on a nudge; "Started", "10 more min", "Done" on a check-in.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let action = response.actionIdentifier
+        let askID = Self.askID(in: response.notification.request.content.userInfo)
+        // An ORION message he can answer: the inline reply goes into the thread as his message (replyTo = the ask),
+        // "Not now" declines it, and a plain tap opens the thread at that message.
+        if let reply = response as? UNTextInputNotificationResponse, action == Self.askReplyAction {
+            await CloudLink.sendNowChat(reply.userText, replyTo: askID)
+            return
+        }
+        if action == Self.askLaterAction { await CloudLink.sendNowChat("Not now", replyTo: askID); return }
+        if action == UNNotificationDefaultActionIdentifier, let askID {
+            await MainActor.run { ThreadTarget.open(askID) }
+            return
+        }
         await MainActor.run {
             if action == NightRoutine.bedAction { NightRoutine.shared.goingToBed() }
             else if action == NightRoutine.snoozeAction { NightRoutine.shared.snooze() }
@@ -67,7 +84,13 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
     }
 
-    /// The buttons on check-in notifications. Registered alongside the bedtime ones.
+    /// The outreach id a notification carries (CloudKit puts the record's desired keys in `ck.qry.rf`).
+    static func askID(in userInfo: [AnyHashable: Any]) -> String? {
+        (CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification)?.recordFields?[LinkSchema.alertAskID] as? String
+    }
+
+    /// The buttons on check-in notifications, and the text reply on asks, merged into what is registered
+    /// (the bedtime category) so neither replaces the other.
     private func registerCheckinActions() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationCategories { existing in
@@ -75,7 +98,12 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             let snooze = UNNotificationAction(identifier: "orion.checkin.snooze", title: "10 more min", options: [])
             let done = UNNotificationAction(identifier: "orion.checkin.done", title: "Done", options: [])
             let checkin = UNNotificationCategory(identifier: Self.checkinCategory, actions: [started, snooze, done], intentIdentifiers: [], options: [])
-            center.setNotificationCategories(existing.filter { $0.identifier != Self.checkinCategory }.union([checkin]))
+            let reply = UNTextInputNotificationAction(identifier: Self.askReplyAction, title: "Reply", options: [],
+                                                      textInputButtonTitle: "Send", textInputPlaceholder: "gym, library, nothing...")
+            let later = UNNotificationAction(identifier: Self.askLaterAction, title: "Not now", options: [])
+            let ask = UNNotificationCategory(identifier: Self.askCategory, actions: [reply, later], intentIdentifiers: [], options: [])
+            let ours: Set<String> = [Self.checkinCategory, Self.askCategory]
+            center.setNotificationCategories(existing.filter { !ours.contains($0.identifier) }.union([checkin, ask]))
         }
     }
 
@@ -102,6 +130,19 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
 extension Notification.Name {
     static let orionLinkChanged = Notification.Name("orionLinkChanged")
+    /// A tap on an ORION message notification: open the thread at that message.
+    static let orionOpenThread = Notification.Name("orionOpenThread")
+}
+
+/// Where a tapped notification should land. Kept until the root view is up (a cold launch from the tap).
+@MainActor
+enum ThreadTarget {
+    private(set) static var pending: String?
+    static func open(_ askID: String) {
+        pending = askID
+        NotificationCenter.default.post(name: .orionOpenThread, object: nil, userInfo: ["askId": askID])
+    }
+    static func consume() -> String? { defer { pending = nil }; return pending }
 }
 
 struct PhoneRootView: View {
@@ -151,6 +192,8 @@ struct PhoneRootView: View {
         }
         .tint(Phone.accent)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in tab = "orion" }
+        .onAppear { if ThreadTarget.pending != nil { tab = "orion" } }
         .task {
             #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--sample") { loadSample() }

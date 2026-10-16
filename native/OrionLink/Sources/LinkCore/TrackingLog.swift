@@ -25,6 +25,8 @@ public struct TrackingLog {
     /// Before this hour you are still in yesterday -- the app's OrionDay rule.
     public static let cutoffHour = 4
     public static let waterGoal = 9
+    /// How many geofence events are kept (C6).
+    public static let placeEventLimit = 500
     static let staleLockAfter: TimeInterval = 15
     static let giveUpAfter: TimeInterval = 6
 
@@ -118,12 +120,21 @@ public struct TrackingLog {
                 reply = "\(known["name"] as? String ?? "Supplement") \(taken ? "taken" : "unticked")."
             case .checkin, .note:
                 throw LinkError.invalidCommand("handled elsewhere")
-            case let .signal(at, motion, charging, latitude, longitude):
+            case let .signal(at, motion, charging, latitude, longitude, audio):
                 var signals = log["phoneSignals"] as? [[String: Any]] ?? []
                 var sample: [String: Any] = ["at": at, "motion": motion, "charging": charging]
                 if let latitude, let longitude { sample["latitude"] = latitude; sample["longitude"] = longitude }
+                if let audio { sample["audio"] = audio }
                 signals.append(sample)
                 log["phoneSignals"] = Array(signals.suffix(2000))
+                reply = "Noted."
+            case let .place(event, placeId, at, latitude, longitude):
+                // C6: geofence enter/exit, the reliable home/away bit. Last 500, like the other histories.
+                var events = log["placeEvents"] as? [[String: Any]] ?? []
+                var item: [String: Any] = ["event": event, "placeId": placeId, "at": at]
+                if let latitude, let longitude { item["latitude"] = latitude; item["longitude"] = longitude }
+                events.append(item)
+                log["placeEvents"] = Array(events.suffix(Self.placeEventLimit))
                 reply = "Noted."
             case let .screen(at, locked, until, why, graceUntil, usedMinutes):
                 // The latest state (what ORION reads) plus a short history for patterns.
@@ -144,7 +155,7 @@ public struct TrackingLog {
                 log["sleepLog"] = Array(sleepLog.suffix(400))
                 reply = event == "bed" ? "Logged: going to bed." : "Logged: up."
             }
-            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .screen = entry {} else {
+            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else {
                 nutrition[day] = meals
                 log["nutritionLog"] = nutrition
                 record["calories"] = meals.reduce(0) { $0 + (Self.int($1["calories"]) ?? 0) }

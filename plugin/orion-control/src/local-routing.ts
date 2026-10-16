@@ -177,6 +177,9 @@ export function isCalendarTurn(message: string, settled: Decision): boolean {
   if (SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message)) return false;
   if (HABIT.test(message) && !CHANGE_REQUEST.test(message)) return false;
   if (settled.move === "ask" && NAMES_NOTHING(message)) return false;
+  // Chit-chat the front desk answered, with no change word, time or "after/before my…" anchor ("the meeting went
+  // over well") is not a calendar turn (re-review, 2026-10-16).
+  if (settled.move === "answer" && !CHANGE_REQUEST.test(message) && !RUNNING_LATE.test(message) && !WHEN_OR_HOW_LONG.test(message) && !/\b(after|before|between|until|till|from)\b/i.test(message)) return false;
   return true;
 }
 // A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).
@@ -265,7 +268,7 @@ const defaultBrainSearch = (query: string): Promise<string> => new Promise((reso
 // a filler) is a question too, unless it also asks for a change ("my schedule" is a noun, not a verb).
 // (review, 2026-10-16) "when" only as "when is|does|do|am|will": "when i get home i'll do laundry" is a plan.
 // "do"/"does" only before a pronoun ("do my laundry at 6" is a plan); "how about" / "what if" suggest.
-const QUESTION_OPENER = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait)[,\s]+)*(?:(?!how about|what if)(?:what|whats|what's|when(?=\s+(?:is|does|do|am|will)\b)|whens|when's|how|is|are|which|who)|do(?:es)?\s+(?:i|we|my|he|she|they))\b/i;
+const QUESTION_OPENER = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait)[,\s]+)*(?:(?!how about|what if)(?:what|whats|what's|when(?=\s+(?:is|does|do|am|will|are|was|can|should|could|would)\b)|whens|when's|how|is|are|which|who)|do(?:es)?\s+(?:i|we|my|he|she|they))\b/i;
 export const isQuestion = (message: string): boolean =>
   /\?\s*$/.test(message.trim()) || (QUESTION_OPENER.test(message.trim()) && !CHANGE_REQUEST.test(message.replace(/\b(my|the|his|your) schedule\b/gi, "")));
 // The day read has no window rule of its own: "tomorrow morning" listed afternoon classes (q014).

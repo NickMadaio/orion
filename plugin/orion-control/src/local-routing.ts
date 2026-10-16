@@ -64,6 +64,8 @@ export type LocalRoutingOptions = {
   scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
   /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
   sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
+  /** Moves his phone's wake alarm (scripts/orion-wake) for "push my alarm to 12" (tests pass a stub; wired from index.ts). */
+  wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
   /** Pulls {time "HH:MM" or null, label} out of a reminder request (tests pass a stub; wired from index.ts). */
@@ -627,6 +629,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           recordOther(run.sessionKey, "focus");
           const outputs = run.flow.outputs;
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
+        }
+      }
+      // His wake alarm is orion-wake, not a reminder: "push my alarm to 12" became alarm_set "push my alarm" and
+      // the phone's alarm never moved (live, 2026-10-16). Before the reminder block, which would catch "alarm".
+      if (!run.flow && !run.cutOff && options.wakeFlow) {
+        const woke = await options.wakeFlow(run.message, run.settled).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (woke.outcome !== "fallback") {
+          run.flow = woke;
+          if (woke.outcome === "done") woke.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: woke.outputs[i] ?? "", exit: null }));
         }
       }
       // "how much focus time is left": code reads the session (q049 said "15 minutes remaining" from nothing).

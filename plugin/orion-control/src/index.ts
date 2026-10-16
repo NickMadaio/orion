@@ -3,6 +3,7 @@ import { registerAccountHealth } from "./account-health.js";
 import { liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting } from "./local-routing.js";
 import { readReminders, remindersPath } from "./ambient.js";
 import { liveSessionFlow, liveSessionStatus } from "./session-flow.js";
+import { liveWakeFlow } from "./wake-flow.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -1682,6 +1683,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       listReminders: () => readReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined)),
       sessionFlow: liveSessionFlow,
       sessionStatus: liveSessionStatus,
+      wakeFlow: liveWakeFlow,
       ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
       acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,

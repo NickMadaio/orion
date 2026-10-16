@@ -16,6 +16,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { decide } from "./lib/reach/proactive.mjs";
+import { announced, markAnnounced } from "./lib/reach/announce.mjs";
+import { readHeld, releaseHeldAlerts } from "./lib/reach/held.mjs";
 import { deliveryOutcome } from "./lib/reach/delivery.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
@@ -58,7 +60,8 @@ const history = (() => { const f = join(DIR, "focus-history.jsonl"); return exis
 const last = history.at(-1);
 if ((!session || !["running", "paused"].includes(session.status)) && last?.endedAt && now - Date.parse(last.endedAt) < 15 * 60000) {
   const ended = new Date(last.endedAt);
-  session = { status: "finished", sessionId: last.sessionID, endedMinute: ended.getHours() * 60 + ended.getMinutes() };
+  session = { status: "finished", sessionId: last.sessionID, endedMinute: ended.getHours() * 60 + ended.getMinutes(),
+    reason: last.reason, servedFocusSeconds: last.servedFocusSeconds };   // so abandoned and 2-second test sessions are not announced
 }
 let sleep = {};
 try { sleep = JSON.parse(run("orion-now", ["--json"])).sleep ?? {}; } catch {}
@@ -82,18 +85,25 @@ const evidence = { nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [
 const phone = phoneMinutes(healthLog.phoneSignals, localDate(now));
 const signals = { wokeAt: actualWake(localDate(now), evidence)?.minute ?? null, phone, leftAt: leftAt(phone, minute) };
 const tomorrow = localDate(new Date(now.getTime() + 86400000));
+// Tomorrow's own calendar (2026-10-16: the bedtime line used today's). Before 6 AM "tomorrow" is still today.
+const tomorrowIsToday = minute < 360;
+let tomorrowDay = null;   // null = could not read: say nothing about tomorrow rather than something wrong
+try { tomorrowDay = tomorrowIsToday ? day : await liveDay(tomorrow); } catch {}
 
-const messages = decide({ minute, day, signals, session, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
+const messages = decide({ minute, day, tomorrowDay: tomorrowDay ?? [], tomorrowIsToday, signals, session, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
   bed: sleep.bedtime, wake: sleep.wake, focusToday: total.focusSeconds >= 60 ? formatFocusToday(total).replace(/^Focused today: /, "").replace(/ \(latest.*$/, "") : null, sent });
 
 for (const m of messages) {
+  // One key per class across orion-proactive, orion-watch and orion-standing (2026-10-16, finding 11).
+  if (!dry && m.claim && announced(DIR, localDate(now), m.claim)) { sent[m.key] = true; continue; }
   if (dry) { console.log(`DRY RUN would say (${m.key}): ${m.text}`); continue; }
   const r = spawnSync(process.execPath, [join(here, "orion-reach"), m.text, "--kind", m.kind, "--why", `proactive: ${m.key}`,
     ...(m.urgent ? ["--urgent"] : []), ...(m.urgentKind ? ["--urgent-kind", m.urgentKind] : []), ...(m.loud ? ["--loud"] : []), ...(m.expires ? ["--no-queue"] : [])], { encoding: "utf8", timeout: 30000 });
   // 2026-10-16 audit, finding 6: a key is "said" only when orion-reach really sent, held or already said it.
   // A refusal (exit 3) or a failed delivery (exit 4) stays unsaid so the next tick retries, and a failure is recorded.
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
-  if (outcome.said) sent[m.key] = true;
+  if (outcome.said && m.claim) markAnnounced(DIR, localDate(now), m.claim, "proactive");
+  if (outcome.said) { sent[m.key] = true; for (const k of m.also ?? []) sent[k] = true; }
   else if (outcome.failed) failures[m.key] = { at: now.toISOString(), attempts: (failures[m.key]?.attempts ?? 0) + 1 };
   process.stdout.write(r.stdout ?? "");
 }
@@ -102,6 +112,13 @@ if (!dry && messages.length) {
   mkdirSync(DIR, { recursive: true });
   const keep = Object.fromEntries(Object.entries({ ...state, [dayKey]: sent }).sort().slice(-7));
   writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2)); renameSync(`${STATE}.tmp`, STATE);
+}
+// Release what was held back (quiet hours, a focus session) once neither applies: one merged message, alerts moved to
+// the phone's outbox, Discord updates flushed. orion-reach and orion-notify each re-check quiet hours and focus time.
+if (!dry && !["running", "paused"].includes(session?.status)) {
+  try { releaseHeldAlerts(DIR); } catch {}
+  if (readHeld(DIR).length) spawnSync(process.execPath, [join(here, "orion-reach"), "--drain-held"], { encoding: "utf8", timeout: 30000 });
+  spawnSync(process.execPath, [join(here, "orion-notify"), "flush"], { encoding: "utf8", timeout: 60000 });
 }
 // A missed morning catches up once (2026-10-13: no brief all day): if he is demonstrably up (WHOOP or the phone) and no
 // brief went out yet, orion-morning says it now. It claims the day first, so this can never double a brief.

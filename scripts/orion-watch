@@ -32,6 +32,9 @@ import { summarize } from "./lib/life/history.mjs";
 import { evalMode } from "./lib/eval-mode.mjs";
 import { classReminders } from "./lib/life/class-reminders.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
+import { announced, markAnnounced } from "./lib/reach/announce.mjs";
+import { appendHeld } from "./lib/reach/held.mjs";
+import { activeSession } from "./lib/reach/focus-hold.mjs";
 // A watcher invoked by an evaluation must not mutate live state or queue alerts.
 if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -102,7 +105,11 @@ const freeLeft = () => freeGaps(blocks, { start: Math.max(minute, toMinute(confi
   .reduce((a, g) => a + g.end - g.start, 0);
 const fixed = blocks.filter((b) => b.fixed);
 const classes = fixed.filter((b) => b.kind === "class");
-const classAlerts = classReminders(blocks, {now: minute, sent: day.classReminded ?? []});
+// 2026-10-16 audit, finding 11: one key per class. If orion-proactive's leave nudge (or anything else) already
+// announced this class today, this reminder stays quiet instead of being a second and third announcement.
+const classAlerts = classReminders(blocks, {now: minute, sent: day.classReminded ?? []})
+  .filter((a) => { const b = blocks.find((x) => x.id === a.id); return !b || !announced(CONTROLLED, localDate(now), `class-${b.start}`); });
+if (!dry) for (const a of classAlerts) { const b = blocks.find((x) => x.id === a.id); if (b) markAnnounced(CONTROLLED, localDate(now), `class-${b.start}`, "watch"); }
 for (const alert of classAlerts) alerts.push({id: `class-${alert.id}`, level: 0, text: alert.text});
 day.classReminded = [...(day.classReminded ?? []), ...classAlerts.map(a => a.id)];
 const lastClass = classes.at(-1);
@@ -199,11 +206,21 @@ if (awake && free >= 180) {
   }
 }
 if (brief) alerts.unshift({ id: "watch-brief", level: 1, text: `Morning. ${brief}` });
-if (alerts.length) {
-  day.lastQuestion = alerts.at(-1).text;
+// A focus session is running: everything but a class reminder waits in the held queue until it ends
+// (2026-10-16 audit: watchers ignored the session). Released by orion-proactive's tick.
+const session = dry ? null : activeSession(process.env);
+const deliverNow = session ? alerts.filter((a) => a.id.startsWith("class-")) : alerts;
+const heldAlerts = session ? alerts.filter((a) => !a.id.startsWith("class-")) : [];
+if (deliverNow.length) {
+  day.lastQuestion = deliverNow.at(-1).text;
   day.lastQuestionAt = now.toISOString();
+}
+if (alerts.length) {
   mkdirSync(CONTROLLED, { recursive: true });
-  if (!dry) for (const a of alerts) appendFileSync(OUTBOX, `${JSON.stringify({ ...a, kind: "checkin" })}\n`);
+  if (!dry) {
+    for (const a of deliverNow) appendFileSync(OUTBOX, `${JSON.stringify({ ...a, kind: "checkin" })}\n`);
+    for (const a of heldAlerts) appendHeld(CONTROLLED, { id: `held-${Date.now()}-${a.id}`, alertId: a.id, at: now.toISOString(), text: a.text, level: a.level, via: "alerts-outbox", heldFor: "focus" });
+  }
 }
 if (!dry) { save(); summarize(log); }
 if (process.argv.includes("--json")) console.log(JSON.stringify(alerts));

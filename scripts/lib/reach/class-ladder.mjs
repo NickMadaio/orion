@@ -37,11 +37,11 @@ export function classLadder(ctx, say) {
     const toLeave = leaveAt - ctx.minute;
     const toStart = cls.start - ctx.minute;
     if (moved) continue;
-    if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${cls.start}`, `You should be out the door now - ${name} is at ${hm(cls.start)}. Go, and I'll sort the rest.`, "reminder", { urgent: true, urgentKind: "class", level: 2 });
+    if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${cls.start}`, `You should be out the door now - ${name} is at ${hm(cls.start)}. Go, and I'll sort the rest.`, "reminder", { urgent: true, urgentKind: "class", claim: `class-${cls.start}`, level: 2 });
     if (toLeave < -10 && toStart >= -10) {
       say(`wake-${cls.start}`, toStart > 0
         ? `${name} starts in ${toStart} min. Up now - you can still make most of it.`
-        : `${name} started ${-toStart} min ago. Go now and you'll still catch part of it.`, "reminder", { urgent: true, urgentKind: "class", loud: true, level: 3 });
+        : `${name} started ${-toStart} min ago. Go now and you'll still catch part of it.`, "reminder", { urgent: true, urgentKind: "class", loud: true, claim: `class-${cls.start}`, level: 3 });
     }
     if (attendance === "missed" && ctx.minute >= cls.start + 15 && ctx.minute <= cls.end + 90) {
       const next = blocks.filter((b) => b.start > ctx.minute && b.id !== cls.id).sort((a, b) => a.start - b.start)[0];

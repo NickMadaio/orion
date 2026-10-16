@@ -145,4 +145,6 @@ test("end to end: at leave time + 5 with no sign of him, the urgent class messag
   assert.ok(urgent, t.r.stdout);
   assert.equal(urgent.push, true);
   assert.match(urgent.text, /out the door/);
+  // the shared key: orion-watch and orion-standing now stay quiet about this class
+  assert.equal(JSON.parse(readFileSync(join(t.dir, "announced.json"), "utf8"))["2026-10-15"]["class-540"], "proactive");
 });

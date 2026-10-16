@@ -31,10 +31,23 @@ export function clearHeld(dir, released) {
  */
 export function mergeHeld(entries, { now = Date.now(), maxAgeMs = 12 * 3600_000 } = {}) {
   const fresh = [], stale = [];
-  for (const e of entries) (e.expires || now - Date.parse(e.at) > maxAgeMs ? stale : fresh).push(e);
+  for (const e of entries.filter((x) => x.via !== "alerts-outbox")) (e.expires || now - Date.parse(e.at) > maxAgeMs ? stale : fresh).push(e);
   const seen = new Set();
   const lines = fresh.map((e) => String(e.text).trim()).filter((t) => t && !seen.has(t) && seen.add(t));
   if (!lines.length) return { text: null, used: fresh, stale };
   const text = lines.length === 1 ? lines[0] : `While you were out of reach: ${lines.map((t) => t.replace(/[.!]$/, "")).join(". ")}.`;
   return { text, used: fresh, stale };
+}
+
+/**
+ * Alerts the watchers wanted to send during a focus session (via "alerts-outbox") move to the phone's
+ * alerts outbox once the session is over. Returns what was released.
+ */
+export function releaseHeldAlerts(dir) {
+  const mine = readHeld(dir).filter((e) => e.via === "alerts-outbox");
+  if (!mine.length) return [];
+  mkdirSync(dir, { recursive: true });
+  for (const e of mine) appendFileSync(join(dir, "alerts-outbox.jsonl"), `${JSON.stringify({ id: e.alertId ?? e.id, level: e.level ?? 1, text: e.text, kind: "checkin" })}\n`);
+  clearHeld(dir, mine);
+  return mine;
 }

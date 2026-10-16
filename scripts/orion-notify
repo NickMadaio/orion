@@ -45,6 +45,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
+import { activeSession } from "./lib/reach/focus-hold.mjs";
 
 const run = promisify(execFile);
 
@@ -174,7 +175,7 @@ function parseArgs(argv) {
       continue;
     }
     const key = arg.slice(2);
-    if (["dry-run", "urgent"].includes(key)) {
+    if (["dry-run", "urgent", "force"].includes(key)) {
       flags[key] = true;
       continue;
     }
@@ -329,6 +330,11 @@ if (command === "status") {
 }
 
 if (command === "flush") {
+  // Held updates are released when it is neither quiet nor focus time (2026-10-16): orion-proactive's tick calls this.
+  if (!dryRun && flags.force !== true) {
+    if (inQuietHours(now)) { console.log("quiet hours: not flushing"); process.exit(0); }
+    if (activeSession(process.env)) { console.log("focus session running: not flushing"); process.exit(0); }
+  }
   if (!dryRun) await retryPending(await resolveTransport(flags));
   const state = await readState();
   if (state.notify.deferred.length === 0) {
@@ -336,7 +342,7 @@ if (command === "flush") {
     process.exit(0);
   }
   const digest = [
-    `Orion | OVERNIGHT DIGEST | ${state.notify.deferred.length} update(s)`,
+    `Orion | HELD UPDATES | ${state.notify.deferred.length} update(s)`,
     ...state.notify.deferred.map((entry) => `- [${EVENTS[entry.event].label}] ${entry.missionId}: ${entry.message}`),
   ].join("\n");
   const transport = await resolveTransport(flags);
@@ -373,6 +379,8 @@ const text = render({ event: command, missionId, message, approvalId, approval }
 
 const forced = ALWAYS_DELIVER.has(command) || flags.urgent === true;
 const quiet = !forced && inQuietHours(now);
+// A focus session is running: everything but blocked/--urgent is deferred until it ends (2026-10-16 audit).
+const focusHeld = !forced && !quiet && !dryRun && activeSession(process.env) !== null;
 const suppressed = forced ? null : suppressionReason(state, { event: command, missionId, message, at });
 
 const mission = state.missions[missionId] ?? { priority: "normal", history: [] };
@@ -391,7 +399,7 @@ const nextPending = approvalId
   ? { ...state.pending, [approvalId]: { missionId, request: approval, status: "pending", createdAt: new Date(at).toISOString() } }
   : state.pending;
 
-if (quiet) {
+if (quiet || focusHeld) {
   // Apply only THIS mission's delta onto the freshly-read state. Replacing the
   // whole `missions` map with one built from a stale read is how a concurrent
   // orion-remote edit to a different mission would silently vanish.
@@ -401,7 +409,7 @@ if (quiet) {
     pending: approvalId ? { ...fresh.pending, [approvalId]: nextPending[approvalId] } : fresh.pending,
     notify: { ...fresh.notify, deferred: [...fresh.notify.deferred, { event: command, missionId, message, at }] },
   }));
-  console.log(`deferred (quiet hours ${QUIET_FROM}:00-0${QUIET_UNTIL}:00) - will go out with the next flush`);
+  console.log(focusHeld ? "deferred (focus session running) - will go out with the next flush" : `deferred (quiet hours ${QUIET_FROM}:00-0${QUIET_UNTIL}:00) - will go out with the next flush`);
   process.exit(0);
 }
 

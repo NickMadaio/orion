@@ -93,6 +93,8 @@ const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("-
 
 if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
 
+// Releasing the held queue while it is still quiet (or a session still runs): leave it, and leave no log row.
+if (drain && decision.channel === "hold") { console.log(`Still held (${decision.reason}).`); process.exit(0); }
 try {
   appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
   if (decision.channel === "hold") {

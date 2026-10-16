@@ -459,7 +459,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
   /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
   const lastReminder = new Map<string, { label: string; at: string; set: number }>();
-  const reminderAsk = new Map<string, { text: string; at: number }>();
+  const reminderAsk = new Map<string, { text: string; at: number; label?: boolean }>();
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
   const log = (entry: Record<string, unknown>) => {
     try {
@@ -580,14 +580,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const asked = reminderAsk.get(key);
         reminderAsk.delete(key);
         // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
-        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (run.settled?.move !== "tool" || isBareTime(run.message)) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
+        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (isBareTime(run.message) || asked.label) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
         const last = lastReminder.get(key);
         const plan = await planReminder({ message: followUp ?? run.message, now: (options.now ?? (() => new Date()))(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
           list: options.listReminders ?? (async () => []), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
         if (plan?.kind === "say") {
           run.flow = { outcome: "say", kind: "plain", text: plan.text };
-          if (plan.pending && key) reminderAsk.set(key, { text: followUp ?? run.message, at: Date.now() });
+          if (plan.pending && key) reminderAsk.set(key, { text: followUp ?? run.message, at: Date.now(), ...(plan.askLabel ? { label: true } : {}) });
         }
         if (plan?.kind === "call") {
           run.reminder = { args: plan.args, say: plan.reply, action: plan.action, ...(plan.label && plan.at ? { label: plan.label, at: plan.at } : {}) };

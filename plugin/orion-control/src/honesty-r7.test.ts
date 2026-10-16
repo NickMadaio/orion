@@ -92,12 +92,36 @@ describe("a denial against the messages (q065)", () => {
   });
   it("is caught against message rows the read returned", () => {
     const rows = [{ canonical: "orion_task_run messages_recent", stdout: "Thu 00:20  me: BMW moto?\nThu 00:12  Gia: ok", exit: 0 }];
-    expect(denialContradictsMessages("No new texts.", rows)).toBe(true);
+    expect(denialContradictsMessages("No one has texted you.", rows)).toBe(true);
     expect(checkWork({ reply: "No one texted you.", turnResults: rows, finished: true })).toContain("denies messages it shows");
   });
   it("an honest none, or a report of messages, passes", () => {
     const empty = [{ canonical: "orion_task_run messages_recent", stdout: "No messages matched. (This is a real empty result)", exit: 0 }];
     expect(checkWork({ reply: "No one texted you recently.", turnResults: empty, finished: true })).toEqual([]);
     expect(checkWork({ reply: "Gia texted you at 9 about dinner.", turnResults: [{ canonical: "x", stdout: "Thu 21:00  Gia: dinner?", exit: 0 }], finished: true })).toEqual([]);
+  });
+});
+
+// Review, 2026-10-16: correct answers were flagged, and warm lines were read as lookups.
+describe("review fixes", () => {
+  it("a denial scoped to new/today/since beside older messages is not a contradiction", () => {
+    for (const reply of ["No new texts. Your last text was from Gia at 9:02 last night.", "Nothing new since last night — Gia's was the latest.", "No one has texted you today; the last message was from Gia yesterday."])
+      expect(checkWork({ reply, turnResults: [], finished: true }), reply).not.toContain("denies messages it shows");
+  });
+  it("an unscoped denial beside messages is still caught", () => {
+    expect(checkWork({ reply: "No one texted you recently. Your last messages were from Gia and you.", turnResults: [], finished: true })).toContain("denies messages it shows");
+  });
+  it("warm 'I'm reading/looking' lines are not lookups; real ones still are", () => {
+    for (const reply of ["I'm reading you loud and clear.", "I'm looking out for you, get some sleep.", "I'm looking at a quiet evening for you."])
+      expect(checkWork({ reply, turnResults: [], finished: true }), reply).toEqual([]);
+    for (const reply of ["I'm reading your last 3 texts now.", "I'm checking for new emails from Northeastern.", "I'm looking at your calendar."])
+      expect(checkWork({ reply, turnResults: [], finished: true }), reply).toContain("claims a lookup it did not do");
+  });
+  it("praise and opinion survive day-claim stripping; factual claims do not", () => {
+    expect(withoutDayClaims("You did great today!")).toBe("You did great today!");
+    expect(withoutDayClaims("You were right about that.")).toBe("You were right about that.");
+    expect(withoutDayClaims("You've been great. Sleep now.")).toBe("You've been great. Sleep now.");
+    expect(withoutDayClaims("You've been coding for hours. Sleep now.")).toBe("Sleep now.");
+    expect(withoutDayClaims("You worked all day. Rest.")).toBe("Rest.");
   });
 });

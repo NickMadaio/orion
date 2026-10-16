@@ -12,10 +12,15 @@ const REPORTS_SOME = /\b(last|latest|most recent|recent|newest) (messages?|texts
 // A line of the messages read: "Thu 14:02  Gia: running late" (scripts/orion-messages render()).
 const MESSAGE_LINE = /\d{1,2}:\d{2}\s+[^\n:]{1,40}:\s+\S/;
 
+// A denial limited to new, unread, today, tonight, this morning or "since …" is right beside older messages
+// ("No new texts. Your last text was from Gia at 9:02 last night."); review, 2026-10-16.
+const SCOPED = /\b(new|unread|today|tonight|this (morning|afternoon|evening)|since|yet)\b/i;
+
 /** True when the reply denies messages yet reports some, or the messages read this turn returned some. */
 export function denialContradictsMessages(reply: string, turnResults: ToolResult[]): boolean {
   const text = String(reply ?? "").replace(/[’‘]/g, "'");
-  if (!NONE_CLAIM.test(text)) return false;
+  const denial = text.split(/(?<=[.!?;])\s+|\s[—–]\s/).find((c) => NONE_CLAIM.test(c));
+  if (!denial || SCOPED.test(denial)) return false;
   if (REPORTS_SOME.test(text)) return true;
   return turnResults.some((r) => MESSAGE_LINE.test(String(r.stdout)) && !/No messages matched/.test(String(r.stdout)));
 }

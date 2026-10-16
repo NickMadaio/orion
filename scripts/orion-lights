@@ -39,7 +39,7 @@ if (verb === "brightness" && !query.has("brightness")) fail("orion-lights bright
 if (verb === "color" && !query.has("color")) fail("orion-lights color warm|white|red|…|RRGGBB");
 
 const before = (() => { try { return statSync(STATUS).mtimeMs; } catch { return 0; } })();
-try { execFileSync("/usr/bin/open", ["-g", `orion://lights?${query}`], { timeout: 5000 }); }
+try { execFileSync(process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open", ["-g", `orion://lights?${query}`], { timeout: 5000 }); }
 catch { console.log("The ORION app isn't running, so the lights can't be reached."); process.exit(1); }
 
 const until = Date.now() + 20000;

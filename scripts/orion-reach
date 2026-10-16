@@ -80,7 +80,8 @@ const here = await presence(now, { dir: DIR, facts: givenFacts });
 if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
 const forced = flag("--channel");
 let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
-  : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false }, { urgent, urgentKind })
+  // --loud (the morning brief) is meant aloud: a calendar-derived "out" must not turn it into a silent bubble (2026-10-15).
+  : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false, ...(args.includes("--loud") ? { out: false } : {}) }, { urgent, urgentKind })
   : chooseChannel(here, { urgent, urgentKind });
 // A focus session is running: batch everything but the two genuinely urgent kinds until it ends.
 const session = dry ? null : activeSession(process.env);

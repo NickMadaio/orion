@@ -119,9 +119,11 @@ function tick(at, { wokeAtMinute = null, extra = {} } = {}) {
     writeFileSync(join(dir, "sleep-actual.json"), JSON.stringify({ nights: [{ fellAsleep: new Date(wk - 7 * 3600_000).toISOString(), wokeAt: wk.toISOString() }] }));
   }
   const fakeOpen = join(home, "fake-open"); writeFileSync(fakeOpen, "#!/bin/sh\nexit 0\n"); chmodSync(fakeOpen, 0o755);
+  // The morning brief already went out that day (so the tick's catch-up has nothing to do).
+  writeFileSync(join(dir, "morning-sent.json"), JSON.stringify({ [d.toLocaleDateString("en-CA")]: { at: d.toISOString(), signal: "up" } }));
   const r = spawnSync(process.execPath, [join(import.meta.dirname, "../scripts/orion-proactive"), "tick"], { encoding: "utf8", env: {
     PATH: process.env.PATH, HOME: home, ORION_CONTROLLED_DIR: dir, ORION_LIFE_CONFIG: join(home, "config.json"), ORION_REACH_NOW: new Date(at).toISOString(),
-    ORION_REACH_FACTS: JSON.stringify({ idleSeconds: 9999, locked: true }), ORION_REACH_OPEN_BIN: fakeOpen, ORION_FOCUS_HISTORY: join(dir, "focus-history.jsonl"),
+    ORION_REACH_FACTS: JSON.stringify({ idleSeconds: 9999, locked: true }), ORION_REACH_OPEN_BIN: fakeOpen, ORION_LIGHTS_BIN: fakeOpen, ORION_FOCUS_HISTORY: join(dir, "focus-history.jsonl"),
     ORION_BRIDGE_BIN: join(import.meta.dirname, "fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"), ORION_SESSION_SOCKET: join(home, "no.sock") } });
   const outbox = existsSync(join(dir, "outreach-outbox.jsonl")) ? readFileSync(join(dir, "outreach-outbox.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
   return { r, outbox, home, dir };

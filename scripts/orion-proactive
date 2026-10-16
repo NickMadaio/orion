@@ -103,4 +103,7 @@ if (!dry && messages.length) {
   const keep = Object.fromEntries(Object.entries({ ...state, [dayKey]: sent }).sort().slice(-7));
   writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2)); renameSync(`${STATE}.tmp`, STATE);
 }
+// A missed morning catches up once (2026-10-13: no brief all day): if he is demonstrably up (WHOOP or the phone) and no
+// brief went out yet, orion-morning says it now. It claims the day first, so this can never double a brief.
+if (!dry) { try { spawnSync(process.execPath, [join(here, "orion-morning"), "catchup"], { encoding: "utf8", timeout: 120000 }); } catch {} }
 if (!messages.length) console.log(`Nothing to say (${p.where}${session?.status === "running" ? ", in a focus session" : ""}).`);

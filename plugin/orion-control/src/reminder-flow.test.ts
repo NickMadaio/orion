@@ -250,6 +250,16 @@ describe("reminders — label answers (round 6, 2026-10-16)", () => {
       expect(h.extracted[1], said).toBe(`remind me at 5 about the thing ${said}`);
     }
   });
+  it("final round: with the front desk answering, a calendar word alone is still a label; real requests are new", async () => {
+    for (const said of ["bring my laptop to class", "my lab report"]) {
+      const h = await ask(said, { move: "answer", answer: "ok" });
+      expect(h.extracted[1], said).toBe(`remind me at 5 about the thing ${said}`);
+    }
+    for (const said of ["add gym at 5 today", "move gym to 6", "turn the lights off", "what's the weather"]) {
+      const h = await ask(said, { move: "answer", answer: "ok" });
+      expect(h.extracted, said).toEqual(["remind me at 5 about the thing"]);
+    }
+  });
   it("'delete the alarm you set for 7' does not look for a reminder called 'set'", async () => {
     const h = harness({ now: at(2026, 10, 16, 12, 0), stored: [] });
     expect(await h.turn("delete the alarm you set for 7")).not.toMatch(/for set/);

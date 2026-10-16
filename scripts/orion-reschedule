@@ -376,10 +376,14 @@ if (command === "late") {
   if (afterTitle && !anchor) fail(`NOTHING WAS CHANGED: no "${afterTitle}" on ${date} to put it after.`, 2);
   // r8 review 3 M3 (2026-10-16): --after is a floor (his end; the planner adds the buffer), not an exact start: an exact start
   // at his end collided with the next block and the planner moved the anchor itself ("moved Lunch: 12:15 → 13:40").
-  const at = anchor ? null : minute(flag("--at")); const before = minute(flag("--before"));
-  const afterFloor = anchor ? anchor.end : null; // the planner adds its own buffer to a floor, as for "X after Y"
+  // r8 review 4 (2026-10-16): HIGH-2 a fixed plan after an anchor starts at the anchor's end (it needs an exact time);
+  // HIGH-3 with both sides bounded (--after and --before) keep the exact start too (the deployed behaviour, tight gaps fit);
+  // only an open-ended --after is a floor.
   const fixed = args.includes("--fixed") || isSocial(title);
-  if (fixed && at === null) fail("a fixed plan needs --at HH:MM");
+  const before = minute(flag("--before"));
+  const at = anchor ? (fixed || before !== null ? anchor.end : null) : minute(flag("--at"));
+  const afterFloor = anchor && at === null ? anchor.end : null; // the planner adds its own buffer to a floor, as for "X after Y"
+  if (fixed && at === null) fail("NOTHING WAS CHANGED: a fixed plan needs --at HH:MM", 2);
   add.push({ title, kind: classify(title), minutes: n, ...(at !== null ? { at } : {}), ...(afterFloor !== null ? { after: afterFloor } : {}), ...(before !== null ? { before } : {}), fixed });
 } else if (command === "now") {
   /*

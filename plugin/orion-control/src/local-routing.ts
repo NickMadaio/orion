@@ -641,6 +641,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
     if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
     run.settled = d;
+    // r8 review 4 HIGH-1 (2026-10-16): the front desk read his reply as a device or lookup request ("turn off the lights"),
+    // so it is not the title the add question asked for: nothing is booked and the turn routes normally.
+    if (run.addAnswer?.kind === "run" && "title" in run.addAnswer.run && d.move === "tool") run.addAnswer = undefined;
     if (options.scheduleChangesToCloud && CHANGE_REQUEST.test(message) && SCHEDULING.test(message) && !isCrisis(message)) {
       run.cloud = true;
       return undefined; // the configured model, with ORION's full prompt
@@ -661,6 +664,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
       if (run && (RUNNING_LATE.test(run.message) || run.late)) return undefined; // the calendar flow, never a drafted "no problem"
+      // r8 review 4 MEDIUM-1 (2026-10-16): a draft must never answer the add question's yes ("Sure, done!" with nothing written).
+      if (run?.addAnswer) return undefined;
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
       const draftText = withoutDayClaims(d?.answer ?? "");
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
@@ -884,7 +889,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             ? await options.scheduleFlow(run.message, clock(), { pending: a.run }).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
             : { outcome: "fallback", reason: "no scheduling flow wired" };
           if (run.flow.outcome === "fallback") run.flow = { outcome: "say", kind: "plain", text: "I couldn't finish that add. Tell me what to put on your day and when." };
-          markRead(run, "day");
+          markRead(run, a.run.when === "tomorrow" ? "day-tomorrow" : "day");
         }
         settleSchedule(run);
       }

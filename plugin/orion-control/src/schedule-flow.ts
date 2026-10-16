@@ -236,8 +236,11 @@ export function anchorFromMessage(message: string, day: Day): (Anchor & { name: 
   const time = message.match(/\bbefore\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b(?!\s*(?:min|hour|hr|more|times?|of\b))/i);
   if (time && Number(time[1]) <= 24) {
     const h = Number(time[1]); const ap = time[3]?.toLowerCase();
-    const hour = ap ? (h % 12) + (ap === "pm" ? 12 : 0) : h < 8 ? h + 12 : h % 24;
-    const minute = hour * 60 + Number(time[2] ?? 0);
+    const mins = Number(time[2] ?? 0);
+    // r8 review 4 MEDIUM-2 (2026-10-16): a bare hour already behind him today ("before 8" at 11:18) is the evening.
+    const passed = !ap && h < 12 && !!day.now && h * 60 + mins <= toMin(day.now);
+    const hour = ap ? (h % 12) + (ap === "pm" ? 12 : 0) : h < 8 || passed ? h + 12 : h % 24;
+    const minute = hour * 60 + mins;
     before = { minute, label: `${ampm(hhmm(minute))}` };
   } else {
     const bef = message.match(new RegExp(String.raw`\bbefore\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)${TAIL}`, "i"));
@@ -533,18 +536,23 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
 }): Promise<FlowResult> {
   if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
   const titled = pending?.kind === "title" ? pending : undefined;
-  let undone = 0;
+  let undone = 0; const takenBackWhat: string[] = [];
   for (const mark of [...undo].reverse()) {
     if (undoTop() !== mark) break;
-    await exec(["undo"]);
+    const out = await exec(["undo"]);
     undone += 1;
+    const what = out.stdout.match(/^Undone:\s*(.+)$/m)?.[1]?.trim();
+    if (what) takenBackWhat.push(what);
   }
+  // r8 review 4 MEDIUM-4 (2026-10-16): when this turn took the earlier half back and then only asks or fails, Nick is told.
+  const takenBack = <T extends Extract<FlowResult, { outcome: "say" }>>(r: T): T =>
+    undone > 0 ? { ...r, text: `I took back the earlier change${takenBackWhat.length ? ` (${takenBackWhat.join("; ")})` : ""} first. ${r.text}` } : r;
   const { args: dateArgs, label: when, ask: whichDay } = titled ? { args: titled.dateArgs, label: titled.when } : dayArgsFor(message, now);
-  if (whichDay) return { outcome: "say", text: whichDay, kind: "ask" };
+  if (whichDay) return takenBack({ outcome: "say", text: whichDay, kind: "ask" });
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
   const clash = titled ? undefined : contradiction(message);
-  if (clash) return { outcome: "say", text: clash, kind: "ask" };
+  if (clash) return takenBack({ outcome: "say", text: clash, kind: "ask" });
   // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
   const build = (list: Intent[]) => list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1 }));
   let steps: Intent[]; let compiled: Compiled[]; let bad: Compiled | undefined;
@@ -575,18 +583,29 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
       bad = compiled.find((c) => "error" in c);
     }
     const stopped = guardSteps(message, steps, day);
-    if (stopped) return { outcome: "say", text: stopped.text, kind: stopped.say };
+    if (stopped) return takenBack({ outcome: "say", text: stopped.text, kind: stopped.say });
   }
   if (!compiled.length) return { outcome: "fallback", reason: "no steps" };
   if (bad && "error" in bad) return { outcome: "fallback", reason: bad.error };
   const said = compiled.find((c) => "say" in c && c.say !== "answer");
   if (said && "say" in said) {
     // H1: only a lone unnamed add keeps its question (a title answer is one add for that slot).
-    const keep = said.pending && compiled.length === 1 ? { pending: { ...said.pending, dateArgs, ...(when ? { when } : {}) } as TitlePending } : {};
-    return { outcome: "say", text: said.text, kind: said.say as "cannot" | "ask", ...keep };
+    // LOW (r8 review 4): the stored date is absolute, so a yes after midnight writes to the day that was asked about.
+    const keep = said.pending && compiled.length === 1 ? { pending: { ...said.pending, dateArgs: ["--date", day.date], ...(when ? { when } : {}) } as TitlePending } : {};
+    return takenBack({ outcome: "say", text: said.text, kind: said.say as "cannot" | "ask", ...keep });
   }
   const runs = compiled.filter((c): c is { args: string[] } => "args" in c);
   if (!runs.length) return { outcome: "fallback", reason: "a question, not a change" };
+  // r8 review 4 MEDIUM-3 (2026-10-16): with two or more adds and a before/after phrase in his words, a step that came out
+  // unanchored is the live-bug class again: ask which goes where, write nothing.
+  const adds = runs.filter((c) => c.args[0] === "add");
+  if (!titled && adds.length >= 2 && adds.some((c) => !c.args.some((a) => a === "--at" || a === "--after" || a === "--before"))) {
+    const phrases = [...message.matchAll(/\b(before|after)\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)(?=\s+(?:and|then)\s+|[,.;!?]|$)/gi)].map((m) => `${m[1]!.toLowerCase()} ${/^(?:class|lecture|lab|seminar)$/i.test(m[2]!.trim()) ? "your " : ""}${m[2]!.trim()}`);
+    if (phrases.length) {
+      const said = phrases.slice(0, 3).join(", or ");
+      return takenBack({ outcome: "say", kind: "ask", text: `${said.replace(/^./, (c) => c.toUpperCase())} — which one goes where?` });
+    }
+  }
   const argvs = runs.map((c) => [...c.args, ...dateArgs]);
   // An add he did not pin to a time must not shuffle his day: look first (--dry-run writes nothing), ask if it would (r8, 2026-10-16).
   // Every add is previewed BEFORE any step runs: an early return after an earlier step had written lost its record (H2).
@@ -596,11 +615,11 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     previewCalls.push(`exec orion-reschedule ${argv.join(" ")} --dry-run`); previewed.push(preview);
     if (FAILED.test(preview) && !summarize([preview], []).changed) {
       const text = spokenReply([preview], when);
-      return { outcome: "say", kind: "plain", text: argvs.length > 1 ? `${text} Nothing else was changed.` : text, calls: previewCalls, outputs: previewed };
+      return takenBack({ outcome: "say", kind: "plain", text: argvs.length > 1 ? `${text} Nothing else was changed.` : text, calls: previewCalls, outputs: previewed });
     }
     effects.push(...displaced(preview, argv[1]));
   }
-  if (effects.length) return { outcome: "say", kind: "ask", text: `That would ${effectPhrase(effects)} — go ahead?`, pending: { kind: "push", argvs, displaced: [...new Set(effects.map((e) => e.name))], ...(when ? { when } : {}) } };
+  if (effects.length) return takenBack({ outcome: "say", kind: "ask", text: `That would ${effectPhrase(effects)} — go ahead?`, pending: { kind: "push", argvs: runs.map((c) => [...c.args, "--date", day.date]), displaced: [...new Set(effects.map((e) => e.name))], ...(when ? { when } : {}) } });
   return execute(argvs, { exec, undoTop, when, undone });
 }
 

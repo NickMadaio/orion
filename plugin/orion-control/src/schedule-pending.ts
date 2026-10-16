@@ -18,6 +18,8 @@ export type PushPending = { kind: "push"; argvs: string[][]; displaced: string[]
 export type TitlePending = {
   kind: "title"; ask: string; minutes?: number; dateArgs: string[]; when?: string;
   before?: { minute: number; label: string }; afterTitle?: string;
+  /** HIGH-1 (r8 review 4): the question was already asked a second time; a third non-answer clears it. */
+  reasked?: boolean;
 };
 export type PendingAdd = PushPending | TitlePending;
 /** What the flow is told to do for a pending answer. */
@@ -35,13 +37,26 @@ const LEAD = /^(?:(?:um+|uh+|hmm+|maybe|just|how about|what about|let'?s (?:do|s
 const NEW_REQUEST = /\b(?:add|move|push|cancel|remind|skip|drop|schedule|swap|resize|extend|undo|running late|late|tomorrow|today)\b|\d/i;
 
 export const isYes = (m: string): boolean => isBareYes(m) || GO_AHEAD.test(m.trim());
-export const isNo = (m: string): boolean => NO.test(m.trim()) && m.trim().split(/\s+/).length <= 3;
+export const isNo = (m: string): boolean => NO.test(m.trim().replace(/^(?:actually|oh|um+|uh+|well)[,\s]+/i, "")) && m.trim().split(/\s+/).length <= 3;
 
-/** His short answer to "what should I put there?": "laundry", "um maybe stretching", "put in email". Null if it is not one. */
+/** Leading acknowledgements: "yes, laundry" is "laundry" (r8 review 4 HIGH-1, 2026-10-16). */
+const ACK = /^(?:(?:yes|yeah|yea|yep|yup|ok(?:ay)?|sure|alright|well|so|actually|oh)[,\s]+)+/i;
+/** Not a thing to put on the calendar: a question, about himself or the assistant, or a device command. */
+const NOT_A_TITLE = new RegExp(String.raw`^(?:(?:what|when|where|who|whom|whose|how|why|which|can|could|would|will|should|is|are|am)\b|(?:do|does|did)\s+(?:you|i|we|they|it|u)\b|(?:i|i'm|im|i'll|i've|i'd|you|you're|youre|u|we|let me)\b|(?:turn|set|play|start|stop|open|text|log|remind|call)\b)`, "i");
+/** Replies that mean "you decide": asked once more, then left alone. */
+const YOU_DECIDE = /^(?:idk|i don'?t know|dunno|not sure|you (?:pick|choose|decide)|up to you|surprise me|whatever|anything)\b/i;
+/** Replies that are not an answer at all: nothing is booked, the turn routes normally. */
+const NON_ANSWER = /^(?:thanks?(?: you)?|thx|hmm+|hold on|wait|not really|never ?mind|nvm|that'?s fine|perfect|cool|absolutely|lol|ok cool|great|nice|awesome|nothing|no thanks)\b/i;
+
+const stripAck = (m: string): string => m.replace(ACK, "").trim();
+
+/** His short answer to "what should I put there?": "laundry", "yes, laundry", "put in email". Null if it is not one. */
 export function titleAnswer(message: string): string | null {
   const m = message.trim().replace(/[.!\s]+$/, "");
   if (!m || /\?/.test(m) || m.split(/\s+/).length > 6 || isYes(m) || isNo(m) || NEW_REQUEST.test(m)) return null;
-  const title = m.replace(LEAD, "").trim();
+  const bare = stripAck(m);
+  if (!bare || isYes(bare) || NOT_A_TITLE.test(bare) || YOU_DECIDE.test(bare) || NON_ANSWER.test(bare) || YOU_DECIDE.test(m) || NON_ANSWER.test(m)) return null;
+  const title = bare.replace(LEAD, "").trim();
   return title && /[a-z]/i.test(title) ? title.replace(/^./, (c) => c.toUpperCase()) : null;
 }
 
@@ -49,7 +64,8 @@ export function titleAnswer(message: string): string | null {
 export function answerPending(pending: PendingAdd, message: string): PendingAnswer | undefined {
   if (isNo(message)) return { kind: "decline" };
   if (pending.kind === "push") return isYes(message) ? { kind: "run", run: pending } : undefined;
-  if (isYes(message)) return { kind: "reask", pending };
+  // A yes, or "you pick", is not a title: ask once more, then leave it (a third non-answer clears the question).
+  if (isYes(message) || YOU_DECIDE.test(stripAck(message.trim()))) return pending.reasked ? undefined : { kind: "reask", pending: { ...pending, reasked: true } };
   const title = titleAnswer(message);
   return title ? { kind: "run", run: { ...pending, title } } : undefined;
 }

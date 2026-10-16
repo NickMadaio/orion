@@ -18,7 +18,7 @@ describe("distress detection", () => {
   });
 
   it("catches the common phrasings added in round 6 (2026-10-16)", () => {
-    for (const m of ["i dont wanna live anymore", "i dont wanna be alive", "i wish i was dead", "i wish i were dead", "i want to sleep and never wake up", "nobody would miss me", "no one would miss me", "i'm thinking of ending it", "i'm thinking about ending it all", "i don't want to exist anymore", "i want it all to end", "i want to disappear", "i just wanna disappear forever", "i dont wanna wake up tomorrow", "im gonna end it"])
+    for (const m of ["i dont wanna live anymore", "i dont wanna be alive", "i wish i was dead", "i wish i were dead", "i want to sleep and never wake up", "nobody would miss me", "no one would miss me", "i'm thinking of ending it", "i'm thinking about ending it all", "i don't want to exist anymore", "i want it all to end", "i want to disappear", "i just wanna disappear forever", "i dont wanna wake up tomorrow", "im gonna end it", "nobody would miss me if i was gone", "i'm thinking of ending it if this doesn't get better", "i'm going to end it tonight"])
       expect(isCrisis(m), m).toBe(true);
   });
 

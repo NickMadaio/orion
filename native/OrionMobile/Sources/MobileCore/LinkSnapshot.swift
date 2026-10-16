@@ -34,6 +34,10 @@ public enum LinkSchema {
     public static let commandThinking = "thinking"
     public static let commandConversation = "conversationID"
     public static let commandModel = "model"
+    /// The outreach message this chat record answers (a reply to a notification or typed in the thread).
+    public static let commandReplyTo = "replyTo"
+    /// On an ORION-started record: the id the phone's reply must carry back (`reach-<id>`).
+    public static let commandAskID = "askId"
     public static let commandRepliedAt = "repliedAt"
     /// "chat" for conversation with ORION, "control" for buttons. The Mac runs
     /// both the same way; the phone keeps them in different places.
@@ -44,6 +48,13 @@ public enum LinkSchema {
     public static let alertText = "text"
     public static let alertKind = "kind"
     public static let alertAt = "at"
+    /// The notification category the alert is shown with ("orion.ask" gets a text-reply field).
+    public static let alertCategory = "category"
+    /// The outreach id behind the alert, so a tap opens that message in the thread.
+    public static let alertAskID = "askId"
+
+    /// The chat thread ORION's own messages are written into: the one phone-typed chat uses by default.
+    public static let threadID = "phone-history"
 
     /// The sender name every phone command carries into orion-remote.
     public static let sender = "phone"
@@ -270,18 +281,34 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
     /// The last keyboard or mouse input on the Mac. Used at night: at the Mac at
     /// 2 AM is awake, and the phone's alarm moves later for it.
     public var lastInputAt: Date?
+    /// Places Nick confirmed (home, campus, gym...), for the phone's geofences (C6). Optional so older snapshots decode.
+    public var knownPlaces: [KnownPlace]?
+
+    public struct KnownPlace: Codable, Equatable, Sendable, Identifiable {
+        public var id: String
+        public var name: String
+        public var lat: Double
+        public var lon: Double
+        public var radiusM: Double
+        public var kind: String
+        public init(id: String, name: String, lat: Double, lon: Double, radiusM: Double = 120, kind: String = "other") {
+            self.id = id; self.name = name; self.lat = lat; self.lon = lon; self.radiusM = radiusM; self.kind = kind
+        }
+    }
 
     public init(generatedAt: Date, mac: Mac, runs: [Run] = [], approvals: [Approval] = [],
                 running: [RunningAction] = [], attention: Attention? = nil, health: [HealthDay]? = nil,
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
-                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil) {
+                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil,
+                knownPlaces: [KnownPlace]? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
         self.tracking = tracking; self.plan = plan; self.planRequest = planRequest; self.wakeRequest = wakeRequest
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
         self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists
+        self.knownPlaces = knownPlaces
     }
 
     public static let currentVersion = 1
@@ -368,7 +395,11 @@ public enum LinkLog: Codable, Equatable, Sendable {
     /// "walking", "running", "vehicle", "unknown"), charging, and a coarse place
     /// (lat/lon rounded to ~100 m) when he has allowed location. History for the
     /// life loop's "what is actually happening"; nothing acts on one sample.
-    case signal(at: String, motion: String, charging: Bool, latitude: Double?, longitude: Double?)
+    /// `audio` is where the phone's sound is going ("bluetooth", "wired", "speaker", "unknown"), when it could be read.
+    case signal(at: String, motion: String, charging: Bool, latitude: Double?, longitude: Double?, audio: String? = nil)
+    /// Entering or leaving a place he confirmed (a geofence event, which works with the app closed).
+    /// The coordinates are the last fix, rounded like a signal's, and only when there was one.
+    case place(event: String, placeId: String, at: String, latitude: Double? = nil, longitude: Double? = nil)
     /// Whether the phone's Screen Time lock is on (2026-10-01: Nick asked ORION for
     /// 20 more minutes and ORION said nothing was locked; it could not see the phone).
     /// `why` is "night", "work" or "checkin"; `until` and `graceUntil` are ISO-8601.
@@ -380,6 +411,15 @@ public enum LinkLog: Codable, Equatable, Sendable {
     case note(text: String, at: String)
 
     public static let meals = ["Breakfast", "Lunch", "Dinner", "Snack", "Other"]
+    public static let audioRoutes = ["bluetooth", "wired", "speaker", "unknown"]
+
+    /// About 100 m, and only sane coordinates.
+    private static func rounded(_ latitude: Double?, _ longitude: Double?) throws -> (Double?, Double?) {
+        if let latitude, !(-90...90).contains(latitude) { throw LinkError.invalidCommand("bad latitude") }
+        if let longitude, !(-180...180).contains(longitude) { throw LinkError.invalidCommand("bad longitude") }
+        let round = { (value: Double?) in value.map { ($0 * 1000).rounded() / 1000 } }
+        return (round(latitude), round(longitude))
+    }
 
     /// Bounds a person could mean; anything else is refused rather than clamped.
     public func validated() throws -> LinkLog {
@@ -405,13 +445,17 @@ public enum LinkLog: Codable, Equatable, Sendable {
                          calories: calories, protein: protein, carbohydrates: carbohydrates, fat: fat)
         case .removeMeal(let id): return .removeMeal(id: try identifier(id))
         case let .supplement(id, taken): return .supplement(id: try identifier(id), taken: taken)
-        case let .signal(at, motion, charging, latitude, longitude):
+        case let .signal(at, motion, charging, latitude, longitude, audio):
             guard ["still", "walking", "running", "vehicle", "cycling", "unknown"].contains(motion),
                   ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a signal") }
-            let round = { (value: Double?) in value.map { ($0 * 1000).rounded() / 1000 } }
-            if let latitude, !(-90...90).contains(latitude) { throw LinkError.invalidCommand("bad latitude") }
-            if let longitude, !(-180...180).contains(longitude) { throw LinkError.invalidCommand("bad longitude") }
-            return .signal(at: at, motion: motion, charging: charging, latitude: round(latitude), longitude: round(longitude))
+            guard audio == nil || Self.audioRoutes.contains(audio!) else { throw LinkError.invalidCommand("audio is bluetooth, wired, speaker or unknown") }
+            let (lat, lon) = try Self.rounded(latitude, longitude)
+            return .signal(at: at, motion: motion, charging: charging, latitude: lat, longitude: lon, audio: audio)
+        case let .place(event, placeId, at, latitude, longitude):
+            guard ["enter", "exit"].contains(event) else { throw LinkError.invalidCommand("a place event is enter or exit") }
+            guard ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a time") }
+            let (lat, lon) = try Self.rounded(latitude, longitude)
+            return .place(event: event, placeId: try identifier(placeId), at: at, latitude: lat, longitude: lon)
         case let .note(text, at):
             guard ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a time") }
             let cleaned = String(text.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) && $0 != "\n" ? " " : Character($0) })

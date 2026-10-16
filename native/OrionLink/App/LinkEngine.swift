@@ -166,15 +166,19 @@ final class LinkEngine: ObservableObject {
         let claim = OutboxClaim.claim(outbox)
         alerts += claim?.items ?? []
         guard !alerts.isEmpty else { claim?.complete(); return }
-        let records = alerts.compactMap { alert -> CKRecord? in
-            guard let text = alert["text"] as? String, let id = alert["id"] as? String else { return nil }
+        let records = alerts.flatMap { alert -> [CKRecord] in
+            guard let text = alert["text"] as? String, let id = alert["id"] as? String else { return [] }
             let record = CKRecord(recordType: LinkSchema.alertType,
                                   recordID: CKRecord.ID(recordName: "checkin-\(id)-\(UUID().uuidString.prefix(8))", zoneID: zoneID))
             record[LinkSchema.alertText] = String(text.prefix(240)) as CKRecordValue
             record[LinkSchema.alertKind] = "checkin" as CKRecordValue
             record["level"] = ((alert["level"] as? Int) ?? 1) as CKRecordValue
             record[LinkSchema.alertAt] = Date() as CKRecordValue
-            return record
+            record[LinkSchema.alertCategory] = OutreachThread.checkinCategory as CKRecordValue
+            // WP5: the check-in is also a message in the thread, so it can be answered there.
+            guard let entry = OutreachThread.entry(fromCheckin: alert) else { return [record] }
+            record[LinkSchema.alertAskID] = entry.id as CKRecordValue
+            return [record, threadRecord(entry, at: Date())]
         }
         guard !records.isEmpty else { claim?.complete(); return }   // only unreadable lines: drop them
         do {
@@ -201,23 +205,22 @@ final class LinkEngine: ObservableObject {
         let items = claim.items
         var records: [CKRecord] = []
         for item in items {
-            guard let id = item["id"] as? String, let message = item["text"] as? String else { continue }
-            let chat = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: id, zoneID: zoneID))
-            chat[LinkSchema.commandText] = "" as CKRecordValue
-            chat[LinkSchema.commandSentAt] = Date() as CKRecordValue
-            chat[LinkSchema.commandDevice] = "orion" as CKRecordValue
-            chat[LinkSchema.commandKind] = LinkCommandKind.chat.rawValue as CKRecordValue
-            chat[LinkSchema.commandStatus] = LinkCommandStatus.done.rawValue as CKRecordValue
-            chat[LinkSchema.commandReply] = message as CKRecordValue
-            records.append(chat)
-            if item["push"] as? Bool == true {
+            // WP5: every proactive push is a message in the one thread the phone chat shows, under its id.
+            guard let entry = OutreachThread.entry(from: item) else { continue }
+            let sent = Date()
+            records.append(threadRecord(entry, at: sent))
+            if let store = chatArchive { OutreachArchive.append(entry, at: sent, to: store) }
+            if entry.push {
                 let alert = CKRecord(recordType: LinkSchema.alertType,
-                                     recordID: CKRecord.ID(recordName: "reach-\(id)", zoneID: zoneID))
-                alert[LinkSchema.alertText] = String(message.prefix(240)) as CKRecordValue
+                                     recordID: CKRecord.ID(recordName: "reach-\(entry.id)", zoneID: zoneID))
+                alert[LinkSchema.alertText] = String(entry.text.prefix(240)) as CKRecordValue
                 alert[LinkSchema.alertKind] = "orion" as CKRecordValue
-                // 2026-10-16: urgent outreach goes out at level 2 so the phone shows it time-sensitive.
-                alert["level"] = OutboxClaim.alertLevel(urgent: item["urgent"]) as CKRecordValue
-                alert[LinkSchema.alertAt] = Date() as CKRecordValue
+                // Urgent or time-sensitive outreach goes out at level 2 so the phone shows it time-sensitive.
+                alert["level"] = entry.level as CKRecordValue
+                alert[LinkSchema.alertAt] = sent as CKRecordValue
+                // Questions get a text-reply field; a tap opens this message (askId) in the thread.
+                alert[LinkSchema.alertCategory] = entry.category as CKRecordValue
+                alert[LinkSchema.alertAskID] = entry.id as CKRecordValue
                 records.append(alert)
             }
         }
@@ -229,6 +232,20 @@ final class LinkEngine: ObservableObject {
             // Left claimed: the next tick retries rather than losing what ORION said.
             problem = "Could not send ORION's message: \(error.localizedDescription)"
         }
+    }
+
+    /// ORION's message as a chat record in the thread: no words from him, already answered, with the id a reply carries back.
+    private func threadRecord(_ entry: OutreachThread.Entry, at: Date) -> CKRecord {
+        let chat = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: entry.id, zoneID: zoneID))
+        chat[LinkSchema.commandText] = "" as CKRecordValue
+        chat[LinkSchema.commandSentAt] = at as CKRecordValue
+        chat[LinkSchema.commandDevice] = "orion" as CKRecordValue
+        chat[LinkSchema.commandKind] = LinkCommandKind.chat.rawValue as CKRecordValue
+        chat[LinkSchema.commandStatus] = LinkCommandStatus.done.rawValue as CKRecordValue
+        chat[LinkSchema.commandReply] = entry.text as CKRecordValue
+        chat[LinkSchema.commandConversation] = entry.conversationID as CKRecordValue
+        chat[LinkSchema.commandAskID] = entry.id as CKRecordValue
+        return chat
     }
 
     // MARK: - State
@@ -244,7 +261,8 @@ final class LinkEngine: ObservableObject {
                                     planRequest: reader.planRequest(now: now), wakeRequest: reader.wakeRequest(now: now),
                                     checkin: reader.checkin(now: now), deadlines: calendar?.deadlines,
                                     lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) },
-                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusListsDirective())
+                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusListsDirective(),
+                                    knownPlaces: knownPlaces())
         publishGlance(snapshot, now: now)
         // Compare without the clock, so an unchanged Mac is not re-sent every tick.
         var probe = snapshot; probe.generatedAt = .distantPast
@@ -397,7 +415,7 @@ final class LinkEngine: ObservableObject {
             switch kind {
             case .chat, .control:
                 let chat = kind == .chat
-                result = await Task.detached(priority: .userInitiated) { runner.run(text: text, id: id, sentAt: sentAt, chat: chat, conversation: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String) }.value
+                result = await Task.detached(priority: .userInitiated) { runner.run(text: text, id: id, sentAt: sentAt, chat: chat, conversation: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String, replyTo: record[LinkSchema.commandReplyTo] as? String) }.value
             case .log where (try? LinkLog.decode(text)).map({ if case .note = $0 { return true }; return false }) == true:
                 if case .note(let body, let at)? = try? LinkLog.decode(text),
                    (try? MemoryNote().append(body, at: ISO8601DateFormatter().date(from: at) ?? sentAt)) != nil {
@@ -418,6 +436,12 @@ final class LinkEngine: ObservableObject {
                     if result.ok { applied.append(id); defaults.set(Array(applied.suffix(300)), forKey: "link.appliedLogs") }
                     if result.ok, case .sleep(let event, let at)? = try? LinkLog.decode(text), event != "bed" {
                         Self.morningSignal(event, at: at)
+                    }
+                    if result.ok, let entry = try? LinkLog.decode(text) {
+                        switch entry {
+                        case .signal, .place: Self.refreshAwareness()
+                        default: break
+                        }
                     }
                 }
             case .plan:
@@ -463,6 +487,40 @@ final class LinkEngine: ObservableObject {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
+    }
+
+    nonisolated private static let awarenessGate = NSLock()
+    nonisolated(unsafe) private static var lastAwarenessRefresh = Date.distantPast
+
+    /// A phone signal or place event just landed: let awareness re-read it (WP1's `orion-awareness refresh`).
+    /// Debounced to once per 10 s, fire and forget, and skipped while that script is not installed.
+    nonisolated static func refreshAwareness(now: Date = Date()) {
+        awarenessGate.lock(); defer { awarenessGate.unlock() }
+        guard now.timeIntervalSince(lastAwarenessRefresh) >= 10 else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let script = home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-awareness")
+        guard FileManager.default.fileExists(atPath: script.path) else { return }
+        lastAwarenessRefresh = now
+        let process = Process()
+        process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+        process.arguments = [script.path, "refresh"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    /// Places Nick confirmed (known-places.json, C6), for the phone's geofences.
+    private func knownPlaces() -> [LinkSnapshot.KnownPlace]? {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/known-places.json")
+        guard let data = try? Data(contentsOf: file), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = object["places"] as? [[String: Any]] else { return nil }
+        let places = list.compactMap { item -> LinkSnapshot.KnownPlace? in
+            guard let id = item["id"] as? String, let lat = (item["lat"] as? NSNumber)?.doubleValue,
+                  let lon = (item["lon"] as? NSNumber)?.doubleValue, (-90...90).contains(lat), (-180...180).contains(lon) else { return nil }
+            return .init(id: id, name: item["name"] as? String ?? id, lat: lat, lon: lon,
+                         radiusM: (item["radiusM"] as? NSNumber)?.doubleValue ?? 120, kind: item["kind"] as? String ?? "other")
+        }
+        return places.isEmpty ? nil : Array(places.prefix(20))
     }
 
     /// "Started" / "10 more min" / "Done" tapped on a check-in notification.

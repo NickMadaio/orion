@@ -30,10 +30,19 @@ public struct CommandRunner {
 
     /// `chat` sends the text to ORION as conversation, never parsed as a command
     /// ("No, I mean…" is not `deny`); the Control buttons use the command grammar.
-    public func arguments(text: String, id: String, sentAt: Date, chat: Bool = false) -> [String] {
+    /// `replyTo` is the outreach id the phone's reply answers (`--reply-to`); anything but a plain id is dropped.
+    public func arguments(text: String, id: String, sentAt: Date, chat: Bool = false, replyTo: String? = nil) -> [String] {
         [remote.path, "handle", "--from", LinkSchema.sender, "--id", id,
          "--at", String(Int64(sentAt.timeIntervalSince1970 * 1000)),
-         "--mode", chat ? "chat" : "command", "--", text]
+         "--mode", chat ? "chat" : "command"]
+            + (Self.safeReplyTo(replyTo).map { ["--reply-to", $0] } ?? [])
+            + ["--", text]
+    }
+
+    static func safeReplyTo(_ id: String?) -> String? {
+        guard let id, (1...80).contains(id.count),
+              id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0)) }) else { return nil }
+        return id
     }
 
     public func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
@@ -45,12 +54,12 @@ public struct CommandRunner {
 
     /// Blocking; call off the main thread. Exit 1 with a reply is a refusal and
     /// its reply is forwarded (the bridge does the same); no reply is a failure.
-    public func run(text: String, id: String, sentAt: Date, chat: Bool = false, conversation: String? = nil, model: String? = nil) -> Result {
+    public func run(text: String, id: String, sentAt: Date, chat: Bool = false, conversation: String? = nil, model: String? = nil, replyTo: String? = nil) -> Result {
         let command: String
         do { command = try LinkCommand.validate(text) } catch { return Result(ok: false, reply: "That command was empty or too long.") }
         let process = Process()
         process.executableURL = node
-        process.arguments = arguments(text: command, id: id, sentAt: sentAt, chat: chat)
+        process.arguments = arguments(text: command, id: id, sentAt: sentAt, chat: chat, replyTo: replyTo)
         var env = environment()
         let session = conversation.map { "orion-chat-" + $0 } ?? "orion-app-v2"
         if chat { env["ORION_BRAIN_SESSION"] = session }

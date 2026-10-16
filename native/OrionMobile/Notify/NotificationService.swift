@@ -32,6 +32,11 @@ final class NotificationService: UNNotificationServiceExtension {
             content.relevanceScore = min(1, 0.5 + Double(level) * 0.15)
         }
         if kind == "checkin" { content.threadIdentifier = "orion.checkin" }
+        // WP5: a CloudKit subscription has one fixed category, so the record's own `category` is applied here:
+        // a question gets "orion.ask" (a text-reply field), everything else keeps the check-in buttons.
+        if let category = fields?["category"] as? String, ["orion.ask", "orion.checkin"].contains(category) {
+            content.categoryIdentifier = category
+        }
         // The check-in widgets and lock screen redraw from the app's next glance.
         WidgetCenter.shared.reloadAllTimelines()
         contentHandler(content)

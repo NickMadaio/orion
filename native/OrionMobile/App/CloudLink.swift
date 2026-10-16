@@ -25,6 +25,8 @@ final class CloudLink: ObservableObject {
         var thinking: String? = nil
         var conversationID: String? = nil
         var model: String? = nil
+        /// Set on a message ORION started (a pushed nudge, ask or check-in): the id a reply carries back as `replyTo`.
+        var askID: String? = nil
     }
 
     @Published private(set) var snapshot: LinkSnapshot?
@@ -96,11 +98,13 @@ final class CloudLink: ObservableObject {
         visible.alertLocalizationArgs = [LinkSchema.alertText]
         // Buttons on the notification, and the fields the app needs to act on it
         // in the background (a level-3 check-in can lock distracting apps).
+        // A CloudKit subscription has one fixed category: this is the default, and the notification
+        // extension swaps in the record's own `category` ("orion.ask" gets a text-reply field).
         visible.category = PhoneAppDelegate.checkinCategory
         visible.shouldSendContentAvailable = true
         // Lets the notification extension mark an ignored check-in time-sensitive.
         visible.shouldSendMutableContent = true
-        visible.desiredKeys = [LinkSchema.alertKind, "level"]
+        visible.desiredKeys = [LinkSchema.alertKind, "level", LinkSchema.alertCategory, LinkSchema.alertAskID]
         visible.soundName = "default"
         visible.shouldBadge = true
         alertSub.notificationInfo = visible
@@ -166,6 +170,7 @@ final class CloudLink: ObservableObject {
         case LinkSchema.stateType:
             if let json = record[LinkSchema.stateJSON] as? String, let decoded = try? LinkSnapshot.decode(Data(json.utf8)) {
                 snapshot = decoded
+                PlaceMonitor.shared.update(places: decoded.knownPlaces)   // his confirmed places, for the geofences
                 // The Mac is alive: it sends bedtime messages with context (2026-10-07).
                 if Date().timeIntervalSince(decoded.generatedAt) < NightRoutine.macFreshSeconds {
                     NightRoutine.macTookOver(at: decoded.generatedAt)
@@ -180,7 +185,8 @@ final class CloudLink: ObservableObject {
                 kind: kind,
                 status: (record[LinkSchema.commandStatus] as? String).flatMap(LinkCommandStatus.init(rawValue:)) ?? .pending,
                 reply: record[LinkSchema.commandReply] as? String,
-                repliedAt: record[LinkSchema.commandRepliedAt] as? Date, thinking: record[LinkSchema.commandThinking] as? String, conversationID: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String)
+                repliedAt: record[LinkSchema.commandRepliedAt] as? Date, thinking: record[LinkSchema.commandThinking] as? String, conversationID: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String,
+                askID: record[LinkSchema.commandAskID] as? String)
         default:
             break
         }
@@ -197,13 +203,14 @@ final class CloudLink: ObservableObject {
     /// Mac's reply arrives through the change feed.
     /// Returns the command's id once iCloud has it, or nil if it was not sent.
     @discardableResult
-    func send(_ text: String, kind: LinkCommandKind, id: String = UUID().uuidString, conversation: String? = nil, model: String? = nil) async -> String? {
+    func send(_ text: String, kind: LinkCommandKind, id: String = UUID().uuidString, conversation: String? = nil, model: String? = nil, replyTo: String? = nil) async -> String? {
         let command: String
         do { command = try LinkCommand.validate(text) } catch { problem = "That message is empty or too long."; return nil }
         let now = Date()
         let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: id, zoneID: zoneID))
         record[LinkSchema.commandConversation] = conversation as CKRecordValue?
         record[LinkSchema.commandModel] = model as CKRecordValue?
+        record[LinkSchema.commandReplyTo] = replyTo as CKRecordValue?
         record[LinkSchema.commandText] = command as CKRecordValue
         record[LinkSchema.commandSentAt] = now as CKRecordValue
         record[LinkSchema.commandStatus] = LinkCommandStatus.pending.rawValue as CKRecordValue
@@ -225,17 +232,42 @@ final class CloudLink: ObservableObject {
     }
 
     /// Send one entry without a running link: answers tapped on a notification,
-    /// possibly with the app in the background.
-    static func sendNow(_ entry: LinkLog) async {
-        guard let text = try? entry.encoded() else { return }
+    /// possibly with the app in the background, and the background location samples
+    /// PhoneSignals queued. True once iCloud has it, so a caller can keep the entry for retry.
+    @discardableResult
+    static func sendNow(_ entry: LinkLog) async -> Bool {
+        guard let text = try? entry.encoded() else { return true }   // never valid: nothing to retry
+        let record = commandRecord(text: text, kind: .log)
+        return await save(record)
+    }
+
+    /// A typed answer to a notification (the inline reply field), as a chat in the thread. `replyTo` is the outreach id.
+    @discardableResult
+    static func sendNowChat(_ text: String, replyTo: String?) async -> Bool {
+        guard let command = try? LinkCommand.validate(text) else { return true }
+        let record = commandRecord(text: command, kind: .chat)
+        record[LinkSchema.commandConversation] = LinkSchema.threadID as CKRecordValue
+        record[LinkSchema.commandReplyTo] = replyTo as CKRecordValue?
+        return await save(record)
+    }
+
+    private static func commandRecord(text: String, kind: LinkCommandKind) -> CKRecord {
         let zone = CKRecordZone.ID(zoneName: LinkSchema.zoneName, ownerName: CKCurrentUserDefaultName)
         let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: zone))
         record[LinkSchema.commandText] = text as CKRecordValue
         record[LinkSchema.commandSentAt] = Date() as CKRecordValue
         record[LinkSchema.commandStatus] = LinkCommandStatus.pending.rawValue as CKRecordValue
         record[LinkSchema.commandDevice] = "iphone" as CKRecordValue
-        record[LinkSchema.commandKind] = LinkCommandKind.log.rawValue as CKRecordValue
-        _ = try? await CKContainer(identifier: LinkSchema.containerID).privateCloudDatabase.modifyRecords(saving: [record], deleting: [])
+        record[LinkSchema.commandKind] = kind.rawValue as CKRecordValue
+        return record
+    }
+
+    private static func save(_ record: CKRecord) async -> Bool {
+        do {
+            let (results, _) = try await CKContainer(identifier: LinkSchema.containerID).privateCloudDatabase.modifyRecords(saving: [record], deleting: [])
+            for result in results.values { _ = try result.get() }
+            return true
+        } catch { return false }
     }
 
     private func describe(_ error: Error) -> String {

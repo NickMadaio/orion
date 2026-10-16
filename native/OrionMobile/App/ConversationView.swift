@@ -21,6 +21,8 @@ struct ConversationView: View {
     @State private var conversationID: String?
     @State private var selectedModel: String?
     @FocusState private var typing: Bool
+    /// The pushed message he tapped (or nil): a reply answers it, and the thread scrolls to it.
+    @State private var tappedAsk: String?
 
     private let suggestions = [
         "What does my day look like?",
@@ -37,7 +39,7 @@ struct ConversationView: View {
                     PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level, size: 56)
                         .frame(maxWidth: .infinity)
                     if remote.conversation.isEmpty { emptyState }
-                    ForEach(remote.conversation.filter { conversationID == nil || $0.conversationID == conversationID }) { message in
+                    ForEach(remote.conversation.filter { conversationID == nil || $0.conversationID == conversationID || $0.askID != nil }) { message in
                         exchange(message).id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -57,7 +59,16 @@ struct ConversationView: View {
             // banner, Control Center or a permission check — ending on it cancelled
             // every conversation as it started (2026-10-07: "it didn't even hear me").
             .onChange(of: scenePhase) { _, phase in if phase == .background { voice.end(.background) } }
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onAppear {
+                if let id = ThreadTarget.consume() { tappedAsk = id; proxy.scrollTo(id, anchor: .center) }
+                else { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            // A tap on a pushed message opens the thread at that message.
+            .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { note in
+                guard let id = note.userInfo?["askId"] as? String else { return }
+                _ = ThreadTarget.consume(); tappedAsk = id
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
         }
         .safeAreaInset(edge: .bottom) { inputBar }
         .phoneScreen()
@@ -79,6 +90,17 @@ struct ConversationView: View {
                 ForEach(remote.snapshot?.chatModels ?? []) { model in Button(model.label) { selectedModel = model.id } }
             } }
         }
+    }
+
+    /// The pushed message a reply answers: the one he tapped, else the latest he has not answered (MobileCore's rule).
+    private var replyTarget: String? {
+        let lines = remote.conversation.flatMap { message -> [OutreachThread.Line] in
+            var result = [OutreachThread.Line]()
+            if let ask = message.askID { result.append(.init(id: ask, sentAt: message.sentAt, fromORION: true)) }
+            else if !message.text.isEmpty { result.append(.init(id: message.id, sentAt: message.sentAt, fromORION: false)) }
+            return result
+        }
+        return OutreachThread.replyTarget(thread: lines, tapped: tappedAsk)
     }
 
     private var presenceLine: String {
@@ -176,7 +198,7 @@ struct ConversationView: View {
         showingTalk = true
         Task {
             await voice.start { text in
-                remote.say(text, conversation: conversationID, model: selectedModel) { id in voice.sent(id: id) }
+                remote.say(text, conversation: conversationID, model: selectedModel, replyTo: replyTarget) { id in voice.sent(id: id) }
             }
         }
     }
@@ -271,7 +293,8 @@ struct ConversationView: View {
         guard canSend else { return }
         let text = draft
         draft = ""
-        remote.say(text, conversation: conversationID, model: selectedModel)
+        remote.say(text, conversation: conversationID, model: selectedModel, replyTo: replyTarget)
+        tappedAsk = nil
     }
 }
 

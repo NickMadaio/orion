@@ -34,7 +34,7 @@ import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
-import { toolDirective, type ToolDirective } from "./tool-moves.js";
+import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -516,7 +516,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // its output. Left to the worker, it said "I've started a focus session" three times and
       // called nothing (2026-10-15). Before the scheduler, which "focus block" would also match.
       // The front desk's own session start counts too, unless his words rule one out (q051, q054).
-      const hint = sessionHint(run.settled);
+      // Merge of r2-routing-polish (front-desk session start counts) with r2-front-desk-tools (a timer is
+      // timer_set whatever the front desk picked): a front-desk "session start" for "set a timer for 25 min"
+      // started a focus session before the tool move ran, so the hint never applies to a timer request.
+      const hint = isTimerRequest(run.message) ? {} : sessionHint(run.settled);
       if (!run.flow && startsSession(run.message, hint) && options.sessionFlow) {
         run.flow = await options.sessionFlow(run.message, hint).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
         if (run.flow.outcome === "done") {

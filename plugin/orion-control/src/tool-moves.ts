@@ -44,6 +44,9 @@ function seconds(amount: string, unit: string): number {
 const call = (action: string, step: Record<string, unknown>, note: string, failLine: string): ToolDirective =>
   ({ kind: "call", action, args: JSON.stringify({ steps: [{ action, ...step }] }), note, failLine });
 
+/** "set a timer for 25 min": a timer, whatever the front desk picked (never a focus session, q032). */
+export const isTimerRequest = (message: string): boolean => TIMER.test(message);
+
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
 export function toolDirective(decision: Decision | undefined, message: string): ToolDirective | null {
   if (!decision || decision.move === "escalate") return null;

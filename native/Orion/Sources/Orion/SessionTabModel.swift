@@ -230,6 +230,17 @@ final class SessionTabModel: ObservableObject {
         }
     }
 
+    /// What the floating pill says instead of a clock when time is not moving.
+    /// 2026-10-16 UI audit #1: a paused or waiting session used to show a
+    /// frozen clock, indistinguishable from a dead one.
+    var heldLabel: String? {
+        switch status {
+        case .paused: return "paused"
+        case .waitingForReturn: return "waiting for you"
+        default: return nil
+        }
+    }
+
     /// The service publishes durable snapshots every 30 seconds. The dashboard
     /// interpolates between them for a live clock, then snaps back to the next
     /// authoritative value. Paused and waiting states never accrue display time.
@@ -466,7 +477,13 @@ final class SessionTabModel: ObservableObject {
     /// A dashboard-started block has no conversational preflight. Ask once for
     /// this session unless voice or another trusted route already armed a list.
     private func evaluateGuardSetup() {
-        guard let session = snapshot.session else { return }
+        // 2026-10-16 UI audit #2: with no session at all (abandoned, finished,
+        // cleared) the request used to linger and the "Which apps can you use?"
+        // sheet stayed open for a session that no longer existed.
+        guard let session = snapshot.session else {
+            guardSetupRequest = nil
+            return
+        }
         let id = session.id.raw
 
         if activeSessionID != id {
@@ -653,8 +670,11 @@ final class SessionTabModel: ObservableObject {
 
     private var preferredClipName: String? {
         if let current = clipPlayer.nowPlaying { return current }
+        // 2026-10-16 UI audit #7: only offer the planned clip if it is still in
+        // the library; a deleted one used to stay on screen and fail on play.
         if let planned = snapshot.session?.plan
-            .phase(at: snapshot.reconciliation?.phaseIndex ?? 0)?.clip?.name {
+            .phase(at: snapshot.reconciliation?.phaseIndex ?? 0)?.clip?.name,
+           clipInventory?.clips.contains(where: { $0.name == planned }) ?? true {
             return planned
         }
         return clipInventory?.clips.first?.name

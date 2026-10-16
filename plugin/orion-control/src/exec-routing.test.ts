@@ -69,4 +69,10 @@ describe("routeForDoomedExec: the first refusal carries the route", () => {
     expect(route?.reason).toContain("orion-recall");
     expect(route?.reason).not.toContain("no pipe, redirect");
   });
+
+  it("does not call a quoted & an operator (3b64dd81, 'Design & Implementation'), but still refuses a live one", () => {
+    expect(routeForDoomedExec('/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule add "Design & Implementation" 60')).toBeUndefined();
+    expect(routeForDoomedExec('/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today && rm x')?.reason).toContain("ONE allowlisted program");
+    expect(routeForDoomedExec('/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda "a" ; "b"')?.reason).toContain("ONE allowlisted program");
+  });
 });

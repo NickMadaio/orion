@@ -309,11 +309,12 @@ export function dayArgsFor(message: string, now: Date = new Date()): { args: str
   const target = WEEKDAYS.findIndex((d) => d.startsWith(said.slice(0, 3)));
   if (target < 0 || (target === now.getDay() && !/\bnext\s/i.test(m[0]))) return { args: [], label: undefined };
   const name = WEEKDAYS[target]!;
-  // A weekday named after "today" could be either day: ask, write nothing (round 6, 2026-10-16). A weekday
-  // before it is the object ("plan my friday, today is too packed").
+  // A weekday named after "today" could be either day: ask, write nothing (round 6, 2026-10-16). Either order; the one
+  // exception is a weekday that is the object of plan/organise/sort ("plan my friday, today is too packed").
   const label = name[0]!.toUpperCase() + name.slice(1);
   const todayAt = message.search(TODAY);
-  if (todayAt >= 0 && todayAt < m.index!) return { args: [], label: undefined, ask: `Today or ${label}?` };
+  const isObject = /\b(?:plan|organi[sz]e|sort)(?:\s+out)?\s+(?:my|the|our)?\s*$/i.test(message.slice(0, m.index!) );
+  if (todayAt >= 0 && !isObject) return { args: [], label: undefined, ask: `Today or ${label}?` };
   return { args: ["--date", name], label: name[0]!.toUpperCase() + name.slice(1) };
 }
 

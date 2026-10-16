@@ -119,6 +119,10 @@ const SPOKEN = /Nick SAID this out loud/;
 // A spoken message that ends on a word a sentence cannot end on ("…go ahead and", "…move the").
 const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|with|of|from|um|uh)\s*[,–—-]*\s*$/i;
 export const GO_ON = "Go on.";
+const LABEL_COMMANDS = /\b(turn|open|play|start|text|email|add|move|cancel|set|what|whats|what's|how|when)\b/i;
+/** An answer to "what should I remind you about?" is a plain label: no change, calendar, live-data or command word, and no tool/escalate from the front desk (review, 2026-10-16). */
+const answersLabel = (message: string, move?: string): boolean =>
+  move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, SCHEDULING, LIVE_DATA, LABEL_COMMANDS].some((re) => re.test(message));
 const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
@@ -583,7 +587,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const asked = reminderAsk.get(key);
         reminderAsk.delete(key);
         // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
-        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (isBareTime(run.message) || asked.label) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
+        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (isBareTime(run.message) || (asked.label && answersLabel(run.message, run.settled?.move))) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
         const last = lastReminder.get(key);
         const plan = await planReminder({ message: followUp ?? run.message, now: (options.now ?? (() => new Date()))(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),

@@ -231,6 +231,31 @@ describe("reminders — re-review fixes (2026-10-16)", () => {
   });
 });
 
+describe("reminders — label answers (round 6, 2026-10-16)", () => {
+  const ask = async (said: string, decision: Decision) => {
+    const h = harness({ now: at(2026, 10, 16, 12, 0), decision, extract: (m) => ({ time: "17:00", label: /^remind me at 5 about the thing$/.test(m) ? "the thing" : "x" }) });
+    await h.turn("remind me at 5 about the thing");
+    await h.turn(said);
+    return h;
+  };
+  it("a new request after 'What should I remind you about?' is not stitched", async () => {
+    for (const said of ["add gym at 5 today", "turn the lights off", "move gym to 6", "what's the weather"]) {
+      const h = await ask(said, { move: "ask", answer: "?" });
+      expect(h.extracted, said).toEqual(["remind me at 5 about the thing"]);
+    }
+  });
+  it("a plain label still stitches ('call mom', 'the one with the form')", async () => {
+    for (const said of ["call mom", "the one with the form"]) {
+      const h = await ask(said, { move: "ask", answer: "?" });
+      expect(h.extracted[1], said).toBe(`remind me at 5 about the thing ${said}`);
+    }
+  });
+  it("'delete the alarm you set for 7' does not look for a reminder called 'set'", async () => {
+    const h = harness({ now: at(2026, 10, 16, 12, 0), stored: [] });
+    expect(await h.turn("delete the alarm you set for 7")).not.toMatch(/for set/);
+  });
+});
+
 describe("reminders — the host drops a revise (review, 2026-10-16)", () => {
   it("hostDrops on reminder-cancel puts the honest cancel line in place", async () => {
     const h = harness({ now: at(2026, 10, 16, 12, 0), stored: [{ id: "c1", label: "call mom", dueAt: at(2026, 10, 16, 17, 0).getTime() }] });

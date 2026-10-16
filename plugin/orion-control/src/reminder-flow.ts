@@ -37,6 +37,7 @@ const FORGET_TO = /\bdon'?t let me forget to\b/i;
 const CANCEL = /\b(cancel|delete|remove|stop|clear|scrap|turn off|get rid of|kill)\b/i;
 const REMINDER_WORD = /\b(reminders?|alarms?)\b/i;
 const LIST = /\b(reminders|alarms)\b|\b(what|whats|what's|which|any)\b.*\b(reminder|alarm)\b/i;
+const CREATED_BY_HIM = /\b(i|you|we)\s+(set|made|added)\b/gi;
 const CREATE = /\b(set|add|make|create|remind me)\b/i;
 const CORRECTION = /\b(make it|change it to|change that to|move it to|push it to|actually|no wait|instead)\b/i;
 const RECURRING = /\b(weekdays|weekends|every ?day|daily|every (morning|night|evening|week|weekday|mon|tue|wed|thu|fri|sat|sun)\w*|each (morning|day|night))\b/i;
@@ -59,7 +60,7 @@ export function isBareTime(message: string): boolean {
 /** Cancel, not create: the cancel word comes before the reminder word and no create verb is present (review, 2026-10-16). */
 function isCancel(message: string): boolean {
   // A create word counts only before the cancel word, and "the reminder I set" is not one (re-review, 2026-10-16).
-  const m = message.replace(/\b(i|you|we)\s+(set|made|added)\b/gi, " ");
+  const m = message.replace(CREATED_BY_HIM, " ");
   const c = CANCEL.exec(m), r = REMINDER_WORD.exec(m), k = CREATE.exec(m);
   return !!c && !!r && c.index < r.index && !(k && k.index < c.index);
 }
@@ -116,7 +117,7 @@ async function listPlan(message: string, now: Date, list: ReminderInput["list"])
 async function cancelPlan(message: string, now: Date, list: ReminderInput["list"]): Promise<ReminderPlan> {
   const live = (await list()).filter((r) => r.dueAt > now.getTime());
   const clock = namedClock(message);
-  const words = (message.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !STOP_WORDS.has(w));
+  const words = (message.replace(CREATED_BY_HIM, " ").toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !STOP_WORDS.has(w));
   const named = clock ? live.filter((r) => hhmmOf(new Date(r.dueAt)) === clock)
     : words.length ? live.filter((r) => words.some((w) => new RegExp(`\\b${w}\\b`).test(r.label.toLowerCase())))
     : live;

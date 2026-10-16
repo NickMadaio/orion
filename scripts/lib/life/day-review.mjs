@@ -2,7 +2,7 @@
  * @param {{ date: string, blocks: Array<{title:string, kind:string, start:number, end:number, fixed:boolean, source:string}>, checkins: Array<{what:string, dueMinute:number, startedMinute:number|null, doneMinute:number|null, phase:string}>, todosDone: string[], now: {date:string, minute:number}, tomorrowFirst?: {title:string, minute:number} }} opts
  * @returns {{ planned: number, done: number, slipped: string[], lateMinutes: number|null, text: string }}
  */
-export function reviewDay({ date, blocks, checkins, todosDone, now, tomorrowFirst }) {
+export function reviewDay({ date, blocks, checkins, todosDone, now, tomorrowFirst, actual }) {
   // Validate inputs
   if (typeof date !== "string" || !date) {
     throw new TypeError("date is required");
@@ -18,6 +18,12 @@ export function reviewDay({ date, blocks, checkins, todosDone, now, tomorrowFirs
   }
   if (!now || typeof now !== "object" || !("date" in now) || !("minute" in now)) {
     throw new TypeError("now must have date and minute");
+  }
+
+  // With logged reality (actualDay) the review reads what happened: logged, served, attended, slipped, unknown.
+  if (actual) {
+    return { planned: blocks.filter((b) => b.source === "orion").length, done: actual.done.length, slipped: actual.slipped.map((s) => s.title),
+      lateMinutes: null, actual, text: actualText(actual, { tomorrowFirst }) };
   }
 
   // Decision 1: Planned = ORION blocks that ended by now, excluding rest kind and Wind down/Break titles
@@ -145,4 +151,97 @@ function minuteToClock(minute) {
   if (h === 0) h = 12;
   else if (h > 12) h -= 12;
   return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+// ---- Reality (spec 3.6, contract C8) -------------------------------------------------------------------------------
+// The review reads what happened, not just what was planned: logged blocks, focus served, classes attended, slips and
+// the blanks he answered. A stretch nobody knows about is "unknown", never "nothing"; "nothing" is his answer, "free".
+const DAY_START = 8 * 60;
+
+/** Merge [{start,end}] into disjoint sorted intervals. */
+const merge = (list) => list.filter((x) => x.end > x.start).sort((a, b) => a.start - b.start)
+  .reduce((out, x) => (out.length && x.start <= out.at(-1).end ? [...out.slice(0, -1), { start: out.at(-1).start, end: Math.max(out.at(-1).end, x.end) }] : [...out, { ...x }]), []);
+
+/**
+ * Stretches over `minMinutes`, from 08:00 to now, with no block, no focus session and no answer (C8).
+ * @param day { blocks: [{start,end}], sessions?: [{start,end}], answered?: [{start,end}] }
+ * @param now a minute, or { minute }
+ */
+export function blanks(day, { now, minMinutes = 30 } = {}) {
+  const until = typeof now === "object" ? now.minute : now;
+  const covered = merge([...(day.blocks ?? []), ...(day.sessions ?? []), ...(day.answered ?? [])].map((x) => ({ start: x.start, end: Math.min(x.end, until) })));
+  const gaps = [];
+  let cursor = DAY_START;
+  for (const c of covered) { if (c.start > cursor) gaps.push({ start: cursor, end: Math.min(c.start, until) }); cursor = Math.max(cursor, c.end); }
+  if (cursor < until) gaps.push({ start: cursor, end: until });
+  return gaps.filter((g) => g.end - g.start > minMinutes);
+}
+
+const titlesShare = (a, b) => sharesWord(getLongWords(String(a ?? "")), getLongWords(String(b ?? "")));
+const minuteOfIso = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? null : d.getHours() * 60 + d.getMinutes(); };
+
+/** Focus sessions served that day as minute intervals ({ start, end, minutes, task }). */
+function sessionsOf(history, date) {
+  return (history ?? []).filter((r) => r?.dayKey === date && Number(r.servedFocusSeconds) >= 5 * 60).flatMap((r) => {
+    const start = minuteOfIso(r.startedAt), end = minuteOfIso(r.endedAt);
+    return start === null || end === null || end <= start ? [] : [{ start, end, minutes: Math.round(r.servedFocusSeconds / 60), task: r.task ?? null }];
+  });
+}
+
+/**
+ * @param blocks       today's blocks ({ id, title, kind, start, end, fixed, source, logged })
+ * @param focusHistory focus-history.jsonl rows
+ * @param attendance   { [blockId]: "attended"|"missed"|"unknown" } for real calendar blocks
+ * @param slips        slips.jsonl rows for the day (C10)
+ * @param asks         curiosity ledger asks
+ * @param now          { date, minute }
+ * @returns { done: [{ title, start, end, how }], slipped: [{ title, why }], free: [{ start, end }], blank: [{ start, end }], focusMinutes }
+ */
+export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], now }) {
+  // `logged` comes from WP6's live-day (tags / logged); accept either spelling of the marker
+  const blocks = rawBlocks.map((b) => (b.logged || !b.tags?.includes("logged") ? b : { ...b, logged: true }));
+  const sessions = sessionsOf(focusHistory, now.date);
+  const dayAsks = asks.filter((a) => a.window?.date === now.date && a.answeredAt);
+  const answered = dayAsks.filter((a) => a.outcome === "nothing").map((a) => ({ start: a.window.start, end: a.window.end ?? now.minute }));
+  const upto = (b) => b.end <= now.minute || b.start < now.minute;
+  const done = [
+    ...blocks.filter((b) => b.logged && upto(b)).map((b) => ({ title: b.title, start: b.start, end: Math.min(b.end, now.minute), how: "logged" })),
+    ...blocks.filter((b) => !b.logged && b.source !== "orion" && attendance[b.id] === "attended").map((b) => ({ title: b.title, start: b.start, end: b.end, how: "attended" })),
+  ];
+  const evidenced = (b) => sessions.some((s) => s.start < b.end && s.end > b.start && (!s.task || titlesShare(b.title, s.task) || b.kind === "study"));
+  const slipRows = slips.filter((s) => s.date === now.date).map((s) => ({ title: s.planned?.title ?? "", why: s.reason, replacedBy: s.replacedBy ?? null, missedMinutes: s.missedMinutes ?? null }));
+  const stillPlanned = blocks.filter((b) => b.source === "orion" && !b.fixed && !b.logged && b.end <= now.minute && !["rest", "sleep", "commute"].includes(b.kind)
+    && !/^(wind down|break)$/i.test(b.title) && !evidenced(b) && !slipRows.some((s) => titlesShare(b.title, s.title) || s.title === b.title))
+    .map((b) => ({ title: b.title, why: "no-evidence", replacedBy: null, missedMinutes: b.end - b.start }));
+  const covering = blocks.map((b) => ({ start: b.start, end: b.end }));
+  return {
+    done,
+    slipped: [...slipRows, ...stillPlanned],
+    free: answered,
+    blank: blanks({ blocks: covering, sessions, answered }, { now: now.minute }),
+    focusMinutes: sessions.reduce((a, s) => a + s.minutes, 0),
+  };
+}
+
+const clock = (m) => { const h = Math.floor(m / 60) % 24, mm = m % 60, t = h % 12 || 12; return mm ? `${t}:${String(mm).padStart(2, "0")}` : String(t); };
+const range = (a, b) => `${clock(a)}-${clock(b)}`;
+const lower = (t) => String(t).replace(/ — .*$/, "");
+const minutesText = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, "0") : ""}` : `${m}m`);
+
+/** The one merged message (spec 3.6): "Today: CS1800, gym 2-4 (instead of finish resume), 1h40 focus. Slipped: ... 5-6 unknown." */
+export function actualText(actual, { tomorrowFirst } = {}) {
+  const items = actual.done.map((d) => {
+    const slip = d.how === "logged" ? actual.slipped.find((s) => s.why === "reality" && s.replacedBy && (titlesShare(s.replacedBy, d.title) || s.replacedBy === d.title)) : null;
+    return d.how === "logged" ? `${d.title.toLowerCase()} ${range(d.start, d.end)}${slip ? ` (instead of ${slip.title.toLowerCase()})` : ""}` : lower(d.title);
+  });
+  if (actual.focusMinutes >= 5) items.push(`${minutesText(actual.focusMinutes)} focus`);
+  const parts = [items.length ? `Today: ${items.join(", ")}.` : "Nothing logged today."];
+  const slips = actual.slipped.filter((s) => s.why !== "reality").slice(0, 3).map((s) => {
+    const by = /^bumped:/.test(s.why) ? ` (bumped for ${s.why.slice(7)})` : s.why === "no-room" ? " (no room)" : "";
+    return `${lower(s.title)}${by}`;
+  });
+  if (slips.length) parts.push(`Slipped: ${slips.join(", ")}.`);
+  if (actual.blank.length) parts.push(`${actual.blank.map((b) => range(b.start, b.end)).join(", ")} unknown.`);
+  if (tomorrowFirst?.title) parts.push(`Tomorrow starts with ${tomorrowFirst.title} at ${minuteToClock(tomorrowFirst.minute)}.`);
+  return parts.join(" ");
 }

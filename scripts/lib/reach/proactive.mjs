@@ -8,7 +8,6 @@
 //   out, where, idleSeconds, bed, wake, focusToday, sent: { key: true } }
 
 import { classLadder } from "./class-ladder.mjs";
-import { gapQuestion } from "./gap.mjs";
 
 const hm = (m) => { const h = Math.floor(((m % 1440) + 1440) % 1440 / 60), mm = ((m % 60) + 60) % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 const toMin = (t) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + m; };
@@ -20,8 +19,11 @@ const ahead = (from, to) => ((to - from) % 1440 + 1440) % 1440;
 export function decide(ctx) {
   const out = [];
   const say = (key, text, kind, extra = {}) => { if (!ctx.sent?.[key]) out.push({ key, text, kind, ...extra }); };
-  const busy = ctx.session?.status === "running" || ctx.session?.status === "paused";
-  const away = ctx.out;
+  // Awareness gives the session state (a break is a session too: no bedtime nag while he rests between blocks) and
+  // atHome; without them (old callers) the legacy status and the calendar-derived `out` apply. Unknown is not away.
+  const busy = ctx.sessionState !== undefined ? ["focus", "rest", "paused"].includes(ctx.sessionState)
+    : ctx.session?.status === "running" || ctx.session?.status === "paused";
+  const away = ctx.atHome !== undefined ? ctx.atHome === false : ctx.out;
   const bed = toMin(ctx.bed ?? "23:45"), wake = toMin(ctx.wake ?? "07:45");
   const toBed = ahead(ctx.minute, bed);           // minutes until bedtime (0..1439)
   const pastBed = ahead(bed, ctx.minute);          // minutes since bedtime (0..1439)
@@ -49,20 +51,17 @@ export function decide(ctx) {
     announcedLate = late;
     say(`session-done-${s.sessionId}`, late
       ? `Session done. ${ctx.focusToday ? `${ctx.focusToday} today. ` : ""}It's ${hm(ctx.minute)} — past bedtime; sleep now and you get ${sleepLeft(ctx.minute)}.`
-      : `Session done.${ctx.focusToday ? ` ${ctx.focusToday} today.` : ""}${next ? ` Next: ${strip(next.title)} at ${hm(next.start)}.` : ""}`,
+      : `Session done.${ctx.focusToday ? ` ${ctx.focusToday} today.` : ""}${ctx.heldText ? ` ${ctx.heldText}` : ""}${next ? ` Next: ${strip(next.title)} at ${hm(next.start)}.` : ""}`,
       late ? "reminder" : "update", late ? { also: bedKeys, expires: true } : {});
   }
 
   // Classes (priority 1): leave nudge, urgent, wake-up call, then one replan if he missed it
   // (even mid-session: missing class matters more). See class-ladder.mjs.
-  classLadder(ctx, say);
+  // (the plan-vs-reality loop runs the ladder itself, as its should-leave mismatch, and sets skipLadder)
+  if (!ctx.skipLadder) classLadder(ctx, say);
 
   const open = (ctx.todos ?? []).filter((t) => !t.booked && !t.waiting);
-  // Free time worth using: daytime, home, no session, a real gap after commutes (gap.mjs), best-priority task, once.
-  if (!busy && !away) {
-    const gap = gapQuestion(ctx, { hm, bed: bed > ctx.minute ? bed : 24 * 60 });
-    if (gap) say(gap.key, gap.text, "question");
-  }
+  // Free time and blanks are the curiosity loop's now (lib/curiosity): "what are you up to?", not a to-do offer.
   // Due tomorrow (or today) and nothing booked: ask in the evening, once.
   if (ctx.minute >= 17 * 60 && ctx.minute <= 21 * 60) {
     for (const t of open.filter((x) => x.dueDate && (x.dueDate === ctx.today || x.dueDate === ctx.tomorrow))) {

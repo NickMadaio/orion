@@ -20,8 +20,11 @@ export const isRealClass = (b) => b.kind === "class" && b.fixed && b.source !== 
 export function classLadder(ctx, say) {
   const signals = ctx.signals ?? {};
   const blocks = ctx.day ?? [];
-  const away = ctx.out;
-  const moved = signals.leftAt != null;
+  // Away / left: awareness location when it is known (atHome true or false), else the calendar-derived `out` and the
+  // phone's leftAt, as before. Unknown is never "left".
+  const located = typeof ctx.atHome === "boolean";
+  const away = located ? !ctx.atHome : ctx.out;
+  const moved = located ? !ctx.atHome : signals.leftAt != null;
   // Leave soon: travel starts in 5-15 minutes, for any fixed destination.
   for (const w of ctx.travel ?? []) {
     const inMin = w.start - ctx.minute;
@@ -33,6 +36,7 @@ export function classLadder(ctx, say) {
     say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder",
       { ...(isRealClass(dest) ? { urgentKind: "class" } : {}), claim: `class-${dest.start}`, checkClaim: true, level: 1 });   // a class he is about to miss: gets through quiet hours, but is a plain banner
   }
+  leaveLateOthers(ctx, say, moved);
   const realClasses = blocks.filter(isRealClass).sort((a, b) => a.start - b.start);
   for (const cls of realClasses) {
     const name = strip(cls.title);
@@ -61,5 +65,18 @@ export function classLadder(ctx, say) {
       const where = next ? `Next up: ${strip(next.title)} at ${hm(next.start)}.` : "The rest of today is open.";
       say(`class-missed-${cls.start}`, `Looks like ${name} didn't happen today - it happens. ${where} Want me to fit in time to catch up on it (the recording or notes), or leave it?`, "question", { level: 0 });
     }
+  }
+}
+
+/** A fixed destination that is not a class (dinner with friends): the same "you should be out the door" line, but a plain
+ * reminder (no urgentKind), so it does not cut through focus or quiet hours (spec 3.4.2). Needs him to be known at home
+ * (or, with no location, not seen leaving). */
+function leaveLateOthers(ctx, say, moved) {
+  if (moved || ctx.atHome === null) return;
+  for (const dest of (ctx.day ?? []).filter((b) => b.fixed && !isRealClass(b) && !cancelled(b) && b.kind !== "class")) {
+    const wall = (ctx.travel ?? []).find((w) => w.end >= dest.start - 1 && w.end <= dest.start + 1);
+    if (!wall) continue;
+    const toLeave = wall.start - ctx.minute;
+    if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${dest.start}`, `You should be out the door now - ${strip(dest.title)} is at ${hm(dest.start)}.`, "reminder", { level: 2 });
   }
 }

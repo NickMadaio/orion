@@ -102,6 +102,7 @@ final class WhoopClient: ObservableObject {
     private var lookbackDays: Int { Self.windows.max() ?? 7 }
 
     private var timer: Timer?
+    private var lastStartRefresh: Date?
 
     /// Single-flight. See fault 2 in the file header — this is load-bearing.
     private var tokenRefreshInFlight = false
@@ -110,7 +111,17 @@ final class WhoopClient: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
-        refresh()
+        // 2026-10-16 UI audit #7: start() is called from the dashboard's
+        // onAppear, every time it appears. Each call stacked another 900 s
+        // timer (and an immediate refresh), which is why Whoop was polled far
+        // more often than every 900 s. One timer, and a start inside its first
+        // minute does not refresh again.
+        let recentlyRefreshed = lastStartRefresh.map { Date().timeIntervalSince($0) < 60 } ?? false
+        timer?.invalidate()
+        if !recentlyRefreshed {
+            lastStartRefresh = Date()
+            refresh()
+        }
         // Whoop scores once a day and updates through the morning. Every
         // fifteen minutes is far more than enough and stays well inside the
         // rate limit.
@@ -401,7 +412,7 @@ final class WhoopClient: ObservableObject {
                 return
             }
             let records = json["records"] as? [[String: Any]] ?? []
-            OrionLog.write("[whoop] GET \(label) — \(records.count) record(s)")
+            OrionLog.write("[whoop] GET \(label) — \(records.count) record(s)", key: "whoop-get-\(label)")
             completion(.success(records))
         }.resume()
     }

@@ -46,10 +46,14 @@ struct PanelView: View {
                     .foregroundStyle(Color.white.opacity(0.92))
                     .multilineTextAlignment(.leading)
                     .lineLimit(8)
-                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 6)
                     .frame(width: 260, alignment: .leading)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                    // 2026-10-16 UI audit #8: no bubble and no material. Real
+                    // alpha behind the text (it sits over an unknown desktop)
+                    // and a left hairline.
+                    .shadow(color: .black.opacity(0.8), radius: 4)
+                    .background(Color.black.opacity(0.35))
+                    .overlay(alignment: .leading) { Rectangle().fill(Color.white.opacity(0.28)).frame(width: 0.7) }
                     .padding(.bottom, 8)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }

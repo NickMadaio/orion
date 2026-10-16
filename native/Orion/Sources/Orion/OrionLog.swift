@@ -49,6 +49,20 @@ enum OrionLog {
         }
     }
 
+    private static var limiter = LogRateLimiter()
+    private static let limiterLock = NSLock()
+
+    /// Writes only when the line is new for `key` (or, if `repeatAfter` is set,
+    /// when that long has passed). See LogRateLimiter.
+    static func write(_ message: String, key: String, signature: String? = nil,
+                      repeatAfter: TimeInterval? = nil) {
+        limiterLock.lock()
+        let go = limiter.shouldWrite(key: key, message: message, signature: signature,
+                                     repeatAfter: repeatAfter)
+        limiterLock.unlock()
+        if go { write(message) }
+    }
+
     /// Exactly what macOS thinks Orion is allowed to do, in Orion's own words.
     static func permissionSnapshot(_ context: String) {
         let mic: String

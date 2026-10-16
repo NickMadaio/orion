@@ -94,19 +94,15 @@ enum GatewayClient {
         boosts[session] = Date().addingTimeInterval(ThinkingPolicy.boostSeconds)
     }
 
-    /// What ORION said to him first (orion-reach) in the last 6 hours, so a
-    /// reply like "yeah do that" has its question (2026-10-07).
+    private static let outreachTracker = OutreachTracker()
+
+    /// What ORION said to him first (orion-reach), only when it is plausibly what
+    /// he is answering now (2026-10-16: was the last 3 from 6 hours on every turn).
+    /// Call once per turn; see `OutreachTracker`.
     static func recentOutreach(now: Date = Date()) -> String {
         let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach.jsonl")
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return "" }
-        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let recent = text.split(separator: "\n").compactMap { line -> String? in
-            guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  row["channel"] as? String != "hold", let said = row["text"] as? String,
-                  let at = (row["at"] as? String).flatMap(iso.date(from:)), now.timeIntervalSince(at) < 6 * 3600 else { return nil }
-            return "\(at.formatted(date: .omitted, time: .shortened)) \"\(said.prefix(200))\""
-        }.suffix(3)
-        return recent.isEmpty ? "" : "[ORION context: you messaged him first — \(recent.joined(separator: "; ")). This message may be his answer.]\n"
+        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        return outreachTracker.prefix(rows: OutreachContext.parse(jsonl: text), now: now)
     }
 
     // MARK: One agent turn

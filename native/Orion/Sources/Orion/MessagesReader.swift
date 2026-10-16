@@ -94,6 +94,9 @@ final class MessagesReader: ObservableObject {
 
     func start() {
         refresh()
+        // 2026-10-16 UI audit #7: start() runs on every dashboard appearance and
+        // used to stack another timer each time (the 632 identical poll lines).
+        timer?.invalidate()
         // Two minutes. Messages arrive whenever they arrive, and polling a
         // half-gigabyte database harder than that buys nothing.
         timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
@@ -150,7 +153,9 @@ final class MessagesReader: ObservableObject {
                 self.messages = rows
                 self.conversations = grouped
                 self.lastSyncedAt = Date()
-                OrionLog.write("[messages] \(rows.count) message(s) across \(grouped.count) conversation(s)")
+                // 2026-10-16 UI audit #7: the same line every 120 s poll. On change, or hourly.
+                OrionLog.write("[messages] \(rows.count) message(s) across \(grouped.count) conversation(s)",
+                               key: "messages", repeatAfter: 3600)
                 Self.exportIncoming(rows, conversations: grouped)
             }
         }

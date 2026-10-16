@@ -64,7 +64,7 @@ struct TasksTab: View {
     var body: some View {
         HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 32) {
-                OrionPanel(padding: 20) {
+                PlainSection(padding: 18) {
                     VStack(alignment: .leading, spacing: 12) {
                         dayHeader
                         Button { state.finishEarly("auto"); refreshPlanSources() } label: {
@@ -72,24 +72,28 @@ struct TasksTab: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(OrionTheme.textSoft)
                                 .padding(.horizontal, 12).padding(.vertical, 8)
-                                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
                         }.buttonStyle(.plain).disabled(state.earlyBusy || state.earlyFinish?.kind == "none" || state.earlyFinish == nil)
                         if let feedback = state.earlyFeedback { Text(feedback).font(.caption).foregroundStyle(OrionTheme.textSoft) }
                     }.onAppear { state.refreshEarlyContext() }.frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                OrionPanel(padding: 20) {
+                PlainSection(padding: 18) {
                     TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
                 }
                 planningComposer
-                OrionPanel(padding: 20) {
+                PlainSection(padding: 18) {
                     tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
                 }
             }
             .frame(width: splitWidths.left, alignment: .topLeading)
 
-            OrionPanel(padding: 18) {
-                calendarColumn.frame(maxWidth: .infinity, alignment: .topLeading)
-            }
+            // 2026-10-16 UI audit #5/#7: a hairline between unequal columns
+            // instead of a card around each, and room above the day header so
+            // nothing starts flush under the nav scrim.
+            FadingVerticalHairline()
+                .frame(height: max(360, availableHeight))
+            calendarColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.top, 12)
                 // Definite on BOTH axes. The height is what turns the timeline
                 // into a scrollable region instead of a 24-hour-tall column that
                 // drags the whole page with it; whatever sits above it keeps its
@@ -137,9 +141,9 @@ struct TasksTab: View {
                 Button(action: sendPlanningMessage) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(canSendPlanningMessage ? OrionTheme.ink : OrionTheme.textDim)
+                        .foregroundStyle(canSendPlanningMessage ? OrionTheme.accent : OrionTheme.textDim)
                         .frame(width: 26, height: 26)
-                        .background(Circle().fill(canSendPlanningMessage ? OrionTheme.accent : Color.white.opacity(0.07)))
+                        .overlay(Circle().strokeBorder(canSendPlanningMessage ? OrionTheme.accent.opacity(0.7) : Color.white.opacity(0.2), lineWidth: 0.7))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSendPlanningMessage)
@@ -162,15 +166,7 @@ struct TasksTab: View {
                 }.font(.system(size: 12))
             }
         }
-        .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(planningComposerFocused ? OrionTheme.accent.opacity(0.45) : Color.white.opacity(0.10), lineWidth: 0.8)
-                }
-        }
+        .padding(.vertical, 4)
         .animation(.easeOut(duration: 0.18), value: planningComposerFocused)
     }
 
@@ -426,8 +422,10 @@ struct TasksTab: View {
     /// A substantial work column, with every remaining point assigned to the
     /// calendar. The cap keeps task rows readable on very wide displays.
     private var splitWidths: (left: CGFloat, calendar: CGFloat) {
-        let usableWidth = max(0, availableWidth - 28)
+        let usableWidth = max(0, availableWidth - 57)
         let calendarFloor = min(640, max(360, usableWidth * 0.48))
+        // 2026-10-16 UI audit #7: still about 0.43 / 0.57, deliberately unequal
+        // (LayoutRuleTests pins the 0.43); the audit asked for about 0.42.
         let desiredLeft = min(820, max(480, usableWidth * 0.43))
         let left = max(0, min(desiredLeft, usableWidth - calendarFloor))
         return (left, max(0, usableWidth - left))

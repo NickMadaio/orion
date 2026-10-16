@@ -178,3 +178,37 @@ test("an open to-do's sessions are left alone by the sweep", (t) => {
   w.tasks("sweep");
   assert.equal(w.sessions("Essay").length, before);
 });
+
+// Live sweep 2026-10-15 (q042, q045): the prompts advertised `orion-tasks done`, which did not exist.
+// "mark the oats one done" ran nothing and the reply said it was done; "check off the zebra painting
+// thing" ran `set "Zebra painting" --no-due` instead. `done` ticks off ONE to-do or changes nothing.
+test("done ticks off the one to-do it names, and only that one", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "buy more oats", list: "Orion" }, { identifier: "r2", title: "Review spending", list: "Orion" }] });
+  const r = w.tasks("done", "the oats one");
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^Changed "buy more oats": done/m);
+  assert.equal(w.reminder("buy more oats").completed, true);
+  assert.notEqual(w.reminder("Review spending").completed, true);
+});
+
+test("done with no matching to-do changes nothing and says which to-dos there are", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "practice leetcode", list: "Orion" }] });
+  const r = w.tasks("done", "zebra painting thing");
+  assert.equal(r.code, 1);
+  assert.match(r.out, /NOTHING WAS CHANGED/);
+  assert.match(r.out, /To-dos: practice leetcode/);
+  assert.notEqual(w.reminder("practice leetcode").completed, true);
+});
+
+test("done that matches two to-dos asks which, and ticks neither", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "CS Lab", list: "Orion" }, { identifier: "r2", title: "CS Lab report", list: "Orion" }, { identifier: "r3", title: "DS Lab", list: "Orion" }] });
+  const r = w.tasks("done", "lab");
+  assert.equal(r.code, 1);
+  assert.match(r.out, /NOTHING WAS CHANGED.*more than one/);
+  assert.ok(["CS Lab", "CS Lab report", "DS Lab"].every((x) => w.reminder(x).completed !== true));
+  // An exact title is never ambiguous.
+  const exact = w.tasks("done", "cs lab");
+  assert.equal(exact.code, 0, exact.out);
+  assert.equal(w.reminder("CS Lab").completed, true);
+  assert.notEqual(w.reminder("CS Lab report").completed, true);
+});

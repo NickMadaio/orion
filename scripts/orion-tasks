@@ -11,6 +11,7 @@
    orion-tasks list                                         to-dos, due dates, spreads, booked sessions
    orion-tasks add "<title>" [--due <when>] [--spread "<how>"] [--priority high|medium|low]
    orion-tasks set "<task>" [--due <when>|--no-due] [--spread "<how>"] [--priority …] [--title "<new>"]
+   orion-tasks done "<task>"                                tick ONE to-do off (exact title, else the one that has his words)
    orion-tasks plan ["<task>"] [--days 7] [--dry-run]       (re)book the sessions for the next days
    orion-tasks sweep                                        take finished to-dos' sessions off (orion-watch, every tick)
    orion-tasks sub "<task>" add "<subtask>" | set "<subtask>" <percent> | remove "<subtask>"
@@ -77,6 +78,19 @@ async function tasks() {
 function find(list, wanted) {
   const hits = list.filter((t) => same(wanted, t.title));
   if (!hits.length) fail(`orion-tasks: no to-do called "${wanted}" on ${config.todoList}. To-dos: ${list.map((t) => t.title).join(", ") || "none"}`, 1);
+  return hits[0];
+}
+// "Mark the oats one done" (live sweep, 2026-10-15): the prompts offered `done`, it did not exist, and
+// the reply said it was done anyway. Exact title first, else the to-dos that have all his words; two
+// or more is a question for him, never a guess (the same rule as orion-agenda-change task-done).
+const FILLER = new Set(["the", "one", "thing", "that", "this", "task", "todo", "and", "off", "for", "with"]);
+function pickOne(list, wanted) {
+  const said = words(wanted).filter((w) => !FILLER.has(w)).join(" ");
+  const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();   // keeps "cs" vs "ds"
+  const exact = list.filter((t) => norm(t.title) === norm(wanted));
+  const hits = exact.length ? exact : list.filter((t) => same(said, t.title));
+  if (!hits.length) fail(`NOTHING WAS CHANGED: no to-do called "${wanted}" on ${config.todoList}. To-dos: ${list.map((t) => t.title).join(", ") || "none"}`, 1);
+  if (hits.length > 1) fail(`NOTHING WAS CHANGED: more than one to-do matches "${wanted}": ${hits.map((t) => `"${t.title}"`).join(", ")} — ask him which`, 1);
   return hits[0];
 }
 /** The spread to plan from: his notes, else (with a due date) the to-do's own estimate as a total. */
@@ -203,6 +217,15 @@ try {
     // A renamed to-do's old sessions go; the new ones are booked under the new name.
     if (change.title && !dry) for (let i = 0; i < 7; i += 1) reschedule("drop", task.title, "--date", addDays(today, i));
     for (const l of await plan([updated], Number(flag("--days") ?? 7))) console.log(l);
+  } else if (command === "done") {
+    if (!name) fail('usage: orion-tasks done "<task>"');
+    const task = pickOne(await tasks(), name);
+    if (!dry) {
+      await bridgeRequest("complete_reminder", { identifier: task.identifier });
+      if ((await tasks()).some((t) => t.identifier === task.identifier)) fail(`NOTHING WAS CHANGED: "${task.title}" is still open after ticking it off.`, 1);
+    }
+    // Its booked sessions come off on orion-watch's next sweep.
+    console.log(`${dry ? "Would change" : "Changed"} "${task.title}": done (ticked off ${config.todoList}).`);
   } else if (command === "sub") {
     const [, , action, subName, value] = positional;
     if (!name || !["add", "set", "remove"].includes(action) || !subName) fail('usage: orion-tasks sub "<task>" add "<subtask>" | set "<subtask>" <percent> | remove "<subtask>"');
@@ -237,7 +260,7 @@ try {
     if (!chosen.length) { console.log("No to-do has a due date or a spread yet; nothing to plan."); process.exit(0); }
     for (const l of await plan(chosen, Number(flag("--days") ?? 7), list)) console.log(l);
   } else {
-    fail("usage: orion-tasks list|add|set|plan|sweep (see the header)");
+    fail("usage: orion-tasks list|add|set|done|sub|plan|sweep (see the header)");
   }
 } catch (e) {
   fail(`orion-tasks: ${e.message}`, 1);

@@ -51,6 +51,9 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { imminentWorthSaying, eventKey } from "./lib/reach/imminent.mjs";
+import { announced } from "./lib/reach/announce.mjs";
+import { calendarEvents } from "./lib/life/live-day.mjs";
 
 const run = promisify(execFile);
 
@@ -689,13 +692,15 @@ function eveningFindings({ calendar, loops, location, day }) {
  one hourly run can satisfy. A second, final band near the start covers the case
  where that one run was missed because the laptop was asleep.
 */
-function imminentFindings({ calendar }) {
+function imminentFindings({ calendar, worthSaying = () => true }) {
   return calendar.events.flatMap((event) => {
+    // 2026-10-16 audit, finding 11: fixed things only (a class, an appointment), never a block ORION made, never one
+    // already announced under the shared key, and at ONE lead time (the 2 h line; the 20-minute call is orion-proactive's).
+    if (!worthSaying(event)) return [];
     const left = minutesBetween(now, event.at);
     if (left <= 0 || left > IMMINENT_MINUTES) return [];
     const entering = left > IMMINENT_MINUTES - cadence;
-    const lastCall = left <= LAST_CALL_MINUTES && left > LAST_CALL_MINUTES - cadence;
-    if (!entering && !lastCall) return [];
+    if (!entering) return [];
     return [
       urgent(
         `${clockLabel(event.at)} — ${event.title}. Starts in ${gapLabel(left)}. Wrap up what you are on.`,
@@ -745,6 +750,16 @@ async function polish(text) {
   }
 }
 
+/** Which events may be announced: see lib/reach/imminent.mjs. A calendar that cannot be read falls back to title rules only. */
+async function imminentFilter() {
+  const orionKeys = new Set();
+  try {
+    for (const e of await calendarEvents()) if (e.orion) orionKeys.add(eventKey(e.title ?? "", new Date(e.start)));
+  } catch { /* title rules still apply */ }
+  const dir = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+  return (event) => imminentWorthSaying(event, { orionKeys, announced: (key) => announced(dir, localDay(now), key) });
+}
+
 /* --------------------------------------------------------------------- main */
 
 async function main() {
@@ -790,7 +805,7 @@ async function main() {
       ? morningFindings({ calendar, tasks, health, location, projects, waiting, day })
       : resolved === "evening"
         ? eveningFindings({ calendar, loops, location, day })
-        : imminentFindings({ calendar });
+        : imminentFindings({ calendar, worthSaying: await imminentFilter() });
 
   // Quiet hours drop everything that is not genuinely time-critical. A 6am
   // flight still gets through at 5am; "Reminders is still not granted" does not.

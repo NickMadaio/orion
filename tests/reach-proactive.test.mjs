@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { decide } from "../scripts/lib/reach/proactive.mjs";
 
 const m = (h, mm = 0) => h * 60 + mm;
-const base = { bed: "23:45", wake: "07:45", day: [{ title: "CS1802 Seminar", start: m(9), end: m(10, 30), fixed: true }], sent: {}, idleSeconds: 10 };
+const seminar = { title: "CS1802 Seminar", start: m(9), end: m(10, 30), fixed: true, kind: "class" };
+// 2026-10-16: tomorrow's first thing comes from TOMORROW's calendar (tomorrowDay), never from today's.
+const base = { bed: "23:45", wake: "07:45", day: [seminar], tomorrowDay: [seminar], sent: {}, idleSeconds: 10 };
 
 test("no bedtime messages during a focus session or while he's out (2026-10-07)", () => {
   assert.deepEqual(decide({ ...base, minute: m(23, 50), session: { status: "running" } }), []);
@@ -26,14 +28,14 @@ test("still up long after bedtime only nags when he's clearly at the Mac", () =>
 });
 
 test("a session that just ended past bedtime says so, with the sleep left", () => {
-  const out = decide({ ...base, minute: m(0, 5), session: { status: "finished", endedMinute: m(0, 1), sessionId: "s1" }, focusToday: "3h 10m across 3 sessions" });
+  const out = decide({ ...base, minute: m(0, 5), session: { status: "finished", endedMinute: m(0, 1), sessionId: "s1", reason: "completed", servedFocusSeconds: 1800 }, focusToday: "3h 10m across 3 sessions" });
   assert.equal(out[0].key, "session-done-s1");
   assert.match(out[0].text, /Session done\. 3h 10m across 3 sessions today\. It's 12:05 AM — past bedtime; sleep now and you get 7h 40m/);
-  assert.equal(out[0].urgent, true);
+  assert.notEqual(out[0].urgent, true, "2026-10-16: bedtime lines are never urgent");
 });
 
 test("a daytime session end names what's next", () => {
-  const out = decide({ ...base, minute: m(15, 2), day: [...base.day, { title: "Gym", start: m(17), end: m(18) }], session: { status: "finished", endedMinute: m(15), sessionId: "s2" } });
+  const out = decide({ ...base, minute: m(15, 2), day: [...base.day, { title: "Gym", start: m(17), end: m(18) }], session: { status: "finished", endedMinute: m(15), sessionId: "s2", reason: "completed", servedFocusSeconds: 1800 } });
   assert.match(out[0].text, /Session done\. Next: Gym at 5:00 PM\./);
 });
 

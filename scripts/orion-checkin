@@ -25,6 +25,8 @@ import { recordOutcome, loadPatterns, lateHabit } from "./lib/life/history.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { inClass, realClasses } from "./lib/life/class-reminders.mjs";
 import { classify } from "./lib/life/live-day.mjs";
+import { activeSession } from "./lib/reach/focus-hold.mjs";
+import { isClassAttendanceCheckin } from "./lib/life/checkin-class.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
 const evaluating = evalMode();
@@ -86,7 +88,7 @@ switch (command) {
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720 || !what || what.length > 120) fail('usage: orion-checkin add <0-720 minutes> "<what>"');
     const id = `ci-${randomBytes(3).toString("hex")}`;
     const because = flag("--because");
-    const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0,
+    const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
                 returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
                 loop: startLoop({ id, start: now + minutes }, now) };
     state.checkins = [...state.checkins.filter(open), c].slice(-20);
@@ -150,16 +152,23 @@ switch (command) {
   }
   case "tick": {
     if (evaluating) { console.log(args.includes("--json") ? "[]" : "No live notifications during evaluation."); break; }
+    // A focus session is running (2026-10-16 audit): a check-in HE set (the default) fires at any level; one ORION generated
+    // itself (--by orion) waits for the end.
+    const inSession = activeSession(process.env) !== null;
     const alerts = [];
     let duringClass = false, classes = [];
     try { const blocks = toBlocks(await calendarEvents(), localDate(new Date())); classes = realClasses(blocks); duringClass = inClass(blocks, new Date().getHours()*60+new Date().getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
     for (const c of state.checkins.filter(open)) {
       // A calendar class is self-timed; lack of a Started/Done tap isn't
       // evidence of avoidance. Ordinary start nags wait until class is over.
-      if (/(class|lecture|seminar|lab|macro|marketing|ECON1115|MKTG2201)/i.test(c.what)) {
+      // 2026-10-16 audit, finding 12: the old rule was a regex on course words (its \b were literal backspace bytes, so it
+      // matched nothing on this install, and where it did match it would have cancelled "start studying for macro" and
+      // "finish the DS lab write-up"). Now: only a check-in about going to one of today's real class events.
+      if (isClassAttendanceCheckin(c.what, classes)) {
         c.loop = step(c.loop, {type: "cancelled"}, now); continue;
       }
       if (duringClass) continue;
+      if (inSession && c.by === "orion") continue;
       const before = c.loop;
       const after = step(before, { type: "tick" }, now);
       if (after === before) {

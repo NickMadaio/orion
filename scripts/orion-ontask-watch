@@ -11,6 +11,7 @@ import { evalMode } from "./lib/eval-mode.mjs";
 import { focusBlock, nextStep } from "./lib/focus/escalation.mjs";
 import { listsToBlock, LISTS } from "./lib/focus/phone-lists.mjs";
 import { readState, writeState, stateFile } from "./lib/focus/state.mjs";
+import { focusNudgeLine } from "./lib/focus/lines.mjs";
 const root = join(homedir(), ".openclaw/orion-controlled");
 const read = (file, fallback) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return fallback; } };
 if (evalMode() || sandbox()) { console.log("Focus watcher paused during evaluation."); process.exit(0); }
@@ -31,7 +32,8 @@ const directive = { at: now.toISOString(), until: block ? new Date(now.getFullYe
 writeFileSync(join(root, "focus-phone.json.tmp"), JSON.stringify(directive)); renameSync(join(root, "focus-phone.json.tmp"), join(root, "focus-phone.json"));
 const alerts = [];
 if (step.phone === "warn") alerts.push(`Ten minutes on your phone during ${block?.title}. Put it down; distracting lists block at fifteen.`);
-if (["nudge", "say"].includes(step.mac) && step.mac !== ladder.lastStep) alerts.push(`You planned ${block.title}. Back to it — ${step.why}.`);
+if (["nudge", "say"].includes(step.mac) && step.mac !== ladder.lastStep) // 2026-10-16 audit, finding 13: never `${step.why}` ("off task for 2 min; phone use < 10 min") in the text; it stays in the JSON below.
+  alerts.push(focusNudgeLine(block));
 for (const text of alerts) appendFileSync(join(root, "alerts-outbox.jsonl"), JSON.stringify({ at: now.toISOString(), kind: "checkin", text }) + "\n");
 if (["front", "quit", "lock"].includes(step.mac) && step.mac !== ladder.lastStep) {
   // The existing consent switch still controls intrusive focus actions.

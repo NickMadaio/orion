@@ -55,10 +55,12 @@ fingerprint() {  # a stable hash of the files the bridge actually runs
     [ -f "$1/scripts/orion-remote-bridge" ] || { echo "absent"; return; }
     # The bridge, plus the development-run controller it falls back to when
     # launchd cannot reach ~/Desktop: a Discord `agent stop` runs THAT copy, so a
-    # stale controller has to show as DRIFTED too.
+    # stale controller has to show as DRIFTED too. The ORION app runs orion-reach, orion-proactive and orion-morning (and
+    # lib/reach) from THIS copy, so a stale one has to show as drifted too (2026-10-16 review M7).
     cat "$1/scripts/orion-remote-bridge" "$1/scripts/orion-remote" \
         "$1/scripts/orion-project-agent" "$1/scripts/lib/orion-project-agent.mjs" \
-        $(ls "$1"/scripts/lib/agentic/*.mjs 2>/dev/null | LC_ALL=C sort) 2>/dev/null \
+        "$1/scripts/orion-reach" "$1/scripts/orion-proactive" "$1/scripts/orion-morning" \
+        $(ls "$1"/scripts/lib/agentic/*.mjs "$1"/scripts/lib/reach/*.mjs 2>/dev/null | LC_ALL=C sort) 2>/dev/null \
         | shasum -a 256 | cut -c1-12
 }
 

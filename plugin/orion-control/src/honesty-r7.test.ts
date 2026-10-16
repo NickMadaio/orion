@@ -125,3 +125,23 @@ describe("review fixes", () => {
     expect(withoutDayClaims("You worked all day. Rest.")).toBe("Rest.");
   });
 });
+
+describe("review round 3 (2026-10-16)", () => {
+  const friday = new Date(2026, 9, 16, 15, 0);
+  const rows = [{ canonical: "x", stdout: "Fri 13:40  Gia: running late", exit: 0 }];
+  it("a scoped denial beside a message from today is a contradiction", () => {
+    expect(denialContradictsMessages("No one has texted you today.", rows, friday)).toBe(true);
+    expect(denialContradictsMessages("Nobody has texted you yet.", rows, friday)).toBe(true);
+    expect(denialContradictsMessages("No one has texted you today.", [{ canonical: "x", stdout: "2026-10-16 13:40  Gia: late", exit: 0 }], friday)).toBe(true);
+  });
+  it("a scoped denial beside only older or own messages is right", () => {
+    const old = [{ canonical: "x", stdout: "Thu 21:02  Gia: night\nFri 14:00  me: ok", exit: 0 }];
+    expect(denialContradictsMessages("No new texts. Your last text was from Gia at 9:02 last night.", old, friday)).toBe(false);
+    expect(denialContradictsMessages("Nothing new since 2pm.", rows, friday)).toBe(false);
+    expect(denialContradictsMessages("Nothing new since 1pm.", rows, friday)).toBe(true);
+  });
+  it("'checking for you' and 'looking for a good time' are not lookups", () => {
+    for (const reply of ["I'm checking for you, one sec.", "I'm looking for a good time to fit it in.", "I'm looking for a sec."])
+      expect(checkWork({ reply, turnResults: [], finished: true }), reply).toEqual([]);
+  });
+});

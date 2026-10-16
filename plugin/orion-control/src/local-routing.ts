@@ -36,6 +36,7 @@ import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart } from "./session-flow.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
+import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -497,6 +498,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             appendContext: `[ORION: call orion_task_run now with exactly ${run.reminder.args} — do not reply before calling it.]` };
         }
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}. Set it with ONE orion_task_run call: {"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM>","label":"<what it is for>"}]}. Never use orion-tasks. Reply only after the tool result shows it was set.` };
+      }
+      // Texts and email (messages-route.ts). Live sweep 2026-10-15: "read my last 3 texts" read the manual
+      // index, "search gmail…" said it could not, "email myself my tasks" listed them and sent nothing. A
+      // send ORION cannot do is a fixed line; a read or a text to someone gets only the tools for it.
+      if (!run.flow && !run.cutOff) {
+        const cannot = cannotSend(run.message);
+        if (cannot) run.flow = { outcome: "say", kind: "plain", text: cannot };
+        else if (isMessagesJob(run.message)) return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${now}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}` };
       }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.

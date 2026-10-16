@@ -209,6 +209,17 @@ const defaultBrainSearch = (query: string): Promise<string> => new Promise((reso
   execFile(ORION_BRAIN, ["search", query.slice(0, 200)], { timeout: 8000, maxBuffer: 1 << 20 }, (_e, stdout) => resolve(String(stdout ?? "")));
 });
 
+// 2026-10-15 sweep: only a trailing "?" made a question, so "whats on tomorrow morning" and "uh whats next
+// on my schedule" went to the change flow ("a question, not a change") and the worker, with no rule for
+// it, read 1:30 PM and 3:30 PM out as "morning" (q014). A message that opens with a question word (after
+// a filler) is a question too, unless it also asks for a change ("my schedule" is a noun, not a verb).
+// "do"/"does" only before a pronoun ("do my laundry at 6" is a plan); "how about" / "what if" suggest.
+const QUESTION_OPENER = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait)[,\s]+)*(?:(?!how about|what if)(?:what|whats|what's|when|whens|when's|how|is|are|which|who)|do(?:es)?\s+(?:i|we|my|he|she|they))\b/i;
+export const isQuestion = (message: string): boolean =>
+  /\?\s*$/.test(message.trim()) || (QUESTION_OPENER.test(message.trim()) && !CHANGE_REQUEST.test(message.replace(/\b(my|the|his|your) schedule\b/gi, "")));
+// The day read has no window rule of its own: "tomorrow morning" listed afternoon classes (q014).
+const DAY_QUESTION_NOTE = "Morning means before 12:00, afternoon 12:00 to 17:00, evening after 17:00: list only what falls in the window he names. \"Next\" means the first block that has not already happened. For \"how long until\", count from Now. If nothing in the list matches, say so and name what is there.";
+
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
 export const liveReadDay = (tomorrow: boolean): Promise<string> => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...(tomorrow ? ["--date", "tomorrow"] : [])], { timeout: 30000 }, (_e, stdout) => {
   try { resolve(blockList(JSON.parse(String(stdout)))); } catch { resolve(""); }
@@ -511,7 +522,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      if (SCHEDULING.test(run.message) && !/\?\s*$/.test(run.message.trim()) && !run.flow && isCalendarTurn(run.message, run.settled)) {
+      if (SCHEDULING.test(run.message) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         run.flow = options.scheduleFlow
@@ -524,11 +535,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
-      if (SCHEDULING.test(run.message) && /\?\s*$/.test(run.message.trim()) && options.readDay && !run.flow) {
+      if (SCHEDULING.test(run.message) && isQuestion(run.message) && options.readDay && !run.flow) {
         const tomorrow = meansTomorrow(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
         if (day) run.provided = true;
-        if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. Do not call any tools.` };
+        if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times. ${DAY_QUESTION_NOTE} Do not call any tools.` };
       }
       if (run.flow?.outcome === "done") {
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,

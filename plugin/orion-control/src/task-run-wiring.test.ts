@@ -115,11 +115,11 @@ describe("argument drift (r02: 21:00 became 09:00)", () => {
     expect(blocked.blockReason).toContain("2026-10-16T21:00");
   });
 
-  it("reads string steps and nested arguments; leaves a matching call, other actions and other tools alone", () => {
+  it("reads string steps and nested arguments; leaves a matching call and other tools alone", () => {
     const stringy = { steps: JSON.stringify([{ action: "alarm_set", arguments: { at: "2026-10-16T09:00", label: "charge laptop" }, id: "s1" }]) };
     expect((guardTaskRun("tool_call", wrap(stringy), expected) as any).params.args.steps[0].at).toBe("2026-10-16T21:00");
     expect(guardTaskRun("tool_call", wrap(JSON.parse(expected.args)), expected)).toBeUndefined();
-    expect(guardTaskRun("tool_call", wrap({ steps: [{ action: "lights_set", on: true }] }), expected)).toBeUndefined();
+    expect((guardTaskRun("tool_call", wrap({ steps: [{ action: "lights_set", on: true }] }), expected) as any).block).toBe(true); // review, 2026-10-16: other actions are refused
     expect(guardTaskRun("tool_call", wrap(drifted, "weather"), expected)).toBeUndefined();
     expect(guardTaskRun("exec", { command: "ls" }, expected)).toBeUndefined();
   });
@@ -136,3 +136,36 @@ describe("argument drift (r02: 21:00 became 09:00)", () => {
     expect(timer?.params.args.steps[0].seconds).toBe(1500);
   });
 });
+
+// Review, 2026-10-16: reminder_cancel's `id` is the reminder's id, not a step label.
+describe("guard keeps reminder ids and refuses other actions", () => {
+  const cancel = { action: "reminder_cancel", args: JSON.stringify({ steps: [{ action: "reminder_cancel", id: "a1" }] }) };
+
+  it("a cancel call with another reminder's id is rewritten to the expected id", () => {
+    const out = guardTaskRun("tool_call", wrap({ steps: [{ action: "reminder_cancel", id: "a2" }] }), cancel) as { params: any };
+    expect(out.params.args.steps[0].id).toBe("a1");
+    expect((guardTaskRun("orion_task_run", { steps: [{ action: "reminder_cancel", id: "a2" }] }, cancel) as any).params.steps[0].id).toBe("a1");
+    expect(guardTaskRun("tool_call", wrap({ steps: [{ action: "reminder_cancel", id: "a1" }] }), cancel)).toBeUndefined();
+  });
+
+  it("a step label id on an action whose expected step has none is not drift", () => {
+    const set = { action: "alarm_set", args: JSON.stringify({ steps: [{ action: "alarm_set", at: "2026-10-16T21:00", label: "x" }] }) };
+    expect(guardTaskRun("tool_call", wrap({ steps: [{ id: "s1", action: "alarm_set", at: "2026-10-16T21:00", label: "x" }] }), set)).toBeUndefined();
+  });
+
+  it("a different action while a directive is active is blocked with the exact args", () => {
+    const out = guardTaskRun("tool_call", wrap({ steps: [{ action: "alarm_set", at: "2026-10-16T09:00", label: "x" }] }), cancel) as { block: boolean; blockReason: string };
+    expect(out.block).toBe(true);
+    expect(out.blockReason).toContain(cancel.args);
+    const mixed = guardTaskRun("orion_task_run", { steps: [{ action: "reminder_cancel", id: "a1" }, { action: "lights_set" }] }, cancel) as { block: boolean };
+    expect(mixed.block).toBe(true);
+  });
+
+  it("finalize does not count a cancel of another id as the directive's call", async () => {
+    const { f, ctx, build } = setup({ move: "tool", tool: "alarm" }, R02_EXTRACT);
+    await build(R02);
+    const out = (await f.fire("before_tool_call", { toolName: "tool_call", params: wrap({ steps: [{ action: "lights_set", on: true }] }, "orion_task_run") }, ctx)) as Array<{ block?: boolean }>;
+    expect(out.some((o) => o?.block)).toBe(true);
+  });
+});
+

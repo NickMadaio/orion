@@ -8,9 +8,12 @@
  Away from the Mac (idle 5+ min or locked) → phone. At the Mac and out (a class
  or plan is on, or travel) → silent hologram bubble. At the Mac at home or with
  headphones → aloud. Quiet hours (his planned night) hold everything.
+ The state comes from awareness.json (orion-awareness); a stale facet reads as unknown.
 */
 import { presence } from "./lib/reach/presence.mjs";
+import { readAwareness } from "./lib/awareness/state.mjs";
 
 const p = await presence();
-if (process.argv.includes("--json")) console.log(JSON.stringify(p));
+// `--json` keeps its shape, plus an `awareness` key (stale facets read as unknown).
+if (process.argv.includes("--json")) console.log(JSON.stringify({ ...p, awareness: readAwareness() }));
 else console.log(`${p.channel}: ${p.reason}. Idle ${Math.round(p.idleSeconds ?? 0)}s, ${p.where}, ${p.pluggedIn ? "plugged in" : "on battery"}${p.headphones ? ", headphones" : ""}.`);

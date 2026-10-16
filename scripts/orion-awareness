@@ -1,0 +1,170 @@
+#!/usr/bin/env node
+/*
+ orion-awareness — the one writer of awareness.json (2026-10-16, spec 3.1). Senders read it through
+ scripts/lib/awareness/state.mjs; none of them recomputes facts.
+
+   orion-awareness refresh [--session '<json>'] [--json]   compose every facet and write awareness.json
+   orion-awareness show [--json]                           read it back, stale facets as unknown
+   orion-awareness phase --from <s> --to <s> --session '<json>'
+                                   refresh, then ask orion-reach to drain what was held (it decides through
+                                   the gate), and kick the proactive tick (debounced 60 s)
+   orion-awareness place list
+   orion-awareness place set <id> (--here | --lat N --lon N) [--radius M] [--kind K] [--name N] [--label L] [--source S]
+   orion-awareness place forget <id>
+   orion-awareness place learn [--apply]       propose home from overnight charging; never overrides a confirmed home
+   orion-awareness curiosity pause --days N
+
+ Seams (tests): ORION_REACH_NOW, ORION_CONTROLLED_DIR, ORION_SESSION_SOCKET, ORION_REACH_BIN, ORION_PROACTIVE_BIN.
+*/
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, statSync, writeFileSync, utimesSync } from "node:fs";
+import { join } from "node:path";
+import { readAwareness, writeAwareness, controlledDir } from "./lib/awareness/state.mjs";
+import { sessionFacet, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, isFresh, LIMITS } from "./lib/awareness/facets.mjs";
+import { readJson, updateJson } from "./lib/awareness/io.mjs";
+import { readKnownPlaces, writeKnownPlaces, learnHome, reconcileHome, matchPlace, isNickConfirmed } from "./lib/awareness/places.mjs";
+import { gather } from "./lib/reach/facts.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
+
+const args = process.argv.slice(2);
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const fail = (m, code = 2) => { console.error(m); process.exit(code); };
+const DIR = controlledDir();
+const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
+const here = (name) => join(import.meta.dirname, name);
+const [cmd, sub, ...rest] = args;
+
+function parseSession(raw) { try { return JSON.parse(raw); } catch { fail("--session must be JSON"); } }
+
+function askSocket() {
+  const r = spawnSync(process.execPath, [here("orion-session"), "status", "--json"], { encoding: "utf8", timeout: 4000, env: process.env });
+  try { return JSON.parse(r.stdout); } catch { return null; }
+}
+
+async function calendarNow(previous) {
+  const dirty = (() => { try { return statSync(join(DIR, "awareness.dirty")).mtimeMs; } catch { return 0; } })();
+  if (previous?.state === "ok" && isFresh(previous.at, LIMITS.calendar, now) && dirty <= Date.parse(previous.at)) return previous;
+  try {
+    const [{ liveDay, localDate }, { commuteWalls }] = await Promise.all([import("./lib/life/live-day.mjs"), import("./lib/life/commute.mjs")]);
+    const blocks = await liveDay(localDate(now));
+    return calendarFacet(blocks, commuteWalls(blocks, loadConfig()), now);
+  } catch { return calendarFacet(null, [], now); }
+}
+
+async function refresh({ session } = {}) {
+  const prev = readAwareness({ dir: DIR, now, maxAgeMs: Infinity });
+  const raw = readJson(join(DIR, "awareness.json"));
+  const activity = readJson(join(DIR, "focus-activity.json"));
+  const log = readJson(join(DIR, "health-log.json")) ?? {};
+  const places = readKnownPlaces(DIR);
+  const sessionF = session ? sessionFacet(session, now, { source: "phase-hook", previous: raw?.session })
+    : sessionFacet(askSocket(), now, { previous: raw?.session });
+  // The Mac: focus-activity.json when fresh; else one cheap ioreg read (never system_profiler here).
+  let macF = macFacet(activity, null, now);
+  let macFacts = { idleSeconds: macF.idleSeconds, locked: macF.state === "locked", displayAsleep: macF.state === "asleep" };
+  if (macF.state === "unknown") {
+    const g = gather({ dir: DIR, now, headphones: false });
+    macFacts = { idleSeconds: g.idleSeconds, locked: g.locked, displayAsleep: g.displayAsleep };
+    macF = macFacet({ at: now.toISOString(), idleSeconds: g.idleSeconds, idleValid: g.idleSeconds !== null, locked: g.locked }, null, now);
+  }
+  const signal = (log.phoneSignals ?? []).at(-1) ?? null;
+  const events = log.placeEvents ?? [];
+  const location = locationFacet(log.phoneSignals, events, places, now);
+  const newestEvent = events.map((e) => e.at).sort().at(-1) ?? null;
+  const aw = {
+    schema: "orion.awareness.v1", at: now.toISOString(),
+    session: sessionF, calendar: await calendarNow(raw?.calendar), location, mac: macF, phone: phoneFacet(log, now),
+    audio: audioFacet(activity, log.phoneSignals, now),
+    sleep: sleepFacet({ now, config: loadConfig(), night: readJson(join(DIR, "night.json")),
+      nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [], mac: macFacts, signal }),
+    meta: { placeEventAt: newestEvent },
+  };
+  writeAwareness(DIR, aw);
+  // a new region event since the last refresh: let the proactive loop react at once
+  if (newestEvent && newestEvent !== prev.meta?.placeEventAt && prev.at !== null) kickTick("place");
+  return { ...aw, derived: derive(aw) };
+}
+
+/** Detached and debounced to one per 60 s, so a burst of events costs one tick (C12). */
+function kickTick(reason) {
+  const stamp = join(DIR, "awareness-tick.stamp");
+  try { if (now.getTime() - statSync(stamp).mtimeMs < 60_000) return; } catch {}
+  try { writeFileSync(stamp, reason); utimesSync(stamp, now, now); } catch {}
+  detach(process.env.ORION_PROACTIVE_BIN || here("orion-proactive"), ["tick", "--reason", reason]);
+}
+function detach(bin, a) {
+  try { spawn(bin, a, { detached: true, stdio: "ignore", env: process.env }).on("error", () => {}).unref(); } catch {}
+}
+
+const REASON = { rest: "break", none: "end", finished: "end", waiting: "wake" };
+
+async function main() {
+  if (cmd === "refresh") {
+    const raw = flag("--session");
+    const aw = await refresh({ session: raw ? parseSession(raw) : null });
+    console.log(args.includes("--json") ? JSON.stringify(aw) : `awareness refreshed (${aw.derived.activity}, session ${aw.session.state}, mac ${aw.mac.state}, location ${aw.location.state})`);
+  } else if (cmd === "show") {
+    const aw = readAwareness({ dir: DIR, now });
+    console.log(args.includes("--json") ? JSON.stringify(aw) : `${aw.derived.activity}: session ${aw.session.state}, mac ${aw.mac.state}, location ${aw.location.state}, phone ${aw.phone.state}, sleep ${aw.sleep.state}, headphones ${aw.audio.mac.headphones ?? "unknown"}`);
+  } else if (cmd === "phase") {
+    const to = flag("--to"), from = flag("--from"), raw = flag("--session");
+    if (!to || !from || !raw) fail("usage: orion-awareness phase --from <state> --to <state> --session '<json>'");
+    await refresh({ session: parseSession(raw) });
+    const bin = process.env.ORION_REACH_BIN || here("orion-reach");
+    // orion-reach (through the gate) decides whether anything is released; this only asks.
+    detach(bin, ["--drain-held", "--reason", REASON[to] ?? "break"]);
+    kickTick("phase");
+    console.log(`phase ${from} -> ${to}`);
+  } else if (cmd === "place") placeCommand(sub, rest);
+  else if (cmd === "curiosity" && sub === "pause") {
+    const days = Number(flag("--days"));
+    if (!(days > 0 && days <= 365)) fail("usage: orion-awareness curiosity pause --days N (1-365)");
+    updateJson(DIR, "curiosity.json", (c) => ({ ...c, pausedUntil: new Date(now.getTime() + days * 86_400_000).toISOString() }));
+    console.log(`curiosity paused for ${days} day(s)`);
+  } else fail("usage: orion-awareness refresh|show|phase|place|curiosity (see the header of this file)");
+}
+
+function placeCommand(action, [id]) {
+  const places = readKnownPlaces(DIR);
+  if (action === "list") {
+    for (const p of places) console.log(`${p.id}\t${p.name}\t${p.kind}\t${p.radiusM} m\t${p.source}`);
+  } else if (action === "set") {
+    if (!id) fail("usage: orion-awareness place set <id> (--here | --lat N --lon N)");
+    const point = args.includes("--here") ? hereFix() : { lat: Number(flag("--lat")), lon: Number(flag("--lon")) };
+    if (!(Math.abs(point.lat) <= 90 && Math.abs(point.lon) <= 180) || Number.isNaN(point.lat + point.lon)) fail("need --here or valid --lat and --lon");
+    const radius = Number(flag("--radius") ?? (id === "home" ? 150 : 120));
+    if (!(radius >= 20 && radius <= 2000)) fail("--radius must be 20-2000 m");
+    const place = { id, name: flag("--name") ?? id, ...(flag("--label") ? { label: flag("--label") } : {}), ...point, radiusM: radius,
+      kind: flag("--kind") ?? (id === "home" ? "home" : "other"), source: flag("--source") ?? "nick", confirmedAt: now.toISOString().slice(0, 10) };
+    writeKnownPlaces(DIR, [...places.filter((p) => p.id !== id), place]);
+    console.log(`saved ${id}`);
+  } else if (action === "forget") {
+    if (!id || !places.some((p) => p.id === id)) fail(`no such place: ${id ?? ""}`, 1);
+    writeKnownPlaces(DIR, places.filter((p) => p.id !== id));
+    console.log(`forgot ${id}`);
+  } else if (action === "learn") learn(places);
+  else fail("usage: orion-awareness place list|set|forget|learn");
+}
+
+function hereFix() {
+  const s = (readJson(join(DIR, "health-log.json"))?.phoneSignals ?? []).filter((x) => Number.isFinite(Number(x.latitude))).at(-1);
+  if (!s || !isFresh(s.at, LIMITS.locationSample, now)) fail("no fresh phone fix (under 20 min); use --lat and --lon", 1);
+  return { lat: Number(s.latitude), lon: Number(s.longitude) };
+}
+
+function learn(places) {
+  const log = readJson(join(DIR, "health-log.json")) ?? {};
+  const learned = learnHome(log.phoneSignals, { now });
+  if (learned.refused) { console.log(`not proposing a home: ${learned.refused}`); return; }
+  const verdict = reconcileHome(learned, places);
+  const home = places.find((p) => p.id === "home");
+  const d = Math.round(verdict.distanceM ?? 0);
+  if (verdict.action === "propose") console.log(`proposed home: ${learned.nights} nights of overnight charging at ${learned.cell}. Confirm with: orion-awareness place set home --lat ${learned.lat.toFixed(5)} --lon ${learned.lon.toFixed(5)}`);
+  else if (verdict.action === "conflict") console.log(`overnight charging is ${d} m from your confirmed home; leaving home as it is. Ask Nick before changing it.`);
+  else if (verdict.action === "refines" && args.includes("--apply")) {
+    writeKnownPlaces(DIR, places.map((p) => p.id === "home" ? { ...p, lat: learned.lat, lon: learned.lon, refinedFrom: { lat: p.lat, lon: p.lon, nights: learned.nights } } : p));
+    console.log(`home refined by ${d} m (still ${home.source})`);
+  } else console.log(verdict.action === "refines" ? `overnight charging is ${d} m from home; re-run with --apply to refine it` : `overnight charging confirms home (${d} m)`);
+}
+
+await main();

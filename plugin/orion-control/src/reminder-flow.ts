@@ -33,6 +33,7 @@ export type ReminderInput = {
 const SET = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me)\b/i;
 // "dont let me forget that" is something to remember, not an alarm, unless he gives a time (q058).
 const FORGET = /\bdon'?t let me forget\b/i;
+const FORGET_TO = /\bdon'?t let me forget to\b/i;
 const CANCEL = /\b(cancel|delete|remove|stop|clear|scrap|turn off|get rid of|kill)\b/i;
 const REMINDER_WORD = /\b(reminders?|alarms?)\b/i;
 const LIST = /\b(reminders|alarms)\b|\b(what|whats|what's|which|any)\b.*\b(reminder|alarm)\b/i;
@@ -47,7 +48,10 @@ const STOP_WORDS = new Set(["cancel", "delete", "remove", "stop", "clear", "scra
 
 /** Whether this turn is about reminders at all (anything planReminder handles). */
 export function isReminderTurn(message: string): boolean {
-  if (FORGET.test(message) && !SET.test(message)) return CLOCK.test(message) || RELATIVE.test(message);
+  // Merge of r2-reminders (FORGET is a fact unless timed) with r2-memory-facts ("don't let me forget to call
+  // mom at 5" is a reminder): "forget to <do something>" is an action to be reminded of, timed or not; only
+  // "forget that/this/it" is a fact (memory-facts' TELLS rule draws the same line).
+  if (FORGET.test(message) && !SET.test(message)) return CLOCK.test(message) || RELATIVE.test(message) || FORGET_TO.test(message);
   return SET.test(message) || REMINDER_WORD.test(message);
 }
 

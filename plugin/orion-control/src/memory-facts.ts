@@ -54,9 +54,53 @@ export const FACT_NOTE = [
 ].join("\n");
 
 export const RECALL_NOTE = [
-  "Nick is asking about something he told you or keeps in his notes. Before you reply, search with exec: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain search \"<one or two key words>\". Never offer to search: search, then answer.",
+  "Nick is asking about something he told you or keeps in his notes. Before you reply, search with exec: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain search \"<one or two key words>\". Always the full path: a bare orion-brain is refused by exec. Never offer to search: search, then answer.",
   "Say \"you told me\" or \"you mentioned\" only for facts saved in his \"Nick\" note; anything else (a course page, a policy) is \"your <note> notes say…\". If nothing matches, say you don't have that saved.",
 ].join("\n");
 
-export const FACT_NOW = "[ORION: save it now with exec orion-brain learn \"Nick\" \"fact\" \"…\" — do not reply before the result.]";
-export const RECALL_NOW = "[ORION: run exec orion-brain search first — do not reply before the result.]";
+export const FACT_NOW = "[ORION: save it now with exec /Users/nickmadaio/Desktop/ORION/scripts/orion-brain learn \"Nick\" \"fact\" \"…\" — do not reply before the result.]";
+export const RECALL_NOW = "[ORION: run exec /Users/nickmadaio/Desktop/ORION/scripts/orion-brain search first — do not reply before the result.]";
+
+/*
+ Sweep 2026-10-16 (r7-memory), three failures:
+ - q064: "what time do i usually take it" searched "creatine" seconds after the fact was learned. The search
+   found the Nick note, but its snippet is the top of the note (cut at 700 chars); the "## Learned" line is
+   at the bottom, so the worker saw none of it and said "I don't have a record". Not index lag: the write was
+   there. So recall also reads his Nick note directly and hands over the learned lines.
+ - q059: the worker ran a bare `orion-brain search`; exec allowlists scripts by absolute path only (the
+   absolute orion-brain and orion-recall entries exist in exec-approvals.json), so it was refused and the host
+   appended a raw "Exec failed" line. The notes above now give the full path, and that line is stripped.
+ - q056: a course policy found in an ECON1115 note was read back as "You told me that...".
+ (Written by Claude on 2026-10-16.)
+*/
+
+/** The lines under "## Learned" in his Nick note: what he actually told ORION, newest last. */
+export function learnedLines(note: string, max = 25): string[] {
+  const out: string[] = [];
+  let inLearned = false;
+  for (const line of note.split("\n")) {
+    if (/^##\s/.test(line)) inLearned = /^##\s+Learned\b/i.test(line);
+    else if (inLearned && /^-\s/.test(line)) out.push(line.replace(/^-\s+/, "").trim());
+  }
+  return out.slice(-max);
+}
+
+const STOP = new Set(["what", "whats", "when", "where", "which", "does", "did", "say", "said", "tell", "told", "about", "usually", "normally", "always", "time", "that", "this", "have", "with", "your", "mine", "know", "remember", "mention", "ok", "and"]);
+const words = (s: string) => (s.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !STOP.has(w));
+/** Does a saved fact share a word (or stem) with the question? */
+export const factsAbout = (message: string, lines: string[]): string[] => {
+  const q = words(message).map((w) => w.replace(/(?:ing|es|s)$/, ""));
+  return lines.filter((l) => { const lw = words(l).map((w) => w.replace(/(?:ing|es|s)$/, "")); return q.some((w) => w.length > 2 && lw.some((x) => x === w || x.startsWith(w) || w.startsWith(x))); });
+};
+
+/** "You told me / mentioned / said ..." about something no saved fact backs is a document's words, not his. */
+export function reframeDocumentRecall(reply: string, message: string, lines: string[]): string {
+  if (factsAbout(message, lines).length > 0) return reply;
+  return reply.replace(/\byou (?:told me|mentioned|said)(?: to me)?(?: that)?\b/gi, (m) => (m[0] === "Y" ? "Your notes say" : "your notes say"));
+}
+
+/** The host appends a raw "Exec failed: `cmd`" line to a reply when a command is refused: never spoken to Nick. */
+export const EXEC_FAILED_LINE = /(?:^|\n)[^\S\n]*(?:⚠️\s*)?(?:🛠️\s*)?Exec failed:?[^\n]*/gi;
+export const stripExecFailed = (text: string): string => text.replace(EXEC_FAILED_LINE, "").trim();
+export const SEARCH_UNAVAILABLE = "I couldn't search your notes just now. Ask me again in a moment.";
+export const searchRefused = (results: string[]): boolean => results.some((r) => /allowlist miss|exec denied/i.test(r));

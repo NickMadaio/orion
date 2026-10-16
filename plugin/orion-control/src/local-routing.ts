@@ -41,6 +41,7 @@ import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distr
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
+import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -68,6 +69,8 @@ export type LocalRoutingOptions = {
   wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
+  /** The focus history rows, for "how long have i been focusing today" (tests pass a stub; default reads the real file, read-only). */
+  focusHistory?: () => FocusRow[];
   /** Pulls {time "HH:MM" or null, label} out of a reminder request (tests pass a stub; wired from index.ts). */
   extractReminder?: (message: string, clock?: string) => Promise<{ time: string | null; label: string } | null>;
   /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
@@ -101,6 +104,8 @@ type Run = {
   reminder?: { args: string; say: string; action?: "alarm_set" | "reminder_cancel"; label?: string; at?: string };
   /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): no lookup is owed. */
   provided?: boolean;
+  /** Code-run reads that stand behind this reply ("focus-status", "focus-today", "day"), for the routing log (r8, 2026-10-16). */
+  reads?: string[];
   /** A recall turn: the lines he told ORION (his Nick note's Learned section), for the "you told me" check (2026-10-16). */
   recall?: { learned: string[] };
   /** The prompt forbade tools (the overwhelm note): no promise or lookup check can be met by acting. */
@@ -643,10 +648,30 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // "how much focus time is left": code reads the session (q049 said "15 minutes remaining" from nothing).
       // 2026-10-16 r7: only a message that names the session (q015 "nap block" is the calendar), or "what am i supposed to be
       // working on" (q050); with no session running that one falls through to the day read below.
-      const statusAsk = asksCurrentTask(run.message) || (run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && asksFocusStatus(run.message));
-      if (!run.flow && !run.cutOff && statusAsk && options.sessionStatus) {
+      const statusAsk = asksCurrentTask(run.message) || asksFocusOn(run.message) || (run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && asksFocusStatus(run.message));
+      const todayAsk = asksFocusToday(run.message);
+      if (!run.flow && !run.cutOff && (statusAsk || todayAsk) && options.sessionStatus) {
         const status = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
-        if (!(asksCurrentTask(run.message) && status.outcome === "say" && /^No focus session/.test(status.text))) run.flow = status;
+        // r8 (2026-10-16) q053/q050/q052: the status read is recorded, and code says the whole reply.
+        if (status.outcome === "say" && status.calls) status.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: status.outputs?.[i] ?? "", exit: null }));
+        if (status.outcome === "say" && status.calls) { run.provided = true; (run.reads ??= []).push("focus-status"); }
+        const noSession = status.outcome === "say" && /^No focus session/.test(status.text);
+        if (todayAsk && !statusAsk && status.outcome === "say" && (noSession || status.calls)) {
+          // q052: today's focused minutes from the history file plus a session still running (see focusTodayTotal).
+          const now = (options.now ?? (() => new Date()))();
+          const rows = (options.focusHistory ?? (() => readFocusHistory()))();
+          const total = focusTodayTotal(rows, localDayKey(now), liveFocusSeconds(status.outputs?.[0] ?? ""));
+          run.tools.push({ canonical: "read focus-history.jsonl (today)", stdout: JSON.stringify(total), exit: null });
+          (run.reads ??= []).push("focus-today");
+          run.flow = /^I couldn't check/.test(status.text) ? status : { outcome: "say", kind: "plain", text: focusTodayReply(total) };
+        } else if (asksCurrentTask(run.message) && noSession && options.readDay) {
+          // q050: no session, so code names the block he is in now, else the next one today (never the 9B's guess).
+          const day = await options.readDay(false).catch(() => "");
+          const now = (options.now ?? (() => new Date()))();
+          run.tools.push({ canonical: "orion-reschedule show --json", stdout: day, exit: null });
+          (run.reads ??= []).push("day");
+          run.flow = { outcome: "say", kind: "plain", text: noSessionReply(day, `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`) };
+        } else if (!todayAsk || statusAsk) run.flow = status;
       }
       // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
       // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).

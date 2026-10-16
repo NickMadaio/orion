@@ -44,7 +44,7 @@ import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
 import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
-import { sanitizeReply } from "./reply-sanitize.js";
+import { mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
@@ -911,7 +911,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // r8b2 (2026-10-16) q006: "and after that?" follows the last day answer: code answers it from the day read.
       const dayMem = run.sessionKey ? dayMemory.get(run.sessionKey) : undefined;
       if (!run.flow && !run.cutOff && options.readDay && dayMem && Date.now() - dayMem.at < DAY_MEMORY_MS && isAfterThat(run.message)) {
-        const tomorrow = meansTomorrow(run.message);
+        const tomorrow = dayMem.memory.tomorrow; // review 5 H2: the day the last answer was about, not today by default
         const day = await options.readDay(tomorrow).catch(() => "");
         const after = day ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now), dayMem.memory) : null;
         if (after) { run.provided = true; markRead(run, tomorrow ? "day-tomorrow" : "day"); run.flow = { outcome: "say", kind: "plain", text: after.text }; dayMemory.set(run.sessionKey!, { at: Date.now(), memory: after.memory }); }
@@ -1141,7 +1141,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // H4 (r8b2, 2026-10-16) q069/q070: raw CLI text (URLs, "Exec failed", script paths, tool banners) never reaches him; only
       // here can it be fixed on the Mac chat / phone route (reply_payload_sending never runs there).
       if (on && !owed && reply.trim()) {
-        const clean = sanitizeReply(reply);
+        const clean = sanitizeReply(reply, { mailFailed: mailReadFailed(run.tools) });
         if (clean !== reply) { owed = clean; remember([runId, sessionKeyNow], owed); }
       }
       if (on && owed) putReplyInPlace(event.messages, owed);

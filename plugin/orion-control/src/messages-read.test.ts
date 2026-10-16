@@ -73,6 +73,13 @@ describe("runMessagesRead", () => {
     expect(odd.say).toBe("I couldn't read your texts just now. Nothing was sent or changed.");
     expect(`${g.say}${odd.say}`).not.toMatch(/https?:|\/Users|--/);
   });
+  // review 5 H1 (2026-10-16): a DNS / offline error names googleapis but is not a sign-in problem.
+  it("a DNS or offline gmail error says it could not reach Gmail, not sign in", async () => {
+    const dns = await runMessagesRead({ kind: "gmail", query: "x" }, stub('orion-gmail-search: lookup gmail.googleapis.com: no such host', 1).exec);
+    expect(dns.say).toBe("I couldn't reach Gmail just now.");
+    const tok = await runMessagesRead({ kind: "gmail", query: "x" }, stub("orion-gmail-search: bad token in query", 1).exec);
+    expect(tok.say).not.toMatch(/signing in/);
+  });
   it("readCommand names the script", () => {
     expect(readCommand({ kind: "from", person: "Carla", limit: 5 }).args).toEqual(["from", "Carla", "5"]);
   });

@@ -71,11 +71,13 @@ export function parseMessagesRead(message: string): MessagesRead | null {
 
 const label = (r: MessagesRead): string => r.kind === "gmail" ? "Gmail" : "texts";
 
+// review 5 H1 (2026-10-16): `googleapis` / bare `token` no longer mean sign-in (a DNS error names googleapis).
 // q069 (2026-10-16 r8b2): raw script output (URLs, oauth text, paths) never reaches Nick; known failures get one short line.
 const GMAIL_SIGN_IN = "I can't read your Gmail right now — it needs signing in again.";
 const FULL_DISK = "I can't read your texts — ORION needs Full Disk Access.";
 export function failureLine(req: MessagesRead, out: string): string {
-  if (/invalid_grant|oauth|token|not signed in|sign(?:ed)?[ -]?in|unauthori[sz]ed|credentials|googleapis/i.test(out) && (req.kind === "gmail" || /googleapis|invalid_grant|oauth/i.test(out))) return GMAIL_SIGN_IN;
+  if (/invalid_grant|oauth|not signed in|sign(?:ed)?[ -]?in|unauthori[sz]ed|credentials/i.test(out) && (req.kind === "gmail" || /invalid_grant|oauth/i.test(out))) return GMAIL_SIGN_IN;
+  if (/no such host|dial tcp|network is unreachable|could not resolve|getaddrinfo|ENOTFOUND|offline|timed? ?out/i.test(out) && req.kind === "gmail") return "I couldn't reach Gmail just now.";
   if (/full disk access|operation not permitted|authorization denied|not authori[sz]ed to (?:open|read)/i.test(out)) return FULL_DISK;
   return `I couldn't read your ${label(req)} just now. Nothing was sent or changed.`;
 }

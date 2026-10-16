@@ -102,3 +102,31 @@ describe("cut-off fragments and raw text in replies", () => {
     expect((messages[1]!.content as Array<{ text: string }>)[0]!.text).toBe("Nothing found.");
   });
 });
+
+// review 5 (2026-10-16 r8b): H2 follow-up keeps its day, H3 compound nouns, M6 length / end questions.
+const TOMORROW = ["B1 09:00–10:30 CHEM1211 Lecture (FIXED)", "B2 11:00–12:00 Gym", "B3 14:00–15:30 PHIL1101 Lecture (FIXED)"].join("\n");
+describe("review 5 fixes", () => {
+  it("H2: 'and after that?' after a tomorrow answer reads tomorrow and finds the block by start time", () => {
+    const first = codeDayAnswer("when's my next class tomorrow?", TOMORROW, true, NOW)!;
+    expect(first.text).toBe("Your next class is CHEM1211 Lecture at 9:00 AM.");
+    expect(first.memory.tomorrow).toBe(true);
+    // an edit between turns inserts a block; the index would shift, the start time does not
+    const edited = ["B1 08:00–08:30 Email", TOMORROW.replace(/^B1/m, "B2")].join("\n");
+    const second = codeDayAnswer("and after that?", edited, first.memory.tomorrow, NOW, first.memory)!;
+    expect(second.text).toBe("After that: PHIL1101 Lecture at 2:00 PM.");
+    expect(second.memory.tomorrow).toBe(true);
+  });
+  it("H3: a kind word followed by a noun, or deadline talk, is not the block", () => {
+    for (const q of ["how long until the lab report is due?", "when is my lab partner meeting", "how many minutes until the lab manual reading", "do i have a lab report due today?", "when is my lab grade posted", "what time is the gym membership thing"]) {
+      expect(codeDayAnswer(q, DAY, false, NOW), q).toBeNull();
+    }
+    expect(codeDayAnswer("how many minutes until the lab starts", DAY, false, NOW)).not.toBeNull();
+  });
+  it("M6: length and end questions answer length and end, never the start; bare 'next' is not 'after that'", () => {
+    expect(codeDayAnswer("how long is my lab?", DAY, false, NOW)?.text).toMatch(/^Your CS Lab is 45 min long, 7:25 to 8:10 PM\./);
+    expect(codeDayAnswer("what time does my lab go until?", DAY, false, NOW)?.text).toMatch(/^Your CS Lab ends at 8:10 PM\./);
+    const first = codeDayAnswer("how long till my next class", DAY, false, NOW)!;
+    expect(codeDayAnswer("what's next", DAY, false, NOW, first.memory)).toBeNull();
+    expect(codeDayAnswer("and then?", DAY, false, NOW, first.memory)?.text).toMatch(/^After that/);
+  });
+});

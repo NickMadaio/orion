@@ -80,6 +80,26 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-16 — Awareness and curiosity (integration of WP1-WP6) (Claude)
+
+Spec: `docs/design/2026-10-16-awareness-and-curiosity.md`. ORION now keeps one `awareness.json` (written only by
+`orion-awareness refresh`, read only through `scripts/lib/awareness/state.mjs`) and acts on it.
+- **Gate**: every script sender goes through one delivery gate (`lib/reach/gate.mjs`): sleep, focus, the first 3 min of a pause, and
+  class hold (batched, released on a break by the app's phase hook or the proactive backstop). A missed class does not hold. `--awake` skips the class hold.
+- **Curiosity loop** (`orion-proactive`, `lib/curiosity`): plan vs reality, blank asks with backoff, leave ladder, nightly day review of what happened.
+  Reality replaces the plan (`orion-reschedule log/displace/fill`, weight, a daily 90-minute gym anchor in config).
+- **Replies**: every proactive push is a message in the phone thread; asks carry `askId` and `category: orion.ask` (text reply). Each message he
+  sends (phone: `orion-remote`; Mac: `AppState.send`) runs `orion-inbound-turn`, which appends `inbound-turns.jsonl` and closes the ask
+  (`answered`, or `nothing` for "nothing really").
+- **Models**: standing polish, the focus judge and `orion/` use the resident `qwen3.5:9b`; `orion-learn --judge` (only when he is away or it is 00-06)
+  and `orion-code` stay on gpt-oss with keep_alive 0 (`lib/local-model.mjs`).
+- **Test seams**: `ORION_REACH_FACTS`, `ORION_REACH_NOW`, `ORION_SESSION_SOCKET` are honoured by the refresh as well as the senders;
+  `ORION_AWARENESS_NO_REFRESH=1` skips the lazy refresh.
+- **Pending live steps** (nothing was deployed): run `orion-deploy` and relaunch the Mac app and the phone app; grant "Always" location and
+  confirm the geofences register; set the real home with `orion-awareness place set home --here`; check the first live `orion-awareness refresh`
+  (real calendar, session socket, focus-activity.json); check a push arrives with the reply field and lands in the chat thread; check that
+  an ask he answers shows `answered` in `curiosity.json`; watch the 22:00 day review once; confirm `qwen3.5:9b` stays resident and gpt-oss unloads.
+
 ### 2026-10-16 — Local speed fixes (Claude)
 
 Measured in `docs/audits/2026-10-16-local-speed.md`.

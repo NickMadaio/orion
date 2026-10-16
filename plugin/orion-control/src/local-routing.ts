@@ -47,6 +47,7 @@ import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from ".
 import { dayRead, noBlockReply } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
+import { answerPending, ADD_DECLINED, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -67,7 +68,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun }) => Promise<FlowResult>;
   /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
   lateFlow?: (minutes: number) => Promise<FlowResult>;
   /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
@@ -139,6 +140,8 @@ type Run = {
   /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
   undo?: string[];
   /** q029 (2026-10-16 r8): a "running late" turn code owns: the fixed "how late?" question, the stitched minutes answer, or the go-ahead. */
+  /** r8 review 3 H1 (2026-10-16): his answer to the add flow's own question (go ahead / the title / no). */
+  addAnswer?: PendingAnswer;
   late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string; asked?: boolean } };
 };
 
@@ -353,8 +356,8 @@ export function undoJournalTop(home = homedir(), now = Date.now()): string | nul
 }
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[] } = {}): Promise<FlowResult> => runScheduleFlow({
-  message, clock, undo: opts.undo ?? [], undoTop: () => undoJournalTop(),
+export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun } = {}): Promise<FlowResult> => runScheduleFlow({
+  message, clock, undo: opts.undo ?? [], undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
   exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema) => {
@@ -544,6 +547,23 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const reminderAsk = new Map<string, { text: string; at: number; label?: boolean }>();
   /** Per session: an unanswered "how late?" (q029), and the last late move code ran (so "yeah push everything after it" does not move it twice). */
   const lateAsk = new Map<string, number>();
+  /** r8 review 3 H1: per session, the add question just asked ("push Gym later — go ahead?", "what should I put before …?") and what it would run. */
+  const addPending = new Map<string, { pending: PendingAdd; at: number }>();
+  /** His reply to that question, if it is one. The pending add is consumed by whatever turn comes next. */
+  const addTurn = (key: string, message: string): PendingAnswer | undefined => {
+    const held = addPending.get(key); addPending.delete(key);
+    return held && Date.now() - held.at < STITCH_WINDOW_MS ? answerPending(held.pending, message) : undefined;
+  };
+  /** What a finished schedule flow leaves behind: the calls in the log, the undo marks, and the question it asked (if any). */
+  const settleSchedule = (run: Run): void => {
+    const flow = run.flow;
+    if (flow?.outcome === "say" && flow.pending && run.sessionKey) addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
+    if (flow?.outcome !== "done") return;
+    flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
+    const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
+    if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
+    if (flow.marks?.length) recordChange(run.sessionKey, flow.marks);
+  };
   const lastLate = new Map<string, { minutes: number; at: number; changed: boolean; reply: string; asked?: boolean }>();
   /** Whether this turn is the late flow's: "running late" with no minutes, the short answer to our question, or the go-ahead after it. Consumes the pending question. */
   const lateTurn = (key: string, message: string): Run["late"] => {
@@ -603,6 +623,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!on) return undefined; // shadow: fire and forget
     if (options.testingUntil && !windowOpen()) return undefined; // the testing window closed: back to shadow
     if (sessionKey && !cutOff && options.lateFlow) { const late = lateTurn(sessionKey, message); if (late) run.late = late; }
+    if (sessionKey) { const answer = addTurn(sessionKey, message); if (answer && !cutOff) run.addAnswer = answer; }
     const d = await decision;
     // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
     if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
@@ -838,6 +859,22 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
         if (!run.flow && isMessagesJob(run.message)) return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${now}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}` };
       }
+      // H1 (r8 review 3, 2026-10-16): his answer to the add flow's own question is the flow's, never the worker's
+      // (an unanchored add on "yes" / "laundry" was the live 5:50 PM bug). A title or yes runs through the flow with
+      // what it stored; no declines; anything else cleared the question in before_model_resolve.
+      if (!run.flow && !run.cutOff && run.addAnswer) {
+        const a = run.addAnswer;
+        if (a.kind === "decline") run.flow = { outcome: "say", kind: "plain", text: ADD_DECLINED };
+        else if (a.kind === "reask") run.flow = { outcome: "say", kind: "ask", text: a.pending.ask, pending: a.pending };
+        else {
+          run.flow = options.scheduleFlow
+            ? await options.scheduleFlow(run.message, clock(), { pending: a.run }).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
+            : { outcome: "fallback", reason: "no scheduling flow wired" };
+          if (run.flow.outcome === "fallback") run.flow = { outcome: "say", kind: "plain", text: "I couldn't finish that add. Tell me what to put on your day and when." };
+          markRead(run, "day");
+        }
+        settleSchedule(run);
+      }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
@@ -851,12 +888,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [] }).then((r) => { flowRan = true; return r; }, (e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
           : { outcome: "fallback", reason: "no scheduling flow wired" };
         if (flowRan) markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
-        if (run.flow.outcome === "done") {
-          run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
-          const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
-          if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: run.flow.marks ?? [] });
-          if (run.flow.marks?.length) recordChange(run.sessionKey, run.flow.marks);
-        }
+        settleSchedule(run);
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
       if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && isQuestion(run.message) && options.readDay && !run.flow) {

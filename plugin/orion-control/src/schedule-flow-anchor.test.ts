@@ -33,7 +33,7 @@ describe("anchored add (r8)", () => {
 
   it("his exact sentence with an unnamed 'small task': asks what to put before the 1:30 PM class, runs nothing", async () => {
     const { result, calls } = await run(SAID, [{ do: "add", what: "small task", minutes: 30 }]);
-    expect(result).toEqual({ outcome: "say", kind: "ask", text: "What should I put before your 1:30 PM class?" });
+    expect(result).toMatchObject({ outcome: "say", kind: "ask", text: "What should I put before your 1:30 PM class?" });
     expect(calls.filter((c) => c[0] !== "show")).toEqual([]);
   });
 
@@ -63,7 +63,8 @@ describe("anchored add (r8)", () => {
   });
 
   it("a named block with a class in the way refuses when the gap is too small (15:05 to 15:30 is 25 min)", async () => {
-    const { result } = await run("add reading before the econ lecture", [{ do: "add", what: "reading", minutes: 30 }]);
+    // r8 review 3 H4: with 10:45 as now the whole morning is free before the lecture, so the gap is measured from 15:05.
+    const { result } = await run("add reading before the econ lecture", [{ do: "add", what: "reading", minutes: 30 }], { day: { ...friday, now: "15:05" } });
     expect(result).toEqual({ outcome: "say", kind: "cannot", text: "There's no room before your 3:30 PM class." });
   });
 
@@ -81,7 +82,7 @@ describe("anchored add (r8)", () => {
   it("an add that would push other blocks asks first and writes nothing", async () => {
     const { result, calls } = await run("add a 30 minute email block", [{ do: "add", what: "email block", minutes: 30 }],
       { dry: "Would change Friday:\n  moved finish resume: 17:50 → 18:30\n  moved CS Lab: 19:25 → 20:05\n  planned email block: 17:50–18:20" });
-    expect(result).toEqual({ outcome: "say", kind: "ask", text: "That would push finish resume and CS Lab later — go ahead?" });
+    expect(result).toMatchObject({ outcome: "say", kind: "ask", text: "That would push finish resume and CS Lab later — go ahead?", pending: { kind: "push" } });
     expect(calls.filter((c) => c[0] === "add" && !c.includes("--dry-run"))).toEqual([]);
   });
 

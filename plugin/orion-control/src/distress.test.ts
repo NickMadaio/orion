@@ -17,6 +17,16 @@ describe("distress detection", () => {
       expect(isCrisis(m), m).toBe(false);
   });
 
+  it("catches the common phrasings added in round 6 (2026-10-16)", () => {
+    for (const m of ["i dont wanna live anymore", "i dont wanna be alive", "i wish i was dead", "i wish i were dead", "i want to sleep and never wake up", "nobody would miss me", "no one would miss me", "i'm thinking of ending it", "i'm thinking about ending it all", "i don't want to exist anymore", "i want it all to end", "i want to disappear", "i just wanna disappear forever", "i dont wanna wake up tomorrow", "im gonna end it"])
+      expect(isCrisis(m), m).toBe(true);
+  });
+
+  it("keeps round 6 idioms clear", () => {
+    for (const m of ["i want to disappear into my bed for a nap lol", "ending it with a bang", "the movie was ending", "end it at 5", "i'm thinking of ending it with him on friday", "i want this meeting to end"])
+      expect(isCrisis(m), m).toBe(false);
+  });
+
   it("leaves ordinary requests alone", () => {
     for (const m of ["I can't do this task today, move it to tomorrow", "end it at 5", "end the focus session", "kill the lights", "i can't go on Friday, move it", "this lecture is killing me lol", "cancel it, I can't make it", "this code is hopeless", "the wifi here is hopeless lol", "my laptop is going to die, remind me to charge it at 9", "my phone's going to die", "i hurt myself at the gym, cancel my run today", "I'm going to die if I miss this bus lol", "im hopeless at cooking", "whats the point of this meeting"])
       expect(isCrisis(m), m).toBe(false);

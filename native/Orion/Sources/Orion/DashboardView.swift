@@ -86,7 +86,10 @@ struct DashboardView: View {
     @AppStorage("orion.quickOpen.iconScale") private var iconScale = 1.0
 
     @State private var briefClock = BriefClock(now: Date())
-    private let briefTicks = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    // 2026-10-16 UI audit #3: this was a Timer.publish stored on the View struct,
+    // re-created (and so restarted) on every parent render. RefreshTicker is
+    // owned by SwiftUI across renders; see ProjectRefresh.swift.
+    @StateObject private var briefTicker = RefreshTicker(interval: 30)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -200,7 +203,8 @@ struct DashboardView: View {
                 .zIndex(10)
             }
         }
-        .onReceive(briefTicks) { instant in
+        .onReceive(briefTicker.$tick.dropFirst()) { _ in
+            let instant = Date()
             let previous = briefClock
             let current = BriefClock(now: instant)
             briefClock = current

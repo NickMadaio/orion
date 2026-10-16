@@ -224,7 +224,7 @@ async function resolveTransport(flags) {
   return { kind: "discord" };
 }
 
-async function deliver(transport, text, dryRun, { forced = false } = {}) {
+async function deliver(transport, text, dryRun, { urgentReminder = false } = {}) {
   if (dryRun) {
     const where = transport.kind === "openclaw"
       ? `openclaw:${transport.channel} -> ${transport.target}`
@@ -251,9 +251,9 @@ async function deliver(transport, text, dryRun, { forced = false } = {}) {
     console.error(`orion-notify: delivery failed: ${reason.slice(0, 200)}`);
     try {
       await run(REACH, [text.slice(0, 900), "--channel", "phone", "--kind", "update", "--why", `orion-notify fallback: ${transport.kind} failed`,
-        // A blocked / --urgent event is forced past quiet hours here, so its phone fallback is too (review H3: otherwise
-        // orion-reach would hold it); everything else obeys quiet hours on the phone as well.
-        ...(forced ? ["--urgent", "--urgent-kind", "reminder"] : [])], { timeout: 30_000 });
+        // Only a genuine mission "blocked" with an approval waiting is urgent on the phone (review H3, re-review N2). Standing
+        // heads-ups and a plain --urgent carry no urgent kind, so orion-reach holds them in quiet hours.
+        ...(urgentReminder ? ["--urgent", "--urgent-kind", "reminder"] : [])], { timeout: 30_000 });
       console.error("orion-notify: sent through the phone instead");
       return { delivered: true, via: "phone" };
     } catch (fallback) {
@@ -296,14 +296,15 @@ async function retryPending(transport) {
     }
     return { ...fresh, notify: { ...fresh.notify, retry: keep } };
   });
-  for (const r of claimed) {
-    if (Date.now() - started > RETRY_BUDGET_MS) break;
-    const result = await deliver(transport, r.text ?? r.message, false, { forced: !!r.forced });
-    if (!result.delivered) continue;
-    await writeState((fresh) => ({ ...fresh, notify: { ...fresh.notify,
-      retry: fresh.notify.retry.filter((x) => retryKey(x) !== retryKey(r)),
-      sent: [...fresh.notify.sent, { event: r.event, missionId: r.missionId, message: r.message, at, ...(result.via ? { via: result.via } : {}) }].filter((e) => at - e.at < 24 * 3_600_000) } }));
-  }
+  if (claimed.length === 0 || Date.now() - started > RETRY_BUDGET_MS) return;
+  // One push per flush, however many retries are due (re-review): a 5-minute tick must not send three separate messages.
+  const text = claimed.length === 1 ? (claimed[0].text ?? claimed[0].message)
+    : [`Orion | ${claimed.length} UPDATES THAT DID NOT GO OUT`, ...claimed.map((r) => `- ${r.missionId}: ${r.message}`)].join("\n");
+  const result = await deliver(transport, text, false, { urgentReminder: claimed.some((r) => r.urgentReminder) });
+  if (!result.delivered) return;
+  await writeState((fresh) => ({ ...fresh, notify: { ...fresh.notify,
+    retry: fresh.notify.retry.filter((x) => !claimed.some((r) => retryKey(r) === retryKey(x))),
+    sent: [...fresh.notify.sent, ...claimed.map((r) => ({ event: r.event, missionId: r.missionId, message: r.message, at, ...(result.via ? { via: result.via } : {}) }))].filter((e) => at - e.at < 24 * 3_600_000) } }));
 }
 
 /* ---------- suppression ---------- */
@@ -449,7 +450,8 @@ if (suppressed) {
 }
 
 const transport = await resolveTransport(flags);
-const result = await deliver(transport, text, dryRun, { forced });
+const urgentReminder = command === "blocked" && !!approvalId;
+const result = await deliver(transport, text, dryRun, { urgentReminder });
 
 await writeState((fresh) => ({
   ...fresh,
@@ -478,7 +480,7 @@ await writeState((fresh) => ({
           (e) => at - e.at < 24 * 3_600_000,
         ),
     retry: !dryRun && !result.delivered
-      ? [...fresh.notify.retry, { event: command, missionId, message, text, at, attempts: 0, nextAt: at, ...(forced ? { forced: true } : {}) }].slice(-20)
+      ? [...fresh.notify.retry, { event: command, missionId, message, text, at, attempts: 0, nextAt: at, ...(urgentReminder ? { urgentReminder: true } : {}) }].slice(-20)
       : fresh.notify.retry,
   },
 }));

@@ -80,7 +80,7 @@ test("H3: a forced --channel phone obeys quiet hours; a genuine urgent kind stil
 test("H3: notify's phone fallback for a quiet-hours-held message does not push at 3 AM (it is queued)", () => {
   const w = world();
   const disc = exe(w.home, "discord", "exit 1");
-  const r = spawnSync(process.execPath, [join(W, "scripts/orion-notify"), "blocked", "mission-x", "need a key", "--now", new Date(2026, 9, 16, 3, 9).toISOString()],
+  const r = spawnSync(process.execPath, [join(W, "scripts/orion-notify"), "blocked", "mission-x", "need a key", "--approval", "use staging key", "--now", new Date(2026, 9, 16, 3, 9).toISOString()],
     { encoding: "utf8", env: { ...w.env(3, 9), ORION_DISCORD_ALERT_BIN: disc, ORION_REACH_BIN: join(W, "scripts/orion-reach") } });
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.equal(w.outbox().length, 1, "blocked is forced, so it is delivered (phone) even at night: when unsure, deliver");
@@ -163,20 +163,19 @@ test("M4: a send never retries the backlog (one Discord call per send), and no n
   assert.match(forced.stdout + forced.stderr, /quiet hours|unknown|not flushing/i, "--force no longer bypasses quiet hours");
   assert.equal(n.state().notify.retry.length, 8);
 });
-test("M4: a flush retries at most 3 per run, persists each delivery, and never re-delivers", () => {
+test("M4/N: a flush retries at most 3 per run, as ONE merged message, persists, and never re-delivers", () => {
   const n = notifyWorld();
   for (let i = 0; i < 6; i++) n.run(["milestone", `mission-${i}`, `step ${i} finished`, "--now", `2026-10-16T14:${String(10 + i * 5).padStart(2, "0")}:00`]);
   writeFileSync(join(n.home, "reach-up"), "");
   n.run(["flush", "--now", "2026-10-16T15:00:00"], 8000);
-  assert.equal(n.calls().filter((c) => c.startsWith("reach")).length, 3, "capped per run");
+  assert.equal(n.calls().filter((c) => c.startsWith("reach")).length, 1, "three retries, one push");
   assert.equal(n.state().notify.retry.length, 3);
+  assert.equal(n.state().notify.sent.length, 3);
   n.run(["flush", "--now", "2026-10-16T15:01:00"], 8000);
   n.run(["flush", "--now", "2026-10-16T15:02:00"], 8000);
-  const counts = {};
-  for (const l of n.calls().filter((c) => c.startsWith("reach"))) { const k = /mission-\d/.exec(l)?.[0] ?? l; counts[k] = (counts[k] ?? 0) + 1; }
-  assert.equal(Object.keys(counts).length, 6, JSON.stringify(counts));
-  for (const v of Object.values(counts)) assert.equal(v, 1, JSON.stringify(counts));
+  assert.equal(n.calls().filter((c) => c.startsWith("reach")).length, 2, "the second flush sent the rest; the third had nothing");
   assert.equal(n.state().notify.retry.length, 0);
+  assert.equal(n.state().notify.sent.length, 6);
 });
 test("M4: a failing retry backs off instead of hammering, and a time-relative text expires in 20 minutes", () => {
   const n = notifyWorld();
@@ -211,7 +210,7 @@ test("M5: but if he missed the first class, the second class's ladder still fire
 });
 
 // ---- M6 -------------------------------------------------------------------------------------
-test("M6: a check-in he set fires once during a focus session; its escalation waits for the end", async () => {
+test("M6: a check-in he set fires during a focus session, at any level", async () => {
   const home = mkdtempSync(join(tmpdir(), "orion-m6-"));
   const sock = join(home, "s.sock"), reply = join(home, "reply.json"); writeFileSync(reply, JSON.stringify({ status: "running" }));
   const srv = spawn(process.execPath, [join(W, "tests/fixtures/fake-session-server.mjs"), sock], { env: { ...process.env, FAKE_SESSION_REPLY: reply } });
@@ -225,7 +224,7 @@ test("M6: a check-in he set fires once during a focus session; its escalation wa
       ORION_BRIDGE_BIN: join(W, "tests/fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"), ORION_SESSION_SOCKET: sock } }).stdout);
     assert.equal(tick().length, 1, "the first reminder he asked for goes through");
     const saved = JSON.parse(readFileSync(file, "utf8")); saved.checkins[0].loop.nextCheckAt = nowMin - 1; writeFileSync(file, JSON.stringify(saved));
-    assert.deepEqual(tick(), [], "its escalation is held while the session runs");
+    assert.equal(tick().length, 1, "and so does a later one: a check-in he set is never frozen for the session (re-review)");
   } finally { srv.kill(); }
 });
 
@@ -278,4 +277,29 @@ test("the real brief, end to end: with a readable calendar and weather it names 
   assert.match(text, /CS1800 Discrete Structures at 9/);
   assert.match(text, /12 degrees/);
   assert.doesNotMatch(text, /couldn't read|couldn't get the weather/);
+});
+
+// ---- re-review N1 / N2 -------------------------------------------------------------------------
+test("N1: still asleep (no WHOOP, no phone samples): the 10:45 class gets a ladder when the 9:00 one is unknown", () => {
+  const a = { id: "a", title: "CS1800 Discrete Structures — Lecture", kind: "class", start: m(9), end: m(10, 30), fixed: true, source: "calendar" };
+  const b = { id: "b", title: "CS2100 Program Design — Lecture", kind: "class", start: m(10, 45), end: m(12), fixed: true, source: "calendar" };
+  const travel = [{ title: "commute to class", start: m(8, 15), end: m(9) }];
+  const run = (signals) => { let sent = {}; const said = [];
+    for (let t = m(8); t <= m(11, 30); t += 5) for (const o of decide({ bed: "23:45", wake: "07:45", day: [a, b], travel, sent, idleSeconds: 9999, signals, minute: t })) { said.push(o.key); sent = { ...sent, [o.key]: true }; }
+    return said; };
+  assert.ok(run({ wokeAt: null, phone: [] }).some((k) => k.endsWith(`-${m(10, 45)}`)), "unknown never suppresses");
+  assert.ok(!run({ wokeAt: m(7, 30), phone: [] }).some((k) => /^(leave-late|wake)-/.test(k) && k.endsWith(`-${m(10, 45)}`)), "awake since 7:30 (positive evidence): on campus, no 'Up now'");
+});
+
+test("N2: a standing heads-up (blocked --urgent, no approval) is held, not pushed, when Discord is down at 7 AM; a real approval request goes", () => {
+  const n = notifyWorld(); writeFileSync(join(n.home, "reach-up"), "");
+  const reach = join(n.home, "reach2"); writeFileSync(reach, `#!/bin/sh\necho "$@" >> ${join(n.home, "reach-args.log")}\n`); chmodSync(reach, 0o755);
+  const env = { ...process.env, PATH: process.env.PATH, HOME: n.home, ORION_DISCORD_ALERT_BIN: join(n.home, "discord"), ORION_REACH_BIN: reach, ORION_SESSION_SOCKET: join(n.home, "no.sock") };
+  const go = (args) => spawnSync(process.execPath, [join(W, "scripts/orion-notify"), ...args, "--now", "2026-10-16T07:00:00"], { encoding: "utf8", env });
+  go(["blocked", "standing-check", "Heads up 9:00 AM - CS1800. Starts in 2h.", "--urgent"]);
+  go(["blocked", "mission-x", "need the key", "--approval", "use staging key"]);
+  const args = readFileSync(join(n.home, "reach-args.log"), "utf8").trim().split(/\n(?=Orion \|)/);
+  assert.equal(args.length, 2);
+  assert.doesNotMatch(args[0], /--urgent/);
+  assert.match(args[1], /--urgent-kind reminder/);
 });

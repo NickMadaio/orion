@@ -44,8 +44,11 @@ export function classLadder(ctx, say) {
     const toStart = cls.start - ctx.minute;
     if (moved) continue;
     // Review M5: already on campus (inside the previous class, or just out of it and not known to have missed it): no "Up now".
+    // Re-review N1: "on campus" needs POSITIVE evidence about the earlier class: attended, or he woke before it began. Unknown
+    // (asleep: no WHOOP, no phone samples) must never suppress, or the second class gets nothing.
     const onCampus = realClasses.some((o) => o !== cls && o.start < cls.start && o.start <= ctx.minute && ctx.minute < o.end + 45
-      && classAttendance(o, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] }) !== "missed");
+      && (classAttendance(o, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] }) === "attended"
+        || (signals.wokeAt != null && signals.wokeAt < o.start)));
     if (onCampus) continue;
     if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${cls.start}`, `You should be out the door now - ${name} is at ${hm(cls.start)}. Go, and I'll sort the rest.`, "reminder", { urgent: true, urgentKind: "class", claim: `class-${cls.start}`, level: 2 });
     if (toLeave < -10 && toStart >= -10) {

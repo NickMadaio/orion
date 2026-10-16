@@ -26,7 +26,6 @@ import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { inClass, realClasses } from "./lib/life/class-reminders.mjs";
 import { classify } from "./lib/life/live-day.mjs";
 import { isClassAttendanceCheckin } from "./lib/life/checkin-class.mjs";
-import { activeSession } from "./lib/reach/focus-hold.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
 const evaluating = evalMode();
@@ -152,9 +151,7 @@ switch (command) {
   }
   case "tick": {
     if (evaluating) { console.log(args.includes("--json") ? "[]" : "No live notifications during evaluation."); break; }
-    // A focus session is running (2026-10-16 audit, review M6): a check-in HE set still gets its first reminder through (it froze
-    // for the whole session before); the escalation (level 1 and up: firmer, firmer) waits for the end, and nothing advances meanwhile.
-    const inSession = activeSession(process.env) !== null;
+    // A focus session is running (2026-10-16 audit; review M6 and re-review): a check-in HE set is never frozen for it, at any level.
     const alerts = [];
     let duringClass = false, classes = [];
     try { const blocks = toBlocks(await calendarEvents(), localDate(new Date())); classes = realClasses(blocks); duringClass = inClass(blocks, new Date().getHours()*60+new Date().getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
@@ -168,7 +165,6 @@ switch (command) {
         c.loop = step(c.loop, {type: "cancelled"}, now); continue;
       }
       if (duringClass) continue;
-      if (inSession && c.loop.level >= 1) continue;
       const before = c.loop;
       const after = step(before, { type: "tick" }, now);
       if (after === before) {

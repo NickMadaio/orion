@@ -114,6 +114,51 @@ final class SpeedAudit20261016Tests: XCTestCase {
         XCTAssertTrue(out.hasPrefix("[ORION scheduling preferences"))
     }
 
+    private let wrapperFixture = """
+    # Scheduling
+
+    ## Priority scale
+
+    - **high**: sleep, the gym. Protected.
+    - **low**: breaks, optional items. Move first.
+    His own words override the defaults; save them with `orion-life rank <thing> low`.
+
+    ## Protected time
+
+    - Naps are at least 75 minutes.
+
+    ## The class wrapper
+
+    Travel is 45 minutes before the FIRST class. Nothing (a nap) goes into travel time.
+    The planner enforces them from life-config (`commuteMinutes`). Trust the tools.
+    """
+
+    func testSentenceLevelSkipKeepsTheRestOfAParagraphMentioningLifeConfig() {
+        let digest = SchedulingMemory.localDigest(wrapperFixture, limit: SchedulingMemory.localDigestLimit)
+        XCTAssertTrue(digest.contains("Nothing (a nap) goes into travel time"), digest)
+        XCTAssertTrue(digest.contains("FIRST class"), digest)
+        XCTAssertTrue(digest.contains("Trust the tools"), digest)
+        XCTAssertFalse(digest.contains("life-config"), digest)
+    }
+
+    func testBulletFollowedDirectlyByProseKeepsTheBulletAndDropsTheProse() {
+        let digest = SchedulingMemory.localDigest(wrapperFixture, limit: SchedulingMemory.localDigestLimit)
+        XCTAssertTrue(digest.contains("**low**: breaks, optional items. Move first."), digest)
+        XCTAssertFalse(digest.contains("His own words"), digest)
+        XCTAssertFalse(digest.contains("orion-life"), digest)
+    }
+
+    func testEmptyRequiredSectionFailsOpenToTheFullFile() {
+        let local = LocalRoutingMode(mode: "on", scheduleToCloud: false)
+        // The class wrapper holds only a tool sentence, so it digests to nothing.
+        let emptied = "## Priority scale\n\n- **high**: sleep.\n\n## Protected time\n\n- Naps are at least 75 minutes.\n\n"
+            + "## The class wrapper\n\nSee `orion-reschedule day` and life-config.\n"
+        XCTAssertEqual(SchedulingMemory.localDigest(emptied, limit: SchedulingMemory.localDigestLimit), "")
+        let out = SchedulingMemory.context(for: schedulingText, localRouting: local, rules: { emptied })
+        XCTAssertTrue(out.contains("orion-reschedule day"), "an empty section must send the whole file")
+        XCTAssertTrue(out.hasPrefix("[ORION scheduling preferences"))
+    }
+
     func testResidentContextIsExactPerModel() {
         XCTAssertEqual(LocalModel.profile(for: "qwen3.5:9b").numCtx, 32768)
         XCTAssertEqual(LocalModel.profile(for: "qwen3.5:4b-q4_K_M").numCtx, 16384)

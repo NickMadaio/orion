@@ -24,7 +24,15 @@ const CRISIS = new RegExp([
   // 2026-10-16 (re-review): the first narrowing missed "live like this anymore", "be here, i'm done", "wake up ever again".
   // Now: any of anymore / at all / ever again / like this (in any order) counts with anything after; otherwise an optional
   // tomorrow/today/tonight must end the clause (comma, full stop or end of message). Loose on purpose: a miss costs more.
-  String.raw`\b(don['’]?t|do not) want to be alive\b|\b(don['’]?t|do not) want to (live|wake up|be here)(?:(?:\s+(?:any ?more|at all|ever again|like this))+\b|(?:\s+(?:tomorrow|today|tonight))?(?=\s*(?:[,.;!?]|$)))`,
+  String.raw`\b(don['’]?t|do not) (?:want to|wanna) be alive\b|\b(don['’]?t|do not) (?:want to|wanna) (live|exist|wake up|be here)(?:(?:\s+(?:any ?more|at all|ever again|like this))+\b|(?:\s+(?:tomorrow|today|tonight))?(?=\s*(?:[,.;!?]|$)))`,
+  // 2026-10-16 round 6: common phrasings that were never covered. Idioms stay clear where a lookahead can tell:
+  // "end it at 5" / "ending it with a bang" / "disappear into my bed for a nap" are not crises. Where it cannot
+  // (e.g. "i want to disappear for a while" without an article), it matches: a false alarm is cheaper than a miss.
+  String.raw`\bwish (?:i|he|she) (?:was|were) (?:dead|never born)\b|\bwish i (?:wasn['’]?t|weren['’]?t) (?:alive|born)\b`,
+  String.raw`\bnever (?:to )?wake up\b|\b(?:no ?one|nobody) (?:would|will|['’]?d) (?:even )?miss me\b`,
+  String.raw`\b(?:thinking (?:about|of)|going to|gonna|want to|wanna|planning to) end(?:ing)? it\b(?!\s+(?:at|with|on|by|before|after|for|tomorrow|today|tonight))`,
+  String.raw`\b(?:want|wanna) (?:it all|everything|all of it|this all) (?:to end|to be over|over)\b`,
+  String.raw`\b(?:want to|wanna) (?:disappear|vanish)\b(?!\s+(?:into|under|behind|for (?:a|an|the|some|my)\b))`,
   String.raw`\bwhat['’]?s the point( of (anything|living|it all|life|trying))?\s*[.?!]*$`,
   // "hopeless" counts only about himself or his life — not "this code is hopeless" or "hopeless at cooking".
   // 2026-10-16: "i'm a hopeless romantic" is an idiom, so an article before "hopeless" no longer counts.

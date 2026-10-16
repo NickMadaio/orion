@@ -2,14 +2,15 @@
 /*
  orion-proactive — ORION speaking first, with context (2026-10-07).
 
-   orion-proactive tick [--dry-run]    run by the ORION app every ~5 minutes
-   orion-proactive status              what it has said today
+   orion-proactive tick [--dry-run] [--reason tick|phase|place]   every ~5 minutes, or right after a phase / place event
+   orion-proactive status                                         what it has said today
+   orion-proactive ask-outcome <askId> nothing|declined|logged|answered|saved    close a curiosity ask
 
- Gathers where Nick is (orion-presence), his focus session, today's day, his
- sleep plan and focus time, decides what is worth saying (lib/reach/proactive.mjs:
- no bedtime nagging during a session or while he's out; a session's end says
- how it went and what's next), and sends it through orion-reach (phone when
- he's away, the Mac when he's here). Each message at most once a day.
+ Reads awareness.json (where Nick is, his session, the calendar, sleep), then runs the plan-vs-reality loop
+ (lib/curiosity/loop.mjs): leaving late, a planned block not started, off plan away from home, and blanks nobody knows
+ about. Plus the bedtime and session-end lines (lib/reach/proactive.mjs). Everything goes through orion-reach, which
+ decides the channel and gates it (focus, sleep, class). Each message at most once a day by its key; a mismatch keeps
+ its own follow-up schedule (the check-in loop), only blank asks back off.
 */
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,7 +20,14 @@ import { decide } from "./lib/reach/proactive.mjs";
 import { announced, markAnnounced } from "./lib/reach/announce.mjs";
 import { readHeld, releaseHeldAlerts } from "./lib/reach/held.mjs";
 import { deliveryOutcome } from "./lib/reach/delivery.mjs";
+import { readAwareness, refreshIfOld } from "./lib/awareness/state.mjs";
 import { presence } from "./lib/reach/presence.mjs";
+import { calendarFacet } from "./lib/awareness/facets.mjs";
+import { planVsReality } from "./lib/curiosity/loop.mjs";
+import { fillBlankAsk } from "./lib/curiosity/decide.mjs";
+import { readLedger, writeLedger, recordAsk, closeAsk, markAnswered } from "./lib/curiosity/ledger.mjs";
+import { blanks } from "./lib/life/day-review.mjs";
+import { randomUUID } from "node:crypto";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { focusToday, formatFocusToday } from "./lib/focus/day-total.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
@@ -32,7 +40,10 @@ import { waitsFor } from "./lib/life/task-spread.mjs";
 const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const STATE = join(DIR, "proactive-sent.json");
 const here = import.meta.dirname;
-const [command] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const argv = process.argv.slice(2);
+const reasonAt = argv.indexOf("--reason");
+const reason = reasonAt >= 0 ? argv[reasonAt + 1] : "tick";
+const [command, ...positional] = argv.filter((a, i) => !a.startsWith("--") && !(i > 0 && argv[i - 1] === "--reason"));
 const dry = process.argv.includes("--dry-run");
 const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();   // test seam
 // A night belongs to the evening it started: until 6 AM it is still "yesterday".
@@ -48,14 +59,40 @@ if (command === "status") {
   console.log(Object.keys(sent).length ? `Said today: ${Object.keys(sent).join(", ")}` : "Nothing said today.");
   process.exit(0);
 }
-if (command !== "tick") { console.error("usage: orion-proactive tick [--dry-run] | status"); process.exit(2); }
+if (command === "ask-outcome") {
+  try { writeLedger(DIR, closeAsk(readLedger(DIR), positional[0], positional[1], now.toISOString())); console.log(`Closed ${positional[0]}: ${positional[1]}.`); process.exit(0); }
+  catch (e) { console.error(String(e.message ?? e)); process.exit(2); }
+}
+if (command !== "tick") { console.error("usage: orion-proactive tick [--dry-run] [--reason tick|phase|place] | status | ask-outcome <askId> <outcome>"); process.exit(2); }
+if (!["tick", "phase", "place"].includes(reason)) { console.error("--reason must be tick, phase or place"); process.exit(2); }
 if (sandbox()) process.exit(0);
 
 const run = (script, args) => { try { return execFileSync(process.execPath, [join(here, script), ...args], { encoding: "utf8", timeout: 15000 }); } catch { return ""; } };
 const minute = now.getHours() * 60 + now.getMinutes();
-const p = await presence(now, { dir: DIR, facts: process.env.ORION_REACH_FACTS ? JSON.parse(process.env.ORION_REACH_FACTS) : null });
-let session = null;
-try { session = JSON.parse(run("orion-session", ["status", "--json"])); } catch {}
+// (ORION_REACH_FACTS is the tests' fixed-Mac-facts seam: awareness refresh would read the real Mac, so it is skipped)
+if (!dry && !process.env.ORION_REACH_FACTS) refreshIfOld({ dir: DIR, now });
+let aw = readAwareness({ dir: DIR, now });
+// A facet awareness cannot vouch for (no writer yet, or too old) falls back to what this script read before: the session
+// socket and his sleep window. Unknown stays unknown otherwise; these are only the old sources of the same facts.
+if (aw.session?.state === "unknown") {
+  try {
+    const s = JSON.parse(run("orion-session", ["status", "--json"]));
+    const state = { running: s.phase === "rest" ? "rest" : "focus", paused: "paused", "waiting-for-return": "waiting" }[s.status] ?? "none";
+    aw = { ...aw, session: { ...aw.session, state, sessionId: s.sessionId ?? null, task: s.task ?? null, at: now.toISOString() } };
+  } catch {}
+}
+if (aw.sleep?.state === "unknown") {
+  try {
+    const q = await presence(now, { dir: DIR, facts: process.env.ORION_REACH_FACTS ? JSON.parse(process.env.ORION_REACH_FACTS) : null });
+    aw = { ...aw, sleep: { ...aw.sleep, state: q.quiet ? "asleep" : q.lateAwake ? "late-awake" : "awake", inWindow: q.inWindow, at: now.toISOString() } };
+  } catch {}
+}
+const atHome = aw.derived?.atHome ?? null;
+const p = { out: atHome === false, where: aw.location?.state ?? "unknown", idleSeconds: aw.mac?.idleSeconds ?? 1e9 };   // unknown Mac input is "not clearly at the Mac"
+// The legacy session shape the lines below read, from the awareness facet (unknown counts as no session).
+const sessionState = aw.session?.state ?? "unknown";
+let session = ["focus", "rest"].includes(sessionState) ? { status: "running", phase: sessionState, sessionId: aw.session.sessionId }
+  : sessionState === "paused" ? { status: "paused", sessionId: aw.session.sessionId } : null;
 const history = (() => { const f = join(DIR, "focus-history.jsonl"); return existsSync(f) ? readFileSync(f, "utf8").trim().split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : []; })();
 const last = history.at(-1);
 if ((!session || !["running", "paused"].includes(session.status)) && last?.endedAt && now - Date.parse(last.endedAt) < 15 * 60000) {
@@ -65,8 +102,8 @@ if ((!session || !["running", "paused"].includes(session.status)) && last?.ended
 }
 let sleep = {};
 try { sleep = JSON.parse(run("orion-now", ["--json"])).sleep ?? {}; } catch {}
-let day = [];
-try { day = await liveDay(localDate(now)); } catch {}
+let day = [], dayOk = false;
+try { day = await liveDay(localDate(now)); dayOk = true; } catch {}
 const total = focusToday(history, { dayKey: localDate(now) });
 const config = loadConfig();
 const travel = (() => { try { return commuteWalls(day, config); } catch { return []; } })();
@@ -90,8 +127,48 @@ const tomorrowIsToday = minute < 360;
 let tomorrowDay = null;   // null = could not read: say nothing about tomorrow rather than something wrong
 try { tomorrowDay = tomorrowIsToday ? day : await liveDay(tomorrow); } catch {}
 
-const messages = decide({ minute, day, tomorrowDay: tomorrowDay ?? [], tomorrowIsToday, signals, session, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
-  bed: sleep.bedtime, wake: sleep.wake, focusToday: total.focusSeconds >= 60 ? formatFocusToday(total).replace(/^Focused today: /, "").replace(/ \(latest.*$/, "") : null, sent });
+const lastReachId = (key) => { try { return readFileSync(join(DIR, "outreach.jsonl"), "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }).filter((r) => r.why === `curiosity: ${key}`).at(-1)?.id ?? null; } catch { return null; } };
+// The calendar this script just read vouches for itself when awareness has none (or an old one).
+if (dayOk && aw.calendar?.state !== "ok") aw = { ...aw, calendar: calendarFacet(day, travel, now) };
+const bedMin = (() => { const [h, m] = String(sleep.bedtime ?? "23:45").split(":").map(Number); return h * 60 + m; })();
+const checkinFile = process.env.ORION_CHECKIN_FILE || join(DIR, "checkins.json");
+const checkins = readJson(checkinFile)?.checkins ?? [];
+// Inbound turns (any reply, Mac or phone) are how an ignored blank ask is told from an answered one.
+const turns = (() => { const f = join(DIR, "inbound-turns.jsonl"); return existsSync(f) ? readFileSync(f, "utf8").split("\n").flatMap((l) => { try { const t = Date.parse(JSON.parse(l).at); return Number.isNaN(t) ? [] : [t]; } catch { return []; } }) : []; })();
+let ledger = markAnswered(readLedger(DIR), { logged: day.filter((b) => b.logged), date: localDate(now), now: now.getTime() });
+const ctxBase = { minute, day, tomorrowDay: tomorrowDay ?? [], tomorrowIsToday, signals, session, sessionState, atHome, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
+  bed: sleep.bedtime, wake: sleep.wake, focusToday: total.focusSeconds >= 60 ? formatFocusToday(total).replace(/^Focused today: /, "").replace(/ \(latest.*$/, "") : null, sent };
+
+// The loop first (a ladder rung always wins), then the lines that are not about the plan (session end, due tomorrow, bedtime).
+const actions = dayOk ? planVsReality(aw, { day, checkins, ledger, sent, todos, travel, signals, out: p.out, turns, now }) : [];
+const evening = dayOk && !actions.some((a) => a.action === "ask") ? fillBlankAsk(aw, { minute, date: localDate(now), bed: bedMin, ledger, turns, now: now.getTime(),
+  blanks: blanks({ blocks: day, sessions: [], answered: ledger.asks.filter((a) => a.window?.date === localDate(now) && a.outcome === "nothing").map((a) => ({ start: a.window.start, end: a.window.end ?? minute })) }, { now: minute, minMinutes: 45 }) }) : null;
+if (evening && !sent[evening.key]) actions.push({ ...evening, action: "ask", kind: "question" });
+const said = actions.filter((a) => a.action === "say");
+const messages = [...said, ...decide({ ...ctxBase, skipLadder: true })];
+
+// Close plan loops that now have evidence; start a loop for a block not started; send the asks.
+const closed = [];
+if (!dry) for (const a of actions.filter((x) => x.action === "close")) run("orion-checkin", ["started", a.checkinId]);
+for (const a of actions.filter((x) => x.action === "checkin")) {
+  if (dry) { console.log(`DRY RUN would start a plan check-in (${a.key}): ${a.text}`); continue; }
+  const r = spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "0", a.title, "--by", "orion", "--block", a.blockId], { encoding: "utf8", timeout: 15000, env: process.env });
+  if (r.status === 0) { sent[a.key] = true; closed.push(a.key); process.stdout.write(r.stdout ?? ""); }
+}
+for (const a of actions.filter((x) => x.action === "ask")) {
+  if (dry) { console.log(`DRY RUN would ask (${a.key}): ${a.text}`); continue; }
+  const askId = `ask-${randomUUID().slice(0, 8)}`;
+  const r = spawnSync(process.execPath, [join(here, "orion-reach"), a.text, "--kind", "question", "--why", `curiosity: ${a.key}`, "--ask", JSON.stringify({ ...a.ask, askId })], { encoding: "utf8", timeout: 30000 });
+  const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
+  process.stdout.write(r.stdout ?? "");
+  if (!outcome.said) continue;
+  sent[a.key] = true; closed.push(a.key);
+  const reachId = lastReachId(a.key);
+  ledger = recordAsk(ledger, { askId, reachId, type: a.blankType ?? a.type, key: a.key, window: a.ask?.window ?? null, cell: a.ask?.cell ?? null, at: now.toISOString() });
+  // an off-plan ask is followed up through the same check-in loop as a block not started
+  if (a.type === "off-plan") spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "10", day.find((b) => b.id === a.blockId)?.title ?? "the plan", "--by", "orion", "--block", a.blockId], { encoding: "utf8", timeout: 15000, env: process.env });
+}
+if (!dry) { try { writeLedger(DIR, ledger); } catch {} }
 
 for (const m of messages) {
   // One key per class across orion-proactive, orion-watch and orion-standing (2026-10-16, finding 11).
@@ -108,21 +185,43 @@ for (const m of messages) {
   process.stdout.write(r.stdout ?? "");
 }
 if (!dry && Object.keys(failures).length) { try { writeFileSync(`${FAILED}.tmp`, JSON.stringify({ [dayKey]: failures }, null, 2)); renameSync(`${FAILED}.tmp`, FAILED); } catch {} }
-if (!dry && messages.length) {
+if (!dry && (messages.length || closed.length)) {
   mkdirSync(DIR, { recursive: true });
   const keep = Object.fromEntries(Object.entries({ ...state, [dayKey]: sent }).sort().slice(-7));
   writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2)); renameSync(`${STATE}.tmp`, STATE);
 }
-// Release what was held back (quiet hours, a focus session) once neither applies: one merged message, alerts moved to
-// the phone's outbox, Discord updates flushed. orion-reach and orion-notify each re-check quiet hours and focus time.
-// Nothing is released inside his sleep window unless he is at the Mac (review M3, LOW).
-const asleepWindow = p.inWindow && !p.lateAwake;
-if (!dry && !["running", "paused"].includes(session?.status) && !asleepWindow) {
+// Release what was held back (quiet hours, a focus session) once neither applies: the app's phase hook does it the moment
+// a break starts; this is the backstop for a missed hook. orion-reach decides through its gate whether anything goes
+// out (a break, the end, a pause over 3 min); orion-notify flushes Discord updates the same way.
+const sleeping = aw.sleep?.state === "asleep";
+const pausedLong = sessionState === "paused" && Date.parse(aw.session?.since) && now - Date.parse(aw.session.since) >= 3 * 60000;
+const heldBack = sessionState === "focus" || (sessionState === "paused" && !pausedLong);
+if (!dry && !heldBack && !sleeping) {
   try { releaseHeldAlerts(DIR); } catch {}
-  if (readHeld(DIR).length) spawnSync(process.execPath, [join(here, "orion-reach"), "--drain-held"], { encoding: "utf8", timeout: 30000 });
+  if (readHeld(DIR).length) spawnSync(process.execPath, [join(here, "orion-reach"), "--drain-held", "--reason", "end"], { encoding: "utf8", timeout: 30000 });
   spawnSync(process.execPath, [join(here, "orion-notify"), "flush"], { encoding: "utf8", timeout: 60000 });
+}
+// Once a day, as soon as he is awake: plan the daily anchors (the gym), through orion-reschedule (C11).
+// (only once orion-reschedule knows --anchors: before that, `fill` would plan the whole day, which nobody asked for)
+const resched = join(here, "orion-reschedule");
+const knowsAnchors = (() => { try { return readFileSync(resched, "utf8").includes("--anchors"); } catch { return false; } })();
+if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && !sent[`anchors-${dayKey}`]) {
+  const r = spawnSync(process.execPath, [resched, "fill", "--anchors", "--date", localDate(now)], { encoding: "utf8", timeout: 60000 });
+  if (r.status === 0) { sent[`anchors-${dayKey}`] = true; closed.push("anchors"); }
+}
+// Bedtime minus 30: the nightly review of what actually happened, spoken if he is home, a text otherwise (once a night).
+const toBedMin = ((bedMin - minute) % 1440 + 1440) % 1440, sinceBed = ((minute - bedMin) % 1440 + 1440) % 1440;
+if (!dry && reason === "tick" && dayOk && (toBedMin <= 30 || sinceBed <= 120) && !heldBack && !sleeping && !sent[`review-${dayKey}`]) {
+  const r = spawnSync(process.execPath, [join(here, "orion-day-review"), "--send", "--date", dayKey], { encoding: "utf8", timeout: 60000 });
+  if (r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout).trimStart())) { sent[`review-${dayKey}`] = true; closed.push("review"); }
+  process.stdout.write(r.stdout ?? "");
+}
+if (!dry && closed.length) {
+  mkdirSync(DIR, { recursive: true });
+  const keep = Object.fromEntries(Object.entries({ ...state, [dayKey]: sent }).sort().slice(-7));
+  writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2)); renameSync(`${STATE}.tmp`, STATE);
 }
 // A missed morning catches up once (2026-10-13: no brief all day): if he is demonstrably up (WHOOP or the phone) and no
 // brief went out yet, orion-morning says it now. It claims the day first, so this can never double a brief.
-if (!dry) { try { spawnSync(process.execPath, [join(here, "orion-morning"), "catchup"], { encoding: "utf8", timeout: 120000 }); } catch {} }
-if (!messages.length) console.log(`Nothing to say (${p.where}${session?.status === "running" ? ", in a focus session" : ""}).`);
+if (!dry && reason === "tick") { try { spawnSync(process.execPath, [join(here, "orion-morning"), "catchup"], { encoding: "utf8", timeout: 120000 }); } catch {} }
+if (!messages.length && !actions.length) console.log(`Nothing to say (${p.where}${session?.status === "running" ? ", in a focus session" : ""}).`);

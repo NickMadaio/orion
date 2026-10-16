@@ -1,0 +1,55 @@
+#!/usr/bin/env node
+/*
+ orion-day-review — the nightly review of what actually happened (spec 3.6).
+
+   orion-day-review [--json] [--send] [--date YYYY-MM-DD]
+
+ Reads logged blocks, focus served, classes attended, slips.jsonl and the blanks he answered, and says it in one
+ message: "Today: CS1800, gym 2-4 (instead of finish resume), 1h40 focus. Slipped: ... 5-6 unknown."
+ A stretch nobody knows about is "unknown", never "nothing". --send: spoken (mac, loud) if he is home, else a text
+ (phone, his own). Quiet hours and focus still gate it in orion-reach; if gated, the next eligible tick tries again.
+*/
+import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { actualDay, actualText } from "./lib/life/day-review.mjs";
+import { liveDay, localDate } from "./lib/life/live-day.mjs";
+import { readLedger } from "./lib/curiosity/ledger.mjs";
+import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
+import { actualWake } from "./lib/life/night.mjs";
+import { readAwareness } from "./lib/awareness/state.mjs";
+
+const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const here = import.meta.dirname;
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
+const date = flag("--date") ?? localDate(now);
+const minute = date === localDate(now) ? now.getHours() * 60 + now.getMinutes() : 24 * 60;
+const jsonl = (f) => (existsSync(join(DIR, f)) ? readFileSync(join(DIR, f), "utf8").split("\n").flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } }) : []);
+const readJson = (f) => { try { return JSON.parse(readFileSync(join(DIR, f), "utf8")); } catch { return null; } };
+
+let blocks = [];
+try { blocks = await liveDay(date); } catch { /* an unreadable calendar: the review then says what it can */ }
+const health = readJson("health-log.json") ?? {};
+const phone = phoneMinutes(health.phoneSignals, date);
+const evidence = { nights: readJson("sleep-actual.json")?.nights ?? [], sleepLog: health.sleepLog ?? [], phoneSignals: health.phoneSignals ?? [], now };
+const wokeAt = actualWake(date, evidence)?.minute ?? null;
+const attendance = Object.fromEntries(blocks.filter((b) => b.kind === "class" && b.fixed && b.source !== "orion").map((b) => [b.id, classAttendance(b, { wokeAt, phone })]));
+const actual = actualDay({ blocks, focusHistory: jsonl("focus-history.jsonl"), attendance, slips: jsonl("slips.jsonl"),
+  asks: readLedger(DIR).asks, now: { date, minute } });
+const text = actualText(actual);
+
+if (args.includes("--json")) console.log(JSON.stringify({ date, ...actual, text }, null, 2));
+else if (!args.includes("--send")) console.log(text);   // with --send, stdout is orion-reach's own line (orion-proactive reads it)
+
+if (args.includes("--send")) {
+  const aw = readAwareness({ dir: DIR, now });
+  const home = aw.derived?.atHome === true;
+  const bin = process.env.ORION_REACH_BIN || join(here, "orion-reach");
+  const channel = home ? ["--channel", "mac", "--loud", "--listen"] : ["--channel", "phone"];
+  const r = spawnSync(process.execPath, [bin, text, "--kind", "update", "--why", `curiosity: review-${date}`, "--no-queue", ...channel], { encoding: "utf8", timeout: 30000 });
+  process.stdout.write(r.stdout ?? "");
+  process.exit(r.status === 0 ? 0 : r.status ?? 4);
+}

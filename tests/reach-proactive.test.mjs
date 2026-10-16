@@ -45,13 +45,16 @@ test("leave soon names where and when", () => {
   assert.equal(out[0].text, "Leave in 10 min for CS2100 Program Design at 11:00 AM.");
 });
 
-test("free time with an open to-do becomes a question, once per stretch", () => {
+test("free time is no longer a to-do offer: decide() leaves gaps to the curiosity loop (lib/curiosity)", () => {
   const day = [{ title: "Gym", start: m(16), end: m(17) }];
-  const todos = [{ title: "do cert courses", dueDate: "2026-10-21" }, { title: "finish resume", waiting: true }];
-  const out = decide({ ...base, minute: m(14), day, todos });
-  assert.equal(out[0].text, "You're free until 4:00 PM. Want me to put do cert courses there?");
-  assert.deepEqual(decide({ ...base, minute: m(14), day, todos, session: { status: "running" } }), []);
-  assert.deepEqual(decide({ ...base, minute: m(14), day: [{ title: "Gym", start: m(14, 30), end: m(15) }], todos }), [], "under an hour free");
+  const todos = [{ title: "do cert courses", dueDate: "2026-10-21" }];
+  assert.deepEqual(decide({ ...base, minute: m(14), day, todos }), []);
+});
+
+test("awareness drives busy and away: a break is busy, unknown is not away, a known away is", () => {
+  assert.deepEqual(decide({ ...base, minute: m(23, 50), sessionState: "rest" }), []);
+  assert.equal(decide({ ...base, minute: m(23, 50), sessionState: "none", atHome: null })[0].key, "bed-now");
+  assert.deepEqual(decide({ ...base, minute: m(23, 50), sessionState: "none", atHome: false }), []);
 });
 
 test("due tomorrow with nothing booked is asked about in the evening", () => {

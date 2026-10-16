@@ -1,6 +1,9 @@
 import { type Decision } from "./front-desk.js";
 import { type SessionHint } from "./session-flow.js";
+import { type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { type StoredReminder } from "./reminder-flow.js";
+import { type DeadlineRead } from "./deadline-read.js";
+import { type FocusRow } from "./focus-status.js";
 import { type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -30,10 +33,20 @@ export type LocalRoutingOptions = {
     scheduleFlow?: (message: string, clock: string, opts?: {
         undo?: string[];
     }) => Promise<FlowResult>;
+    /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
+    lateFlow?: (minutes: number) => Promise<FlowResult>;
+    /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
+    messagesRead?: (req: MessagesRead) => Promise<ReadOutcome>;
     /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
     sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
+    /** Moves his phone's wake alarm (scripts/orion-wake) for "push my alarm to 12" (tests pass a stub; wired from index.ts). */
+    wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
+    /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
+    todoDoneFlow?: (message: string) => Promise<FlowResult>;
     /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
     sessionStatus?: () => Promise<FlowResult>;
+    /** The focus history rows, for "how long have i been focusing today" (tests pass a stub; default reads the real file, read-only). */
+    focusHistory?: () => FocusRow[];
     /** Pulls {time "HH:MM" or null, label} out of a reminder request (tests pass a stub; wired from index.ts). */
     extractReminder?: (message: string, clock?: string) => Promise<{
         time: string | null;
@@ -45,8 +58,12 @@ export type LocalRoutingOptions = {
     now?: () => Date;
     /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
     readDay?: (tomorrow: boolean) => Promise<string>;
+    /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
+    readDeadlines?: () => Promise<DeadlineRead | null>;
     /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
     brainSearch?: (query: string) => Promise<string>;
+    /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
+    nickNote?: () => string;
     /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
     acceptancePath?: string;
     /** Load the front desk at registration (off in tests). */
@@ -55,6 +72,9 @@ export type LocalRoutingOptions = {
     trace?: boolean;
 };
 export declare const GO_ON = "Go on.";
+export declare const UNDO_NOTHING_TO_UNDO = "I haven't changed your calendar in this chat. What should I cancel?";
+/** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
+export declare const isBareUndo: (message: string) => boolean;
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
 export declare function isCalendarTurn(message: string, settled: Decision): boolean;
 /** The front desk's session start, task and length (sweep 2026-10-15, q051: it read "focus mode on for an
@@ -98,6 +118,7 @@ export declare const PRODUCTION_NOTES: string;
  *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
  *  "I've started the focus session" verbatim (2026-10-15). */
 export declare const honestLine: (calendar: boolean) => string;
+export declare const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
 export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —

@@ -36,7 +36,7 @@ function setup(decision, extra = {}) {
     return { f, ctx, build, counts: () => ({ sessionStarts, calendarRuns }) };
 }
 const callIn = (built) => {
-    const m = /exactly these arguments:\n(\{.*\})/.exec(built?.systemPrompt ?? "");
+    const m = /exactly these arguments[^\n]*:\n(\{.*\})/.exec(built?.systemPrompt ?? "");
     return m ? JSON.parse(m[1]).steps : null;
 };
 describe("front-desk tool moves are carried out, not left as hints (sweep 2026-10-15)", () => {
@@ -50,7 +50,7 @@ describe("front-desk tool moves are carried out, not left as hints (sweep 2026-1
             const { build } = setup({ move: "tool", tool: "weather", args });
             const built = await build(said);
             expect(callIn(built)).toEqual([step]);
-            expect(built?.appendContext).toMatch(/call orion_task_run now/);
+            expect(built?.appendContext).toMatch(/call tool_call now with .*openclaw:orion-control:orion_task_run/);
         }
     });
     it("a tool move that ends with no tool call is sent back, then answered honestly (q007 'I checked the weather')", async () => {

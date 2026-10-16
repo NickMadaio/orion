@@ -166,21 +166,23 @@ export async function runSessionFlow({ message, hint, exec, resolveApp }) {
  *  and said "still active with 15 minutes remaining"). A read only: nothing is started or changed. */
 export async function runSessionStatus({ exec }) {
     const result = await exec(["status", "--json"]);
+    // q053 (2026-10-16 r8): the read is recorded (calls/outputs) so the turn shows a tool ran, not an unread claim.
+    const say = (text) => ({ outcome: "say", kind: "plain", text, calls: ["exec orion-session status --json"], outputs: [result.stdout] });
     const state = parse(result.stdout);
     if (result.code !== 0 || !state || state.ok === false) {
-        return { outcome: "say", kind: "plain", text: `I couldn't check your focus session: ${reason(result.stdout)}.` };
+        return say(`I couldn't check your focus session: ${reason(result.stdout)}.`);
     }
     const status = String(state.status ?? "");
     const on = typeof state.task === "string" && state.task && state.task !== DEFAULT_TASK ? ` on ${state.task}` : "";
     if (status === "running") {
         const what = state.phase === "focus" || state.phase === undefined ? `Your focus session${on} is running: ${sessionLine(state)} left.` : `You're on a break: ${minutesOf(state.remainingSeconds)} minutes left.`;
-        return { outcome: "say", kind: "plain", text: what };
+        return say(what);
     }
     if (status === "paused")
-        return { outcome: "say", kind: "plain", text: `Your focus session${on} is paused.` };
+        return say(`Your focus session${on} is paused.`);
     if (status === "waiting-for-return")
-        return { outcome: "say", kind: "plain", text: "Your break is over — the session is waiting for you to come back." };
-    return { outcome: "say", kind: "plain", text: "No focus session is running right now." };
+        return say("Your break is over — the session is waiting for you to come back.");
+    return say("No focus session is running right now.");
 }
 /** argv only, no shell. A failing orion-session explains itself on stderr, so that is what comes back. */
 const runFile = (file, args, timeout) => new Promise((resolve) => execFile(file, args, { timeout, maxBuffer: 1 << 20 }, (error, stdout, stderr) => resolve({

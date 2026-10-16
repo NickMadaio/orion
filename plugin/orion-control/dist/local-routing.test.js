@@ -106,10 +106,12 @@ describe("local routing — on mode", () => {
             const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx));
             expect(built?.systemPrompt).toContain(`drafted this reply: "${draft}"`);
         }
-        const { f, ctx } = setup({ move: "answer", answer: "You've been coding for hours and your brain needs rest, so sleep now." });
+        const { f, ctx } = setup({ move: "answer", answer: "You've been coding for hours and your brain needs rest, so sleep now. Rest is how it sticks." });
         await f.fire("before_model_resolve", { prompt: "should i sleep now or finish leetcode, be honest" }, ctx);
         const [built] = (await f.fire("before_prompt_build", { prompt: "should i sleep now or finish leetcode, be honest", messages: [] }, ctx));
-        expect(built?.systemPrompt).toMatch(/drafted this reply/);
+        // r7 (2026-10-16): the claim sentence is cut by code, not left to the 9B to leave out.
+        expect(built?.systemPrompt).toContain('drafted this reply: "Rest is how it sticks."');
+        expect(built?.systemPrompt).not.toMatch(/coding for hours/);
         expect(built?.systemPrompt).toMatch(/leave (it|that) out/);
         expect(built?.systemPrompt).toMatch(/never mention the draft or the front desk/i);
     });
@@ -152,20 +154,18 @@ describe("local routing — on mode", () => {
         expect(first).toMatchObject({ action: "revise" });
         expect(lines(logPath).at(-1)).toMatchObject({ revised: true });
     });
-    it("check → one retry with what to fix → then undo and say plainly, never a false 'done'", async () => {
+    // r8 (2026-10-16, q029): OpenClaw ignores a revise once a tool ran, so after an exec the honest line goes in place at once,
+    // from the scheduler's own words ("Gym did not fit"), not through two retries.
+    it("a false 'done' after a failed exec is replaced in place with the scheduler's own words, never a revise", async () => {
         const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
         await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
         const failed = { toolName: "exec", params: { command: 'orion-reschedule move "Gym" --to 19:00' }, result: "NOTHING WAS CHANGED. NOT BOOKED: Gym did not fit" };
         await f.fire("after_tool_call", failed, ctx);
-        const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx));
-        expect(first).toMatchObject({ action: "revise", retry: { maxAttempts: 1 } });
-        expect(first?.retry.instruction).toMatch(/did not happen|NOT BOOKED/);
-        await f.fire("after_tool_call", failed, ctx);
-        const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx));
-        expect(second).toMatchObject({ action: "revise" });
-        expect(second?.retry.instruction).toMatch(/undo/i);
-        const [third] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I couldn't move gym — 7 PM doesn't fit, so nothing changed." }, ctx);
-        expect(third).toBeUndefined();
+        const messages = [{ role: "user", content: "move gym to 7" }, { role: "assistant", content: [{ type: "text", text: "Done — gym is at 7." }] }];
+        const [first] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7.", messages }, ctx);
+        expect(first).toBeUndefined();
+        expect(JSON.stringify(messages[1])).toContain("Nothing was moved — Gym did not fit.");
+        expect(JSON.stringify(messages[1])).not.toContain("gym is at 7");
         expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", escalationNeeded: true });
     });
     it("finalizes untouched when the check finds nothing", async () => {
@@ -268,7 +268,7 @@ describe("local routing — on mode", () => {
         await f.fire("before_model_resolve", { prompt: msg }, ctx);
         const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx));
         expect(built?.systemPrompt).toMatch(/"action":"alarm_set","at":"\d{4}-\d{2}-\d{2}T11:00","label":"text the marketing group chat"/);
-        expect(built?.appendContext).toMatch(/call orion_task_run now/);
+        expect(built?.appendContext).toMatch(/call tool_call now with .*openclaw:orion-control:orion_task_run/);
         expect(flowRan).toBe(false);
         // Replied without calling the tool → told to call it; still not called → honest line at delivery.
         const [r1] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx));

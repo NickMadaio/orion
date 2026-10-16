@@ -108,3 +108,42 @@ describe("recall, calendar statements (review, 2026-10-16)", () => {
         expect(out).toBeUndefined();
     });
 });
+// r7-memory, 2026-10-16: the live re-run's three memory failures, with their real inputs.
+describe("recall reads his Nick note and never misframes or leaks exec errors (r7-memory)", () => {
+    const NOTE = "# Nick\n\nWho ORION works for.\n\n## Observations\n- [identity] Nick Madaio\n\n## Learned\n- [fact] Nick takes creatine every morning at 8 (2026-10-16)\n";
+    const POLICY = "## ECON1115 Final Exam  (20 Areas/School/Courses/ECON1115 Final Exam.md)\n- [support] For exceptional circumstances affecting the final assessment, contact the instructor and advisor.";
+    const run = async (said, o) => {
+        const f = fakeApi();
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "mf-")), "r.jsonl"), clock: () => "Thu 22:25",
+            decideImpl: async () => ({ move: "ask", answer: "Which one?" }), brainSearch: async () => o.search ?? "", nickNote: () => o.note ?? "" });
+        const ctx = { runId: `r7-${said}`, sessionKey: "agent:main:orion-chat-sweep" };
+        await f.fire("before_model_resolve", { prompt: said }, ctx);
+        const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx));
+        for (const stdout of o.tools ?? [])
+            await f.fire("after_tool_call", { toolName: "exec", params: { command: "x" }, result: stdout }, ctx);
+        const messages = [{ role: "user", content: said }, { role: "assistant", content: [{ type: "text", text: o.reply }] }];
+        await f.fire("before_agent_finalize", { lastAssistantMessage: o.reply, messages }, ctx);
+        return { built, text: messages[1].content[0].text };
+    };
+    it("q064: a fact learned seconds ago, below the search snippet, is handed to the worker", async () => {
+        const r = await run("ok and what time do i usually take it", { note: NOTE, search: "## Nick  (20 Areas/Me/Nick.md)\n# Nick\n\nWho ORION works for.", reply: "I don't have a record." });
+        expect(r.built.systemPrompt).toContain("Nick takes creatine every morning at 8");
+        expect(r.built.systemPrompt).toMatch(/only these are "you told me"/);
+    });
+    it("q059: the prompt names the full allowlisted path, and a refused search is never spoken raw", async () => {
+        const r = await run("whats my allergy", { reply: "I can't search right now.\n⚠️ 🛠️ Exec failed: `orion-brain search \"allergy\"`", tools: ['{"error":"exec denied: allowlist miss"}'] });
+        expect(r.built.appendContext).toContain("/Users/nickmadaio/Desktop/ORION/scripts/orion-brain search");
+        expect(r.built.systemPrompt).toMatch(/bare orion-brain is refused/);
+        expect(r.text).not.toMatch(/Exec failed/);
+        expect(r.text).toMatch(/couldn't search your notes/);
+    });
+    it("q056: a course policy is not 'you told me'", async () => {
+        const r = await run("what did i say about my advisor", { note: NOTE, search: POLICY, reply: "You told me that you should contact the instructor and advisor." });
+        expect(r.built.systemPrompt).toMatch(/NOT things he said/);
+        expect(r.text).toBe("Your notes say you should contact the instructor and advisor.");
+    });
+    it("a real saved fact keeps 'you told me'", async () => {
+        const r = await run("what time do i take creatine", { note: NOTE, reply: "You told me you take creatine at 8." });
+        expect(r.text).toBe("You told me you take creatine at 8.");
+    });
+});

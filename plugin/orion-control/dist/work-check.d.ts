@@ -10,7 +10,7 @@ type Claim = {
     sentence: string;
 };
 /** What a tool result says happened. exit null means "no exit code", not failure. */
-export declare function outcomeOf({ stdout, exit }: ToolResult): Outcome;
+export declare function outcomeOf({ canonical, stdout, exit }: ToolResult): Outcome;
 export declare function claimsIn(reply: string): Claim[];
 export type ReplyVerdict = {
     falseClaim: boolean;

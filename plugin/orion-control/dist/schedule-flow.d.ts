@@ -165,6 +165,13 @@ export declare const EXTRACT_SCHEMA: {
     required: string[];
 };
 export declare function setPlaces(places: Record<string, number>): void;
+/** The message asks for two opposite things about one noun ("cancel my lab and also make sure I'm in the lab at 2"). */
+export declare function contradiction(message: string): string | undefined;
+/** Steps that would write something he did not ask for, as what to say instead. null = fine. */
+export declare function guardSteps(message: string, steps: Intent[], day: Day): {
+    say: "cannot";
+    text: string;
+} | null;
 type Compiled = {
     args: string[];
 } | {

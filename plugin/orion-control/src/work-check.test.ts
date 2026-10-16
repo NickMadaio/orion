@@ -104,3 +104,27 @@ describe("work check: verdict and retry instruction", () => {
     expect(checkWork({ reply: "A focus session is already running — 15 minutes left.", turnResults: [], finished: true, dictated: true })).toEqual([]);
   });
 });
+
+describe("work check — review of the 2026-10-16 sweep fixes", () => {
+  it("a warm 'I'll be here' is not a promise to act; a named action still is", () => {
+    for (const reply of ["Goodnight Nick, I'll be here if you need anything.", "I hear you. Let's start small: take one slow breath, and I'll be right here."])
+      expect(checkWork({ reply, turnResults: [], finished: true }), reply).not.toContain("promised but did not act");
+    expect(checkWork({ reply: "I'll add that to your list now.", turnResults: [], finished: true })).toContain("promised but did not act");
+    expect(checkWork({ reply: "Let me check your calendar.", turnResults: [], finished: true })).toContain("promised but did not act");
+  });
+
+  it("'let me know' on a change request is not a promise", () => {
+    expect(checkWork({ reply: "Let me know which block you mean?", turnResults: [], finished: true, changeRequest: true })).not.toContain("promised but did not act");
+  });
+
+  it("data code supplied (his day, brain snippets) is not a fabricated lookup", () => {
+    for (const reply of ["According to your calendar, you have gym at 5 PM.", "Your calendar shows a free block at 3 PM.", "I found in your notes that the deadline is Friday."])
+      expect(checkWork({ reply, turnResults: [], finished: true, provided: true }), reply).toEqual([]);
+    expect(checkWork({ reply: "According to your calendar, you have gym at 5 PM.", turnResults: [], finished: true })).toContain("claims a lookup it did not do");
+  });
+
+  it("the exact sentence the live-data prompt asks for is not 'said it can't without checking'", () => {
+    expect(checkWork({ reply: "I can't check that right now.", turnResults: [], finished: true })).toEqual([]);
+    expect(checkWork({ reply: "I don't have access to your messages.", turnResults: [], finished: true })).toContain("said it can't without checking");
+  });
+});

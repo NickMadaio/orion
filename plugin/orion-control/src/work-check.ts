@@ -46,7 +46,8 @@ const DENIAL = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|wasn'?t abl
 const PAST_DENIAL = /\b(couldn'?t|could not|didn'?t|did not|wasn'?t able|failed to|nothing (was|got)|not (booked|added|moved|sent|set|saved|done|changed))\b/i;
 const HYPOTHETICAL = /\b(may|might|could|should|would|if|to be|need(s)? to|want(s)? to|try to|going to)\b/i;
 const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in progress|check back)\b/i;
-const PROMISE = /\b(I'?ll|I will|let me(?! know)|I'?m going to)\b/i;
+// A promise names an action: "I'll be right here" and "let me know" promise nothing (review, 2026-10-16).
+const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\s+(just\s+|go ahead and\s+|quickly\s+)?(note|add|set|save|log|move|book|remind|start|check|look|turn|send|text|email|mark|put|schedule|create|update|change|cancel|remove|delete|find|pull|get|make|write|record|track|open|play|search|read)\b/i;
 /** Reports of a lookup or a live status: true only if a tool looked this turn (2026-10-16 sweep). */
 const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
@@ -176,15 +177,19 @@ export function checkCalendar({ before, after, now, commands }: { before: Block[
 }
 
 /** "I don't have access to…" said without trying a tool (q076: orion-health had the answer). */
+// Matched anywhere in the sentence: "Sorry Nick, I can't check that right now." is the same answer.
+const CANT_CHECK = /\bI can'?t check that right now\b/i;
 const NO_ACCESS = /\b(I )?(don'?t|do not) have (any )?(access|a way|the ability)\b|\bI (can'?t|cannot|am unable to|'m unable to) (access|see|check|look (at|up)|read|view)\b|\bno access to\b/i;
 
 /** Everything the check can see after the worker's final answer → findings (empty = looks right). */
-export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false, dictated = false }: {
+export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false, dictated = false, provided = false }: {
   reply: string; turnResults: ToolResult[]; finished: boolean; calendar?: { before: Block[]; after: Block[]; now: number };
   /** He asked for a change (not a question): a reply that only asks back, with nothing changed, is a failure. */
   changeRequest?: boolean;
   /** The reply was dictated by a code-run flow, which did its own reads outside turnResults. */
   dictated?: boolean;
+  /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): a reply from it is no fabricated lookup. */
+  provided?: boolean;
 }): string[] {
   const findings: string[] = [];
   if (!finished) findings.push("did not finish");
@@ -194,9 +199,10 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
   // Live sweep 2026-10-16: "I'll just note that you took your creatine" (q072), "I checked the weather…
   // it's not expected to rain" (q007), "still active with 15 minutes remaining" (q049, really 3) and
   // "I don't have access to your vitamin D history" (q076) all came with no tool call and passed with [].
-  if ((changeRequest && !changed && /\b(let me|I'?ll|I will|I'?m going to)\b/i.test(reply)) || (v.unbackedPromise && !dictated)) findings.push("promised but did not act");
-  if (!dictated && turnResults.length === 0 && claimsIn(reply).some((c) => c.kind === "read")) findings.push("claims a lookup it did not do");
-  if (!dictated && turnResults.length === 0 && sentences(reply).some((s) => NO_ACCESS.test(s) && !/\?\s*$/.test(s))) findings.push("said it can't without checking");
+  if ((changeRequest && !changed && PROMISE.test(reply)) || (v.unbackedPromise && !dictated)) findings.push("promised but did not act");
+  if (!dictated && !provided && turnResults.length === 0 && claimsIn(reply).some((c) => c.kind === "read")) findings.push("claims a lookup it did not do");
+  // "I can't check that right now." is the sentence the live-data prompt asks for when no tool can get it.
+  if (!dictated && !provided && turnResults.length === 0 && sentences(reply).some((s) => NO_ACCESS.test(s) && !/\?\s*$/.test(s) && !CANT_CHECK.test(s))) findings.push("said it can't without checking");
   if (v.falseClaim) findings.push("claims what the tools don't show");
   if (v.omittedFailure) findings.push("failure not mentioned");
   if (v.wrongDetail) findings.push("reply times don't match");

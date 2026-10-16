@@ -45,7 +45,8 @@ const HYPOTHETICAL = /\b(may|might|could|should|would|if|to be|need(s)? to|want(
 // After a still-running or pending result, saying so ("still", "can't confirm yet") is the honest report.
 const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in progress|check back)\b/i;
 // "Let me know if…" is a sign-off, not a promise to act.
-const PROMISE = /\b(I'?ll|I will|let me(?! know)|I'?m going to)\b/i;
+// A promise names an action: "I'll be right here" and "let me know" promise nothing (review, 2026-10-16).
+const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\s+(just\s+|go ahead and\s+|quickly\s+)?(note|add|set|save|log|move|book|remind|start|check|look|turn|send|text|email|mark|put|schedule|create|update|change|cancel|remove|delete|find|pull|get|make|write|record|track|open|play|search|read)\b/i;
 // Reports of a lookup or a live status ("I checked…", "15 minutes remaining"): true only if a tool looked (2026-10-16 sweep).
 const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;

@@ -118,6 +118,39 @@ scripts 1269/1269. `tests/agentic-halts.test.mjs` "resume inside the grace windo
 flake. A live re-run of the 87 failed/minor items plus 6 review inputs is in progress
 (`scratchpad/sweep/rerun-results.jsonl`).
 
+**Round 7 + re-runs (2026-10-16 02:00-03:20).**
+- Live re-run 1 found the new code-built calls failing: "Tool orion_task_run not found" (20 calls).
+  orion_task_run sits behind OpenClaw's tool search, so it must be called via `tool_call` with id
+  `openclaw:orion-control:orion_task_run`. A `before_tool_call` guard now rewrites drifted args, keeps the
+  reminder id, and blocks any other action.
+- q092: a bare "cancel that" ran a global `orion-reschedule undo` and reverted a real change from an earlier
+  day (Review spending, Oct 15). Now it asks, and the exec is blocked, unless this chat changed something.
+  The block was left where the undo put it (its original 2:35 PM, on a past day); the undo journal was
+  restored.
+- Calendar guards: no add on a skip; "tomorrow" before 5 AM asks; contradictions ask; drops must name the
+  block; the window floor is 05:00 (wake 10:32 minus 2 h had slid 7:30 to 8:32).
+- Honesty: "I'm checking…" with no call is caught; focus and day status are read by code.
+- Memory: absolute orion-brain path; Learned lines read directly.
+- Wake alarm (Nick, from his phone): "push my alarm to 12" set a reminder labelled "push my alarm". Now
+  wake-flow runs `orion-wake HH:MM`.
+- Results on the 93-item re-run set: 0/24/63 originally, then 22/24/47, now 43/24/26 (pass/minor/fail).
+  0 not-found calls; median turn 9.6 s.
+- Deployed at 85e8d54 (plugin 797/797). Every review round found real HIGHs; the last reviewer pass was on
+  9d0679a, and the fixes after it (yoga skip-then-add, scoped denials, anchors, wake) were not re-reviewed.
+- Side effect: the 3 AM re-run started 3 real focus sessions (his own had ended). Each was abandoned
+  immediately and is in focus-history.jsonl.
+
+**Still failing (next round).**
+- q029: late flow says "pushed everything" when `late 15` booked nothing (false done).
+- q042: "mark oats done" calls supplement_take, not `orion-tasks done`.
+- q015: a nap end time is invented.
+- q069, q066, q052: answers given without the tool running.
+- q004: the all-day event is left out.
+- q041: deadlines misread (all-day shown as 1:30 PM).
+- q073: a workout logged by duration is refused (no store).
+- Some "no read" grades may be code-read days the logs don't show; add a `provided` field to the routing
+  log so grading can tell.
+
 **Open, needs Nick.**
 - Texting or emailing himself is not possible: the `messages_send` origin gate refuses a recipient he didn't
   name, and `email_send` is simulate-only. This needs a design decision.

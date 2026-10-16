@@ -41,12 +41,12 @@ export const isNo = (m: string): boolean => NO.test(m.trim().replace(/^(?:actual
 
 /** Leading acknowledgements: "yes, laundry" is "laundry" (r8 review 4 HIGH-1, 2026-10-16). */
 const ACK = /^(?:(?:yes|yeah|yea|yep|yup|ok(?:ay)?|sure|alright|well|so|actually|oh)[,\s]+)+/i;
-/** Not a thing to put on the calendar: a question, about himself or the assistant, or a device command. */
-const NOT_A_TITLE = new RegExp(String.raw`^(?:(?:what|when|where|who|whom|whose|how|why|which|can|could|would|will|should|is|are|am)\b|(?:do|does|did)\s+(?:you|i|we|they|it|u)\b|(?:i|i'm|im|i'll|i've|i'd|you|you're|youre|u|we|let me)\b|(?:turn|set|play|start|stop|open|text|log|remind|call)\b)`, "i");
+/** Not a thing to put on the calendar: a question, or about himself or the assistant. Device verbs are NOT listed (review 5 M5, 2026-10-16: "call mom", "text Sam back", "start my essay", "set up my desk", "log my expenses" are titles; "turn off the lights" is caught by the front desk's tool move). */
+const NOT_A_TITLE = new RegExp(String.raw`^(?:(?:what|when|where|who|whom|whose|how|why|which|can|could|would|will|should|is|are|am)\b|(?:do|does|did)\s+(?:you|i|we|they|it|u)\b|(?:i|i'm|im|i'll|i've|i'd|you|you're|youre|u|we|let me)\b)`, "i");
 /** Replies that mean "you decide": asked once more, then left alone. */
 const YOU_DECIDE = /^(?:idk|i don'?t know|dunno|not sure|you (?:pick|choose|decide)|up to you|surprise me|whatever|anything)\b/i;
 /** Replies that are not an answer at all: nothing is booked, the turn routes normally. */
-const NON_ANSWER = /^(?:thanks?(?: you)?|thx|hmm+|hold on|wait|not really|never ?mind|nvm|that'?s fine|perfect|cool|absolutely|lol|ok cool|great|nice|awesome|nothing|no thanks)\b/i;
+const NON_ANSWER = /^(?:thanks?(?: you)?|thx|hmm+|hold on|wait|not really|never ?mind|nvm|that'?s fine|lol|nothing|no thanks)\b|^(?:ok\s+)?(?:perfect|cool|absolutely|great|nice|awesome)(?:[,\s]+(?:thanks?|thank you|thx))?$/i; // praise words only when they are the whole reply: "great gatsby reading", "cool down stretch" are titles (review 5 M5)
 
 const stripAck = (m: string): string => m.replace(ACK, "").trim();
 

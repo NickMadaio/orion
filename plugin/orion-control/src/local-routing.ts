@@ -40,6 +40,8 @@ import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
+import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
+import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
@@ -62,6 +64,10 @@ export type LocalRoutingOptions = {
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
   scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
+  /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
+  lateFlow?: (minutes: number) => Promise<FlowResult>;
+  /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
+  messagesRead?: (req: MessagesRead) => Promise<ReadOutcome>;
   /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
   sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
   /** Moves his phone's wake alarm (scripts/orion-wake) for "push my alarm to 12" (tests pass a stub; wired from index.ts). */
@@ -116,6 +122,10 @@ type Run = {
   spoken?: boolean;
   /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
   undo?: string[];
+  /** q029 (2026-10-16 r8): a "running late" turn code owns: the fixed "how late?" question, the stitched minutes answer, or the go-ahead. */
+  late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm" };
+  /** What code read for this turn ("messages", "gmail"), for the routing log (q066, q069). */
+  reads?: string[];
 };
 
 const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
@@ -151,7 +161,8 @@ export const isBareUndo = (message: string) => BARE_UNDO.test(message.toLowerCas
 const UNDO_COMMAND = /\borion-reschedule\s+undo\b/;
 // A scheduler verb that writes (the read-only ones are show and undo itself).
 const RESCHEDULE_WRITE = /\borion-reschedule\s+(?!show\b|undo\b)[a-z]/;
-const NOTHING_CHANGED = /NOTHING WAS CHANGED|NOT BOOKED/i;
+// q029 (2026-10-16 r8): "NOTHING WAS BOOKED on Friday …" (what orion-reschedule prints when it wrote nothing) matched neither, so a late 15 that moved nothing was recorded as a change.
+const NOTHING_CHANGED = /NOTHING WAS (?:CHANGED|BOOKED)|NOT BOOKED/i;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
 // loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
@@ -514,6 +525,23 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
   const lastReminder = new Map<string, { label: string; at: string; set: number }>();
   const reminderAsk = new Map<string, { text: string; at: number; label?: boolean }>();
+  /** Per session: an unanswered "how late?" (q029), and the last late move code ran (so "yeah push everything after it" does not move it twice). */
+  const lateAsk = new Map<string, number>();
+  const lastLate = new Map<string, { minutes: number; at: number; changed: boolean; reply: string }>();
+  /** Whether this turn is the late flow's: "running late" with no minutes, the short answer to our question, or the go-ahead after it. Consumes the pending question. */
+  const lateTurn = (key: string, message: string): Run["late"] => {
+    const askedAt = lateAsk.get(key); lateAsk.delete(key);
+    const pending = askedAt !== undefined && Date.now() - askedAt < STITCH_WINDOW_MS;
+    const last = lastLate.get(key);
+    if (isLateWithoutMinutes(message)) return { kind: "ask" };
+    if (pending) {
+      const minutes = lateMinutesAnswer(message);
+      if (minutes !== null) return { kind: "run", minutes };
+      if (isLateConfirm(message) || isBareYes(message)) return { kind: "ask" };
+    }
+    if (last && Date.now() - last.at < SESSION_CHANGE_WINDOW_MS && (isLateConfirm(message) || isBareYes(message))) return { kind: "confirm" };
+    return undefined;
+  };
   const runFor = (event: Record<string, unknown>, ctx: Record<string, unknown>) => runs.get(pick(event, ctx, "runId") ?? "") ?? runs.get(`session:${pick(event, ctx, "sessionKey") ?? ""}`);
   const log = (entry: Record<string, unknown>) => {
     try {
@@ -554,6 +582,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
     if (!on) return undefined; // shadow: fire and forget
     if (options.testingUntil && !windowOpen()) return undefined; // the testing window closed: back to shadow
+    if (sessionKey && !cutOff && options.lateFlow) { const late = lateTurn(sessionKey, message); if (late) run.late = late; }
     const d = await decision;
     // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
     if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
@@ -577,7 +606,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
-      if (run && RUNNING_LATE.test(run.message)) return undefined; // the calendar flow, never a drafted "no problem"
+      if (run && (RUNNING_LATE.test(run.message) || run.late)) return undefined; // the calendar flow, never a drafted "no problem"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
       const draftText = withoutDayClaims(d?.answer ?? "");
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
@@ -613,6 +642,26 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         && !(Date.now() - (lastReminder.get(run.sessionKey ?? "")?.set ?? 0) < CORRECTION_WINDOW_MS) && !reminderAsk.has(run.sessionKey ?? "")) {
         const other = recentOther(run.sessionKey);
         run.flow = { outcome: "say", kind: "ask", text: other ? OTHER_ASKS[other] : UNDO_NOTHING_TO_UNDO };
+      }
+      // q029 (2026-10-16 r8): "im running late" → code asks "how late?", the short answer is stitched to it, and
+      // "yeah push everything after it" is the same late move, never a free exec for the 9B (it ran late 15, got
+      // NOTHING WAS BOOKED and said "Your schedule has been adjusted"). Before the ignore line: "like 15 min" is "ignore".
+      if (!run.flow && !run.cutOff && run.late && options.lateFlow) {
+        const key = run.sessionKey ?? "";
+        const done = run.late.kind === "confirm" ? lastLate.get(key) : undefined;
+        if (run.late.kind === "ask") { run.flow = { outcome: "say", kind: "ask", text: LATE_ASK }; if (key) lateAsk.set(key, Date.now()); }
+        else if (done?.changed) run.flow = { outcome: "say", kind: "plain", text: `That's already done. ${done.reply}` };
+        else {
+          const minutes = run.late.kind === "run" ? run.late.minutes : done?.minutes ?? 0;
+          const flow = await options.lateFlow(minutes).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+          if (flow.outcome !== "fallback") {
+            run.flow = flow;
+            if (flow.outcome === "say" && flow.text === LATE_TOO_SMALL && key) lateAsk.set(key, Date.now());
+            if ("calls" in flow && flow.calls) flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs?.[i] ?? "", exit: null }));
+            if (key && "calls" in flow && flow.calls) lastLate.set(key, { minutes, at: Date.now(), changed: flow.outcome === "done", reply: flow.outcome === "done" ? flow.reply ?? "" : "" });
+            if (flow.outcome === "done" && flow.marks?.length) recordChange(run.sessionKey, flow.marks);
+          }
+        }
       }
       if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken)) run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
       // A focus session is one fixed command: code runs orion-session and the reply is built from
@@ -706,7 +755,22 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && !run.cutOff) {
         const cannot = cannotSend(run.message);
         if (cannot) run.flow = { outcome: "say", kind: "plain", text: cannot };
-        else if (isMessagesJob(run.message)) return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${now}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}` };
+        else {
+          // q066 / q069 (2026-10-16 r8): a plain read is run by code and the worker only summarizes it ("I'm reading
+          // your last three texts now." with no tool). A failure or an empty result is code's exact line.
+          const req = options.messagesRead ? parseMessagesRead(run.message) : null;
+          const read = req && options.messagesRead ? await options.messagesRead(req).catch(() => null) : null;
+          if (req && read) {
+            read.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: read.outputs[i] ?? "", exit: null }));
+            run.reads = [...(run.reads ?? []), req.kind === "gmail" ? "gmail" : "messages"];
+            if (read.say || !read.data) run.flow = { outcome: "say", kind: "plain", text: read.say ?? "I couldn't read that.", calls: read.calls, outputs: read.outputs };
+            else {
+              run.provided = true;
+              return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\n${readNote(req, read.data)}`, appendContext: "[ORION: the read already ran — summarize it from the system prompt, do not call tools.]" };
+            }
+          }
+        }
+        if (!run.flow && isMessagesJob(run.message)) return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${now}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}` };
       }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.
@@ -844,7 +908,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const record = async (extra: Record<string, unknown> = {}) => {
         const decision = run.settled ?? (await settle(run));
         log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
-          ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+          ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, ...(run.reads?.length ? { reads: run.reads } : {}), model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
           ...(on ? { escalationNeeded: findings.length > 0 } : {}), ...extra, turnMs: Date.now() - run.started });
       };
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
@@ -878,7 +942,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
       }
       const flowActed = run.flow?.outcome === "done";
-      if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops) {
+      // q029 (2026-10-16 r8): a revise is ignored once a tool ran (the 9B's exec of `late 15` printed NOTHING WAS BOOKED and
+      // "Your schedule has been adjusted" went out, though the check had found it). With a tool already run, the honest
+      // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
+      const honestNow = on && !flowActed && !run.reminder && (run.tools.length > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
+        ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "Nothing was moved" : undefined)
+          ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)))
+        : undefined;
+      if (honestNow) { owed = honestNow; remember([runId, sessionKeyNow], honestNow); }
+      if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops && !honestNow) {
         run.passes += 1;
         await record({ revised: true });
         const calendar = SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical));
@@ -894,7 +966,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
-      if (on && !flowActed && !run.reminder && findings.some((f) => FALSE_CLAIM.test(f))) {
+      if (on && !flowActed && !run.reminder && !honestNow && findings.some((f) => FALSE_CLAIM.test(f))) {
         owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)));
         remember([runId, sessionKeyNow], owed);
       } else if (on && !flowActed && !run.reminder && findings.some((f) => LOOKUP_CLAIM.test(f))) {

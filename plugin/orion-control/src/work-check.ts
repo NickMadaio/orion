@@ -23,14 +23,18 @@ type TimeMention = [number[], "start" | "end" | "any"];
 const PENDING = /needs[_ ]approval|requires approval|NO MESSAGE WAS SENT|still running|\bqueued\b/i;
 const NOTHING = /NOTHING (WAS|TO) [A-Z]+|executed["']?\s*[:=]\s*false|Not sent:|NOT SENT|nothing (was )?(booked|changed|moved|dropped)/i;
 const PARTIAL = /NOT BOOKED:|Left out:|did not fit|not changed|did not acknowledge/i;
-const FAILED = /\busage:|Unknown (tool|command)|unknown command|\bError\b|exec denied|Refused:|not run in the sandbox|is not allowlisted|missing tool result|permission denied|not found\b|timed out|exec routing|repeat guard/i;
+const FAILED = /\busage:|Unknown (tool|command)|unknown command|\bError\b|exec denied|Refused:|not run in the sandbox|is not allowlisted|missing tool result|permission denied|Full Disk Access is required|not found\b|timed out|exec routing|repeat guard/i;
 const USAGE = /\busage:|Unknown (tool|command)|unknown command|Validation failed|exec denied|is not allowlisted|not found\b|exec routing|repeat guard|status=rejected$/i;
 const SUCCESS = /executed=true|DONE — this really happened|^Changed |Written to his calendar|Session (started|finished|abandoned)|focus block|Lights: sent|Alarm set|Sent to|\b(added|moved|cleared|planned|Undone|tracking|remembered|learned|Paused|Allowed|skipped|resized|extended|Logged|Showing|Opened)\b/im;
+const MESSAGE_READ = /orion-messages\s+(?:recent|from|search|chats)\b|orion-gmail-(?:search|latest)\b|messages_(?:recent|from|search)\b/;
+const MESSAGE_READ_FAILED = /^\s*orion-messages:|^\s*orion-gmail|Full Disk Access is required|\busage:|Provide a Gmail search query/i;
 const METADATA = /^\s*(\[\s*\{|\{\s*"tool"\s*:)/;
 
 /** What a tool result says happened. exit null means "no exit code", not failure. */
-export function outcomeOf({ stdout = "", exit = 0 }: ToolResult): Outcome {
+export function outcomeOf({ canonical = "", stdout = "", exit = 0 }: ToolResult): Outcome {
   const t = String(stdout);
+  // r8 (2026-10-16): a message's own words ("Error", "sent", "moved") are not a tool's verdict. A good read of his texts or Gmail is a read.
+  if (MESSAGE_READ.test(canonical) && !(typeof exit === "number" && exit !== 0) && !MESSAGE_READ_FAILED.test(t)) return "read";
   if (/executed=true|DONE — this really happened/.test(t)) return PARTIAL.test(t) ? "partial" : "success";
   if (METADATA.test(t)) return "read";
   if (PENDING.test(t)) return "pending";
@@ -52,7 +56,7 @@ const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in p
 const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\s+(just\s+|go ahead and\s+|quickly\s+)?(note|add|set|save|log|move|book|remind|start|check|look|turn|send|text|email|mark|put|schedule|create|update|change|cancel|remove|delete|find|pull|get|make|write|record|track|open|play|search|read)\b/i;
 /** Reports of a lookup or a live status: true only if a tool looked this turn (2026-10-16 sweep). */
 // 2026-10-16 r7: "I'm reading your texts now" / "I'm checking for emails" (q066, q070) with no call is a claimed lookup too; needs a data object after the verb ("I'm reading you loud and clear" is warmth).
-const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|I'?m (just |now )?(checking|reading|looking|pulling|searching|fetching|grabbing)(?:(?:\s+(?:through|at|up|on|into|your|the|my|last|new|latest|recent|unread|any|those|these|\d+))*\s+(?:texts?|messages?|e-?mails?|inbox|calendar|schedule|weather|notes|reminders|that|it|now)\b|\s+for\s+(?!you\b|a (?:good )?time\b|a sec\b)\w+)|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
+const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|I'?m (just |now )?(checking|reading|looking|pulling|searching|fetching|grabbing)(?:(?:\s+(?:through|at|up|on|into|your|the|my|last|new|latest|recent|unread|any|those|these|\d+|one|two|three|four|five|six|seven|eight|nine|ten|a couple of|a few))*\s+(?:texts?|messages?|e-?mails?|g-?mail|i-?messages?|whatsapp|inbox|calendar|schedule|weather|notes|reminders|that|it|now)\b|\s+for\s+(?!you\b|a (?:good )?time\b|a sec\b)\w+)|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
 // "Nothing is scheduled" / "no lab scheduled" reports an empty calendar; it is not a claim that something

@@ -15,18 +15,25 @@ export function dayRead(day: Day & { allDay?: string[] }): string {
   return lines.join("\n");
 }
 
-type Kind = { label: string; asked: RegExp; title: RegExp };
+type Kind = { label: string; asked: string; title: RegExp };
 // "class" is any lecture-like title or a course code, the same words live-day.mjs classify uses for a class.
+// r8 review (2026-10-16) M1: a title counts as the kind with classify()'s words for it (gym: gym|workout|lift|run, study:
+// study|revise|revision|homework|problem set|reading) plus the plain synonyms (swim, climb, deep work); a test pins
+// that every title classify() calls gym or study matches here, so the two lists cannot drift apart.
 const KINDS: Kind[] = [
-  { label: "nap", asked: /\bnap\b/i, title: /\bnap(s|ping)?\b/i },
-  { label: "gym", asked: /\b(gym|workout)\b/i, title: /\b(gym|workout|lift(ing)?)\b/i },
-  { label: "lab", asked: /\blabs?\b/i, title: /\blab\b/i },
-  { label: "meal prep", asked: /\bmeal\s*prep\b/i, title: /\bmeal\s*prep\b/i },
-  { label: "lunch", asked: /\blunch\b/i, title: /\blunch\b/i },
-  { label: "dinner", asked: /\bdinner\b/i, title: /\bdinner\b/i },
-  { label: "breakfast", asked: /\bbreakfast\b/i, title: /\bbreakfast\b/i },
-  { label: "study", asked: /\b(study|studying)\b/i, title: /\b(study|studying|revis\w*|homework)\b/i },
+  { label: "nap", asked: "nap", title: /\bnap(s|ping)?\b/i },
+  { label: "gym", asked: "gym|workout", title: /\b(gym|workout|lift(ing)?|run(ning)?|jog(ging)?|swim(ming)?|climb(ing)?|cardio)\b/i },
+  { label: "lab", asked: "labs?", title: /\blab\b/i },
+  { label: "meal prep", asked: "meal\\s*prep", title: /\bmeal\s*prep\b/i },
+  { label: "lunch", asked: "lunch", title: /\blunch\b/i },
+  { label: "dinner", asked: "dinner", title: /\bdinner\b/i },
+  { label: "breakfast", asked: "breakfast", title: /\bbreakfast\b/i },
+  { label: "study", asked: "study|studying", title: /\b(study|studying|revis\w*|homework|problem set|reading|deep work)\b/i },
 ];
+// "my nap block", "the lab", "a lab day", "nap time": the kind is named as a block of his day, not mentioned in passing ("the gym closes").
+const namedAs = (k: Kind): RegExp => new RegExp(`\\b(?:my|the|a|an)\\s+(?:\\w+\\s+)?(?:${k.asked})\\b|\\b(?:${k.asked})\\s+(?:block|session|day)\\b`, "i");
+// "do i have time for a nap", "can i fit a workout in": a question about whether it would fit, not whether it is scheduled.
+const FITTING = /\b(?:time for|room for|squeeze|fit)\b/i;
 
 const BLOCK = /^B\d+ (\d{2}):(\d{2})–(\d{2}):(\d{2}) (.*?)(?: \(FIXED\))?(?: \(already happened\))?$/;
 type Row = { hour: number; minute: number; title: string; over: boolean };
@@ -48,7 +55,7 @@ const ADVICE = /\b(should|supposed to|recommend\w*|ideal|healthy|best)\b/i;
 
 /** The reply when the question names a kind of block and none is on the day; null when one is, or none is named. */
 export function noBlockReply(message: string, day: string, tomorrow: boolean): string | null {
-  const kind = ABOUT_TIME.test(message) && !ADVICE.test(message) ? KINDS.find((k) => k.asked.test(message)) : undefined;
+  const kind = ABOUT_TIME.test(message) && !ADVICE.test(message) && !FITTING.test(message) ? KINDS.find((k) => namedAs(k).test(message)) : undefined;
   const all = rows(day);
   if (!kind || !all.length && !day.trim()) return null;
   if (all.some((r) => kind.title.test(r.title))) return null;

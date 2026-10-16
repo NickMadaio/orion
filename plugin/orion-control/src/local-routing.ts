@@ -793,8 +793,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
       // a timer and supplements answered with no call or the wrong one). Before the calendar flow.
+      // r8 review LOW: no isQuestion gate (a spoken "any deadlines coming up" has no "?"; asksDeadlines is question-shaped itself).
       // q041 (2026-10-16 r8): "whats due this week" is read and worded by code (the 9B read a lecture's time out as the all-day quiz's).
-      if (!run.flow && !run.cutOff && options.readDeadlines && isQuestion(run.message) && asksDeadlines(run.message)) {
+      if (!run.flow && !run.cutOff && options.readDeadlines && asksDeadlines(run.message)) {
         const read = await options.readDeadlines().catch(() => null);
         if (read) {
           run.provided = true;

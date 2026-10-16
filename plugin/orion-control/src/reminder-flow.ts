@@ -46,6 +46,22 @@ const CLOCK = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(\d{1,2}):(\d{2})\b/i;
 const RELATIVE = /\b(?:in|like|about|around)\s+(?:(?:like|about|around|~)\s*)?(\d+|an?|one|half an?)\s*(minutes?|mins?|m|hours?|hrs?|h)\b/i;
 const STOP_WORDS = new Set(["cancel", "delete", "remove", "stop", "clear", "scrap", "turn", "off", "get", "rid", "kill", "the", "my", "a", "an", "that", "this", "for", "to", "about", "at", "of", "and", "me", "can", "you", "please", "pls", "reminder", "reminders", "alarm", "alarms", "one", "am", "pm"]);
 
+// Words that can sit in a correction without naming a new subject ("actually make it 6pm", "no wait, change it to 5:30").
+const CORRECTION_FILLER = new Set(["make", "it", "that", "this", "change", "move", "push", "to", "the", "reminder", "alarm", "actually", "no", "wait", "instead", "i", "mean", "sorry", "ok", "okay", "please", "pls", "at", "for", "by", "and", "then", "now", "am", "pm", "oclock", "half", "past", "quarter", "noon", "midnight", "tomorrow", "today", "tonight", "morning", "afternoon", "evening", "later", "earlier", "an", "a", "hour", "hours", "minutes", "minute", "min", "mins", "in", "one"]);
+/** A correction names no new subject: a message that names something else ("move gym to 6pm") is a new request (review, 2026-10-16). */
+export function isCorrection(message: string): boolean {
+  return CORRECTION.test(message) && !SET.test(message) && (message.toLowerCase().replace(/o'clock/g, "oclock").match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w));
+}
+/** His whole answer is a time or day ("at 5pm", "tomorrow at 9"): safe to read together with the reminder it answers. */
+export function isBareTime(message: string): boolean {
+  return (CLOCK.test(message) || RELATIVE.test(message) || meansTomorrow(message, new Date())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
+}
+/** Cancel, not create: the cancel word comes before the reminder word and no create verb is present (review, 2026-10-16). */
+function isCancel(message: string): boolean {
+  const c = CANCEL.exec(message), r = REMINDER_WORD.exec(message);
+  return !!c && !!r && c.index < r.index && !CREATE.test(message);
+}
+
 /** Whether this turn is about reminders at all (anything planReminder handles). */
 export function isReminderTurn(message: string): boolean {
   // Merge of r2-reminders (FORGET is a fact unless timed) with r2-memory-facts ("don't let me forget to call
@@ -100,7 +116,7 @@ async function cancelPlan(message: string, now: Date, list: ReminderInput["list"
   const clock = namedClock(message);
   const words = (message.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !STOP_WORDS.has(w));
   const named = clock ? live.filter((r) => hhmmOf(new Date(r.dueAt)) === clock)
-    : words.length ? live.filter((r) => words.some((w) => r.label.toLowerCase().includes(w)))
+    : words.length ? live.filter((r) => words.some((w) => new RegExp(`\\b${w}\\b`).test(r.label.toLowerCase())))
     : live;
   const which = clock ? ` at ${ampm12(clock)}` : words.length ? ` for ${words.join(" ")}` : "";
   if (named.length === 0) return { kind: "say", text: which ? `You don't have a reminder${which}, so nothing was cancelled.` : "You don't have any reminders set." };
@@ -127,9 +143,9 @@ function dueFor(message: string, time: string | null, now: Date, baseDay?: strin
 /** What to do with a reminder turn, or undefined when it is not one (or the extractor is unavailable). */
 export async function planReminder(input: ReminderInput): Promise<ReminderPlan | undefined> {
   const { message, now, extract, list, last } = input;
-  if (CANCEL.test(message) && REMINDER_WORD.test(message)) return cancelPlan(message, now, list);
+  if (isCancel(message)) return cancelPlan(message, now, list);
   if (LIST.test(message) && !CREATE.test(message)) return listPlan(message, now, list);
-  const correcting = !!last && CORRECTION.test(message) && !SET.test(message);
+  const correcting = !!last && isCorrection(message);
   if (!correcting && !isReminderTurn(message)) return undefined;
   if (RECURRING.test(message)) return { kind: "say", text: "I can't set repeating alarms yet, so nothing was set. Want a one-off for the next one instead?" };
   const got = await extract(message).catch(() => null);

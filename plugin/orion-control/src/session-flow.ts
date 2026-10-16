@@ -32,7 +32,8 @@ const START = /\b(start|begin|kick(?:\s|-)?off|launch|fire up|spin up|set up|ope
 // "focus mode on for an hour, leetcode" has no start verb and became a calendar block (q051, sweep 2026-10-15).
 const MODE_ON = /\b(focus|study|work|deep work)\s+mode\s+on\b/i;
 // Not now, or not a session: a future start belongs to the calendar path; these words end or query one.
-const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|tomorrow|at \d{1,2}(:\d{2})?)\b/i;
+// "remind me to start work in 20 min" is a reminder, not a session now (review, 2026-10-16).
+const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|tomorrow|remind|ping|nudge|at \d{1,2}(:\d{2})?)\b/i;
 // "Resume" the verb only: "start focus for the resume" (his CV, q054) was refused as resuming a session,
 // and the worker then called a tool named orion-session ten times.
 const RESUMES = /^\W*(?:(?:ok(?:ay)?|please|pls|can you|could you)[,\s]+)*resume\b|\bresume\s+(?:(?:the|my|our)\s+)?(?:session|focus(?:ing)?|timer|it|block)\b/i;

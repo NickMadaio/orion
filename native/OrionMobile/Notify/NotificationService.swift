@@ -1,4 +1,5 @@
 import CloudKit
+import MobileCore
 import UserNotifications
 import WidgetKit
 
@@ -8,7 +9,7 @@ import WidgetKit
  CloudKit's push options have no interruption level, so every check-in used to
  arrive as an ordinary notification that a Focus silences. This extension sees
  each one first (the subscription asks for mutable content) and marks as
- time-sensitive exactly two kinds: a check-in he has already ignored at least
+ time-sensitive exactly three kinds: an urgent outreach message (2026-10-16), a check-in he has already ignored at least
  once (level 2+), and an approval ORION is blocked on. Everything else passes
  through unchanged. Sleep Focus still wins for bedtime nudges: those are the
  phone's own notifications and never come through here.
@@ -41,6 +42,7 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     static func isUrgent(kind: String?, level: Int) -> Bool {
-        (kind == "checkin" && level >= 2) || kind == "approval"
+        // 2026-10-16: also an urgent outreach message (kind "orion", level 2); rule lives in MobileCore.
+        NotificationUrgency.isTimeSensitive(kind: kind, level: level)
     }
 }

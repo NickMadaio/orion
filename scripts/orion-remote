@@ -36,6 +36,7 @@ import { thinkingLevel } from "./lib/thinking-policy.mjs";
 import { classifyClaim } from "./lib/remote/claims.mjs";
 import { fixReply, lintReply } from "./lib/remote/reply-lint.mjs";
 import { readStandingRules } from "./lib/remote/standing-rules.mjs";
+import { compactPhoneMessage, localRoutingOn, relevance } from "./lib/remote/phone-context.mjs";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -606,10 +607,12 @@ function watchQuestion() {
 
 // His phone's Screen Time lock, as the phone last reported it (2026-10-01: asked
 // to unblock his apps, ORION checked the Mac's focus timer and said nothing was locked).
-function phoneLock() {
+function phoneLock({ compact = false } = {}) {
   try {
     const r = spawnSync(process.execPath, [join(homedir(), "Desktop/ORION/scripts/orion-phone-time"), "status"], { encoding: "utf8", timeout: 5000 });
     const line = (r.stdout ?? "").trim();
+    // Compact (r8b2): the verb word itself would satisfy the authority gate, so point at --help instead.
+    if (compact) return line ? `- His phone's app lock: ${line} Extra time for him: run orion-phone-time --help for the verb (max 60 min, needs his reason; it re-locks by itself). Mac focus sessions are orion-session, not the phone.` : null;
     return line ? `- His phone's app lock: ${line} Extra time: orion-phone-time grant <minutes|HH:MM> --because "<his reason>" (max 60 min; it re-locks by itself). Mac focus sessions are orion-session, not the phone.` : null;
   } catch { return null; }
 }
@@ -662,6 +665,27 @@ async function phoneContext() {
     "  \"One more video\" or \"later\" is not a reason: say so and add a short check-in anyway.",
     "  Don't ask how long a normal pause takes — food 25 min, shower 20, a call 15 — set it and tell him when you'll be back.",
   ].join("\n");
+}
+
+// r8b2 (2026-10-16): under local routing a phone turn carries only what it needs (lib/remote/phone-context.mjs);
+// the lock/apps reads are skipped when his words do not touch them. The cloud path keeps phoneContext() whole.
+async function compactPhoneText(text, savedNote) {
+  const need = relevance(text);
+  const apps = need.apps ? await doApps().catch(() => null) : null;
+  return compactPhoneMessage({
+    text,
+    paths: { show: join(homedir(), "Desktop/ORION/scripts/orion-show"), checkin: join(homedir(), "Desktop/ORION/scripts/orion-checkin") },
+    parts: {
+      testClock: sandbox() ? `- TEST CLOCK: this is a schedule evaluation; it is ${(() => { const n = clockNow(); return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`; })()} now. Ignore any other time or timestamp.` : null,
+      today: await todaySchedule(),
+      checkins: openCheckins(),
+      lock: need.lock ? phoneLock({ compact: true }) : null,
+      watch: watchQuestion(),
+      outreach: recentOutreach(),
+      apps: apps?.ok ? apps.reply.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)) : [],
+      savedNote,
+    },
+  });
 }
 
 /*
@@ -794,8 +818,9 @@ async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
   const file = join(CONTROLLED, `brain-${randomBytes(6).toString("hex")}.txt`);
   const saved = raw ? null : await saveStandingRules(text);
   const savedNote = saved ? `[orion-remote] Already saved from his message (by the transport, not by you): ${saved.join("; ")}. Tell him in one short clause that it is saved; do not save it again, and never say "noted" for anything that is not in this line.\n` : "";
-  const live = `${sender === "phone" && !raw ? `${await phoneContext()}\n` : ""}${savedNote}`;
-  await writeFile(file, raw ? text : `${live}${briefFor(sender)}\n${text}`, { mode: 0o600 });
+  const compactPhone = sender === "phone" && !raw && localRoutingOn(homedir());
+  const live = `${sender === "phone" && !raw && !compactPhone ? `${await phoneContext()}\n` : ""}${savedNote}`;
+  await writeFile(file, raw ? text : compactPhone ? await compactPhoneText(text, savedNote) : `${live}${briefFor(sender)}\n${text}`, { mode: 0o600 });
   try {
     const { stdout } = await run(
       BRAIN_BIN,

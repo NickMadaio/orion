@@ -61,6 +61,41 @@ describe("a bare cancel or undo needs a change made in this session", () => {
     expect((await h.exec(UNDO_CMD))).toBeUndefined();
   });
 
+  // 2026-10-16 review: a focus session started in this chat is a change too; "cancel that" must not claim nothing happened.
+  it("after a focus session start, \"cancel that\" asks to end it (never ends it on a guess, no undo)", async () => {
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Thu 12:00",
+      decideImpl: async (): Promise<Decision> => ({ move: "tool", tool: "session", args: { do: "start", task: "leetcode", minutes: 25 } }),
+      sessionFlow: async () => ({ outcome: "done", calls: ["exec orion-session start leetcode 25"], outputs: ["Started."] }),
+      scheduleFlow: async () => ({ outcome: "fallback", reason: "t" }) });
+    const turn = async (id: string, prompt: string) => {
+      const ctx = { runId: id, sessionKey: "agent:main:orion-chat-9" };
+      await f.fire("before_model_resolve", { prompt }, ctx);
+      const [b] = (await f.fire("before_prompt_build", { prompt, messages: [] }, ctx)) as Array<{ systemPrompt?: string } | undefined>;
+      return b?.systemPrompt ?? "";
+    };
+    await turn("s1", "start a focus session");
+    const prompt = await turn("s2", "cancel that");
+    expect(prompt).toContain("End the focus session you just started?");
+    expect(prompt).not.toContain(UNDO_NOTHING_TO_UNDO);
+    const [blocked] = await f.fire("before_tool_call", { toolName: "exec", params: { command: UNDO_CMD } }, { runId: "s2", sessionKey: "agent:main:orion-chat-9" });
+    expect((blocked as { block?: boolean }).block).toBe(true); // the undo exec stays calendar-only
+  });
+
+  it("a timer set through the directive counts too", async () => {
+    const f = fakeApi();
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Thu 12:00",
+      decideImpl: async (): Promise<Decision> => ({ move: "tool", tool: "timer", args: { minutes: 10 } }) });
+    const ctx1 = { runId: "t1", sessionKey: "agent:main:orion-chat-8" };
+    await f.fire("before_model_resolve", { prompt: "set a timer for 10 minutes" }, ctx1);
+    await f.fire("before_prompt_build", { prompt: "set a timer for 10 minutes", messages: [] }, ctx1);
+    await f.fire("after_tool_call", { toolName: "orion_task_run", params: { steps: [{ action: "timer_set", seconds: 600 }] }, result: { content: [{ type: "text", text: 'executed=true DONE — this really happened' }] } }, ctx1);
+    const ctx2 = { runId: "t2", sessionKey: "agent:main:orion-chat-8" };
+    await f.fire("before_model_resolve", { prompt: "cancel that" }, ctx2);
+    const [b] = (await f.fire("before_prompt_build", { prompt: "cancel that", messages: [] }, ctx2)) as Array<{ systemPrompt?: string } | undefined>;
+    expect(b?.systemPrompt).toContain("Cancel the timer you just set?");
+  });
+
   it("another session's change does not count", async () => {
     const h = harness();
     await h.turn("move gym to 7", "agent:main:orion-chat-1");

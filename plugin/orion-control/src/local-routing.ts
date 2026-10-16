@@ -136,7 +136,12 @@ const STITCH_WINDOW_MS = 3 * 60_000;
 // 2026-10-16 re-run, q092: in a FRESH chat "cancel that" had the worker run `orion-reschedule undo`, which
 // reversed a REAL change Nick made a day earlier ("Undone: put Review spending back"). A bare cancel or
 // undo (no named object) may take back a calendar change only when THIS session made one recently.
-export const UNDO_NOTHING_TO_UNDO = "Cancel what? I haven't changed anything in this chat.";
+export const UNDO_NOTHING_TO_UNDO = "I haven't changed your calendar in this chat. What should I cancel?";
+// 2026-10-16 review: "start a focus session" then "cancel that" said nothing had changed and the session kept
+// running. A session start, a timer or a logged supplement made in this chat is something "cancel that" may mean;
+// ending or undoing it is a different action from the calendar undo, so code ASKS (the safer choice) and never
+// ends it on a guess. The undo exec block stays calendar-only.
+const OTHER_ASKS = { focus: "End the focus session you just started?", timer: "Cancel the timer you just set?", supplement: "Undo the supplement you just logged?" } as const;
 const SESSION_CHANGE_WINDOW_MS = 30 * 60_000;
 const BARE_UNDO = /^(?:(?:ok|okay|please|pls|orion|hey|actually|wait|no)\s+)*(?:(?:cancel|undo|revert)(?:\s+(?:that|it|this|the last (?:one|change|thing)|my last change))?|(?:never ?mind|nvm)\s+(?:that|it|this)|(?:put|take)\s+(?:it|that|this|them)\s+back)(?:\s+(?:please|pls|thanks))?$/;
 /** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
@@ -494,6 +499,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!sessionKey) return;
     sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
   };
+  const otherChanges = new Map<string, { at: number; kind: keyof typeof OTHER_ASKS }>();
+  const recordOther = (sessionKey: string | undefined, kind: keyof typeof OTHER_ASKS) => { if (sessionKey) otherChanges.set(sessionKey, { at: Date.now(), kind }); };
+  const recentOther = (sessionKey: string | undefined) => {
+    const c = sessionKey ? otherChanges.get(sessionKey) : undefined;
+    return c && Date.now() - c.at < SESSION_CHANGE_WINDOW_MS ? c.kind : undefined;
+  };
   const changedRecently = (sessionKey: string | undefined) => {
     const c = sessionKey ? sessionChanges.get(sessionKey) : undefined;
     return !!c && Date.now() - c.at < SESSION_CHANGE_WINDOW_MS;
@@ -598,7 +609,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // no tools (q092, 2026-10-16). A reminder just set, or one being asked about, owns the word instead.
       if (!run.flow && !run.cutOff && isBareUndo(run.message) && !changedRecently(run.sessionKey)
         && !(Date.now() - (lastReminder.get(run.sessionKey ?? "")?.set ?? 0) < CORRECTION_WINDOW_MS) && !reminderAsk.has(run.sessionKey ?? "")) {
-        run.flow = { outcome: "say", kind: "ask", text: UNDO_NOTHING_TO_UNDO };
+        const other = recentOther(run.sessionKey);
+        run.flow = { outcome: "say", kind: "ask", text: other ? OTHER_ASKS[other] : UNDO_NOTHING_TO_UNDO };
       }
       if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken)) run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
       // A focus session is one fixed command: code runs orion-session and the reply is built from
@@ -612,6 +624,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && startsSession(run.message, hint) && options.sessionFlow) {
         run.flow = await options.sessionFlow(run.message, hint).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
         if (run.flow.outcome === "done") {
+          recordOther(run.sessionKey, "focus");
           const outputs = run.flow.outputs;
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
         }
@@ -796,6 +809,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output))) recordChange(run.sessionKey, []);
     }
     run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
+    const made = run.tools[run.tools.length - 1]!;
+    const action = run.directive?.action;
+    if ((action === "timer_set" || action === "supplement_take") && madeTaskRunCall(made, action) && outcomeOf(made) === "success") recordOther(run.sessionKey, action === "timer_set" ? "timer" : "supplement");
   });
 
   api.on("before_agent_finalize", async (event, ctx) => {

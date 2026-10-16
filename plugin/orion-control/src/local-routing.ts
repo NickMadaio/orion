@@ -929,7 +929,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const present = day && !absent ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now)) : null;
         if (absent) run.flow = { outcome: "say", kind: "plain", text: absent };
         else if (present) { run.flow = { outcome: "say", kind: "plain", text: present.text }; if (run.sessionKey) dayMemory.set(run.sessionKey, { at: Date.now(), memory: present.memory }); }
-        else if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\nAnswer his question from the list of his day below only, in one or two short spoken sentences with 12-hour times; "All day:" lines are events with no time, say them as all day. ${DAY_QUESTION_NOTE} Do not call any tools.\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\n${now}` };
+        else if (day) return { systemPrompt: `${LOCAL_IDENTITY}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times; "All day:" lines are events with no time, say them as all day. ${DAY_QUESTION_NOTE} Do not call any tools.\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\n${now}` };
       }
       if (run.flow?.outcome === "done") {
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
@@ -955,7 +955,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
         // "the front desk drafted…", and "otherwise answer him yourself" swapped a right draft for the model's
         // name. The draft is now his reply, with no source and no licence to rewrite it.
-        return { systemPrompt: `Send the reply you drafted, exactly, as your whole reply: no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk. Never name the model, provider or settings you run on.\n\nYou drafted this reply: "${draft}".` };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\nSend the reply you drafted, exactly, as your whole reply: no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.\n\nYou drafted this reply: "${draft}".\n\n${now}` };
       }
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
       // Snippets answer questions about his notes, never live data: "I checked the weather" beside a weather

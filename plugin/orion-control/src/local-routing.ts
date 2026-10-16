@@ -36,6 +36,7 @@ import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-
 import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
+import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -66,6 +67,8 @@ export type LocalRoutingOptions = {
   sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
   /** Moves his phone's wake alarm (scripts/orion-wake) for "push my alarm to 12" (tests pass a stub; wired from index.ts). */
   wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
+  /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
+  todoDoneFlow?: (message: string) => Promise<FlowResult>;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
   /** Pulls {time "HH:MM" or null, label} out of a reminder request (tests pass a stub; wired from index.ts). */
@@ -690,6 +693,17 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const told = learned.length ? `\n\nWhat he told you (saved in his "Nick" note; only these are "you told me"):\n${learned.map((l) => `- ${l}`).join("\n")}` : "";
         return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${told}${fetched ? `\n\nFrom his notes and documents, matched to this message (NOT things he said; q056 2026-10-16: never "you told me" for these, say "your notes say"):\n${fetched}` : ""}\n\n${now}`,
           appendContext: fact ? FACT_NOW : RECALL_NOW };
+      }
+      // q042 (2026-10-16 r8): "mark the oats one done" became supplement_take "oats" and "Done."; ticking a to-do off
+      // is code's call (todo-done-flow.ts), before any front-desk tool move.
+      if (!run.flow && !run.cutOff && options.todoDoneFlow && parseTodoDone(run.message)) {
+        const ticked = await options.todoDoneFlow(run.message).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (ticked.outcome !== "fallback") {
+          run.flow = ticked;
+          const calls = ticked.outcome === "done" ? ticked.calls : ticked.calls ?? [];
+          const outputs = ticked.outcome === "done" ? ticked.outputs : ticked.outputs ?? [];
+          calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
+        }
       }
       // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
       // a timer and supplements answered with no call or the wrong one). Before the calendar flow.

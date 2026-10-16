@@ -103,3 +103,30 @@ describe("swaps are allowed; a refusal never says a block is missing when it is 
     expect((await run("drop whatever's after lab", [{ do: "drop", what: "B2" }], n, day)).writes).toEqual([["drop", "study"]]);
   });
 });
+
+// Review round 3, 2026-10-16.
+describe("skip-then-add of the same thing, a duration is not a time, an anchor is the adjacent block", () => {
+  for (const [msg, steps] of [
+    ["skip yoga today, i'll go tomorrow", [{ do: "add", what: "yoga", minutes: 30, to: "17:00" }]],
+    ["skip yoga today, i'll do it tomorrow", [{ do: "fill_between", what: "yoga", after: "B2", before: "B1" }]],
+    ["cancel my run, i'll rest instead", [{ do: "add", what: "run", minutes: 30, to: "17:00" }]],
+  ] as Array<[string, Intent[]]>) {
+    it(`"${msg}" adds nothing`, async () => {
+      const { r, writes } = await run(msg, steps);
+      expect(writes).toEqual([]);
+      expect(r).toMatchObject({ outcome: "say", text: expect.stringMatching(/^I didn't make that change/) });
+    });
+  }
+  const day: Day = { date: "2026-10-16", now: "08:00", blocks: [
+    { title: "CS2101 Lab", start: "10:00", end: "11:00", fixed: true }, { title: "DS Lab", start: "14:00", end: "15:00", fixed: false },
+    { title: "walk", start: "16:00", end: "16:30", fixed: false }, { title: "Study", start: "19:30", end: "21:30", fixed: false }] };
+  const n = new Date(2026, 9, 16, 8, 0);
+  it("'drop the 2 hour block' is not 2 PM", async () => {
+    expect((await run("drop the 2 hour block", [{ do: "drop", what: "B2" }], n, day)).writes).toEqual([]);
+    expect((await run("drop the 2 pm block", [{ do: "drop", what: "B2" }], n, day)).writes).toEqual([["drop", "DS Lab"]]);
+  });
+  it("'after lab' is only the first block after it", async () => {
+    expect((await run("drop whatever's after lab", [{ do: "drop", what: "B4" }], n, day)).writes).toEqual([]);
+    expect((await run("drop whatever's after lab", [{ do: "drop", what: "B2" }], n, day)).writes).toEqual([["drop", "DS Lab"]]);
+  });
+});

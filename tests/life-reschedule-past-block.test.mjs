@@ -69,3 +69,11 @@ test("a stated time before his usual wake is kept on a later day (smoke 2026-10-
   assert.doesNotMatch(r.out, /SHIFTED|has passed/, r.out);
   assert.equal(titles().length, 3);
 });
+
+// (review, 2026-10-16) A stated 03:00 widened the window to 3 AM; the window opens at most 2 h before the usual wake.
+test("a stated time more than 2 h before his usual wake is not kept (review LOW)", (t) => {
+  const { run, titles } = world(t, [22, 25]);
+  const r = run("add", "stretch", "15", "--at", "03:00", "--date", "2030-10-04", "--dry-run");
+  assert.doesNotMatch(r.out, /planned stretch: 03:00/, r.out);
+  assert.equal(titles().length, 3);
+});

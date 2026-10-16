@@ -292,13 +292,20 @@ const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "frida
 // habit), and a short form only after on/next/this ("the sun", "i sat in class", "c'mon" are not days).
 const WEEKDAY = /\b(?<dest>to|till|until|onto|into)?\s*(?:(?:on|next|this)\s+(?<day>mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun)\b|(?:on\s+|next\s+|this\s+)?(?<full>monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)/i;
 
+const TODAY = /\b(today|tonight|this (morning|afternoon|evening))\b/i;
+const inPassing = (message: string, m: RegExpMatchArray): boolean =>
+  /^['\u2019]s\b/i.test(message.slice(m.index! + m[0].length)) || /\bfor\s+(?:my|the|our|your)\s+$/i.test(message.slice(0, m.index! + m[0].length - (m.groups?.full ?? m.groups?.day ?? "").length));
+
 /** The day the change is for: tomorrow, a weekday he names, or today. "i gotta leave early friday, cut
  *  the last block off" resized Thursday's last block (sweep q027, 2026-10-15). The weekday that is
  *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
 export function dayArgsFor(message: string, now: Date = new Date()): { args: string[]; label: string | undefined } {
   if (meansTomorrow(message, now)) return { args: ["--date", "tomorrow"], label: "tomorrow" };
+  // (review, 2026-10-16) "today"/"tonight"/"this afternoon" is today; "my monday exam", "wednesday's quiz",
+  // "for the tuesday deadline" name a weekday in passing, not the day of the change.
+  if (TODAY.test(message)) return { args: [], label: undefined };
   const m = message.match(WEEKDAY);
-  if (!m?.groups || m.groups.dest) return { args: [], label: undefined };
+  if (!m?.groups || m.groups.dest || inPassing(message, m)) return { args: [], label: undefined };
   const said = (m.groups.full ?? m.groups.day ?? "").toLowerCase();
   const target = WEEKDAYS.findIndex((d) => d.startsWith(said.slice(0, 3)));
   if (target < 0 || (target === now.getDay() && !/\bnext\s/i.test(m[0]))) return { args: [], label: undefined };

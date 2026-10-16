@@ -97,3 +97,12 @@ describe("schedule flow — a stated start time on an add (smoke 2026-10-16)", (
     expect(compile({ do: "add", what: "stretch", minutes: 15, to: "07:30" }, { date: "2026-10-17", now: null, blocks: [] })).toEqual({ args: ["add", "stretch", "15", "--at", "07:30"] });
   });
 });
+
+// (review, 2026-10-16) A weekday in passing is not the day of the change.
+describe("schedule flow — a weekday in passing is not the date (review HIGH 4)", () => {
+  const fri = new Date(2026, 9, 16, 10, 0);
+  for (const msg of ["add a study block today for my monday exam", "prep 2 hours for wednesday's quiz this afternoon", "put revision for the tuesday deadline at 4pm", "add revision tonight for the friday quiz"]) {
+    it(`"${msg}" stays today`, () => expect(dayArgsFor(msg, fri)).toEqual({ args: [], label: undefined }));
+  }
+  it("a real day still counts", () => expect(dayArgsFor("add revision on monday at 4pm", fri).args).toEqual(["--date", "monday"]));
+});

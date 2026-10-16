@@ -5,7 +5,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { registerLocalRouting } from "./local-routing.js";
+import { isQuestion, registerLocalRouting } from "./local-routing.js";
 import type { Decision } from "./front-desk.js";
 import { meansTomorrow } from "./schedule-flow.js";
 
@@ -74,5 +74,15 @@ describe("local routing — day questions without a question mark (2026-10-15 sw
       expect(h.flows).toEqual([said]);
       expect(h.reads).toEqual([]);
     });
+  }
+});
+
+// (review, 2026-10-16) "when" as an opener made plans into questions.
+describe("isQuestion — a 'when' clause is a plan, not a question", () => {
+  for (const said of ["when i get back from lab i'm going to study until dinner", "when i get home i'll do laundry then gym"]) {
+    it(`"${said}" is not a question`, () => expect(isQuestion(said)).toBe(false));
+  }
+  for (const said of ["when is my next class", "when does lab start", "when's my gym thing today", "when do i eat dinner"]) {
+    it(`"${said}" is a question`, () => expect(isQuestion(said)).toBe(true));
   }
 });

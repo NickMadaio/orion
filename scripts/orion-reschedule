@@ -232,9 +232,10 @@ const untilMinute = ["extend", "move"].includes(command) ? null : minute(flag("-
 if (flag("--until") !== undefined && !["extend", "move"].includes(command) && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
 // A time he states for `add` is his, even before the planning window opens (an hour before his usual wake):
 // "a stretch block tomorrow at 7:30 am" was booked 9:32 as "already past" and reported Done (smoke test, 2026-10-16).
-// Only a time that really is behind us today stays past.
+// Only a time that really is behind us today stays past. The window opens at most 2 h before his usual wake:
+// a stated 03:00 no longer widens it to 3 AM (review, 2026-10-16).
 const statedStart = command === "add" ? minute(flag("--at")) : null;
-const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), statedStart) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
+const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, wakeMinute - 120)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
 // Words keep five letters ("studying" ~ "study"), but a word with a digit is a code and stays whole:
 // cut to five, CS2101 and CS2100 were both "cs210" (2026-10-11).

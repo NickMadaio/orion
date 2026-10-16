@@ -292,13 +292,14 @@ const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "frida
 // habit), and a short form only after on/next/this ("the sun", "i sat in class", "c'mon" are not days).
 const WEEKDAY = /\b(?<dest>to|till|until|onto|into)?\s*(?:(?:on|next|this)\s+(?<day>mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun)\b|(?:on\s+|next\s+|this\s+)?(?<full>monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)/i;
 
+const TODAY = /\b(today|tonight|this (morning|afternoon|evening))\b/i;
 const inPassing = (message: string, m: RegExpMatchArray): boolean =>
   /^['\u2019]s\b/i.test(message.slice(m.index! + m[0].length)) || /\bfor\s+(?:my|the|our|your)\s+$/i.test(message.slice(0, m.index! + m[0].length - (m.groups?.full ?? m.groups?.day ?? "").length));
 
 /** The day the change is for: tomorrow, a weekday he names, or today. "i gotta leave early friday, cut
  *  the last block off" resized Thursday's last block (sweep q027, 2026-10-15). The weekday that is
  *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
-export function dayArgsFor(message: string, now: Date = new Date()): { args: string[]; label: string | undefined } {
+export function dayArgsFor(message: string, now: Date = new Date()): { args: string[]; label: string | undefined; ask?: string } {
   if (meansTomorrow(message, now)) return { args: ["--date", "tomorrow"], label: "tomorrow" };
   // (review, 2026-10-16) no weekday means today; "my monday exam", "wednesday's quiz",
   // "for the tuesday deadline" name a weekday in passing, not the day of the change, but a weekday he names as the target beats a later "today" (re-review, 2026-10-16).
@@ -308,6 +309,11 @@ export function dayArgsFor(message: string, now: Date = new Date()): { args: str
   const target = WEEKDAYS.findIndex((d) => d.startsWith(said.slice(0, 3)));
   if (target < 0 || (target === now.getDay() && !/\bnext\s/i.test(m[0]))) return { args: [], label: undefined };
   const name = WEEKDAYS[target]!;
+  // A weekday named after "today" could be either day: ask, write nothing (round 6, 2026-10-16). A weekday
+  // before it is the object ("plan my friday, today is too packed").
+  const label = name[0]!.toUpperCase() + name.slice(1);
+  const todayAt = message.search(TODAY);
+  if (todayAt >= 0 && todayAt < m.index!) return { args: [], label: undefined, ask: `Today or ${label}?` };
   return { args: ["--date", name], label: name[0]!.toUpperCase() + name.slice(1) };
 }
 
@@ -335,7 +341,8 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     await exec(["undo"]);
     undone += 1;
   }
-  const { args: dateArgs, label: when } = dayArgsFor(message, now);
+  const { args: dateArgs, label: when, ask: whichDay } = dayArgsFor(message, now);
+  if (whichDay) return { outcome: "say", text: whichDay, kind: "ask" };
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
   const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;

@@ -706,3 +706,56 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
     expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I found in your notes that a nap should be at least 75 minutes." }, ctx)).toEqual([undefined]);
   });
 });
+
+// Live sweep 2026-10-15, round 2 (routing polish).
+describe("local routing — sweep round 2 polish (2026-10-16)", () => {
+  const setup = (decision: Decision, extra: Partial<Parameters<typeof registerLocalRouting>[1]> = {}) => {
+    const f = fakeApi(); const flows: string[] = []; const sessions: Array<[string, unknown]> = [];
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), decideImpl: async () => decision, clock: () => "Thu 22:40",
+      brainSearch: async () => "", scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "t" }; },
+      sessionFlow: async (m, hint) => { sessions.push([m, hint]); return { outcome: "done", calls: ["exec orion-session start leetcode --minutes 60 --json"], outputs: ['{"ok":true}'], reply: "Your focus session is running: 60 minutes." }; },
+      ...extra });
+    const ctx = { runId: "rp1", sessionKey: "agent:main:orion-chat-1" };
+    const build = async (prompt: string) => {
+      await f.fire("before_model_resolve", { prompt }, ctx);
+      const [built] = (await f.fire("before_prompt_build", { prompt, messages: [] }, ctx)) as Array<{ systemPrompt: string } | undefined>;
+      return built?.systemPrompt ?? "";
+    };
+    return { f, ctx, flows, sessions, build };
+  };
+
+  it("q051: a front-desk session start runs the session flow with its task, never the calendar", async () => {
+    const h = setup({ move: "tool", tool: "session", args: { do: "start", task: "leetcode", minutes: "60" } });
+    const prompt = await h.build("focus mode on for an hour, leetcode");
+    expect(h.flows).toEqual([]);
+    expect(h.sessions).toEqual([["focus mode on for an hour, leetcode", { start: true, task: "leetcode", minutes: 60 }]]);
+    expect(prompt).toMatch(/exactly this text[\s\S]*Your focus session is running/);
+  });
+
+  it("q079/q101: the draft hand-off never names the front desk as its source, nor lets the worker swap it", async () => {
+    const h = setup({ move: "answer", answer: "Why did the calendar go to the doctor? Because it was out of date!" });
+    const prompt = await h.build("tell me a joke");
+    expect(prompt).not.toMatch(/The front desk drafted/);
+    expect(prompt).not.toMatch(/otherwise answer him/);
+    expect(prompt).toMatch(/never name the model/i);
+  });
+
+  it("q063: an 'ask' hint is not attributed to the front desk", async () => {
+    const h = setup({ move: "ask", answer: "I don't have access to your gym locker code. Is there anything else I can help you with?" });
+    expect(await h.build("whats my gym locker code")).not.toMatch(/front desk/i);
+  });
+
+  it("q094/q095: filler and gibberish get a fixed short question, typed or spoken; nothing about his session", async () => {
+    for (const said of ["asdf jkl qwer", "Nick SAID this out loud:\n--- Nick's message follows ---\nhm"]) {
+      const h = setup({ move: "ignore" });
+      expect(await h.build(said)).toMatch(/exactly this text[\s\S]*Didn't catch that — what do you need\?/);
+    }
+  });
+
+  it("a longer 'ignore' still goes to the worker, told to ask rather than report his day or session", async () => {
+    const h = setup({ move: "ignore" });
+    const prompt = await h.build("Nick SAID this out loud:\n--- Nick's message follows ---\nno I mean, I can unlock it manually if I want");
+    expect(prompt).not.toMatch(/Didn't catch that/);
+    expect(prompt).toMatch(/not his session or his day/);
+  });
+});

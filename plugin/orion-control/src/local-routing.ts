@@ -33,7 +33,7 @@ import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
-import { isSessionStart } from "./session-flow.js";
+import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
 import { toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
@@ -60,7 +60,7 @@ export type LocalRoutingOptions = {
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
   scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
   /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
-  sessionFlow?: (message: string) => Promise<FlowResult>;
+  sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
   /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
@@ -99,6 +99,8 @@ type Run = {
   sessionKey?: string;
   /** Spoken and trailing off mid-sentence: nothing is done until the rest arrives. */
   cutOff?: boolean;
+  /** Said out loud (the app's spoken marker), not typed. */
+  spoken?: boolean;
   /** Changes the cut-off first half of this request made, to take back before acting on the whole. */
   undo?: string[];
 };
@@ -161,6 +163,30 @@ export function isCalendarTurn(message: string, settled: Decision): boolean {
 // A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).
 const keepsFact = (message: string) => tellsFact(message) || (HABIT.test(message) && !CHANGE_REQUEST.test(message) && !/\?\s*$/.test(message.trim()));
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
+
+/** The front desk's session start, task and length (sweep 2026-10-15, q051: it read "focus mode on for an
+ *  hour, leetcode" right — session start, task leetcode — and the calendar flow booked "focus mode"). */
+export function sessionHint(d: Decision | undefined): SessionHint {
+  if (d?.move !== "tool" || d.tool !== "session" || d.args?.do !== "start") return {};
+  const task = typeof d.args.task === "string" ? d.args.task.trim() : "";
+  const minutes = Number(d.args.minutes);
+  return { start: true, ...(task && task.length <= 80 ? { task } : {}), ...(Number.isInteger(minutes) && minutes > 0 && minutes <= 480 ? { minutes } : {}) };
+}
+
+// Filler and gibberish the front desk marked "ignore" ("hm", "asdf jkl qwer"): the worker answered them with
+// his focus-session status from the stale app context (q094, q095, sweep 2026-10-15). A fixed short question
+// instead — still a reply, never silence. Anything longer, or typed with a command word, stays with the worker.
+export const NOT_CAUGHT = "Didn't catch that — what do you need?";
+const FILLER_WORD = /^(?:h+m+|u+h+m*|u+m+|e+r+m*|a+h+|o+h+|ok(?:ay)?|k+|lol|lmao|huh|mhm+|m+|what|wait|like|so)$/;
+const COMMAND_WORD = /\b(on|off|open|close|play|pause|stop|start|lights?|music|volume|timer|next|unlock|show|help)\b/i;
+const IGNORE_NOTE = "This may not be meant for you (a fragment, or him talking to someone else). If it is a real request, do it; otherwise ask him briefly what he needs and say nothing else — not his session or his day.";
+export function isNotForOrion(message: string, spoken: boolean): boolean {
+  const words = message.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  if (words.length > 3) return false;
+  if (words.every((w) => FILLER_WORD.test(w))) return true;
+  if (spoken) return false;
+  return ![SCHEDULING, REMINDER, CHANGE_REQUEST, LIVE_DATA, BRAIN, COMMAND_WORD].some((re) => re.test(message)) && !isSessionStart(message);
+}
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key: string) => str(event[key]) ?? str(ctx[key]);
 
@@ -279,7 +305,8 @@ export const liveExtractReminder = async (message: string): Promise<{ time: stri
   } catch { return null; }
 };
 
-const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did.";
+// "I'm currently using the ollama/qwen3.5:9b model" (q101, sweep 2026-10-15): no model, provider or setting names.
+const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on.";
 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export function dateLine(now = new Date()): string {
@@ -428,7 +455,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       : Promise.resolve()
         .then(() => decideImpl({ message, clock: clock() }))
         .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, undo: stitch?.marks ?? [],
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [],
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -484,11 +511,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
       if (run.cutOff && !run.flow) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
+      if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken)) run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
       // A focus session is one fixed command: code runs orion-session and the reply is built from
       // its output. Left to the worker, it said "I've started a focus session" three times and
       // called nothing (2026-10-15). Before the scheduler, which "focus block" would also match.
-      if (!run.flow && isSessionStart(run.message) && options.sessionFlow) {
-        run.flow = await options.sessionFlow(run.message).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+      // The front desk's own session start counts too, unless his words rule one out (q051, q054).
+      const hint = sessionHint(run.settled);
+      if (!run.flow && startsSession(run.message, hint) && options.sessionFlow) {
+        run.flow = await options.sessionFlow(run.message, hint).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
         if (run.flow.outcome === "done") {
           const outputs = run.flow.outputs;
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
@@ -582,8 +612,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const lookup = LIVE_DATA.test(run.message);
       if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message) && !lookup) {
         // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
-        // read it out as "The front desk says…" (live sweep 2026-10-15).
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nThe front desk drafted this reply: "${run.settled.answer}". If it is right for Nick's message, send exactly that (no tools); otherwise answer him briefly yourself. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
+        // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
+        // "the front desk drafted…", and "otherwise answer him yourself" swapped a right draft for the model's
+        // name. The draft is now his reply, with no source and no licence to rewrite it.
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou drafted this reply: "${run.settled.answer}". Send exactly that as your whole reply, no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
       }
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
       // Snippets answer questions about his notes, never live data: "I checked the weather" beside a weather
@@ -591,8 +623,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (fetched && !LIVE_DATA.test(run.message)) run.provided = true;
       const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
       const askNote = run.settled.move === "ask" && run.settled.answer
-        ? `\n\nThe front desk thought you might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}${lookup ? `\n\n${LIVE_NOTE}` : ""}` };
+        // "The front desk mentioned they don't have it either" (q063, sweep 2026-10-15): no source named.
+        ? `\n\nYou might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
+      const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}` };
     });
   }
 

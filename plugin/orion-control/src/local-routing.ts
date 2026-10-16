@@ -163,7 +163,7 @@ const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|w
 // them ("yes i can", "what's it like", "i know what it is"), so a clause that is complete without the word is not held. "it", "that"
 // and "this" are left out: "what time is it", "what is that", "i love this" are whole questions and statements.
 const TRAILS_OFF_SOFT = /\b(can|could|is|are|was|just|like|i|i'm)\s*[,–—-]*\s*$/i;
-const COMPLETE_TAIL = /\b(?:yes|yeah|yep|no|nope|i|we|you|they|he|she|it|that|this|there)\s+(?:can|could|is|are|was|am)\s*$|\b(?:it|that|this|looks?|feels?|sounds?|seems?|more|something|someone|things?)\s+like\s*$|\b(?:what|where|who|how)\s+(?:it|that|this|he|she|they|there)\s+(?:is|are|was)\s*$/i;
+const COMPLETE_TAIL = /\b(?:yes|yeah|yep|no|nope|i|we|you|they|he|she|it|that|this|there)\s+(?:can|could|is|are|was|am)\s*$|\b(?:it|that|this|looks?|feels?|sounds?|seems?|more|something|someone|things?)\s+like\s*$|\b(?:what|where|who|how)\s+(?:it|that|this|he|she|they|there)\s+(?:is|are|was)\s*$|\b(?:what|where|who|how|when|which)\s+\S+(?:\s+\S+)*?\s+(?:is|are|was)\s*$|\b(?:you|they|we)\s+like\s*$/i; // review 5 H4 (2026-10-16): "tell me what my next class is", "do you know where my keys are", "whatever you like" are whole sentences
 export const trailsOff = (message: string): boolean => TRAILS_OFF.test(message) || (TRAILS_OFF_SOFT.test(message) && !COMPLETE_TAIL.test(message.trim()));
 export const GO_ON = "Go on.";
 const LABEL_COMMANDS = /\b(turn|open|play|start|text|email|add|move|cancel|set|what|whats|what's|how|when)\b/i;

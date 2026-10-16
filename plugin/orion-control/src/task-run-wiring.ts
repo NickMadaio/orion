@@ -48,7 +48,9 @@ export function stepsOf(args: Rec): Rec[] | null {
   if (typeof steps === "string") { try { steps = JSON.parse(steps); } catch { return null; } }
   if (!Array.isArray(steps)) return null;
   return steps.filter(isRec).map((s) => {
-    const { id: _id, arguments: nested, ...rest } = s;
+    // 2026-10-16 review: a step's `id` is a label in the graph form but the reminder's id on reminder_cancel, so
+    // it is kept here and dropped in the comparison only where the expected step carries none.
+    const { arguments: nested, ...rest } = s;
     return { ...(isRec(nested) ? nested : {}), ...rest };
   });
 }
@@ -67,12 +69,19 @@ export function guardTaskRun(toolName: string, params: unknown, expected: Expect
   const wantSteps = stepsOf(want) ?? [];
   const actions = new Set(wantSteps.map((s) => String(s.action)));
   const got = stepsOf(call.args);
-  if (!got || !got.some((s) => actions.has(String(s.action)))) return undefined;
-  if (canon(got) === canon(wantSteps)) return undefined;
+  if (!got || got.length === 0) return undefined;
+  const restate = `Call tool_call with {"id":"${TASK_RUN_ID}","args":${expected.args}} exactly.`;
+  // 2026-10-16 review: any other action while a directive is active (cancel expected, alarm_set called) is refused.
+  if (got.some((s) => !actions.has(String(s.action)))) {
+    return { block: true, blockReason: `That is not the action ORION worked out for this turn. ${restate}` };
+  }
+  const idKept = new Set(wantSteps.filter((s) => "id" in s).map((s) => String(s.action)));
+  const comparable = got.map((s) => { if (idKept.has(String(s.action))) return s; const { id: _id, ...rest } = s; return rest; });
+  if (canon(comparable) === canon(wantSteps)) return undefined;
   if (call.via === "tool_call") return { params: { ...(params as Rec), args: want } };
   // A direct call may also carry a graph or other keys a merge would keep: refuse and restate instead.
   if (Object.keys(call.args).some((k) => k !== "steps")) {
-    return { block: true, blockReason: `The arguments for this call are fixed. Call tool_call with {"id":"${TASK_RUN_ID}","args":${expected.args}} exactly.` };
+    return { block: true, blockReason: `The arguments for this call are fixed. ${restate}` };
   }
   return { params: { steps: want.steps } };
 }

@@ -6,7 +6,7 @@ published prices; the speed/correctness/cost-per-turn columns are blank until th
 
 ## Goal
 
-ORION must never go silent when local routing is off (the testing window lapsed, no acceptance record)
+ORION must never go silent when local routing is off (no acceptance record or testing window)
 or Ollama is down. Today the configured primary is `anthropic/claude-haiku-4-5-20251001`, whose account
 has no credit, and the fallbacks are the local 9B and llama3.2:3b with the full 17k-token workspace
 prompt (60-300 s, timeouts). Nick: avoid cloud Claude unless necessary; a very cheap model is fine.
@@ -81,14 +81,3 @@ then `openclaw gateway restart`.
 | local qwen3.5:9b (baseline) | | | | | $0 |
 | gemini-2.5-flash-lite | | | | | |
 | deepseek-v4-flash | | | | | |
-
-## Testing-window heads-up (implemented)
-
-`plugin/orion-control/src/testing-window-notice.ts`: when `localRouting` is `on` and
-`localRoutingTestingUntil` is set, the plugin checks at load and every 10 minutes; within 6 h of the end
-it queues one line in `alerts-outbox.jsonl` (Nick's phone via the Mac app), once per distinct end time
-(`testing-window-notice.json`, so restarts do not repeat it). The text says the window ends in ~N h and
-that renewal needs his OK (max 48 h) plus a gateway restart. Tests: `testing-window-notice.test.ts`
-(7 cases: quiet >6 h, one send, no repeat, renewed window re-alerts, closed/unset/malformed, load check,
-unwritable outbox). Takes effect after deploy (`scripts/orion-deploy --allow-dirty`), which restarts the
-gateway; the current window ends 2026-10-18T10:58Z, so the line would fire ~04:58Z that day.

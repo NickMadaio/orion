@@ -11,8 +11,14 @@
    away from the Mac            → phone notification
    at the Mac, out (class…)     → hologram + silent chat bubble on the Mac
    at the Mac at home/headphones→ hologram, said aloud at a sensible volume
-   his planned night            → held until morning (unless --urgent)
+   his sleep window (quiet)     → held until morning; only --urgent with --urgent-kind
+                                reminder|class (a reminder he set, a class he is about
+                                to miss) gets through. Bedtime nags never do (2026-10-16).
+ a focus session is running   → held and batched until it ends (same two exceptions).
  No repeats within 2 hours, at most 6 an hour. Never during an evaluation.
+ Exit codes: 0 sent, held, or already said; 3 NOT SENT (rate cap); 4 delivery failed.
+ --no-queue: if held, drop instead of queueing (bedtime nags are pointless in the morning).
+ --drain-held: send everything held, merged, once it is neither quiet nor focus time.
  --loud: aloud at full volume (the morning briefing; the volume goes back after).
  --listen: after saying it aloud, listen a few seconds for an answer.
 */
@@ -23,51 +29,91 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { allowed, chooseChannel } from "./lib/reach/route.mjs";
 import { presence } from "./lib/reach/presence.mjs";
+import { mayBypassQuiet, URGENT_KINDS } from "./lib/reach/quiet.mjs";
+import { appendHeld, readHeld, clearHeld, mergeHeld } from "./lib/reach/held.mjs";
+import { activeSession } from "./lib/reach/focus-hold.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const text = args.find((a, i) => !a.startsWith("--") && !["--kind", "--why", "--channel"].includes(args[i - 1]));
+const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind"];
+const drain = args.includes("--drain-held");
 const fail = (m, c = 2) => { console.error(m); process.exit(c); };
-if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent] [--channel auto|phone|mac] [--dry-run]');
-const kind = flag("--kind") ?? "info";
-if (!["reminder", "warning", "update", "question", "info", "morning"].includes(kind)) fail("--kind must be reminder, warning, update, question, info or morning");
-const dry = args.includes("--dry-run");
-if (!dry) refuseDuringEval("reaching Nick");
 
 const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const LOG = join(DIR, "outreach.jsonl");
 const OUTBOX = join(DIR, "outreach-outbox.jsonl");
+// Test seams (never set in production): a fixed clock, fixed Mac facts, a fake `open`.
+const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
+const givenFacts = process.env.ORION_REACH_FACTS ? JSON.parse(process.env.ORION_REACH_FACTS) : null;
+const OPEN = process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open";
+
+let text = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1]));
+let held = [];
+if (drain) {
+  held = readHeld(DIR);
+  text = mergeHeld(held, { now: now.getTime() }).text;
+  if (!text) { clearHeld(DIR, held); console.log("Nothing held worth saying."); process.exit(0); }
+}
+if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent [--urgent-kind reminder|class]] [--channel auto|phone|mac] [--dry-run]');
+const kind = flag("--kind") ?? (drain ? "update" : "info");
+if (!["reminder", "warning", "update", "question", "info", "morning"].includes(kind)) fail("--kind must be reminder, warning, update, question, info or morning");
+const urgentKind = flag("--urgent-kind") ?? null;
+if (urgentKind && !URGENT_KINDS.includes(urgentKind)) fail(`--urgent-kind must be one of ${URGENT_KINDS.join(", ")}`);
+const dry = args.includes("--dry-run");
+if (!dry) refuseDuringEval("reaching Nick");
+
 mkdirSync(DIR, { recursive: true });
 const history = existsSync(LOG) ? readFileSync(LOG, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : [];
 
-const gate = allowed(text, history);
-if (!gate.ok) { console.log(`NOT SENT: ${gate.reason}.`); process.exit(0); }
+const gate = allowed(text, history, { now: now.getTime() });
+if (!gate.ok && gate.duplicate) { console.log(`Already said: ${gate.reason}.`); process.exit(0); }
+// 2026-10-16: a refusal is not "said". Exit 3 so a caller (orion-proactive) does not mark its key done.
+if (!gate.ok) { console.log(`NOT SENT: ${gate.reason}.`); process.exit(3); }
 
 const urgent = args.includes("--urgent");
-const here = await presence();
+const genuinelyUrgent = mayBypassQuiet({ urgent, urgentKind });
+const here = await presence(now, { dir: DIR, facts: givenFacts });
 const forced = flag("--channel");
 let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
-  : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false }, { urgent })
-  : chooseChannel(here, { urgent });
-// --silent: never aloud (he said he's in class, or anything else that needs quiet).
+  : forced === "mac" ? chooseChannel({ ...here, idleSeconds: 0, locked: false }, { urgent, urgentKind })
+  : chooseChannel(here, { urgent, urgentKind });
+// A focus session is running: batch everything but the two genuinely urgent kinds until it ends.
+const session = dry ? null : activeSession(process.env);
+if (session && !genuinelyUrgent) decision = { channel: "hold", reason: "a focus session is running - batched until it ends", heldFor: "focus" };
 if (args.includes("--silent") && decision.channel === "mac-voice") decision = { channel: "mac-bubble", reason: `${decision.reason}; silent was asked for` };
-const id = `reach-${Date.now()}-${randomUUID().slice(0, 6)}`;
-const entry = { id, at: new Date().toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, headphones: !!here.headphones,
+const id = `reach-${now.getTime()}-${randomUUID().slice(0, 6)}`;
+const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, urgentKind, headphones: !!here.headphones,
   loud: args.includes("--loud") && !here.headphones, listen: args.includes("--listen") };
 
 if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
 
-// Mac channels need the ORION app; if it isn't running, the phone is the way.
-appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
-if (decision.channel.startsWith("mac")) {
-  try { execFileSync("/usr/bin/open", ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); }
-  catch { entry.channel = "phone"; entry.reason = "the ORION app isn't running"; appendFileSync(LOG, `${JSON.stringify(entry)}\n`); }
+try {
+  appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
+  if (decision.channel === "hold") {
+    // Held means kept, not dropped (2026-10-16): queued, released once and merged.
+    if (!drain && !args.includes("--no-queue")) appendHeld(DIR, { id, at: entry.at, text: entry.text, kind, why: entry.why, heldFor: decision.heldFor ?? "quiet" });
+    console.log(args.includes("--json") ? JSON.stringify(entry) : `Held — ${describe(entry)}`);
+    process.exit(0);
+  }
+  // Mac channels need the ORION app; if it isn't running, the phone is the way.
+  if (decision.channel.startsWith("mac")) {
+    try { execFileSync(OPEN, ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); }
+    catch { entry.channel = "phone"; entry.reason = "the ORION app isn't running"; appendFileSync(LOG, `${JSON.stringify(entry)}\n`); }
+  }
+  // Into his chat thread everywhere; a phone notification only when that is how he is reached.
+  // `urgent` reaches the phone only for a genuinely urgent kind (2026-10-16), so the app can make it time-sensitive.
+  appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: entry.channel === "phone", urgent: genuinelyUrgent })}\n`);
+} catch (error) {
+  // 2026-10-16 audit, finding 6: a failed send used to print and exit 0 and the caller marked it said.
+  // Recorded as failed (so it neither blocks a retry nor eats the hourly allowance) and exit 4.
+  try { appendFileSync(LOG, `${JSON.stringify({ id, at: now.toISOString(), text: entry.text, kind, status: "failed", error: String(error?.message ?? error).slice(0, 200) })}\n`); } catch {}
+  console.log(`NOT SENT: delivery failed (${String(error?.message ?? error).slice(0, 120)}).`);
+  process.exit(4);
 }
-// Into his chat thread everywhere; a phone notification only when that is how he is reached.
-if (entry.channel !== "hold") appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: entry.channel === "phone" })}\n`);
+if (drain) clearHeld(DIR, held);
 console.log(args.includes("--json") ? JSON.stringify(entry) : `Sent — ${describe(entry)}`);
 
 function describe(e) {
-  return { phone: "his phone (notification + chat)", "mac-bubble": "the Mac, silent bubble", "mac-voice": "the Mac, aloud", hold: "held until morning" }[e.channel] + ` (${e.reason}).`;
+  return { phone: "his phone (notification + chat)", "mac-bubble": "the Mac, silent bubble", "mac-voice": "the Mac, aloud", hold: "held" }[e.channel] + ` (${e.reason}).`;
 }

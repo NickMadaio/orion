@@ -37,7 +37,7 @@ import { classifyClaim } from "./lib/remote/claims.mjs";
 import { fixReply, lintReply } from "./lib/remote/reply-lint.mjs";
 import { readStandingRules } from "./lib/remote/standing-rules.mjs";
 import { compactPhoneMessage, localRoutingOn, relevance } from "./lib/remote/phone-context.mjs";
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -584,13 +584,60 @@ async function todaySchedule() {
   } catch { return null; }
 }
 
-// What ORION said to him first (orion-reach) in the last 6 hours: this message may be his answer.
-function recentOutreach() {
+/*
+ What ORION said to him first (orion-reach), linked to the message he is sending (WP5, 2026-10-16).
+
+ The old rule attached the last 3 rows from 6 hours to every phone turn, so a stale question rode along
+ on unrelated messages (the Mac side fixed the same bug in 8220d23). Now, one rule shared with the Mac
+ app's OutreachContext: the exact id when the phone sends one (`--reply-to`, a reply to a notification),
+ else the single latest non-held row within 25 minutes, or 90 if it carries an `ask` (a text from away
+ is answered late), only if no turn has happened since it was sent, and only once.
+*/
+const OUTREACH_PLAIN_MS = 25 * 60000;
+const OUTREACH_ASK_MS = 90 * 60000;
+const consumedFile = () => join(CONTROLLED, `${sandbox() ? "eval-" : ""}outreach-consumed.json`);
+
+// The newest row per id (orion-reach logs a row twice when it falls back to the phone), without held or failed ones.
+function deliveredRows() {
+  const byId = new Map();
+  for (const line of readFileSync(join(CONTROLLED, "outreach.jsonl"), "utf8").split("\n")) {
+    let row; try { row = JSON.parse(line); } catch { continue; }
+    if (!row || typeof row.text !== "string" || !Number.isFinite(Date.parse(row.at))) continue;
+    byId.set(row.id ?? `${row.at}`, row);
+  }
+  return [...byId.values()].filter((r) => r.channel !== "hold" && r.status !== "failed");
+}
+
+function pickOutreach(rows, { replyTo, consumed, now }) {
+  const exact = replyTo ? rows.find((r) => r.id === replyTo) : null;
+  if (exact) return exact;
+  const latest = rows.reduce((best, r) => (!best || Date.parse(r.at) > Date.parse(best.at) ? r : best), null);
+  if (!latest) return null;
+  const age = now - Date.parse(latest.at);
+  if (age < 0 || age > (latest.ask ? OUTREACH_ASK_MS : OUTREACH_PLAIN_MS)) return null;
+  if (consumed.lastTurnAt >= Date.parse(latest.at) || consumed.ids.includes(latest.id)) return null;
+  return latest;
+}
+
+function askDetail(ask) {
+  if (!ask || typeof ask !== "object") return "";
+  const w = ask.window;
+  const span = w?.start ? ` about ${w.start}-${w.end ?? "now"}` : "";
+  const place = typeof ask.place === "string" && ask.place ? `, at ${ask.place}` : "";
+  return ` (${String(ask.type ?? "open").slice(0, 20)} ask${span}${place})`;
+}
+
+function recentOutreach({ replyTo = null, now = Date.now() } = {}) {
   try {
-    const rows = readFileSync(join(CONTROLLED, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l))
-      .filter((r) => r.channel !== "hold" && Date.now() - Date.parse(r.at) < 6 * 3600000).slice(-3);
-    if (!rows.length) return null;
-    return `- You messaged him first (most recent last): ${rows.map((r) => `${new Date(r.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} "${r.text.slice(0, 200)}"`).join("; ")} — this message may be his answer.`;
+    let consumed = { lastTurnAt: 0, ids: [] };
+    try { const c = JSON.parse(readFileSync(consumedFile(), "utf8")); consumed = { lastTurnAt: Number(c.lastTurnAt) || 0, ids: Array.isArray(c.ids) ? c.ids : [] }; } catch {}
+    const row = pickOutreach(deliveredRows(), { replyTo, consumed, now });
+    // Every turn is recorded, so a row is only ever the answer to the first message after it.
+    try { writeFileSync(consumedFile(), JSON.stringify({ lastTurnAt: now, ids: [...consumed.ids, ...(row?.id ? [row.id] : [])].slice(-50) }), { mode: 0o600 }); } catch {}
+    if (!row) return null;
+    const minutes = Math.max(0, Math.round((now - Date.parse(row.at)) / 60000));
+    if (row.ask) return `- ${minutes} min ago you asked him "${row.text.slice(0, 200)}"${askDetail(row.ask)}. If he says what he did or is doing, log it.`;
+    return `- ${minutes} min ago you messaged him first: "${row.text.slice(0, 200)}" — this message may be his answer.`;
   } catch { return null; }
 }
 
@@ -600,7 +647,8 @@ function watchQuestion() {
     const q = JSON.parse(readFileSync(join(CONTROLLED, "watch.json"), "utf8"))?.[day];
     if (!q?.lastQuestion) return null;
     // Only a recent question can be what he is answering (at 00:24 the morning's nap message was still shown).
-    if (q.lastQuestionAt && Date.now() - new Date(q.lastQuestionAt).getTime() > 6 * 3600000) return null;
+    // 90 minutes, the same window as an ask: a text from away is answered late.
+    if (q.lastQuestionAt && Date.now() - new Date(q.lastQuestionAt).getTime() > OUTREACH_ASK_MS) return null;
     return `- Earlier today you asked him (on his phone): "${String(q.lastQuestion).slice(0, 220)}" — this message may be his answer.`;
   } catch { return null; }
 }
@@ -625,7 +673,7 @@ function openCheckins() {
   } catch { return "- No open check-ins."; }
 }
 
-async function phoneContext() {
+async function phoneContext({ replyTo = null } = {}) {
   const apps = await doApps().catch(() => null);
   const names = apps?.ok ? apps.reply.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)) : [];
   return [
@@ -646,7 +694,7 @@ async function phoneContext() {
     openCheckins(),
     ...[phoneLock()].filter(Boolean),
     ...[watchQuestion()].filter(Boolean),
-    ...[recentOutreach()].filter(Boolean),
+    ...[recentOutreach({ replyTo })].filter(Boolean),
     `- His day: ONE orion-reschedule call. \`day --plan "<title>, <min>[, HH:MM][, fixed]" …\` in the order he said them; HH:MM ONLY if he said a time ("nap 60 so 3" = 14:00); ", fixed" only for plans with people; relative words in the title ("gym after soccer, 60"); --fill only if he asks to fill the gaps; --date YYYY-MM-DD for any other day.`,
     "  \"Fix my schedule\" / overlaps → `tidy`. Every change obeys the day rules; NOTHING WAS CHANGED means ask him, never retry.",
     "  Doing something NOW (eating, a break, just got home) → `now \"Lunch, 25\" \"Break, 15\"` — it slides the rest in order; never retype the day to rearrange it.",
@@ -669,7 +717,7 @@ async function phoneContext() {
 
 // r8b2 (2026-10-16): under local routing a phone turn carries only what it needs (lib/remote/phone-context.mjs);
 // the lock/apps reads are skipped when his words do not touch them. The cloud path keeps phoneContext() whole.
-async function compactPhoneText(text, savedNote) {
+async function compactPhoneText(text, savedNote, replyTo = null) {
   const need = relevance(text);
   const apps = need.apps ? await doApps().catch(() => null) : null;
   return compactPhoneMessage({
@@ -681,7 +729,7 @@ async function compactPhoneText(text, savedNote) {
       checkins: openCheckins(),
       lock: need.lock ? phoneLock({ compact: true }) : null,
       watch: watchQuestion(),
-      outreach: recentOutreach(),
+      outreach: recentOutreach({ replyTo }),
       apps: apps?.ok ? apps.reply.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2)) : [],
       savedNote,
     },
@@ -744,10 +792,10 @@ export function quickAnswer(text, now = new Date()) {
   return null;
 }
 
-async function askBrain(text, sender) {
+async function askBrain(text, sender, { replyTo = null } = {}) {
   const quick = quickAnswer(text);
   if (quick) return { ok: true, reply: quick, tools: 0, runId: null, checked: "quick" };
-  const first = await askBrainOnce(text, sender);
+  const first = await askBrainOnce(text, sender, { replyTo });
   // The runtime's own "couldn't generate a response" after tools ran: ask for the words, once.
   if (first.ok && NO_REPLY.test(first.reply)) {
     const words = await askBrainOnce(CHECK_SILENT, sender, { raw: true, model: escalate });
@@ -811,7 +859,7 @@ async function saveStandingRules(text) {
   return saved.length ? saved : null;
 }
 
-async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
+async function askBrainOnce(text, sender, { raw = false, model = null, replyTo = null } = {}) {
   await mkdir(CONTROLLED, { recursive: true });
   // Via a FILE, never argv. The message is untrusted text and this is the one
   // property from the original design that costs nothing to keep.
@@ -819,8 +867,8 @@ async function askBrainOnce(text, sender, { raw = false, model = null } = {}) {
   const saved = raw ? null : await saveStandingRules(text);
   const savedNote = saved ? `[orion-remote] Already saved from his message (by the transport, not by you): ${saved.join("; ")}. Tell him in one short clause that it is saved; do not save it again, and never say "noted" for anything that is not in this line.\n` : "";
   const compactPhone = sender === "phone" && !raw && localRoutingOn(homedir());
-  const live = `${sender === "phone" && !raw && !compactPhone ? `${await phoneContext()}\n` : ""}${savedNote}`;
-  await writeFile(file, raw ? text : compactPhone ? await compactPhoneText(text, savedNote) : `${live}${briefFor(sender)}\n${text}`, { mode: 0o600 });
+  const live = `${sender === "phone" && !raw && !compactPhone ? `${await phoneContext({ replyTo })}\n` : ""}${savedNote}`;
+  await writeFile(file, raw ? text : compactPhone ? await compactPhoneText(text, savedNote, replyTo) : `${live}${briefFor(sender)}\n${text}`, { mode: 0o600 });
   try {
     const { stdout } = await run(
       BRAIN_BIN,
@@ -1534,7 +1582,7 @@ const HANDLERS = {
 
 /* ---------- the one path every inbound message takes ---------- */
 
-async function handleUnlocked({ text, from, envelopeId, at: sentAt, to: target, mode = "command" }) {
+async function handleUnlocked({ text, from, envelopeId, at: sentAt, to: target, mode = "command", replyTo = null }) {
   const sender = String(from ?? "").toLowerCase().trim();
   // The raw text is kept for forensics, but only ever as a JSON string field:
   // control characters out, length capped, and nothing downstream re-reads it.
@@ -1661,7 +1709,7 @@ async function handleUnlocked({ text, from, envelopeId, at: sentAt, to: target, 
       await audit({ ...record, decision: "rejected", reason: "message too long for one turn" });
       return { ok: false, reply: `that is longer than ${MAX_BRAIN_BYTES} bytes — send it in pieces` };
     }
-    const answer = await askBrain(text, sender);
+    const answer = await askBrain(text, sender, { replyTo });
     await audit({
       ...record,
       decision: answer.ok ? "accepted" : "error",
@@ -1691,7 +1739,7 @@ async function handleUnlocked({ text, from, envelopeId, at: sentAt, to: target, 
     const preState = await readState();
     const preInvalid = checkArgs(parsed.verb, parsed.args, preState);
     if (preInvalid && VERBS[parsed.verb].shape[0] === "mission") {
-      const answer = await askBrain(text, sender);
+      const answer = await askBrain(text, sender, { replyTo });
       await audit({ ...record, decision: answer.ok ? "accepted" : "error", verb: "brain",
                     reason: `"${parsed.verb}" named no mission; treated as conversation`,
                     session: BRAIN_SESSION, runId: answer.runId, reply: answer.reply.slice(0, 200), ...(answer.checked ? { checked: answer.checked } : {}) });
@@ -1811,7 +1859,7 @@ const [command, ...rest] = process.argv.slice(2);
  and separates them with `--`, so the text cannot reach this loop as a flag at
  all. Defence in depth: any one of the four stops it.
 */
-const KNOWN_FLAGS = new Set(["from", "to", "id", "at", "mode"]);
+const KNOWN_FLAGS = new Set(["from", "to", "id", "at", "mode", "reply-to"]);
 const flags = {};
 const positional = [];
 let terminated = false;
@@ -1851,8 +1899,10 @@ if (command === "inject") {
   // `--mode chat`: the phone's conversation tab. Never parsed as a verb -- see
   // handleUnlocked. Anything else is refused rather than guessed at.
   if (flags.mode !== undefined && !["chat", "command"].includes(flags.mode)) fail("--mode must be chat or command");
+  // `--reply-to <reachId>`: the phone answered that outreach message (a notification reply); see recentOutreach.
+  if (flags["reply-to"] !== undefined && !/^[A-Za-z0-9._:-]{1,80}$/.test(flags["reply-to"])) fail("--reply-to must be a message id");
   const result = await handle({ text: positional.join(" "), from: sender, mode: flags.mode ?? "command",
-    envelopeId: flags.id ?? null,
+    envelopeId: flags.id ?? null, replyTo: flags["reply-to"] ?? null,
     ...(flags.at !== undefined ? { at: Number(flags.at) } : {}) });
   if (result.reply) console.log(result.reply);
   process.exit(result.ok ? 0 : 1);

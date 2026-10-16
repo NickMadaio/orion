@@ -38,7 +38,7 @@ import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
-import { isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
+import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -119,6 +119,7 @@ const SPOKEN = /Nick SAID this out loud/;
 // A spoken message that ends on a word a sentence cannot end on ("…go ahead and", "…move the").
 const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|with|of|from|um|uh)\s*[,–—-]*\s*$/i;
 export const GO_ON = "Go on.";
+const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
@@ -558,7 +559,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const asked = reminderAsk.get(key);
         reminderAsk.delete(key);
         // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
-        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
+        const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (run.settled?.move !== "tool" || isBareTime(run.message)) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
         const last = lastReminder.get(key);
         const plan = await planReminder({ message: followUp ?? run.message, now: (options.now ?? (() => new Date()))(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
@@ -572,19 +573,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this for Nick now with ONE orion_task_run call using exactly these arguments:\n${plan.args}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.`,
             appendContext: `[ORION: call orion_task_run now with exactly ${plan.args} — do not reply before calling it.]` };
         }
-      }
-      if (REMINDER.test(run.message) && isReminderTurn(run.message) && !run.cutOff && !run.flow) {
-        const day = new Date(Date.now() + (meansTomorrow(run.message) ? 86400000 : 0));
-        const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-        const weekday = day.toLocaleDateString("en-GB", { weekday: "long" });
-        // Code works out the exact call; the worker makes it (through the normal orion_task_run gate).
-        const got = options.extractReminder ? await options.extractReminder(run.message).catch(() => null) : null;
-        if (got?.time && got.label) {
-          run.reminder = { args: JSON.stringify({ steps: [{ action: "alarm_set", at: `${ymd}T${got.time}`, label: got.label }] }), say: `${weekday} at ${ampm12(got.time)}: ${got.label}` };
-          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nSet Nick's reminder now with ONE orion_task_run call using exactly these arguments:\n${run.reminder.args}\nThen, only if the result shows it was set, reply: "Reminder set for ${run.reminder.say}." If it was not set, say so plainly.`,
-            appendContext: `[ORION: call orion_task_run now with exactly ${run.reminder.args} — do not reply before calling it.]` };
-        }
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}. Set it with ONE orion_task_run call: {"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM>","label":"<what it is for>"}]}. Never use orion-tasks. Reply only after the tool result shows it was set.` };
+        // A reminder turn the plan could not work out gets a fixed reply, never the old free-form prompt (review, 2026-10-16).
+        if (!plan && REMINDER.test(run.message) && isReminderTurn(run.message)) run.flow = { outcome: "say", kind: "plain", text: REMINDER_UNCLEAR };
       }
       // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
       // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a

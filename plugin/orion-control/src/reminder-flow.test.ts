@@ -28,12 +28,12 @@ function harness(opts: { now: Date; decision?: Decision; extract?: (m: string) =
     extractReminder: async (m) => { extracted.push(m); return opts.extract ? opts.extract(m) : null; },
     listReminders: async () => opts.stored ?? [] });
   let n = 0;
-  const turn = async (said: string, toolCall?: { args: string; result: string }) => {
+  const turn = async (said: string, toolCall?: { args: string; result: string }, finalize: Record<string, unknown> = {}) => {
     const ctx = { runId: `rf${(n += 1)}`, sessionKey: "agent:main:orion-chat-sweep" };
     await fire("before_model_resolve", { prompt: said }, ctx);
     const [built] = (await fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt?: string; appendContext?: string } | undefined>;
     if (toolCall) await fire("after_tool_call", { toolName: "orion_task_run", params: JSON.parse(toolCall.args), result: toolCall.result }, ctx);
-    await fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok" }, ctx);
+    await fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok", ...finalize }, ctx);
     return `${built?.systemPrompt ?? ""}\n${built?.appendContext ?? ""}`;
   };
   return { turn, extracted, flowRan: () => flowRan };
@@ -135,5 +135,81 @@ describe("reminders — the time is worked out by code (sweep 2026-10-15)", () =
     expect(() => resolveAlarmTime("2026-10-15T11:10", now)).toThrow(/already passed/);
     expect(resolveAlarmTime("2026-10-15T23:42", now)).toBe(at(2026, 10, 15, 23, 42).getTime());
     expect(resolveAlarmTime("11:10", now)).toBe(at(2026, 10, 16, 11, 10).getTime());
+  });
+});
+
+// Review, 2026-10-16: reminder routing found by the combined-sweep review (HIGH 1-3, MEDIUM 8).
+describe("reminders — create vs cancel, corrections, stitching (review, 2026-10-16)", () => {
+  const stored = (): Stored[] => [{ id: "c1", label: "call mom", dueAt: at(2026, 10, 16, 17, 0).getTime() }, { id: "r2", label: "reset router", dueAt: at(2026, 10, 16, 19, 0).getTime() }];
+  const base = () => at(2026, 10, 16, 12, 0);
+
+  it("HIGH 1: asking to SET a reminder that mentions a cancel word never cancels one", async () => {
+    for (const [said, label, time] of [
+      ["set a reminder to cancel netflix at 5pm", "cancel netflix", "17:00"],
+      ["set a reminder to cancel my gym membership", "cancel my gym membership", "17:00"],
+      ["set a reminder for 5pm to remove the laundry", "remove the laundry", "17:00"],
+      ["set an alarm to stop the oven at 6pm", "stop the oven", "18:00"],
+    ] as const) {
+      const h = harness({ now: base(), stored: stored(), extract: () => ({ time, label }) });
+      const prompt = await h.turn(said);
+      expect(prompt, said).not.toMatch(/reminder_cancel/);
+      expect(prompt, said).toMatch(/"action":"alarm_set"/);
+    }
+  });
+
+  it("HIGH 1: the label match is whole words ('set' is not 'reset')", async () => {
+    const h = harness({ now: base(), stored: stored() });
+    const prompt = await h.turn("cancel the set reminder");
+    expect(prompt).not.toMatch(/"id":"r2"/);
+  });
+
+  it("HIGH 1: a real cancel still cancels", async () => {
+    const h = harness({ now: base(), stored: stored() });
+    expect(await h.turn("cancel my call mom reminder")).toMatch(/"id":"c1"/);
+  });
+
+  it("HIGH 2: 'actually, move gym to 6pm' after a reminder is a new subject, not a move of call mom", async () => {
+    const h = harness({ now: base(), stored: stored(), extract: (m) => (/gym/.test(m) ? { time: "18:00", label: "gym" } : { time: "17:00", label: "call mom" }) });
+    await h.turn("remind me to call mom at 5pm", { args: '{"steps":[{"action":"alarm_set","at":"2026-10-16T17:00","label":"call mom"}]}', result: "executed=true c1" });
+    const second = await h.turn("actually, move gym to 6pm");
+    expect(second).not.toMatch(/call mom/);
+    expect(second).not.toMatch(/reminder_cancel/);
+  });
+
+  it("HIGH 2: 'make it 5:30' and 'actually make it 6pm' still correct the last reminder", async () => {
+    for (const said of ["make it 5:30", "actually make it 6pm", "no wait, change it to 6"]) {
+      const h = harness({ now: base(), stored: stored(), extract: (m) => ({ time: "17:30", label: /call mom/.test(m) ? "call mom" : said }) });
+      await h.turn("remind me to call mom at 5pm", { args: '{"steps":[{"action":"alarm_set","at":"2026-10-16T17:00","label":"call mom"}]}', result: "executed=true c1" });
+      expect(await h.turn(said), said).toMatch(/"id":"c1"\},\{"action":"alarm_set"[^}]*"label":"call mom"/);
+    }
+  });
+
+  it("HIGH 3: after 'What time?', an unrelated command is not stitched onto the reminder", async () => {
+    const h = harness({ now: base(), decision: { move: "tool", tool: "lights" }, extract: (m) => ({ time: null, label: "call mom" }) });
+    expect(await h.turn("remind me to call mom")).toMatch(/What time/);
+    await h.turn("turn off the lights");
+    expect(h.extracted).toEqual(["remind me to call mom"]);
+  });
+
+  it("HIGH 3: a bare time after 'What time?' is still stitched", async () => {
+    const h = harness({ now: base(), extract: (m) => ({ time: /at 5/.test(m) ? "17:00" : null, label: "call mom" }) });
+    await h.turn("remind me to call mom");
+    expect(await h.turn("at 5pm")).toMatch(/"action":"alarm_set"/);
+  });
+
+  it("MEDIUM 8: when the plan gives nothing (extractor down) the fixed reply is used, with no second extractor pass", async () => {
+    const h = harness({ now: base(), extract: () => null });
+    const prompt = await h.turn("remind me to call mom at 5pm");
+    expect(prompt).not.toMatch(/orion_task_run|Never use orion-tasks/);
+    expect(h.extracted.length).toBe(1);
+  });
+});
+
+describe("reminders — the host drops a revise (review, 2026-10-16)", () => {
+  it("hostDrops on reminder-cancel puts the honest cancel line in place", async () => {
+    const h = harness({ now: at(2026, 10, 16, 12, 0), stored: [{ id: "c1", label: "call mom", dueAt: at(2026, 10, 16, 17, 0).getTime() }] });
+    const messages = [{ role: "assistant", content: [{ type: "text", text: "ok" }] }];
+    await h.turn("cancel the call mom reminder", undefined, { hadDeterministicSideEffect: true, messages });
+    expect(JSON.stringify(messages)).toContain("I didn't manage to cancel that reminder — nothing was changed.");
   });
 });

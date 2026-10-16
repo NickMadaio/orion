@@ -162,3 +162,10 @@ describe("session flow — the sweep's missed starts (q051, q054)", () => {
     expect(s.calls[1]).toEqual(["start", "leetcode", "--minutes", "60", "--json"]);
   });
 });
+
+describe("session start vs reminders (review, 2026-10-16)", () => {
+  it("'remind me to start work in 20 min' is a reminder, not a session start", () => {
+    for (const m of ["remind me to start work in 20 min", "remind me in 10 min to start my focus session", "ping me to start studying", "nudge me to begin a focus block"]) expect(isSessionStart(m), m).toBe(false);
+    expect(isSessionStart("start a focus session")).toBe(true);
+  });
+});

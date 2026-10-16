@@ -293,7 +293,7 @@ describe("local routing — on mode", () => {
     await f.fire("before_model_resolve", { prompt: msg }, ctx);
     const [built] = (await f.fire("before_prompt_build", { prompt: msg, messages: [] }, ctx)) as Array<{ systemPrompt: string; appendContext: string }>;
     expect(built?.systemPrompt).toMatch(/"action":"alarm_set","at":"\d{4}-\d{2}-\d{2}T11:00","label":"text the marketing group chat"/);
-    expect(built?.appendContext).toMatch(/call orion_task_run now/);
+    expect(built?.appendContext).toMatch(/call tool_call now with .*openclaw:orion-control:orion_task_run/);
     expect(flowRan).toBe(false);
     // Replied without calling the tool → told to call it; still not called → honest line at delivery.
     const [r1] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I've set a reminder for 11." }, ctx)) as Array<Record<string, any>>;

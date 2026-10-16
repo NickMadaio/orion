@@ -47,7 +47,7 @@ function setup(decision: Decision, extra: { sessionStatus?: () => Promise<import
 }
 
 const callIn = (built: Built | undefined) => {
-  const m = /exactly these arguments:\n(\{.*\})/.exec(built?.systemPrompt ?? "");
+  const m = /exactly these arguments[^\n]*:\n(\{.*\})/.exec(built?.systemPrompt ?? "");
   return m ? (JSON.parse(m[1]!) as { steps: Array<Record<string, unknown>> }).steps : null;
 };
 
@@ -62,7 +62,7 @@ describe("front-desk tool moves are carried out, not left as hints (sweep 2026-1
       const { build } = setup({ move: "tool", tool: "weather", args });
       const built = await build(said);
       expect(callIn(built)).toEqual([step]);
-      expect(built?.appendContext).toMatch(/call orion_task_run now/);
+      expect(built?.appendContext).toMatch(/call tool_call now with .*openclaw:orion-control:orion_task_run/);
     }
   });
 

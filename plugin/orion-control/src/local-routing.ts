@@ -34,6 +34,7 @@ import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart } from "./session-flow.js";
+import { toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -60,6 +61,8 @@ export type LocalRoutingOptions = {
   scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[] }) => Promise<FlowResult>;
   /** Starts a focus session from his words (tests pass a stub; wired from index.ts). */
   sessionFlow?: (message: string) => Promise<FlowResult>;
+  /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
+  sessionStatus?: () => Promise<FlowResult>;
   /** Pulls {time "HH:MM", label} out of a reminder request (tests pass a stub; wired from index.ts). */
   extractReminder?: (message: string) => Promise<{ time: string; label: string } | null>;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
@@ -89,6 +92,8 @@ type Run = {
   provided?: boolean;
   /** The prompt forbade tools (the overwhelm note): no promise or lookup check can be met by acting. */
   noTools?: boolean;
+  /** A front-desk tool move code worked out (tool-moves.ts): the one call the worker must make. */
+  directive?: Extract<ToolDirective, { kind: "call" }>;
   brain?: Promise<string>;
   flow?: FlowResult;
   sessionKey?: string;
@@ -311,6 +316,8 @@ const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one 
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
 const wroteThisTurn = (tools: ToolResult[]): boolean =>
   tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
+/** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id). */
+const directiveCalled = (run: Run): boolean => !!run.directive && run.tools.some((t) => /orion_task_run/.test(t.canonical) && t.canonical.includes(`"${run.directive!.action}"`));
 
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
@@ -486,6 +493,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
         }
       }
+      // "how much focus time is left": code reads the session (q049 said "15 minutes remaining" from nothing).
+      if (!run.flow && !run.cutOff && run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && options.sessionStatus) {
+        run.flow = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+      }
       // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
       // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
       // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
@@ -509,6 +520,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             appendContext: `[ORION: call orion_task_run now with exactly ${run.reminder.args} — do not reply before calling it.]` };
         }
         return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nNick wants a reminder at a time. The day is ${weekday} ${ymd}. Set it with ONE orion_task_run call: {"steps":[{"action":"alarm_set","at":"${ymd}T<HH:MM>","label":"<what it is for>"}]}. Never use orion-tasks. Reply only after the tool result shows it was set.` };
+      }
+      // A front-desk tool move is carried out, not left as a hint (sweep 2026-10-15: weather, focus status,
+      // a timer and supplements answered with no call or the wrong one). Before the calendar flow.
+      const moved = !run.flow && !run.cutOff ? toolDirective(run.settled, run.message) : null;
+      if (moved?.kind === "say") run.flow = { outcome: "say", kind: "plain", text: moved.text };
+      if (moved?.kind === "call") {
+        run.directive = moved;
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this with ONE orion_task_run call using exactly these arguments:\n${moved.args}\n${moved.note} If it failed, say so plainly.`,
+          appendContext: `[ORION: call orion_task_run now with exactly ${moved.args} — do not reply before calling it.]` };
       }
       // Texts and email (messages-route.ts). Live sweep 2026-10-15: "read my last 3 texts" read the manual
       // index, "search gmail…" said it could not, "email myself my tasks" listed them and sent nothing. A
@@ -640,6 +660,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Ignore the earlier conversation. Your whole reply must be exactly this text, nothing before or after, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
         }
       }
+      if (on && run.directive && run.passes < 2 && !directiveCalled(run) && !hostDrops) {
+        run.passes += 1;
+        await record({ revised: true });
+        return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call orion_task_run now with exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
+      }
       const flowActed = run.flow?.outcome === "done";
       if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops) {
         run.passes += 1;
@@ -665,6 +690,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         owed = LOOKUP_HONEST;
         remember([runId, sessionKeyNow], owed);
       }
+      // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
+      if (on && run.directive && !directiveCalled(run)) { owed = run.directive.failLine; remember([runId, sessionKeyNow], owed); }
       if (on && owed) putReplyInPlace(event.messages, owed);
       await record();
       done();

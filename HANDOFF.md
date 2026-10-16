@@ -95,6 +95,10 @@ Spec: `docs/design/2026-10-16-awareness-and-curiosity.md`. ORION now keeps one `
   and `orion-code` stay on gpt-oss with keep_alive 0 (`lib/local-model.mjs`).
 - **Test seams**: `ORION_REACH_FACTS`, `ORION_REACH_NOW`, `ORION_SESSION_SOCKET` are honoured by the refresh as well as the senders;
   `ORION_AWARENESS_NO_REFRESH=1` skips the lazy refresh.
+- **Integration review fixes** (same day): the phase hook's session payload is the C1 facet (one fixture checked from Swift and node); a drain
+  releases held watcher alerts and clears only what it delivered; a held ask exits 3 (not recorded, no backoff); plan check-ins count only
+  delivered alerts and never re-weigh the day otherwise; the curiosity ledger is merged under the lock; one ask contract (`kind`, block title);
+  hands-free idle is not "away"; `log --instead` picks the block nearest now; the morning `fill --anchors` only adds (else asks once).
 - **Pending live steps** (nothing was deployed): run `orion-deploy` and relaunch the Mac app and the phone app; grant "Always" location and
   confirm the geofences register; set the real home with `orion-awareness place set home --here`; check the first live `orion-awareness refresh`
   (real calendar, session socket, focus-activity.json); check a push arrives with the reply field and lands in the chat thread; check that

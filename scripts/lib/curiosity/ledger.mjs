@@ -1,8 +1,9 @@
 // curiosity.json (contract C7): every ask ORION made, whether it was answered, and the blank backoff (spec 3.4.3).
 // Backoff applies to blank asks only: 60 min apart, doubling for each ignored one (60, 120, 240), reset by any answer.
 // Mismatch nudges never consult it. Pure functions over a ledger value, plus read/write with tmp+rename.
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeJsonAtomic, updateJson } from "../awareness/io.mjs";
 
 export const FILE = "curiosity.json";
 const MIN = 60_000;
@@ -21,11 +22,17 @@ export function readLedger(dir) {
   } catch { return emptyLedger(); }
 }
 
+/** Whole-file write, locked and atomic (the same lock `orion-awareness curiosity pause` takes). Prefer updateLedger to merge. */
 export function writeLedger(dir, ledger) {
-  mkdirSync(dir, { recursive: true });
-  const f = join(dir, FILE);
-  writeFileSync(`${f}.tmp`, JSON.stringify(ledger, null, 2));
-  renameSync(`${f}.tmp`, f);
+  writeJsonAtomic(dir, FILE, ledger);
+}
+
+/** Read-modify-write under the lock: `change(ledger)` sees the file as it is NOW, so a concurrent pause, close or ask is merged, not overwritten. */
+export function updateLedger(dir, change) {
+  updateJson(dir, FILE, (raw) => {
+    const current = { ...emptyLedger(), ...raw, asks: Array.isArray(raw?.asks) ? raw.asks : [] };
+    return change(current);
+  });
 }
 
 /** Asks kept for 14 days: enough for "third day at this cell". */

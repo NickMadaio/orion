@@ -66,4 +66,21 @@ final class PlaceAudioLogTests: XCTestCase {
         XCTAssertNil(OutreachThread.replyTarget(thread: [line("reach-3", 120, orion: true)], now: now), "past 90 minutes")
         XCTAssertNil(OutreachThread.replyTarget(thread: [line("u", 5, orion: false)], now: now))
     }
+
+    // MARK: review 11: a full offline queue drops plain samples, not place events
+
+    func testAFullSignalQueueDropsPlainSamplesBeforePlaceEvents() throws {
+        let sample = { (n: Int) in LinkLog.signal(at: self.at, motion: "still", charging: false, latitude: nil, longitude: nil, audio: nil) }
+        let place = LinkLog.place(event: "enter", placeId: "home", at: at)
+        // oldest first: a place event at the very front, then 5 samples; limit 3
+        var items: [LinkLog] = [place] + (0..<5).map(sample)
+        items = SignalQueuePolicy.trim(items, limit: 3, isPlace: SignalQueuePolicy.isPlace)
+        XCTAssertEqual(items.count, 3)
+        XCTAssertTrue(items.contains(place), "the oldest entry was a place event and it survived")
+        XCTAssertEqual(items.filter(SignalQueuePolicy.isPlace).count, 1)
+        // only place events over the limit: the oldest of them goes
+        let places = (0..<4).map { LinkLog.place(event: $0 % 2 == 0 ? "enter" : "exit", placeId: "p\($0)", at: at) }
+        XCTAssertEqual(SignalQueuePolicy.trim(places, limit: 2, isPlace: SignalQueuePolicy.isPlace), Array(places.suffix(2)))
+        XCTAssertEqual(SignalQueuePolicy.trim([1, 2], limit: 5, isPlace: { _ in false }), [1, 2])
+    }
 }

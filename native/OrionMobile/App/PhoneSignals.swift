@@ -159,7 +159,10 @@ enum SignalQueue {
 
     static func enqueue(_ entry: LinkLog) {
         guard let text = try? entry.encoded() else { return }
-        defaults.set(Array(((defaults.array(forKey: key) as? [String]) ?? []) + [text]).suffix(limit), forKey: key)
+        let all = ((defaults.array(forKey: key) as? [String]) ?? []) + [text]
+        // Over the limit, plain samples go first; a place event outlives them (SignalQueuePolicy).
+        let isPlace: (String) -> Bool = { (try? LinkLog.decode($0)).map(SignalQueuePolicy.isPlace) ?? false }
+        defaults.set(SignalQueuePolicy.trim(all, limit: limit, isPlace: isPlace), forKey: key)
     }
 
     static func pending() -> [(text: String, entry: LinkLog)] {

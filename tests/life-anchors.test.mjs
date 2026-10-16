@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,18 +62,18 @@ test("scenario 19: fill --anchors on a Tuesday adds Gym with tags anchor and ran
   assert.match(w.run("fill", "--anchors").out, /Nothing to add/, "planned once, not again");
 });
 
-test("scenario 19: on a full day it bumps the lowest movable block, never a class or a stated time", (t) => {
+// Integration review 10: the automatic morning fill only ADDS; it never takes one of his blocks off the day.
+test("review 10: on a full day fill --anchors writes nothing and asks once (skip the gym, or drop the lowest-ranked block)", (t) => {
   const events = [lecture, { title: "Dinner with Sam", start: at(18), end: at(19) },
     { title: "email prof", start: at(12, 30), end: at(14), orion: "other" },
     { title: "YouTube", start: at(14, 30), end: at(23, 30), orion: "side_project", orionTags: "side_project,rank-low" }];
   const w = world(t, events);
+  const before = JSON.stringify(w.cal());
   const r = w.run("fill", "--anchors");
-  assert.equal(r.code, 0, r.out);
-  const names = w.cal().map((e) => e.title);
-  assert.ok(names.includes("Gym") && names.includes("email prof") && names.includes(lecture.title) && names.includes("Dinner with Sam"));
-  assert.ok(!names.includes("YouTube"), "the lowest rank gave way");
-  const dinner = w.cal().find((e) => e.title === "Dinner with Sam");
-  assert.equal(dinner.start, at(18));
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /NOTHING WAS CHANGED: Gym does not fit/);
+  assert.match(r.out, /ASK: skip Gym today, or drop YouTube \(/);
+  assert.equal(JSON.stringify(w.cal()), before, "no block of his moved or vanished");
 });
 
 test("scenario 19: with no room it reports a must-have that could not fit and writes nothing", (t) => {
@@ -81,7 +81,7 @@ test("scenario 19: with no room it reports a must-have that could not fit and wr
   const before = JSON.stringify(w.cal());
   const r = w.run("fill", "--anchors");
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /must-haves could not fit: Gym/);
+  assert.match(r.out, /Gym does not fit/);
   assert.equal(JSON.stringify(w.cal()), before);
 });
 
@@ -96,4 +96,21 @@ test("day --fill puts the anchor through the rebuild: it bumps a lower-ranked bl
   const r = w.run("day", "--fill");
   assert.equal(r.code, 0, r.out);
   assert.ok(w.cal().some((e) => e.title === "Gym"), r.out);
+});
+
+test("review 10: when `day --fill` does take one of his blocks off the day, he is told once and the slip is kept for the review", (t) => {
+  const events = [lecture, { title: "Dinner with Sam", start: at(18), end: at(19) },
+    { title: "YouTube", start: at(14, 30), end: at(23, 30), orion: "side_project", orionTags: "side_project,rank-low" }];
+  const w = world(t, events);
+  const home = join(w.config, "..");
+  const reach = join(home, "reach"); writeFileSync(reach, `#!/bin/sh\necho "$@" >> "${home}/reach.log"\necho "Sent - fake"\n`); chmodSync(reach, 0o755);
+  const r = spawnSync(process.execPath, [SCRIPT, "day", "--fill", "--date", DATE], { encoding: "utf8",
+    env: { ...process.env, HOME: home, ORION_CONTROLLED_DIR: join(home, ".openclaw/orion-controlled"), ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "calendar.json"), ORION_LIFE_CONFIG: w.config,
+      ORION_RESCHEDULE_UNDO: join(home, "undo.json"), ORION_RESCHEDULE_PINS: join(home, "pins.json"), ORION_RESCHEDULE_NOW: new Date(2030, 9, 1, 8, 0).toISOString(), ORION_REACH_BIN: reach } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const said = readFileSync(join(home, "reach.log"), "utf8").trim().split("\n");
+  assert.equal(said.length, 1);
+  assert.match(said[0], /took YouTube \(2:30 PM-11:30 PM\) off today|took YouTube \(14:30-23:30\) off today/);
+  const slips = readFileSync(join(home, ".openclaw/orion-controlled/slips.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual([slips[0].planned.title, slips[0].reason, slips[0].missedMinutes], ["YouTube", "no-room", 540]);
 });

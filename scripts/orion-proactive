@@ -25,7 +25,7 @@ import { presence } from "./lib/reach/presence.mjs";
 import { calendarFacet } from "./lib/awareness/facets.mjs";
 import { planVsReality } from "./lib/curiosity/loop.mjs";
 import { fillBlankAsk } from "./lib/curiosity/decide.mjs";
-import { readLedger, writeLedger, recordAsk, closeAsk, markAnswered } from "./lib/curiosity/ledger.mjs";
+import { readLedger, updateLedger, recordAsk, closeAsk, markAnswered } from "./lib/curiosity/ledger.mjs";
 import { blanks } from "./lib/life/day-review.mjs";
 import { randomUUID } from "node:crypto";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
@@ -60,13 +60,17 @@ if (command === "status") {
   process.exit(0);
 }
 if (command === "ask-outcome") {
-  try { writeLedger(DIR, closeAsk(readLedger(DIR), positional[0], positional[1], now.toISOString())); console.log(`Closed ${positional[0]}: ${positional[1]}.`); process.exit(0); }
+  try { updateLedger(DIR, (l) => closeAsk(l, positional[0], positional[1], now.toISOString())); console.log(`Closed ${positional[0]}: ${positional[1]}.`); process.exit(0); }
   catch (e) { console.error(String(e.message ?? e)); process.exit(2); }
 }
 if (command !== "tick") { console.error("usage: orion-proactive tick [--dry-run] [--reason tick|phase|place] | status | ask-outcome <askId> <outcome>"); process.exit(2); }
 if (!["tick", "phase", "place"].includes(reason)) { console.error("--reason must be tick, phase or place"); process.exit(2); }
 if (sandbox()) process.exit(0);
 
+// orion-reach, or the test seam ORION_REACH_BIN (an executable) the way orion-awareness uses it.
+const reach = (args) => (process.env.ORION_REACH_BIN
+  ? spawnSync(process.env.ORION_REACH_BIN, args, { encoding: "utf8", timeout: 30000 })
+  : spawnSync(process.execPath, [join(here, "orion-reach"), ...args], { encoding: "utf8", timeout: 30000 }));
 const run = (script, args) => { try { return execFileSync(process.execPath, [join(here, script), ...args], { encoding: "utf8", timeout: 15000 }); } catch { return ""; } };
 const minute = now.getHours() * 60 + now.getMinutes();
 if (!dry) refreshIfOld({ dir: DIR, now });
@@ -154,27 +158,37 @@ for (const a of actions.filter((x) => x.action === "checkin")) {
   const r = spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "0", a.title, "--by", "orion", "--block", a.blockId], { encoding: "utf8", timeout: 15000, env: process.env });
   if (r.status === 0) { sent[a.key] = true; closed.push(a.key); process.stdout.write(r.stdout ?? ""); }
 }
+const newAsks = [];   // what this tick adds to the ledger; merged into the file as it is at the end, not written over it
 for (const a of actions.filter((x) => x.action === "ask")) {
   if (dry) { console.log(`DRY RUN would ask (${a.key}): ${a.text}`); continue; }
   const askId = `ask-${randomUUID().slice(0, 8)}`;
-  const r = spawnSync(process.execPath, [join(here, "orion-reach"), a.text, "--kind", "question", "--why", `curiosity: ${a.key}`, "--ask", JSON.stringify({ ...a.ask, askId })], { encoding: "utf8", timeout: 30000 });
+  const r = reach([a.text, "--kind", "question", "--why", `curiosity: ${a.key}`, "--ask", JSON.stringify({ ...a.ask, askId })]);
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
   process.stdout.write(r.stdout ?? "");
   if (!outcome.said) continue;
   sent[a.key] = true; closed.push(a.key);
   const reachId = lastReachId(a.key);
-  ledger = recordAsk(ledger, { askId, reachId, type: a.blankType ?? a.type, key: a.key, window: a.ask?.window ?? null, cell: a.ask?.cell ?? null, at: now.toISOString() });
+  const record = { askId, reachId, type: a.blankType ?? a.type, key: a.key, window: a.ask?.window ?? null, cell: a.ask?.cell ?? null, at: now.toISOString() };
+  ledger = recordAsk(ledger, record);
+  newAsks.push(record);
   // an off-plan ask is followed up through the same check-in loop as a block not started
   if (a.type === "off-plan") spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "10", day.find((b) => b.id === a.blockId)?.title ?? "the plan", "--by", "orion", "--block", a.blockId], { encoding: "utf8", timeout: 15000, env: process.env });
 }
-if (!dry) { try { writeLedger(DIR, ledger); } catch {} }
+if (!dry) {
+  try {
+    updateLedger(DIR, (current) => {
+      const answered = markAnswered(current, { logged: day.filter((b) => b.logged), date: localDate(now), now: now.getTime() });
+      return newAsks.reduce((l, ask) => (l.asks.some((x) => x.askId === ask.askId) ? l : recordAsk(l, ask)), answered);
+    });
+  } catch {}
+}
 
 for (const m of messages) {
   // One key per class across orion-proactive, orion-watch and orion-standing (2026-10-16, finding 11).
   if (!dry && m.checkClaim && announced(DIR, localDate(now), m.claim)) { sent[m.key] = true; continue; }
   if (dry) { console.log(`DRY RUN would say (${m.key}): ${m.text}`); continue; }
-  const r = spawnSync(process.execPath, [join(here, "orion-reach"), m.text, "--kind", m.kind, "--why", `proactive: ${m.key}`,
-    ...(m.urgent ? ["--urgent"] : []), ...(m.urgentKind ? ["--urgent-kind", m.urgentKind] : []), ...(m.loud ? ["--loud"] : []), ...(m.expires ? ["--no-queue"] : [])], { encoding: "utf8", timeout: 30000 });
+  const r = reach([m.text, "--kind", m.kind, "--why", `proactive: ${m.key}`,
+    ...(m.urgent ? ["--urgent"] : []), ...(m.urgentKind ? ["--urgent-kind", m.urgentKind] : []), ...(m.loud ? ["--loud"] : []), ...(m.expires ? ["--no-queue"] : [])]);
   // 2026-10-16 audit, finding 6: a key is "said" only when orion-reach really sent, held or already said it.
   // A refusal (exit 3) or a failed delivery (exit 4) stays unsaid so the next tick retries, and a failure is recorded.
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
@@ -202,11 +216,17 @@ if (!dry && !heldBack && !sleeping) {
 }
 // Once a day, as soon as he is awake: plan the daily anchors (the gym), through orion-reschedule (C11).
 // (only once orion-reschedule knows --anchors: before that, `fill` would plan the whole day, which nobody asked for)
-const resched = join(here, "orion-reschedule");
+const resched = process.env.ORION_RESCHEDULE_BIN || join(here, "orion-reschedule");   // a node script; ORION_RESCHEDULE_BIN is the tests' seam
 const knowsAnchors = (() => { try { return readFileSync(resched, "utf8").includes("--anchors"); } catch { return false; } })();
 if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && !sent[`anchors-${dayKey}`]) {
   const r = spawnSync(process.execPath, [resched, "fill", "--anchors", "--date", localDate(now)], { encoding: "utf8", timeout: 60000 });
   if (r.status === 0) { sent[`anchors-${dayKey}`] = true; closed.push("anchors"); }
+  // It did not fit without moving something: nothing was written; he is asked once (skip it, or drop the cheapest block).
+  else if (r.status === 1 && /ASK: /.test(r.stdout ?? "") && !sent[`anchors-ask-${dayKey}`]) {
+    const question = String(r.stdout).split("\n").find((l) => l.includes("ASK: ")).replace(/^\s*ASK:\s*/, "").trim();
+    const asked = reach([question.charAt(0).toUpperCase() + question.slice(1), "--kind", "question", "--why", `proactive: anchors-ask-${dayKey}`]);
+    if (deliveryOutcome({ status: asked.status, stdout: asked.stdout }).said) { sent[`anchors-${dayKey}`] = true; sent[`anchors-ask-${dayKey}`] = true; closed.push("anchors"); }
+  }
 }
 // Bedtime minus 30: the nightly review of what actually happened, spoken if he is home, a text otherwise (once a night).
 const toBedMin = ((bedMin - minute) % 1440 + 1440) % 1440, sinceBed = ((minute - bedMin) % 1440 + 1440) % 1440;

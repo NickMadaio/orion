@@ -486,6 +486,8 @@ final class AppState: ObservableObject {
     private lazy var questionFollowUp = SpokenQuestionDriver(
         idle: { IdleReading.current() },
         locked: { ScreenState.current().locked },
+        displayAsleep: { ScreenState.current().displayAsleep },
+        atHome: { AwarenessHome.current() },
         busy: { [weak self] in self.map { $0.phase == .listening || $0.phase == .thinking || $0.phase == .speaking } ?? false },
         onRepeatAloud: { [weak self] text in self?.repeatQuestionAloud(text) },
         onSendToPhone: { [weak self] text in self?.sendQuestionToPhone(text) })
@@ -782,7 +784,8 @@ final class AppState: ObservableObject {
             statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
             return
         }
-        if SpokenQuestionFollowUp.isQuestion(text) { questionFollowUp.arm(text: text) }
+        // Only a question whose answer is needed is asked twice; a chatty or rhetorical "?" in a reply is not (review 8).
+        if SpokenQuestionFollowUp.needsAnswer(text) { questionFollowUp.arm(text: text) }
         setPhase(.speaking)
         statusLine = "Speaking…"
         speechOutput.speak(text)

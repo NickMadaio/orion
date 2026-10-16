@@ -73,6 +73,19 @@ final class PhaseHookTests: XCTestCase {
     }
 }
 
+final class PhaseSessionFixtureTests: XCTestCase {
+    /// tests/fixtures/phase-session.json is the contract-C3 payload; tests/awareness-cli.test.mjs feeds the same file to `orion-awareness phase`.
+    func testTheHookSendsExactlyTheCheckedInSessionFixture() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)   // 2027-01-15T08:00:00Z
+        let info = SessionPhaseInfo(state: "focus", phaseKind: "focus", phaseIndex: 1, sessionID: "S1", task: "essay", remaining: 1200)
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(PhaseCommands.sessionJSON(info, now: now).utf8)) as? NSDictionary)
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/fixtures/phase-session.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? NSDictionary)
+        XCTAssertEqual(sent, fixture)
+    }
+}
+
 final class InboundTurnLogTests: XCTestCase {
     func testTheCommandCarriesTheReplyIdAndTheTextAndIsNilWhereTheScriptIsNotInstalled() {
         let all: (String) -> Bool = { _ in true }

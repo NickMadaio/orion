@@ -18,12 +18,42 @@ final class SpokenQuestionFollowUpTests: XCTestCase {
         XCTAssertEqual(p.tick(now: t0.addingTimeInterval(60), idle: 3, locked: false), .none)
     }
 
-    func testIdleOrLockedOrUnknownGoesToThePhoneOnce() {
-        for (idle, locked) in [(300.0, false), (3.0, true), (nil, false)] as [(TimeInterval?, Bool)] {
+    /// Review 8: keyboard/mouse idle is not "away" (hands-free voice chat); locked, display asleep or not home is.
+    func testOnlyReallyAwayGoesToThePhoneAndOnlyOnce() {
+        let away: [(locked: Bool, asleep: Bool, home: Bool?)] = [(true, false, nil), (false, true, nil), (false, false, false)]
+        for a in away {
             var p = SpokenQuestionFollowUp(); p.arm(text: q, at: t0)
-            XCTAssertEqual(p.tick(now: t0.addingTimeInterval(21), idle: idle, locked: locked), .sendToPhone(q))
-            XCTAssertEqual(p.tick(now: t0.addingTimeInterval(80), idle: idle, locked: locked), .none)
+            XCTAssertEqual(p.tick(now: t0.addingTimeInterval(21), idle: 3, locked: a.locked, displayAsleep: a.asleep, atHome: a.home), .sendToPhone(q))
+            XCTAssertEqual(p.tick(now: t0.addingTimeInterval(80), idle: 3, locked: a.locked, displayAsleep: a.asleep, atHome: a.home), .none)
         }
+        for idle in [300.0, 3600.0, nil] as [TimeInterval?] {
+            var p = SpokenQuestionFollowUp(); p.arm(text: q, at: t0)
+            XCTAssertEqual(p.tick(now: t0.addingTimeInterval(21), idle: idle, locked: false, displayAsleep: false, atHome: true), .repeatAloud(q), "idle \(String(describing: idle)) at home")
+        }
+        var unknown = SpokenQuestionFollowUp(); unknown.arm(text: q, at: t0)
+        XCTAssertEqual(unknown.tick(now: t0.addingTimeInterval(21), idle: 900, locked: false), .repeatAloud(q), "home unknown is not away")
+    }
+
+    func testOnlyAQuestionWhoseAnswerIsNeededIsArmed() {
+        for yes in ["Sure, what would you like to add before your first class?", "Which one do you mean?", "What time should I put it?", "Do you want me to move gym?"] {
+            XCTAssertTrue(SpokenQuestionFollowUp.needsAnswer(yes), yes)
+        }
+        for no in ["Done. Anything else?", "That moved it. Does that help?", "Makes sense, right?", "It's 3 PM.", "How are you doing today?", "Okay?"] {
+            XCTAssertFalse(SpokenQuestionFollowUp.needsAnswer(no), no)
+        }
+    }
+
+    func testAwarenessSaysWhetherHeIsHomeAndStaleOrUnknownIsNil() {
+        let now = ISO8601DateFormatter().date(from: "2026-10-16T14:00:00Z")!
+        func json(_ state: String, _ at: String, source: String = "sample", place: String? = nil) -> Data {
+            Data(#"{"location":{"state":"\#(state)","at":"\#(at)","source":"\#(source)","placeId":\#(place.map { "\"" + $0 + "\"" } ?? "null")}}"#.utf8)
+        }
+        XCTAssertEqual(AwarenessHome.atHome(from: json("home", "2026-10-16T13:55:00Z"), now: now), true)
+        XCTAssertEqual(AwarenessHome.atHome(from: json("elsewhere", "2026-10-16T13:55:00Z"), now: now), false)
+        XCTAssertNil(AwarenessHome.atHome(from: json("home", "2026-10-16T12:00:00Z"), now: now), "a sample is good for 20 min")
+        XCTAssertEqual(AwarenessHome.atHome(from: json("home", "2026-10-16T08:00:00Z", source: "region"), now: now), true, "a region fix for 12 h")
+        XCTAssertNil(AwarenessHome.atHome(from: json("unknown", "2026-10-16T13:59:00Z"), now: now))
+        XCTAssertNil(AwarenessHome.atHome(from: Data("{}".utf8), now: now))
     }
 
     func testAnAnswerDisarms() {
@@ -62,9 +92,9 @@ final class SpokenQuestionFollowUpTests: XCTestCase {
         func fireLive() { let live = pending.filter { !cancelled.contains($0.id) }; pending = []; live.forEach { $0.fire() } }
     }
 
-    private func driver(_ f: Fake, clock: @escaping () -> Date, idle: TimeInterval?, busy: @escaping () -> Bool = { false },
+    private func driver(_ f: Fake, clock: @escaping () -> Date, idle: TimeInterval?, home: Bool? = nil, busy: @escaping () -> Bool = { false },
                         aloud: @escaping (String) -> Void, phone: @escaping (String) -> Void) -> SpokenQuestionDriver {
-        SpokenQuestionDriver(scheduler: f, now: clock, idle: { idle }, locked: { false }, busy: busy, onRepeatAloud: aloud, onSendToPhone: phone)
+        SpokenQuestionDriver(scheduler: f, now: clock, idle: { idle }, locked: { false }, atHome: { home }, busy: busy, onRepeatAloud: aloud, onSendToPhone: phone)
     }
 
     func testDriverRepeatsAloudOnceWithNickPrefixAndNeverTwice() {
@@ -79,12 +109,20 @@ final class SpokenQuestionFollowUpTests: XCTestCase {
         XCTAssertEqual(spoken.count, 1)
     }
 
-    func testDriverSendsToThePhoneWhenIdle() {
+    func testDriverSendsToThePhoneOnlyWhenReallyAway() {
+        let f = Fake(); var now = t0; var spoken: [String] = []; var phone: [String] = []
+        let d = driver(f, clock: { now }, idle: 2, home: false, aloud: { spoken.append($0) }, phone: { phone.append($0) })
+        d.arm(text: q)
+        now = t0.addingTimeInterval(20); f.fireLive()
+        XCTAssertEqual(phone, [q]); XCTAssertTrue(spoken.isEmpty)
+    }
+
+    func testDriverKeepsAskingAloudWhenHeIsIdleAtTheMacHandsFree() {
         let f = Fake(); var now = t0; var spoken: [String] = []; var phone: [String] = []
         let d = driver(f, clock: { now }, idle: 300, aloud: { spoken.append($0) }, phone: { phone.append($0) })
         d.arm(text: q)
         now = t0.addingTimeInterval(20); f.fireLive()
-        XCTAssertEqual(phone, [q]); XCTAssertTrue(spoken.isEmpty)
+        XCTAssertEqual(spoken, ["Nick? " + q]); XCTAssertTrue(phone.isEmpty)
     }
 
     func testDriverAnswerCancelsTheTimer() {

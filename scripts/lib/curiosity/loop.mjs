@@ -90,7 +90,7 @@ export function planVsReality(aw, ctx) {
     if (offPlan(aw, b, now)) {
       const key = `mismatch-off-plan-${b.id}-1`;
       if (!sent[key]) mismatches.push({ key, type: "off-plan", action: "ask", blockId: b.id, rank: rankOf(b), kind: "question", text: words.offPlan({ title: b.title }),
-        ask: { type: "mismatch", blockId: b.id, window: { date, start: b.start, end: b.end } } });
+        ask: { type: "mismatch", blockId: b.id, title: b.title, window: { date, start: b.start, end: b.end } } });
       continue;
     }
     const lateBy = minute - b.start;

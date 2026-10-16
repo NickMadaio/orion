@@ -55,7 +55,7 @@ test("off-plan away (scenario 15): elsewhere 20 min during a home study block as
   const out = run(T(14, 30), away);
   assert.equal(out.length, 1);
   assert.equal(out[0].type, "off-plan");
-  assert.deepEqual(out[0].ask, { type: "mismatch", blockId: "b1", window: { date: "2026-10-16", start: m(14), end: m(16) } });
+  assert.deepEqual(out[0].ask, { type: "mismatch", blockId: "b1", title: "finish resume", window: { date: "2026-10-16", start: m(14), end: m(16) } });   // the block TITLE travels with the id (review 7)
   assert.match(out[0].text, /is finish resume still happening, or did plans change/);
   assert.deepEqual(run(T(14, 30), away, { sent: { "mismatch-off-plan-b1-1": true } }), []);
   const fresh = { ...away, location: { ...away.location, since: T(14, 20).toISOString() } };

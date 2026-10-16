@@ -47,3 +47,19 @@ final class OutreachContextAskTests: XCTestCase {
         XCTAssertTrue(OutreachTracker().prefix(rows: [row("y", minutesAgo: 3)], now: now, replyTo: "nope").contains("3 min ago"))
     }
 }
+
+/// Review 7: the asks the loop really sends (type home-gap / mismatch with a block title and minute windows) read as one contract.
+final class OutreachAskContractTests: XCTestCase {
+    func testTheRealPayloadsOfOrionProactiveAndOrionCheckin() {
+        let jsonl = [
+            #"{"id":"r1","text":"Nothing planned till 4 - what are you up to?","at":"2026-10-16T14:00:00Z","channel":"phone","ask":{"askId":"ask-1","type":"home-gap","kind":"blank","window":{"date":"2026-10-16","start":840,"end":null},"place":"home","cell":null}}"#,
+            #"{"id":"r2","text":"Time to start: finish resume.","at":"2026-10-16T14:05:00Z","channel":"phone","ask":{"type":"mismatch","kind":"mismatch","blockId":"cal-3-resume","title":"finish resume","window":{"date":"2026-10-16","start":840,"end":960},"level":1}}"#,
+            #"{"id":"r3","text":"older row","at":"2026-10-16T14:06:00Z","ask":{"type":"fill-blank","window":{"date":"2026-10-16","start":780,"end":900}}}"#,
+        ].joined(separator: "\n")
+        let rows = OutreachContext.parse(jsonl: jsonl)
+        let now = ISO8601DateFormatter().date(from: "2026-10-16T14:10:00Z")!
+        XCTAssertTrue(OutreachContext.label(for: rows[0], now: now).contains("(blank ask about 14:00-now, he is home)"))
+        XCTAssertTrue(OutreachContext.label(for: rows[1], now: now).contains("(finish resume, planned 14:00-16:00, not started)"))
+        XCTAssertTrue(OutreachContext.label(for: rows[2], now: now).contains("(blank ask about 13:00-15:00)"), "a row without kind still maps from its type")
+    }
+}

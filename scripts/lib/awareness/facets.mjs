@@ -42,6 +42,25 @@ export function sessionFacet(status, now, { source = "socket", previous = null }
   };
 }
 
+const HOOK_STATES = ["focus", "rest", "paused", "waiting", "none"];
+/**
+ * The phase hook's `--session` (contract C3): the app sends the session FACET itself ({ state, sessionId, phaseIndex, phaseEndsAt,
+ * task, at, source }, see PhaseCommands.sessionJSON), not the socket's status reply. The socket shape is still read, for callers
+ * that pass `orion-session status --json`. Anything else is unknown.
+ */
+export function sessionFromHook(given, now, { previous = null } = {}) {
+  if (!given || typeof given !== "object") return UNKNOWN.session(iso(now));
+  if (!HOOK_STATES.includes(given.state)) return given.status ? sessionFacet(given, now, { source: "phase-hook", previous }) : UNKNOWN.session(iso(now));
+  const sameSession = previous?.state === given.state && previous?.sessionId === (given.sessionId ?? null);
+  const ends = ms(given.phaseEndsAt);
+  return {
+    state: given.state, sessionId: given.sessionId ?? null, phaseIndex: Number.isFinite(given.phaseIndex) ? given.phaseIndex : null,
+    phaseEndsAt: (given.state === "focus" || given.state === "rest") && ends !== null ? iso(ends) : null,
+    task: given.task ?? null, at: iso(now), source: "phase-hook",
+    ...(given.state === "paused" ? { since: sameSession && previous.since ? previous.since : iso(now) } : {}),
+  };
+}
+
 const blockOut = (b) => b && { title: b.title, start: b.start, end: b.end, kind: b.kind, fixed: !!b.fixed, source: b.source };
 
 /** `day`: today's blocks, or null when the calendar could not be read (never "free"). `travel`: commute walls. */
@@ -84,7 +103,9 @@ function sleepSignals({ now, config, night, nights, mac, signal }) {
   const window = sleepWindowFor({ date: localDate(now), config, night, nights });
   const minute = minuteOf(now);
   const inWindow = isQuietNow({ minute, ...window });
-  const macUp = !mac.locked && !mac.displayAsleep && Number(mac.idleSeconds) < 300;
+  // An idle time that is missing or invalid is unknown, not "0 s idle" (Number(null) is 0): it never marks him up.
+  const idle = mac.idleSeconds === null || mac.idleSeconds === undefined || mac.idleSeconds === "" ? NaN : Number(mac.idleSeconds);
+  const macUp = !mac.locked && !mac.displayAsleep && Number.isFinite(idle) && idle < 300;
   const age = signal ? now - Date.parse(signal.at) : NaN;
   // one stray sample ("still", charging) is not "up": it takes the phone off the charger or real motion
   const phoneUp = !!signal && age >= 0 && age <= 5 * MIN && (signal.charging === false || MOVING.includes(signal.motion));

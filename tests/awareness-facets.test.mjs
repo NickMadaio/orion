@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sessionFacet, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, UNKNOWN } from "../scripts/lib/awareness/facets.mjs";
+import { sessionFacet, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, UNKNOWN, quietFacts } from "../scripts/lib/awareness/facets.mjs";
 import { SEEDED_HOME } from "../scripts/lib/awareness/places.mjs";
 import { sessionState, isSessionActive } from "../scripts/lib/reach/focus-hold.mjs";
 import { parseHeadphones } from "../scripts/lib/reach/facts.mjs";
@@ -153,4 +153,15 @@ test("sleep: inside the window with no sign of life is asleep; Mac input makes h
   assert.equal(s({ idleSeconds: 9999, locked: true }), "asleep");
   assert.equal(s({ idleSeconds: 5, locked: false }), "late-awake");
   assert.equal(sleepFacet({ now: new Date(2026, 9, 16, 14, 0), config, mac: { idleSeconds: 9999 } }).state, "awake");
+});
+
+// Review 6: Number(null) < 300 made an unreadable idle time count as "at the Mac".
+test("an invalid or missing idle time is unknown: it does not make him late-awake inside the sleep window", () => {
+  const night = new Date(2026, 9, 16, 3, 0);
+  const config = { bedtime: "00:00", usualWake: "09:00" };
+  for (const idleSeconds of [null, undefined, "", "x", NaN]) {
+    assert.equal(sleepFacet({ now: night, config, mac: { idleSeconds, locked: false, displayAsleep: false } }).state, "asleep", String(idleSeconds));
+  }
+  assert.equal(sleepFacet({ now: night, config, mac: { idleSeconds: 5, locked: false, displayAsleep: false } }).state, "late-awake");
+  assert.equal(quietFacts({ now: night, dir: "x", config, facts: { idleSeconds: null, locked: false } }).quiet, true);
 });

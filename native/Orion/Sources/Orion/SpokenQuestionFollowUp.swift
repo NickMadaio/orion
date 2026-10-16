@@ -7,10 +7,13 @@ import Foundation
  speakers, opened the 6 s follow-up ear, heard nothing, and the conversation
  ended without a trace. Now a question that goes unanswered for about 20 s is
  asked once more:
-   - he is at the Mac (recent input, screen unlocked): "Nick? ..." aloud, with
-     the bubble kept on screen;
-   - he is idle or away: the question goes to his phone.
- Never more than one repeat per question.
+   - he is at the Mac (screen unlocked and awake, and not known to be away from
+     home): "Nick? ..." aloud, with the bubble kept on screen;
+   - he is really away (screen locked, display asleep, or awareness says he is not
+     home): the question goes to his phone.
+ Keyboard and mouse idle does NOT mean away: in hands-free voice chat he talks
+ without touching either. Never more than one repeat per question, and only for
+ a question whose answer is needed (`needsAnswer`), not a rhetorical one.
 
  `SpokenQuestionFollowUp` is the pure policy (clock and idle are arguments).
  `SpokenQuestionDriver` is the thin shell around it: a wall-clock timer, injected
@@ -20,8 +23,6 @@ import Foundation
 struct SpokenQuestionFollowUp: Equatable {
     /// Silence after the question that triggers the one repeat.
     static let deadline: TimeInterval = 20
-    /// Idle at or past this reads as "not at the Mac".
-    static let idleAway: TimeInterval = 20
 
     enum Action: Equatable {
         case none
@@ -51,6 +52,24 @@ struct SpokenQuestionFollowUp: Equatable {
         return trimmed.first == "?"
     }
 
+    private static let conversational = try! NSRegularExpression(pattern:
+        #"^(?:anything else|is there anything|does that|did that|do you follow|make sense|sound good|how(?:'s| is) that|how are you|what do you think|isn't it|right|ok(?:ay)?|you know|huh|really|no\?)"#, options: [.caseInsensitive])
+    private static let needed = try! NSRegularExpression(pattern:
+        #"\b(?:what would you like|what should i|what time|when (?:should|would|do)|which (?:one|day|block|class|task)|where (?:should|would)|how long|do you want me to|want me to|shall i|should i|what (?:do you want|do you need)|who should)\b"#, options: [.caseInsensitive])
+
+    /// A question ORION is waiting on (what to add, which one, when): worth asking twice. A chatty or rhetorical one
+    /// ("Anything else?", "Does that help?") is not, and an ordinary reply that merely ends in "?" is not either.
+    static func needsAnswer(_ text: String) -> Bool {
+        guard isQuestion(text) else { return false }
+        let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let range = NSRange(sentence.startIndex..., in: sentence)
+        // the last sentence is the one asked
+        let last = sentence.split(whereSeparator: { ".!".contains($0) }).last.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? sentence
+        let lastRange = NSRange(last.startIndex..., in: last)
+        if conversational.firstMatch(in: last, range: lastRange) != nil { return false }
+        return needed.firstMatch(in: sentence, range: range) != nil
+    }
+
     /// Start (or restart) the clock for a question ORION just asked.
     mutating func arm(text: String, reachID: String? = nil, at now: Date) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,13 +93,36 @@ struct SpokenQuestionFollowUp: Equatable {
         spentText = nil
     }
 
-    /// What to do now. At most one non-`.none` result per question.
-    mutating func tick(now: Date, idle: TimeInterval?, locked: Bool) -> Action {
+    /// What to do now. At most one non-`.none` result per question. `idle` is accepted for callers but never decides:
+    /// away means locked, display asleep, or not home per awareness (`atHome == false`; nil is unknown, which is not away).
+    mutating func tick(now: Date, idle: TimeInterval?, locked: Bool, displayAsleep: Bool = false, atHome: Bool? = nil) -> Action {
         guard let current = armed, now >= current.due else { return .none }
         armed = nil
         spentText = current.text
-        let atMac = !locked && (idle.map { $0 < Self.idleAway } ?? false)
-        return atMac ? .repeatAloud(current.text) : .sendToPhone(current.text)
+        let away = locked || displayAsleep || atHome == false
+        return away ? .sendToPhone(current.text) : .repeatAloud(current.text)
+    }
+}
+
+/// Whether awareness.json says he is at home: true/false when its location is fresh, nil when unknown.
+enum AwarenessHome {
+    static func atHome(from data: Data, now: Date = Date()) -> Bool? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let location = root["location"] as? [String: Any], let state = location["state"] as? String,
+              let stamp = location["at"] as? String, let at = ISO8601DateFormatter().date(from: stamp) else { return nil }
+        let region = (location["source"] as? String) == "region"
+        guard now.timeIntervalSince(at) <= (region ? 12 * 3600 : 20 * 60) else { return nil }
+        switch state {
+        case "home": return true
+        case "elsewhere", "moving": return false
+        case "known": return (location["placeId"] as? String) == "home"
+        default: return nil
+        }
+    }
+
+    static func current() -> Bool? {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/awareness.json")
+        return (try? Data(contentsOf: file)).flatMap { atHome(from: $0) }
     }
 }
 
@@ -111,6 +153,8 @@ final class SpokenQuestionDriver {
     private let now: () -> Date
     private let idle: () -> TimeInterval?
     private let locked: () -> Bool
+    private let displayAsleep: () -> Bool
+    private let atHome: () -> Bool?
     private let busy: () -> Bool
     private let onRepeatAloud: (String) -> Void
     private let onSendToPhone: (String) -> Void
@@ -121,10 +165,12 @@ final class SpokenQuestionDriver {
          now: @escaping () -> Date = Date.init,
          idle: @escaping () -> TimeInterval?,
          locked: @escaping () -> Bool,
+         displayAsleep: @escaping () -> Bool = { false },
+         atHome: @escaping () -> Bool? = { nil },
          busy: @escaping () -> Bool = { false },
          onRepeatAloud: @escaping (String) -> Void,
          onSendToPhone: @escaping (String) -> Void) {
-        self.scheduler = scheduler; self.now = now; self.idle = idle; self.locked = locked; self.busy = busy
+        self.scheduler = scheduler; self.now = now; self.idle = idle; self.locked = locked; self.displayAsleep = displayAsleep; self.atHome = atHome; self.busy = busy
         self.onRepeatAloud = onRepeatAloud; self.onSendToPhone = onSendToPhone
     }
 
@@ -159,7 +205,7 @@ final class SpokenQuestionDriver {
             cancel = scheduler.schedule(after: Self.busyRetry) { [weak self] in self?.fire() }
             return
         }
-        switch policy.tick(now: now(), idle: idle(), locked: locked()) {
+        switch policy.tick(now: now(), idle: idle(), locked: locked(), displayAsleep: displayAsleep(), atHome: atHome()) {
         case .none:
             // Fired a little early (clock rebased): look again at the real deadline.
             if let due = policy.armed?.due { reschedule(after: max(1, due.timeIntervalSince(now()))) }

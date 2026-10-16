@@ -1,4 +1,5 @@
 import test from "node:test";
+import { readFileSync as readFx } from "node:fs";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -88,7 +89,7 @@ test("a failed calendar read is unknown, never free", () => {
 // Scenario 2, hook side: a 2-minute break with no tick in it still triggers the release, from the phase edge.
 test("scenario 2: the phase hook refreshes with the given session and asks orion-reach to drain", async () => {
   const h = harness();
-  const session = JSON.stringify({ status: "running", phase: "rest", remainingSeconds: 120, task: "essay", sessionId: "s1" });
+  const session = JSON.stringify({ state: "rest", phaseIndex: 1, phaseEndsAt: "2026-10-16T14:02:00Z", task: "essay", sessionId: "s1", source: "phase-hook", at: "2026-10-16T14:00:00Z" });
   const r = h.run("phase", "--from", "focus", "--to", "rest", "--session", session);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(h.aw().session.state, "rest");
@@ -170,4 +171,16 @@ test("curiosity pause writes only pausedUntil and keeps the rest of the ledger",
   assert.equal(c.asks.length, 1);
   assert.equal(c.pausedUntil, new Date(NOW.getTime() + 2 * 86_400_000).toISOString());
   assert.equal(h.run("curiosity", "pause", "--days", "0").status, 2);
+});
+
+// Review 1 (CRITICAL): the app sends the session FACET ({ state, ... }), not the socket's { status, phase }. Same file as the Swift test.
+test("the phase hook's real payload (checked-in fixture, written by the Swift encoder) sets the session state", () => {
+  const h = harness();
+  const fixture = readFx(join(import.meta.dirname, "fixtures/phase-session.json"), "utf8");
+  const r = h.run("phase", "--from", "rest", "--to", "focus", "--session", fixture);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(h.aw().session.state, "focus");
+  assert.equal(h.aw().session.sessionId, "S1");
+  assert.equal(h.aw().session.phaseEndsAt, "2027-01-15T08:20:00.000Z");
+  assert.equal(h.aw().session.source, "phase-hook");
 });

@@ -166,3 +166,22 @@ test("displace: a started block that will not happen leaves its slot and is re-w
   const ahead = world(t, [{ title: "finish resume", start: at(18), end: at(19), orion: "other" }], [14, 30]);
   assert.equal(ahead.run("displace", "finish resume").code, 1);
 });
+
+// Integration review 9: with no overlap, "instead of X" is the X nearest NOW that has started, never a later one.
+const resumeAt = (h) => ({ title: "finish resume", start: at(h), end: at(h + 1), orion: "other" });
+test("review 9: two 'finish resume' blocks, gym at noon with no overlap: the 9:00 one that already passed is replaced, the 18:00 one stays", (t) => {
+  const w = world(t, [lecture, resumeAt(9), resumeAt(18)], [12, 30]);
+  const r = w.run("log", "gym", "--from", "11:30", "--to", "12:30", "--instead", "finish resume", "--no-replan");
+  assert.equal(r.code, 0, r.out);
+  const resumes = w.cal().filter((e) => /resume/i.test(e.title));
+  assert.deepEqual(resumes.map((e) => e.start), [at(18)], "the evening block is untouched");
+  assert.equal(w.slips().length, 1);
+});
+test("review 9: only a block still ahead is named: it asks which one instead of guessing", (t) => {
+  const w = world(t, [lecture, resumeAt(18)], [12, 30]);
+  const before = w.shape();
+  const r = w.run("log", "gym", "--from", "11:30", "--to", "12:30", "--instead", "finish resume", "--no-replan");
+  assert.equal(r.code, 1);
+  assert.match(r.out, /NOTHING WAS CHANGED: .*still ahead.*which block/);
+  assert.deepEqual(w.shape(), before);
+});

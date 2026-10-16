@@ -16,6 +16,9 @@ struct OutreachRow: Equatable {
 struct OutreachAsk: Equatable {
     var askId: String?
     var type: String
+    /// What a reader needs (contract C4, lib/curiosity/ask.mjs): "blank", "mismatch", "save-place". Derived from `type` when absent.
+    var declaredKind: String? = nil
+    var kind: String { declaredKind ?? OutreachContext.derivedKind(type) }
     var windowStart: String? = nil
     var windowEnd: String? = nil
     var place: String? = nil
@@ -48,10 +51,20 @@ enum OutreachContext {
         return nil
     }
 
+    /// The same mapping as askKind() in scripts/lib/curiosity/ask.mjs, for rows written before `kind` existed.
+    static func derivedKind(_ type: String) -> String {
+        switch type {
+        case "blank", "home-gap", "away-gap", "unknown-place", "fill-blank": return "blank"
+        case "mismatch", "off-plan", "not-started": return "mismatch"
+        default: return type
+        }
+    }
+
     static func parseAsk(_ raw: Any?) -> OutreachAsk? {
         guard let object = raw as? [String: Any], let type = object["type"] as? String else { return nil }
         let window = object["window"] as? [String: Any]
-        return OutreachAsk(askId: object["askId"] as? String, type: type,
+        let declared = (object["kind"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return OutreachAsk(askId: object["askId"] as? String, type: type, declaredKind: declared,
                            windowStart: clock(window?["start"]), windowEnd: clock(window?["end"]),
                            place: object["place"] as? String, title: object["title"] as? String ?? object["blockId"] as? String)
     }
@@ -81,7 +94,7 @@ enum OutreachContext {
     static func describe(_ ask: OutreachAsk) -> String {
         let span = ask.windowStart.map { "\($0)-\(ask.windowEnd ?? "now")" }
         var parts: [String]
-        switch ask.type {
+        switch ask.kind {
         case "blank": parts = ["blank ask" + (span.map { " about \($0)" } ?? "")]
         case "mismatch": parts = [ask.title ?? "a planned block"] + (span.map { ["planned \($0)", "not started"] } ?? [])
         case "voice-repeat": parts = ["a spoken question he may not have heard"]

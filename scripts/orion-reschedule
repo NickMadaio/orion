@@ -69,7 +69,8 @@ import { pinBlocks } from "./lib/life/pins.mjs";
 import { minimumFor } from "./lib/life/lengths.mjs";
 import { earlyContext, finishEarly } from "./lib/life/early.mjs";
 import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
-import { planLog, planDisplace, dueAnchors, clock as clockOf } from "./lib/life/reality.mjs";
+import { planLog, planDisplace, dueAnchors, clock as clockOf, slipRow } from "./lib/life/reality.mjs";
+import { weightOf } from "./lib/life/priority.mjs";
 import { appendSlips, touchDirty } from "./lib/life/slips.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -802,7 +803,17 @@ if (command === "late") {
     const insteadName = flag("--instead");
     const candidates = insteadName ? closest(insteadName, movableBlocks) : [];
     if (insteadName && !candidates.length) fail(`NOTHING WAS CHANGED: no block called "${insteadName}" on ${dayName} to replace. Blocks today: ${blocks.map((b) => `${b.title} ${hhmm(b.start)}–${hhmm(b.end)}`).join(", ") || "none"}.`, 1);
-    const instead = candidates.find((b) => b.start < toM && fromM < b.end) ?? [...candidates].sort((a, b) => b.end - a.end)[0] ?? null;
+    // What he replaced: the block his time overlaps; else the one nearest NOW that has already started (or ended). A block still
+    // ahead is not "instead" of something he did already, and two equally near ones are asked about, never guessed.
+    let instead = candidates.find((b) => b.start < toM && fromM < b.end) ?? null;
+    if (!instead && candidates.length) {
+      const gone = candidates.filter((b) => b.start <= nowMinute);
+      const gap = (b) => (b.end <= nowMinute ? nowMinute - b.end : 0);
+      const near = gone.sort((a, b) => gap(a) - gap(b));
+      if (!near.length) fail(`NOTHING WAS CHANGED: "${insteadName}" is still ahead today (${candidates.map((b) => `${b.title} ${hhmm(b.start)}–${hhmm(b.end)}`).join(", ")}); which block did you mean you replaced? Say it with its time.`, 1);
+      if (near.length > 1 && gap(near[0]) === gap(near[1])) fail(`NOTHING WAS CHANGED: more than one "${insteadName}" fits (${near.map((b) => `${b.title} ${hhmm(b.start)}–${hhmm(b.end)}`).join(", ")}); which one did you replace?`, 1);
+      instead = near[0];
+    }
     const kind = ["class", "deadline"].includes(classify(title)) ? "study" : classify(title);
     plan = planLog(blocks, { from: fromM, to: toM }, { ...base, title, kind, instead, reweighDay: !args.includes("--no-replan") });
     head = [`logged ${title} ${hhmm(fromM)}–${hhmm(toM)}${plan.displaced?.length ? ` (replaced ${plan.displaced.map((d) => d.block.title).join(", ")})` : ""}`];
@@ -999,13 +1010,25 @@ const soft = commuteWalls([...planningBlocks, ...add.filter((a) => a.fixed && Nu
 // each block at its own time or just after the one before plus the gap, past
 // anything fixed. Blocks with room keep their time; nothing is flung to a far gap
 // (the incremental mode evicted one block at a time — dinner went to 22:33).
-let rebuilt = !replaceDay;
+// The morning anchor fill (the gym) only ADDS where it fits: it never moves, shrinks or removes one of his blocks. If it
+// does not fit, nothing is written and the caller asks him once (skip it today, or drop the lowest-ranked block).
+const anchorsOnly = command === "fill" && args.includes("--anchors");
+let rebuilt = !replaceDay && !anchorsOnly;
 let basis = planningBlocks; let removedBase = removed;
 const shrunkLines = [];
+let squeezed = [];   // his blocks that no longer fit after the replan: removed, so the review and he must hear of them
 let result = replan(planningBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: rebuilt , buffer: config.bufferMinutes, keepFree: config.freeMinutesKept, config });
 // Normal changes are incremental. If that cannot fit something, retry the
 // whole remaining movable day before bothering Nick: fixed commitments stay as
 // walls, then must-haves, ordinary work and optional fillers are laid down.
+if (anchorsOnly && (result.unplaced.length || result.moves.some((m) => m.to !== m.from) || removed.length)) {
+  const titles = add.map((a) => a.title).join(", ");
+  const cheapest = blocks.filter((b) => (!b.fixed || b.pinned) && b.start > nowMinute && b.kind !== "sleep")
+    .sort((a, b) => weightOf(b, config).score - weightOf(a, config).score || b.start - a.start)[0];
+  console.log(`NOTHING WAS CHANGED: ${titles} does not fit on ${dayName} without moving something.`);
+  console.log(`  ASK: skip ${titles} today, or drop ${cheapest ? `${cheapest.title} (${hhmm(cheapest.start)}–${hhmm(cheapest.end)})` : "something"}?`);
+  process.exit(1);
+}
 if (command === "day" && !replaceDay && !rebuilt && result.unplaced.length) {
   rebuilt = true;
 }
@@ -1032,7 +1055,8 @@ if (rebuilt) {
     }
   }
   const byExistingId = new Map(rebuildBlocks.map((block) => [block.id, block]));
-  removed = [...removed, ...result.unplaced.map((item) => byExistingId.get(item.id)).filter(Boolean)];
+  squeezed = result.unplaced.map((item) => byExistingId.get(item.id)).filter(Boolean);
+  removed = [...removed, ...squeezed];
 }
 if (command === "day" && args.includes("--fill")) {
   // His plans are now in place; fill around them without moving any of them.
@@ -1048,7 +1072,8 @@ if (command === "day" && args.includes("--fill")) {
   if (mustAsks.length) {
     result = replan(basis, { now: nowMinute, window, blocked, soft, add: [...add, ...mustAsks], rebuild: true, buffer: config.bufferMinutes, keepFree: config.freeMinutesKept, config });
     const existing = new Map(basis.map((block) => [block.id, block]));
-    removed = [...removedBase, ...result.unplaced.map((item) => existing.get(item.id)).filter(Boolean)];
+    squeezed = result.unplaced.map((item) => existing.get(item.id)).filter(Boolean);
+    removed = [...removedBase, ...squeezed];
   }
   const second = replan(result.blocks.map((b) => ({ ...b, id: `kept-${b.id}`, fixed: true })), { now: nowMinute, window, soft, add: asks.filter((a) => !a.anchor), buffer: config.bufferMinutes, keepFree: config.freeMinutesKept, config });
   result = { ...result, created: [...result.created, ...second.created], unplaced: [...result.unplaced, ...second.unplaced] };
@@ -1083,6 +1108,17 @@ if (missingMustHaves.length) {
 refuseIfBroken(projectDay(blocks, { moves: result.moves, created: result.created, removed }), nowMinute, "this change");
 if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, removed, blocksById: byId, config, pinCreated: result.created.filter(c => add.some(a => a.title === c.title && Number.isInteger(a.at))).map(c => c.id) }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 if (!dry) await verifyWritten(date, nowMinute);
+// What this write took out of his day (it did not fit) is a slip for the nightly review, and he is told in plain words, once.
+if (!dry && (command === "fill" || args.includes("--fill")) && (squeezed.length || result.moves.some((m) => m.to !== m.from))) {
+  const made = result.created.map((c) => c.title).join(", ") || "the new block";
+  appendSlips(squeezed.map((b) => slipRow({ date, at: nowDate.toISOString(), block: b, missed: b.end - b.start, replacedBy: made, reason: "no-room", config })));
+  const said = [
+    ...result.moves.filter((m) => m.to !== m.from).map((m) => `moved ${m.title} from ${clockOf(m.from)} to ${clockOf(m.to)}`),
+    ...squeezed.map((b) => `took ${b.title} (${clockOf(b.start)}-${clockOf(b.end)}) off today`),
+  ];
+  spawnSync(process.env.ORION_REACH_BIN || joinPath(fileURLToPath(new URL(".", import.meta.url)), "orion-reach"),
+    [`To fit ${made} I ${said.join(" and ")}.`, "--kind", "update", "--why", "reality: fill"], { stdio: "ignore", timeout: 30000 });
+}
 // 2026-09-29: "could not fit side project today" came back and ORION told Nick
 // it was booked for Wednesday. The headline now says what was and was not written.
 for (const p of otherDays) lines.push(`NOT BOOKED: ${p.title} is on ${p.date} — run again with --date ${p.date} --say "${p.title}${p.start !== null ? ` at ${hhmm(p.start)}` : ""}"`);

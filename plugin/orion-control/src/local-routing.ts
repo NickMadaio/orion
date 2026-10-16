@@ -49,7 +49,7 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } fro
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
-import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -247,6 +247,13 @@ const NAMES_NOTHING = (message: string) => {
 const NOT_CALENDAR_TOOLS = new Set(["weather", "lights", "alarm", "wake", "session", "phone_time", "app_open", "browser", "media", "log_intake", "supplements", "show", "repair_note"]);
 // A time or a length in the message: what makes a "tasks" or "brain" pick worth a second look.
 const WHEN_OR_HOW_LONG = /\bat \d{1,2}(:\d{2})?\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(am|pm)\b|\b\d+(\.\d+)?\s*(h|hrs?|hours?|mins?|minutes?)\b|\b(an?|half an?) hour\b|\b(this|tomorrow) (morning|afternoon|evening)\b|\b(today|tonight|tomorrow|tmrw)\b/i;
+// What he says in answer to "what are you up to?": a short statement of what he is doing, or "nothing really".
+const ACTIVITY_REPLY = /^(?:i'?m|i am|i was|i'?ve been|i have been|was|been|just|doing|did|still|at|in|on|with|working|studying|reading|coding|writing|cooking|cleaning|watching|playing|napping|nap|gym|lab|lunch|dinner|class)\b/i;
+/** An open ask forces the schedule flow only for a reply that plausibly answers it, not for any message in the next 90 minutes. */
+export function answersAsk(message: string): boolean {
+  const m = message.trim();
+  return m.length > 0 && m.length <= 160 && (NOTHING_REPLY.test(m) || LOGGING.test(m) || WHEN_OR_HOW_LONG.test(m) || ACTIVITY_REPLY.test(m));
+}
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
 export function isCalendarTurn(message: string, settled: Decision, askOpen = false): boolean {
   // The 4B's tool pick is a hint, not a fact (review, 2026-10-16): "add gym at 5 today" picked as "tasks"
@@ -292,8 +299,10 @@ const pick = (event: Record<string, unknown>, ctx: Record<string, unknown>, key:
 
 /** Nick's own words: the part after a channel brief, if the message carries one. */
 export function userText(prompt: string): string {
-  for (const marker of MARKERS) if (prompt.includes(marker)) return prompt.split(marker).pop()!.trim();
-  return prompt.trim();
+  // The Mac app prepends "[ORION context: ...]" lines (what ORION asked first) to his words: they are not his message.
+  const own = (text: string) => text.replace(/^(?:\s*\[ORION context:[^\]]*\])+/, "").trim();
+  for (const marker of MARKERS) if (prompt.includes(marker)) return own(prompt.split(marker).pop()!);
+  return own(prompt);
 }
 
 /** "Sat 18:05" in local time, the clock format the front desk was evaluated with. */
@@ -905,13 +914,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || run.ask) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled, !!run.ask)) {
+      const openAsk = run.ask && answersAsk(run.message) ? run.ask : undefined;
+      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled, !!openAsk)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
         let flowRan = false;
         run.flow = options.scheduleFlow
-          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], ...(run.ask ? { askContext: run.ask } : {}) }).then((r) => { flowRan = true; return r; }, (e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
+          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], ...(openAsk ? { askContext: openAsk } : {}) }).then((r) => { flowRan = true; return r; }, (e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
           : { outcome: "fallback", reason: "no scheduling flow wired" };
         if (flowRan) markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
         settleSchedule(run);

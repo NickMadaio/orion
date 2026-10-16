@@ -92,9 +92,13 @@ function displace(c, why) {
 }
 
 /** A plan alert goes through orion-reach (gate, the bubble/voice rule and the ceiling apply), not the phone's alerts outbox. */
+/** @returns true only when orion-reach actually delivered it (sent, or already said): a hold, refusal or failure is not an alert. */
 function sendPlan(c, level, text) {
-  const ask = { type: "mismatch", blockId: c.block, window: c.window ?? null, level };
-  try { spawnSync(process.env.ORION_REACH_BIN || join(HERE, "orion-reach"), [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--ask", JSON.stringify(ask)], { encoding: "utf8", timeout: 30_000, env: process.env }); } catch { /* a lost nudge is re-decided by the loop's next step */ }
+  const ask = { type: "mismatch", blockId: c.block, title: c.what, window: c.window ?? null, level };
+  try {
+    const r = spawnSync(process.env.ORION_REACH_BIN || join(HERE, "orion-reach"), [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--ask", JSON.stringify(ask)], { encoding: "utf8", timeout: 30_000, env: process.env });
+    return r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout ?? "").trimStart());
+  } catch { return false; }
 }
 
 const state = load();
@@ -104,6 +108,13 @@ switch (command) {
   case "add": {
     const minutes = Number(rest[0]); const what = rest.slice(1).join(" ").trim();
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720 || !what || what.length > 120) fail('usage: orion-checkin add <0-720 minutes> "<what>"');
+    // A block that was moved and re-entered gets a new calendar id: the same title on the same day is the same block, and
+    // does not start a second not-started loop.
+    const today = new Date().toLocaleDateString("en-CA");
+    if (flag("--block") && state.checkins.some((x) => x.block && x.what === what && x.loop?.phase !== "cancelled"
+        && new Date(x.createdAt).toLocaleDateString("en-CA") === today)) {
+      console.log(`Already following "${what}" today.`); break;
+    }
     const id = `ci-${randomBytes(3).toString("hex")}`;
     const because = flag("--because");
     const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
@@ -202,18 +213,25 @@ switch (command) {
         continue;
       }
       c.loop = after;
-      c.alerts += 1;
-      if (c.block && c.alerts >= PLAN_MAX_ALERTS) {
-        !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
-        c.loop = { ...after, phase: "given_up", nextCheckAt: null };
-        sendPlan(c, 5, `I'll stop pinging about ${c.what} - I've moved what I could.`);
-        displace(c, "gave-up"); continue;
+      if (c.block) {
+        // Only an alert that reached him counts, and a loop only gives up (and re-weighs the day) after one did.
+        const finalStep = c.alerts + 1 >= PLAN_MAX_ALERTS;
+        const reached = sendPlan(c, finalStep ? 5 : after.level, finalStep ? `I'll stop pinging about ${c.what} - I've moved what I could.` : message(c, now));
+        if (!reached) { c.loop = before; continue; }   // held, refused or failed: nothing counted, the same step is tried next tick
+        c.alerts += 1;
+        c.returning = null;
+        if (finalStep) {
+          !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
+          c.loop = { ...after, phase: "given_up", nextCheckAt: null };
+          displace(c, "gave-up");
+        }
+        continue;
       }
+      c.alerts += 1;
       if (c.alerts > MAX_ALERTS) {
         !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
         c.loop = { ...after, phase: "given_up", nextCheckAt: null }; alerts.push({ id: c.id, level: 4, text: `I'll stop pinging about ${c.what}. Tell me when you want to pick it back up.` }); continue; }
-      if (c.block) sendPlan(c, after.level, message(c, now));
-      else alerts.push({ id: c.id, level: after.level, text: message(c, now) });
+      alerts.push({ id: c.id, level: after.level, text: message(c, now) });
       c.returning = null;
     }
     save(state);

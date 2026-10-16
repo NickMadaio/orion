@@ -20,7 +20,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { readAwareness, writeAwareness, controlledDir } from "./lib/awareness/state.mjs";
-import { sessionFacet, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, isFresh, LIMITS } from "./lib/awareness/facets.mjs";
+import { sessionFacet, sessionFromHook, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, isFresh, LIMITS } from "./lib/awareness/facets.mjs";
 import { readJson, updateJson } from "./lib/awareness/io.mjs";
 import { readKnownPlaces, writeKnownPlaces, learnHome, reconcileHome, matchPlace, isNickConfirmed } from "./lib/awareness/places.mjs";
 import { gather, seamFacts } from "./lib/reach/facts.mjs";
@@ -70,7 +70,7 @@ async function refresh({ session } = {}) {
   const activity = given ? null : readJson(join(DIR, "focus-activity.json"));
   const log = readJson(join(DIR, "health-log.json")) ?? {};
   const places = readKnownPlaces(DIR);
-  const sessionF = session ? sessionFacet(session, now, { source: "phase-hook", previous: raw?.session })
+  const sessionF = session ? sessionFromHook(session, now, { previous: raw?.session })
     : sessionFacet(askSocket(), now, { previous: raw?.session });
   // The Mac: focus-activity.json when fresh; else one cheap ioreg read (never system_profiler here).
   let macF = macFacet(activity, null, now);

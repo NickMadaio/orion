@@ -30,7 +30,7 @@
  bubble always shows while speech needs him home or in headphones (3.4.4). Daily ceiling: dailyReachCeiling (20)
  counts proactive:/plan:/curiosity: messages, never a reminder he set or a class nudge (exit 3, reason ceiling).
 */
-import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, readFileSync, existsSync, mkdirSync, statSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -41,7 +41,8 @@ import { loadConfig } from "./lib/life/config.mjs";
 import { localDate } from "./lib/life/live-day.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/quiet.mjs";
-import { appendHeld, readHeld, clearHeld, mergeHeld } from "./lib/reach/held.mjs";
+import { appendHeld, readHeld, clearHeld, mergeHeld, releaseHeldAlerts } from "./lib/reach/held.mjs";
+import { withKind } from "./lib/curiosity/ask.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
 
 const args = process.argv.slice(2);
@@ -60,10 +61,24 @@ const OPEN = process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open";
 
 let text = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1]));
 let held = [];
+// One drain at a time: the phase hook and the proactive backstop can both fire, and both would send the merged message.
 if (drain) {
-  held = readHeld(DIR);
+  const lock = join(DIR, "held.drain.lock");
+  mkdirSync(DIR, { recursive: true });
+  try { if (Date.now() - statSync(lock).mtimeMs > 60_000) rmSync(lock, { force: true }); } catch {}
+  try { writeFileSync(lock, String(process.pid), { flag: "wx" }); } catch { console.log("Another drain is running."); process.exit(0); }
+  process.on("exit", () => { try { rmSync(lock, { force: true }); } catch {} });
+}
+if (drain) {
+  // Watcher alerts held for the phone (via "alerts-outbox") are not part of the merged message: they are released to the
+  // alerts outbox when the gate allows (below), never cleared with the messages.
+  held = readHeld(DIR).filter((e) => e.via !== "alerts-outbox");
   text = mergeHeld(held, { now: now.getTime() }).text;
-  if (!text) { clearHeld(DIR, held); console.log("Nothing held worth saying."); process.exit(0); }
+  if (!text) {
+    clearHeld(DIR, held);
+    if (!readHeld(DIR).some((e) => e.via === "alerts-outbox")) { console.log("Nothing held worth saying."); process.exit(0); }
+    text = "(held alerts)";   // only alerts are waiting: the gate below decides whether they go
+  }
 }
 if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent [--urgent-kind reminder|class]] [--channel auto|phone|mac] [--dry-run]');
 const kind = flag("--kind") ?? (drain ? "update" : "info");
@@ -76,6 +91,7 @@ let ask = null;
 if (flag("--ask") !== undefined) {
   try { ask = JSON.parse(flag("--ask")); } catch { /* checked below */ }
   if (!ask || typeof ask !== "object" || Array.isArray(ask)) fail("--ask must be a JSON object");
+  ask = withKind(ask);   // one ask contract for every reader (lib/curiosity/ask.mjs)
 }
 const validUntil = flag("--valid-until") ?? null;
 if (validUntil && Number.isNaN(Date.parse(validUntil))) fail("--valid-until must be an ISO timestamp");
@@ -118,7 +134,8 @@ const headphones = heard.macHeadphones ?? !!here.headphones;
 const forced = flag("--channel");
 // speech needs home or headphones (3.4.4); --loud (the morning brief) is meant aloud, so it asks for speech itself.
 const facts = { ...here, quiet: false, atHome: heard.atHome, headphones,
-  speakOnMac: args.includes("--loud") ? !here.lateAwake : speakOnMac({ atHome: heard.atHome, headphones, lateAwake: here.lateAwake }) };
+  speakOnMac: args.includes("--loud") && kind === "morning" ? !here.lateAwake && heard.atHome !== false   // the brief is meant aloud, at home or where home is unknown
+    : speakOnMac({ atHome: heard.atHome, headphones, lateAwake: here.lateAwake }) };
 let decision = forced === "phone" ? { channel: "phone", reason: "asked for the phone" }
   : forced === "mac" ? chooseChannel({ ...facts, idleSeconds: 0, locked: false, displayAsleep: false }, { urgent, urgentKind })
   : chooseChannel(facts, { urgent, urgentKind });
@@ -136,12 +153,16 @@ if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RU
 // Review M3: inside the sleep window the queue is released only when he is at the Mac, whatever a phone sample says.
 if (drain && here.inWindow && !here.lateAwake && !bypass) decision = { channel: "hold", reason: "he is inside his sleep window" };
 if (drain && decision.channel === "hold") { console.log(`Still held (${decision.reason}).`); process.exit(0); }
+// Only watcher alerts were waiting: the gate said go, so they move to the phone's alerts outbox (their own path), nothing is merged.
+if (drain && text === "(held alerts)") { releaseHeldAlerts(DIR); console.log("Sent — held alerts released to the phone."); process.exit(0); }
 try {
   appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
   if (decision.channel === "hold") {
     // Held means kept, not dropped (2026-10-16): queued, released once and merged.
     // An ask is stale by definition once held: dropped, and the loop asks again with fresh facts.
     if (!drain && !ask && !args.includes("--no-queue")) appendHeld(DIR, { id, at: entry.at, text: entry.text, kind, why: entry.why, heldFor: decision.heldFor ?? "quiet", ...(validUntil ? { validUntil } : {}) });
+    // An ask is not kept (stale once held): say so with exit 3, so the loop neither records it nor backs off nor arms the reply link.
+    if (ask && !drain) { console.log(`NOT SENT: held (${decision.reason}); an ask is not queued, the loop asks again with fresh facts.`); process.exit(3); }
     console.log(args.includes("--json") ? JSON.stringify(entry) : `Held — ${describe(entry)}`);
     process.exit(0);
   }
@@ -167,7 +188,7 @@ try {
   console.log(`NOT SENT: delivery failed (${String(error?.message ?? error).slice(0, 120)}).`);
   process.exit(4);
 }
-if (drain) clearHeld(DIR, held);
+if (drain) { clearHeld(DIR, held); releaseHeldAlerts(DIR); }
 console.log(args.includes("--json") ? JSON.stringify(entry) : `Sent — ${describe(entry)}`);
 
 function describe(e) {

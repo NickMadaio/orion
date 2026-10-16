@@ -621,10 +621,14 @@ function pickOutreach(rows, { replyTo, consumed, now }) {
 
 function askDetail(ask) {
   if (!ask || typeof ask !== "object") return "";
+  const hm = (v) => (typeof v === "string" && v ? v : Number.isFinite(v) ? `${String(Math.floor(v / 60) % 24).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}` : null);
   const w = ask.window;
-  const span = w?.start ? ` about ${w.start}-${w.end ?? "now"}` : "";
+  const from = hm(w?.start);
+  const span = from ? ` about ${from}-${hm(w.end) ?? "now"}` : "";
   const place = typeof ask.place === "string" && ask.place ? `, at ${ask.place}` : "";
-  return ` (${String(ask.type ?? "open").slice(0, 20)} ask${span}${place})`;
+  const kind = String(ask.kind ?? ask.type ?? "open");
+  const block = kind === "mismatch" && (ask.title || ask.blockId) ? ` "${String(ask.title ?? ask.blockId).slice(0, 60)}", planned${span}, not started` : span;
+  return ` (${kind.slice(0, 20)} ask${block}${place})`;
 }
 
 function recentOutreach({ replyTo = null, now = Date.now() } = {}) {

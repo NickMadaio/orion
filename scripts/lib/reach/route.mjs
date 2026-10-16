@@ -60,6 +60,9 @@ export const COUNTED_WHY = /^(proactive|plan|curiosity):/;
 
 /** How many counted messages reached him on `date` (a local YYYY-MM-DD). Held, dropped and failed rows do not count. */
 export function countedToday(history, date, localDate) {
-  return history.filter((h) => COUNTED_WHY.test(String(h.why ?? "")) && h.channel !== "hold" && h.status !== "failed" && h.status !== "dropped"
+  // orion-reach logs a row twice when the app is down and it falls back to the phone: one message, counted once.
+  const seen = new Set();
+  const once = history.filter((h) => !h.id || (!seen.has(h.id) && seen.add(h.id)));
+  return once.filter((h) => COUNTED_WHY.test(String(h.why ?? "")) && h.channel !== "hold" && h.status !== "failed" && h.status !== "dropped"
     && localDate(new Date(h.at)) === date).length;
 }

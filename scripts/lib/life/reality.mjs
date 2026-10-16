@@ -164,4 +164,4 @@ export function dueAnchors(blocks, anchors, weekday) {
   return anchors.filter((a) => a.days.includes(weekday) && !blocks.some((b) => b.kind === a.kind))
     .map((a) => ({ title: a.title, kind: a.kind, minutes: a.minutes, rank: a.rank ?? "must", tags: ["anchor"], anchor: true }));
 }
-export { hh as clock, say as saySpoken };
+export { hh as clock, say as saySpoken, slipRow };

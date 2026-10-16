@@ -24,6 +24,11 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } fr
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
+import { claimBriefing, finalizeBriefing, releaseBriefing } from "./lib/reach/morning-lock.mjs";
+import { deliveryOutcome } from "./lib/reach/delivery.mjs";
+import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
+import { actualWake } from "./lib/life/night.mjs";
+import { isRealClass } from "./lib/reach/class-ladder.mjs";
 import { shouldBrief, alarmClock, composeBriefing, buildView } from "./lib/reach/morning.mjs";
 import { weather } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
@@ -39,18 +44,19 @@ const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const [command, signal] = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--at");
 const dry = args.includes("--dry-run");
-const now = new Date();
+const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();   // test seam
+const OPEN = process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open";                              // test seam: never the real app
 const today = localDate(now);
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
 const state = readJson(STATE) ?? {};
-const usage = "usage: orion-morning signal unplugged|used|up [--at ISO] [--dry-run] | preview | show | status";
+const usage = "usage: orion-morning signal unplugged|used|up [--at ISO] [--dry-run] | catchup | preview | show | status";
 
 if (command === "status") {
   const sent = state[today];
   console.log(sent ? `Briefed at ${new Date(sent.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} (phone ${sent.signal}).` : "No morning briefing yet today.");
   process.exit(0);
 }
-if (!["signal", "preview", "show"].includes(command)) { console.error(usage); process.exit(2); }
+if (!["signal", "catchup", "preview", "show"].includes(command)) { console.error(usage); process.exit(2); }
 if (sandbox()) { console.log("Not during an evaluation."); process.exit(0); }
 
 if (command === "preview") {
@@ -62,29 +68,58 @@ if (command === "show") {
   process.exit(0);
 }
 
-const signalAt = flag("--at") ? new Date(flag("--at")) : now;
+// catchup (run by orion-proactive's tick): no signal reached the Mac, but he is demonstrably up (WHOOP or the
+// phone) and no brief went out yet today. 2026-10-13: five signals arrived at 12:27Z and there was no brief all day.
+let signalName = signal;
+let catchupAt = null;
+if (command === "catchup") {
+  const health = readJson(join(DIR, "health-log.json")) ?? {};
+  const woke = actualWake(today, { nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [], sleepLog: health.sleepLog ?? [], phoneSignals: health.phoneSignals ?? [], now });
+  if (!woke || state[today]) { console.log(state[today] ? "Already briefed today." : "No sign he is up yet."); process.exit(0); }
+  catchupAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(woke.minute / 60), woke.minute % 60);
+  signalName = "up";
+}
+const signalAt = catchupAt ?? (flag("--at") ? new Date(flag("--at")) : now);
 // The alarm that actually rang: his own wake-up beats the planner's (alarmClock).
 let planned = null;
 try { planned = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
 const wake = alarmClock({ planned, asked: readJson(join(DIR, "wake-request.json"))?.at, today });
-const gate = shouldBrief({ signal, signalAt, now, wake, briefedToday: !!state[today] });
+const isCatchup = command === "catchup";
+const gate = shouldBrief({ catchUp: isCatchup, signal: signalName, signalAt, now, wake, briefedToday: !!state[today] });
 // Every signal and what was decided, for checking a morning afterwards.
-if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signal} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }
+if (!dry) { try { appendFileSync(join(DIR, "morning.log"), `${now.toISOString()} ${signalName} at ${flag("--at") ?? "now"} → ${gate.ok ? "briefing" : `no: ${gate.reason}`}\n`); } catch {} }
 if (!gate.ok) { console.log(`No briefing: ${gate.reason}.`); process.exit(0); }
 
-const { text, view } = await gather();
-if (dry) { console.log(`DRY RUN — would say aloud (${gate.reason}): ${text}`); process.exit(0); }
-// The screen, then the lights (2026-10-08): the strip coming on is the cue that ORION is about to talk.
-showScreen(view);
-spawnSync(process.execPath, [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
-const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--urgent", "--loud", "--listen",
-  "--channel", "mac", "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
-process.stdout.write(sent.stdout ?? "");
-if (sent.status === 0 && /^Sent/.test(sent.stdout ?? "")) {
-  mkdirSync(DIR, { recursive: true });
-  const keep = Object.fromEntries(Object.entries({ ...state, [today]: { at: now.toISOString(), signal } }).sort().slice(-14));
-  writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2));
-  renameSync(`${STATE}.tmp`, STATE);
+if (dry) { const { text } = await gather(); console.log(`DRY RUN — would say aloud (${gate.reason}): ${text}`); process.exit(0); }
+// Claim the morning BEFORE the slow gather: two signals 4 s apart both used to pass the gate and brief twice, 2 ms apart.
+const claim = claimBriefing(DIR, today, { now: Date.now() });
+if (!claim.ok) { console.log(`No briefing: ${claim.reason}.`); process.exit(0); }
+let delivered = false;
+try {
+  const { text, view, day } = await gather();
+  // Review M1: a catch-up is the fallback for a missed morning, not the morning ritual. Never inside a fixed block (it would
+  // talk in a lecture); try again at the next tick.
+  const nowMinute = now.getHours() * 60 + now.getMinutes(); 
+  if (isCatchup && day.some((b) => b.fixed && b.start <= nowMinute && b.end > nowMinute)) { console.log("No briefing yet: he is in a fixed block; the catch-up waits."); releaseBriefing(DIR, today); process.exit(0); }   // process.exit skips `finally`
+  // The screen, then the lights (2026-10-08): the strip coming on is the cue that ORION is about to talk.
+  if (!isCatchup) showScreen(view);
+  if (!isCatchup) spawnSync(process.env.ORION_LIGHTS_BIN || process.execPath, process.env.ORION_LIGHTS_BIN ? ["on", "100", "warm"] : [join(here, "orion-lights"), "on", "100", "warm"], { encoding: "utf8", timeout: 25000 });
+  // --awake: the signal is proof he is up, so quiet hours do not hold it. --loud with --channel mac says it aloud
+  // even when the calendar says a class is on: it went out as a silent bubble on 2026-10-15.
+  // A catch-up uses NORMAL routing (no --loud, no forced Mac channel): it may be hours late and he may be anywhere.
+  const sent = spawnSync(process.execPath, [join(here, "orion-reach"), text, "--kind", "morning", "--awake",
+    ...(isCatchup ? [] : ["--loud", "--listen", "--channel", "mac"]), "--why", `morning: ${gate.reason}`], { encoding: "utf8", timeout: 30000 });
+  process.stdout.write(sent.stdout ?? "");
+  delivered = deliveryOutcome({ status: sent.status, stdout: sent.stdout }).said;
+  if (delivered) {
+    mkdirSync(DIR, { recursive: true });
+    const keep = Object.fromEntries(Object.entries({ ...state, [today]: { at: now.toISOString(), signal: signalName } }).sort().slice(-14));
+    writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2));
+    renameSync(`${STATE}.tmp`, STATE);
+    finalizeBriefing(DIR, today);
+  }
+} finally {
+  if (!delivered) releaseBriefing(DIR, today);   // a failed brief must not block the next signal
 }
 
 function run(script, list) {
@@ -96,24 +131,43 @@ function showScreen(view) {
   try {
     mkdirSync(DIR, { recursive: true });
     writeFileSync(join(DIR, "morning-view.json"), JSON.stringify(view, null, 2));
-    execFileSync("/usr/bin/open", ["-g", "orion://morning-screen"], { timeout: 5000 });
+    execFileSync(OPEN, ["-g", "orion://morning-screen"], { timeout: 5000 });
     return true;
   } catch { return false; }
 }
 
+// A function declaration, so it is hoisted: gather() runs above this line and a const here is a temporal-dead-zone error
+// that silently turned every calendar read into "unknown" and every weather read into null (found by the review probes).
+function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))]); }
+
+async function readWeather() {
+  // ORION_WEATHER_FILE is a test seam (never the network in tests); a missing or FAIL file is a failure.
+  if (process.env.ORION_WEATHER_FILE) return JSON.parse(readFileSync(process.env.ORION_WEATHER_FILE, "utf8"));
+  return weather(DIR, now);
+}
+
 async function gather() {
-  let day = [];
-  try { day = await liveDay(today); } catch {}
+  // Each read is time-boxed and they run in parallel: the whole gather is bounded (~20 s) and a slow Reminders
+  // bridge or weather call can no longer hold the brief for minutes. A failed read is "unknown", never "nothing".
+  const readDay = async () => { try { return { day: await withTimeout(liveDay(today), 20000), calendar: "ok" }; } catch { return { day: [], calendar: "unknown" }; } };
+  const [{ day, calendar }, sky] = await Promise.all([readDay(),
+    // Weather: one retry, then null so the brief says it could not get it (instead of silently dropping the sentence).
+    (async () => { for (let i = 0; i < 2; i++) { try { return await withTimeout(readWeather(), 20000); } catch {} } return null; })()]);
   const travel = (() => { try { return commuteWalls(day, loadConfig()); } catch { return []; } })();
   const same = (a, b) => String(a).toLowerCase().includes(String(b).toLowerCase()) || String(b).toLowerCase().includes(String(a).toLowerCase());
   let todos = [];
   try {
-    const raw = JSON.parse((await bridgeRequest("list_incomplete_reminders", { list: loadConfig().todoList })).reminders_json ?? "[]");
+    const raw = JSON.parse((await withTimeout(bridgeRequest("list_incomplete_reminders", { list: loadConfig().todoList }), 20000)).reminders_json ?? "[]");
     const titles = raw.map((t) => t.title);
     todos = raw.map((t) => ({ title: t.title, dueDate: t.due ? localDate(new Date(t.due)) : null,
       booked: day.some((b) => same(b.title, t.title)), waiting: !!waitsFor(t.notes, titles.filter((x) => x !== t.title)) }));
   } catch {}
-  const sky = await weather(DIR, now).catch(() => null);
-  const facts = { now, day, travel, todos, today, weather: sky };
-  return { text: composeBriefing(facts), view: buildView(facts) };
+  // Classes that already happened, with EVIDENCE he missed them (WHOOP wake after the start, phone on its charger).
+  const health = readJson(join(DIR, "health-log.json")) ?? {};
+  const wokeAt = actualWake(today, { nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [], sleepLog: health.sleepLog ?? [], phoneSignals: health.phoneSignals ?? [], now })?.minute ?? null;
+  const phone = phoneMinutes(health.phoneSignals, today);
+  const nowMinute = now.getHours() * 60 + now.getMinutes();
+  const missed = day.filter((b) => isRealClass(b) && b.end <= nowMinute && classAttendance(b, { wokeAt, phone }) === "missed");
+  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed };
+  return { text: composeBriefing(facts), view: buildView(facts), day };
 }

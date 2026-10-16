@@ -63,13 +63,19 @@ struct TodoPill: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            // 2026-10-16 UI audit #7: on the Mac (pointer density) a tag is plain
+            // mono text with a dot in its colour, not a filled pill. The phone
+            // (touch) keeps its pill.
+            if density == .pointer && !placeholder && icon == nil {
+                Circle().fill(tone.text).frame(width: 4, height: 4)
+            }
             if let icon { Image(systemName: icon).font(.system(size: density.pill - 1.5, weight: .semibold)) }
             Text(text).font(.system(size: density.pill, weight: .medium, design: .monospaced)).lineLimit(1)
         }
         .foregroundStyle(tone.text)
         .padding(.horizontal, density == .touch ? 8 : 6.5)
         .padding(.vertical, density == .touch ? 3.5 : 2.5)
-        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(tone.fill))
+        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(density == .pointer ? Color.clear : tone.fill))
         .overlay {
             if placeholder {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)

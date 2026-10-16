@@ -48,6 +48,10 @@ struct DayTimeline: View {
     private let wakingEnd = 23
 
     @State private var now = Date()
+    /// 2026-10-16 UI audit #6: where the viewport is, so a now-line that has
+    /// scrolled out of sight can say so instead of silently vanishing.
+    @State private var scrollY: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
     /// Owned across renders: a timer stored on this struct was re-created every
     /// second by the dashboard's re-render and never fired (see ProjectRefresh.swift).
     @StateObject private var clock = RefreshTicker(interval: 30)
@@ -72,7 +76,24 @@ struct DayTimeline: View {
                         if let bed = night?.bed { marker(at: bed, label: "Asleep by", systemImage: "moon.zzz.fill", tint: OrionTheme.violet) }
                         if isToday { nowLine }
                     }
-                    .frame(height: CGFloat(hours.count) * hourHeight + 8)
+                    // 2026-10-16 UI audit #6: room under the last hour, so a late
+                    // event does not sit on the bottom edge of the column.
+                    .frame(height: CGFloat(hours.count) * hourHeight + 36)
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: TimelineScrollKey.self,
+                                               value: -geometry.frame(in: .named(Self.space)).minY)
+                    })
+                }
+                .coordinateSpace(name: Self.space)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: TimelineViewportKey.self, value: geometry.size.height)
+                })
+                .onPreferenceChange(TimelineScrollKey.self) { scrollY = $0 }
+                .onPreferenceChange(TimelineViewportKey.self) { viewportHeight = $0 }
+                .overlay(alignment: nowEdge == .below ? .bottom : .top) {
+                    if isToday, let edge = nowEdge {
+                        nowHint(edge) { scrollTo(proxy, hour: calendar.component(.hour, from: now) - 1) }
+                    }
                 }
                 // Anchoring happens against the hour rows themselves — they are
                 // the only things here with a real layout position. See the note
@@ -90,6 +111,50 @@ struct DayTimeline: View {
             .frame(maxHeight: .infinity)
         }
         .onChange(of: clock.tick) { _, _ in now = Date() }
+    }
+
+    // MARK: - Now, when it is out of view
+
+    private static let space = "day-timeline-scroll"
+
+    private var nowEdge: NowEdge? {
+        guard isToday else { return nil }
+        return DayTimeline.nowEdge(nowY: offset(for: now), scrollY: scrollY, viewport: viewportHeight)
+    }
+
+    enum NowEdge: Equatable { case above, below }
+
+    /// Pure so it can be tested without a window. Nil while the line is in view
+    /// (or before the viewport has been measured).
+    static func nowEdge(nowY: CGFloat, scrollY: CGFloat, viewport: CGFloat, margin: CGFloat = 8) -> NowEdge? {
+        guard viewport > 0 else { return nil }
+        if nowY < scrollY + margin { return .above }
+        if nowY > scrollY + viewport - margin { return .below }
+        return nil
+    }
+
+    private func nowHint(_ edge: NowEdge, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("now · \(now.formatted(date: .omitted, time: .shortened))")
+                Image(systemName: edge == .above ? "arrow.up" : "arrow.down")
+            }
+            .font(OrionTheme.mono(9, .semibold))
+            .tracking(1.0)
+            .foregroundStyle(OrionTheme.red.opacity(0.9))
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Capsule().fill(Color.black.opacity(0.45)))
+            .overlay(Capsule().strokeBorder(OrionTheme.red.opacity(0.5), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .help("Scroll to now")
+    }
+
+    private func scrollTo(_ proxy: ScrollViewProxy, hour: Int) {
+        withAnimation(.easeOut(duration: 0.25)) {
+            proxy.scrollTo(hourID(min(lastHour, max(firstHour, hour))), anchor: .top)
+        }
     }
 
     // MARK: - Opening position
@@ -457,4 +522,15 @@ private struct EventBlock: View {
         if hovering { return 0.46 }
         return isNow ? 0.42 : 0.30
     }
+}
+
+
+private struct TimelineScrollKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct TimelineViewportKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

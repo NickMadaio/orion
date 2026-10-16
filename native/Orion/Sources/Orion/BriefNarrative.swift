@@ -74,7 +74,8 @@ extension BriefFacts {
                 + (allDayCount > 0 ? " There \(allDayCount == 1 ? "is one all-day entry" : "are \(allDayCount) all-day entries") to keep in mind." : "")
         } else {
             schedule = "\(remaining.count) timed calendar event\(remaining.count == 1 ? " remains" : "s remain") in progress or ahead today."
-                + (allDayCount > 0 ? " There are also \(allDayCount) all-day entries." : "")
+                // "There are also 1 all-day entries." went out on the Home brief (2026-10-16).
+                + (allDayCount > 0 ? " There \(allDayCount == 1 ? "is also one all-day entry" : "are also \(allDayCount) all-day entries")." : "")
         }
         let tasks: String
         if !tasksConnected {

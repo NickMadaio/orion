@@ -739,8 +739,14 @@ struct FocusSessionHome: View {
     }
 
     private func presentProactiveGuardIfNeeded() {
-        guard !isPreview, pendingGuard == nil,
-              let request = model.guardSetupRequest else { return }
+        // 2026-10-16 UI audit #2: a request that has been cleared (the session
+        // ended or was abandoned) closes the sheet; and never present one for a
+        // session that is not live.
+        guard let request = model.guardSetupRequest, model.hasLiveSession else {
+            if pendingGuard != nil { pendingGuard = nil }
+            return
+        }
+        guard !isPreview, pendingGuard == nil else { return }
         pendingGuard = GuardProposal(mode: request.mode, apps: request.apps)
     }
 
@@ -1117,21 +1123,20 @@ private struct GuardSetupSheet: View {
                 .foregroundStyle(OrionTheme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 7) {
+            // 2026-10-16 UI audit #7: text tabs of natural width with a cyan
+            // underline for the choice, instead of five equal filled tiles.
+            HStack(alignment: .firstTextBaseline, spacing: 20) {
                 ForEach(SessionGuardMode.allCases) { mode in
                     Button(mode.title) { selectedMode = mode }
                         .buttonStyle(.plain)
                         .font(OrionTheme.mono(8, .semibold))
                         .tracking(1.1)
-                        .foregroundStyle(selectedMode == mode ? FocusPalette.cyan : OrionTheme.textDim)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(
-                            selectedMode == mode ? FocusPalette.cyan.opacity(0.11) : Color.white.opacity(0.025)
-                        ))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(
-                            selectedMode == mode ? FocusPalette.cyan.opacity(0.38) : Color.white.opacity(0.07), lineWidth: 0.7
-                        ))
+                        .foregroundStyle(selectedMode == mode ? FocusPalette.cyan : OrionTheme.textSoft)
+                        .padding(.bottom, 5)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(selectedMode == mode ? FocusPalette.cyan.opacity(0.7) : Color.clear)
+                                .frame(height: 0.7)
+                        }
                 }
             }
 
@@ -1140,7 +1145,7 @@ private struct GuardSetupSheet: View {
                 .foregroundStyle(OrionTheme.textDim)
 
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(proposal.apps, id: \.bundleID) { app in
                         Toggle(isOn: Binding(
                             get: { allowed.contains(app.bundleID) },
@@ -1158,13 +1163,13 @@ private struct GuardSetupSheet: View {
                             }
                         }
                         .toggleStyle(.checkbox)
-                        .padding(.horizontal, 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 9)
-                        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.035)))
+                        .overlay(alignment: .bottom) { FadingHairline() }
                     }
                 }
             }
-            .frame(minHeight: 190, maxHeight: 300)
+            .frame(minHeight: 190, maxHeight: .infinity)
 
             HStack {
                 Text(allowed.isEmpty ? "Select at least one work app." : "\(allowed.count) work app\(allowed.count == 1 ? "" : "s") allowed")
@@ -1177,8 +1182,7 @@ private struct GuardSetupSheet: View {
                 Button("ARM GUARD") {
                     onArm(selectedMode, allowed)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(FocusPalette.cyan)
+                .buttonStyle(OutlineButtonStyle(tint: FocusPalette.cyan))
                 .disabled(allowed.isEmpty)
             }
         }
@@ -1299,20 +1303,21 @@ struct SessionMiniBar: View {
                 .progressViewStyle(.linear).tint(FocusPalette.cyan).frame(width: 90)
             Button { model.toggleSessionPause() } label: {
                 Image(systemName: model.headline == "Paused" ? "play.fill" : "pause.fill").font(.system(size: 12, weight: .semibold))
-                    .frame(width: 28, height: 28).background(Circle().fill(Color.white.opacity(0.08)))
+                    .frame(width: 28, height: 28).overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
             }
             .buttonStyle(.plain).foregroundStyle(FocusPalette.warmWhite)
             .help(model.headline == "Paused" ? "Resume" : "Pause")
             Button(action: onExpand) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .semibold))
-                    .frame(width: 28, height: 28).background(Circle().fill(FocusPalette.cyan.opacity(0.16)))
+                    .frame(width: 28, height: 28).overlay(Circle().strokeBorder(FocusPalette.cyan.opacity(0.5), lineWidth: 0.5))
             }
             .buttonStyle(.plain).foregroundStyle(FocusPalette.cyan)
             .help("Back to the focus session")
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(FocusPalette.cyan.opacity(0.28), lineWidth: 1))
+        // 2026-10-16 UI audit #8: real alpha instead of .ultraThinMaterial.
+        .background(Capsule().fill(Color.black.opacity(0.42)))
+        .overlay(Capsule().strokeBorder(FocusPalette.cyan.opacity(0.28), lineWidth: 0.5))
         .shadow(color: FocusPalette.cyan.opacity(0.18), radius: 18)
     }
 

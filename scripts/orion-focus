@@ -33,6 +33,7 @@
    orion-focus end
 */
 
+import { strikeLine } from "./lib/focus/lines.mjs";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -386,15 +387,9 @@ switch (command) {
      Escalation. The first step is quiet on purpose -- being shouted at for
      three seconds in the wrong window teaches you to turn the thing off.
     */
-    if (strikes === 1) {
-      await announce(`${front}. You're meant to be on ${session.task}.`);
-    } else if (strikes === 2) {
-      await announce(`Nick. ${session.task}. Not ${front}.`);
-    } else {
-      await announce(
-        `Enough. ${session.task}. ${minutesLeft(session)} minutes left. ` +
-          `Talk to me if you have an actual reason.`,
-      );
+    // 2026-10-16 audit, finding 13: plain sentences that ask, never an app name as a fragment or "Enough." (lib/focus/lines.mjs).
+    await announce(strikeLine({ strike: strikes, front, task: session.task, minutesLeft: minutesLeft(session) }));
+    if (strikes >= 3) {
       if (session.anchor) await raise(session.anchor);
     }
 

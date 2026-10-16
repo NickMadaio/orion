@@ -1904,6 +1904,36 @@ if __name__ == "__main__":
 
 
 
+class SpokenCourseCodesTest(unittest.TestCase):
+    """2026-10-16: Nick: "when he says my classes, he says the 'CS 2100' before saying the rest… it sounds
+    terrible". Course codes go to the voice as the class name, or as people say them."""
+
+    def test_a_code_before_its_title_is_dropped(self):
+        say = daemon.spoken_course_codes
+        self.assertEqual(say("Today you've got MKTG2201 Introduction to Marketing — Lecture at 1:30 PM."),
+                         "Today you've got Introduction to Marketing lecture at 1:30 PM.")
+        self.assertEqual(say("Next is CS1800 Discrete Structures — Lecture."), "Next is Discrete Structures lecture.")
+        self.assertEqual(say("ECON1115 Principles of Macroeconomics - Lecture, then gym"),
+                         "Principles of Macroeconomics lecture, then gym")
+
+    def test_a_bare_code_is_said_the_way_people_say_it(self):
+        say = daemon.spoken_course_codes
+        self.assertEqual(say("Is CS2100 today?"), "Is C S twenty-one hundred today?")
+        self.assertEqual(say("your CS1800 quiz"), "your C S eighteen hundred quiz")
+        self.assertEqual(say("MKTG2201 is at 1:30"), "M K T G twenty-two oh one is at 1:30")
+        self.assertEqual(say("ECON1115."), "E C O N eleven fifteen.")
+
+    def test_ordinary_text_is_untouched(self):
+        say = daemon.spoken_course_codes
+        for text in ["It's 2026 now.", "Room A101 at noon", "DS Lab at 12:55.", "I hit a PR of 1200 lol",
+                     "Gym — then lunch", "Call UK 1234 later"]:
+            self.assertEqual(say(text), text, text)
+
+    def test_the_daemon_applies_it_before_times(self):
+        self.assertEqual(daemon.spoken_times(daemon.spoken_course_codes("MKTG2201 Introduction to Marketing — Lecture at 13:30")),
+                         "Introduction to Marketing lecture at one thirty P M")
+
+
 class SpokenTimesTest(unittest.TestCase):
     """2026-09-29: Flash slurred the end of "It's 8:14 PM."; times go to the voice as words."""
 

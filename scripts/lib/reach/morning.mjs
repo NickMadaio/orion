@@ -21,19 +21,27 @@ const parseClock = (text) => {
  * @param {{ signal: string, signalAt: Date, now: Date, wake?: string|null, briefedToday?: boolean }} input
  * @returns {{ ok: boolean, reason: string }}
  */
-export function shouldBrief({ signal, signalAt, now, wake = null, briefedToday = false }) {
+export function shouldBrief({ signal, signalAt, now, wake = null, briefedToday = false, catchUp = false }) {
   if (!SIGNALS.includes(signal)) return { ok: false, reason: `unknown signal "${signal}"` };
   if (!(signalAt instanceof Date) || Number.isNaN(signalAt.getTime())) return { ok: false, reason: "no time on the signal" };
   if (briefedToday) return { ok: false, reason: "already briefed him this morning" };
-  if (now - signalAt > STALE_MS) return { ok: false, reason: "the signal is more than 20 minutes old" };
+  // 2026-10-16 audit: on 10-13 five signals (07:18Z-09:10Z) all reached the Mac at 12:27Z, were rejected
+  // as stale, and there was no brief all day. A stale signal now briefs ONCE if nothing went out yet and
+  // it is still morning; the claim lock makes the rest of the backlog no-ops.
+  const stale = now - signalAt > STALE_MS;
+  if (stale && now.toLocaleDateString("en-CA") !== signalAt.toLocaleDateString("en-CA")) return { ok: false, reason: "the signal is from another day" };
+  if (stale && minuteOf(now) >= LATEST) return { ok: false, reason: "not the morning" };
   if (signalAt - now > 2 * 60_000) return { ok: false, reason: "the signal is in the future" };
-  const at = minuteOf(signalAt);
+  const rawAt = minuteOf(signalAt);
+  // Review M2: a catch-up is judged on max(when he woke, now): he woke at 5:30 for a 7:45 alarm and the old check
+  // ("more than 45 min before his alarm") rejected the catch-up forever. A live signal is still judged on its own time.
+  const at = catchUp ? Math.max(rawAt, minuteOf(now)) : rawAt;
   if (at < EARLIEST || at >= LATEST) return { ok: false, reason: "not the morning" };
   const alarm = parseClock(wake);
   if (alarm !== null && alarm >= EARLIEST && at < alarm - BEFORE_ALARM) {
     return { ok: false, reason: `more than ${BEFORE_ALARM} min before his ${wake} alarm` };
   }
-  return { ok: true, reason: `phone ${signal === "unplugged" ? "unplugged" : "in use"} at ${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}` };
+  return { ok: true, reason: `${stale || catchUp ? "catching up on a missed signal: " : ""}phone ${signal === "unplugged" ? "unplugged" : "in use"} at ${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}` };
 }
 
 /**
@@ -110,7 +118,7 @@ export function weatherFacts(weather, nowMinute) {
     const now = from <= nowMinute;
     rain = { what, from, to: to + 60, chance, now };
   }
-  return { sky, now: temps[0], high: Math.max(...temps), low: Math.min(...temps), rain, windy: hours.some((h) => (h.windKph ?? 0) >= 35 && h.minute <= 21 * 60) };
+  return { sky, now: temps[0], high: weather.dayHigh ?? Math.max(...temps), low: weather.dayLow ?? Math.min(...temps), rain, windy: hours.some((h) => (h.windKph ?? 0) >= 35 && h.minute <= 21 * 60) };
 }
 
 /** The spoken weather: "Partly cloudy, 10 degrees now. High of 15, low of 8. No rain today." */
@@ -141,20 +149,32 @@ export function rainLabel(rain) {
 /**
  * The briefing, as it is said aloud: what is on today, when to leave, what is
  * due, the weather, and a question so he can answer.
- * @param {{ now: Date, day: object[], travel: object[], todos: object[], today: string, weather?: object|null }} input
+ * @param {{ now: Date, day: object[], travel: object[], todos: object[], today: string, weather?: object|null, calendar?: "ok"|"unknown", missed?: object[] }} input
  */
-export function composeBriefing({ now, day = [], travel = [], todos = [], today, weather = null }) {
+export function composeBriefing({ now, day = [], travel = [], todos = [], today, weather, calendar = "ok", missed = [] }) {
   const nowMinute = minuteOf(now);
   const greeting = nowMinute < 12 * 60 ? "Morning, Nick." : "Hey Nick, you're up.";
-  const ahead = day.filter((b) => b.fixed && b.end > nowMinute && !/^commute|^getting (to|back)/i.test(b.title));
+  const real = day.filter((b) => !/^commute|^getting (to|back)/i.test(b.title));
+  const ahead = real.filter((b) => b.fixed && b.end > nowMinute);
+  const upcoming = real.filter((b) => b.end > nowMinute).sort((a, b) => a.start - b.start);
   const parts = [greeting];
-  if (ahead.length) {
+  // 2026-10-16 audit: "Nothing on the calendar today" was said on 2026-10-15 with four blocks planned. A failed
+  // or empty read is UNKNOWN, never "nothing", and the words come from every block left today, not only fixed ones.
+  if (calendar === "unknown") {
+    parts.push("I couldn't read your calendar just now, so I don't have your day. Ask me again in a minute.");
+  } else if (!real.length) {
+    parts.push("I'm not seeing anything on your calendar, but I can't be sure the read was complete.");
+  } else if (ahead.length) {
     const named = ahead.slice(0, 4).map((b) => `${cleanTitle(b.title)} at ${spokenClock(b.start)}`);
     const more = ahead.length > 4 ? ` and ${ahead.length - 4} more` : "";
     parts.push(`Today you've got ${listOf(named)}${more}.`);
+  } else if (upcoming.length) {
+    const named = upcoming.slice(0, 4).map((b) => `${cleanTitle(b.title)} at ${spokenClock(b.start)}`);
+    parts.push(`Nothing fixed left today. Coming up: ${listOf(named)}${upcoming.length > 4 ? ` and ${upcoming.length - 4} more` : ""}.`);
   } else {
-    parts.push("Nothing on the calendar today.");
+    parts.push("Everything on today's calendar is already behind us.");
   }
+  for (const b of missed) parts.push(`${cleanTitle(b.title)} was at ${spokenClock(b.start)} and it looks like it didn't happen - no stress. Want me to move the work around?`);
   const leave = travel.filter((w) => /^(commute to|getting to)/i.test(w.title) && w.start >= nowMinute).sort((a, b) => a.start - b.start)[0];
   if (leave) parts.push(`Leave by ${spokenClock(leave.start)}.`);
   const due = todos.filter((t) => t.dueDate === today && !t.booked).map((t) => cleanTitle(t.title));
@@ -164,7 +184,9 @@ export function composeBriefing({ now, day = [], travel = [], todos = [], today,
     if (open.length) parts.push(`Top of your list: ${listOf(open.slice(0, 2))}.`);
   }
   const sky = weatherLine(weather, nowMinute);
+  // weather === null means it was asked for and failed (undefined: not asked): say so instead of dropping it silently.
   if (sky) parts.push(sky);
+  else if (weather === null) parts.push("I couldn't get the weather just now - check the forecast before you head out.");
   parts.push("Anything you want to change?");
   return parts.join(" ");
 }

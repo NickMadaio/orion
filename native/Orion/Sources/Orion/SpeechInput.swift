@@ -242,8 +242,13 @@ final class SpeechInput {
             // saying so. This is the state the starvation watchdog exists for.
             ear = "none"
         }
+        // 2026-10-16 UI audit #7: was one line a second. The level and peak
+        // jitter, so they are not what makes a line news: the ear and the
+        // bytes sent are. Otherwise at most once a minute.
         OrionLog.write(String(format: "[audio] level=%.3f peak=%.3f ear=%@ sent=%dB",
-                              level, peakLevel, ear, bytesSentToDeepgram))
+                              level, peakLevel, ear, bytesSentToDeepgram),
+                       key: "audio", signature: "ear=\(ear) sent=\(bytesSentToDeepgram)",
+                       repeatAfter: 60)
         peakLevel = 0
     }
 

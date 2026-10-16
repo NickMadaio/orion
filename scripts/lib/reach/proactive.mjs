@@ -7,6 +7,9 @@
 //   phase, remainingSeconds, blockNumber, totalBlocks, sessionId, endedMinute? },
 //   out, where, idleSeconds, bed, wake, focusToday, sent: { key: true } }
 
+import { classLadder } from "./class-ladder.mjs";
+import { gapQuestion } from "./gap.mjs";
+
 const hm = (m) => { const h = Math.floor(((m % 1440) + 1440) % 1440 / 60), mm = ((m % 60) + 60) % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 const toMin = (t) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + m; };
 const span = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h ? `${h}h${m ? ` ${m}m` : ""}` : `${m} min`; };
@@ -23,37 +26,42 @@ export function decide(ctx) {
   const toBed = ahead(ctx.minute, bed);           // minutes until bedtime (0..1439)
   const pastBed = ahead(bed, ctx.minute);          // minutes since bedtime (0..1439)
   const sleepLeft = (m) => span(ahead(m, wake));
-  const first = (ctx.day ?? []).filter((b) => b.fixed && b.start >= 4 * 60).sort((a, b) => a.start - b.start)[0];
-
-  // A session just finished: say how it went and what's next.
-  if (ctx.session?.status === "finished" && ctx.session.endedMinute !== undefined && ahead(ctx.session.endedMinute, ctx.minute) <= 10) {
-    const late = pastBed <= 180;
-    const next = (ctx.day ?? []).filter((b) => b.start > ctx.minute).sort((a, b) => a.start - b.start)[0];
-    say(`session-done-${ctx.session.sessionId}`, late
-      ? `Session done. ${ctx.focusToday ? `${ctx.focusToday} today. ` : ""}It's ${hm(ctx.minute)} — past bedtime; sleep now and you get ${sleepLeft(ctx.minute)}.`
-      : `Session done.${ctx.focusToday ? ` ${ctx.focusToday} today.` : ""}${next ? ` Next: ${next.title.replace(/ — .*$/, "")} at ${hm(next.start)}.` : ""}`,
-      late ? "reminder" : "update", { urgent: late });
-  }
-
   const strip = (t) => String(t).replace(/ — .*$/, "");
   const blocks = ctx.day ?? [];
-  // Leave soon: travel starts in 5–15 minutes (even mid-session — missing class matters more).
-  for (const w of ctx.travel ?? []) {
-    const inMin = w.start - ctx.minute;
-    if (inMin < 5 || inMin > 15 || away) continue;
-    const dest = blocks.filter((b) => b.fixed && b.start >= w.end - 1).sort((a, b) => a.start - b.start)[0];
-    if (dest) say(`leave-${dest.start}`, `Leave in ${inMin} min for ${strip(dest.title)} at ${hm(dest.start)}.`, "reminder");
-  }
-  const open = (ctx.todos ?? []).filter((t) => !t.booked && !t.waiting);
-  // Free time worth using: daytime, home, no session, nothing now and an hour+ clear.
-  if (!busy && !away && ctx.minute >= 9 * 60 && ctx.minute <= 20 * 60 + 30 && open.length) {
-    const now = blocks.some((b) => b.start <= ctx.minute && b.end > ctx.minute);
+  // TOMORROW's first thing, from tomorrow's calendar (2026-10-16 audit, finding 7: the bedtime line took TODAY's
+  // first fixed block and printed it as "tomorrow": CS1800 on 10-08, CS2100 on 10-12, both wrong). After midnight
+  // "tomorrow" is today, and only what is still ahead counts. Unknown tomorrow means no claim about it.
+  const tom = (ctx.tomorrowDay ?? []).filter((b) => b.start >= 4 * 60 && (!ctx.tomorrowIsToday || b.start > ctx.minute)).sort((a, b) => a.start - b.start);
+  const first = tom.find((b) => b.fixed);
+  const firstMovable = tom.find((b) => !b.fixed);
+  const bedKeys = ["bed-wind", "bed-now", "bed-late"];
+
+  // A session just finished: say how it went and what's next. Only a REAL session (2026-10-16, finding 10: "Session
+  // done" went out for 2-second abandoned test sessions, one as a 03:09 push): not abandoned, more than 5 min served.
+  let announcedLate = false;
+  const s = ctx.session;
+  if (s?.status === "finished" && s.endedMinute !== undefined && ahead(s.endedMinute, ctx.minute) <= 10
+      && s.reason !== "abandoned" && Number(s.servedFocusSeconds) > 5 * 60) {
+    const late = pastBed <= 180;
     const next = blocks.filter((b) => b.start > ctx.minute).sort((a, b) => a.start - b.start)[0];
-    const freeUntil = next ? next.start : Math.min(bed > ctx.minute ? bed : 24 * 60, 21 * 60);
-    if (!now && freeUntil - ctx.minute >= 60) {
-      const pick = [...open].sort((a, b) => String(a.dueDate ?? "9999").localeCompare(String(b.dueDate ?? "9999")))[0];
-      say(`gap-${Math.floor(ctx.minute / 180)}`, `You're free until ${hm(freeUntil)}. Want me to put ${pick.title} there?`, "question");
-    }
+    // Late: ONE message that carries the bedtime line too, and the bed-* keys are said with it, so the pair of
+    // lines one second apart (10-07 23:54, 10-15 01:25) cannot happen.
+    announcedLate = late;
+    say(`session-done-${s.sessionId}`, late
+      ? `Session done. ${ctx.focusToday ? `${ctx.focusToday} today. ` : ""}It's ${hm(ctx.minute)} — past bedtime; sleep now and you get ${sleepLeft(ctx.minute)}.`
+      : `Session done.${ctx.focusToday ? ` ${ctx.focusToday} today.` : ""}${next ? ` Next: ${strip(next.title)} at ${hm(next.start)}.` : ""}`,
+      late ? "reminder" : "update", late ? { also: bedKeys, expires: true } : {});
+  }
+
+  // Classes (priority 1): leave nudge, urgent, wake-up call, then one replan if he missed it
+  // (even mid-session: missing class matters more). See class-ladder.mjs.
+  classLadder(ctx, say);
+
+  const open = (ctx.todos ?? []).filter((t) => !t.booked && !t.waiting);
+  // Free time worth using: daytime, home, no session, a real gap after commutes (gap.mjs), best-priority task, once.
+  if (!busy && !away) {
+    const gap = gapQuestion(ctx, { hm, bed: bed > ctx.minute ? bed : 24 * 60 });
+    if (gap) say(gap.key, gap.text, "question");
   }
   // Due tomorrow (or today) and nothing booked: ask in the evening, once.
   if (ctx.minute >= 17 * 60 && ctx.minute <= 21 * 60) {
@@ -62,16 +70,19 @@ export function decide(ctx) {
     }
   }
 
-  // Bedtime — never while he's in a session or out; the session's end or his
-  // getting home brings it instead.
-  if (!busy && !away) {
+  // Bedtime — never while he's in a session or out; the session's end or his getting home brings it instead. They are
+  // nudges: never urgent (2026-10-16), pointless once the night is over (expires), and one per window.
+  if (!busy && !away && !announcedLate) {
     if (toBed > 0 && toBed <= 30) {
-      say("bed-wind", `Bed at ${hm(bed)}${first ? ` — ${first.title.replace(/ — .*$/, "")} at ${hm(first.start)} tomorrow` : ""}. Start wrapping up.`, "reminder");
+      say("bed-wind", `Bed at ${hm(bed)}${first ? ` — ${strip(first.title)} at ${hm(first.start)} tomorrow` : ""}. Start wrapping up.`, "reminder", { expires: true });
     } else if (pastBed <= 20) {
-      say("bed-now", `It's ${hm(ctx.minute)}, bedtime. Sleep now and you get ${sleepLeft(ctx.minute)} before your alarm.`, "reminder", { urgent: true });
+      say("bed-now", `It's ${hm(ctx.minute)}, bedtime. Sleep now and you get ${sleepLeft(ctx.minute)} before your alarm.`, "reminder", { expires: true });
     } else if (pastBed >= 40 && pastBed <= 150 && Number(ctx.idleSeconds) < 300) {
-      // Only when he is clearly up (at the Mac), and once.
-      say("bed-late", `Still up at ${hm(ctx.minute)} — ${sleepLeft(ctx.minute)} left before your alarm. Want me to move tomorrow's first block later?`, "question", { urgent: true });
+      // Only when he is clearly up (at the Mac), and once. A fixed class is never offered a move: it is protected.
+      const tail = first && first.kind === "class" ? ` Your first class is ${strip(first.title)} at ${hm(first.start)} — go now and I'll protect it.`
+        : first ? ` Your first thing is ${strip(first.title)} at ${hm(first.start)}.`
+        : firstMovable ? ` Want me to move ${strip(firstMovable.title)} later?` : "";
+      say("bed-late", `Still up at ${hm(ctx.minute)} — ${sleepLeft(ctx.minute)} left before your alarm.${tail}`, tail.includes("Want me") ? "question" : "reminder", { expires: true });
     }
   }
   return out;

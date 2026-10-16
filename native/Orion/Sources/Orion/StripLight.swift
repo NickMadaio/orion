@@ -121,7 +121,8 @@ final class StripLight: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
 
     private func report(ok: Bool, _ message: String, extra: [String: Any] = [:]) {
         deadline?.cancel()
-        OrionLog.write("[lights] \(ok ? "ok" : "failed") — \(message)")
+        // 2026-10-16 UI audit #7: "failed - Bluetooth is off" x65. Log on change.
+        OrionLog.write("[lights] \(ok ? "ok" : "failed") — \(message)", key: "lights")
         let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/lights-status.json")
         var body: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "ok": ok, "message": message]
         extra.forEach { body[$0.key] = $0.value }

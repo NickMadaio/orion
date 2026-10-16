@@ -15,7 +15,9 @@ test("at the Mac but out → a silent bubble; at home or with headphones → alo
 
 test("quiet hours hold everything but urgent", () => {
   assert.equal(chooseChannel({ idleSeconds: 9999, quiet: true }).channel, "hold");
-  assert.equal(chooseChannel({ idleSeconds: 9999, quiet: true }, { urgent: true }).channel, "phone");
+  // 2026-10-16: a bare urgent flag no longer bypasses; only a reminder he set or a class he is about to miss.
+  assert.equal(chooseChannel({ idleSeconds: 9999, quiet: true }, { urgent: true }).channel, "hold");
+  assert.equal(chooseChannel({ idleSeconds: 9999, quiet: true }, { urgent: true, urgentKind: "class" }).channel, "phone");
 });
 
 test("speaking volume is brought to a sensible level", () => {

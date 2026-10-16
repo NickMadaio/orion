@@ -19,7 +19,9 @@ test("a 3 AM unplug, or one long before the alarm, is not getting up", () => {
 
 test("once a morning, never from a late signal, never in the afternoon", () => {
   assert.match(shouldBrief({ signal: "used", signalAt: at(8), now: at(8, 1), wake: "07:45", briefedToday: true }).reason, /already/);
-  assert.match(shouldBrief({ signal: "used", signalAt: at(8), now: at(8, 30), wake: "07:45" }).reason, /20 minutes old/);
+  // 2026-10-16: a late signal no longer means no brief (10-13 had none all day): it briefs once, as a catch-up.
+  assert.match(shouldBrief({ signal: "used", signalAt: at(8), now: at(8, 30), wake: "07:45" }).reason, /catching up/);
+  assert.match(shouldBrief({ signal: "used", signalAt: at(8), now: at(8, 30), wake: "07:45", briefedToday: true }).reason, /already/);
   assert.match(shouldBrief({ signal: "used", signalAt: at(14), now: at(14) }).reason, /not the morning/);
   assert.match(shouldBrief({ signal: "used", signalAt: at(8), now: at(1) }).reason, /future/);
   assert.equal(shouldBrief({ signal: "rebooted", signalAt: at(8), now: at(8) }).ok, false);
@@ -46,7 +48,8 @@ test("the briefing says the day, when to leave, what's due, and the weather", ()
 
 test("an empty day still gets a briefing, with the top of the list", () => {
   const text = composeBriefing({ now: at(9), today: "2026-10-08", day: [], todos: [{ title: "Cert course" }, { title: "Laundry" }, { title: "Waits", waiting: true }] });
-  assert.equal(text, "Morning, Nick. Nothing on the calendar today. Top of your list: Cert course and Laundry. Anything you want to change?");
+  // 2026-10-16: an empty read is unknown, not "nothing on the calendar" (said on 10-15 with four blocks planned).
+  assert.equal(text, "Morning, Nick. I'm not seeing anything on your calendar, but I can't be sure the read was complete. Top of your list: Cert course and Laundry. Anything you want to change?");
 });
 
 test("weather and clock wording", () => {

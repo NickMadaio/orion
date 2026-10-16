@@ -158,14 +158,14 @@ final class LinkEngine: ObservableObject {
             process.waitUntilExit()
             return pipe.fileHandleForReading.readDataToEndOfFile()
         }.value
-        var alerts = (output.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }) ?? []
+        let tickAlerts = (output.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }) ?? []
+        var alerts = tickAlerts
         // Messages the ORION app's watcher left (it asks about an empty day, reports a reshaped morning).
+        // 2026-10-16: claim, don't clear. The lines are deleted only after the CloudKit save is confirmed.
         let outbox = home.appendingPathComponent(".openclaw/orion-controlled/alerts-outbox.jsonl")
-        if let text = try? String(contentsOf: outbox, encoding: .utf8), !text.isEmpty {
-            try? "".write(to: outbox, atomically: true, encoding: .utf8)
-            alerts += text.split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-        }
-        guard !alerts.isEmpty else { return }
+        let claim = OutboxClaim.claim(outbox)
+        alerts += claim?.items ?? []
+        guard !alerts.isEmpty else { claim?.complete(); return }
         let records = alerts.compactMap { alert -> CKRecord? in
             guard let text = alert["text"] as? String, let id = alert["id"] as? String else { return nil }
             let record = CKRecord(recordType: LinkSchema.alertType,
@@ -176,7 +176,16 @@ final class LinkEngine: ObservableObject {
             record[LinkSchema.alertAt] = Date() as CKRecordValue
             return record
         }
-        do { try await save(records, policy: .allKeys) } catch { problem = "Could not send a check-in: \(error.localizedDescription)" }
+        guard !records.isEmpty else { claim?.complete(); return }   // only unreadable lines: drop them
+        do {
+            try await save(records, policy: .allKeys)
+            claim?.complete()
+        } catch {
+            // The claimed lines stay for the next tick. The tick's own alerts already advanced their
+            // state, so queue them too rather than losing them.
+            try? OutboxClaim.requeue(tickAlerts, to: outbox)
+            problem = "Could not send a check-in: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Outreach
@@ -187,9 +196,9 @@ final class LinkEngine: ObservableObject {
     /// notification on his phone when the phone is how he is being reached.
     private func deliverOutreach() async {
         let outbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach-outbox.jsonl")
-        guard let text = try? String(contentsOf: outbox, encoding: .utf8), !text.isEmpty else { return }
-        try? "".write(to: outbox, atomically: true, encoding: .utf8)
-        let items = text.split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        // 2026-10-16: claim, don't clear; deleted only after a confirmed save, kept for retry otherwise.
+        guard let claim = OutboxClaim.claim(outbox) else { return }
+        let items = claim.items
         var records: [CKRecord] = []
         for item in items {
             guard let id = item["id"] as? String, let message = item["text"] as? String else { continue }
@@ -206,16 +215,18 @@ final class LinkEngine: ObservableObject {
                                      recordID: CKRecord.ID(recordName: "reach-\(id)", zoneID: zoneID))
                 alert[LinkSchema.alertText] = String(message.prefix(240)) as CKRecordValue
                 alert[LinkSchema.alertKind] = "orion" as CKRecordValue
-                alert["level"] = 1 as CKRecordValue
+                // 2026-10-16: urgent outreach goes out at level 2 so the phone shows it time-sensitive.
+                alert["level"] = OutboxClaim.alertLevel(urgent: item["urgent"]) as CKRecordValue
                 alert[LinkSchema.alertAt] = Date() as CKRecordValue
                 records.append(alert)
             }
         }
-        guard !records.isEmpty else { return }
-        do { _ = try await save(records, policy: .allKeys) }
-        catch {
-            // Put them back so the next tick retries rather than losing what ORION said.
-            if let handle = try? FileHandle(forWritingTo: outbox) { handle.seekToEndOfFile(); handle.write(Data(text.utf8)); try? handle.close() }
+        guard !records.isEmpty else { claim.complete(); return }
+        do {
+            _ = try await save(records, policy: .allKeys)
+            claim.complete()
+        } catch {
+            // Left claimed: the next tick retries rather than losing what ORION said.
             problem = "Could not send ORION's message: \(error.localizedDescription)"
         }
     }

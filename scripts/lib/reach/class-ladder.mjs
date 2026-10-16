@@ -44,16 +44,16 @@ export function classLadder(ctx, say) {
     const toStart = cls.start - ctx.minute;
     if (moved) continue;
     // Review M5: already on campus (inside the previous class, or just out of it and not known to have missed it): no "Up now".
-    // Re-review N1: "on campus" needs POSITIVE evidence about the earlier class: attended, or he woke before it began. Unknown
-    // (asleep: no WHOOP, no phone samples) must never suppress, or the second class gets nothing.
+    // Re-review N1: "on campus" needs POSITIVE evidence that he was at the earlier class: "attended" (leftAt, moving, is handled above).
+    // Unknown must not suppress, and neither may an early wake: he can wake at 7:30 and still miss the 9:00 (phone on its charger).
     const onCampus = realClasses.some((o) => o !== cls && o.start < cls.start && o.start <= ctx.minute && ctx.minute < o.end + 45
-      && (classAttendance(o, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] }) === "attended"
-        || (signals.wokeAt != null && signals.wokeAt < o.start)));
+      && classAttendance(o, { wokeAt: signals.wokeAt ?? null, phone: signals.phone ?? [] }) === "attended");
     if (onCampus) continue;
     if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${cls.start}`, `You should be out the door now - ${name} is at ${hm(cls.start)}. Go, and I'll sort the rest.`, "reminder", { urgent: true, urgentKind: "class", claim: `class-${cls.start}`, level: 2 });
     if (toLeave < -10 && toStart >= -10) {
+      const up = signals.wokeAt != null && signals.wokeAt < cls.start;   // already awake: a head-out line, not a wake-up call
       say(`wake-${cls.start}`, toStart > 0
-        ? `${name} starts in ${toStart} min. Up now - you can still make most of it.`
+        ? (up ? `${name} starts in ${toStart} min - time to head out.` : `${name} starts in ${toStart} min. Up now - you can still make most of it.`)
         : `${name} started ${-toStart} min ago. Go now and you'll still catch part of it.`, "reminder", { urgent: true, urgentKind: "class", loud: true, claim: `class-${cls.start}`, level: 3 });
     }
     if (attendance === "missed" && ctx.minute >= cls.start + 15 && ctx.minute <= cls.end + 90) {

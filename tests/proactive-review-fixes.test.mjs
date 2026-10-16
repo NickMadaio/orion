@@ -196,7 +196,7 @@ test("M5: back-to-back classes: no 'Up now' while he is in the previous class or
   let sent = {};
   const urgent = [];
   for (const t of [m(10, 15), m(10, 20), m(10, 30), m(10, 40)]) {
-    for (const o of decide({ bed: "23:45", wake: "07:45", day: [a, b], travel: [{ title: "commute to class", start: m(8, 15), end: m(9) }], sent, idleSeconds: 9999, signals: { wokeAt: m(7, 30), phone: [] }, minute: t, out: true })) {
+    for (const o of decide({ bed: "23:45", wake: "07:45", day: [a, b], travel: [{ title: "commute to class", start: m(8, 15), end: m(9) }], sent, idleSeconds: 9999, signals: { wokeAt: m(7, 30), phone: [{ minute: m(8, 40), charging: false, motion: "walking" }] }, minute: t, out: true })) {   // positive evidence: he was at the first class
       sent = { ...sent, [o.key]: true }; if (o.urgent) urgent.push(`${t}:${o.key}`);
     }
   }
@@ -288,7 +288,7 @@ test("N1: still asleep (no WHOOP, no phone samples): the 10:45 class gets a ladd
     for (let t = m(8); t <= m(11, 30); t += 5) for (const o of decide({ bed: "23:45", wake: "07:45", day: [a, b], travel, sent, idleSeconds: 9999, signals, minute: t })) { said.push(o.key); sent = { ...sent, [o.key]: true }; }
     return said; };
   assert.ok(run({ wokeAt: null, phone: [] }).some((k) => k.endsWith(`-${m(10, 45)}`)), "unknown never suppresses");
-  assert.ok(!run({ wokeAt: m(7, 30), phone: [] }).some((k) => /^(leave-late|wake)-/.test(k) && k.endsWith(`-${m(10, 45)}`)), "awake since 7:30 (positive evidence): on campus, no 'Up now'");
+  assert.ok(!run({ wokeAt: m(7, 30), phone: [{ minute: m(8, 40), charging: false, motion: "walking" }] }).some((k) => /^(leave-late|wake)-/.test(k) && k.endsWith(`-${m(10, 45)}`)), "attended the first class (positive evidence): on campus, no 'Up now'");
 });
 
 test("N2: a standing heads-up (blocked --urgent, no approval) is held, not pushed, when Discord is down at 7 AM; a real approval request goes", () => {
@@ -302,4 +302,34 @@ test("N2: a standing heads-up (blocked --urgent, no approval) is held, not pushe
   assert.equal(args.length, 2);
   assert.doesNotMatch(args[0], /--urgent/);
   assert.match(args[1], /--urgent-kind reminder/);
+});
+
+test("N1b: woke at 7:30 but the phone sat on its charger through the 9:00: the 10:45 class still gets its ladder", () => {
+  const a = { id: "a", title: "CS1800 Discrete Structures — Lecture", kind: "class", start: m(9), end: m(10, 30), fixed: true, source: "calendar" };
+  const b = { id: "b", title: "CS2100 Program Design — Lecture", kind: "class", start: m(10, 45), end: m(12), fixed: true, source: "calendar" };
+  const travel = [{ title: "commute to class", start: m(8, 15), end: m(9) }];
+  const phone = [{ minute: m(9, 10), charging: true, motion: "stationary" }, { minute: m(10, 20), charging: true, motion: "stationary" }];
+  let sent = {}; const said = [];
+  for (let t = m(8); t <= m(11, 30); t += 5) for (const o of decide({ bed: "23:45", wake: "07:45", day: [a, b], travel, sent, idleSeconds: 9999, signals: { wokeAt: m(7, 30), phone }, minute: t })) { said.push(o.key); sent = { ...sent, [o.key]: true }; }
+  assert.ok(said.includes(`class-missed-${m(9)}`), said.join(","));
+  assert.ok(said.some((k) => /^(leave|leave-late|wake)-/.test(k) && k.endsWith(`-${m(10, 45)}`)), said.join(","));
+  const wake = decide({ bed: "23:45", wake: "07:45", day: [b], travel: [], sent: {}, idleSeconds: 9999, signals: { wokeAt: m(7, 30), phone: [] }, minute: m(10, 30) });
+  assert.match(wake.find((o) => o.key.startsWith("wake-"))?.text ?? "", /time to head out/, "an early wake swaps the text, it does not suppress");
+});
+
+test("check-ins: one ORION generated (--by orion) waits for the session; one he set fires", async () => {
+  const home = mkdtempSync(join(tmpdir(), "orion-by-"));
+  const sock = join(home, "s.sock"), reply = join(home, "reply.json"); writeFileSync(reply, JSON.stringify({ status: "running" }));
+  const srv = spawn(process.execPath, [join(W, "tests/fixtures/fake-session-server.mjs"), sock], { env: { ...process.env, FAKE_SESSION_REPLY: reply } });
+  try {
+    await new Promise((res) => srv.stdout.once("data", res));
+    writeFileSync(join(home, "cal.json"), "[]");
+    const nowMin = Math.floor(Date.now() / 60000);
+    const mk = (id, by) => ({ id, what: `start ${id}`, by, dueAt: nowMin - 5, createdAt: new Date().toISOString(), alerts: 0, returning: null, loop: { blockId: id, phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] } });
+    const file = join(home, "checkins.json");
+    writeFileSync(file, JSON.stringify({ checkins: [mk("ci-mine", "nick"), mk("ci-orion", "orion")] }));
+    const out = JSON.parse(spawnSync(process.execPath, [join(W, "scripts/orion-checkin"), "tick", "--json"], { encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file,
+      ORION_BRIDGE_BIN: join(W, "tests/fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"), ORION_SESSION_SOCKET: sock } }).stdout);
+    assert.deepEqual(out.map((a) => a.id), ["ci-mine"]);
+  } finally { srv.kill(); }
 });

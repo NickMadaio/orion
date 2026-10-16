@@ -25,6 +25,7 @@ import { recordOutcome, loadPatterns, lateHabit } from "./lib/life/history.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { inClass, realClasses } from "./lib/life/class-reminders.mjs";
 import { classify } from "./lib/life/live-day.mjs";
+import { activeSession } from "./lib/reach/focus-hold.mjs";
 import { isClassAttendanceCheckin } from "./lib/life/checkin-class.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
@@ -87,7 +88,7 @@ switch (command) {
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720 || !what || what.length > 120) fail('usage: orion-checkin add <0-720 minutes> "<what>"');
     const id = `ci-${randomBytes(3).toString("hex")}`;
     const because = flag("--because");
-    const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0,
+    const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
                 returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
                 loop: startLoop({ id, start: now + minutes }, now) };
     state.checkins = [...state.checkins.filter(open), c].slice(-20);
@@ -151,7 +152,9 @@ switch (command) {
   }
   case "tick": {
     if (evaluating) { console.log(args.includes("--json") ? "[]" : "No live notifications during evaluation."); break; }
-    // A focus session is running (2026-10-16 audit; review M6 and re-review): a check-in HE set is never frozen for it, at any level.
+    // A focus session is running (2026-10-16 audit): a check-in HE set (the default) fires at any level; one ORION generated
+    // itself (--by orion) waits for the end.
+    const inSession = activeSession(process.env) !== null;
     const alerts = [];
     let duringClass = false, classes = [];
     try { const blocks = toBlocks(await calendarEvents(), localDate(new Date())); classes = realClasses(blocks); duringClass = inClass(blocks, new Date().getHours()*60+new Date().getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
@@ -165,6 +168,7 @@ switch (command) {
         c.loop = step(c.loop, {type: "cancelled"}, now); continue;
       }
       if (duringClass) continue;
+      if (inSession && c.by === "orion") continue;
       const before = c.loop;
       const after = step(before, { type: "tick" }, now);
       if (after === before) {

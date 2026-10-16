@@ -122,7 +122,7 @@ export const GO_ON = "Go on.";
 const LABEL_COMMANDS = /\b(turn|open|play|start|text|email|add|move|cancel|set|what|whats|what's|how|when)\b/i;
 /** An answer to "what should I remind you about?" is a plain label: no change, calendar, live-data or command word, and no tool/escalate from the front desk (review, 2026-10-16). */
 const answersLabel = (message: string, move?: string): boolean =>
-  move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, SCHEDULING, LIVE_DATA, LABEL_COMMANDS].some((re) => re.test(message));
+  move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, ...(move === "answer" ? [] : [SCHEDULING]), LIVE_DATA, LABEL_COMMANDS].some((re) => re.test(message)); // a calendar word alone (class, lab) is a label when the front desk answered (final round, 2026-10-16)
 const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];

@@ -40,13 +40,13 @@ describe("H1 pending follow-up", () => {
     expect(first.result).toMatchObject({ outcome: "say", kind: "ask", text: "That would push Gym and Dinner later — go ahead?" });
     expect(first.writes).toEqual([]);
     const pending = asked(first.result) as { kind: string; argvs: string[][] };
-    expect(pending).toMatchObject({ kind: "push", argvs: [["add", "Focus", "60"]] });
+    expect(pending).toMatchObject({ kind: "push", argvs: [["add", "Focus", "60", "--date", "2026-10-16"]] });
     const answer = answerPending(pending as never, "yes go ahead");
     expect(answer).toMatchObject({ kind: "run" });
     const second = await run("yes go ahead", [{ do: "add", what: "Wrong", minutes: 5 }], { pending: (answer as { run: PendingRun }).run });
-    expect(second.writes).toEqual([["add", "Focus", "60"]]);
+    expect(second.writes).toEqual([["add", "Focus", "60", "--date", "2026-10-16"]]);
     expect(second.calls.some((c) => c.includes("--dry-run"))).toBe(false);
-    expect(second.result).toMatchObject({ outcome: "done", calls: ["exec orion-reschedule add Focus 60"], marks: ["m1"] });
+    expect(second.result).toMatchObject({ outcome: "done", calls: ["exec orion-reschedule add Focus 60 --date 2026-10-16"], marks: ["m1"] });
   });
 
   it("the unnamed-thing ask carries the anchor; a short title compiles again with it (still previewed)", async () => {
@@ -59,7 +59,7 @@ describe("H1 pending follow-up", () => {
     expect(answer).toMatchObject({ kind: "run", run: { title: "Laundry" } });
     const second = await run("laundry", [], { pending: (answer as { run: PendingRun }).run });
     expect(second.calls.some((c) => c[0] === "add" && c.includes("--dry-run"))).toBe(true);
-    expect(second.writes).toEqual([["add", "Laundry", "30", "--before", "13:30"]]);
+    expect(second.writes).toEqual([["add", "Laundry", "30", "--before", "13:30", "--date", "2026-10-16"]]);
   });
 
   it("a title answer that would push asks again and keeps the stored add", async () => {
@@ -67,7 +67,7 @@ describe("H1 pending follow-up", () => {
     const answer = answerPending(asked(first.result) as never, "laundry") as { run: PendingRun };
     const second = await run("laundry", [], { pending: answer.run, preview: "Would change:\n  moved Lunch: 12:15 → 12:50\n  planned Laundry: 12:00–12:30" });
     expect(second.result).toMatchObject({ kind: "ask", text: "That would push Lunch later — go ahead?" });
-    expect(asked(second.result)).toMatchObject({ kind: "push", argvs: [["add", "Laundry", "30", "--before", "13:30"]] });
+    expect(asked(second.result)).toMatchObject({ kind: "push", argvs: [["add", "Laundry", "30", "--before", "13:30", "--date", "2026-10-16"]] });
     expect(second.writes).toEqual([]);
   });
 
@@ -93,7 +93,7 @@ describe("H2 no early return after an earlier step wrote", () => {
     expect(writes).toEqual([]);
     expect(result).toMatchObject({ outcome: "say", kind: "ask", text: "That would push Gym later — go ahead?" });
     const p = asked(result) as { argvs: string[][] };
-    expect(p.argvs).toEqual([["move", "Study", "--to", "15:00"], ["add", "Walk", "30", "--after", "Lunch"]]);
+    expect(p.argvs).toEqual([["move", "Study", "--to", "15:00", "--date", "2026-10-16"], ["add", "Walk", "30", "--after", "Lunch", "--date", "2026-10-16"]]);
     const yes = await run("yes", [], { pending: answerPending(p as never, "yes") && (answerPending(p as never, "yes") as { run: PendingRun }).run });
     expect(yes.writes).toEqual(p.argvs);
     expect(yes.result).toMatchObject({ outcome: "done", marks: ["m1", "m2"] });

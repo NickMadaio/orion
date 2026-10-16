@@ -43,3 +43,33 @@ test("add --after Lunch starts after Lunch with its buffer and moves nothing", (
   assert.doesNotMatch(out, /moved Lunch/, out);
   assert.doesNotMatch(out, /^\s*moved /m, out);
 });
+
+// r8 review 4 (2026-10-16): HIGH-2 fixed/social titles after an anchor, HIGH-3 tight gap between two blocks.
+const friday = [
+  { title: "MKTG2201 Introduction to Marketing — Lecture", start: iso(13, 30), end: iso(15) },
+  { title: "ECON2000 Economics — Lecture", start: iso(15, 30), end: iso(17) },
+];
+
+test("add Walk 20 --after MKTG2201 --before 15:30 keeps the exact start in a tight gap (HIGH-3)", (t) => {
+  const run = world(t, friday);
+  const out = run("add", "Walk", "20", "--after", "MKTG2201", "--before", "15:30", "--dry-run");
+  assert.match(out, /planned Walk: 15:00–15:20/, out);
+});
+
+test("a social title after a class books at the class end, not 'a fixed plan needs --at' (HIGH-2)", (t) => {
+  const run = world(t, friday);
+  const out = run("add", "Coffee with Sam", "30", "--after", "MKTG2201", "--dry-run");
+  assert.match(out, /added \(fixed\) Coffee with Sam: 15:00–15:30/, out);
+});
+
+test("--fixed --after books at the anchor end (HIGH-2)", (t) => {
+  const run = world(t, friday);
+  const out = run("add", "Meeting", "30", "--after", "MKTG2201", "--fixed", "--dry-run");
+  assert.match(out, /added \(fixed\) Meeting: 15:00–15:30/, out);
+});
+
+test("a fixed add with no time says NOTHING WAS CHANGED so a failed preview is never clean (HIGH-2)", (t) => {
+  const run = world(t, friday);
+  const out = run("add", "Meeting", "30", "--fixed", "--dry-run");
+  assert.match(out, /^NOTHING WAS CHANGED: a fixed plan needs --at/m, out);
+});

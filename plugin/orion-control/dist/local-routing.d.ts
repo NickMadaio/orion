@@ -4,6 +4,7 @@ import { type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
 import { type FocusRow } from "./focus-status.js";
+import { type PendingRun } from "./schedule-pending.js";
 import { type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -32,6 +33,7 @@ export type LocalRoutingOptions = {
     /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
     scheduleFlow?: (message: string, clock: string, opts?: {
         undo?: string[];
+        pending?: PendingRun;
     }) => Promise<FlowResult>;
     /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
     lateFlow?: (minutes: number) => Promise<FlowResult>;
@@ -71,6 +73,7 @@ export type LocalRoutingOptions = {
     /** Append one line per hook stage to <logPath>.trace (diagnostics). */
     trace?: boolean;
 };
+export declare const trailsOff: (message: string) => boolean;
 export declare const GO_ON = "Go on.";
 export declare const UNDO_NOTHING_TO_UNDO = "I haven't changed your calendar in this chat. What should I cancel?";
 /** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
@@ -104,6 +107,7 @@ export declare function undoJournalTop(home?: string, now?: number): string | nu
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     undo?: string[];
+    pending?: PendingRun;
 }) => Promise<FlowResult>;
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export declare const liveExtractReminder: (message: string, clock?: string) => Promise<{

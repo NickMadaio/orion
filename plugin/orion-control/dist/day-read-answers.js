@@ -36,7 +36,7 @@ const BLOCK = /^B\d+ (\d{2}):(\d{2})–(\d{2}):(\d{2}) (.*?)(?: \(FIXED\))?(?: \
 function rows(day) {
     return day.split("\n").flatMap((line) => {
         const m = BLOCK.exec(line.trim());
-        return m ? [{ hour: Number(m[1]), minute: Number(m[2]), title: m[5], over: /\(already happened\)\s*$/.test(line.trim()) }] : [];
+        return m ? [{ hour: Number(m[1]), minute: Number(m[2]), endHour: Number(m[3]), endMinute: Number(m[4]), title: m[5], over: /\(already happened\)\s*$/.test(line.trim()) }] : [];
     });
 }
 export const spokenTime = (hour, minute) => `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`;
@@ -49,8 +49,19 @@ const ABOUT_TIME = /\b(when|what time|how (?:long|much time|many minutes|soon)|u
 const HOURS = /\b(?:open|opens|opening|close|closes|closed|closing|hours)\b/i;
 const ADVICE = /\b(should|supposed to|recommend\w*|ideal|healthy|best)\b/i;
 /** The reply when the question names a kind of block and none is on the day; null when one is, or none is named. */
+// review 5 H3 (2026-10-16): "the lab report is due", "my lab partner meeting", "the lab manual reading" name a thing, not the block.
+const KIND_NOUN = "report|reports|partner|partners|manual|grade|grades|quiz|quizzes|exam|exams|notes|assignment|assignments|homework|membership|bag|menu|money|special|handout|worksheet|results|syllabus|instructor|professor|ta|fee|fees";
+const DEADLINE_TALK = /\b(?:due|deadline|deadlines|grade|grades|graded)\b/i;
+const kindThenNoun = (k, message) => new RegExp(`\\b(?:${k.asked})(?:s)?\\s+(?:${KIND_NOUN})\\b`, "i").test(message);
+const namedKind = (message) => {
+    if (!ABOUT_TIME.test(message) || ADVICE.test(message) || FITTING.test(message) || HOURS.test(message) || DEADLINE_TALK.test(message))
+        return undefined;
+    const k = KINDS.find((x) => namedAs(x).test(message));
+    return k && !kindThenNoun(k, message) ? k : undefined;
+};
+const isKind = (kind, r) => kind.title.test(r.title) || new RegExp(`\\b(?:${kind.asked})`, "i").test(r.title);
 export function noBlockReply(message, day, tomorrow) {
-    const kind = ABOUT_TIME.test(message) && !ADVICE.test(message) && !FITTING.test(message) && !HOURS.test(message) ? KINDS.find((k) => namedAs(k).test(message)) : undefined;
+    const kind = namedKind(message);
     const all = rows(day);
     if (!kind || !all.length && !day.trim())
         return null;
@@ -66,4 +77,98 @@ export function noBlockReply(message, day, tomorrow) {
     if (!left.length)
         return `${head} Everything on it has already happened.`;
     return `${head} You have ${joinList(left.map((r) => `${spokenTitle(r.title)} at ${spokenTime(r.hour, r.minute)}`))}.`;
+}
+// ---- r8b2 (2026-10-16): a named block that IS on the day is answered by code too ----
+// q009 "how many minutes until the lab starts" → the 9B said "8:10 PM, about 9 hours away" (the lab is 7:25 PM, 8 h 17 min);
+// q013 "is today a lab day or nah" → "Yes … 8:15 PM to 9:10 PM" (wrong); q006 "and after that?" → "3:45 PM" (ECON1115 is 3:30 PM).
+const minutesOf = (h, m) => h * 60 + m;
+const range = (r) => {
+    const a = spokenTime(r.hour, r.minute);
+    const b = spokenTime(r.endHour, r.endMinute);
+    return a.slice(-2) === b.slice(-2) ? `${a.slice(0, -3)} to ${b}` : `${a} to ${b}`;
+};
+/** "in about 8 h 17 min" / "in about 25 min" / "in about 2 h". */
+export function spokenSpan(minutes) {
+    const m = Math.max(0, Math.round(minutes));
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return h ? (rest ? `${h} h ${rest} min` : `${h} h`) : `${m} min`;
+}
+const WANTS_SPAN = /\b(?:how (?:long|many minutes|much time|soon)|minutes?\b.*\b(?:until|till|before|to)|(?:until|till)\b)/i;
+const WANTS_END = /\b(?:ends?|over|finish\w*|done)\b/i;
+// review 5 M6 (2026-10-16): "how long is my lab" asks the length, "what time does my lab go until" asks the end, never the start.
+const ENDS_UNTIL = /\b(?:go|goes|going|run|runs|last|lasts)\s+(?:until|till)\b|\b(?:until|till)\s*\??\s*$/i;
+const WANTS_LENGTH = /\bhow long (?:is|are|does|will|do)\b/i;
+const MENTIONS_START = /\b(?:starts?|begin\w*|until|till|before)\b/i;
+const IS_DAY = /\bis (?:today|tomorrow|there)\b|\bdo i have\b|\bhave a\b/i;
+/** The reply when the question names a kind of block that IS on the day (start, end, time left); null otherwise. */
+export function presentBlockReply(message, day, tomorrow, nowMin) {
+    const kind = namedKind(message);
+    if (!kind)
+        return null;
+    const all = rows(day);
+    const hits = all.filter((r) => isKind(kind, r));
+    if (!hits.length)
+        return null;
+    const reply = (text, r) => ({ text, memory: memoryOf(r, tomorrow, false) });
+    const say = (r) => `${spokenTitle(r.title)}, ${range(r)}`;
+    if (IS_DAY.test(message) && !WANTS_SPAN.test(message) && !/\bwhen|what time\b/i.test(message))
+        return reply(hits.length === 1 ? `Yes — ${say(hits[0])}.` : `Yes — ${joinList(hits.map(say))}.`, hits[hits.length - 1]);
+    const startOf = (r) => minutesOf(r.hour, r.minute);
+    const endOf = (r) => minutesOf(r.endHour, r.endMinute);
+    const when = tomorrow ? " tomorrow" : "";
+    const upcoming = tomorrow ? hits : hits.filter((r) => endOf(r) > nowMin);
+    if (!upcoming.length)
+        return reply(`Your ${hits.length === 1 ? spokenTitle(hits[0].title) : kind.label} already ended today.`, hits[hits.length - 1]);
+    const next = upcoming[0];
+    const name = spokenTitle(next.title);
+    const length = WANTS_LENGTH.test(message) && !MENTIONS_START.test(message);
+    const endsUntil = ENDS_UNTIL.test(message) && !/\bstart/i.test(message);
+    const span = WANTS_SPAN.test(message) && !tomorrow && !length && !endsUntil;
+    const rest = upcoming.length > 1 ? ` After that: ${joinList(upcoming.slice(1).map((r) => `${spokenTitle(r.title)} at ${spokenTime(r.hour, r.minute)}`))}.` : "";
+    if (!tomorrow && startOf(next) <= nowMin)
+        return reply(`Your ${name} is on now, until ${spokenTime(next.endHour, next.endMinute)}${span ? `, ${spokenSpan(endOf(next) - nowMin)} left` : ""}.${rest}`, next);
+    if (length)
+        return reply(`Your ${name} is ${spokenSpan(endOf(next) - startOf(next))} long, ${range(next)}${when}.${rest}`, next);
+    if (endsUntil)
+        return reply(`Your ${name} ends at ${spokenTime(next.endHour, next.endMinute)}${when}.${rest}`, next);
+    if (span && WANTS_END.test(message))
+        return reply(`Your ${name} ends at ${spokenTime(next.endHour, next.endMinute)}${when}.${rest}`, next);
+    if (span)
+        return reply(`Your ${name} starts at ${spokenTime(next.hour, next.minute)}, in about ${spokenSpan(startOf(next) - nowMin)}.${rest}`, next);
+    return reply(`Your ${name} starts at ${spokenTime(next.hour, next.minute)}${when} and ends at ${spokenTime(next.endHour, next.endMinute)}.${rest}`, next);
+}
+// "next class" and the follow-up "and after that?": a class is a course code or a lecture-like title.
+const CLASS_TITLE = /\b[A-Z]{2,5}\s?\d{3,4}\b|\b(?:lecture|class|seminar|recitation)\b/i;
+const NEXT_CLASS = /\b(?:next|upcoming)\s+class(?:es)?\b|\bwhen(?:'s| is)?\s+my\s+(?:first|next)\s+class\b/i;
+const AFTER_THAT = /^\W*(?:and\s+|so\s+|ok(?:ay)?\s+)?(?:then\s+)?(?:what(?:'s|s| is)?\s+)?(?:(?:what|how)\s+about\s+)?(?:after\s+(?:that|this|it)|then|the\s+one\s+after(?:\s+that)?)(?:\s+one)?\W*$/i;
+const memoryOf = (r, tomorrow, classOnly) => ({ tomorrow, startMinute: minutesOf(r.hour, r.minute), title: r.title, classOnly });
+const END_OF_DAY = 24 * 60;
+export const isNextClassQuestion = (message) => NEXT_CLASS.test(message);
+export const isAfterThat = (message) => AFTER_THAT.test(message.trim());
+/** "next class" / "and after that?" from the day read. `memory` is what the last answer named (after-that only). */
+export function nextBlockReply(message, day, tomorrow, nowMin, memory) {
+    const all = rows(day);
+    if (isAfterThat(message)) {
+        if (!memory)
+            return null;
+        tomorrow = memory.tomorrow; // the follow-up is about the day the last answer was about
+        const when = tomorrow ? " tomorrow" : " today";
+        const after = all.find((r) => minutesOf(r.hour, r.minute) > memory.startMinute && (!memory.classOnly || CLASS_TITLE.test(r.title)));
+        if (!after)
+            return { text: `Nothing after that${when}.`, memory };
+        return { text: `After that: ${spokenTitle(after.title)} at ${spokenTime(after.hour, after.minute)}.`, memory: memoryOf(after, tomorrow, memory.classOnly) };
+    }
+    if (!isNextClassQuestion(message))
+        return null;
+    const next = all.find((r) => CLASS_TITLE.test(r.title) && (tomorrow || minutesOf(r.hour, r.minute) > nowMin));
+    if (!next)
+        return { text: `You have no more classes ${tomorrow ? "tomorrow" : "today"}.`, memory: { tomorrow, startMinute: END_OF_DAY, title: "", classOnly: true } };
+    const span = !tomorrow && WANTS_SPAN.test(message);
+    const text = `Your next class is ${spokenTitle(next.title)} at ${spokenTime(next.hour, next.minute)}${span ? `, in about ${spokenSpan(minutesOf(next.hour, next.minute) - nowMin)}` : ""}.`;
+    return { text, memory: memoryOf(next, tomorrow, true) };
+}
+/** Everything above in one call: the next-class / after-that answers, then a named block that is present. */
+export function codeDayAnswer(message, day, tomorrow, nowMin, memory) {
+    return nextBlockReply(message, day, tomorrow, nowMin, memory) ?? presentBlockReply(message, day, tomorrow, nowMin);
 }

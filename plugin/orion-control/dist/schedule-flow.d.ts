@@ -1,3 +1,4 @@
+import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
 export type DayBlock = {
     title: string;
     start: string;
@@ -172,16 +173,35 @@ export declare function guardSteps(message: string, steps: Intent[], day: Day): 
     say: "cannot";
     text: string;
 } | null;
+/** "something", "small task", "a thing" — not a title (never booked as one). */
+export declare function isUnnamedThing(what?: string): boolean;
+type Anchor = {
+    before?: {
+        minute: number;
+        label: string;
+    };
+    after?: DayBlock;
+    gone?: string;
+};
+/** The anchor his words give an add: before <class/block/time>, after <block>, between X and Y — both sides read
+ *  independently ("after my class and before gym", r8 review 3 H3, 2026-10-16). */
+export declare function anchorFromMessage(message: string, day: Day): (Anchor & {
+    name: string;
+}) | undefined;
 type Compiled = {
     args: string[];
 } | {
     say: "cannot" | "ask" | "answer";
     text: string;
+    pending?: Omit<TitlePending, "dateArgs" | "when">;
 } | {
     error: string;
 };
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
-export declare function compile(input: Intent, day: Day): Compiled;
+export declare function compile(input: Intent, day: Day, message?: string, opts?: {
+    single?: boolean;
+    anchor?: Anchor;
+}): Compiled;
 /** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
  *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
 export declare function spokenFailure(line: string): string;
@@ -223,14 +243,17 @@ export type FlowResult =
     kind: "cannot" | "ask" | "plain";
     calls?: string[];
     outputs?: string[];
+    pending?: PendingAdd;
 } | {
     outcome: "fallback";
     reason: string;
 };
 /** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
  *  undo: stamps of changes an earlier, cut-off half of this request made — reverted first, newest first,
- *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone. */
-export declare function runScheduleFlow({ message, clock, exec, ask, now, undo, undoTop }: {
+ *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
+ *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
+ *  a title answer compiles the stored anchor again with that title. */
+export declare function runScheduleFlow({ message, clock, exec, ask, now, undo, undoTop, pending }: {
     message: string;
     clock: string;
     now?: Date;
@@ -243,6 +266,7 @@ export declare function runScheduleFlow({ message, clock, exec, ask, now, undo, 
     } | null>;
     undo?: string[];
     undoTop?: () => string | null;
+    pending?: PendingRun;
 }): Promise<FlowResult>;
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export declare function spokenReply(outputs: string[], when?: string): string;

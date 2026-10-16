@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
+import { guardToolCall, ToolBudget } from "./tool-guards.js";
 import { liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting, undoJournalTop } from "./local-routing.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
@@ -1216,6 +1217,7 @@ export function installProvenanceHooks(api) {
     hostWarn = api.logger?.warn ? (message) => api.logger?.warn?.(message) : undefined;
     const store = provenance;
     const repeatState = new Map();
+    const toolBudget = new ToolBudget();
     /** Blocked repeats after which a run gets no more tools and must answer. */
     const REPEAT_LOCKOUT = 3;
     if (typeof api.on !== "function") {
@@ -1306,9 +1308,19 @@ export function installProvenanceHooks(api) {
         // evidence say the model answers it by guessing a different command. This
         // fires first and names the route instead. It only ever blocks calls that
         // were going to be refused anyway; see `routeForDoomedExec`.
+        // r8b2 (2026-10-16): bare `orion-*` names, wrapper misuse, invented tool ids and string args are repaired
+        // (params) or refused with a route (block) here; see tool-guards.ts. Then the doomed-exec routes run on
+        // whatever command will actually execute.
+        let repaired;
+        const callParams = (field(event, "params") ?? field(hookContext, "params"));
+        const guarded = guardToolCall(toolName, callParams);
+        if (guarded && "block" in guarded)
+            return guarded;
+        if (guarded)
+            repaired = guarded.params;
         if (toolName === "exec" || toolName === "shell" || toolName === "bash") {
-            const params = (field(event, "params") ?? field(hookContext, "params"));
-            const raw = params?.command ?? params?.cmd ?? params?.script;
+            const effective = repaired ?? callParams;
+            const raw = effective?.command ?? effective?.cmd ?? effective?.script;
             if (typeof raw === "string") {
                 const route = routeForDoomedExec(raw);
                 if (route) {
@@ -1316,6 +1328,16 @@ export function installProvenanceHooks(api) {
                 }
             }
         }
+        // Turn budget (H5): only calls that got past every guard above count, so a blocked call is not charged.
+        if (typeof runId === "string") {
+            const rawCallId = field(event, "toolCallId") ?? field(hookContext, "toolCallId");
+            const callId = typeof rawCallId === "string" ? rawCallId : undefined;
+            const over = toolBudget.take(`run:${runId}`, callId);
+            if (over)
+                return over;
+        }
+        if (repaired)
+            return { params: repaired };
         if (toolName.startsWith("orion_")) {
             store.bindToolCall({
                 toolCallId: field(event, "toolCallId") ?? field(hookContext, "toolCallId"),
@@ -1324,11 +1346,22 @@ export function installProvenanceHooks(api) {
             });
         }
     });
+    // review 5 M3 (2026-10-16): a finalize "revise" ("call tool_call now") re-enters the SAME run; the model reached finalize, so the
+    // calls so far were answered. A new allowance for the retry keeps the budget from blocking the call the revise asked for
+    // (the revise count itself is bounded by the finalize hooks' maxAttempts).
+    api.on("before_agent_finalize", (event, hookContext) => {
+        const runId = field(event, "runId") ?? field(hookContext, "runId");
+        if (typeof runId === "string")
+            toolBudget.end(`run:${runId}`);
+        return undefined;
+    });
     api.on("agent_end", (event, hookContext) => {
         const runId = field(event, "runId") ?? field(hookContext, "runId");
         const sessionKey = field(event, "sessionKey") ?? field(hookContext, "sessionKey");
-        if (typeof runId === "string")
+        if (typeof runId === "string") {
             repeatState.delete(`run:${runId}`);
+            toolBudget.end(`run:${runId}`);
+        }
         if (typeof sessionKey === "string")
             repeatState.delete(`session:${sessionKey}`);
     });

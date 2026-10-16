@@ -80,11 +80,12 @@ describe("q015: a named block that is not on the day", () => {
         expect(log.provided).toBe(true);
         expect(log.reads).toEqual(["day"]);
     });
-    it("routes: a lab question with no lab is code-dictated; with one it still goes to the worker", async () => {
+    it("routes: a lab question with no lab is code-dictated; with one code says its times", async () => {
         const none = await harness({ move: "escalate", tier: "quick" }).turn("is today a lab day or nah");
         expect(none.prompt).toContain("There's no lab block on your calendar today.");
         const some = await harness({ move: "escalate", tier: "quick" }, { day: `${DAY}\nB3 17:30–18:30 DS Lab (FIXED)` }).turn("how many minutes until the lab starts");
-        expect(some.prompt).toMatch(/read just now from his calendar/);
+        // r8b2 (2026-10-16): a named block that is there is code-dictated too (start time and time left), no longer the worker's.
+        expect(some.prompt).toMatch(/exactly this text[\s\S]*DS Lab/);
     });
 });
 const local = (d, h, m) => new Date(2026, 9, d, h, m).toISOString();

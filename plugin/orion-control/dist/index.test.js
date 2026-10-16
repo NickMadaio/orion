@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { getToolPluginMetadata } from "openclaw/plugin-sdk/tool-plugin";
 import entry from "./index.js";
+import { TOOL_BUDGET } from "./tool-guards.js";
 import { retriesAllowed, runTaskGraph } from "./controller.js";
 import { approvalPaths, grant } from "./approvals.js";
 import { ACTION_CATALOG, TIMEOUT_RETRY_SAFE, optionalArgumentsSummary, ORION_APP_DOMAIN, TUNABLE_SETTINGS, } from "./catalog.js";
@@ -158,21 +159,39 @@ describe("orion-control plugin", () => {
         harness.hooks.get("agent_end")?.({ runId: "stuck-run", messages: [], success: true }, {});
         expect(call(10, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toBeUndefined();
     });
-    it("routes a doomed exec on the FIRST call, before the repeat guard ever sees it", () => {
+    it("repairs a bare wrapper name on the FIRST call (r8b2), and still routes a doomed exec", () => {
         const harness = hostHarness({});
         const hook = harness.hooks.get("before_tool_call");
-        const bare = {
-            toolName: "exec",
-            params: { command: "orion-agenda today" },
-            runId: "route-run",
-            toolCallId: "call-1",
-        };
-        // Not on the third attempt — the first. Waiting for a loop to form before
-        // saying anything useful is the behaviour that cost 11.8M tokens.
-        expect(hook?.(bare, { runId: "route-run" })).toMatchObject({
-            block: true,
-            blockReason: expect.stringContaining("/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda"),
+        // Not on the third attempt: the first. Waiting for a loop to form before saying anything useful is the
+        // behaviour that cost 11.8M tokens. A real wrapper is rewritten to its absolute path; the rest is routed.
+        expect(hook?.({ toolName: "exec", params: { command: "orion-agenda today" }, runId: "route-run", toolCallId: "call-1" }, { runId: "route-run" })).toEqual({
+            params: { command: "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today" },
         });
+        expect(hook?.({ toolName: "exec", params: { command: "curl http://x" }, runId: "route-run", toolCallId: "call-2" }, { runId: "route-run" })).toMatchObject({ block: true });
+    });
+    it("a run gets a tool budget and is told to answer once it is spent (H5, r8b2)", () => {
+        const harness = hostHarness({});
+        const hook = harness.hooks.get("before_tool_call");
+        const call = (i, command) => hook?.({ toolName: "exec", params: { command }, runId: "budget-run", toolCallId: `b${i}` }, { runId: "budget-run" });
+        for (let i = 0; i < TOOL_BUDGET; i += 1)
+            expect(call(i, `/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda day 2026-10-${10 + i}`)).toBeUndefined();
+        expect(call(99, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toMatchObject({ block: true, blockReason: expect.stringContaining("Tool budget reached") });
+        harness.hooks.get("agent_end")?.({ runId: "budget-run", messages: [], success: true }, {});
+        expect(call(100, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks")).toBeUndefined();
+    });
+    it("calls blocked by another guard are not charged to the budget", () => {
+        const harness = hostHarness({});
+        const hook = harness.hooks.get("before_tool_call");
+        for (let i = 0; i < TOOL_BUDGET * 2; i += 1)
+            expect(hook?.({ toolName: "exec", params: { command: `curl http://x${i}` }, runId: "nb", toolCallId: `n${i}` }, { runId: "nb" })).toMatchObject({ block: true });
+        expect(hook?.({ toolName: "exec", params: { command: "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks" }, runId: "nb", toolCallId: "ok" }, { runId: "nb" })).toBeUndefined();
+    });
+    it("an invented tool id through tool_call becomes an orion_task_run step", () => {
+        const harness = hostHarness({});
+        const hook = harness.hooks.get("before_tool_call");
+        const out = hook?.({ toolName: "tool_call", params: { id: "media_play_pause", args: "{}" }, runId: "inv", toolCallId: "i1" }, { runId: "inv" });
+        expect(out.params.id).toBe("openclaw:orion-control:orion_task_run");
+        expect(out.params.args).toEqual({ steps: [{ action: "media_play_pause" }] });
     });
     it("keeps Calendar mutations typed and confirms only destructive removal", () => {
         expect(ACTION_CATALOG.calendar_event_add).toMatchObject({

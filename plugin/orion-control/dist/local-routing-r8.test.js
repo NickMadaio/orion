@@ -98,7 +98,7 @@ describe("q066 / q069: reads run by code", () => {
     it("a Full Disk Access failure is said exactly", async () => {
         const h = harness([{ move: "tool", tool: "brain", args: {} }], { readOut: "orion-messages: Full Disk Access is required to read Messages.", readCode: 4 });
         const t = await h.turn("read my last 3 texts");
-        expect(t.text).toContain("I couldn't read your texts: Full Disk Access is required to read Messages. Nothing was sent or changed.");
+        expect(t.text).toContain("I can't read your texts — ORION needs Full Disk Access.");
     });
     it("'search gmail for the internship offer' runs the read-only search", async () => {
         const h = harness([{ move: "tool", tool: "browser", args: { url: "https://mail.google.com/mail/u/0/#inbox" } }], { readOut: "Internship offer — HR <hr@acme.com> Oct 14" });

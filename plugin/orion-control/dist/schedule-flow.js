@@ -194,8 +194,86 @@ export function guardSteps(message, steps, day) {
     }
     return null;
 }
+// ---- Anchored adds (r8, 2026-10-16 live): "throw something in before my class, just something small" booked
+// 5:50 PM because the form dropped "before my class" and the title was a placeholder. Code reads the anchor from
+// his words + the day, and an unnamed thing is never a title.
+const UNNAMED_FILLER = new Set(["a", "an", "the", "some", "any", "small", "little", "quick", "short", "tiny", "new", "random", "my", "one", "more", "extra", "simple", "easy", "light"]);
+const UNNAMED_NOUN = new Set(["something", "anything", "thing", "things", "stuff", "task", "tasks", "block", "blocks", "item", "items", "activity", "whatever", "somethin"]);
+/** "something", "small task", "a thing" — not a title (never booked as one). */
+export function isUnnamedThing(what) {
+    const w = normTitle(String(what ?? "")).split(" ").filter((x) => x && !UNNAMED_FILLER.has(x));
+    return w.length === 0 || w.every((x) => UNNAMED_NOUN.has(x));
+}
+const GENERIC_WORD = new Set(["first", "next", "my", "the", "our", "very", "class", "classes", "lecture", "lectures", "a", "an", "earliest", "upcoming", "one", "today", "tomorrow"]);
+const TAIL = String.raw `(?=\s+(?:today|tomorrow|tonight|and|but|then|so|please|after|before)\b|[,.;!?]|$)`;
+function blockPhrase(phrase, day) {
+    const rest = normTitle(phrase).split(" ").filter((w) => w && !GENERIC_WORD.has(w)).join(" ");
+    const generic = !rest && /\b(class|classes|lecture|lectures)\b/i.test(phrase);
+    const found = rest ? day.blocks.filter((b) => messageNames(rest, b)) : generic ? day.blocks.filter((b) => b.fixed && (b.kind === undefined || b.kind === "class")) : [];
+    if (!found.length)
+        return undefined;
+    const now = day.now ? toMin(day.now) : -1;
+    const next = found.filter((b) => toMin(b.start) > now).sort((a, b) => toMin(a.start) - toMin(b.start))[0];
+    return next ? { block: next } : { gone: generic ? "class" : found[0].title };
+}
+const blockLabel = (b) => (b.kind === "class" ? `your ${ampm(b.start)} class` : b.title.replace(/\s+—.*$/, ""));
+/** The anchor his words give an add: before <class/block/time>, after <block>, between X and Y — both sides read
+ *  independently ("after my class and before gym", r8 review 3 H3, 2026-10-16). */
+export function anchorFromMessage(message, day) {
+    const between = message.match(new RegExp(String.raw `\bbetween\s+(?:my\s+|the\s+)?(.+?)\s+and\s+(?:my\s+|the\s+)?([^,.;!?]+?)${TAIL}`, "i"));
+    if (between) {
+        const a = blockPhrase(between[1], day);
+        const b = blockPhrase(between[2], day);
+        if (a && b && "block" in a && "block" in b)
+            return { after: a.block, before: { minute: toMin(b.block.start), label: blockLabel(b.block) }, name: `between ${a.block.title} and ${blockLabel(b.block)}` };
+        return undefined;
+    }
+    let before;
+    let after;
+    // A bare hour is a time too ("before 5", "before 8": M1) — the h < 8 → PM rule below; "before 30 minutes" is not one.
+    const time = message.match(/\bbefore\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b(?!\s*(?:min|hour|hr|more|times?|of\b))/i);
+    if (time && Number(time[1]) <= 24) {
+        const h = Number(time[1]);
+        const ap = time[3]?.toLowerCase();
+        const mins = Number(time[2] ?? 0);
+        // r8 review 4 MEDIUM-2 (2026-10-16): a bare hour already behind him today ("before 8" at 11:18) is the evening.
+        const passed = !ap && h < 12 && !!day.now && h * 60 + mins <= toMin(day.now);
+        const hour = ap ? (h % 12) + (ap === "pm" ? 12 : 0) : h < 8 || passed ? h + 12 : h % 24;
+        const minute = hour * 60 + mins;
+        before = { minute, label: `${ampm(hhmm(minute))}` };
+    }
+    else {
+        const bef = message.match(new RegExp(String.raw `\bbefore\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)${TAIL}`, "i"));
+        const r = bef ? blockPhrase(bef[1], day) : undefined;
+        if (r && "gone" in r)
+            return { gone: r.gone, name: bef[1] };
+        if (r)
+            before = { minute: toMin(r.block.start), label: blockLabel(r.block) };
+    }
+    const aft = message.match(new RegExp(String.raw `\bafter\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)${TAIL}`, "i"));
+    const ra = aft ? blockPhrase(aft[1], day) : undefined;
+    if (ra && "block" in ra)
+        after = ra.block;
+    if (!before && !after)
+        return undefined;
+    return { ...(before ? { before } : {}), ...(after ? { after } : {}), name: [after ? `after ${after.title}` : "", before ? `before ${before.label}` : ""].filter(Boolean).join(" ") };
+}
+/** Is there a stretch of at least need + buffer between max(now, after.end) and the anchor, walking around fixed blocks? (H4) */
+function hasRoom(day, now, after, beforeMinute, need) {
+    let cursor = Math.max(day.now ? Math.ceil(now / 5) * 5 : 0, after ? toMin(after.end) : 0);
+    for (const w of day.blocks.filter((b) => b.fixed).sort((a, b) => toMin(a.start) - toMin(b.start))) {
+        if (toMin(w.end) <= cursor)
+            continue;
+        if (toMin(w.start) >= beforeMinute)
+            break;
+        if (toMin(w.start) - cursor >= need + BUFFER)
+            return true;
+        cursor = Math.max(cursor, toMin(w.end));
+    }
+    return beforeMinute - cursor >= need + BUFFER;
+}
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
-export function compile(input, day) {
+export function compile(input, day, message, opts = {}) {
     let step = input;
     const byId = (id) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
     const now = day.now ? toMin(day.now) : 0;
@@ -297,6 +375,28 @@ export function compile(input, day) {
         case "add": {
             if (!step.what || byId(step.what))
                 return { error: "add needs a new title" };
+            // His own words anchor the add even when the form dropped it (r8, 2026-10-16): resolved here from the day.
+            // The form's own anchor for this step wins, side by side; the message anchors only a lone add (H3).
+            const stated = time(step.to) !== undefined;
+            const formBefore = byId(step.before);
+            const formAfter = byId(step.after);
+            const said = stated ? undefined : opts.anchor ?? (message && opts.single !== false ? anchorFromMessage(message, day) : undefined);
+            const beforeAt = formBefore ? { minute: toMin(formBefore.start), label: blockLabel(formBefore) } : said?.before;
+            const afterBlock = formAfter ?? said?.after;
+            const anchor = stated ? undefined : { ...(beforeAt ? { before: beforeAt } : {}), ...(afterBlock ? { after: afterBlock } : {}), ...(!formBefore && said?.gone ? { gone: said.gone } : {}) };
+            if (anchor?.gone)
+                return { say: "cannot", text: `There's no ${anchor.gone} left to put it before today.` };
+            // Never place it elsewhere: no room before the anchor means no add.
+            if (anchor?.before) {
+                const need = Number.isFinite(step.minutes) ? Math.max(5, step.minutes) : 5;
+                if (!hasRoom(day, now, anchor.after, anchor.before.minute, need))
+                    return { say: "cannot", text: `There's no room before ${anchor.before.label}.` };
+            }
+            if (isUnnamedThing(step.what)) {
+                const text = anchor?.before ? `What should I put before ${anchor.before.label}?` : anchor?.after ? `What should I put after ${anchor.after.title}?` : "What would you like me to add?";
+                // H1: the ask is kept, with the anchor, so his answer ("laundry") is an add for THAT slot.
+                return { say: "ask", text, ...(anchor?.before || anchor?.after ? { pending: { kind: "title", ask: text, ...(Number.isFinite(step.minutes) ? { minutes: step.minutes } : {}), ...(anchor.before ? { before: anchor.before } : {}), ...(anchor.after ? { afterTitle: anchor.after.title } : {}) } } : {}) };
+            }
             const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
             if (day.blocks.some((b) => norm(b.title).includes(norm(step.what)) || norm(step.what).includes(norm(b.title))))
                 return { error: `"${step.what}" is already on his day — move it instead of adding it again` };
@@ -310,8 +410,9 @@ export function compile(input, day) {
             // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
             if (minutes < 5)
                 return { error: "add needs at least 5 minutes" };
-            const at = time(step.to) ? ["--at", time(step.to)] : byId(step.after) ? ["--after", byId(step.after).title] : [];
-            return { args: ["add", step.what, String(Math.round(minutes)), ...at] };
+            const at = stated ? ["--at", time(step.to)] : anchor?.after ? ["--after", anchor.after.title] : [];
+            const end = !stated && anchor?.before ? ["--before", hhmm(anchor.before.minute)] : [];
+            return { args: ["add", step.what, String(Math.round(minutes)), ...at, ...end] };
         }
         case "drop": return what && !what.fixed ? { args: ["drop", what.title] } : { error: "drop needs a movable block id" };
         // "skip" is for a class or plan with people; for his own block it means drop ("ditch the macro stuff").
@@ -428,67 +529,12 @@ export function dayArgsFor(message, now = new Date()) {
     return { args: ["--date", name], label: name[0].toUpperCase() + name.slice(1) };
 }
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
-/** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
- *  undo: stamps of changes an earlier, cut-off half of this request made — reverted first, newest first,
- *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone. */
-export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null }) {
-    let undone = 0;
-    for (const mark of [...undo].reverse()) {
-        if (undoTop() !== mark)
-            break;
-        await exec(["undo"]);
-        undone += 1;
-    }
-    const { args: dateArgs, label: when, ask: whichDay } = dayArgsFor(message, now);
-    if (whichDay)
-        return { outcome: "say", text: whichDay, kind: "ask" };
-    let day;
-    try {
-        day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout);
-    }
-    catch {
-        return { outcome: "fallback", reason: "could not read the day" };
-    }
-    const clash = contradiction(message);
-    if (clash)
-        return { outcome: "say", text: clash, kind: "ask" };
-    const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
-    let out = await ask(FORM_PROMPT, user, intentSchema(day));
-    let compiled = (out?.steps ?? []).map((s) => compile(s, day));
-    let bad = compiled.find((c) => "error" in c);
-    // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model).
-    if (bad && "error" in bad) {
-        out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day));
-        compiled = (out?.steps ?? []).map((s) => compile(s, day));
-        bad = compiled.find((c) => "error" in c);
-    }
-    // A plan's list is read by its own small call — extraction only, no block ids (Nick: break it
-    // into smaller tasks; one form doing both made the 9B unsure, 2026-10-12).
-    const steps = out?.steps ?? [];
-    if (steps.some((st) => st.do === "plan" && !(st.items ?? []).length)) {
-        const list = await ask(EXTRACT_PROMPT, `Nick: ${message}`, EXTRACT_SCHEMA);
-        const merged = steps.map((st) => (st.do === "plan" && !(st.items ?? []).length ? { ...st, where: list?.where ?? st.where, travel: list?.travel ?? st.travel, items: list?.items ?? [] } : st));
-        compiled = merged.map((st) => compile(st, day));
-        bad = compiled.find((c) => "error" in c);
-    }
-    const stopped = guardSteps(message, steps, day);
-    if (stopped)
-        return { outcome: "say", text: stopped.text, kind: stopped.say };
-    if (!compiled.length)
-        return { outcome: "fallback", reason: "no steps" };
-    if (bad && "error" in bad)
-        return { outcome: "fallback", reason: bad.error };
-    const said = compiled.find((c) => "say" in c && c.say !== "answer");
-    if (said && "say" in said)
-        return { outcome: "say", text: said.text, kind: said.say };
-    const runs = compiled.filter((c) => "args" in c);
-    if (!runs.length)
-        return { outcome: "fallback", reason: "a question, not a change" };
+/** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
+async function execute(argvs, { exec, undoTop, when, undone }) {
     const calls = [];
     const outputs = [];
     const marks = [];
-    for (const c of runs) {
-        const argv = [...c.args, ...dateArgs];
+    for (const argv of argvs) {
         const before = undoTop();
         const { stdout } = await exec(argv);
         calls.push(`exec orion-reschedule ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`);
@@ -505,6 +551,162 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
         return { outcome: "say", kind: "plain", text: spokenReply(outputs, when), calls, outputs };
     }
     return { outcome: "done", calls, outputs, marks, undone, ...(when ? { reply: spokenReply(outputs, when) } : {}) };
+}
+/** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
+ *  undo: stamps of changes an earlier, cut-off half of this request made — reverted first, newest first,
+ *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
+ *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
+ *  a title answer compiles the stored anchor again with that title. */
+export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending }) {
+    if (pending?.kind === "push")
+        return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
+    const titled = pending?.kind === "title" ? pending : undefined;
+    let undone = 0;
+    const takenBackWhat = [];
+    for (const mark of [...undo].reverse()) {
+        if (undoTop() !== mark)
+            break;
+        const out = await exec(["undo"]);
+        undone += 1;
+        const what = out.stdout.match(/^Undone:\s*(.+)$/m)?.[1]?.trim();
+        if (what)
+            takenBackWhat.push(what);
+    }
+    // r8 review 4 MEDIUM-4 (2026-10-16): when this turn took the earlier half back and then only asks or fails, Nick is told.
+    const takenBack = (r) => undone > 0 ? { ...r, text: `I took back the earlier change${takenBackWhat.length ? ` (${takenBackWhat.join("; ")})` : ""} first. ${r.text}` } : r;
+    const { args: dateArgs, label: when, ask: whichDay } = titled ? { args: titled.dateArgs, label: titled.when } : dayArgsFor(message, now);
+    if (whichDay)
+        return takenBack({ outcome: "say", text: whichDay, kind: "ask" });
+    let day;
+    try {
+        day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout);
+    }
+    catch {
+        return { outcome: "fallback", reason: "could not read the day" };
+    }
+    const clash = titled ? undefined : contradiction(message);
+    if (clash)
+        return takenBack({ outcome: "say", text: clash, kind: "ask" });
+    // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
+    const build = (list) => list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1 }));
+    let steps;
+    let compiled;
+    let bad;
+    if (titled) {
+        // His answer to "What should I put before …?": the stored anchor, his title, no form.
+        steps = [{ do: "add", what: titled.title, minutes: titled.minutes ?? 30 }];
+        const after = titled.afterTitle ? day.blocks.find((b) => b.title === titled.afterTitle) : undefined;
+        compiled = [compile(steps[0], day, undefined, { anchor: { ...(titled.before ? { before: titled.before } : {}), ...(after ? { after } : {}) } })];
+        bad = compiled.find((c) => "error" in c);
+    }
+    else {
+        const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
+        let out = await ask(FORM_PROMPT, user, intentSchema(day));
+        compiled = build(out?.steps ?? []);
+        bad = compiled.find((c) => "error" in c);
+        // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model).
+        if (bad && "error" in bad) {
+            out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day));
+            compiled = build(out?.steps ?? []);
+            bad = compiled.find((c) => "error" in c);
+        }
+        // A plan's list is read by its own small call — extraction only, no block ids (Nick: break it
+        // into smaller tasks; one form doing both made the 9B unsure, 2026-10-12).
+        steps = out?.steps ?? [];
+        if (steps.some((st) => st.do === "plan" && !(st.items ?? []).length)) {
+            const list = await ask(EXTRACT_PROMPT, `Nick: ${message}`, EXTRACT_SCHEMA);
+            const merged = steps.map((st) => (st.do === "plan" && !(st.items ?? []).length ? { ...st, where: list?.where ?? st.where, travel: list?.travel ?? st.travel, items: list?.items ?? [] } : st));
+            compiled = build(merged);
+            bad = compiled.find((c) => "error" in c);
+        }
+        const stopped = guardSteps(message, steps, day);
+        if (stopped)
+            return takenBack({ outcome: "say", text: stopped.text, kind: stopped.say });
+    }
+    if (!compiled.length)
+        return { outcome: "fallback", reason: "no steps" };
+    if (bad && "error" in bad)
+        return { outcome: "fallback", reason: bad.error };
+    const said = compiled.find((c) => "say" in c && c.say !== "answer");
+    if (said && "say" in said) {
+        // H1: only a lone unnamed add keeps its question (a title answer is one add for that slot).
+        // LOW (r8 review 4): the stored date is absolute, so a yes after midnight writes to the day that was asked about.
+        const keep = said.pending && compiled.length === 1 ? { pending: { ...said.pending, dateArgs: ["--date", day.date], ...(when ? { when } : {}) } } : {};
+        return takenBack({ outcome: "say", text: said.text, kind: said.say, ...keep });
+    }
+    const runs = compiled.filter((c) => "args" in c);
+    if (!runs.length)
+        return { outcome: "fallback", reason: "a question, not a change" };
+    // r8 review 4 MEDIUM-3 (2026-10-16): with two or more adds and a before/after phrase in his words, a step that came out
+    // unanchored is the live-bug class again: ask which goes where, write nothing.
+    const adds = runs.filter((c) => c.args[0] === "add");
+    if (!titled && adds.length >= 2 && adds.some((c) => !c.args.some((a) => a === "--at" || a === "--after" || a === "--before"))) {
+        const phrases = [...message.matchAll(/\b(before|after)\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)(?=\s+(?:and|then)\s+|[,.;!?]|$)/gi)].map((m) => `${m[1].toLowerCase()} ${/^(?:class|lecture|lab|seminar)$/i.test(m[2].trim()) ? "your " : ""}${m[2].trim()}`);
+        if (phrases.length) {
+            const said = phrases.slice(0, 3).join(", or ");
+            return takenBack({ outcome: "say", kind: "ask", text: `${said.replace(/^./, (c) => c.toUpperCase())} — which one goes where?` });
+        }
+    }
+    const argvs = runs.map((c) => [...c.args, ...dateArgs]);
+    // An add he did not pin to a time must not shuffle his day: look first (--dry-run writes nothing), ask if it would (r8, 2026-10-16).
+    // Every add is previewed BEFORE any step runs: an early return after an earlier step had written lost its record (H2).
+    const previewed = [];
+    const previewCalls = [];
+    const effects = [];
+    for (const argv of argvs.filter((a) => a[0] === "add" && !a.includes("--at"))) {
+        const preview = (await exec([...argv, "--dry-run"])).stdout;
+        previewCalls.push(`exec orion-reschedule ${argv.join(" ")} --dry-run`);
+        previewed.push(preview);
+        if (FAILED.test(preview) && !summarize([preview], []).changed) {
+            const text = spokenReply([preview], when);
+            return takenBack({ outcome: "say", kind: "plain", text: argvs.length > 1 ? `${text} Nothing else was changed.` : text, calls: previewCalls, outputs: previewed });
+        }
+        effects.push(...displaced(preview, argv[1]));
+    }
+    if (effects.length)
+        return takenBack({ outcome: "say", kind: "ask", text: `That would ${effectPhrase(effects)} — go ahead?`, pending: { kind: "push", argvs: runs.map((c) => [...c.args, "--date", day.date]), displaced: [...new Set(effects.map((e) => e.name))], ...(when ? { when } : {}) } });
+    return execute(argvs, { exec, undoTop, when, undone });
+}
+/** Blocks a scheduler run would move, cut or remove, by name and by what happens to them, from its own output (M2). */
+function displaced(out, title = "") {
+    const lines = out.split("\n").map((l) => l.trim());
+    const planned = new Set(lines.flatMap((l) => { const m = l.match(/^planned (.+?): \d{2}:\d{2}/); return m ? [normTitle(m[1])] : []; }));
+    const own = normTitle(title);
+    const found = lines.flatMap((l) => {
+        let m = l.match(/^moved (.+?): \d{2}:\d{2} → /);
+        if (m)
+            return [{ name: m[1], how: "push" }];
+        m = l.match(/^(.+?) now ends at \d{2}:\d{2}$/) ?? l.match(/^SHRUNK to fit: (.+?) \d+ →/);
+        if (m)
+            return [{ name: m[1], how: "shorten" }];
+        m = l.match(/^DROPPED .*?: (.+)$/) ?? l.match(/^SKIPPED OPTIONAL: (.+?) \(\d+ min\)/);
+        if (m)
+            return [{ name: m[1], how: "off" }];
+        // "cleared 1 prior schedule block: YouTube" — a block the rebuild re-plans under its name stays; the rest are gone.
+        m = l.match(/^cleared \d+ prior schedule blocks?: (.+)$/i);
+        if (m)
+            return m[1].split(/,\s+/).filter((n) => !planned.has(normTitle(n))).map((name) => ({ name, how: "off" }));
+        // An existing block that did not fit is taken off; the new block not fitting is a failure, handled elsewhere.
+        m = l.match(/^NOT BOOKED: (.+?) \(\d+ min\)/);
+        if (m && own && normTitle(m[1]) !== own && !normTitle(m[1]).includes(own) && !own.includes(normTitle(m[1])))
+            return [{ name: m[1], how: "off" }];
+        return [];
+    });
+    const rank = { push: 0, shorten: 1, off: 2 };
+    const byName = new Map();
+    for (const e of found) {
+        const prev = byName.get(e.name);
+        if (!prev || rank[e.how] > rank[prev.how])
+            byName.set(e.name, e);
+    }
+    return [...byName.values()];
+}
+const joinNames = (n) => (n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`);
+/** "push Gym and Dinner later", "shorten YouTube", "take Reading off" — joined for what each case is. */
+function effectPhrase(effects) {
+    const of = (how) => effects.filter((e) => e.how === how).map((e) => e.name);
+    const parts = [of("push").length ? `push ${joinNames(of("push"))} later` : "", of("shorten").length ? `shorten ${joinNames(of("shorten"))}` : "", of("off").length ? `take ${joinNames(of("off"))} off` : ""].filter(Boolean);
+    return joinNames(parts);
 }
 const ampm = (t) => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
@@ -551,7 +753,9 @@ export function spokenReply(outputs, when) {
             continue;
         }
     }
-    const failed = lines.find((l) => FAILED.test(l));
+    // The header "NOTHING WAS BOOKED …" says nothing by itself; the NOT BOOKED line under it says what (review 3, 2026-10-16).
+    const failures = lines.filter((l) => FAILED.test(l));
+    const failed = failures.find((l) => spokenFailure(l) !== "nothing could be booked") ?? failures[0];
     // Spoken: three moved blocks can be named; more is a count ("4 other blocks moved to follow it").
     const rest = followed.length > 3 ? [`${followed.length} other blocks moved to follow it`] : followed;
     const all = said.length ? [...said, ...cut, ...rest] : [];

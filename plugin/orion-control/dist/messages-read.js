@@ -65,7 +65,20 @@ export function parseMessagesRead(message) {
     return null;
 }
 const label = (r) => r.kind === "gmail" ? "Gmail" : "texts";
-const firstLine = (s) => s.trim().split("\n").find((l) => l.trim())?.replace(/^orion-[a-z-]+:\s*/, "").trim().slice(0, 320) ?? "";
+// review 5 H1 (2026-10-16): `googleapis` / bare `token` no longer mean sign-in (a DNS error names googleapis).
+// q069 (2026-10-16 r8b2): raw script output (URLs, oauth text, paths) never reaches Nick; known failures get one short line.
+const GMAIL_SIGN_IN = "I can't read your Gmail right now — it needs signing in again.";
+const FULL_DISK = "I can't read your texts — ORION needs Full Disk Access.";
+export function failureLine(req, out) {
+    // Review 6 H-A (2026-10-16): network shapes first — an offline oauth refresh prints "oauth2: cannot fetch token … no such host".
+    if (/no such host|dial tcp|network is unreachable|could not resolve|getaddrinfo|ENOTFOUND|offline|timed? ?out|connection refused/i.test(out) && req.kind === "gmail")
+        return "I couldn't reach Gmail just now.";
+    if (/invalid_grant|not signed in|sign(?:ed)?[ -]?in (?:again|required)|unauthori[sz]ed|credentials/i.test(out) && (req.kind === "gmail" || /invalid_grant/i.test(out)))
+        return GMAIL_SIGN_IN;
+    if (/full disk access|operation not permitted|authorization denied|not authori[sz]ed to (?:open|read)/i.test(out))
+        return FULL_DISK;
+    return `I couldn't read your ${label(req)} just now. Nothing was sent or changed.`;
+}
 /** The command for a read: file + argv only (no shell). */
 export function readCommand(r) {
     if (r.kind === "gmail")
@@ -80,7 +93,7 @@ export async function runMessagesRead(req, exec) {
     const out = String(stdout ?? "").trim();
     const base = { calls: [canonical], outputs: [out] };
     if (code !== 0)
-        return { ...base, say: `I couldn't read your ${label(req)}: ${firstLine(out) || "the read failed"}${/[.!?]$/.test(firstLine(out)) ? "" : "."} Nothing was sent or changed.` };
+        return { ...base, say: failureLine(req, out) };
     if (!out || /^No (?:mail|messages?|texts?)\b/i.test(out)) {
         const what = req.kind === "gmail" ? `Nothing in your Gmail matched "${req.query}".` : req.kind === "from" ? `I found no texts from ${req.person}.` : req.kind === "search" ? `I found no texts mentioning "${req.text}".` : "I found no recent texts.";
         return { ...base, say: what };

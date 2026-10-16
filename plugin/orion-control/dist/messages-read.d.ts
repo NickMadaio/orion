@@ -28,6 +28,7 @@ export type ReadOutcome = {
 };
 /** What a plain read of his texts or Gmail asks for, or null (a send, or not a read). */
 export declare function parseMessagesRead(message: string): MessagesRead | null;
+export declare function failureLine(req: MessagesRead, out: string): string;
 /** The command for a read: file + argv only (no shell). */
 export declare function readCommand(r: MessagesRead): {
     file: string;

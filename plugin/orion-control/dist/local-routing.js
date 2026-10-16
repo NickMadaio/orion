@@ -44,9 +44,11 @@ import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply } from "./late-flow.js";
 import { parseMessagesRead, readNote } from "./messages-read.js";
 import { isBareTime, isReminderTurn, planReminder } from "./reminder-flow.js";
-import { dayRead, noBlockReply } from "./day-read-answers.js";
+import { mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
+import { codeDayAnswer, dayRead, isAfterThat, noBlockReply } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
+import { answerPending, ADD_DECLINED } from "./schedule-pending.js";
 import { FORM_OPTIONS, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -59,6 +61,12 @@ const CONTINUING = /^\(Continuing — my last message was cut off[^)]*\)\s*/;
 const SPOKEN = /Nick SAID this out loud/;
 // A spoken message that ends on a word a sentence cannot end on ("…go ahead and", "…move the").
 const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|with|of|from|um|uh)\s*[,–—-]*\s*$/i;
+// H6 (r8b2, 2026-10-16): the 11:24:58 fragment was a bare "can". These end a cut-off sentence too, but real short messages end on
+// them ("yes i can", "what's it like", "i know what it is"), so a clause that is complete without the word is not held. "it", "that"
+// and "this" are left out: "what time is it", "what is that", "i love this" are whole questions and statements.
+const TRAILS_OFF_SOFT = /\b(can|could|is|are|was|just|like|i|i'm)\s*[,–—-]*\s*$/i;
+const COMPLETE_TAIL = /\b(?:yes|yeah|yep|no|nope|i|we|you|they|he|she|it|that|this|there)\s+(?:can|could|is|are|was|am)\s*$|\b(?:it|that|this|looks?|feels?|sounds?|seems?|more|something|someone|things?)\s+like\s*$|\b(?:what|where|who|how)\s+(?:it|that|this|he|she|they|there)\s+(?:is|are|was)\s*$|\b(?:what|where|who|how|when|which)\s+\S+(?:\s+\S+)*?\s+(?:is|are|was)\s*$|\b(?:you|they|we)\s+like\s*$/i; // review 5 H4 (2026-10-16): "tell me what my next class is", "do you know where my keys are", "whatever you like" are whole sentences
+export const trailsOff = (message) => TRAILS_OFF.test(message) || (TRAILS_OFF_SOFT.test(message) && !COMPLETE_TAIL.test(message.trim()));
 export const GO_ON = "Go on.";
 const LABEL_COMMANDS = /\b(turn|open|play|start|text|email|add|move|cancel|set|what|whats|what's|how|when)\b/i;
 /** An answer to "what should I remind you about?" is a plain label: no change, calendar, live-data or command word, and no tool/escalate from the front desk (review, 2026-10-16). */
@@ -67,6 +75,8 @@ const LABEL_DAYWORDS = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?s
 const answersLabel = (message, move) => move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, ...(move === "answer" ? [] : [SCHEDULING]), LIVE_DATA, LABEL_COMMANDS, LABEL_DAYWORDS].some((re) => re.test(message)); // a calendar word alone (class, lab) is a label when the front desk answered (final round, 2026-10-16)
 const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
+const DAY_MEMORY_MS = 10 * 60_000;
+const nowMinutes = (now) => { const d = (now ?? (() => new Date()))(); return d.getHours() * 60 + d.getMinutes(); };
 // 2026-10-16 re-run, q092: in a FRESH chat "cancel that" had the worker run `orion-reschedule undo`, which
 // reversed a REAL change Nick made a day earlier ("Undone: put Review spending back"). A bare cancel or
 // undo (no named object) may take back a calendar change only when THIS session made one recently.
@@ -289,7 +299,7 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
 }
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
-    message, clock, undo: opts.undo ?? [], undoTop: () => undoJournalTop(),
+    message, clock, undo: opts.undo ?? [], undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
     exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
     ask: async (system, user, schema) => {
         try {
@@ -480,6 +490,8 @@ export function registerLocalRouting(api, options) {
             return;
         sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
     };
+    /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
+    const dayMemory = new Map();
     const otherChanges = new Map();
     const recordOther = (sessionKey, kind) => { if (sessionKey)
         otherChanges.set(sessionKey, { at: Date.now(), kind }); };
@@ -496,6 +508,28 @@ export function registerLocalRouting(api, options) {
     const reminderAsk = new Map();
     /** Per session: an unanswered "how late?" (q029), and the last late move code ran (so "yeah push everything after it" does not move it twice). */
     const lateAsk = new Map();
+    /** r8 review 3 H1: per session, the add question just asked ("push Gym later — go ahead?", "what should I put before …?") and what it would run. */
+    const addPending = new Map();
+    /** His reply to that question, if it is one. The pending add is consumed by whatever turn comes next. */
+    const addTurn = (key, message) => {
+        const held = addPending.get(key);
+        addPending.delete(key);
+        return held && Date.now() - held.at < STITCH_WINDOW_MS ? answerPending(held.pending, message) : undefined;
+    };
+    /** What a finished schedule flow leaves behind: the calls in the log, the undo marks, and the question it asked (if any). */
+    const settleSchedule = (run) => {
+        const flow = run.flow;
+        if (flow?.outcome === "say" && flow.pending && run.sessionKey)
+            addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
+        if (flow?.outcome !== "done")
+            return;
+        flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
+        const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
+        if (turn && run.sessionKey)
+            lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
+        if (flow.marks?.length)
+            recordChange(run.sessionKey, flow.marks);
+    };
     const lastLate = new Map();
     /** Whether this turn is the late flow's: "running late" with no minutes, the short answer to our question, or the go-ahead after it. Consumes the pending question. */
     const lateTurn = (key, message) => {
@@ -546,7 +580,7 @@ export function registerLocalRouting(api, options) {
         const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
         const stitch = CONTINUING.test(said) && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
         const message = stitch ? `${stitch.text} ${said.replace(CONTINUING, "")}` : said;
-        const cutOff = SPOKEN.test(raw) && TRAILS_OFF.test(message);
+        const cutOff = SPOKEN.test(raw) && trailsOff(message);
         if (sessionKey)
             lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
         // Text owed by an earlier turn in this session is never delivered on this one (review, 2026-10-16).
@@ -557,7 +591,7 @@ export function registerLocalRouting(api, options) {
             : Promise.resolve()
                 .then(() => decideImpl({ message, clock: clock() }))
                 .catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [],
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}),
             ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -572,6 +606,11 @@ export function registerLocalRouting(api, options) {
             if (late)
                 run.late = late;
         }
+        if (sessionKey) {
+            const answer = addTurn(sessionKey, message);
+            if (answer && !cutOff)
+                run.addAnswer = answer;
+        }
         const d = await decision;
         // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
         if ("error" in d) {
@@ -579,6 +618,10 @@ export function registerLocalRouting(api, options) {
             return { providerOverride: workerProvider, modelOverride: workerModel };
         }
         run.settled = d;
+        // r8 review 4 HIGH-1 (2026-10-16): the front desk read his reply as a device or lookup request ("turn off the lights"),
+        // so it is not the title the add question asked for: nothing is booked and the turn routes normally.
+        if (run.addAnswer?.kind === "run" && "title" in run.addAnswer.run && d.move === "tool")
+            run.addAnswer = undefined;
         if (options.scheduleChangesToCloud && CHANGE_REQUEST.test(message) && SCHEDULING.test(message) && !isCrisis(message)) {
             run.cloud = true;
             return undefined; // the configured model, with ORION's full prompt
@@ -602,6 +645,9 @@ export function registerLocalRouting(api, options) {
                 return undefined;
             if (run && (RUNNING_LATE.test(run.message) || run.late))
                 return undefined; // the calendar flow, never a drafted "no problem"
+            // r8 review 4 MEDIUM-1 (2026-10-16): a draft must never answer the add question's yes ("Sure, done!" with nothing written).
+            if (run?.addAnswer)
+                return undefined;
             // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
             const draftText = withoutDayClaims(d?.answer ?? "");
             if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? ""))
@@ -848,6 +894,25 @@ export function registerLocalRouting(api, options) {
                 if (!run.flow && isMessagesJob(run.message))
                     return { systemPrompt: `${GENERAL_INSTRUCTIONS}\n\n${now}\n\n${MESSAGES_NOTE}\n\n${LIVE_NOTE}` };
             }
+            // H1 (r8 review 3, 2026-10-16): his answer to the add flow's own question is the flow's, never the worker's
+            // (an unanchored add on "yes" / "laundry" was the live 5:50 PM bug). A title or yes runs through the flow with
+            // what it stored; no declines; anything else cleared the question in before_model_resolve.
+            if (!run.flow && !run.cutOff && run.addAnswer) {
+                const a = run.addAnswer;
+                if (a.kind === "decline")
+                    run.flow = { outcome: "say", kind: "plain", text: ADD_DECLINED };
+                else if (a.kind === "reask")
+                    run.flow = { outcome: "say", kind: "ask", text: a.pending.ask, pending: a.pending };
+                else {
+                    run.flow = options.scheduleFlow
+                        ? await options.scheduleFlow(run.message, clock(), { pending: a.run }).catch((e) => ({ outcome: "fallback", reason: String(e) }))
+                        : { outcome: "fallback", reason: "no scheduling flow wired" };
+                    if (run.flow.outcome === "fallback")
+                        run.flow = { outcome: "say", kind: "plain", text: "I couldn't finish that add. Tell me what to put on your day and when." };
+                    markRead(run, a.run.when === "tomorrow" ? "day-tomorrow" : "day");
+                }
+                settleSchedule(run);
+            }
             // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
             // fills one form, code runs the exact command; the worker only phrases the result.
             // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
@@ -862,13 +927,19 @@ export function registerLocalRouting(api, options) {
                     : { outcome: "fallback", reason: "no scheduling flow wired" };
                 if (flowRan)
                     markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
-                if (run.flow.outcome === "done") {
-                    run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: run.flow.outputs[i] ?? "", exit: null }));
-                    const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
-                    if (turn && run.sessionKey)
-                        lastTurn.set(run.sessionKey, { ...turn, marks: run.flow.marks ?? [] });
-                    if (run.flow.marks?.length)
-                        recordChange(run.sessionKey, run.flow.marks);
+                settleSchedule(run);
+            }
+            // r8b2 (2026-10-16) q006: "and after that?" follows the last day answer: code answers it from the day read.
+            const dayMem = run.sessionKey ? dayMemory.get(run.sessionKey) : undefined;
+            if (!run.flow && !run.cutOff && options.readDay && dayMem && Date.now() - dayMem.at < DAY_MEMORY_MS && isAfterThat(run.message)) {
+                const tomorrow = dayMem.memory.tomorrow; // review 5 H2: the day the last answer was about, not today by default
+                const day = await options.readDay(tomorrow).catch(() => "");
+                const after = day ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now), dayMem.memory) : null;
+                if (after) {
+                    run.provided = true;
+                    markRead(run, tomorrow ? "day-tomorrow" : "day");
+                    run.flow = { outcome: "say", kind: "plain", text: after.text };
+                    dayMemory.set(run.sessionKey, { at: Date.now(), memory: after.memory });
                 }
             }
             // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
@@ -881,8 +952,15 @@ export function registerLocalRouting(api, options) {
                 }
                 // q015 (2026-10-16 r8): a question that names a kind of block the day does not have ("my nap block") is answered by code.
                 const absent = day ? noBlockReply(run.message, day, tomorrow) : null;
+                // q009/q013/q006 (2026-10-16 r8b2): a named block that IS there, "next class": code says the times and the time left.
+                const present = day && !absent ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now)) : null;
                 if (absent)
                     run.flow = { outcome: "say", kind: "plain", text: absent };
+                else if (present) {
+                    run.flow = { outcome: "say", kind: "plain", text: present.text };
+                    if (run.sessionKey)
+                        dayMemory.set(run.sessionKey, { at: Date.now(), memory: present.memory });
+                }
                 else if (day)
                     return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nHis day${tomorrow ? " tomorrow" : ""}, read just now from his calendar:\n${day}\n\nAnswer his question from this list only, in one or two short spoken sentences with 12-hour times; "All day:" lines are events with no time, say them as all day. ${DAY_QUESTION_NOTE} Do not call any tools.` };
             }
@@ -924,7 +1002,9 @@ export function registerLocalRouting(api, options) {
                 // "The front desk mentioned they don't have it either" (q063, sweep 2026-10-15): no source named.
                 ? `\n\nYou might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
             const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
-            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}` };
+            // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
+            const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
+            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}${brainNote}\n\n${now}${askNote}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
         });
     }
     // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at
@@ -1115,6 +1195,15 @@ export function registerLocalRouting(api, options) {
                 }
                 if (owed)
                     remember([runId, sessionKeyNow], owed);
+            }
+            // H4 (r8b2, 2026-10-16) q069/q070: raw CLI text (URLs, "Exec failed", script paths, tool banners) never reaches him; only
+            // here can it be fixed on the Mac chat / phone route (reply_payload_sending never runs there).
+            if (on && !owed && reply.trim()) {
+                const clean = sanitizeReply(reply, { mailFailed: mailReadFailed(run.tools) });
+                if (clean !== reply) {
+                    owed = clean;
+                    remember([runId, sessionKeyNow], owed);
+                }
             }
             if (on && owed)
                 putReplyInPlace(event.messages, owed);

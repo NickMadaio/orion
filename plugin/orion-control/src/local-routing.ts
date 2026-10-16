@@ -49,7 +49,7 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } fro
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
-import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -69,7 +69,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun }) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext }) => Promise<FlowResult>;
   /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
   lateFlow?: (minutes: number) => Promise<FlowResult>;
   /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
@@ -134,6 +134,8 @@ type Run = {
   cutOff?: boolean;
   /** Tools the HOST ran this turn (after_tool_call), as opposed to the reads code pushed into `tools` itself (H4, r8 review 1, 2026-10-16). */
   hostTools?: number;
+  /** An open outreach question (his prompt's ORION context line): the blank or the planned block it asked about. */
+  ask?: AskContext;
   /** r8 review 2 HIGH-1 (2026-10-16): code itself ran a read this turn (messages, gmail, focus status), as opposed to `provided` brain snippets or the day. */
   codeRead?: boolean;
   /** Said out loud (the app's spoken marker), not typed. */
@@ -223,6 +225,9 @@ const LIVE_NOTE = "This needs live data (weather, sun times, his messages, his d
 // bring the charger to lab" booked "bring the charger" at 11:45 PM, "add a todo to email prof…" ran add … 0,
 // "focus mode on for an hour" added a "focus mode" block, "i take creatine every morning at 8" added creatine,
 // and "cancel that" / "make it longer" (no history reaches the form) dropped and resized "finish resume".
+// He says what he really did ("i'm at the gym", "was at the library since 2", "gym 2-4", "did gym instead of resume"):
+// the flow logs it over the plan. Any reply while an ask is open goes there too (run.ask).
+const LOGGING = /\b(i'?m|i am|was|been|just)\b.*\b(at|in|doing|since)\b|\binstead\b|\bsince \d|\bfrom \d.* to \d|^\s*[a-z][a-z ]{1,30}\s\d{1,2}(:\d{2})?\s*-\s*\d{1,2}(:\d{2})?\s*$/i;
 const CALENDAR_TOOLS = new Set(["reschedule", "agenda"]);
 // A message to send or something to capture, not a block: "text myself…", "email prof…", "add a todo…".
 // A to-do counts only when he adds one: "plan my day around my todos" and "fit my to-dos into this
@@ -243,7 +248,7 @@ const NOT_CALENDAR_TOOLS = new Set(["weather", "lights", "alarm", "wake", "sessi
 // A time or a length in the message: what makes a "tasks" or "brain" pick worth a second look.
 const WHEN_OR_HOW_LONG = /\bat \d{1,2}(:\d{2})?\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(am|pm)\b|\b\d+(\.\d+)?\s*(h|hrs?|hours?|mins?|minutes?)\b|\b(an?|half an?) hour\b|\b(this|tomorrow) (morning|afternoon|evening)\b|\b(today|tonight|tomorrow|tmrw)\b/i;
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
-export function isCalendarTurn(message: string, settled: Decision): boolean {
+export function isCalendarTurn(message: string, settled: Decision, askOpen = false): boolean {
   // The 4B's tool pick is a hint, not a fact (review, 2026-10-16): "add gym at 5 today" picked as "tasks"
   // is still a block. A clearly unrelated tool skips the flow; "tasks" or "brain" only with no time or length.
   if (settled.move === "tool" && !CALENDAR_TOOLS.has(settled.tool ?? "") && (NOT_CALENDAR_TOOLS.has(settled.tool ?? "") || !WHEN_OR_HOW_LONG.test(message))) return false;
@@ -252,7 +257,7 @@ export function isCalendarTurn(message: string, settled: Decision): boolean {
   if (settled.move === "ask" && NAMES_NOTHING(message)) return false;
   // Chit-chat the front desk answered, with no change word, time or "after/before my…" anchor ("the meeting went
   // over well") is not a calendar turn (re-review, 2026-10-16).
-  if (settled.move === "answer" && !CHANGE_REQUEST.test(message) && !RUNNING_LATE.test(message) && !WHEN_OR_HOW_LONG.test(message) && !/\b(after|before|between|until|till|from|cancel\w*|mov\w*|not going|instead|no \w+ for me|no \w+ today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(message)) return false;
+  if (settled.move === "answer" && !askOpen && !CHANGE_REQUEST.test(message) && !RUNNING_LATE.test(message) && !WHEN_OR_HOW_LONG.test(message) && !LOGGING.test(message) && !/\b(after|before|between|until|till|from|cancel\w*|mov\w*|not going|instead|no \w+ for me|no \w+ today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(message)) return false;
   return true;
 }
 // A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).
@@ -367,8 +372,8 @@ export function undoJournalTop(home = homedir(), now = Date.now()): string | nul
 }
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun } = {}): Promise<FlowResult> => runScheduleFlow({
-  message, clock, undo: opts.undo ?? [], undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
+export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext } = {}): Promise<FlowResult> => runScheduleFlow({
+  message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
   exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema) => {
@@ -629,7 +634,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       : Promise.resolve()
         .then(() => decideImpl({ message, clock: clock() }))
         .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}),
+    const askContext = parseAskContext(raw);
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -899,13 +905,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message)) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled)) {
+      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || run.ask) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled, !!run.ask)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
         let flowRan = false;
         run.flow = options.scheduleFlow
-          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [] }).then((r) => { flowRan = true; return r; }, (e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
+          ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], ...(run.ask ? { askContext: run.ask } : {}) }).then((r) => { flowRan = true; return r; }, (e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }))
           : { outcome: "fallback", reason: "no scheduling flow wired" };
         if (flowRan) markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
         settleSchedule(run);

@@ -4,9 +4,10 @@
 // what the day actually holds, this proposes what belongs in the gaps, in his
 // priority order, and always leaves some time genuinely free.
 import { freeGaps } from "./gaps.mjs";
+import { anchorsFrom } from "./config.mjs";
 
 /**
- * @returns [{ title, kind, minutes, at?, before? }] — asks for the planner, most important first.
+ * @returns [{ title, kind, minutes, at?, before?, anchor?, rank?, tags? }] — asks for the planner, most important first.
  */
 export function fillDay(blocks, { now, window, weekday, config, deadlines = [], studyPlan = null }) {
   const has = (kind, from = 0, to = 1440) => blocks.some((b) => b.kind === kind && b.end > from && b.start < to);
@@ -26,7 +27,10 @@ export function fillDay(blocks, { now, window, weekday, config, deadlines = [], 
     const soon = deadlines.filter((d) => d.daysAway >= 0 && d.daysAway <= 10).sort((a, b) => a.daysAway - b.daysAway)[0];
     if (soon && !has("study")) asks.push({ title: `Study for ${soon.title}`.slice(0, 80), kind: "study", minutes: config.studyMinutes });
   }
-  if (config.gymDays.includes(weekday) && !has("gym")) asks.push({ title: "Gym", kind: "gym", minutes: config.gymMinutes });
+  // Daily anchors (the gym): must-haves, tagged so the weight survives the calendar, and exempt from freeMinutesKept.
+  for (const a of anchorsFrom(config)) {
+    if (a.days.includes(weekday) && !has(a.kind)) asks.push({ title: a.title, kind: a.kind, minutes: a.minutes, rank: a.rank ?? "must", tags: ["anchor"], anchor: true });
+  }
   const side = config.sideProjectMinutes - minutesOf("side_project");
   if (side >= 15) asks.push({ title: config.sideProjectLabel, kind: "side_project", minutes: side });
   if (config.dinner && !has("meal", 1020, 1290) && window.end >= 1140) asks.push({ title: "Dinner", kind: "meal", minutes: 45, at: Math.max(1110, now) });
@@ -38,10 +42,11 @@ export function fillDay(blocks, { now, window, weekday, config, deadlines = [], 
   }
   // Keep some time genuinely free: stop asking once what is left would drop below it.
   let free = freeGaps(blocks, { start: Math.max(window.start, now), end: window.end }, { minimum: 15 }).reduce((a, g) => a + g.end - g.start, 0);
+  free -= asks.filter((a) => a.anchor).reduce((sum, a) => sum + a.minutes, 0);
   const kept = [];
   for (const ask of asks) {
-    if (free - ask.minutes < config.freeMinutesKept) continue;
-    kept.push(ask); free -= ask.minutes;
+    if (!ask.anchor && free - ask.minutes < config.freeMinutesKept) continue;
+    kept.push(ask); if (!ask.anchor) free -= ask.minutes;
   }
   return kept;
 }

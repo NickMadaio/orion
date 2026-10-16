@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SCRIPT = join(ROOT, "scripts/orion-reschedule");
-const BRIDGE = join(ROOT, "tests/fixtures/fake-bridge-tags.mjs");
+const BRIDGE = join(ROOT, "tests/fixtures/fake-bridge.mjs");
 const DATE = "2030-10-03";
 const at = (h, m = 0) => new Date(2030, 9, 3, h, m).toISOString().replace(/\.\d{3}Z$/, "Z");
 

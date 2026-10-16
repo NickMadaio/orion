@@ -141,6 +141,27 @@ describe("local routing — on mode", () => {
     expect(b?.systemPrompt).toMatch(/orion-brain/);
   });
 
+  // Live sweep 2026-10-15 (16 items, q003 q030 q102 ...): the host ignores a "revise" once a tool has run
+  // (event.hadDeterministicSideEffect) and sends the original reply; the turn then left no record either.
+  it("after a tool ran the host drops a revise, so the honest line is put in place and the turn is logged", async () => {
+    const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
+    await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
+    await f.fire("after_tool_call", { toolName: "exec", params: { command: 'orion-reschedule move "Gym" --to 19:00' }, result: "NOTHING WAS CHANGED. NOT BOOKED: Gym did not fit" }, ctx);
+    const messages = [{ role: "assistant", content: [{ type: "text", text: "Done — gym is at 7." }] }];
+    const [out] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7.", hadDeterministicSideEffect: true, messages }, ctx);
+    expect(out).toBeUndefined();
+    expect(JSON.stringify(messages)).not.toContain("Done — gym is at 7.");
+    expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", tools: 1, escalationNeeded: true });
+  });
+
+  it("a revise that is sent (no tool ran) is logged too, marked revised", async () => {
+    const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
+    await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
+    const [first] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx)) as Array<Record<string, any>>;
+    expect(first).toMatchObject({ action: "revise" });
+    expect(lines(logPath).at(-1)).toMatchObject({ revised: true });
+  });
+
   it("check → one retry with what to fix → then undo and say plainly, never a false 'done'", async () => {
     const { f, ctx, logPath } = setup({ move: "escalate", tier: "standard" });
     await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);

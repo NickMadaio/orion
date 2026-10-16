@@ -58,13 +58,16 @@ const sentences = (text) => unquote(String(text ?? "")).split(/(?<=[.!?])\s+|\n+
 
 /** [{ kind: "done"|"denial"|"promise"|"read", strength: "strong"|"status", sentence }] */
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
+// "Nothing is scheduled" / "no lab scheduled" reports an empty calendar; it is not a claim that something
+// was scheduled (live sweep 2026-10-15, q003 q004 q009 q011: flagged after a real calendar read).
+const NONE_PLANNED = /\b(nothing|no(\s+(?!(i|i'?ve|it|it'?s|we|you|problem|worries)\b)\w+){0,3}?)\s+((is|are)\s+)?(scheduled|planned|booked)\b/i;
 
 export function claimsIn(reply) {
   const parts = sentences(reply);
   const merged = parts.map((s, i) => (BARE.test(s) && parts[i + 1] ? `${s} ${parts[i + 1]}` : s)).filter((s, i) => !(i > 0 && BARE.test(parts[i - 1])));
   return merged.flatMap((s) => {
     if (/\?\s*$/.test(s)) return [];
-    if (DENIAL.test(s)) return [{ kind: "denial", strength: "strong", sentence: s }];
+    if (DENIAL.test(s) || NONE_PLANNED.test(s)) return [{ kind: "denial", strength: "strong", sentence: s }];
     if (PROMISE.test(s)) return [{ kind: "promise", strength: "strong", sentence: s }];
     if (STRONG.test(s) && !NARRATION.test(s) && !HYPOTHETICAL.test(s)) return [{ kind: "done", strength: "strong", sentence: s }];
     const read = READ.test(s) ? [{ kind: "read", strength: "status", sentence: s }] : [];
@@ -85,7 +88,8 @@ function timesIn(text) {
   const out = [];
   const both = (h, m) => [Number(h) * 60 + Number(m ?? 0), (Number(h) % 12 + 12) * 60 + Number(m ?? 0)];
   const at = (h, m, ap) => (ap ? [toMin(h, m, ap)] : both(h, m));
-  let s = String(text);
+  // "5:00:00 PM" (a reminder's dueAtLocal) is 5:00 PM, not "00 PM" (q030, live sweep 2026-10-15).
+  let s = String(text).replace(/\b(\d{1,2}:\d{2}):\d{2}\b/g, "$1");
   for (const m of s.matchAll(RANGE)) {
     if (!m[5] && !m[2] && !m[4]) continue;
     out.push([at(m[1], m[2], m[5]), "start"], [at(m[3], m[4], m[5]), "end"]);

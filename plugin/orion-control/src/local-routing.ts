@@ -34,6 +34,7 @@ import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
+import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, asksRecall, tellsFact } from "./memory-facts.js";
@@ -376,8 +377,9 @@ const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one 
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
 const wroteThisTurn = (tools: ToolResult[]): boolean =>
   tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
-/** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id). */
-const directiveCalled = (run: Run): boolean => !!run.directive && run.tools.some((t) => /orion_task_run/.test(t.canonical) && t.canonical.includes(`"${run.directive!.action}"`));
+/** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id).
+ *  2026-10-16 (tool wiring): a "Tool orion_task_run not found" or error result is not a call made. */
+const directiveCalled = (run: Run): boolean => !!run.directive && run.tools.some((t) => madeTaskRunCall(t, run.directive!.action));
 
 /** The tool family that can stand in for each directive action (re-review, 2026-10-16): an unrelated success
  *  (lights, supplement_add) must not carry a reply about weather or a dose. */
@@ -600,8 +602,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
         if (plan?.kind === "call") {
           run.reminder = { args: plan.args, say: plan.reply, action: plan.action, ...(plan.label && plan.at ? { label: plan.label, at: plan.at } : {}) };
-          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this for Nick now with ONE orion_task_run call using exactly these arguments:\n${plan.args}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.`,
-            appendContext: `[ORION: call orion_task_run now with exactly ${plan.args} — do not reply before calling it.]` };
+          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this for Nick now with ${taskRunCall(plan.args)}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.`,
+            appendContext: `[ORION: ${taskRunNow(plan.args)}]` };
         }
         // A reminder turn the plan could not work out gets a fixed reply, never the old free-form prompt (review, 2026-10-16).
         if (!plan && REMINDER.test(run.message) && isReminderTurn(run.message)) run.flow = { outcome: "say", kind: "plain", text: REMINDER_UNCLEAR };
@@ -623,8 +625,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (moved?.kind === "say") run.flow = { outcome: "say", kind: "plain", text: moved.text };
       if (moved?.kind === "call") {
         run.directive = moved;
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this with ONE orion_task_run call using exactly these arguments:\n${moved.args}\n${moved.note} If it failed, say so plainly.`,
-          appendContext: `[ORION: call orion_task_run now with exactly ${moved.args} — do not reply before calling it.]` };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nDo this with ${taskRunCall(moved.args)}\n${moved.note} If it failed, say so plainly.`,
+          appendContext: `[ORION: ${taskRunNow(moved.args)}]` };
       }
       // Texts and email (messages-route.ts). Live sweep 2026-10-15: "read my last 3 texts" read the manual
       // index, "search gmail…" said it could not, "email myself my tasks" listed them and sent nothing. A
@@ -708,6 +710,17 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     return { payload: { ...payload, text: hit.text }, reason: "orion-control: the scheduler's own reply" };
   });
 
+  // 2026-10-16 (tool wiring): the worker's orion_task_run call for the directive's action carries the code-built
+  // arguments, whatever it wrote (r02: routing said 21:00, the worker's call said 09:00). Rewritten, or blocked
+  // with the exact arguments restated.
+  if (on) api.on("before_tool_call", (event, ctx) => {
+    const run = runFor(event, ctx);
+    const toolName = pick(event, ctx, "toolName");
+    const expected = run?.directive ?? run?.reminder;
+    if (!run || !toolName || !expected || !expected.action) return undefined;
+    return guardTaskRun(toolName, event.params, { action: expected.action, args: expected.args });
+  });
+
   api.on("after_tool_call", (event, ctx) => {
     const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
@@ -742,12 +755,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const sessionKeyNow = `session:${pick(event, ctx, "sessionKey") ?? ""}`;
       if (on && run.reminder) {
         const action = run.reminder.action ?? "alarm_set";
-        const called = run.tools.some((t) => t.canonical.startsWith("orion_task_run") && t.canonical.includes(action));
+        const called = run.tools.some((t) => madeTaskRunCall(t, action));
         if (called && run.reminder.label && run.reminder.at && run.sessionKey) lastReminder.set(run.sessionKey, { label: run.reminder.label, at: run.reminder.at, set: Date.now() });
         if (!called && run.passes < 2 && !hostDrops) {
           run.passes += 1;
           await record({ revised: true });
-          return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call orion_task_run now with exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
+          return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
         if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?" : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
       }
@@ -765,7 +778,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (on && run.directive && run.passes < 2 && !directiveCalled(run) && !hostDrops) {
         run.passes += 1;
         await record({ revised: true });
-        return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call orion_task_run now with exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
+        return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
       }
       const flowActed = run.flow?.outcome === "done";
       if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops) {

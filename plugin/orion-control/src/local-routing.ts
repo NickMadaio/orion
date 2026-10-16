@@ -183,7 +183,7 @@ export function isCalendarTurn(message: string, settled: Decision): boolean {
   if (settled.move === "ask" && NAMES_NOTHING(message)) return false;
   // Chit-chat the front desk answered, with no change word, time or "after/before my…" anchor ("the meeting went
   // over well") is not a calendar turn (re-review, 2026-10-16).
-  if (settled.move === "answer" && !CHANGE_REQUEST.test(message) && !RUNNING_LATE.test(message) && !WHEN_OR_HOW_LONG.test(message) && !/\b(after|before|between|until|till|from)\b/i.test(message)) return false;
+  if (settled.move === "answer" && !CHANGE_REQUEST.test(message) && !RUNNING_LATE.test(message) && !WHEN_OR_HOW_LONG.test(message) && !/\b(after|before|between|until|till|from|cancel\w*|mov\w*|not going|instead|no \w+ for me|no \w+ today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(message)) return false;
   return true;
 }
 // A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).

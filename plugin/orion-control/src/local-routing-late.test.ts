@@ -70,6 +70,19 @@ describe("running late reaches the calendar flow", () => {
     await h.turn("the meeting went over well");
     expect(h.flows).toEqual([]);
   });
+  // (round 6, 2026-10-16) Plans and changes with no change verb in CHANGE_REQUEST still reach the flow.
+  for (const msg of ["lab got cancelled", "lecture's cancelled", "my seminar got moved to friday", "dinner with priya on thursday", "i'm not going to the lecture", "no gym for me, i'm sick", "i'm going to the library instead of gym"]) {
+    it(`"${msg}" reaches the flow`, async () => {
+      const h = harness({ move: "answer", answer: "Ok." });
+      await h.turn(msg);
+      expect(h.flows).toEqual([msg]);
+    });
+  }
+  it("'gym was great' is answered", async () => {
+    const h = harness({ move: "answer", answer: "Nice." });
+    await h.turn("gym was great");
+    expect(h.flows).toEqual([]);
+  });
   it("a calendar statement with no change verb still reaches the flow", async () => {
     const h = harness({ move: "answer", answer: "Ok." });
     await h.turn("after my lab i'm going to study until dinner");

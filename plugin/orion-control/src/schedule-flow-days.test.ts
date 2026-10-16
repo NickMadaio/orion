@@ -114,3 +114,17 @@ describe("schedule flow — a named weekday beats a later 'today' (re-review MED
     it(`"${msg}" is ${day}`, () => expect(dayArgsFor(msg, thu).args).toEqual(["--date", day]));
   }
 });
+
+// (round 6, 2026-10-16) Both "today" and a later weekday: ask, never pick.
+describe("schedule flow — today and a weekday together is a question (round 6 HIGH 2)", () => {
+  const thu = new Date(2026, 9, 15, 10, 0);
+  for (const [msg, day] of [["skip gym today, i'll go saturday", "Saturday"], ["add a study block today, exam is monday", "Monday"], ["move gym today since i'm busy friday", "Friday"], ["prep 2 hours this afternoon for wednesday", "Wednesday"]] as const) {
+    it(`"${msg}" asks`, () => expect(dayArgsFor(msg, thu)).toEqual({ args: [], label: undefined, ask: `Today or ${day}?` }));
+    it(`"${msg}" writes nothing`, async () => {
+      const calls: string[][] = [];
+      const r = await runScheduleFlow({ message: msg, clock: "Thu 10:00", now: thu, exec: async (a) => { calls.push(a); return { stdout: "{}", code: 0 }; }, ask: async () => null });
+      expect(r).toMatchObject({ outcome: "say", kind: "ask", text: `Today or ${day}?` });
+      expect(calls).toEqual([]);
+    });
+  }
+});

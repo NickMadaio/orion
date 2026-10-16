@@ -1,7 +1,8 @@
 import { Type } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting } from "./local-routing.js";
-import { liveSessionFlow } from "./session-flow.js";
+import { readReminders, remindersPath } from "./ambient.js";
+import { liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import { appendEpisode, defaultEpisodicMemoryPath, episodeFromUserText, } from "./episodic.js";
@@ -1344,7 +1345,10 @@ export function installProvenanceHooks(api) {
             scheduleFlow: liveScheduleFlow,
             readDay: liveReadDay,
             extractReminder: liveExtractReminder,
+            // Read-only: listing and finding the id to cancel; every change still goes through orion_task_run.
+            listReminders: () => readReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined)),
             sessionFlow: liveSessionFlow,
+            sessionStatus: liveSessionStatus,
             ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
             acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
             scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,

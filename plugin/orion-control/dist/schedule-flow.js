@@ -29,7 +29,7 @@ export function intentSchema(day) {
         type: "object",
         properties: {
             steps: { type: "array", maxItems: 4, items: { type: "object", properties: {
-                        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "cannot", "ask", "answer"] },
+                        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "late", "overrun", "cannot", "ask", "answer"] },
                         where: { type: "string", maxLength: 40 }, travel: { type: "number" },
                         items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title"] } },
                         what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
@@ -57,6 +57,8 @@ Steps:
 - add: a new block titled "what", "minutes" long, at "to" or right after block "after"
 - drop: remove block "what" (movable only) · skip: he is not going to class "what" today
 - swap: block "what" with block "with" · tidy: separate overlaps
+- late: he is running "minutes" late right now ("I'm running 15 late") — everything not yet done slides back
+- overrun: class "what" runs "minutes" over, or he is late to it and wants what comes after it pushed back by "minutes"
 - cannot: it cannot be done — say why in "text" · ask: only if no block tells you — question in "text" · answer: he only asked a question — reply in "text"
 
 Examples, for this SAMPLE day only (his real day below has its own ids — never copy these ids):
@@ -68,6 +70,9 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
+- "running 15 min behind, push everything" → {"steps":[{"do":"late","minutes":15}]}   ("I'm running late" with no number → ask how late)
+- "DS is going 20 over" → {"steps":[{"do":"overrun","what":"B1","minutes":20}]}
+- "add a 15 minute stretch block tomorrow at 7:30 am" → {"steps":[{"do":"add","what":"stretch","minutes":15,"to":"07:30"}]}   (a time he says goes in "to", 24-hour — never leave it out; "tomorrow" is the day shown, not part of the step)
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
 - "I'm in a time block but I don't need it. I'm gonna meal prep — put it from 12:45 to 1:45 and push everything else to follow" → {"steps":[{"do":"add","what":"meal prep","to":"12:45","until":"13:45"}]}   (one step: the scheduler cuts short the block he is in and slides everything after it — never move the blocks after it yourself)
 
@@ -94,6 +99,14 @@ function knownTravel(where) {
     const hit = Object.entries(placesCache ?? {}).find(([name]) => w.includes(name) || name.includes(w));
     return hit?.[1];
 }
+const normTitle = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const FILLER = new Set(["the", "my", "his", "block", "session", "today", "todays", "class", "time"]);
+/** Whether a title he says could be any block on the day, class or not ("discrete" → the DS lecture).
+ *  Lenient on purpose: one shared word is enough, so only a plainly absent thing is refused. */
+function namesABlock(title, day) {
+    const words = normTitle(title).split(" ").filter((w) => w.length >= 3 && !FILLER.has(w));
+    return words.some((w) => day.blocks.some((b) => normTitle(b.title).split(" ").some((t) => t.startsWith(w) || w.startsWith(t) && t.length >= 3)));
+}
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
 export function compile(input, day) {
     let step = input;
@@ -108,6 +121,11 @@ export function compile(input, day) {
         if (i >= 0 && step.do !== "add")
             step = { ...step, what: `B${i + 1}` };
     }
+    // "skip gym today" with no gym on his day: the correction hint ("use its name as a new title") turned it
+    // into fill_between gym (sweep q019, 2026-10-15). Something not on the day cannot be skipped or dropped.
+    if ((step.do === "skip" || step.do === "drop") && step.what && !/^B\d+$/.test(step.what) && !namesABlock(step.what, day)) {
+        return { say: "cannot", text: `there's no ${step.what} on ${day.now ? "today's" : "that day's"} calendar` };
+    }
     for (const k of ["after", "before", "with"])
         if (step[k] && !byId(step[k]))
             return { error: `${step[k]} is not a block on his day` };
@@ -120,8 +138,12 @@ export function compile(input, day) {
     switch (step.do) {
         case "cannot":
         case "ask":
-        case "answer":
-            return { say: step.do, text: String(step.text ?? "").trim() || (step.do === "cannot" ? "That can't be done today." : "") };
+        case "answer": {
+            // Nick hears blocks by name: the form wrote "Cannot swap B2 (a FIXED class)" and "DS Lab (B3)" (sweep 2026-10-16).
+            // Not a vitamin: "your B12 supplement" stayed B12, not block 12's title (review, 2026-10-16).
+            const text = String(step.text ?? "").replace(/\s*\(B\d+\)/g, "").replace(/(?<!\b(?:[Vv]itamins?|[Yy]our|[Tt]ake|[Tt]aking|[Ss]ome)\s)\bB(\d+)\b(?!\s*(?:vitamins?|supplements?|tablets?|pills?|shots?|complex)\b)/g, (id, n) => day.blocks[Number(n) - 1]?.title ?? id).replace(/\bFIXED\b/g, "fixed").trim();
+            return { say: step.do, text: text || (step.do === "cannot" ? "That can't be done today." : "") };
+        }
         case "fill_between": {
             const a = byId(step.after);
             const b = byId(step.before);
@@ -130,6 +152,9 @@ export function compile(input, day) {
             const roundUp = (n) => Math.ceil(n / 5) * 5;
             const start = roundUp(Math.max(toMin(a.end) + BUFFER, now));
             const end = toMin(b.start) - BUFFER;
+            // At 22:25 a 15-minute gap at 14:30 was "only 0 minutes between CS Lab and Review spending" (sweep q019/q028).
+            if (day.now && now >= toMin(b.start))
+                return { say: "cannot", text: `that gap between ${a.title} and ${b.title} has already passed today — want it tomorrow?` };
             if (end - start < 15)
                 return { say: "cannot", text: `there are only ${Math.max(0, toMin(b.start) - Math.max(toMin(a.end), now))} minutes between ${a.title} and ${b.title}` };
             if (what)
@@ -195,6 +220,9 @@ export function compile(input, day) {
             const minutes = span ?? step.minutes;
             if (!Number.isFinite(minutes))
                 return { error: "add needs minutes, or a start (to) and an end (until)" };
+            // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
+            if (minutes < 5)
+                return { error: "add needs at least 5 minutes" };
             const at = time(step.to) ? ["--at", time(step.to)] : byId(step.after) ? ["--after", byId(step.after).title] : [];
             return { args: ["add", step.what, String(Math.round(minutes)), ...at] };
         }
@@ -203,10 +231,55 @@ export function compile(input, day) {
         case "skip": return what ? { args: [what.fixed ? "skip" : "drop", what.title] } : { error: "skip needs a block id" };
         case "swap": return what && byId(step.with) ? { args: ["swap", what.title, byId(step.with).title] } : { error: "swap needs two block ids" };
         case "tidy": return { args: ["tidy"] };
+        // orion-reschedule had late/overrun all along, but the form could not say them: "running 20 min late,
+        // push the stuff after it back" became one move of one block (sweep q017/q029, 2026-10-15).
+        case "late": {
+            if (!Number.isFinite(step.minutes) || step.minutes < 5)
+                return { error: "late needs how many minutes (5 or more)" };
+            if (!day.now)
+                return { say: "cannot", text: "running late only moves today's blocks" };
+            return { args: ["late", String(Math.round(step.minutes))] };
+        }
+        case "overrun": {
+            if (!what || !Number.isFinite(step.minutes) || step.minutes < 5)
+                return { error: "overrun needs a block id and minutes (5 or more)" };
+            // His own block running over is an extend; overrun is for a class.
+            if (!what.fixed)
+                return { args: ["extend", what.title, "--until", hhmm(Math.min(toMin(what.end) + Math.round(step.minutes), 1439))] };
+            return { args: ["overrun", String(Math.round(step.minutes)), "--what", what.title] };
+        }
         default: return { error: `unknown step ${String(step.do)}` };
     }
 }
 const FAILED = /NOT BOOKED|NOTHING WAS|did not fit|usage:|not a real block|is in the past|no block called|Error/i;
+/** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
+ *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
+export function spokenFailure(line) {
+    const l = line.trim().replace(/^orion-reschedule:\s*/, "")
+        .replace(/^(?:MUST-HAVE )?(?:NOTHING WAS|NOT) (?:CHANGED|BOOKED|DROPPED)\b(?: on \w+day)?(?: \(\d{4}-\d{2}-\d{2}\))?[:.]?\s*/i, "")
+        // Notes to the operator, and lists of his whole day, are not for Nick.
+        .replace(/(?:[.;]\s+|\s+—\s+|^)(?:Tell him|Do not|Don't|If he|ask whether|Run |Use |To set|See the header|Options:|Blocks today|Fixed today|Movable blocks|Classes today|Never |swap only|skip is only)[\s\S]*$/i, "")
+        .replace(/ \((?:\w+day )?\d{4}-\d{2}-\d{2}\)/g, "").trim();
+    if (/^usage:|^Error\b|has no .* option|one command per call|does not take/i.test(l))
+        return "I couldn't make that change";
+    if (!l)
+        return "nothing could be booked";
+    const rules = [
+        [/^(.+?) (is|are) already over today/i, (_, what, verb) => `${what} ${verb === "is" ? "has" : "have"} already ended today`],
+        [/^no block called "?(.+?)"? on /i, (_, what) => `there's no block called ${what}`],
+        [/^no class or fixed plan called "?(.+?)"? left/i, (_, what) => `there's no class called ${what} left today`],
+        [/^no "(.+?)" on .* to put it after/i, (_, what) => `there's no ${what} to put it after`],
+        [/^"?(.+?)"? is one of his own calendar events/i, (_, what) => `${what} is a class or a plan with people, so it doesn't move`],
+        [/^(.+?) \(\d+ min\) (?:no longer fits|did not fit)/i, (_, what) => `${what} didn't fit`],
+        [/^must-haves could not fit: (.+?)\.?$/i, (_, what) => `${what} didn't fit`],
+        [/^no movable block matches/i, () => "there's no movable block by that name"],
+        [/^(.+?) is on \d{4}-\d{2}-\d{2}/i, (_, what) => `${what} is on another day`],
+        [/is in the past/i, () => "that day is already over"],
+    ];
+    const hit = rules.map(([re, say]) => { const m = l.match(re); return m ? say(...m) : null; }).find((t) => t !== null);
+    const said = hit ?? l;
+    return said.replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t)).replace(/\.$/, "");
+}
 /** What to tell Nick, from the scheduler's own output only. */
 export function summarize(outputs, said) {
     const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
@@ -216,9 +289,9 @@ export function summarize(outputs, said) {
     if (changes.length)
         parts.push(changes.slice(0, 4).join("; "));
     if (failed.length)
-        parts.push(`Not done: ${failed[0]}`);
+        parts.push(`Not done: ${spokenFailure(failed[0])}`);
     parts.push(...said.filter(Boolean));
-    return { reply: parts.join(". ") || "Nothing changed.", changed: changes.length > 0 };
+    return { reply: parts.join(". ").replace(/^(Not done: .*[^.])$/, "$1.") || "Nothing changed.", changed: changes.length > 0 };
 }
 /** "tomorrow" as he types it ("tmrw" read today's calendar, 2026-10-12). */
 export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
@@ -227,6 +300,37 @@ export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 export const LATE_NIGHT_UNTIL = 5;
 export function meansTomorrow(message, now = new Date()) {
     return TOMORROW.test(message) && now.getHours() >= LATE_NIGHT_UNTIL;
+}
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+// "friday", "on mon", "next tuesday" — not "to friday"/"till friday" (where a block goes), not "fridays" (a
+// habit), and a short form only after on/next/this ("the sun", "i sat in class", "c'mon" are not days).
+const WEEKDAY = /\b(?<dest>to|till|until|onto|into)?\s*(?:(?:on|next|this)\s+(?<day>mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun)\b|(?:on\s+|next\s+|this\s+)?(?<full>monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)/i;
+const TODAY = /\b(today|tonight|this (morning|afternoon|evening))\b/i;
+const inPassing = (message, m) => /^['\u2019]s\b/i.test(message.slice(m.index + m[0].length)) || /\bfor\s+(?:my|the|our|your)\s+$/i.test(message.slice(0, m.index + m[0].length - (m.groups?.full ?? m.groups?.day ?? "").length));
+/** The day the change is for: tomorrow, a weekday he names, or today. "i gotta leave early friday, cut
+ *  the last block off" resized Thursday's last block (sweep q027, 2026-10-15). The weekday that is
+ *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
+export function dayArgsFor(message, now = new Date()) {
+    if (meansTomorrow(message, now))
+        return { args: ["--date", "tomorrow"], label: "tomorrow" };
+    // (review, 2026-10-16) no weekday means today; "my monday exam", "wednesday's quiz",
+    // "for the tuesday deadline" name a weekday in passing, not the day of the change, but a weekday he names as the target beats a later "today" (re-review, 2026-10-16).
+    const m = message.match(WEEKDAY);
+    if (!m?.groups || m.groups.dest || inPassing(message, m))
+        return { args: [], label: undefined };
+    const said = (m.groups.full ?? m.groups.day ?? "").toLowerCase();
+    const target = WEEKDAYS.findIndex((d) => d.startsWith(said.slice(0, 3)));
+    if (target < 0 || (target === now.getDay() && !/\bnext\s/i.test(m[0])))
+        return { args: [], label: undefined };
+    const name = WEEKDAYS[target];
+    // A weekday named after "today" could be either day: ask, write nothing (round 6, 2026-10-16). Either order; the one
+    // exception is a weekday that is the object of plan/organise/sort ("plan my friday, today is too packed").
+    const label = name[0].toUpperCase() + name.slice(1);
+    const todayAt = message.search(TODAY);
+    const isObject = /\b(?:plan|organi[sz]e|sort)(?:\s+out)?\s+(?:my|the|our)?\s*$/i.test(message.slice(0, m.index));
+    if (todayAt >= 0 && !isObject)
+        return { args: [], label: undefined, ask: `Today or ${label}?` };
+    return { args: ["--date", name], label: name[0].toUpperCase() + name.slice(1) };
 }
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 /** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
@@ -240,7 +344,9 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
         await exec(["undo"]);
         undone += 1;
     }
-    const dateArgs = meansTomorrow(message, now) ? ["--date", "tomorrow"] : [];
+    const { args: dateArgs, label: when, ask: whichDay } = dayArgsFor(message, now);
+    if (whichDay)
+        return { outcome: "say", text: whichDay, kind: "ask" };
     let day;
     try {
         day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout);
@@ -248,7 +354,7 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     catch {
         return { outcome: "fallback", reason: "could not read the day" };
     }
-    const user = `Now: ${clock}.\n\nHis day${dateArgs.length ? " (tomorrow)" : ""}:\n${blockList(day)}\n\nNick: ${message}`;
+    const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
     let out = await ask(FORM_PROMPT, user, intentSchema(day));
     let compiled = (out?.steps ?? []).map((s) => compile(s, day));
     let bad = compiled.find((c) => "error" in c);
@@ -292,11 +398,16 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
         if (FAILED.test(stdout))
             break; // the rest depended on this one
     }
-    return { outcome: "done", calls, outputs, marks, undone };
+    // The scheduler refused and nothing was written: that is not "done" — "done" told the worker "You
+    // already made this change" and skipped the work check (sweep 2026-10-16, q043/q051/q093).
+    if (outputs.some((o) => FAILED.test(o)) && !marks.length && !undone && !summarize(outputs, []).changed) {
+        return { outcome: "say", kind: "plain", text: spokenReply(outputs, when), calls, outputs };
+    }
+    return { outcome: "done", calls, outputs, marks, undone, ...(when ? { reply: spokenReply(outputs, when) } : {}) };
 }
 const ampm = (t) => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
-export function spokenReply(outputs) {
+export function spokenReply(outputs, when) {
     const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
     const said = [];
     const cut = [];
@@ -343,6 +454,7 @@ export function spokenReply(outputs) {
     // Spoken: three moved blocks can be named; more is a count ("4 other blocks moved to follow it").
     const rest = followed.length > 3 ? [`${followed.length} other blocks moved to follow it`] : followed;
     const all = said.length ? [...said, ...cut, ...rest] : [];
-    const parts = [all.length ? `Done: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${failed.replace(/^NOTHING WAS CHANGED:\s*/i, "")}` : ""].filter(Boolean);
+    // when: the day it was for ("Done: resume work 5:50 PM" for tomorrow sounded like today, q020).
+    const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
     return parts.join(" ") || "Nothing on your day changed.";
 }

@@ -44,9 +44,15 @@ const DENIAL = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|wasn'?t abl
 const PAST_DENIAL = /\b(couldn'?t|could not|didn'?t|did not|wasn'?t able|failed to|nothing (was|got)|not (booked|added|moved|sent|set|saved|done|changed))\b/i;
 const HYPOTHETICAL = /\b(may|might|could|should|would|if|to be|need(s)? to|want(s)? to|try to|going to)\b/i;
 const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in progress|check back)\b/i;
-const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\b/i;
+// A promise names an action: "I'll be right here" and "let me know" promise nothing (review, 2026-10-16).
+const PROMISE = /\b(I'?ll|I will|let me|I'?m going to)\s+(just\s+|go ahead and\s+|quickly\s+)?(note|add|set|save|log|move|book|remind|start|check|look|turn|send|text|email|mark|put|schedule|create|update|change|cancel|remove|delete|find|pull|get|make|write|record|track|open|play|search|read)\b/i;
+/** Reports of a lookup or a live status: true only if a tool looked this turn (2026-10-16 sweep). */
+const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
+// "Nothing is scheduled" / "no lab scheduled" reports an empty calendar; it is not a claim that something
+// was scheduled (live sweep 2026-10-15, q003 q004 q009 q011: flagged after a real calendar read).
+const NONE_PLANNED = /\b(nothing|no(\s+(?!(i|i'?ve|it|it'?s|we|you|problem|worries)\b)\w+){0,3}?)\s+((is|are)\s+)?(scheduled|planned|booked)\b/i;
 const unquote = (s) => s.replace(/[’‘]/g, "'").replace(/"[^"]*"|“[^”]*”/g, "\"…\"");
 const sentences = (text) => unquote(String(text ?? "")).split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 export function claimsIn(reply) {
@@ -55,15 +61,16 @@ export function claimsIn(reply) {
     return merged.flatMap((s) => {
         if (/\?\s*$/.test(s))
             return [];
-        if (DENIAL.test(s))
+        if (DENIAL.test(s) || NONE_PLANNED.test(s))
             return [{ kind: "denial", strength: "strong", sentence: s }];
         if (PROMISE.test(s))
             return [{ kind: "promise", strength: "strong", sentence: s }];
         if (STRONG.test(s) && !NARRATION.test(s) && !HYPOTHETICAL.test(s))
             return [{ kind: "done", strength: "strong", sentence: s }];
+        const read = READ.test(s) ? [{ kind: "read", strength: "status", sentence: s }] : [];
         if (STATUS.test(s))
-            return [{ kind: "done", strength: "status", sentence: s }];
-        return [];
+            return [{ kind: "done", strength: "status", sentence: s }, ...read];
+        return read;
     });
 }
 const toMin = (h, m, ap) => {
@@ -76,7 +83,8 @@ const RANGE = /(\d{1,2})(?::(\d{2}))?\s*(?:–|-|to)\s*(\d{1,2})(?::(\d{2}))?\s*
 /** Times a sentence mentions: "at/from N" is a start, a range gives both ends, anything else is "any". */
 function timesIn(text) {
     const out = [];
-    let s = String(text);
+    // "5:00:00 PM" (a reminder's dueAtLocal) is 5:00 PM, not "00 PM" (q030, live sweep 2026-10-15).
+    let s = String(text).replace(/\b(\d{1,2}:\d{2}):\d{2}\b/g, "$1");
     for (const m of s.matchAll(RANGE)) {
         if (!m[5] && !m[2] && !m[4])
             continue;
@@ -172,17 +180,29 @@ export function checkCalendar({ before, after, now, commands }) {
         findings.push("duplicate block");
     return findings;
 }
+/** "I don't have access to…" said without trying a tool (q076: orion-health had the answer). */
+// Matched anywhere in the sentence: "Sorry Nick, I can't check that right now." is the same answer.
+const CANT_CHECK = /\bI can'?t check that right now\b/i;
+const NO_ACCESS = /\b(I )?(don'?t|do not) have (any )?(access|a way|the ability)\b|\bI (can'?t|cannot|am unable to|'m unable to) (access|see|check|look (at|up)|read|view)\b|\bno access to\b/i;
 /** Everything the check can see after the worker's final answer → findings (empty = looks right). */
-export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false }) {
+export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false, dictated = false, provided = false }) {
     const findings = [];
     if (!finished)
         findings.push("did not finish");
     const changed = turnResults.some((r) => ["success", "partial"].includes(outcomeOf(r)) && /orion-reschedule|orion-tasks|orion_task_run/.test(r.canonical));
     if (changeRequest && !changed && /\?\s*$/.test(reply.trim()))
         findings.push("asked instead of acting");
-    if (changeRequest && !changed && /\b(let me|I'?ll|I will|I'?m going to)\b/i.test(reply))
-        findings.push("promised but did not act");
     const v = checkReply({ reply, turnResults });
+    // Live sweep 2026-10-16: "I'll just note that you took your creatine" (q072), "I checked the weather…
+    // it's not expected to rain" (q007), "still active with 15 minutes remaining" (q049, really 3) and
+    // "I don't have access to your vitamin D history" (q076) all came with no tool call and passed with [].
+    if ((changeRequest && !changed && PROMISE.test(reply)) || (v.unbackedPromise && !dictated))
+        findings.push("promised but did not act");
+    if (!dictated && !provided && turnResults.length === 0 && claimsIn(reply).some((c) => c.kind === "read"))
+        findings.push("claims a lookup it did not do");
+    // "I can't check that right now." is the sentence the live-data prompt asks for when no tool can get it.
+    if (!dictated && !provided && turnResults.length === 0 && sentences(reply).some((s) => NO_ACCESS.test(s) && !/\?\s*$/.test(s) && !CANT_CHECK.test(s)))
+        findings.push("said it can't without checking");
     if (v.falseClaim)
         findings.push("claims what the tools don't show");
     if (v.omittedFailure)
@@ -198,7 +218,9 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
 }
 const FIX = {
     "did not finish": "You stopped before replying. Finish the job, then reply.",
-    "promised but did not act": "You said you would make the change but ran no command that changes anything. Make the change now with orion-reschedule, then tell him what changed.",
+    "promised but did not act": "You said you would do it but ran no command that does it. Do it now with the right tool (orion-reschedule for his calendar), then tell him what you did; if no tool can, say so plainly.",
+    "claims a lookup it did not do": "Your reply reports something looked up (checked, found, a status, minutes left) but you ran no tool this turn. Look it up now with the right tool and answer from what it prints, or say you don't know.",
+    "said it can't without checking": "You said you can't see or reach that, but you ran no tool. Check with the right tool first (health log, memory, calendar, tasks, messages); only if none can, say so plainly.",
     "asked instead of acting": "He already told you what he wants. Do it now (read his day if you need the times, then make the change in one orion-reschedule call) and tell him what changed. Ask only if it truly cannot be done without his answer.",
     "claims what the tools don't show": "Your reply says something happened that the tool output does not show (NOT BOOKED / NOTHING WAS … means it did not happen). Fix it or say plainly what did not happen.",
     "failure not mentioned": "A tool reported a failure that your reply does not mention. Say what did not happen.",

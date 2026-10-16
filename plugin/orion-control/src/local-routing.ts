@@ -35,6 +35,7 @@ import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORK
 import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
+import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -390,6 +391,7 @@ export const honestLine = (calendar: boolean): string => calendar
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 const LOOKUP_CLAIM = /claims a lookup/;
 const LOOKUP_UNCHECKED = "I didn't actually check that.";
+export const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
 export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
 const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
@@ -563,7 +565,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
       if (run && RUNNING_LATE.test(run.message)) return undefined; // the calendar flow, never a drafted "no problem"
-      if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
+      // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
+      const draftText = withoutDayClaims(d?.answer ?? "");
+      if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
       return undefined;
     });
 
@@ -613,8 +617,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
       }
       // "how much focus time is left": code reads the session (q049 said "15 minutes remaining" from nothing).
-      if (!run.flow && !run.cutOff && run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && options.sessionStatus) {
-        run.flow = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+      // 2026-10-16 r7: only a message that names the session (q015 "nap block" is the calendar), or "what am i supposed to be
+      // working on" (q050); with no session running that one falls through to the day read below.
+      const statusAsk = asksCurrentTask(run.message) || (run.settled.move === "tool" && run.settled.tool === "session" && (run.settled.args as { do?: unknown } | undefined)?.do === "status" && asksFocusStatus(run.message));
+      if (!run.flow && !run.cutOff && statusAsk && options.sessionStatus) {
+        const status = await options.sessionStatus().catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (!(asksCurrentTask(run.message) && status.outcome === "say" && /^No focus session/.test(status.text))) run.flow = status;
       }
       // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"
       // became orion-tasks add … --at 11:00, a to-do booked at 5:50 PM, and the reply said 11 (2026-10-13).
@@ -694,7 +702,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
-      if (SCHEDULING.test(run.message) && isQuestion(run.message) && options.readDay && !run.flow) {
+      if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && isQuestion(run.message) && options.readDay && !run.flow) {
         const tomorrow = meansTomorrow(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
         if (day) run.provided = true;
@@ -718,17 +726,18 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // his day is always work, whatever the front desk thought.
       // A lookup (weather, sun times, his texts, his day) never gets a draft: nothing checks a draft's facts.
       const lookup = needsLiveData(run.message);
-      if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message) && !lookup) {
+      const draft = withoutDayClaims(run.settled.answer ?? "");
+      if (run.settled.move === "answer" && draft && !CHANGE_REQUEST.test(run.message) && !lookup) {
         // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
         // "the front desk drafted…", and "otherwise answer him yourself" swapped a right draft for the model's
         // name. The draft is now his reply, with no source and no licence to rewrite it.
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou drafted this reply: "${run.settled.answer}". Send exactly that as your whole reply, no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${now}\n\nYou drafted this reply: "${draft}". Send exactly that as your whole reply, no tools, word for word. If it states something about Nick (what he has been doing, his day, his messages) or live facts (weather, sun times) that you were not told here, leave that out. Never mention the draft or the front desk.` };
       }
       const fetched = run.brain ? brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))])) : "";
       // Snippets answer questions about his notes, never live data: "I checked the weather" beside a weather
       // note is still made up (review, 2026-10-16).
-      if (fetched && !LIVE_DATA.test(run.message)) run.provided = true;
+      if (fetched && !LIVE_DATA.test(run.message) && !asksCurrentTask(run.message)) run.provided = true;
       const brainNote = `\n\n${LOOK_IT_UP}${fetched ? `\n\nFrom his brain, matched to this message (may help):\n${fetched}` : ""}`;
       const askNote = run.settled.move === "ask" && run.settled.answer
         // "The front desk mentioned they don't have it either" (q063, sweep 2026-10-15): no source named.
@@ -864,6 +873,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       } else if (on && !flowActed && !run.reminder && findings.some((f) => LOOKUP_CLAIM.test(f))) {
         // "I checked the weather… no rain" with no lookup, after both retries (review, 2026-10-16).
         owed = LOOKUP_HONEST;
+        remember([runId, sessionKeyNow], owed);
+      } else if (on && !flowActed && !run.reminder && findings.some((f) => f === "denies messages it shows")) {
+        // q065 (2026-10-16): still "no one texted you" beside his messages after both retries.
+        owed = MESSAGES_UNSURE;
         remember([runId, sessionKeyNow], owed);
       }
       // Out of retries and the call was never made: say so (not "I checked the weather…", q007).

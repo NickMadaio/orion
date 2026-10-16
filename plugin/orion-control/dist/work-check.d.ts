@@ -5,7 +5,7 @@ export type ToolResult = {
 };
 type Outcome = "success" | "partial" | "nothing" | "pending" | "failed" | "read";
 type Claim = {
-    kind: "done" | "denial" | "promise";
+    kind: "done" | "denial" | "promise" | "read";
     strength: "strong" | "status";
     sentence: string;
 };
@@ -41,7 +41,7 @@ export declare function checkCalendar({ before, after, now, commands }: {
     commands: string[];
 }): string[];
 /** Everything the check can see after the worker's final answer → findings (empty = looks right). */
-export declare function checkWork({ reply, turnResults, finished, calendar, changeRequest }: {
+export declare function checkWork({ reply, turnResults, finished, calendar, changeRequest, dictated, provided }: {
     reply: string;
     turnResults: ToolResult[];
     finished: boolean;
@@ -52,6 +52,10 @@ export declare function checkWork({ reply, turnResults, finished, calendar, chan
     };
     /** He asked for a change (not a question): a reply that only asks back, with nothing changed, is a failure. */
     changeRequest?: boolean;
+    /** The reply was dictated by a code-run flow, which did its own reads outside turnResults. */
+    dictated?: boolean;
+    /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): a reply from it is no fabricated lookup. */
+    provided?: boolean;
 }): string[];
 /** The retry instruction handed to the worker: what the check found and what to do about it. */
 export declare function retryInstruction(findings: string[]): string;

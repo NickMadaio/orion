@@ -131,3 +131,34 @@ describe("session flow — doing it", () => {
         expect(b.calls[1]).toEqual(["start", "Focus", "--until", "20:00", "--json"]);
     });
 });
+// Live sweep 2026-10-15: q051 "focus mode on for an hour, leetcode" became a calendar block, and q054
+// "start focus for the resume, like 25 min" was refused because "resume" read as resuming a session —
+// the worker then called a tool named orion-session ten times.
+describe("session flow — the sweep's missed starts (q051, q054)", () => {
+    it("'focus mode on' is a start, and 'the resume' is a task, not resuming a session", () => {
+        expect(isSessionStart("focus mode on for an hour, leetcode")).toBe(true);
+        expect(isSessionStart("start focus for the resume, like 25 min")).toBe(true);
+        for (const m of ["resume my session", "resume focus", "resume", "ok resume it", "can you resume the timer"])
+            expect(isSessionStart(m), m).toBe(false);
+    });
+    it("reads 'like 25 min' and 'for the resume'", () => {
+        expect(parseSessionRequest("start focus for the resume, like 25 min")).toMatchObject({ task: "the resume", minutes: 25 });
+        expect(parseSessionRequest("start a focus session for the next hour")).toMatchObject({ task: "Focus" });
+    });
+    it("takes the front desk's task and length when his words name none, and its start only when nothing rules it out", async () => {
+        expect(parseSessionRequest("focus mode on for an hour, leetcode", { task: "leetcode", minutes: 90 })).toMatchObject({ task: "leetcode", minutes: 60 });
+        expect(parseSessionRequest("lock in, 25", { start: true, task: "leetcode", minutes: 25 })).toMatchObject({ task: "leetcode", minutes: 25 });
+        expect(parseSessionRequest("resume my session", { start: true })).toBeNull();
+        expect(parseSessionRequest("put a focus block on my calendar at 3", { start: true })).toBeNull();
+        const s = fakeSession();
+        await runSessionFlow({ message: "focus mode on for an hour, leetcode", hint: { task: "leetcode" }, exec: s.exec, resolveApp });
+        expect(s.calls[1]).toEqual(["start", "leetcode", "--minutes", "60", "--json"]);
+    });
+});
+describe("session start vs reminders (review, 2026-10-16)", () => {
+    it("'remind me to start work in 20 min' is a reminder, not a session start", () => {
+        for (const m of ["remind me to start work in 20 min", "remind me in 10 min to start my focus session", "ping me to start studying", "nudge me to begin a focus block"])
+            expect(isSessionStart(m), m).toBe(false);
+        expect(isSessionStart("start a focus session")).toBe(true);
+    });
+});

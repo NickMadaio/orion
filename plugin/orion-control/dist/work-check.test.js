@@ -63,4 +63,74 @@ describe("work check: verdict and retry instruction", () => {
         expect(checkWork({ reply, turnResults: read, finished: true, changeRequest: false })).toEqual([]);
         expect(retryInstruction(["asked instead of acting"])).toMatch(/Do it now/);
     });
+    // Live sweep 2026-10-16 (q007, q041, q049, q053, q072, q076): replies that report a lookup, a live
+    // status, a promise or a "no access" with no tool call at all passed the check with findings [].
+    it("flags a lookup, a status or a capability denial reported with no tool call", () => {
+        const none = [];
+        for (const reply of [
+            "I checked the weather for London and it's not expected to rain.",
+            "I checked your calendar and found that you have a free block after 3 PM.",
+            "Your focus session is still active with 15 minutes remaining.",
+            "Yes, your focus session is active.",
+        ])
+            expect(checkWork({ reply, turnResults: none, finished: true }), reply).toContain("claims a lookup it did not do");
+        expect(checkWork({ reply: "I don't have access to your vitamin D intake history.", turnResults: none, finished: true })).toContain("said it can't without checking");
+    });
+    it("flags a promise with no tool call on any turn, not only change requests", () => {
+        const findings = checkWork({ reply: "Got it! I'll just note that you took your creatine.", turnResults: [], finished: true, changeRequest: false });
+        expect(findings).toContain("promised but did not act");
+        expect(retryInstruction(findings)).toMatch(/right tool/);
+    });
+    it("leaves pure answers and the same claims backed by a tool alone", () => {
+        for (const reply of ["391", "17 times 23 is 391.", "Studies have found that creatine is safe for most people.", "Sure, 391. Let me know if you need anything else."]) {
+            expect(checkWork({ reply, turnResults: [], finished: true }), reply).toEqual([]);
+        }
+        const status = [{ canonical: "exec orion-session status", stdout: "Focus session: CS1800 hw — 15 min left", exit: 0 }];
+        expect(checkWork({ reply: "Your focus session is still active with 15 minutes remaining.", turnResults: status, finished: true })).toEqual([]);
+        // A code-run flow read the status itself; its dictated line is not the worker's claim.
+        expect(checkWork({ reply: "A focus session is already running — 15 minutes left.", turnResults: [], finished: true, dictated: true })).toEqual([]);
+    });
+    // Live sweep 2026-10-15 (q003, q004, q009, q011): an honest "nothing scheduled" after a real calendar read
+    // was flagged as a false "scheduled" claim; the revise was then dropped by the host (a tool had run).
+    it("'nothing is scheduled' after a calendar read is a denial, not a done-claim", () => {
+        const empty = [{ canonical: "exec orion-agenda today", stdout: "today is Thursday, October 15, 2026\nnothing on the calendar today", exit: null }];
+        for (const reply of ["Nothing is scheduled for today.", "There's nothing scheduled on your calendar today, Thursday October 15.", "There is no lab scheduled for today.", "There is no gym scheduled for today."]) {
+            expect(checkWork({ reply, turnResults: empty, finished: true }), reply).toEqual([]);
+        }
+        // A real claim made over a read alone is still caught.
+        expect(checkWork({ reply: "No problem, gym is scheduled for 6.", turnResults: empty, finished: true })).toContain("claims what the tools don't show");
+        expect(checkWork({ reply: "No worries I booked gym for 6.", turnResults: empty, finished: true })).toContain("claims what the tools don't show");
+    });
+    // Live sweep 2026-10-15 (q030, q031, q036, q037, q039): "Reminder set for Thursday at 5:00 PM" was
+    // flagged "reply times don't match" because the result's "5:00:00 PM" (with seconds) read as 12:00 PM.
+    it("a reminder's time with seconds in the result matches the reply's time", () => {
+        const set = (at, local) => ({ canonical: `orion_task_run {"steps":[{"action":"alarm_set","at":"${at}","label":"call the dentist"}]}`, exit: null,
+            stdout: JSON.stringify({ executed: true, outcome: "DONE — this really happened", reportToUser: "Done.", status: "succeeded", createdAt: "2026-10-15T22:31:19.237Z",
+                steps: [{ stepId: "step-1", status: "verified", request: { action: "alarm_set", arguments: { at, label: "call the dentist" } },
+                        execution: { mode: "scheduled", target: "a452h1", output: { id: "a452h1", kind: "alarm", label: "call the dentist", dueIn: "0 seconds", dueAtLocal: local } },
+                        verification: { method: "reminder_stored", observed: true, evidence: "a452h1:present" } }], completedAt: "2026-10-15T22:31:19.238Z" }, null, 2) });
+        expect(checkWork({ reply: "Reminder set for Thursday at 5:00 PM: call the dentist.", turnResults: [set("2026-10-15T17:00", "10/15/2026, 5:00:00 PM")], finished: true })).toEqual([]);
+        expect(checkWork({ reply: "Reminder set for Friday at 7:00 AM: wake me up.", turnResults: [set("2026-10-16T07:00", "10/16/2026, 7:00:00 AM")], finished: true })).toEqual([]);
+        expect(checkWork({ reply: "Reminder set for Thursday at 6:00 PM: call the dentist.", turnResults: [set("2026-10-15T17:00", "10/15/2026, 5:00:00 PM")], finished: true })).toContain("reply times don't match");
+    });
+});
+describe("work check — review of the 2026-10-16 sweep fixes", () => {
+    it("a warm 'I'll be here' is not a promise to act; a named action still is", () => {
+        for (const reply of ["Goodnight Nick, I'll be here if you need anything.", "I hear you. Let's start small: take one slow breath, and I'll be right here."])
+            expect(checkWork({ reply, turnResults: [], finished: true }), reply).not.toContain("promised but did not act");
+        expect(checkWork({ reply: "I'll add that to your list now.", turnResults: [], finished: true })).toContain("promised but did not act");
+        expect(checkWork({ reply: "Let me check your calendar.", turnResults: [], finished: true })).toContain("promised but did not act");
+    });
+    it("'let me know' on a change request is not a promise", () => {
+        expect(checkWork({ reply: "Let me know which block you mean?", turnResults: [], finished: true, changeRequest: true })).not.toContain("promised but did not act");
+    });
+    it("data code supplied (his day, brain snippets) is not a fabricated lookup", () => {
+        for (const reply of ["According to your calendar, you have gym at 5 PM.", "Your calendar shows a free block at 3 PM.", "I found in your notes that the deadline is Friday."])
+            expect(checkWork({ reply, turnResults: [], finished: true, provided: true }), reply).toEqual([]);
+        expect(checkWork({ reply: "According to your calendar, you have gym at 5 PM.", turnResults: [], finished: true })).toContain("claims a lookup it did not do");
+    });
+    it("the exact sentence the live-data prompt asks for is not 'said it can't without checking'", () => {
+        expect(checkWork({ reply: "I can't check that right now.", turnResults: [], finished: true })).toEqual([]);
+        expect(checkWork({ reply: "I don't have access to your messages.", turnResults: [], finished: true })).toContain("said it can't without checking");
+    });
 });

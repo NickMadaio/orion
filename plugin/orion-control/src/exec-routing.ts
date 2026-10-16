@@ -27,6 +27,8 @@
  that teaches nothing with one that ends the turn's confusion.
 */
 
+import { hasShellOperator } from "./shell-operators.js";
+
 export interface ExecRoute {
   /** What was wrong, and the route that works. Read aloud by the model. */
   reason: string;
@@ -42,10 +44,10 @@ const WRAPPERS = [
 ] as const;
 
 /** Catalog action names. These belong inside `orion_task_run`, not the shell. */
-const TYPED_ACTIONS = /^(messages_\w+|calendar_\w+|apple_reminder_\w+|desktop_\w+|browser_\w+|screen_\w+|atlas_\w+|self_\w+|app_(open|quit)|volume_\w+|media_\w+|system_status|waiting_\w+|automation_\w+|supplement_\w+|workout_\w+)$/;
+export const TYPED_ACTIONS = /^(messages_\w+|calendar_\w+|apple_reminder_\w+|desktop_\w+|browser_\w+|screen_\w+|atlas_\w+|self_\w+|app_(open|quit)|volume_\w+|media_\w+|system_status|waiting_\w+|automation_\w+|supplement_\w+|workout_\w+)$/;
 
 /** Host tool ids. Calling one as a shell program never works. */
-const TOOL_IDS = new Set([
+export const TOOL_IDS = new Set([
   "read", "write", "edit", "exec", "session_status", "sessions_list",
   "sessions_send", "web_search", "web_fetch", "memory_search", "memory_get",
   "browser", "apply_patch", "process", "image",
@@ -63,8 +65,13 @@ const REDIRECTS: ReadonlyArray<readonly [RegExp, string]> = [
   [/^open\b/, "`app_open` inside `orion_task_run` opens an app; `browser_open_url` opens a URL."],
 ];
 
+/** Why a command with a live shell operator is refused. */
+export const OPERATOR_REASON =
+  "Exec runs ONE allowlisted program with plain arguments — no pipe, redirect, " +
+  "command substitution, `&&` or `;` outside quotes. The program may well be allowed; the operator is not. " +
+  "Re-run it as a single command, or use the tool that owns this job.";
+
 const MEMORY_TREE = /(workspace\/memory|orionBrain|\/memory\/)/;
-const SHELL_OPERATOR = /[|><;&]|\$\(|`/;
 
 /**
  * Returns a route when `command` is certain to be refused, otherwise undefined.
@@ -126,14 +133,7 @@ export function routeForDoomedExec(command: string): ExecRoute | undefined {
 
   // A shell operator anywhere. Checked last, because every case above is a
   // better explanation of the same failure.
-  if (SHELL_OPERATOR.test(trimmed)) {
-    return {
-      reason:
-        "Exec runs ONE allowlisted program with plain arguments — no pipe, redirect, " +
-        "command substitution, `&&` or `;`. The program may well be allowed; the operator is not. " +
-        "Re-run it as a single command, or use the tool that owns this job.",
-    };
-  }
+  if (hasShellOperator(trimmed)) return { reason: OPERATOR_REASON };
 
   return undefined;
 }

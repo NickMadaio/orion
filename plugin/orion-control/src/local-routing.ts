@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js";
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
-import { checkWork, retryInstruction, type ToolResult } from "./work-check.js";
+import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
@@ -369,6 +369,9 @@ const wroteThisTurn = (tools: ToolResult[]): boolean =>
   tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
 /** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id). */
 const directiveCalled = (run: Run): boolean => !!run.directive && run.tools.some((t) => /orion_task_run/.test(t.canonical) && t.canonical.includes(`"${run.directive!.action}"`));
+
+/** A tool result this turn that shows a change: NOTHING WAS CHANGED, an error or a refusal is not one. */
+const anotherToolSucceeded = (tools: ToolResult[]): boolean => tools.some((t) => outcomeOf(t) === "success");
 
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
@@ -773,7 +776,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
       // Merge of r2-front-desk-tools (tool-move fail line) with 9a3a25a (LOOKUP_HONEST): a missed tool move whose
       // reply also claimed a lookup ("I checked the weather…", q007) owes both — that nothing was checked, and why.
-      if (on && run.directive && !directiveCalled(run)) {
+      // Another tool succeeded this turn ("took my creatine" logged by exec orion-log): the worker's reply stands
+      // (it went through the work check above), not the fail line (review, 2026-10-16).
+      if (on && run.directive && !directiveCalled(run) && !anotherToolSucceeded(run.tools)) {
         const claimedLookup = findings.some((f) => LOOKUP_CLAIM.test(f));
         owed = claimedLookup ? `${LOOKUP_UNCHECKED} ${run.directive.failLine}` : run.directive.failLine;
         remember([runId, sessionKeyNow], owed);

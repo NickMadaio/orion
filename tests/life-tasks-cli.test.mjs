@@ -212,3 +212,24 @@ test("done that matches two to-dos asks which, and ticks neither", (t) => {
   assert.equal(w.reminder("CS Lab").completed, true);
   assert.notEqual(w.reminder("CS Lab report").completed, true);
 });
+
+// Review, 2026-10-16 (MEDIUM 12): `done` dropped words under 3 letters, so "ds lab" ticked off "CS lab report".
+test("done keeps two-letter words: 'ds lab' never ticks off the CS lab to-do", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "CS lab report", list: "Orion" }] });
+  const r = w.tasks("done", "ds lab");
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /NOTHING WAS CHANGED/);
+  assert.notEqual(w.reminder("CS lab report").completed, true);
+});
+
+test("done 'the lab one' with a CS and a DS lab to-do asks which and ticks neither", (t) => {
+  const w = world(t, { reminders: [{ identifier: "r1", title: "CS lab report", list: "Orion" }, { identifier: "r2", title: "DS lab report", list: "Orion" }] });
+  const r = w.tasks("done", "the lab one");
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /more than one/);
+  assert.ok(["CS lab report", "DS lab report"].every((x) => w.reminder(x).completed !== true));
+  const ds = w.tasks("done", "ds lab");
+  assert.equal(ds.code, 0, ds.out);
+  assert.equal(w.reminder("DS lab report").completed, true);
+  assert.notEqual(w.reminder("CS lab report").completed, true);
+});

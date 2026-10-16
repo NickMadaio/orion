@@ -45,12 +45,15 @@ const call = (action: string, step: Record<string, unknown>, note: string, failL
   ({ kind: "call", action, args: JSON.stringify({ steps: [{ action, ...step }] }), note, failLine });
 
 /** "set a timer for 25 min": a timer, whatever the front desk picked (never a focus session, q032). */
-export const isTimerRequest = (message: string): boolean => TIMER.test(message);
+// "cancel the timer for 10 min", "is my timer for 20 min still running": about a timer, not a new one
+// (review, 2026-10-16).
+const NOT_A_NEW_TIMER = /\b(cancel|stop|clear|remove|delete|kill|abort|never ?mind)\b|^\s*(is|are|was|how|what|whats|when|did|does|has|have)\b/i;
+export const isTimerRequest = (message: string): boolean => TIMER.test(message) && !NOT_A_NEW_TIMER.test(message);
 
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
 export function toolDirective(decision: Decision | undefined, message: string): ToolDirective | null {
   if (!decision || decision.move === "escalate") return null;
-  const timer = TIMER.exec(message);
+  const timer = isTimerRequest(message) ? TIMER.exec(message) : null;
   if (timer) {
     const total = seconds(timer[1] ?? timer[3] ?? "0", timer[2] ?? timer[4] ?? "m");
     if (total >= 1 && total <= 86400) return call("timer_set", { seconds: total }, "Then say the timer is set, only if the result shows it.", "I didn't manage to set that timer — nothing is running. Can you say it again?");

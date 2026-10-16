@@ -102,7 +102,7 @@ enum GatewayClient {
     static func recentOutreach(now: Date = Date()) -> String {
         let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach.jsonl")
         let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-        return outreachTracker.prefix(rows: OutreachContext.parse(jsonl: text), now: now)
+        return outreachTracker.prefix(rows: OutreachContext.parse(jsonl: text), now: now, replyTo: OutreachReplyTo.current)
     }
 
     // MARK: One agent turn

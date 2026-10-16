@@ -147,6 +147,65 @@ enum AudioRoute {
             || transport == kAudioDeviceTransportTypeBluetoothLE
     }
 
+    // MARK: Output route (awareness `audio.mac`, contract C1)
+
+    enum OutputKind: String, Equatable {
+        case bluetooth, wired, airplay, speakers
+    }
+
+    /// Where sound goes now, for `focus-activity.json` `audio`.
+    struct OutputRoute: Equatable {
+        var kind: OutputKind
+        var device: String
+        /// Headphones in his ears: Bluetooth and wired. AirPlay is a speaker.
+        var headphones: Bool { kind == .bluetooth || kind == .wired }
+    }
+
+    /// The headphone-jack data source ('hdpn') of the built-in output.
+    static let headphoneDataSource: UInt32 = 0x6864706E
+
+    /// Pure: transport and data source (and name, for USB) to a route.
+    static func classifyOutput(transport: UInt32, dataSource: UInt32?, name: String) -> OutputKind {
+        switch transport {
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return .bluetooth
+        case kAudioDeviceTransportTypeAirPlay: return .airplay
+        case kAudioDeviceTransportTypeBuiltIn: return dataSource == headphoneDataSource ? .wired : .speakers
+        case kAudioDeviceTransportTypeUSB: return name.lowercased().contains("headphone") ? .wired : .speakers
+        default: return .speakers
+        }
+    }
+
+    static func outputRoute() -> OutputRoute? {
+        guard let id = defaultOutputID() else { return nil }
+        let name = deviceName(of: id)
+        let kind = classifyOutput(transport: transportType(of: id), dataSource: outputDataSource(of: id), name: name)
+        return OutputRoute(kind: kind, device: name)
+    }
+
+    private static func outputDataSource(of id: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDataSource,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value)
+        return status == noErr ? value : nil
+    }
+
+    static func deviceName(of id: AudioDeviceID) -> String {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &name) == noErr, let name else { return "" }
+        return name.takeRetainedValue() as String
+    }
+
     static func inputChannels(of id: AudioDeviceID) -> Int {
         channels(of: id, scope: kAudioObjectPropertyScopeInput)
     }

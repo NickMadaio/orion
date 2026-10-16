@@ -26,9 +26,16 @@ final class ScheduleFocusWatcher {
         if !neverTarget, !["Instagram", "TikTok", "Reddit", "X", "Twitter", "Facebook", "YouTube"].contains(name), name != "Orion" { lastWorkApp = name }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let file = home.appendingPathComponent(".openclaw/orion-controlled/focus-activity.json")
-        // 2026-10-16: nil means the system gave nonsense (it said 11.8 days for 40 s); report 0 and switch enforcement off for this tick.
+        // 2026-10-16: nil means the system gave nonsense (it said 11.8 days for 40 s): write null (unknown is
+        // unknown, not 0) and switch enforcement off for this tick.
         let idle = IdleReading.current()
-        let object: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "app": name, "title": title, "idleSeconds": idle ?? 0, "idleValid": idle != nil, "enforcementAllowed": EnforcementGuard.allowed(consent: enforcement, idleValid: idle != nil, name: name, bundleID: bundleID), "workApp": lastWorkApp ?? ""]
+        let screen = ScreenState.current()
+        let route = AudioRoute.outputRoute()
+        let object = FocusActivityRecord.object(
+            at: Date(), app: name, title: title, bundleID: bundleID, idle: idle, locked: screen.locked,
+            displayAsleep: screen.displayAsleep,
+            enforcementAllowed: EnforcementGuard.allowed(consent: enforcement, idleValid: idle != nil, name: name, bundleID: bundleID),
+            workApp: lastWorkApp ?? "", route: route)
         guard let data = try? JSONSerialization.data(withJSONObject: object), (try? data.write(to: file, options: .atomic)) != nil else { return }
         running = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -38,5 +45,37 @@ final class ScheduleFocusWatcher {
             if (try? process.run()) != nil { process.waitUntilExit() }
             DispatchQueue.main.async { self?.running = false }
         }
+    }
+}
+
+/// Screen lock and display sleep, for the awareness `mac` facet.
+enum ScreenState {
+    static func current() -> (locked: Bool, displayAsleep: Bool) {
+        var locked = false
+        if let info = CGSessionCopyCurrentDictionary() as? [String: Any] {
+            locked = (info["CGSSessionScreenIsLocked"] as? Int) == 1 || (info["kCGSSessionOnConsoleKey"] as? Bool) == false
+        }
+        return (locked, CGDisplayIsAsleep(CGMainDisplayID()) != 0)
+    }
+}
+
+/// The shape of `focus-activity.json` (read by orion-ontask-watch and orion-awareness).
+enum FocusActivityRecord {
+    static func object(at: Date, app: String, title: String, bundleID: String?, idle: TimeInterval?, locked: Bool,
+                       displayAsleep: Bool, enforcementAllowed: Bool, workApp: String,
+                       route: AudioRoute.OutputRoute?) -> [String: Any] {
+        var object: [String: Any] = [
+            "at": ISO8601DateFormatter().string(from: at), "app": app, "title": title,
+            "bundleID": bundleID ?? "",
+            "idleSeconds": idle.map { $0 as Any } ?? NSNull(), "idleValid": idle != nil,
+            "locked": locked, "displayAsleep": displayAsleep,
+            "enforcementAllowed": enforcementAllowed, "workApp": workApp,
+        ]
+        if let route {
+            object["audio"] = ["route": route.kind.rawValue, "device": route.device, "headphones": route.headphones] as [String: Any]
+        } else {
+            object["audio"] = ["route": "unknown", "device": "", "headphones": NSNull()] as [String: Any]
+        }
+        return object
     }
 }

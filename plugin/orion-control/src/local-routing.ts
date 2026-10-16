@@ -535,17 +535,28 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     // What this run must deliver: kept for reply_payload_sending (channel routes) and put in place for the agent CLI.
     let owed: string | undefined;
+    // OpenClaw ignores a "revise" once any tool has run in the turn and sends the original reply (live sweep
+    // 2026-10-15, 16 items: q003 q030 q102 ...). Then the honest line must go in place now, not via a retry.
+    const hostDrops = event.hadDeterministicSideEffect === true;
     try {
       const reply = str(event.lastAssistantMessage) ?? "";
       const findings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" });
       run.findings.push(findings);
+      // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).
+      const record = async (extra: Record<string, unknown> = {}) => {
+        const decision = run.settled ?? (await settle(run));
+        log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
+          ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
+          ...(on ? { escalationNeeded: findings.length > 0 } : {}), ...extra, turnMs: Date.now() - run.started });
+      };
       // After the scheduling flow acted, its result is final: the worker only reports it (a retry
       // with tools let the model act on its own).
       const sessionKeyNow = `session:${pick(event, ctx, "sessionKey") ?? ""}`;
       if (on && run.reminder) {
         const called = run.tools.some((t) => t.canonical.startsWith("orion_task_run") && /alarm_set/.test(t.canonical));
-        if (!called && run.passes < 2) {
+        if (!called && run.passes < 2 && !hostDrops) {
           run.passes += 1;
+          await record({ revised: true });
           return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call orion_task_run now with exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
         if (!called) { owed = "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
@@ -555,14 +566,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         owed = expected;
         remember([runId, sessionKeyNow], expected);
         const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
-        if (!squash(reply).includes(squash(expected).slice(0, 60)) && run.passes < 1) {
+        if (!squash(reply).includes(squash(expected).slice(0, 60)) && run.passes < 1 && !hostDrops) {
           run.passes += 1;
+          await record({ revised: true });
           return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Ignore the earlier conversation. Your whole reply must be exactly this text, nothing before or after, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
         }
       }
       const flowActed = run.flow?.outcome === "done";
-      if (on && findings.length > 0 && run.passes < 2 && !flowActed) {
+      if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops) {
         run.passes += 1;
+        await record({ revised: true });
         const calendar = SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical));
         const claimed = findings.some((f) => FALSE_CLAIM.test(f));
         const instruction = run.passes === 1 ? retryInstruction(findings)
@@ -570,16 +583,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           : HONEST_STOP;
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
-      const decision = run.settled ?? (await settle(run));
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
       if (on && !flowActed && !run.reminder && findings.some((f) => FALSE_CLAIM.test(f))) {
         owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)));
         remember([runId, sessionKeyNow], owed);
       }
       if (on && owed) putReplyInPlace(event.messages, owed);
-      log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}) } : null,
-        ...(run.cutOff ? { heldCutOff: true } : {}), cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
-        ...(on ? { escalationNeeded: findings.length > 0 } : {}), turnMs: Date.now() - run.started });
+      await record();
       done();
     } catch (error) {
       api.logger?.warn?.(`[orion-control] local routing finalize failed: ${error instanceof Error ? error.message : String(error)}`);

@@ -51,6 +51,9 @@ const PROMISE = /\b(I'?ll|I will|let me(?! know)|I'?m going to)\b/i;
 const READ = /\b(I (just )?(checked|looked (it |that )?up|pulled up)|I found|according to your|your [\w ]{1,30}? (shows?|says)|\d+ (more )?min(ute)?s? (left|remaining|to go)|your [\w ]{1,30}? (is|are) (still )?(active|running))\b/i;
 const ACKNOWLEDGES = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|unable|failed|error|not|no|nothing|won'?t|doesn'?t|don'?t|isn'?t|wasn'?t|wall|blocked|problem|issue|trouble|stuck|conflict(ing|s)?|limits?|needs? (your )?approval|requires? (your )?approval|approval (first|code))\b/i;
 const BARE = /^(done|all set|ok(ay)?|sure|got it)[.!—–-]*$/i;
+// "Nothing is scheduled" / "no lab scheduled" reports an empty calendar; it is not a claim that something
+// was scheduled (live sweep 2026-10-15, q003 q004 q009 q011: flagged after a real calendar read).
+const NONE_PLANNED = /\b(nothing|no(\s+(?!(i|i'?ve|it|it'?s|we|you|problem|worries)\b)\w+){0,3}?)\s+((is|are)\s+)?(scheduled|planned|booked)\b/i;
 
 const unquote = (s: string): string => s.replace(/[’‘]/g, "'").replace(/"[^"]*"|“[^”]*”/g, "\"…\"");
 const sentences = (text: string): string[] => unquote(String(text ?? "")).split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
@@ -60,7 +63,7 @@ export function claimsIn(reply: string): Claim[] {
   const merged = parts.map((s, i) => (BARE.test(s) && parts[i + 1] ? `${s} ${parts[i + 1]}` : s)).filter((_, i) => !(i > 0 && BARE.test(parts[i - 1] ?? "")));
   return merged.flatMap((s): Claim[] => {
     if (/\?\s*$/.test(s)) return [];
-    if (DENIAL.test(s)) return [{ kind: "denial", strength: "strong", sentence: s }];
+    if (DENIAL.test(s) || NONE_PLANNED.test(s)) return [{ kind: "denial", strength: "strong", sentence: s }];
     if (PROMISE.test(s)) return [{ kind: "promise", strength: "strong", sentence: s }];
     if (STRONG.test(s) && !NARRATION.test(s) && !HYPOTHETICAL.test(s)) return [{ kind: "done", strength: "strong", sentence: s }];
     const read: Claim[] = READ.test(s) ? [{ kind: "read", strength: "status", sentence: s }] : [];
@@ -80,7 +83,8 @@ const RANGE = /(\d{1,2})(?::(\d{2}))?\s*(?:–|-|to)\s*(\d{1,2})(?::(\d{2}))?\s*
 /** Times a sentence mentions: "at/from N" is a start, a range gives both ends, anything else is "any". */
 function timesIn(text: string): TimeMention[] {
   const out: TimeMention[] = [];
-  let s = String(text);
+  // "5:00:00 PM" (a reminder's dueAtLocal) is 5:00 PM, not "00 PM" (q030, live sweep 2026-10-15).
+  let s = String(text).replace(/\b(\d{1,2}:\d{2}):\d{2}\b/g, "$1");
   for (const m of s.matchAll(RANGE)) {
     if (!m[5] && !m[2] && !m[4]) continue;
     out.push([at(m[1]!, m[2], m[5]), "start"], [at(m[3]!, m[4], m[5]), "end"]);

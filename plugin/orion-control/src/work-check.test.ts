@@ -103,4 +103,29 @@ describe("work check: verdict and retry instruction", () => {
     // A code-run flow read the status itself; its dictated line is not the worker's claim.
     expect(checkWork({ reply: "A focus session is already running — 15 minutes left.", turnResults: [], finished: true, dictated: true })).toEqual([]);
   });
+
+  // Live sweep 2026-10-15 (q003, q004, q009, q011): an honest "nothing scheduled" after a real calendar read
+  // was flagged as a false "scheduled" claim; the revise was then dropped by the host (a tool had run).
+  it("'nothing is scheduled' after a calendar read is a denial, not a done-claim", () => {
+    const empty = [{ canonical: "exec orion-agenda today", stdout: "today is Thursday, October 15, 2026\nnothing on the calendar today", exit: null }];
+    for (const reply of ["Nothing is scheduled for today.", "There's nothing scheduled on your calendar today, Thursday October 15.", "There is no lab scheduled for today.", "There is no gym scheduled for today."]) {
+      expect(checkWork({ reply, turnResults: empty, finished: true }), reply).toEqual([]);
+    }
+    // A real claim made over a read alone is still caught.
+    expect(checkWork({ reply: "No problem, gym is scheduled for 6.", turnResults: empty, finished: true })).toContain("claims what the tools don't show");
+    expect(checkWork({ reply: "No worries I booked gym for 6.", turnResults: empty, finished: true })).toContain("claims what the tools don't show");
+  });
+
+  // Live sweep 2026-10-15 (q030, q031, q036, q037, q039): "Reminder set for Thursday at 5:00 PM" was
+  // flagged "reply times don't match" because the result's "5:00:00 PM" (with seconds) read as 12:00 PM.
+  it("a reminder's time with seconds in the result matches the reply's time", () => {
+    const set = (at: string, local: string): ToolResult => ({ canonical: `orion_task_run {"steps":[{"action":"alarm_set","at":"${at}","label":"call the dentist"}]}`, exit: null,
+      stdout: JSON.stringify({ executed: true, outcome: "DONE — this really happened", reportToUser: "Done.", status: "succeeded", createdAt: "2026-10-15T22:31:19.237Z",
+        steps: [{ stepId: "step-1", status: "verified", request: { action: "alarm_set", arguments: { at, label: "call the dentist" } },
+          execution: { mode: "scheduled", target: "a452h1", output: { id: "a452h1", kind: "alarm", label: "call the dentist", dueIn: "0 seconds", dueAtLocal: local } },
+          verification: { method: "reminder_stored", observed: true, evidence: "a452h1:present" } }], completedAt: "2026-10-15T22:31:19.238Z" }, null, 2) });
+    expect(checkWork({ reply: "Reminder set for Thursday at 5:00 PM: call the dentist.", turnResults: [set("2026-10-15T17:00", "10/15/2026, 5:00:00 PM")], finished: true })).toEqual([]);
+    expect(checkWork({ reply: "Reminder set for Friday at 7:00 AM: wake me up.", turnResults: [set("2026-10-16T07:00", "10/16/2026, 7:00:00 AM")], finished: true })).toEqual([]);
+    expect(checkWork({ reply: "Reminder set for Thursday at 6:00 PM: call the dentist.", turnResults: [set("2026-10-15T17:00", "10/15/2026, 5:00:00 PM")], finished: true })).toContain("reply times don't match");
+  });
 });

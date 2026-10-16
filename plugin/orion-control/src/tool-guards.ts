@@ -16,6 +16,7 @@
  holds a live shell operator.
 */
 import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { ACTION_CATALOG } from "./catalog.js";
 import { OPERATOR_REASON, TYPED_ACTIONS, TOOL_IDS } from "./exec-routing.js";
 import { hasShellOperator } from "./shell-operators.js";
@@ -32,7 +33,10 @@ export interface GuardDeps {
 
 const liveDeps: GuardDeps = {
   scriptNames: () => {
-    try { return readdirSync(SCRIPTS_DIR); } catch { return []; }
+    try { return readdirSync(SCRIPTS_DIR); } catch { /* not on Nick's Mac: CI or a fresh checkout */ }
+    // The same folder relative to this file (src/ or dist/ → ../../../scripts): GitHub CI has no /Users/nickmadaio,
+    // and an empty list made every bare name a block (CI red on every push from round 8b, 2026-10-16).
+    try { return readdirSync(fileURLToPath(new URL("../../../scripts", import.meta.url))); } catch { return []; }
   },
 };
 

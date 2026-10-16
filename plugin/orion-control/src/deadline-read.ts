@@ -6,29 +6,51 @@
 */
 import { execFile } from "node:child_process";
 import { spokenTime } from "./day-read-answers.js";
+import { LATE_NIGHT_UNTIL, TOMORROW } from "./schedule-flow.js";
 
 const AGENDA = "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda";
 const TASKS = "/Users/nickmadaio/Desktop/ORION/scripts/orion-tasks";
 
 export type DeadlineEvent = { title: string; start: string; allDay?: string; isDeadline?: boolean };
 export type DeadlineTask = { title: string; due: string };
-export type DeadlineRead = { events: DeadlineEvent[]; tasks: DeadlineTask[] };
+/** tasksFailed: `orion-tasks list` failed, so no to-do is known (r8 review 2026-10-16 M3). */
+export type DeadlineRead = { events: DeadlineEvent[]; tasks: DeadlineTask[]; tasksFailed?: boolean };
 
-const ASKS = /\b(?:what'?s|whats|what is|what are|which|any|anything|do i have|how many)\b[^.?]*\b(?:due|deadlines?)\b|\b(?:my|upcoming|any) deadlines?\b/i;
+const ASKS = /\b(?:what'?s|whats|what is|what are|which|any|anything|do i have|how many)\b[^.?]*\b(?:due|deadlines?)\b/i;
+// "any deadlines coming up", "my deadlines" with no verb: a spoken ask has no "?" (r8 review LOW); "my deadlines are killing me" is not one.
+const BARE = /\b(?:my|upcoming|any) deadlines?\b/i;
+const STATEMENT = /\b(?:is|are|was|were|am|i'?m|i've|have|has)\b/i;
 const CHANGES = /\b(?:make|set|move|push|change|add|remind|schedule|cancel|drop|skip)\b/i;
 /** A question about what is due; a change ("make the essay due friday") is not one. */
-export const asksDeadlines = (message: string): boolean => ASKS.test(message) && !CHANGES.test(message);
+export const asksDeadlines = (message: string): boolean => (ASKS.test(message) || (BARE.test(message) && !STATEMENT.test(message))) && !CHANGES.test(message);
 
 const ymd = (d: Date): string => d.toLocaleDateString("en-CA");
 const dayStart = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** [first day, last day] offsets from today, and how it is said. */
-function windowOf(message: string): { from: number; to: number; label: string } {
-  if (/\btomorrow\b/i.test(message)) return { from: 1, to: 1, label: "tomorrow" };
+const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const NAMED_DAY = /\b(?:(?<next>next)\s+)?(?:on\s+|this\s+|next\s+)?(?<day>sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
+const addDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+/**
+ * [first day, last day] offsets from today, and how it is said. Calendar weeks (r8 review 2026-10-16 M2): "this week" is today
+ * through Sunday, "next week" the coming Monday through Sunday; "tomorrow" (or "tmrw") is the day after today, but
+ * before 5 AM he is still up and it is today's date (schedule-flow's rule); a weekday is its next date.
+ */
+function windowOf(message: string, now: Date): { from: number; to: number; label: string } {
+  const dow = now.getDay();
+  if (TOMORROW.test(message)) { const n = now.getHours() >= LATE_NIGHT_UNTIL ? 1 : 0; return { from: n, to: n, label: "tomorrow" }; }
   if (/\btoday\b|\btonight\b/i.test(message)) return { from: 0, to: 0, label: "today" };
-  if (/\bnext week\b/i.test(message)) return { from: 7, to: 13, label: "next week" };
-  return { from: 0, to: 6, label: "this week" };
+  const toMonday = ((8 - dow) % 7) || 7;
+  if (/\bnext week\b/i.test(message)) return { from: toMonday, to: toMonday + 6, label: "next week" };
+  const named = NAMED_DAY.exec(message);
+  if (named?.groups?.day) {
+    const target = DAY_NAMES.indexOf(named.groups.day.toLowerCase());
+    // "next friday" is that day in the coming Monday-to-Sunday week; a bare weekday is its next date (today when it is today).
+    const off = named.groups.next ? toMonday + (target + 6) % 7 : (target - dow + 7) % 7;
+    return { from: off, to: off, label: named.groups.day.toLowerCase() };
+  }
+  return { from: 0, to: (7 - dow) % 7, label: "this week" };
 }
 
 type Item = { text: string; date: Date; minute: number };
@@ -58,13 +80,16 @@ function items(read: DeadlineRead, today: Date): Item[] {
 
 /** The spoken answer to "what's due …" from the read. */
 export function deadlineReply(message: string, read: DeadlineRead, today: Date): string {
-  const { from, to, label } = windowOf(message);
-  const first = ymd(new Date(dayStart(today).getTime() + from * 86400000 + 3600000));
-  const last = ymd(new Date(dayStart(today).getTime() + to * 86400000 + 3600000));
+  const { from, to, label } = windowOf(message, today);
+  const first = ymd(addDays(today, from));
+  const last = ymd(addDays(today, to));
+  const todos = read.tasksFailed ? "I couldn't read your to-dos." : "";
   const all = items(read, today);
   const inside = all.filter((i) => ymd(i.date) >= first && ymd(i.date) <= last);
-  if (inside.length) return `Due ${label}: ${inside.map((i) => i.text).join("; ")}.`;
+  if (inside.length) return `Due ${label}: ${inside.map((i) => i.text).join("; ")}.${todos ? ` ${todos}` : ""}`;
   const next = all.find((i) => ymd(i.date) > last);
+  // M3: with the to-do read failed, only the calendar is known: never "Nothing is due".
+  if (todos) return `Nothing on your calendar is due ${label}, but ${todos}`;
   return `Nothing is due ${label}.${next ? ` The next deadline is ${next.text}.` : ""}`;
 }
 
@@ -85,6 +110,6 @@ export async function liveReadDeadlines(): Promise<DeadlineRead | null> {
   if (agenda === null) return null;
   try {
     const events = JSON.parse(agenda) as DeadlineEvent[];
-    return Array.isArray(events) ? { events, tasks: parseTasks(tasks ?? "") } : null;
+    return Array.isArray(events) ? { events, tasks: parseTasks(tasks ?? ""), ...(tasks === null ? { tasksFailed: true } : {}) } : null;
   } catch { return null; }
 }

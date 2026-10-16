@@ -115,7 +115,7 @@ describe("q041: what's due is read by code", () => {
       .toBe("Due this week: Macro (ECON1115) — Quiz 1, today (all day); Review spending (to-do), tomorrow.");
   });
   it("nothing in the window names the next deadline after it", () => {
-    expect(deadlineReply("whats due tomorrow", { ...read, tasks: [] }, today))
+    expect(deadlineReply("whats due tomorrow", { ...read, tasks: [] }, new Date(2026, 9, 16, 10, 0)))
       .toBe("Nothing is due tomorrow. The next deadline is DUE 13:00 — Marketing: Panopto presentation, Monday Oct 26 at 1:00 PM.");
   });
   it("parses orion-tasks list lines", () => {

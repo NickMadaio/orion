@@ -11,7 +11,7 @@ export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
 
 /** What makes a title a deadline (shared: classify below, orion-agenda deadlines --json, the plugin's "what's due" read). */
-export const DEADLINE_TITLE = /^due\b|\bquiz|exam|deadline|submission\b/i;
+export const DEADLINE_TITLE = /\bdue\b|\bquiz|\bexams?\b|deadline|submission\b/i;
 
 export function classify(title) {
   const t = title.toLowerCase();

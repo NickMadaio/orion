@@ -15,17 +15,23 @@ export type FocusRow = Record<string, unknown>;
 export const asksFocusOn = (message: string): boolean =>
   /\bis (?:my |the |a )?(?:focus|study|deep work)\s*(?:session|block|mode|timer)?\s+(?:on|running|active|going|started|still (?:on|running|going))\b/i.test(message);
 
-/** "how long have i been focusing today": the total, not the time left. */
+/**
+ * "how long have i been focusing today": the total so far, past or progressive only (r8 review 2026-10-16 M4).
+ * "how long am i studying today" and "how many hours of studying do i have today" are plans, not the history.
+ */
+const PAST_FOCUS = /\b(?:have i|did i|i've|i have)\s+(?:been\s+|done\s+)?(?:focus(?:ed|ing)?|stud(?:ied|ying)|deep work)\b|\bfocus(?:ed)?\s+time\b[^?]*\b(?:have i|did i|i've)\b/i;
+const SO_FAR = /\b(?:today|so far|this (?:morning|afternoon|evening))\b/i;
 export const asksFocusToday = (message: string): boolean =>
-  /\bhow (?:long|much|many)\b[^?]*\b(?:focus(?:ed|ing)?|studied|studying|deep work)\b[^?]*\b(?:today|so far|this (?:morning|afternoon|evening))\b/i.test(message)
-  || /\bhow (?:long|much)\b[^?]*\b(?:today|so far)\b[^?]*\bfocus(?:ed|ing)?\b/i.test(message);
+  !/\b(?:what|which|who)\b/i.test(message) && ((PAST_FOCUS.test(message) && SO_FAR.test(message)) || /\bfocus(?:ed)?\s+(?:time\s+)?(?:so far\s+)?today\b/i.test(message));
 
 export const HISTORY_FILE = join(homedir(), ".openclaw", "orion-controlled", "focus-history.jsonl");
 
 /** The focus history, one JSON object per line; bad lines are skipped. Read-only. */
 export function readFocusHistory(file: string = process.env.ORION_FOCUS_HISTORY || HISTORY_FILE): FocusRow[] {
   if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8").split("\n").flatMap((line) => {
+  let text: string;
+  try { text = readFileSync(file, "utf8"); } catch { return []; } // r8 review LOW: an unreadable file is no history, not a crash
+  return text.split("\n").flatMap((line) => {
     try {
       const row: unknown = line.trim() ? JSON.parse(line) : null;
       return row && typeof row === "object" ? [row as FocusRow] : [];

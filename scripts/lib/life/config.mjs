@@ -10,7 +10,9 @@ export const CONFIG_FILE = process.env.ORION_LIFE_CONFIG
   || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}life-config.json`);
 export const DEFAULTS = Object.freeze({
   sideProjectMinutes: 60, sideProjectLabel: "Side project (YouTube)",
-  gymDays: [1, 3, 5], gymMinutes: 60,
+  gymDays: [1, 3, 5], gymMinutes: 60,   // legacy form of `anchors`; the live default is DEFAULT_ANCHORS (below)
+  // Most messages ORION sends him in a day before only reminders he set and class rungs go out.
+  dailyReachCeiling: 20,
   bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
   studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
   commuteMinutes: 30,
@@ -41,8 +43,28 @@ export function ignoredEvent(title, config = loadConfig()) {
   return (config.ignoreTitles ?? []).some((pattern) => pattern && t.includes(String(pattern).toLowerCase()));
 }
 
+/** The gym is every day, 90 minutes, near-mandatory (Nick, 2026-10-16). Used when his config sets neither anchors nor gymDays/gymMinutes. */
+export const DEFAULT_ANCHORS = Object.freeze([Object.freeze({ title: "Gym", kind: "gym", minutes: 90, days: Object.freeze([1, 2, 3, 4, 5, 6, 7]), rank: "must" })]);
+
+/** Daily must-haves, config-driven: [{ title, kind, minutes, days: [1..7, Mon=1], rank }]. Absent: derived from gymDays/gymMinutes. */
+export function anchorsFrom(config) {
+  if (Array.isArray(config.anchors) && validAnchors(config.anchors)) return config.anchors;
+  return config.gymDays?.length ? [{ title: "Gym", kind: "gym", minutes: config.gymMinutes, days: config.gymDays, rank: "must" }] : [];
+}
+
+export function validAnchors(v) {
+  return Array.isArray(v) && v.length <= 10 && v.every((a) => a && typeof a.title === "string" && a.title.trim().length > 0 && a.title.length <= 60
+    && typeof a.kind === "string" && /^[a-z_]{1,20}$/.test(a.kind) && Number.isInteger(a.minutes) && a.minutes >= 15 && a.minutes <= 240
+    && Array.isArray(a.days) && a.days.every((d) => Number.isInteger(d) && d >= 1 && d <= 7) && (a.rank === undefined || a.rank === "must"));
+}
+
 export function loadConfig(file = CONFIG_FILE) {
-  try { return { ...DEFAULTS, ...JSON.parse(readFileSync(file, "utf8")) }; } catch { return { ...DEFAULTS }; }
+  let merged;
+  let saved = {};
+  try { saved = JSON.parse(readFileSync(file, "utf8")); } catch { /* defaults */ }
+  merged = { ...DEFAULTS, ...saved };
+  const legacy = saved.gymDays !== undefined || saved.gymMinutes !== undefined;
+  return { ...merged, anchors: Array.isArray(saved.anchors) || legacy ? anchorsFrom(merged) : DEFAULT_ANCHORS.map((a) => ({ ...a, days: [...a.days] })) };
 }
 
 const VALIDATORS = {
@@ -57,6 +79,8 @@ const VALIDATORS = {
   sideProjectLabel: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,
   gymDays: (v) => Array.isArray(v) && v.every((d) => Number.isInteger(d) && d >= 1 && d <= 7),
   gymMinutes: (v) => Number.isInteger(v) && v >= 15 && v <= 180,
+  dailyReachCeiling: (v) => Number.isInteger(v) && v >= 0 && v <= 100,
+  anchors: validAnchors,
   bedtime: (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
   usualWake: (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
   sleepHours: (v) => typeof v === "number" && v >= 5 && v <= 11,
@@ -88,6 +112,7 @@ export function setConfig(key, raw, file = CONFIG_FILE) {
   let value = raw;
   if (typeof DEFAULTS[key] === "number") value = Number(raw);
   if (typeof DEFAULTS[key] === "boolean") value = raw === true || raw === "true";
+  if (key === "anchors" && typeof raw === "string") { try { value = JSON.parse(raw); } catch { value = null; } }
   if (Array.isArray(DEFAULTS[key])) value = String(raw).split(",").map((x) => Number(x.trim()));
   if (!VALIDATORS[key](value)) throw new TypeError(`${key} cannot be ${raw}`);
   const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();

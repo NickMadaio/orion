@@ -15,7 +15,7 @@
 //             out when not everything fits; it never reorders the day.
 // What cannot fit is reported, never silently dropped.
 import { freeGaps } from "./gaps.mjs";
-import { importanceOf, priorityOf } from "./priority.mjs";
+import { importanceOf, priorityOf, weightOf } from "./priority.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
@@ -51,12 +51,15 @@ function layout(items, taken, { floor, end, buffer = 0 }) {
  * @param changes  { now, window: {start,end}, blocked, soft?, add, rebuild? }
  *   soft: ORION's own guesses (travel to and from class). Flexible work avoids
  *   them; a time Nick states is placed over them.
- *   add item: { title, kind, minutes, at?, fixed?, after?, before?, prefer?, importance? }
+ *   add item: { title, kind, minutes, at?, fixed?, after?, before?, prefer?, importance?, rank? }
+ *   displaced: [{ block, minutes }] — planned blocks that did not happen (reality replaced them). They re-enter as
+ *   non-fresh flexible items at or after now; by weight they may bump strictly lower ranks, never a must.
+ *   config: { ranks, anchors } for weightOf (his saved words and daily anchors).
  *   (after is a hard floor; prefer is the natural time of day, used when free)
  * @returns { blocks, moves: [{id,title,from,to}], created: [block],
  *            unplaced: [{title, minutes, id, importance, fresh}], shifted: [{title, from, to, because}] }
  */
-export function replan(blocks, { now, window, blocked = [], soft = [], add = [], rebuild = false, buffer = 0, keepFree = 0 }) {
+export function replan(blocks, { now, window, blocked = [], soft = [], add = [], rebuild = false, buffer = 0, keepFree = 0, displaced = [], config = {} }) {
   const date = blocks[0]?.date ?? add[0]?.date ?? null;
   const floor = Math.max(window.start, now);
   const end = window.end;
@@ -95,7 +98,7 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
 
   // 1. Pinned: his own times, in the order of those times. Walls and earlier
   //    pinned items are the only things that can push one, and only just past.
-  const newBlock = (a, i) => ({ id: `new-${i}`, title: a.title, kind: a.kind ?? "other", importance: a.importance, date,
+  const newBlock = (a, i) => ({ id: `new-${i}`, title: a.title, kind: a.kind ?? "other", importance: a.importance, ...(a.rank ? { rank: a.rank } : {}), ...(a.tags ? { tags: a.tags } : {}), date,
     start: null, end: null, fixed: false, source: "orion" });
   const pinnedAsks = add.map((a, i) => ({ a, i })).filter(({ a }) => !a.fixed && Number.isInteger(a.at)).sort((x, y) => x.a.at - y.a.at || x.i - y.i);
   let taken = [...walls, ...past];
@@ -133,6 +136,8 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   const flexible = [
     ...[...interrupted, ...movable.filter((b) => b.start >= floor && !stays.includes(b))].map((b, k) => ({ block: b, minutes: b.end - b.start,
       after: Math.max(floor, b.start, /\bdinner\b/i.test(b.title) ? 18 * 60 + 30 : 0), before: end, seq: -1000 + k, fresh: false, pref: true })),
+    ...displaced.map(({ block, minutes }, k) => ({ block: { ...block, id: `displaced-${k}`, fixed: false, source: "orion", date, calendarId: null },
+      minutes: Math.max(5, minutes ?? block.end - block.start), after: floor, before: end, seq: -500 + k, fresh: false, displaced: true, pref: false })),
     ...lostTime.map(({ a, i }) => ({ block: newBlock(a, i), minutes: a.minutes, after: Math.max(floor, a.at),
       before: Number.isInteger(a.before) ? a.before : end, seq: i, fresh: true, pref: true })),
     ...add.map((a, i) => ({ a, i })).filter(({ a }) => !Number.isInteger(a.at)).map(({ a, i }) => ({ block: newBlock(a, i), minutes: a.minutes,
@@ -142,7 +147,11 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   ];
   // Choose what fits, most important first (his existing plans before ORION's
   // suggestions), then lay the chosen set out in time order.
-  const byImportance = [...flexible].sort((x, y) => importanceOf(x.block) - importanceOf(y.block)
+  // Weight decides: score (must, high, medium, low), then ORION's own earlier plans before displaced and fresh
+  // ones at the same rank (an equal rank never bumps), then kind order, then time.
+  const score = (item) => weightOf(item.block, config).score;
+  const byImportance = [...flexible].sort((x, y) => score(x) - score(y)
+    || (x.displaced ? 1 : 0) - (y.displaced ? 1 : 0)
     || (x.fresh ? 1 : 0) - (y.fresh ? 1 : 0) || priorityOf(x.block) - priorityOf(y.block) || x.after - y.after);
   const fixedTaken = [...taken, ...stays, ...softWalls];
   // Keep some of the day genuinely free (keepFree): once adding an item would
@@ -154,15 +163,16 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   for (const item of byImportance) {
     const trial = layout([...chosen, item], fixedTaken, { floor, end, buffer });
     // Free time limits what is ADDED; it never drops what he already has planned.
-    const roomy = !keepFree || !item.fresh || importanceOf(item.block) === 0 || freeAfter(trial.placed.map(({ block }) => block)) >= keepFree;
+    const roomy = !keepFree || !item.fresh || importanceOf(item.block, config) === 0 || freeAfter(trial.placed.map(({ block }) => block)) >= keepFree;
     if (trial.missed.length === 0 && roomy) chosen = [...chosen, item];
-    else unplaced.push({ title: item.block.title, minutes: item.minutes, id: item.block.id, importance: importanceOf(item.block), fresh: item.fresh });
+    else unplaced.push({ title: item.block.title, minutes: item.minutes, id: item.block.id, importance: importanceOf(item.block, config), rank: weightOf(item.block, config).rank, fresh: item.fresh,
+      ...(item.displaced ? { displaced: true, block: item.block } : {}) });
   }
   const { placed } = layout(chosen, fixedTaken, { floor, end, buffer });
 
-  const moves = [...clips, ...placed.filter(({ item, block }) => !item.fresh && block.start !== item.block.start)
+  const moves = [...clips, ...placed.filter(({ item, block }) => !item.fresh && !item.displaced && block.start !== item.block.start)
     .map(({ item, block }) => ({ id: item.block.id, title: item.block.title, from: item.block.start, to: block.start }))];
-  const placedNew = placed.filter(({ item }) => item.fresh).map(({ block }) => block);
+  const placedNew = placed.filter(({ item }) => item.fresh || item.displaced).map(({ block }) => block);
   for (const { a, i, because } of lostTime) {
     const got = placedNew.find((block) => block.id === `new-${i}`);
     if (got) shifted.push({ title: a.title, from: a.at, to: got.start, because });

@@ -254,9 +254,9 @@ enum OrionMacBridge {
                     "end": ISO8601DateFormatter().string(from: event.endDate),
                     "identifier": event.calendarItemIdentifier,
                     "location": event.location ?? "",
-                    "orion": event.notes.flatMap { notes in
-                        notes.range(of: #"\[orion:([a-z_]+)\]"#, options: .regularExpression).map { String(notes[$0].dropFirst(7).dropLast()) }
-                    } ?? "",
+                    "orion": OrionTags.kind(in: event.notes),
+                    // Every marker (kind first, then logged / anchor / rank-*), comma-separated; `orion` stays the first.
+                    "orionTags": OrionTags.markers(in: event.notes).joined(separator: ","),
                     "allDay": event.isAllDay ? "true" : "false",
                 ]
             }
@@ -436,7 +436,7 @@ enum OrionMacBridge {
         // Blocks ORION plans itself carry a marker, so the planner knows it may
         // move them later ("[orion:study]", "[orion:side_project]").
         if let kind = payload["orionKind"], kind.range(of: #"^[a-z_]{1,20}$"#, options: .regularExpression) != nil {
-            event.notes = "Planned by ORION. It may move this block when your day changes. [orion:\(kind)]"
+            event.notes = OrionTags.notes(kind: kind, tags: OrionTags.parse(payload: payload["orionTags"]))
         }
         try store.save(event, span: .thisEvent, commit: true)
         return ["status": "created", "identifier": event.calendarItemIdentifier]

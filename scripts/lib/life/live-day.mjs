@@ -39,6 +39,13 @@ export function movable(title, orionKind) {
   return MOVABLE_ALONE.test(title);
 }
 
+/** Tags after the kind marker: the bridge returns every [orion:x] marker as orionTags (array or comma list). */
+export function tagsOf(e) {
+  const all = Array.isArray(e.orionTags) ? e.orionTags : String(e.orionTags ?? "").split(",");
+  const clean = all.map((t) => String(t).trim()).filter((t) => /^[a-z0-9_-]{1,20}$/.test(t));
+  return clean[0] === e.orion ? clean.slice(1) : clean;
+}
+
 /** Calendar events as blocks. Fixed unless ORION planned it or it is something he does alone. */
 export function toBlocks(events, date) {
   return events
@@ -52,11 +59,13 @@ export function toBlocks(events, date) {
       const endMinute = localDate(end) === date ? minuteOf(end) : 1440;
       // ORION's own blocks always move, whatever the title says: the to-do "DS lab"
       // was filed as a class and pinned in place over his lunch (2026-10-01).
+      const tags = tagsOf(e);
+      const rank = (tags.find((t) => /^rank-(must|high|medium|low)$/.test(t)) ?? "").slice(5) || undefined;
       const fixed = e.orion ? false : kind === "class" || kind === "deadline" || !movable(title, null);
       return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
                end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: e.orion ? "orion" : "calendar",
-               calendarId: e.identifier ?? null };
+               calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}) };
     })
     .sort((a, b) => a.start - b.start);
 }

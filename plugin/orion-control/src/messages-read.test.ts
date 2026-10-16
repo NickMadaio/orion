@@ -22,6 +22,25 @@ describe("parseMessagesRead", () => {
   });
 });
 
+// M5 (2026-10-16 r8 review): a send anywhere voids the read; "have/any/what" need a texts word; filler out of queries.
+describe("parseMessagesRead: review M5", () => {
+  it("a send verb anywhere is null", () => {
+    for (const m of ["check my messages and reply to sam saying yes", "read my texts then text sam i'm late", "check my texts and send mom a message", "i have a message for sam", "read my messages and respond to carla"]) expect(parseMessagesRead(m), m).toBeNull();
+  });
+  it("gmail queries drop anything/something/stuff and the", () => {
+    expect(parseMessagesRead("check my email for anything from the bank")).toEqual({ kind: "gmail", query: "from:bank" });
+    expect(parseMessagesRead("search gmail for something about the internship")).toEqual({ kind: "gmail", query: "internship" });
+    expect(parseMessagesRead("search my inbox for stuff from amazon")).toEqual({ kind: "gmail", query: "from:amazon" });
+  });
+  it("have/any/what are read verbs only with a texts word", () => {
+    for (const m of ["what is the plan", "do i have a meeting", "any news", "what did the doctor say"]) expect(parseMessagesRead(m), m).toBeNull();
+    expect(parseMessagesRead("what messages do i have")).toEqual({ kind: "recent", limit: 5 });
+    expect(parseMessagesRead("any new texts")).toEqual({ kind: "recent", limit: 5 });
+    expect(parseMessagesRead("read my last 3 texts")).toEqual({ kind: "recent", limit: 3 });
+    expect(parseMessagesRead("any new emails from northeastern")).toBeNull();
+  });
+});
+
 describe("runMessagesRead", () => {
   const stub = (stdout: string, code = 0) => { const calls: Array<[string, string[]]> = []; return { calls, exec: async (f: string, a: string[]) => { calls.push([f, a]); return { stdout, code }; } }; };
   it("runs the read-only texts script with argv only", async () => {

@@ -25,8 +25,12 @@ export type ReadOutcome = { calls: string[]; outputs: string[]; say?: string; da
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, a: 1, couple: 2, few: 3 };
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 15;
-const READ_VERB = /\b(read|search|find|look for|show|check|see|any|what|whats|what's|did|has|have|list|get|pull up|open|tell me|summari[sz]e|look at)\b/i;
+const READ_VERB = /\b(read|search|find|look for|show|check|see|did|has|list|get|pull up|open|tell me|summari[sz]e|look at)\b/i;
 const SENDS = /^(?:\W*(?:hey|ok(?:ay)?|so|please|pls|orion|can you|could you|would you)[,\s]+)*(?:text|imessage|message|send|e-?mail|reply|respond)\b/i;
+// Weak read verbs count only when a texts word follows ("any new texts", "what messages do i have").
+const WEAK_READ = new RegExp(String.raw`\b(?:have|any|what|whats|what's)\b.*\b${"(?:texts?|text messages?|imessages?|messages?)"}\b`, "i");
+// M5 (2026-10-16 r8 review): a send anywhere voids the read ("check my messages and reply to sam saying yes").
+const SEND_ANYWHERE = /\b(?:reply|respond|send|forward|compose|draft)\b|\b(?:text|imessage|message)\s+(?:to\s+)?(?!me\b|from\b|messages?\b|about\b)[a-z]|\bmessage\s+for\s+(?!me\b)|\b(?:and|then)\s+e-?mail\s+(?!me\b)/i;
 const MAIL_WORD = /\b(?:g-?mail|e-?mails?|inbox|mail)\b/i;
 const TEXT_WORD = String.raw`(?:texts?|text messages?|imessages?|messages?)`;
 
@@ -45,17 +49,17 @@ const clean = (s: string): string => s.replace(/^["'“”‘’\s]+|["'“”�
 /** What a plain read of his texts or Gmail asks for, or null (a send, or not a read). */
 export function parseMessagesRead(message: string): MessagesRead | null {
   const m = message.trim().replace(/\s+/g, " ");
-  if (!m || m.length > 160 || SENDS.test(m) || cannotSend(m) || /\bto-?dos?\b|\bremind/i.test(m)) return null;
+  if (!m || m.length > 160 || SENDS.test(m) || SEND_ANYWHERE.test(m) || cannotSend(m) || /\bto-?dos?\b|\bremind/i.test(m)) return null;
   // Gmail: "search gmail for the internship offer", "search my email for X".
   const gmail = m.match(/\b(?:search|find|look(?: up)?|check)\b[^.]*?\b(?:g-?mail|e-?mail|inbox|mail)\b[^.]*?\bfor\s+(.+)$/i);
   if (gmail?.[1]) {
-    let q = clean(gmail[1]).replace(/^(?:(?:the|any|an|a|my|some)\s+)+/i, "").replace(/^(?:e-?mails?|messages?|mail)\s+(?:about|regarding|on|with)\s+/i, "").replace(/^(?:e-?mails?|messages?|mail)\s+(?=from\b)/i, "");
-    const from = q.match(/^from\s+(.+)$/i);
+    let q = clean(gmail[1]).replace(/^(?:(?:the|any|anything|something|stuff|an|a|my|some)\s+)+/i, "").replace(/^(?:(?:about|regarding)\s+)(?:(?:the|a|an|my)\s+)*/i, "").replace(/^(?:e-?mails?|messages?|mail)\s+(?:about|regarding|on|with)\s+/i, "").replace(/^(?:e-?mails?|messages?|mail)\s+(?=from\b)/i, "");
+    const from = q.match(/^from\s+(?:the\s+)?(.+)$/i);
     if (from?.[1]) q = /\s/.test(from[1]) ? `from:"${from[1]}"` : `from:${from[1]}`;
     return q ? { kind: "gmail", query: q.slice(0, 120) } : null;
   }
   if (MAIL_WORD.test(m)) return null; // email questions other than a search stay with the worker
-  if (!READ_VERB.test(m) && !/\b(?:did|has|have)\s+(?:anyone|anybody|someone|somebody)\b/i.test(m)) return null;
+  if (!READ_VERB.test(m) && !WEAK_READ.test(m) && !/\b(?:did|has|have)\s+(?:anyone|anybody|someone|somebody)\b/i.test(m)) return null;
   const search = m.match(new RegExp(String.raw`\b(?:search|find|look for)\s+(?:through\s+)?(?:my\s+)?${TEXT_WORD}\s+(?:for|about|mentioning|with)\s+(.+)$`, "i"));
   if (search?.[1] && clean(search[1])) return { kind: "search", text: clean(search[1]).slice(0, 80), limit: limitOf(m) };
   const from = m.match(new RegExp(String.raw`\b${TEXT_WORD}\s+from\s+(.+?)(?:\s+(?:today|yesterday|please|pls))?$`, "i"))

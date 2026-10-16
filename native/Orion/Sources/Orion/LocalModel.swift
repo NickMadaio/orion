@@ -44,48 +44,87 @@ enum LocalModel {
     /// The model everything local runs on. One constant, so swapping it is one
     /// edit.
     ///
-    /// `llama3.2:3b` was the first choice and it had to be given up, for a
-    /// reason worth recording because it is not the usual one. It was not too
-    /// bland. It was WRONG. Handed a strain of 8.4 against a suggested band of
-    /// 14–18, it wrote "you may be pushing yourself too hard" — the exact
-    /// inverse of what the number says. On the brief it invented a
-    /// "parasympathetic response" and claimed he had been pushing hard lately,
-    /// under a green recovery.
+    /// 2026-10-16 (speed audit, docs/audits/2026-10-16-local-speed.md): this was
+    /// `gpt-oss:20b` (13 GiB), fired at mic press and on refresh. Ollama sizes a
+    /// load against FREE system memory, so loading it evicted the two voice
+    /// models (qwen3.5:4b and :9b) and the voice turn in flight queued behind the
+    /// swap: 15 gpt-oss loads and 13 9B reloads in a day, 6.3 s lost on one 11 s
+    /// worker call, and a 15 s TTS (normally 6.5 s). Narratives now run on
+    /// `qwen3.5:9b`, which is already resident, so nothing is evicted.
     ///
-    /// A summary that misreads the data is worse than no summary, because the
-    /// numbers are right there beside it and the prose quietly contradicts
-    /// them. So the size is not a quality preference here, it is a correctness
-    /// floor.
+    /// The reason gpt-oss was here still stands and was re-checked rather than
+    /// assumed. `llama3.2:3b` was given up because it was WRONG, not bland:
+    /// handed a strain of 8.4 against a suggested band of 14-18 it wrote "you
+    /// may be pushing yourself too hard", the exact inverse of the number. The
+    /// 9B was run on that same case three times (Ollama, think off, num_ctx
+    /// 32768) and said "well below the band" 3 of 3. See
+    /// `Tests/run-local-model-direction.sh`, which repeats that check live.
     ///
-    /// Measured on this Mac, the same health prompt:
-    ///
-    ///   llama3.2:3b    2.4s   "pushing yourself too hard"   — inverted
-    ///   gpt-oss:20b   13.1s   "strain is below the band"    — correct
-    ///
-    /// Both are local and cost nothing. Every caller writes once, caches, and
-    /// never blocks the screen, so the seconds are spent while the numbers are
-    /// already being read.
-    /// The model everything local runs on.
-    ///
-    /// Resolved from the role contract, with this constant as the fallback so a
-    /// missing or malformed contract cannot take local reasoning down. Changing
-    /// which model this is no longer requires a rebuild, a re-sign and a
-    /// reinstall — it is one line in one document that the Python and
-    /// TypeScript sides read too.
-    static let defaultModel = ModelContract.model(role: "local", fallback: fallbackModel)
+    /// The model name still comes from the contract, under its own role
+    /// ("narrative") rather than "local", so that nothing else reading the
+    /// "local" role is changed and editing the contract can still pick another.
+    static let defaultModel = ModelContract.model(role: "narrative", fallback: fallbackModel)
 
-    /// What `local` was before the contract existed, and what it falls back to.
-    static let fallbackModel = "gpt-oss:20b"
+    /// The voice worker's model, resident with keep_alive 24h.
+    static let fallbackModel = "qwen3.5:9b"
 
-    /// Generous, and that is not arbitrary.
+    /// Models Ollama already keeps loaded for voice, with the num_ctx each is
+    /// loaded with. Asking for a different num_ctx makes Ollama RELOAD the model.
+    /// 2026-10-16: an exact map, not a prefix: the 9B is 32768
+    /// (FORM_OPTIONS.num_ctx, plugin/orion-control/src/schedule-flow.ts) but the
+    /// 4B front desk is 16384 (FRONT_DESK_CTX, plugin/orion-control/src/front-desk.ts),
+    /// and a prefix match would have sent the 4B the 9B's context.
+    static let residentNumCtx: [String: Int] = [
+        "qwen3.5:9b": 32768,
+        "qwen3.5:4b-q4_K_M": 16384,
+    ]
+
+    /// How a request for `model` is shaped.
     ///
-    /// Reasoning models — `gpt-oss:20b`, `qwen3:30b` — spend this budget on a
-    /// `thinking` field BEFORE writing anything into `response`. At 200 the
-    /// budget was gone before the answer started and both returned an empty
-    /// string, which looks exactly like the model being broken. At 900 the
-    /// answer started and was cut off mid-sentence. It is not wasted on a
-    /// smaller model: generation still stops at the end of the answer.
-    static let defaultMaxTokens = 1600
+    /// A resident model keeps its context, stays loaded for 24h like the plugin
+    /// sets it (an omitted keep_alive would reset it to Ollama's 5 minutes) and
+    /// does not think: the answer is a few sentences or a JSON id, and 1.9 s of
+    /// decode is the whole job. Any other model (gpt-oss through the contract)
+    /// may be big enough to evict the voice models, so it is unloaded the moment
+    /// it answers, and gets headroom for its scratchpad.
+    struct Profile: Equatable {
+        let resident: Bool
+        let numCtx: Int?
+        let keepAlive: String
+        let think: Bool?
+        let budgetMultiplier: Int
+    }
+
+    static func profile(for model: String) -> Profile {
+        if let numCtx = residentNumCtx[model] {
+            return Profile(resident: true, numCtx: numCtx, keepAlive: "24h", think: false, budgetMultiplier: 1)
+        }
+        return Profile(resident: false, numCtx: nil, keepAlive: "0", think: nil, budgetMultiplier: 4)
+    }
+
+    /// Enough for a three-sentence paragraph or a one-key JSON object on a model
+    /// that does not think. A reasoning model gets `budgetMultiplier` times this
+    /// (it spends the budget on a scratchpad first: at 200 it returned an empty
+    /// string, at 900 it was cut off mid-sentence, so 4x of 400).
+    static let defaultMaxTokens = 400
+
+    static func requestBody(prompt: String, model: String, maxTokens: Int, temperature: Double) -> [String: Any] {
+        let profile = profile(for: model)
+        var options: [String: Any] = [
+            "temperature": temperature,
+            "num_predict": maxTokens * profile.budgetMultiplier,
+        ]
+        if let numCtx = profile.numCtx { options["num_ctx"] = numCtx }
+        var body: [String: Any] = [
+            "model": model,
+            "prompt": prompt,
+            "stream": false,
+            "keep_alive": profile.keepAlive,
+            "options": options,
+        ]
+        if let think = profile.think { body["think"] = think }
+        return body
+    }
 
     private static let endpoint = URL(string: "http://127.0.0.1:11434/api/generate")!
 
@@ -110,15 +149,8 @@ enum LocalModel {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = timeout
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": model,
-            "prompt": prompt,
-            "stream": false,
-            "options": [
-                "temperature": temperature,
-                "num_predict": maxTokens,
-            ],
-        ])
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: requestBody(prompt: prompt, model: model, maxTokens: maxTokens, temperature: temperature))
 
         // Synchronous by design: the callers already run on a background queue
         // and a semaphore here is simpler than threading a completion handler

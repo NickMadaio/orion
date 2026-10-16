@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string };
 export type Day = { date: string; now: string | null; blocks: DayBlock[] };
 export type Intent = {
-  do: "fill_between" | "plan" | "clear_after" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "cannot" | "ask" | "answer";
+  do: "fill_between" | "plan" | "clear_after" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "late" | "overrun" | "cannot" | "ask" | "answer";
   what?: string; after?: string; before?: string; with?: string; to?: string; until?: string; minutes?: number; text?: string;
   /** move: minutes later (positive) or earlier (negative) — code does the arithmetic. */
   by?: number;
@@ -43,7 +43,7 @@ export function intentSchema(day: Day) {
     type: "object",
     properties: {
       steps: { type: "array", maxItems: 4, items: { type: "object", properties: {
-        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "cannot", "ask", "answer"] },
+        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "late", "overrun", "cannot", "ask", "answer"] },
         where: { type: "string", maxLength: 40 }, travel: { type: "number" },
         items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title"] } },
         what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
@@ -73,6 +73,8 @@ Steps:
 - add: a new block titled "what", "minutes" long, at "to" or right after block "after"
 - drop: remove block "what" (movable only) · skip: he is not going to class "what" today
 - swap: block "what" with block "with" · tidy: separate overlaps
+- late: he is running "minutes" late right now ("I'm running 15 late") — everything not yet done slides back
+- overrun: class "what" runs "minutes" over, or he is late to it and wants what comes after it pushed back by "minutes"
 - cannot: it cannot be done — say why in "text" · ask: only if no block tells you — question in "text" · answer: he only asked a question — reply in "text"
 
 Examples, for this SAMPLE day only (his real day below has its own ids — never copy these ids):
@@ -84,6 +86,9 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
+- "running 15 min behind, push everything" → {"steps":[{"do":"late","minutes":15}]}   ("I'm running late" with no number → ask how late)
+- "DS is going 20 over" → {"steps":[{"do":"overrun","what":"B1","minutes":20}]}
+- "add a 15 minute stretch block tomorrow at 7:30 am" → {"steps":[{"do":"add","what":"stretch","minutes":15,"to":"07:30"}]}   (a time he says goes in "to", 24-hour — never leave it out; "tomorrow" is the day shown, not part of the step)
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
 - "I'm in a time block but I don't need it. I'm gonna meal prep — put it from 12:45 to 1:45 and push everything else to follow" → {"steps":[{"do":"add","what":"meal prep","to":"12:45","until":"13:45"}]}   (one step: the scheduler cuts short the block he is in and slides everything after it — never move the blocks after it yourself)
 
@@ -107,6 +112,15 @@ function knownTravel(where?: string): number | undefined {
   return hit?.[1];
 }
 
+const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const FILLER = new Set(["the", "my", "his", "block", "session", "today", "todays", "class", "time"]);
+/** Whether a title he says could be any block on the day, class or not ("discrete" → the DS lecture).
+ *  Lenient on purpose: one shared word is enough, so only a plainly absent thing is refused. */
+function namesABlock(title: string, day: Day): boolean {
+  const words = normTitle(title).split(" ").filter((w) => w.length >= 3 && !FILLER.has(w));
+  return words.some((w) => day.blocks.some((b) => normTitle(b.title).split(" ").some((t) => t.startsWith(w) || w.startsWith(t) && t.length >= 3)));
+}
+
 type Compiled = { args: string[] } | { say: "cannot" | "ask" | "answer"; text: string } | { error: string };
 
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
@@ -120,6 +134,11 @@ export function compile(input: Intent, day: Day): Compiled {
     const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const i = day.blocks.findIndex((b) => !b.fixed && (norm(b.title).includes(norm(step.what!)) || norm(step.what!).includes(norm(b.title))));
     if (i >= 0 && step.do !== "add") step = { ...step, what: `B${i + 1}` };
+  }
+  // "skip gym today" with no gym on his day: the correction hint ("use its name as a new title") turned it
+  // into fill_between gym (sweep q019, 2026-10-15). Something not on the day cannot be skipped or dropped.
+  if ((step.do === "skip" || step.do === "drop") && step.what && !/^B\d+$/.test(step.what) && !namesABlock(step.what, day)) {
+    return { say: "cannot", text: `there's no ${step.what} on ${day.now ? "today's" : "that day's"} calendar` };
   }
   for (const k of ["after", "before", "with"] as const) if (step[k] && !byId(step[k])) return { error: `${step[k]} is not a block on his day` };
   const what = byId(step.what);
@@ -138,6 +157,8 @@ export function compile(input: Intent, day: Day): Compiled {
       const roundUp = (n: number) => Math.ceil(n / 5) * 5;
       const start = roundUp(Math.max(toMin(a.end) + BUFFER, now));
       const end = toMin(b.start) - BUFFER;
+      // At 22:25 a 15-minute gap at 14:30 was "only 0 minutes between CS Lab and Review spending" (sweep q019/q028).
+      if (day.now && now >= toMin(b.start)) return { say: "cannot", text: `that gap between ${a.title} and ${b.title} has already passed today — want it tomorrow?` };
       if (end - start < 15) return { say: "cannot", text: `there are only ${Math.max(0, toMin(b.start) - Math.max(toMin(a.end), now))} minutes between ${a.title} and ${b.title}` };
       if (what) return { args: ["move", what.title, "--to", hhmm(start), "--until", hhmm(end)] };
       if (!step.what) return { error: "fill_between needs what to put there" };
@@ -197,6 +218,19 @@ export function compile(input: Intent, day: Day): Compiled {
     case "skip": return what ? { args: [what.fixed ? "skip" : "drop", what.title] } : { error: "skip needs a block id" };
     case "swap": return what && byId(step.with) ? { args: ["swap", what.title, byId(step.with)!.title] } : { error: "swap needs two block ids" };
     case "tidy": return { args: ["tidy"] };
+    // orion-reschedule had late/overrun all along, but the form could not say them: "running 20 min late,
+    // push the stuff after it back" became one move of one block (sweep q017/q029, 2026-10-15).
+    case "late": {
+      if (!Number.isFinite(step.minutes) || step.minutes! < 5) return { error: "late needs how many minutes (5 or more)" };
+      if (!day.now) return { say: "cannot", text: "running late only moves today's blocks" };
+      return { args: ["late", String(Math.round(step.minutes!))] };
+    }
+    case "overrun": {
+      if (!what || !Number.isFinite(step.minutes) || step.minutes! < 5) return { error: "overrun needs a block id and minutes (5 or more)" };
+      // His own block running over is an extend; overrun is for a class.
+      if (!what.fixed) return { args: ["extend", what.title, "--until", hhmm(Math.min(toMin(what.end) + Math.round(step.minutes!), 1439))] };
+      return { args: ["overrun", String(Math.round(step.minutes!)), "--what", what.title] };
+    }
     default: return { error: `unknown step ${String(step.do)}` };
   }
 }
@@ -252,6 +286,25 @@ export function meansTomorrow(message: string, now: Date = new Date()): boolean 
   return TOMORROW.test(message) && now.getHours() >= LATE_NIGHT_UNTIL;
 }
 
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+// "friday", "on mon", "next tuesday" — not "to friday"/"till friday" (where a block goes), not "fridays" (a
+// habit), and a short form only after on/next/this ("the sun", "i sat in class", "c'mon" are not days).
+const WEEKDAY = /\b(?<dest>to|till|until|onto|into)?\s*(?:(?:on|next|this)\s+(?<day>mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun)\b|(?:on\s+|next\s+|this\s+)?(?<full>monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)/i;
+
+/** The day the change is for: tomorrow, a weekday he names, or today. "i gotta leave early friday, cut
+ *  the last block off" resized Thursday's last block (sweep q027, 2026-10-15). The weekday that is
+ *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
+export function dayArgsFor(message: string, now: Date = new Date()): { args: string[]; label: string | undefined } {
+  if (meansTomorrow(message, now)) return { args: ["--date", "tomorrow"], label: "tomorrow" };
+  const m = message.match(WEEKDAY);
+  if (!m?.groups || m.groups.dest) return { args: [], label: undefined };
+  const said = (m.groups.full ?? m.groups.day ?? "").toLowerCase();
+  const target = WEEKDAYS.findIndex((d) => d.startsWith(said.slice(0, 3)));
+  if (target < 0 || (target === now.getDay() && !/\bnext\s/i.test(m[0]))) return { args: [], label: undefined };
+  const name = WEEKDAYS[target]!;
+  return { args: ["--date", name], label: name[0]!.toUpperCase() + name.slice(1) };
+}
+
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 export type FlowResult =
   /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
@@ -276,10 +329,10 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     await exec(["undo"]);
     undone += 1;
   }
-  const dateArgs = meansTomorrow(message, now) ? ["--date", "tomorrow"] : [];
+  const { args: dateArgs, label: when } = dayArgsFor(message, now);
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
-  const user = `Now: ${clock}.\n\nHis day${dateArgs.length ? " (tomorrow)" : ""}:\n${blockList(day)}\n\nNick: ${message}`;
+  const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
   let out = await ask(FORM_PROMPT, user, intentSchema(day));
   let compiled = (out?.steps ?? []).map((s) => compile(s, day));
   let bad = compiled.find((c) => "error" in c);
@@ -315,7 +368,6 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     if (after && after !== before) marks.push(after);
     if (FAILED.test(stdout)) break; // the rest depended on this one
   }
-  const when = dateArgs.length ? "tomorrow" : undefined;
   // The scheduler refused and nothing was written: that is not "done" — "done" told the worker "You
   // already made this change" and skipped the work check (sweep 2026-10-16, q043/q051/q093).
   if (outputs.some((o) => FAILED.test(o)) && !marks.length && !undone && !summarize(outputs, []).changed) {

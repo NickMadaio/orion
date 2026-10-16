@@ -230,7 +230,11 @@ const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wak
 // extend and move read --until as the END of the block they change, not the day's window.
 const untilMinute = ["extend", "move"].includes(command) ? null : minute(flag("--until"));
 if (flag("--until") !== undefined && !["extend", "move"].includes(command) && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
-const window = { start: Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
+// A time he states for `add` is his, even before the planning window opens (an hour before his usual wake):
+// "a stretch block tomorrow at 7:30 am" was booked 9:32 as "already past" and reported Done (smoke test, 2026-10-16).
+// Only a time that really is behind us today stays past.
+const statedStart = command === "add" ? minute(flag("--at")) : null;
+const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), statedStart) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
 // Words keep five letters ("studying" ~ "study"), but a word with a digit is a code and stays whole:
 // cut to five, CS2101 and CS2100 were both "cs210" (2026-10-11).
@@ -324,7 +328,12 @@ function findBlock(name, { allowPast = true } = {}) {
     ?? (allowPast ? matches.filter((b) => b.end <= nowMinute).sort((a, b) => b.end - a.end)[0] : undefined)
     ?? matches.filter((b) => b.start > nowMinute).sort((a, b) => a.start - b.start)[0];
 }
-const notFound = (name) => fail(`NOTHING WAS CHANGED: no block called "${name}" on ${dayName}. Blocks today: ${blocks.map((b) => `${b.title} ${hhmm(b.start)}–${hhmm(b.end)}`).join(", ") || "none"}.`, 1);
+// A block that is there but already over is not "missing": the live sweep (2026-10-15, 22:25) printed
+// `no block called "Review spending"` and then listed "Review spending 14:45–15:30" in the same line.
+const endedToday = (name) => (today ? closest(name, blocks).filter((b) => b.end <= nowMinute).sort((a, b) => b.end - a.end)[0] : undefined);
+const notFound = (name, past = endedToday(name)) => past
+  ? fail(`NOTHING WAS CHANGED: ${past.title} already ended at ${hhmm(past.end)} today (${dayName} ${date}) — if he meant another day, run again with --date YYYY-MM-DD.`, 1)
+  : fail(`NOTHING WAS CHANGED: no block called "${name}" on ${dayName}. Blocks today: ${blocks.map((b) => `${b.title} ${hhmm(b.start)}–${hhmm(b.end)}`).join(", ") || "none"}.`, 1);
 const sensible = (items) => items.map((item) => {
   if (Number.isInteger(item.at)) return item;
   const floorAt = Number.isInteger(item.before) && item.before - item.minutes < backHome ? null : backHome;

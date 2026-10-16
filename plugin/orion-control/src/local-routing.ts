@@ -106,6 +106,9 @@ const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
 // loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
 const SCHEDULING = /\b(schedul|reschedul|plan|calendar|day\b|today|tonight|tomorrow|morning|afternoon|evening|block|move|push|pull|swap|resiz|extend|shorten|shorter|longer|clear|drop|ditch|nuke|scrap|cancel|skip|free|fit|stick|put|add|slot|book|class|lab\b|lectur|seminar|stud|revis|gym|nap|dinner|lunch|breakfast|meeting|appointment|undo|commute|after my|before my|between|out from|leaving at|leetcode|deck|presentation)\w*|\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
+// "im running late" got the front desk's "Got it. Hope you make it safely." and "the lecture ran over"
+// never reached the scheduler's late/overrun (sweep q029, 2026-10-15). Not "stayed up late".
+const RUNNING_LATE = /\b(?:(?:i'?m|im|i am|running|gonna be|going to be|will be|be)\s+(?:\d+\s*(?:min\w*|m)?\s+|(?:a )?(?:bit|little|few min\w*)\s+)?(?:late|behind)|(?:ran|running|run|went|going|gone)\s+(?:\d+\s*(?:min\w*)?\s+)?over|overr[au]n)\b/i;
 const REMINDER = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me|don'?t let me forget)\b/i;
 // "schedule me for…", "move X", "put X between…", "change of plans": work, never a drafted reply.
 const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|cancel|push|pull|swap|replace|rebuild|redo|plan (my|the)|change of plans|shorten|extend|resize|drop|skip)\b/i;
@@ -173,7 +176,7 @@ export function canonicalCall(toolName: string, params: unknown): string {
 /** The worker's instructions for this job. */
 export function instructionsFor(decision: Decision | undefined, message: string): string {
   if (decision?.tool === "brain" || decision?.tool === "repair_note" || (!decision?.tool && BRAIN.test(message))) return BRAIN_INSTRUCTIONS;
-  if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message)) return SCHEDULING_INSTRUCTIONS;
+  if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message) || RUNNING_LATE.test(message)) return SCHEDULING_INSTRUCTIONS;
   return GENERAL_INSTRUCTIONS;
 }
 
@@ -408,6 +411,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
       if (run && isCrisis(run.message)) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
       if (run && isOverwhelmed(run.message)) return undefined;
+      if (run && RUNNING_LATE.test(run.message)) return undefined; // the calendar flow, never a drafted "no problem"
       if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !LIVE_DATA.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
@@ -458,7 +462,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      if (SCHEDULING.test(run.message) && !/\?\s*$/.test(run.message.trim()) && !run.flow && isCalendarTurn(run.message, run.settled)) {
+      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message)) && !/\?\s*$/.test(run.message.trim()) && !run.flow && isCalendarTurn(run.message, run.settled)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         run.flow = options.scheduleFlow

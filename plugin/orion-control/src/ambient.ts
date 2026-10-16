@@ -420,5 +420,10 @@ export function resolveAlarmTime(at: string, now = new Date()): number {
   if (Number.isNaN(parsed)) {
     throw new Error(`I could not read “${at}” as a time.`);
   }
+  // A timestamp already past was stored as "due in 0 seconds" and never rang (live sweep 2026-10-15:
+  // "in like 10 min" at 23:32 arrived as 11:10 that morning). Refused, so the reply cannot say it was set.
+  if (parsed <= now.getTime()) {
+    throw new Error(`${new Date(parsed).toLocaleString("en-GB")} has already passed. Give a time still to come.`);
+  }
   return parsed;
 }

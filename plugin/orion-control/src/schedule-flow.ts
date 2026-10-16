@@ -198,10 +198,62 @@ export function guardSteps(message: string, steps: Intent[], day: Day): { say: "
   return null;
 }
 
+// ---- Anchored adds (r8, 2026-10-16 live): "throw something in before my class, just something small" booked
+// 5:50 PM because the form dropped "before my class" and the title was a placeholder. Code reads the anchor from
+// his words + the day, and an unnamed thing is never a title.
+const UNNAMED_FILLER = new Set(["a", "an", "the", "some", "any", "small", "little", "quick", "short", "tiny", "new", "random", "my", "one", "more", "extra", "simple", "easy", "light"]);
+const UNNAMED_NOUN = new Set(["something", "anything", "thing", "things", "stuff", "task", "tasks", "block", "blocks", "item", "items", "activity", "whatever", "somethin"]);
+/** "something", "small task", "a thing" — not a title (never booked as one). */
+export function isUnnamedThing(what?: string): boolean {
+  const w = normTitle(String(what ?? "")).split(" ").filter((x) => x && !UNNAMED_FILLER.has(x));
+  return w.length === 0 || w.every((x) => UNNAMED_NOUN.has(x));
+}
+type Anchor = { before?: { minute: number; label: string }; after?: DayBlock; gone?: string };
+const GENERIC_WORD = new Set(["first", "next", "my", "the", "our", "very", "class", "classes", "lecture", "lectures", "a", "an", "earliest", "upcoming", "one", "today", "tomorrow"]);
+const TAIL = String.raw`(?=\s+(?:today|tomorrow|tonight|and|but|then|so|please)\b|[,.;!?]|$)`;
+function blockPhrase(phrase: string, day: Day): { block: DayBlock } | { gone: string } | undefined {
+  const rest = normTitle(phrase).split(" ").filter((w) => w && !GENERIC_WORD.has(w)).join(" ");
+  const generic = !rest && /\b(class|classes|lecture|lectures)\b/i.test(phrase);
+  const found = rest ? day.blocks.filter((b) => messageNames(rest, b)) : generic ? day.blocks.filter((b) => b.fixed && (b.kind === undefined || b.kind === "class")) : [];
+  if (!found.length) return undefined;
+  const now = day.now ? toMin(day.now) : -1;
+  const next = found.filter((b) => toMin(b.start) > now).sort((a, b) => toMin(a.start) - toMin(b.start))[0];
+  return next ? { block: next } : { gone: generic ? "class" : found[0]!.title };
+}
+const blockLabel = (b: DayBlock): string => (b.kind === "class" ? `your ${ampm(b.start)} class` : b.title.replace(/\s+—.*$/, ""));
+/** The anchor his words give an add: before <class/block/time>, after <block>, between X and Y. */
+export function anchorFromMessage(message: string, day: Day): (Anchor & { name: string }) | undefined {
+  const between = message.match(new RegExp(String.raw`\bbetween\s+(?:my\s+|the\s+)?(.+?)\s+and\s+(?:my\s+|the\s+)?([^,.;!?]+?)${TAIL}`, "i"));
+  if (between) {
+    const a = blockPhrase(between[1]!, day); const b = blockPhrase(between[2]!, day);
+    if (a && b && "block" in a && "block" in b) return { after: a.block, before: { minute: toMin(b.block.start), label: blockLabel(b.block) }, name: `between ${a.block.title} and ${blockLabel(b.block)}` };
+    return undefined;
+  }
+  const time = message.match(/\bbefore\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b(?!\s*(?:min|hour|hr))/i);
+  if (time && (time[2] || time[3])) {
+    const h = Number(time[1]); const ap = time[3]?.toLowerCase();
+    const hour = ap ? (h % 12) + (ap === "pm" ? 12 : 0) : h < 8 ? h + 12 : h % 24;
+    const minute = hour * 60 + Number(time[2] ?? 0);
+    return { before: { minute, label: `${ampm(hhmm(minute))}` }, name: `before ${ampm(hhmm(minute))}` };
+  }
+  const bef = message.match(new RegExp(String.raw`\bbefore\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)${TAIL}`, "i"));
+  if (bef) {
+    const r = blockPhrase(bef[1]!, day);
+    if (r && "gone" in r) return { gone: r.gone, name: bef[1]! };
+    if (r) return { before: { minute: toMin(r.block.start), label: blockLabel(r.block) }, name: `before ${blockLabel(r.block)}` };
+  }
+  const aft = message.match(new RegExp(String.raw`\bafter\s+(?:my\s+|the\s+|our\s+)?([^,.;!?]+?)${TAIL}`, "i"));
+  if (aft) {
+    const r = blockPhrase(aft[1]!, day);
+    if (r && "block" in r) return { after: r.block, name: `after ${r.block.title}` };
+  }
+  return undefined;
+}
+
 type Compiled = { args: string[] } | { say: "cannot" | "ask" | "answer"; text: string } | { error: string };
 
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
-export function compile(input: Intent, day: Day): Compiled {
+export function compile(input: Intent, day: Day, message?: string): Compiled {
   let step = input;
   const byId = (id?: string) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
   const now = day.now ? toMin(day.now) : 0;
@@ -279,6 +331,22 @@ export function compile(input: Intent, day: Day): Compiled {
       return what && time(step.until) ? { args: ["extend", what.title, "--until", time(step.until)!] } : { error: "extend needs a block id and until" };
     case "add": {
       if (!step.what || byId(step.what)) return { error: "add needs a new title" };
+      // His own words anchor the add even when the form dropped it (r8, 2026-10-16): resolved here from the day.
+      const stated = time(step.to) !== undefined;
+      const said = !stated && message ? anchorFromMessage(message, day) : undefined;
+      const formBefore = byId(step.before);
+      const anchor: Anchor | undefined = said ?? (!stated && (formBefore || byId(step.after)) ? { ...(formBefore ? { before: { minute: toMin(formBefore.start), label: blockLabel(formBefore) } } : {}), ...(byId(step.after) ? { after: byId(step.after) } : {}) } : undefined);
+      if (anchor?.gone) return { say: "cannot", text: `There's no ${anchor.gone} left to put it before today.` };
+      // Never place it elsewhere: no room before the anchor means no add.
+      if (anchor?.before) {
+        const floor = Math.max(day.now ? Math.ceil(now / 5) * 5 : 0, anchor.after ? toMin(anchor.after.end) + BUFFER : 0,
+          ...day.blocks.filter((b) => b.fixed && toMin(b.end) <= anchor.before!.minute && toMin(b.end) > now).map((b) => toMin(b.end) + BUFFER));
+        const need = Number.isFinite(step.minutes) ? Math.max(5, step.minutes!) : 5;
+        if (anchor.before.minute - floor < need) return { say: "cannot", text: `There's no room before ${anchor.before.label}.` };
+      }
+      if (isUnnamedThing(step.what)) {
+        return { say: "ask", text: anchor?.before ? `What should I put before ${anchor.before.label}?` : anchor?.after ? `What should I put after ${anchor.after.title}?` : "What would you like me to add?" };
+      }
       const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
       if (day.blocks.some((b) => norm(b.title).includes(norm(step.what!)) || norm(step.what!).includes(norm(b.title)))) return { error: `"${step.what}" is already on his day — move it instead of adding it again` };
       // "from 12:45 to 1:45": code works out the length, never the model.
@@ -288,8 +356,9 @@ export function compile(input: Intent, day: Day): Compiled {
       if (!Number.isFinite(minutes)) return { error: "add needs minutes, or a start (to) and an end (until)" };
       // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
       if (minutes! < 5) return { error: "add needs at least 5 minutes" };
-      const at = time(step.to) ? ["--at", time(step.to)!] : byId(step.after) ? ["--after", byId(step.after)!.title] : [];
-      return { args: ["add", step.what, String(Math.round(minutes!)), ...at] };
+      const at = stated ? ["--at", time(step.to)!] : anchor?.after ? ["--after", anchor.after.title] : [];
+      const end = !stated && anchor?.before ? ["--before", hhmm(anchor.before.minute)] : [];
+      return { args: ["add", step.what, String(Math.round(minutes!)), ...at, ...end] };
     }
     case "drop": return what && !what.fixed ? { args: ["drop", what.title] } : { error: "drop needs a movable block id" };
     // "skip" is for a class or plan with people; for his own block it means drop ("ditch the macro stuff").
@@ -435,12 +504,12 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
   if (clash) return { outcome: "say", text: clash, kind: "ask" };
   const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
   let out = await ask(FORM_PROMPT, user, intentSchema(day));
-  let compiled = (out?.steps ?? []).map((s) => compile(s, day));
+  let compiled = (out?.steps ?? []).map((s) => compile(s, day, message));
   let bad = compiled.find((c) => "error" in c);
   // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model).
   if (bad && "error" in bad) {
     out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day));
-    compiled = (out?.steps ?? []).map((s) => compile(s, day));
+    compiled = (out?.steps ?? []).map((s) => compile(s, day, message));
     bad = compiled.find((c) => "error" in c);
   }
   // A plan's list is read by its own small call — extraction only, no block ids (Nick: break it
@@ -449,7 +518,7 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
   if (steps.some((st) => st.do === "plan" && !(st.items ?? []).length)) {
     const list = await ask(EXTRACT_PROMPT, `Nick: ${message}`, EXTRACT_SCHEMA) as { where?: string; travel?: number; items?: Array<{ title: string; minutes?: number }> } | null;
     const merged = steps.map((st) => (st.do === "plan" && !(st.items ?? []).length ? { ...st, where: list?.where ?? st.where, travel: list?.travel ?? st.travel, items: list?.items ?? [] } : st));
-    compiled = merged.map((st) => compile(st, day));
+    compiled = merged.map((st) => compile(st, day, message));
     bad = compiled.find((c) => "error" in c);
   }
   const stopped = guardSteps(message, steps, day);
@@ -463,6 +532,13 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
   const calls: string[] = []; const outputs: string[] = []; const marks: string[] = [];
   for (const c of runs) {
     const argv = [...c.args, ...dateArgs];
+    // An add he did not pin to a time must not shuffle his day: look first (--dry-run writes nothing), ask if it would (r8, 2026-10-16).
+    if (argv[0] === "add" && !argv.includes("--at")) {
+      const preview = (await exec([...argv, "--dry-run"])).stdout;
+      const pushed = displaced(preview);
+      if (pushed.length) return { outcome: "say", kind: "ask", text: `That would push ${joinNames(pushed)} later — go ahead?` };
+      if (FAILED.test(preview) && !summarize([preview], []).changed) return { outcome: "say", kind: "plain", text: spokenReply([preview], when), calls: [`exec orion-reschedule ${argv.join(" ")} --dry-run`], outputs: [preview] };
+    }
     const before = undoTop();
     const { stdout } = await exec(argv);
     calls.push(`exec orion-reschedule ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`);
@@ -478,6 +554,16 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
   }
   return { outcome: "done", calls, outputs, marks, undone, ...(when ? { reply: spokenReply(outputs, when) } : {}) };
 }
+
+/** Blocks a scheduler run would move or cut, by name, from its own output. */
+function displaced(out: string): string[] {
+  const names = out.split("\n").map((l) => l.trim()).flatMap((l) => {
+    const m = l.match(/^moved (.+?): \d{2}:\d{2} → /) ?? l.match(/^(.+?) now ends at \d{2}:\d{2}$/) ?? l.match(/^SHRUNK to fit: (.+?) \d+ →/) ?? l.match(/^DROPPED .*?: (.+)$/);
+    return m ? [m[1]!] : [];
+  });
+  return [...new Set(names)];
+}
+const joinNames = (n: string[]): string => (n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`);
 
 const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
 

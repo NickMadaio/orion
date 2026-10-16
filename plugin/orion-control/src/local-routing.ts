@@ -725,9 +725,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           // q050: no session, so code names the block he is in now, else the next one today (never the 9B's guess).
           const day = await options.readDay(false).catch(() => "");
           const now = (options.now ?? (() => new Date()))();
-          run.tools.push({ canonical: "orion-reschedule show --json", stdout: day, exit: null });
-          markRead(run, "day");
-          run.flow = { outcome: "say", kind: "plain", text: noSessionReply(day, `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`) };
+          // An empty read is a failed read as often as an empty day: then only the session status is said (r8 integration).
+          if (day.trim()) {
+            run.tools.push({ canonical: "orion-reschedule show --json", stdout: day, exit: null });
+            markRead(run, "day");
+          }
+          run.flow = { outcome: "say", kind: "plain", text: day.trim() ? noSessionReply(day, `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`) : "No focus session is running right now." };
         } else if (!todayAsk || statusAsk) run.flow = status;
       }
       // A reminder at a time is ORION's alarm_set action, never a to-do: "remind me tomorrow around 11"

@@ -63,6 +63,11 @@ describe("q050: what am i supposed to be working on right now", () => {
     expect(exactly(out.prompt)).toBe("No focus session is running. Next on your calendar: MKTG2201 Introduction to Marketing at 1:30 PM.");
     expect(out.log?.tools).toBe(2);
   });
+  it("no session and an empty day read (a failed read looks the same): only the status is said, no day claim", async () => {
+    const out = await setup({ move: "ask", answer: "?" }, { day: "" }).turn(ask);
+    expect(exactly(out.prompt)).toBe("No focus session is running right now.");
+    expect(out.log?.tools).toBe(1);
+  });
   it("no session: the block he is in now", () => {
     expect(noSessionReply(DAY, "14:10")).toBe("No focus session is running. Right now on your calendar: MKTG2201 Introduction to Marketing until 3:00 PM.");
   });

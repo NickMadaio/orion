@@ -13,8 +13,9 @@ export const asksCurrentTask = (message: string): boolean =>
 /** A focus-session status question names the session; "my nap block" is a calendar question, whatever the front desk chose. */
 export const asksFocusStatus = (message: string): boolean => /\b(focus|session|pomodoro)\b/i.test(message);
 
-// A sentence that states what he has been doing or how his day went: the front desk cannot know it.
-const DAY_CLAIM = /\b(you'?ve|you have)\s+(been|just|already)\b|\byou\s+(worked|studied|coded|slept|did|were)\b|\b(all day|for hours|so far today|today you)\b/i;
+// A sentence that states what he has been doing or how his day went: the front desk cannot know it. Praise and
+// opinion ("You did great today!", "You were right") stay (review, 2026-10-16).
+const DAY_CLAIM = /\byou(?:'ve| have) been (?!great|amazing|awesome|so\b|really|doing (?:great|well|amazing))|\byou(?:'ve| have) (?:just |already )?(?:worked|studied|coded|slept|done|had)\b|\byou (?:worked|studied|coded|slept)\b|\b(?:all day|for hours|so far today)\b/i;
 
 /** A front-desk draft without its claims about his day; "" when nothing is left to say. */
 export function withoutDayClaims(draft: string): string {

@@ -19,6 +19,8 @@
 const POLITE = String.raw`^(?:(?:hey|ok(?:ay)?|so|please|pls|orion|can you|could you|would you)[,\s]+)*`;
 /** "email myself …", "send prof an email …": an email he wants sent. */
 const EMAIL_SEND = new RegExp(`${POLITE}(?:e-?mail\\b|send\\b.*\\be-?mail\\b)`, "i");
+/** "email from northeastern, anything new?": a leading "email" that asks about his mail is a read (review, 2026-10-16). */
+const EMAIL_QUERY = new RegExp(`${POLITE}e-?mail\\s+(?:from|about|anything|any|new)\\b`, "i");
 /** "text myself …", "send me a text …": a text to himself. */
 const TEXT_SELF = new RegExp(`${POLITE}(?:(?:text|imessage|message)\\s+(?:me|myself)\\b|send\\s+(?:me|myself)\\s+(?:a\\s+)?(?:text|imessage|message)\\b)`, "i");
 /** "text mom I'm late", "message carla …": a text to someone else. */
@@ -35,7 +37,7 @@ export const CANNOT_TEXT_SELF = "I can't text you yet — I can only send a text
 export function cannotSend(message: string): string | null {
   const m = message.trim();
   if (NOT_MESSAGES.test(m)) return null;
-  if (EMAIL_SEND.test(m)) return CANNOT_EMAIL;
+  if (EMAIL_SEND.test(m) && !EMAIL_QUERY.test(m)) return CANNOT_EMAIL;
   if (TEXT_SELF.test(m)) return CANNOT_TEXT_SELF;
   return null;
 }
@@ -44,7 +46,7 @@ export function cannotSend(message: string): string | null {
 export function isMessagesJob(message: string): boolean {
   const m = message.trim();
   if (NOT_MESSAGES.test(m)) return false;
-  return TEXT_SEND.test(m) || MESSAGES_READ.test(m);
+  return TEXT_SEND.test(m) || MESSAGES_READ.test(m) || EMAIL_QUERY.test(m);
 }
 
 const SCRIPTS = "/Users/nickmadaio/Desktop/ORION/scripts";

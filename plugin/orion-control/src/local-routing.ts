@@ -137,6 +137,11 @@ const CHANGE_REQUEST = /\b(schedul\w*|reschedul\w*|move|put|add|book|fit|clear|c
 // ("Sunset is at 6:42 PM today.", "it's still warm outside", "I haven't seen any new messages"; live sweep
 // 2026-10-15). A message about these is a lookup: the worker gets the job's tools and no draft.
 const LIVE_DATA = /\b(weather|forecast|rain\w*|snow\w*|sunny|temperature|degrees|(cold|warm|hot|dark) (out|outside)|jacket|coat|umbrella|sunset|sunrise|sun (sets?|rises?|goes down|comes up)|texts?|texted|messages?|messaged|emails?|emailed|inbox|missed calls?|voicemails?|mail)\b|\bhow (cold|warm|hot)\b|\bmy (calendar|day|schedule|agenda|session|focus|supplements?|to-?dos?|tasks|reminders|alarms?)\b/i;
+// Plain chit-chat that only mentions one of those words is not a lookup: "thanks for the message", "nice coat",
+// "my day was rough", "it's dark out already lol" each cost a full worker pass (review, 2026-10-16). Narrow on
+// purpose: a question or a request ("do i need a jacket tho") stays live data.
+const CHIT_CHAT = /^(?:thanks|thank you|thx|ty)\s+(?:so much\s+)?(?:for|about)\s+(?:the|that|your)\s+\w+\s*[.!]*$|^(?:nice|cool|love|like|cute|great)\s+(?:your|that|the|my|a)?\s*\w+\s*[.!]*$|^my day (?:was|has been|went|is going)\s+\w+\s*[.!]*$|^it'?s (?:dark|cold|warm|hot) (?:out|outside)(?: already| now)?\s*(?:lol|haha)?\s*[.!]*$/i;
+const needsLiveData = (message: string) => LIVE_DATA.test(message) && !CHIT_CHAT.test(message.trim());
 const LIVE_NOTE = "This needs live data (weather, sun times, his messages, his day). Answer only from what a tool returns just now; if none of your tools can get it, say \"I can't check that right now.\" Never guess it.";
 // 2026-10-15 sweep: SCHEDULING alone ran the calendar flow, whatever the front desk decided. "text myself
 // bring the charger to lab" booked "bring the charger" at 11:45 PM, "add a todo to email prof…" ran add … 0,
@@ -502,7 +507,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
       if (run && RUNNING_LATE.test(run.message)) return undefined; // the calendar flow, never a drafted "no problem"
-      if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !LIVE_DATA.test(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
+      if (d?.move === "answer" && d.answer && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: d.answer }, reason: "front desk answered" };
       return undefined;
     });
 
@@ -592,6 +597,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && !run.cutOff && (keepsFact(run.message) || asksRecall(run.message))) {
         const fact = keepsFact(run.message);
         const fetched = fact || !run.brain ? "" : brainSnippets(await Promise.race([run.brain, new Promise<string>((r) => setTimeout(() => r(""), 4000))]));
+        // The snippets are what he is answered from: not a claimed lookup (review, 2026-10-16).
+        if (fetched) run.provided = true;
         return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${fetched ? `\n\nFrom his brain, matched to this message (may help; not necessarily something he told you):\n${fetched}` : ""}\n\n${now}`,
           appendContext: fact ? FACT_NOW : RECALL_NOW };
       }
@@ -652,7 +659,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // instructions (the 4B asked for times it could have read, 2026-10-12), and a request to change
       // his day is always work, whatever the front desk thought.
       // A lookup (weather, sun times, his texts, his day) never gets a draft: nothing checks a draft's facts.
-      const lookup = LIVE_DATA.test(run.message);
+      const lookup = needsLiveData(run.message);
       if (run.settled.move === "answer" && run.settled.answer && !CHANGE_REQUEST.test(run.message) && !lookup) {
         // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named

@@ -104,6 +104,14 @@ describe("local routing — on mode", () => {
     }
   });
 
+  it("plain chit-chat that only mentions a live-data word keeps its drafted answer (review, 2026-10-16)", async () => {
+    for (const said of ["thanks for the message", "nice coat", "my day was rough", "it's dark out already lol"]) {
+      const { f, ctx } = setup({ move: "answer", answer: "Glad to hear it, Nick." });
+      await f.fire("before_model_resolve", { prompt: said }, ctx);
+      expect(await f.fire("before_agent_reply", { cleanedBody: said }, ctx), said).toEqual([{ handled: true, reply: { text: "Glad to hear it, Nick." }, reason: "front desk answered" }]);
+    }
+  });
+
   it("pure answers keep the draft, but the worker drops claims about Nick it was never told (q082)", async () => {
     for (const [said, draft] of [["whats 17 times 23", "That's 391."], ["quick whats the capital of australia", "The capital of Australia is Canberra."], ["whats dfs vs bfs quick", "DFS goes deep first, BFS goes wide."]]) {
       const { f, ctx } = setup({ move: "answer", answer: draft });

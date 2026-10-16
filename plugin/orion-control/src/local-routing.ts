@@ -127,6 +127,18 @@ const answersLabel = (message: string, move?: string): boolean =>
   move !== "tool" && move !== "escalate" && ![CHANGE_REQUEST, ...(move === "answer" ? [] : [SCHEDULING]), LIVE_DATA, LABEL_COMMANDS, LABEL_DAYWORDS].some((re) => re.test(message)); // a calendar word alone (class, lab) is a label when the front desk answered (final round, 2026-10-16)
 const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
+// 2026-10-16 re-run, q092: in a FRESH chat "cancel that" had the worker run `orion-reschedule undo`, which
+// reversed a REAL change Nick made a day earlier ("Undone: put Review spending back"). A bare cancel or
+// undo (no named object) may take back a calendar change only when THIS session made one recently.
+export const UNDO_NOTHING_TO_UNDO = "Cancel what? I haven't changed anything in this chat.";
+const SESSION_CHANGE_WINDOW_MS = 30 * 60_000;
+const BARE_UNDO = /^(?:(?:ok|okay|please|pls|orion|hey|actually|wait|no)\s+)*(?:(?:cancel|undo|revert)(?:\s+(?:that|it|this|the last (?:one|change|thing)|my last change))?|(?:never ?mind|nvm)\s+(?:that|it|this)|(?:put|take)\s+(?:it|that|this|them)\s+back)(?:\s+(?:please|pls|thanks))?$/;
+/** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
+export const isBareUndo = (message: string) => BARE_UNDO.test(message.toLowerCase().replace(/[^a-z' ]+/g, " ").replace(/\s+/g, " ").trim());
+const UNDO_COMMAND = /\borion-reschedule\s+undo\b/;
+// A scheduler verb that writes (the read-only ones are show and undo itself).
+const RESCHEDULE_WRITE = /\borion-reschedule\s+(?!show\b|undo\b)[a-z]/;
+const NOTHING_CHANGED = /NOTHING WAS CHANGED|NOT BOOKED/i;
 const MARKERS = ["--- Nick's message follows ---", "User message:\n"];
 // Word STEMS, not whole words: "studying", "shorter", "ditch", "nuke", "stick" missed the flow and the old
 // loop answered "Done" for changes it never made (live gauntlet, 2026-10-12).
@@ -466,6 +478,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const runs = new Map<string, Run>();
   /** Per session: his last message (stitched) and the scheduler changes it made. */
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
+  /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
+  const sessionChanges = new Map<string, { at: number; marks: string[] }>();
+  const recordChange = (sessionKey: string | undefined, marks: string[]) => {
+    if (!sessionKey) return;
+    sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
+  };
+  const changedRecently = (sessionKey: string | undefined) => {
+    const c = sessionKey ? sessionChanges.get(sessionKey) : undefined;
+    return !!c && Date.now() - c.at < SESSION_CHANGE_WINDOW_MS;
+  };
   /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
   const lastReminder = new Map<string, { label: string; at: string; set: number }>();
   const reminderAsk = new Map<string, { text: string; at: number; label?: boolean }>();
@@ -560,6 +582,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
       if (run.cutOff && !run.flow) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
+      // A bare "cancel that" / "undo" with no change made in THIS chat has nothing to take back: ask, fixed text,
+      // no tools (q092, 2026-10-16). A reminder just set, or one being asked about, owns the word instead.
+      if (!run.flow && !run.cutOff && isBareUndo(run.message) && !changedRecently(run.sessionKey)
+        && !(Date.now() - (lastReminder.get(run.sessionKey ?? "")?.set ?? 0) < CORRECTION_WINDOW_MS) && !reminderAsk.has(run.sessionKey ?? "")) {
+        run.flow = { outcome: "say", kind: "ask", text: UNDO_NOTHING_TO_UNDO };
+      }
       if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken)) run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
       // A focus session is one fixed command: code runs orion-session and the reply is built from
       // its output. Left to the worker, it said "I've started a focus session" three times and
@@ -648,6 +676,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: (run.flow as { outputs: string[] }).outputs[i] ?? "", exit: null }));
           const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
           if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: run.flow.marks ?? [] });
+          if (run.flow.marks?.length) recordChange(run.sessionKey, run.flow.marks);
         }
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
@@ -708,10 +737,26 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     return { payload: { ...payload, text: hit.text }, reason: "orion-control: the scheduler's own reply" };
   });
 
+  // Second guard (2026-10-16 re-run, q092): whatever the model decides, `orion-reschedule undo` does not run in
+  // a session that has changed nothing: it would revert a change from an earlier day. OpenClaw's
+  // before_tool_call can block one call with its own reason (the same hook exec-routing.ts uses).
+  if (on) api.on("before_tool_call", (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
+    if (!UNDO_COMMAND.test(command)) return undefined;
+    const sessionKey = pick(event, ctx, "sessionKey") ?? runFor(event, ctx)?.sessionKey ?? "";
+    if (INTERNAL.test(sessionKey) || changedRecently(sessionKey)) return undefined;
+    return { block: true, blockReason: "Orion undo guard: this chat has not changed his calendar, so there is nothing of THIS conversation to undo, and `orion-reschedule undo` would reverse a change from an earlier day. Do not run it. Ask Nick what he wants cancelled." };
+  });
+
   api.on("after_tool_call", (event, ctx) => {
     const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
     if (!run || !toolName) return;
+    if (toolName === "exec" && run.sessionKey) {
+      const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
+      if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output))) recordChange(run.sessionKey, []);
+    }
     run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
   });
 

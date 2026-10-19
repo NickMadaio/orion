@@ -237,12 +237,9 @@ const knowsAnchors = (() => { try { return readFileSync(resched, "utf8").include
 if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && !sent[`anchors-${dayKey}`]) {
   const r = spawnSync(process.execPath, [resched, "fill", "--anchors", "--auto", "--date", localDate(now)], { encoding: "utf8", timeout: 60000 });
   if (r.status === 0) { sent[`anchors-${dayKey}`] = true; closed.push("anchors"); }
-  // It did not fit without moving something: nothing was written; he is asked once (skip it, or drop the cheapest block).
-  else if (r.status === 1 && /ASK: /.test(r.stdout ?? "") && !sent[`anchors-ask-${dayKey}`]) {
-    const question = String(r.stdout).split("\n").find((l) => l.includes("ASK: ")).replace(/^\s*ASK:\s*/, "").trim();
-    const asked = reach([question.charAt(0).toUpperCase() + question.slice(1), "--kind", "question", "--why", `proactive: anchors-ask-${dayKey}`]);
-    if (deliveryOutcome({ status: asked.status, stdout: asked.stdout }).said) { sent[`anchors-${dayKey}`] = true; sent[`anchors-ask-${dayKey}`] = true; closed.push("anchors"); }
-  }
+  // No room even after bumping every lower-ranked block: nothing was written and orion-reschedule already told him why
+  // (one message). The day is closed so the fill is not retried, and he is not told twice.
+  else if (r.status === 1 && /NO ROOM: /.test(r.stdout ?? "")) { sent[`anchors-${dayKey}`] = true; closed.push("anchors"); }
 }
 // The nightly review of what actually happened: at 22:00, or 60 min before bedtime if that is earlier, and never after
 // midnight. It describes the day that is ending (dayKey is the evening's date until 6 AM, but a review is only ever sent

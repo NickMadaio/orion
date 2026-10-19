@@ -168,8 +168,8 @@ test("7: the phone's context line shows a readable time, the block title and the
 });
 const SCRIPTSDIR = join(import.meta.dirname, "../scripts");
 
-// ---- 10: the morning anchor fill asks once instead of removing his blocks --------------------------------------------
-test("10: when the gym does not fit, orion-proactive asks once through orion-reach and does not mark the fill done", () => {
+// ---- 10: the morning anchor fill bumps lower ranks and tells him; with no room it is told once and not retried --------------------------------------------
+test("10: when there is no room for the gym, orion-proactive does not ask, does not retry, and leaves the one message to orion-reschedule", () => {
   const W = join(import.meta.dirname, "..");
   const home = mkdtempSync(join(tmpdir(), "orion-anchor-ask-"));
   const dir = join(home, "controlled"); mkdirSync(dir, { recursive: true });
@@ -179,13 +179,16 @@ test("10: when the gym does not fit, orion-proactive asks once through orion-rea
   writeFileSync(join(dir, "morning-sent.json"), JSON.stringify({ "2026-10-16": { at: iso(7, 0), signal: "up" } }));
   writeFileSync(join(dir, "awareness.json"), JSON.stringify(awFixture(new Date(2026, 9, 16, 9, 0), {})));
   const fakeResched = join(home, "fake-reschedule.mjs");   // knows --anchors
-  writeFileSync(fakeResched, `// supports --anchors\nconsole.log("NOTHING WAS CHANGED: Gym does not fit on Friday without moving something.");\nconsole.log("  ASK: skip Gym today, or drop YouTube (14:30–23:30)?");\nprocess.exit(1);\n`);
+  writeFileSync(fakeResched, `// supports --anchors\nimport { appendFileSync } from "node:fs";\nappendFileSync("${home}/resched.log", process.argv.slice(2).join(" ") + "\\n");\nconsole.log("NOTHING WAS CHANGED: Gym does not fit on Friday even with every lower-ranked block moved or removed.");\nconsole.log("  NO ROOM: No room for Gym today: it needs 90 min and no open time is left.");\nprocess.exit(1);\n`);
   const fakeReach = join(home, "fake-reach"); writeFileSync(fakeReach, `#!/bin/sh\necho "$@" >> "${home}/reach.log"\necho "Sent - fake"\n`); chmodSync(fakeReach, 0o755);
   const env = { PATH: process.env.PATH, HOME: home, ORION_CONTROLLED_DIR: dir, ORION_LIFE_CONFIG: join(home, "config.json"), ORION_REACH_NOW: iso(9, 0), ORION_REACH_FACTS: JSON.stringify({ idleSeconds: 5, locked: false }),
     ORION_BRIDGE_BIN: join(W, "tests/fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"), ORION_SESSION_SOCKET: join(home, "no.sock"), ORION_RESCHEDULE_BIN: fakeResched, ORION_REACH_BIN: fakeReach };
   const tick = () => spawnSync(process.execPath, [join(W, "scripts/orion-proactive"), "tick"], { encoding: "utf8", env, timeout: 120000 });
   assert.equal(tick().status, 0);
   tick();
-  const asked = readFileSync(join(home, "reach.log"), "utf8").trim().split("\n").filter((l) => /Skip Gym today/.test(l));
-  assert.equal(asked.length, 1, "asked once, not every tick");
+  const calls = readFileSync(join(home, "resched.log"), "utf8").trim().split("\n");
+  assert.equal(calls.length, 1, "the fill is not retried on the next tick");
+  assert.match(calls[0], /fill --anchors --auto/, "it asks for the automatic fill, which sends the one message itself");
+  const reached = existsSync(join(home, "reach.log")) ? readFileSync(join(home, "reach.log"), "utf8") : "";
+  assert.doesNotMatch(reached, /gym/i, "proactive itself asks nothing about the gym");
 });

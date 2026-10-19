@@ -48,6 +48,7 @@
 // with people never do. Every change is written to Apple Calendar and can be undone.
 import { calendarEvents, toBlocks, allDayTitles, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
 import { replan } from "./lib/life/replan.mjs";
+import { bumpAnchors, noRoomWhy } from "./lib/life/bump.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
@@ -1011,8 +1012,16 @@ const soft = commuteWalls([...planningBlocks, ...add.filter((a) => a.fixed && Nu
 // each block at its own time or just after the one before plus the gap, past
 // anything fixed. Blocks with room keep their time; nothing is flung to a far gap
 // (the incremental mode evicted one block at a time — dinner went to 22:33).
-// The morning anchor fill (the gym) only ADDS where it fits: it never moves, shrinks or removes one of his blocks. If it
-// does not fit, nothing is written and the caller asks him once (skip it today, or drop the lowest-ranked block).
+// The morning anchor fill (the gym): where it fits, it only ADDS. Where it does not, it bumps strictly lower-ranked blocks
+// (move later first, then remove; bump.mjs) and tells him once; with no room even then, nothing is written and he is told why.
+// One message to Nick through orion-reach, only for an automatic fill (--auto, passed by orion-proactive): when he asks for
+// the fill himself, the reply already says it. Guarded like touchDirty: a test bridge or an evaluation sandbox never reaches
+// the real `open orion://reach` (ORION_REACH_BIN is the seam).
+function tellNick(text) {
+  const mayReach = args.includes("--auto") && (process.env.ORION_REACH_BIN || (!process.env.ORION_BRIDGE_BIN && !sandbox()));
+  if (mayReach) spawnSync(process.env.ORION_REACH_BIN || joinPath(fileURLToPath(new URL(".", import.meta.url)), "orion-reach"),
+    [text, "--kind", "update", "--why", "reality: fill"], { stdio: "ignore", timeout: 30000 });
+}
 const anchorsOnly = command === "fill" && args.includes("--anchors");
 let rebuilt = !replaceDay && !anchorsOnly;
 let basis = planningBlocks; let removedBase = removed;
@@ -1023,12 +1032,15 @@ let result = replan(planningBlocks, { now: nowMinute, window, blocked, soft, add
 // whole remaining movable day before bothering Nick: fixed commitments stay as
 // walls, then must-haves, ordinary work and optional fillers are laid down.
 if (anchorsOnly && (result.unplaced.length || result.moves.some((m) => m.to !== m.from) || removed.length)) {
-  const titles = add.map((a) => a.title).join(", ");
-  const cheapest = blocks.filter((b) => (!b.fixed || b.pinned) && b.start > nowMinute && b.kind !== "sleep")
-    .sort((a, b) => weightOf(b, config).score - weightOf(a, config).score || b.start - a.start)[0];
-  console.log(`NOTHING WAS CHANGED: ${titles} does not fit on ${dayName} without moving something.`);
-  console.log(`  ASK: skip ${titles} today, or drop ${cheapest ? `${cheapest.title} (${hhmm(cheapest.start)}–${hhmm(cheapest.end)})` : "something"}?`);
-  process.exit(1);
+  const bump = bumpAnchors(planningBlocks, add, { now: nowMinute, window, blocked, soft, buffer: config.bufferMinutes, config });
+  if (!bump.ok) {
+    const why = noRoomWhy(bump.ask, { blocks: planningBlocks, window, now: nowMinute, blocked, soft }, hhmm);
+    console.log(`NOTHING WAS CHANGED: ${bump.ask.title} does not fit on ${dayName} even with every lower-ranked block moved or removed.`);
+    console.log(`  NO ROOM: ${why}`);
+    if (!dry) tellNick(why);
+    process.exit(1);
+  }
+  result = bump.result; squeezed = bump.removed; removed = [...removed, ...squeezed];
 }
 if (command === "day" && !replaceDay && !rebuilt && result.unplaced.length) {
   rebuilt = true;
@@ -1117,11 +1129,13 @@ if (!dry && (command === "fill" || args.includes("--fill")) && (squeezed.length 
     ...result.moves.filter((m) => m.to !== m.from).map((m) => `moved ${m.title} from ${clockOf(m.from)} to ${clockOf(m.to)}`),
     ...squeezed.map((b) => `took ${b.title} (${clockOf(b.start)}-${clockOf(b.end)}) off today`),
   ];
-  // Only for an automatic fill (--auto, passed by orion-proactive): when Nick asks for the fill, the reply already says it.
-  // Guarded like touchDirty: a test bridge or an evaluation sandbox never reaches the real `open orion://reach` (ORION_REACH_BIN is the seam).
-  const mayReach = args.includes("--auto") && (process.env.ORION_REACH_BIN || (!process.env.ORION_BRIDGE_BIN && !sandbox()));
-  if (mayReach) spawnSync(process.env.ORION_REACH_BIN || joinPath(fileURLToPath(new URL(".", import.meta.url)), "orion-reach"),
-    [`To fit ${made} I ${said.join(" and ")}.`, "--kind", "update", "--why", "reality: fill"], { stdio: "ignore", timeout: 30000 });
+  // The anchor fill says it in the order he wants it: what was fitted, what moved, what came off.
+  const fitted = result.created.map((c) => `${c.title} ${hhmm(c.start)}–${hhmm(c.end)}`).join(" and ");
+  const movedTo = result.moves.filter((m) => m.to !== m.from).map((m) => `${m.title} to ${hhmm(m.to)}`);
+  const dropped = squeezed.map((b) => `${b.title} ${hhmm(b.start)}`);
+  tellNick(anchorsOnly
+    ? `Fitted ${fitted}.${movedTo.length ? ` Moved: ${movedTo.join(", ")}.` : ""}${dropped.length ? ` Dropped: ${dropped.join(", ")}.` : ""}`
+    : `To fit ${made} I ${said.join(" and ")}.`);
 }
 // 2026-09-29: "could not fit side project today" came back and ORION told Nick
 // it was booked for Wednesday. The headline now says what was and was not written.

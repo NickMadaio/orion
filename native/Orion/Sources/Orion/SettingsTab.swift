@@ -16,6 +16,7 @@ struct SettingsTab: View {
     /// Messages database actually opened. See PermissionsAudit.
     let messagesAccess: MessagesReader.Access
     var onRecheck: () -> Void
+    @ObservedObject var state: AppState
 
     /// Gate 10's switches, which had no surface at all until now.
     @ObservedObject var focusExtras: FocusExtras
@@ -44,6 +45,7 @@ struct SettingsTab: View {
                 section("Surface") { surface }
                 section("Orion core") { core }
                 section("Quick open") { quickOpen }
+                section("Push to talk") { PushToTalkSettingsView(state: state) }
                 section("Voice timing") { voice }
             }
             .frame(width: 380)
@@ -230,7 +232,7 @@ struct SettingsTab: View {
         }
     }
 
-    private var states: [PermissionState] { PermissionsAudit.all(messages: messagesAccess) }
+    private var states: [PermissionState] { PermissionsAudit.all(messages: messagesAccess, pushToTalkEnabled: state.pushToTalk.enabled) }
     private var grantedCount: Int { states.filter { $0.status == .granted }.count }
 
     // MARK: - Calendars

@@ -62,7 +62,7 @@ final class AppState: ObservableObject {
     // MARK: Published surface
 
     @Published private(set) var phase: OrionPhase = .idle
-    @Published private(set) var statusLine = "Hold Right Option to talk"
+    @Published private(set) var statusLine = PushToTalkSettings.load().idleHint
     @Published private(set) var turns: [Turn] = []
     @Published private(set) var heard = ""
     @Published var composer = ""
@@ -196,6 +196,19 @@ final class AppState: ObservableObject {
     /// Edge length of the orb. `onSizeChanged` is set by the app delegate,
     /// which owns the panel — `AppState` deliberately knows nothing about
     /// windows.
+    /// Push-to-talk key, mode and on/off. Persisted on every change and pushed
+    /// to the live key monitor through `onPushToTalkChanged`, so nothing needs
+    /// a relaunch.
+    @Published var pushToTalk: PushToTalkConfig = PushToTalkSettings.load() {
+        didSet {
+            guard pushToTalk != oldValue else { return }
+            PushToTalkSettings.save(pushToTalk)
+            onPushToTalkChanged?(oldValue, pushToTalk)
+            if phase == .idle { statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint }
+        }
+    }
+    var onPushToTalkChanged: ((PushToTalkConfig, PushToTalkConfig) -> Void)?
+
     @Published var orbSize: Double = SummonSettings.orbSize {
         didSet {
             SummonSettings.orbSize = orbSize
@@ -784,7 +797,7 @@ final class AppState: ObservableObject {
         guard origin.allowsSpeech else {
             conversationOpen = false
             setPhase(.idle)
-            statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+            statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
             return
         }
         // Only a question whose answer is needed is asked twice; a chatty or rhetorical "?" in a reply is not (review 8).
@@ -1129,7 +1142,7 @@ final class AppState: ObservableObject {
                 return
             }
             self.setPhase(.idle)
-            self.statusLine = "Hold Right Option to talk"
+            self.statusLine = self.pushToTalk.idleHint
         }
         speechOutput.onNotice = { [weak self] message in
             self?.append(.system, message)
@@ -1520,7 +1533,7 @@ final class AppState: ObservableObject {
         OrionLog.write("[think] watchdog recovered a stuck thinking phase — \(reason)")
         askGeneration += 1
         setPhase(.idle)
-        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
         append(.system, "That question never came back — the agent stopped answering. Ask again.")
     }
 
@@ -1547,7 +1560,7 @@ final class AppState: ObservableObject {
                 self.beginListening(handsFree: true, followUp: true)
             }
         } else {
-            statusLine = "Hold Right Option to talk"
+            statusLine = pushToTalk.idleHint
         }
     }
 
@@ -1559,7 +1572,7 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
             guard let self, self.phase == .error else { return }
             self.setPhase(.idle)
-            self.statusLine = "Hold Right Option to talk"
+            self.statusLine = self.pushToTalk.idleHint
         }
     }
 
@@ -1573,7 +1586,7 @@ final class AppState: ObservableObject {
 
     // MARK: Talking
 
-    /// Right Option pressed.
+    /// Push-to-talk key pressed.
     /// Start a turn.
     ///
     /// `handsFree` marks a turn the wake word began. Push-to-talk has a key
@@ -1761,7 +1774,7 @@ final class AppState: ObservableObject {
             return
         }
         setPhase(.idle)
-        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
     }
 
     // MARK: Endpointing — preserving a cut-off transcript
@@ -1866,7 +1879,7 @@ final class AppState: ObservableObject {
         if pausedGeneration != nil {
             append(.system, "Still working on that — one more moment.")
             setPhase(.idle)
-            statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+            statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
             return
         }
         if let interrupted = interruptedReplyText {
@@ -1876,11 +1889,11 @@ final class AppState: ObservableObject {
             return
         }
         setPhase(.idle)
-        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
         append(.system, "There's nothing to continue.")
     }
 
-    /// Right Option released.
+    /// Push-to-talk key released.
     /// Escape, or "Done", while he is talking: the turn is over now. No waiting
     /// out the silence window (6 Oct 2026: "let me hit escape or something").
     func finishTurnNow() {
@@ -1939,7 +1952,7 @@ final class AppState: ObservableObject {
         askGeneration += 1
         OrionLog.write("[think] cancelled by user — \(reason)")
         setPhase(.idle)
-        statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Hold Right Option to talk"
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
         append(.system, "Cancelled — stopped waiting for that one. (Anything it already started may still finish in the background.)")
         agentQueue.async {
             _ = GatewayClient.cancelInFlight(reason: reason)

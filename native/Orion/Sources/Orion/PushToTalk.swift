@@ -2,167 +2,208 @@ import AppKit
 import Foundation
 
 /*
- Global push-to-talk on Right Option, and on Left Option held alone (6 Oct 2026).
+ Global push-to-talk. Which key it listens for, and whether it listens at all,
+ comes from `PushToTalkConfig`; the rules that turn key events into turns live
+ in `PushToTalkEngine`, which has no AppKit state and is unit tested.
 
- Right Option specifically, because left and right Option share the `.option`
- modifier flag — the only way to tell them apart from an `NSEvent` is the key
- code, which is 61 for the right-hand key (58 is the left). So: keyCode 61 AND
- the `.option` flag rising means "held", keyCode 61 with the flag cleared means
- "released".
+ This class owns the monitors. When push-to-talk is off it installs none of the
+ key monitors, so no Option-key (or any other key) events reach Orion for it.
+ A local Escape handler remains so Escape still dismisses Orion's own windows;
+ it only sees keystrokes typed into Orion, never other apps.
 
- A global monitor sees the key while another app is frontmost, but never while
- Orion itself is focused; a local monitor covers exactly that gap. Both are
- needed, and the down/up state machine de-duplicates the overlap.
-
- The global monitor requires Accessibility permission. Without it macOS simply
- never calls us, which is why `AppState` checks `AXIsProcessTrusted` and says so
- instead of leaving the user pressing a dead key.
+ A global monitor sees keys while another app is frontmost, but never while
+ Orion itself is focused; a local monitor covers that gap, and the engine is
+ edge-triggered so the overlap cannot double-fire. Global monitors need
+ Accessibility permission, without which macOS never calls us.
  */
+
+/// Where key events come from. The live implementation wraps `NSEvent`; tests
+/// substitute a fake and count what was installed.
+protocol PTTEventSource: AnyObject {
+    func addGlobal(_ kinds: Set<PTTEvent.Kind>, handler: @escaping (PTTEvent) -> Void) -> Any?
+    /// The handler returns true to swallow the event.
+    func addLocal(_ kinds: Set<PTTEvent.Kind>, handler: @escaping (PTTEvent) -> Bool) -> Any?
+    func remove(_ token: Any)
+}
+
+final class LivePTTEventSource: PTTEventSource {
+
+    private static func mask(_ kinds: Set<PTTEvent.Kind>) -> NSEvent.EventTypeMask {
+        var mask: NSEvent.EventTypeMask = []
+        if kinds.contains(.flagsChanged) { mask.insert(.flagsChanged) }
+        if kinds.contains(.keyDown) { mask.insert(.keyDown) }
+        if kinds.contains(.keyUp) { mask.insert(.keyUp) }
+        return mask
+    }
+
+    private static func convert(_ event: NSEvent) -> PTTEvent? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        switch event.type {
+        case .flagsChanged: return PTTEvent(kind: .flagsChanged, keyCode: event.keyCode, flags: flags)
+        case .keyDown: return PTTEvent(kind: .keyDown, keyCode: event.keyCode, flags: flags, isRepeat: event.isARepeat)
+        case .keyUp: return PTTEvent(kind: .keyUp, keyCode: event.keyCode, flags: flags)
+        default: return nil
+        }
+    }
+
+    func addGlobal(_ kinds: Set<PTTEvent.Kind>, handler: @escaping (PTTEvent) -> Void) -> Any? {
+        NSEvent.addGlobalMonitorForEvents(matching: Self.mask(kinds)) { event in
+            if let converted = Self.convert(event) { handler(converted) }
+        }
+    }
+
+    func addLocal(_ kinds: Set<PTTEvent.Kind>, handler: @escaping (PTTEvent) -> Bool) -> Any? {
+        NSEvent.addLocalMonitorForEvents(matching: Self.mask(kinds)) { event in
+            guard let converted = Self.convert(event) else { return event }
+            return handler(converted) ? nil : event
+        }
+    }
+
+    func remove(_ token: Any) { NSEvent.removeMonitor(token) }
+}
+
 final class PushToTalkMonitor {
 
-    static let rightOptionKeyCode: UInt16 = 61
-    static let leftOptionKeyCode: UInt16 = 58
-    /// Left Option is half of every ⌥-shortcut, so it only counts as
-    /// push-to-talk when held on its own this long with no other key pressed
-    /// (6 Oct 2026: "while pressing option can we make that push to talk").
-    static let leftOptionHold: TimeInterval = 0.3
     static let escapeKeyCode: UInt16 = 53
 
     var onPressed: (() -> Void)?
     var onReleased: (() -> Void)?
     var onEscape: (() -> Void)?
 
-    private var globalFlagsMonitor: Any?
-    private var localFlagsMonitor: Any?
-    private var globalEscapeMonitor: Any?
-    private var isHeld = false
-    /// Which Option key started the current hold, so the other one cannot end it.
-    private var heldKeyCode: UInt16?
-    private var leftPending: DispatchWorkItem?
-    /// Installed only while Left Option is down, to spot a ⌥-shortcut.
-    private var shortcutWatch: Any?
-    private var localShortcutWatch: Any?
+    private let source: PTTEventSource
+    private let schedule: (TimeInterval, @escaping () -> Void) -> () -> Void
 
-    var isRunning: Bool { globalFlagsMonitor != nil || localFlagsMonitor != nil }
+    private var engine = PushToTalkEngine(config: .default)
+    private var keyTokens: [Any] = []
+    private var watchTokens: [Any] = []
+    private var localEscapeToken: Any?
+    private var globalEscapeToken: Any?
+    private var cancelTimer: (() -> Void)?
 
-    func start() {
-        stop()
+    /// True only while the key monitors are installed.
+    var isRunning: Bool { !keyTokens.isEmpty }
 
-        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handleFlags(event)
+    /// `schedule` runs a closure after a delay and returns a cancel function.
+    init(source: PTTEventSource = LivePTTEventSource(),
+         schedule: @escaping (TimeInterval, @escaping () -> Void) -> () -> Void = PushToTalkMonitor.dispatchSchedule) {
+        self.source = source
+        self.schedule = schedule
+    }
+
+    static let dispatchSchedule: (TimeInterval, @escaping () -> Void) -> () -> Void = { delay, work in
+        let item = DispatchWorkItem(block: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        return { item.cancel() }
+    }
+
+    /// Applies settings live: tears down whatever was installed, then installs
+    /// only what the new configuration needs. Disabled installs nothing.
+    func apply(_ config: PushToTalkConfig) {
+        let output = engine.reconfigure(config)
+        removeKeyMonitors()
+        dispatch(output)
+        installLocalEscape()
+
+        guard config.isActive, let binding = config.binding else { return }
+
+        var kinds: Set<PTTEvent.Kind> = [.flagsChanged]
+        if !binding.isModifierOnly { kinds.formUnion([.keyDown, .keyUp]) }
+
+        if let token = source.addGlobal(kinds, handler: { [weak self] in self?.feed($0) }) {
+            keyTokens.append(token)
         }
-
-        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
-            guard let self else { return event }
-            if event.type == .flagsChanged {
-                self.handleFlags(event)
-            } else if event.type == .keyDown, event.keyCode == PushToTalkMonitor.escapeKeyCode {
-                self.onEscape?()
-                return nil
-            }
-            return event
+        if let token = source.addLocal(kinds, handler: { [weak self] event in
+            self?.feed(event)
+            return false
+        }) {
+            keyTokens.append(token)
         }
     }
 
     func stop() {
-        if let monitor = globalFlagsMonitor { NSEvent.removeMonitor(monitor) }
-        if let monitor = localFlagsMonitor { NSEvent.removeMonitor(monitor) }
-        globalFlagsMonitor = nil
-        localFlagsMonitor = nil
+        dispatch(engine.reconfigure(PushToTalkConfig(enabled: false)))
+        removeKeyMonitors()
+        if let token = localEscapeToken { source.remove(token) }
+        localEscapeToken = nil
         setGlobalEscapeWatch(false)
-        cancelLeftPending()
-        isHeld = false
-        heldKeyCode = nil
     }
 
-    /// Only installed while Orion is speaking, so the app is not watching every
-    /// keystroke on the machine for the sake of one barge-in key.
+    /// Only installed while Orion has something to dismiss, so the app is not
+    /// watching every keystroke on the machine for the sake of one key.
     func setGlobalEscapeWatch(_ enabled: Bool) {
         if enabled {
-            guard globalEscapeMonitor == nil else { return }
-            globalEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard globalEscapeToken == nil else { return }
+            globalEscapeToken = source.addGlobal([.keyDown]) { [weak self] event in
                 guard event.keyCode == PushToTalkMonitor.escapeKeyCode else { return }
                 self?.onEscape?()
             }
         } else {
-            if let monitor = globalEscapeMonitor { NSEvent.removeMonitor(monitor) }
-            globalEscapeMonitor = nil
+            if let token = globalEscapeToken { source.remove(token) }
+            globalEscapeToken = nil
         }
     }
 
-    private func handleFlags(_ event: NSEvent) {
-        if event.keyCode == PushToTalkMonitor.leftOptionKeyCode {
-            handleLeftOption(event)
-            return
-        }
-        guard event.keyCode == PushToTalkMonitor.rightOptionKeyCode else { return }
-        let down = event.modifierFlags.contains(.option)
-        if heldKeyCode == PushToTalkMonitor.leftOptionKeyCode { return }
+    // MARK: Internals
 
-        // Monitors can double-report when Orion is frontmost (the local and
-        // global monitor both fire), so transitions are edge-triggered.
-        if down {
-            guard !isHeld else { return }
-            isHeld = true
-            heldKeyCode = PushToTalkMonitor.rightOptionKeyCode
+    private func installLocalEscape() {
+        guard localEscapeToken == nil else { return }
+        localEscapeToken = source.addLocal([.keyDown]) { [weak self] event in
+            guard event.keyCode == PushToTalkMonitor.escapeKeyCode else { return false }
+            self?.onEscape?()
+            return true
+        }
+    }
+
+    private func feed(_ event: PTTEvent) {
+        dispatch(engine.handle(event))
+    }
+
+    private func dispatch(_ output: PushToTalkEngine.Output) {
+        switch output {
+        case .none:
+            break
+        case .press:
+            endPending()
             onPressed?()
-        } else {
-            guard isHeld else { return }
-            isHeld = false
-            heldKeyCode = nil
+        case .release:
+            endPending()
             onReleased?()
-        }
-    }
-
-    // MARK: Left Option — hold alone, then talk
-
-    private func handleLeftOption(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let down = flags.contains(.option)
-        if down {
-            // ⌥ with ⌘/⌃/⇧ already held is a shortcut, never a turn.
-            guard !isHeld, leftPending == nil,
-                  flags.isDisjoint(with: [.command, .control, .shift]) else { return }
+        case .startPending(let delay):
             watchForShortcut()
-            let pending = DispatchWorkItem { [weak self] in
-                guard let self, self.leftPending != nil else { return }
-                self.leftPending = nil
-                self.isHeld = true
-                self.heldKeyCode = PushToTalkMonitor.leftOptionKeyCode
-                self.onPressed?()
+            cancelTimer = schedule(delay) { [weak self] in
+                guard let self else { return }
+                self.cancelTimer = nil
+                self.dispatch(self.engine.pendingElapsed())
             }
-            leftPending = pending
-            DispatchQueue.main.asyncAfter(deadline: .now() + PushToTalkMonitor.leftOptionHold, execute: pending)
-        } else {
-            let wasHeld = isHeld && heldKeyCode == PushToTalkMonitor.leftOptionKeyCode
-            cancelLeftPending()
-            guard wasHeld else { return }
-            isHeld = false
-            heldKeyCode = nil
-            onReleased?()
+        case .cancelPending:
+            endPending()
         }
     }
 
-    /// Any key or another modifier while Left Option waits means a shortcut.
+    /// Listens for ordinary keys only while a hold is pending, to spot Option+letter.
     private func watchForShortcut() {
-        let cancel: (NSEvent) -> Void = { [weak self] event in
-            guard let self, self.leftPending != nil else { return }
-            if event.type == .keyDown || event.keyCode != PushToTalkMonitor.leftOptionKeyCode {
-                self.cancelLeftPending()
-            }
+        guard watchTokens.isEmpty else { return }
+        if let token = source.addGlobal([.keyDown], handler: { [weak self] in self?.feed($0) }) {
+            watchTokens.append(token)
         }
-        shortcutWatch = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged], handler: cancel)
-        localShortcutWatch = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-            cancel(event); return event
+        if let token = source.addLocal([.keyDown], handler: { [weak self] event in
+            self?.feed(event)
+            return false
+        }) {
+            watchTokens.append(token)
         }
     }
 
-    private func cancelLeftPending() {
-        leftPending?.cancel()
-        leftPending = nil
-        if let monitor = shortcutWatch { NSEvent.removeMonitor(monitor) }
-        if let monitor = localShortcutWatch { NSEvent.removeMonitor(monitor) }
-        shortcutWatch = nil
-        localShortcutWatch = nil
+    private func endPending() {
+        cancelTimer?()
+        cancelTimer = nil
+        watchTokens.forEach(source.remove)
+        watchTokens = []
+    }
+
+    private func removeKeyMonitors() {
+        endPending()
+        keyTokens.forEach(source.remove)
+        keyTokens = []
     }
 }

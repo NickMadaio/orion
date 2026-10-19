@@ -95,7 +95,7 @@ enum OrionLog {
             write("     Reset it:  tccutil reset Microphone com.nickmadaio.orion.app")
         }
         if ax == "NOT TRUSTED" {
-            write("  -> Without Accessibility the Right Option monitor never fires,")
+            write("  -> Without Accessibility the push-to-talk key monitor never fires,")
             write("     so pressing it produces no event at all. Nothing to see.")
         }
     }

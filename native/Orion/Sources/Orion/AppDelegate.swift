@@ -119,13 +119,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pushToTalk.onPressed = { [weak self] in self?.state.beginListening() }
         pushToTalk.onReleased = { [weak self] in self?.state.endListening() }
         pushToTalk.onEscape = { [weak self] in self?.handleEscape() }
-        pushToTalk.start()
+        pushToTalk.apply(state.pushToTalk)
+        state.onPushToTalkChanged = { [weak self] old, new in
+            guard let self else { return }
+            self.pushToTalk.apply(new)
+            // Turning it on is the one moment worth asking for Accessibility.
+            if new.enabled, !old.enabled, !Permissions.accessibilityTrusted {
+                Permissions.promptForAccessibility()
+            }
+            self.state.refreshPermissions()
+            self.menuBarController.refresh()
+        }
 
         state.start()
 
         // Accessibility cannot be granted from inside the app, so ask once at
         // first launch and let the panel banner carry it from there.
-        if !Permissions.accessibilityTrusted {
+        // Nothing to ask for while push-to-talk is off.
+        if state.pushToTalk.enabled, !Permissions.accessibilityTrusted {
             Permissions.promptForAccessibility()
         }
 

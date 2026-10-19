@@ -61,8 +61,12 @@ struct PermissionState: Identifiable {
 
 enum PermissionsAudit {
 
-    static func all(messages: MessagesReader.Access) -> [PermissionState] {
-        [microphone, speech, accessibility, calendars, reminders, contacts, fullDisk(messages)]
+    /// Accessibility is listed only when push-to-talk is on, since the key
+    /// monitor is the only thing that needs it.
+    static func all(messages: MessagesReader.Access,
+                    pushToTalkEnabled: Bool = PushToTalkSettings.load().enabled) -> [PermissionState] {
+        let list = [microphone, speech, accessibility, calendars, reminders, contacts, fullDisk(messages)]
+        return pushToTalkEnabled ? list : list.filter { $0.id != "accessibility" }
     }
 
     private static var microphone: PermissionState {
@@ -75,7 +79,7 @@ enum PermissionsAudit {
         return PermissionState(
             id: "microphone",
             name: "Microphone",
-            purpose: "Hearing you when you hold Right Option, and the wake word.",
+            purpose: "Hearing you when you use push-to-talk, and the wake word.",
             status: status,
             requestable: true,
             settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
@@ -105,7 +109,7 @@ enum PermissionsAudit {
         PermissionState(
             id: "accessibility",
             name: "Accessibility",
-            purpose: "Watching for the Right Option key. Without it the key press never reaches Orion at all.",
+            purpose: "Watching for the push-to-talk key. Without it the key press never reaches Orion at all.",
             status: Permissions.accessibilityTrusted ? .granted : .notAsked,
             requestable: false,
             settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"

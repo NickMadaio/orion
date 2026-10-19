@@ -518,6 +518,7 @@ struct DashboardView: View {
                             connections: connections, agenda: agenda,
                             messagesAccess: messages.access,
                             onRecheck: { messages.refresh() },
+                            state: state,
                             focusExtras: state.focusExtras,
                             capabilities: capabilities,
                             focusControl: state.focusControl,

@@ -117,7 +117,8 @@ function displacedTags(created, displaced) {
   return (d?.block.tags ?? []).filter((t) => t !== "logged");
 }
 
-/** The same re-weigh for a block that will not happen (cancelled, given up on): it leaves its slot and re-enters by weight. */
+/** The same re-weigh for a block that will not happen (cancelled, given up on): it leaves its slot and re-enters by weight.
+ *  A give-up is his doing whether or not it re-enters (reason gave-up); no-room is only for what ORION could not place. */
 export function planDisplace(blocks, block, opts) {
   const { date, now, window, soft = [], config = {}, buffer = 0, why, txn, at } = opts;
   const missed = Math.min(block.end - block.start, Math.max(block.end - Math.max(block.start, now), minimumFor(block.title, config.minimums ?? {})));
@@ -129,7 +130,7 @@ export function planDisplace(blocks, block, opts) {
   const bumped = result.unplaced.filter((u) => !u.displaced && byId.has(u.id)).map((u) => byId.get(u.id));
   const off = result.unplaced.some((u) => u.displaced);
   const slips = [...bumped.map((b) => slipRow({ date, at, block: b, missed: b.end - b.start, replacedBy: block.title, reason: `bumped:${block.title}`, txn, config })),
-    slipRow({ date, at, block, missed: displaced[0].minutes, replacedBy: null, reason: off ? "no-room" : why, txn, config })];
+    slipRow({ date, at, block, missed: displaced[0].minutes, replacedBy: null, reason: why === "gave-up" ? "gave-up" : off ? "no-room" : why, txn, config })];
   return { created: back, moves: result.moves.filter((m) => byId.has(m.id)), removed: [block, ...bumped], slips, bumped, placedAgain: back, offToday: off ? [block] : [],
     summary: displaceSummary({ block, back, bumped, off, why }) };
 }

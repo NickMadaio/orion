@@ -128,3 +128,5 @@ Marketing and Macro are at Devon House; DS and CS are at Portsoken. Match recent
 ## Check-ins
 
 “Still in the lab / need 30 more minutes” means extend/replan, not a new task titled “still in the lab”. “Eating/taking a break now” describes current activity, not a future start demand. Explicit check-back requests may create a check-in, but never assert the user has eaten or is home merely because a timer expired. Evaluation prompts must never create live check-ins or notifications.
+
+A line that starts "(for ORION only" in a script reply is a command for you to run, never something to say to him. When a to-do is cooling down, ask him the plain ASK question; if he answers "today", run that command.

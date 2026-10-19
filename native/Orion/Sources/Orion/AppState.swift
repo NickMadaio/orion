@@ -503,7 +503,8 @@ final class AppState: ObservableObject {
     /// speech finishes, listen for a few seconds as a follow-up.
     private var listenAfterReach = false
 
-    func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false, reachID: String? = nil, keepFor: TimeInterval = 120) {
+    func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false, reachID: String? = nil, keepFor: TimeInterval = 120,
+                      kind: String? = nil, deliveredToPhone: Bool = false) {
         append(.orion, text)
         if dashboardVisible?() == true {
             // The pop-up never layers over the open dashboard: put it in its chat.
@@ -518,10 +519,12 @@ final class AppState: ObservableObject {
         reachClear = clear
         DispatchQueue.main.asyncAfter(deadline: .now() + keepFor, execute: clear)
         OrionLog.write("[reach] \(aloud ? "aloud" : "silent bubble") — \(text.count) chars")
-        // A question he can hear (or a briefing that listens) is asked once more if it goes unanswered.
-        if (aloud || listen), listen || SpokenQuestionFollowUp.isQuestion(text) {
+        // Only a short ORION question he is waiting on is asked once more. A brief, summary or any
+        // narrative is never re-spoken (10-19), even when it listens and ends in a courtesy "?".
+        let isNarrativeKind = kind.map { SpokenQuestionFollowUp.narrativeKinds.contains($0.lowercased()) } ?? false
+        if (aloud || listen), !isNarrativeKind, SpokenQuestionFollowUp.needsAnswer(text) || (listen && SpokenQuestionFollowUp.isQuestion(text) && !SpokenQuestionFollowUp.isNarrative(text)) {
             OutreachReplyTo.current = reachID
-            questionFollowUp.arm(text: text, reachID: reachID)
+            questionFollowUp.arm(text: text, reachID: reachID, onPhone: deliveredToPhone)
         }
         guard aloud else { return }
         if loud {

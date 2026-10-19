@@ -655,7 +655,7 @@ function noteInboundTurn({ text, replyTo = null }) {
   try {
     const bin = process.env.ORION_INBOUND_BIN || join(dirname(fileURLToPath(import.meta.url)), "orion-inbound-turn");
     if (!existsSync(bin)) return;
-    spawnSync(process.execPath, [bin, ...(replyTo ? ["--reply-to", replyTo] : []), "--text", String(text ?? "").slice(0, 200)],
+    spawnSync(process.execPath, [bin, ...(replyTo ? ["--reply-to", replyTo] : []), "--source", "phone", "--text", String(text ?? "").slice(0, 200)],
       { timeout: 10000, stdio: "ignore", env: { ...process.env, ORION_CONTROLLED_DIR: CONTROLLED } });
   } catch { /* never blocks the turn */ }
 }

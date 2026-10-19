@@ -24,8 +24,8 @@ const GOING = new RegExp(`^${SUBJECT}(?:(?:going|gonna|heading|headed|off|about)
 const BARE = /^(?:(?:i'?m\s+)?(?:sleeping|going to sleep|going to bed|heading to bed) now|bed\s?time|time (?:for bed|to (?:go to )?(?:bed|sleep)))[\s!.]*$/i;
 const GOODNIGHT = /^(?:good\s?night|night night|nighty night|night|gn)(?:\s+(?:orion|everyone|all|nick|bud|buddy|man|dude|mate|friend))?[\s!.]*$/i;
 // what may follow the phrase: nothing that says "not now" (a time, a day, "on it", "early", "for 20 min", "after this")
-const TAIL_OK = new Set(["now", "for", "the", "night", "tonight", "nite", "orion", "ok", "okay", "then", "guys", "bye", "cya", "ttyl", "here"]);
-const tailOk = (tail) => tail.toLowerCase().split(/[^a-z0-9']+/).filter(Boolean).every((w) => TAIL_OK.has(w));
+const TAIL_OK = new Set(["now", "for", "the", "night", "tonight", "nite", "orion", "ok", "okay", "then", "guys", "bye", "cya", "ttyl", "here", "lol", "x", "xx", "gn"]);
+const tailOk = (tail) => tail.toLowerCase().replace(/[\p{Extended_Pictographic}\u200d\ufe0f!]/gu, " ").split(/[^a-z0-9']+/).filter(Boolean).every((w) => TAIL_OK.has(w));
 const FILLER = /^(?:ok(?:ay)?|so|well|alright|right|yeah|yep|now|anyway|aight)\s+/i;
 
 /** Is this message Nick saying he is going to sleep now? First person, present, immediate: not a question, a nap, a plan for later or a third person. */

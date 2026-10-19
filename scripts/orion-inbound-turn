@@ -8,7 +8,7 @@
    3. when the message answers an open curiosity ask (it carries --reply-to, or it is the first message after the newest ask
       within 90 min), runs `orion-proactive ask-outcome <askId> answered`, or `nothing` for "nothing really".
 
-   orion-inbound-turn [--reply-to <askId|outreach id>] [--text "<his message>"]
+   orion-inbound-turn [--reply-to <askId|outreach id>] [--source phone|mac] [--text "<his message>"]
 
  Best effort and silent: it never blocks or fails a chat turn. Seams (tests): ORION_CONTROLLED_DIR, ORION_REACH_NOW, ORION_PROACTIVE_BIN.
 */
@@ -31,13 +31,14 @@ const replyTo = /^[A-Za-z0-9._:-]{1,80}$/.test(flag("--reply-to") ?? "") ? flag(
 // First and on its own: a failure further down must never lose the declaration, and the declaration must not wait on them.
 // Saying goodnight before the evening review went sends it right then. The declaration is written FIRST (the phone path kills this
 // process after 10 s), and the review runs detached with a gate exemption, since the declaration would otherwise hold it.
+const source = flag("--source") === "phone" ? "phone" : "mac";   // the Mac app passes nothing; orion-remote passes --source phone
 function sendReviewFirst() {
   const date = now.toLocaleDateString("en-CA");
   const key = new Date(now.getTime() - 6 * 3600000).toLocaleDateString("en-CA");
   let state = {}; try { state = JSON.parse(readFileSync(join(DIR, "proactive-sent.json"), "utf8")); } catch {}
   if (state[key]?.[`review-${key}`] || !reviewNowOnGoodnight({ minute: now.getHours() * 60 + now.getMinutes(), date: key, today: date })) return;
   const bin = process.env.ORION_DAY_REVIEW_BIN || join(import.meta.dirname, "orion-day-review");
-  spawn(process.execPath, [bin, "--send", "--date", key, "--gate-exempt", "--mark-sent"], { detached: true, stdio: "ignore", env: process.env }).on("error", () => {}).unref();
+  spawn(process.execPath, [bin, "--send", "--date", key, "--gate-exempt", "--mark-sent", "--source", source], { detached: true, stdio: "ignore", env: process.env }).on("error", () => {}).unref();
 }
 try { noteInboundText({ dir: DIR, text: flag("--text"), now, bedtime: loadConfig().bedtime, afterDeclare: sendReviewFirst }); } catch { /* best effort */ }
 try {

@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { isBedtimeStatement, activeDeclaration } from "../scripts/lib/awareness/declared.mjs";
 import { tierOf, mayBeProtected } from "../scripts/lib/reach/budget.mjs";
@@ -28,13 +29,13 @@ test("1: with a slow review the declaration is written and orion-inbound-turn re
 });
 
 test("1: the detached review is exempt from the declaration's own hold, and only the review may be", () => {
-  const w = world({ day: 18, awOver: { sleep: { state: "asleep" } } });
+  const w = world({ day: 18 });
+  w.run("orion-inbound-turn", ["--text", "going to bed now"], 21, 40, { extra: { ORION_DAY_REVIEW_BIN: w.bin("noop", "exit 0") } });
   const review = ["Today: nothing.", "--kind", "update", "--why", "curiosity: review-2026-10-18", "--no-queue", "--channel", "phone"];
-  assert.equal(w.run("orion-reach", review, 21, 52, { over: { sleep: { state: "asleep" } } }).status, 0, "held: nothing delivered");
-  assert.equal(w.outreach().at(-1).channel, "hold");
-  const ok = w.run("orion-reach", [...review, "--gate-exempt"], 21, 53, { over: { sleep: { state: "asleep" } } });
-  assert.match(ok.stdout, /^Sent/);
-  const other = w.run("orion-reach", ["spam", "--kind", "info", "--why", "proactive: spam", "--gate-exempt"], 21, 54, { over: { sleep: { state: "asleep" } } });
+  w.run("orion-reach", review, 21, 52);
+  assert.equal(w.outreach().at(-1).channel, "hold", "held by the declaration");
+  assert.match(w.run("orion-reach", [...review, "--gate-exempt"], 21, 53).stdout, /^Sent/);
+  const other = w.run("orion-reach", ["spam", "--kind", "info", "--why", "proactive: spam", "--gate-exempt"], 21, 54);
   assert.doesNotMatch(other.stdout, /^Sent/, "a forged exemption holds like any other message");
 });
 
@@ -50,4 +51,40 @@ test("5: orion-reach ignores --kind reminder --tier protected from an arbitrary 
   w.appendOutreach(Array.from({ length: 21 }, (_, i) => ({ id: `n${i}`, at: at(17, 9, i).toISOString(), text: `n${i}`, kind: "info", why: `proactive: k${i}`, channel: "phone" })));
   const r = w.run("orion-reach", ["spam", "--kind", "reminder", "--why", "proactive: spam", "--tier", "protected"], 17, 0);
   assert.equal(r.status, 3);
+});
+
+test("2: 'going to bed lol', 'x', 'xx', 'gn', '!!' and an emoji still count; a time still does not", () => {
+  for (const t of ["going to bed lol", "going to bed x", "going to bed xx", "going to bed gn", "going to bed!!", "going to bed 😴", "heading to sleep 💤"]) assert.equal(isBedtimeStatement(t), true, t);
+  assert.equal(isBedtimeStatement("going to bed at 2 lol"), false);
+});
+
+const asleep = { sleep: { state: "asleep" } };
+test("1: the exemption lifts only the declared-sleep hold (not a focus session, not real quiet hours)", () => {
+  const w = world({ day: 18 });
+  w.run("orion-inbound-turn", ["--text", "going to bed now", "--source", "mac"], 21, 40, { extra: { ORION_DAY_REVIEW_BIN: w.bin("noop", "exit 0") } });
+  const review = ["Today: nothing.", "--kind", "update", "--why", "curiosity: review-2026-10-18", "--no-queue", "--channel", "phone", "--gate-exempt"];
+  w.run("orion-reach", review, 21, 41, { over: { session: { state: "focus" } } });
+  assert.equal(w.outreach().at(-1).channel, "hold", "a focus session still holds it, even with a declaration in force");
+  const w2 = world({ day: 18 });   // quiet hours without a declaration
+  w2.run("orion-reach", review, 21, 41, { over: asleep });
+  assert.equal(w2.outreach().at(-1).channel, "hold");
+});
+
+const reviewRows = (w) => w.outreach().filter((r) => /^curiosity: review-/.test(r.why ?? ""));
+const wait = (f) => { for (let i = 0; i < 60 && !f(); i++) spawnSync("sleep", ["0.25"]); };
+const AT_HOME_MAC = {};   // the fixture default: home, Mac active
+
+test("1: goodnight from the phone sends the review as a text to the phone, never spoken; from the Mac at home it may be spoken", () => {
+  const phone = world({ day: 18, awOver: AT_HOME_MAC });
+  phone.run("orion-inbound-turn", ["--text", "goodnight", "--source", "phone"], 21, 50);
+  wait(() => reviewRows(phone).length);
+  assert.equal(reviewRows(phone)[0].channel, "phone");
+  const mac = world({ day: 18, awOver: AT_HOME_MAC });
+  mac.run("orion-inbound-turn", ["--text", "goodnight"], 21, 50);
+  wait(() => reviewRows(mac).length);
+  assert.equal(reviewRows(mac)[0].channel, "mac-voice", "at the Mac at home the home rule allows speech");
+  const away = world({ day: 18, awOver: { location: { state: "unknown", placeId: null, homeKnown: true } } });
+  away.run("orion-inbound-turn", ["--text", "goodnight"], 21, 50);
+  wait(() => reviewRows(away).length);
+  assert.equal(reviewRows(away)[0].channel, "phone", "home unknown: a text, not speech");
 });

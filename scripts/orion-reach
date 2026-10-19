@@ -161,7 +161,10 @@ const aw = resolveAwareness({ dir: DIR, now, env: process.env, legacy: here, pro
 if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: "awake", source: "caller" };
 let verdict = gate(aw, { kind, urgentKind, now });
 // The review he is sent as he says goodnight must not be held by that very declaration (only the review may ask).
-if (args.includes("--gate-exempt") && /^curiosity: review-/.test(reason) && verdict.action === "hold") verdict = { action: "deliver", reason: "the day review, sent as he goes to bed" };
+// It lifts ONLY the declared-sleep hold: a focus session, a class or real quiet hours still hold it.
+if (args.includes("--gate-exempt") && /^curiosity: review-/.test(reason) && verdict.action === "hold" && verdict.heldFor === "quiet" && aw.sleep?.source === "declared") {
+  verdict = gate({ ...aw, sleep: { ...aw.sleep, state: "awake" } }, { kind, urgentKind, now });   // everything else (a session, a class) still decides
+}
 // --awake is proof he is up and at hand (his wake signal), so a calendar "in class" does not hold the brief for hours.
 if (args.includes("--awake") && verdict.heldFor === "class") verdict = { action: "deliver", reason: "he is up (the caller has proof); a class on the calendar does not hold it" };
 const heard = audienceOf(aw);

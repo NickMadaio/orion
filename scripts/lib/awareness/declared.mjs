@@ -18,21 +18,24 @@ const MIN = 60_000;
 
 const NEGATED = /\b(?:not|never|n't|won't|can't|cannot|before|until|unless|if i|when i|should i|do i)\b/i;
 const SUBJECT = "(?:(?:i'?m|im|i am|i'?ll|ill|i will|we'?re)\\s+)?(?:just\\s+)?";
-// a clause that IS the declaration: a first-person (or implied: it starts the clause) bed/sleep phrase, or a bare goodnight
-const GOING = new RegExp(`^${SUBJECT}(?:(?:going|gonna|heading|headed|off|about)\\s+(?:to\\s+)?(?:go\\s+)?(?:to\\s+)?(?:bed|sleep)|(?:hitting|hit) the (?:sack|hay)|calling it a night|signing off for the night|time for bed)\\b(.*)$`, "i");
-const GOODNIGHT = /^(?:good\s?night|night night|nighty night|gn)(?:\s+[a-z]{2,12})?[\s!.]*$/i;
-// a nap, or "later": not going to sleep now
-const NOT_NOW = /\bfor\s+(?:(?:a|an|one|two|few|couple|\d+)\s+)?(?:\w+\s+)?(?:min|mins|minutes?|hours?|hrs?|nap|bit|while)\b|\b(?:after|once|when|later|soon|in a (?:bit|while|minute)|in \d+)\b/i;
+// an immediate, first-person, present intent: the clause IS the declaration...
+const GOING = new RegExp(`^${SUBJECT}(?:(?:going|gonna|heading|headed|off|about)\\s+(?:to\\s+)?(?:(?:go|head)\\s+)?(?:to\\s+)?(?:bed|sleep)|(?:hitting|hit) the (?:sack|hay)|calling it a night|signing off for the night)\\b(.*)$`, "i");
+// ...or a bare statement of it
+const BARE = /^(?:(?:i'?m\s+)?(?:sleeping|going to sleep|going to bed|heading to bed) now|bed\s?time|time (?:for bed|to (?:go to )?(?:bed|sleep)))[\s!.]*$/i;
+const GOODNIGHT = /^(?:good\s?night|night night|nighty night|night|gn)(?:\s+(?:orion|everyone|all|nick|bud|buddy|man|dude|mate|friend))?[\s!.]*$/i;
+// what may follow the phrase: nothing that says "not now" (a time, a day, "on it", "early", "for 20 min", "after this")
+const TAIL_OK = new Set(["now", "for", "the", "night", "tonight", "nite", "orion", "ok", "okay", "then", "guys", "bye", "cya", "ttyl", "here"]);
+const tailOk = (tail) => tail.toLowerCase().split(/[^a-z0-9']+/).filter(Boolean).every((w) => TAIL_OK.has(w));
 const FILLER = /^(?:ok(?:ay)?|so|well|alright|right|yeah|yep|now|anyway|aight)\s+/i;
 
-/** Is this message Nick saying he is going to sleep now? A first-person statement only: not a question, a nap, "later", or a third person. */
+/** Is this message Nick saying he is going to sleep now? First person, present, immediate: not a question, a nap, a plan for later or a third person. */
 export function isBedtimeStatement(text) {
   const t = String(text ?? "").trim();
   if (!t || t.length > 90 || t.includes("?") || NEGATED.test(t)) return false;
   return t.split(/[,;.!\n]+|\s+(?:so|and|but)\s+/i).map((c) => c.trim().replace(FILLER, "").replace(FILLER, "")).filter(Boolean).some((c) => {
-    if (GOODNIGHT.test(c)) return true;
+    if (GOODNIGHT.test(c) || BARE.test(c)) return true;
     const m = GOING.exec(c);
-    return !!m && !NOT_NOW.test(m[1]);
+    return !!m && tailOk(m[1]);
   });
 }
 
@@ -79,10 +82,11 @@ export function activeDeclaration({ dir, now = new Date() }) {
 }
 
 /** A message from Nick: a bedtime statement declares sleep; any other message a while after one means he is up. */
-export function noteInboundText({ dir, text, now = new Date(), bedtime, beforeDeclare = null }) {
+export function noteInboundText({ dir, text, now = new Date(), bedtime, afterDeclare = null }) {
   if (isBedtimeStatement(text) && plausibleBedtime(now, bedtime)) {
-    try { beforeDeclare?.(); } catch { /* e.g. the review: never blocks the declaration */ }
-    declareSleep(dir, now); return "declared";
+    declareSleep(dir, now);
+    try { afterDeclare?.(); } catch { /* e.g. starting the review: never undoes the declaration */ }
+    return "declared";
   }
   const d = readJson(join(dir, FILE));
   const at = Date.parse(d?.at);

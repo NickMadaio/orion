@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isBedtimeStatement, noteInboundText, activeDeclaration } from "../scripts/lib/awareness/declared.mjs";
@@ -69,7 +70,6 @@ test("2: a fixed-destination leave line ('out the door now - Dinner with Sam') i
 test("11: --tier protected is honoured only for a reminder, a plan ladder or the review; any other caller is an ordinary message", () => {
   assert.equal(tierOf({ why: "proactive: x", kind: "info", tier: "protected" }), "normal");
   assert.equal(tierOf({ why: "curiosity: fill-blank-1", kind: "question", tier: "protected", askType: "fill-blank" }), "blank");
-  assert.equal(tierOf({ why: "plan: g1", kind: "info", tier: "protected" }), "low");
   assert.equal(tierOf({ why: "plan: g1", kind: "checkin", tier: "protected" }), "protected");
   assert.equal(tierOf({ why: "proactive: leave-late-1140", kind: "reminder", tier: "protected" }), "protected");
   assert.equal(tierOf({ why: "curiosity: review-2026-10-18", kind: "update" }), "protected");
@@ -89,9 +89,11 @@ test("4: 'goodnight orion' at 21:50 sends the review right then, before the decl
   const w = world({ day: 18, awOver: home });
   const r = w.run("orion-inbound-turn", ["--text", "goodnight orion"], 21, 50);
   assert.equal(r.status, 0, r.stderr);
+  for (let i = 0; i < 60 && !reviewRows(w).length; i++) spawnSync("sleep", ["0.25"]);   // the review runs detached
   const rows = reviewRows(w);
   assert.equal(rows.length, 1); assert.equal(rows[0].why, "curiosity: review-2026-10-18"); assert.equal(rows[0].status, undefined, "delivered, not held");
   assert.ok(activeDeclaration({ dir: w.dir, now: at(18, 21, 55) }), "and then he is asleep");
+  for (let i = 0; i < 20 && !sentState(w)["2026-10-18"]?.["review-2026-10-18"]; i++) spawnSync("sleep", ["0.25"]);
   assert.equal(sentState(w)["2026-10-18"]["review-2026-10-18"], true);
   w.tick(22, 5, { ...home, sleep: { state: "awake" } });
   assert.equal(reviewRows(w).length, 1, "not sent twice");

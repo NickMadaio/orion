@@ -18,9 +18,9 @@ const MIN = 60_000;
 const why = (r) => String(r?.why ?? "");
 
 /** The tier of one message. An explicit tier (a caller that knows the block's rank) wins, but cannot lower a protected case. */
-/** `--tier protected` is not trusted from any caller: only these internal ones may ask for it (a reminder, a class/leave line, a must block's ladder, the review). */
-export const mayBeProtected = ({ kind = null, why: reason = "" } = {}) =>
-  kind === "reminder" || (kind === "checkin" && /^plan:/.test(String(reason))) || /^curiosity: review-/.test(String(reason));
+/** `--tier protected` is not trusted from any caller: only internal `why` prefixes may ask for it (a must block's ladder, a class/leave line, the review, the reminders runner's own delivery). */
+export const mayBeProtected = ({ why: reason = "" } = {}) =>
+  /^(?:plan: |proactive: (?:leave|wake|class-missed)-|curiosity: review-|a reminder he asked for$)/.test(String(reason));
 
 export function tierOf({ why: reason = "", urgentKind = null, bypass = false, tier = null, askType = null, kind = null } = {}) {
   const w = String(reason ?? "");

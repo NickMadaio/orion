@@ -27,7 +27,7 @@
  --reason break|end|wake: with --drain-held, why it is being released (the gate still decides).
  --valid-until ISO: after this the message is pointless; a held copy is dropped, not released.
  --tier protected|low|blank|normal: the caller knows the block's rank. protected is honoured only for a reminder, a plan ladder
-   (--kind checkin, why plan:) or the review: any other kind asking for it is treated as an ordinary message.
+   or the review, identified by --why (plan:, proactive: leave-/wake-, curiosity: review-): any other caller asking for it is treated as an ordinary message.
  Delivery policy is one gate (lib/reach/gate.mjs, awareness spec 3.2): a break releases held messages, and the
  bubble always shows while speech needs him home or in headphones (3.4.4).
  Priority, not a flat ceiling (lib/reach/budget.mjs): a reminder he set, a class/leave rung, a must block (gym), the day
@@ -160,6 +160,8 @@ if (args.includes("--awake") && !dry) { try { clearDeclared(DIR); } catch {} }
 const aw = resolveAwareness({ dir: DIR, now, env: process.env, legacy: here, probe: !dry });
 if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: "awake", source: "caller" };
 let verdict = gate(aw, { kind, urgentKind, now });
+// The review he is sent as he says goodnight must not be held by that very declaration (only the review may ask).
+if (args.includes("--gate-exempt") && /^curiosity: review-/.test(reason) && verdict.action === "hold") verdict = { action: "deliver", reason: "the day review, sent as he goes to bed" };
 // --awake is proof he is up and at hand (his wake signal), so a calendar "in class" does not hold the brief for hours.
 if (args.includes("--awake") && verdict.heldFor === "class") verdict = { action: "deliver", reason: "he is up (the caller has proof); a class on the calendar does not hold it" };
 const heard = audienceOf(aw);

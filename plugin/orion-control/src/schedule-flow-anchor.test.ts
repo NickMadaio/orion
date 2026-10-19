@@ -54,11 +54,11 @@ describe("anchored add (r8)", () => {
     const a = await run("put a 20 minute stretch before 12:30 pm", [{ do: "add", what: "stretch", minutes: 20 }]);
     expect(a.calls.find((c) => c[0] === "add" && !c.includes("--dry-run"))).toEqual(["add", "stretch", "20", "--before", "12:30"]);
     const b = await run("add reading before the econ lecture", [{ do: "add", what: "reading", minutes: 20 }]);
-    expect(b.calls.find((c) => c[0] === "add" && !c.includes("--dry-run"))).toEqual(["add", "reading", "20", "--before", "15:30"]);
+    expect(b.calls.find((c) => c[0] === "add" && !c.includes("--dry-run"))).toEqual(["add", "reading", "30", "--before", "15:30"]); // no length in his words: the desk's 20 is dropped, the default applies
   });
 
   it("between two blocks anchors after the first and before the second", async () => {
-    const { calls } = await run("add reading between marketing and econ", [{ do: "add", what: "reading", minutes: 20 }]);
+    const { calls } = await run("add reading for 20 min between marketing and econ", [{ do: "add", what: "reading", minutes: 20 }]);
     expect(calls.find((c) => c[0] === "add" && !c.includes("--dry-run"))).toEqual(["add", "reading", "20", "--after", "MKTG2201 Introduction to Marketing — Lecture", "--before", "15:30"]);
   });
 

@@ -24,6 +24,10 @@ protocol PTTEventSource: AnyObject {
     /// The handler returns true to swallow the event.
     func addLocal(_ kinds: Set<PTTEvent.Kind>, handler: @escaping (PTTEvent) -> Bool) -> Any?
     func remove(_ token: Any)
+    /// Registers a system hot key for one exact combination, with press and
+    /// release callbacks. Returns nil if it could not be registered.
+    func registerHotKey(keyCode: UInt16, modifiers: NSEvent.ModifierFlags,
+                        onPressed: @escaping () -> Void, onReleased: @escaping () -> Void) -> Any?
 }
 
 final class LivePTTEventSource: PTTEventSource {
@@ -33,6 +37,7 @@ final class LivePTTEventSource: PTTEventSource {
         if kinds.contains(.flagsChanged) { mask.insert(.flagsChanged) }
         if kinds.contains(.keyDown) { mask.insert(.keyDown) }
         if kinds.contains(.keyUp) { mask.insert(.keyUp) }
+        if kinds.contains(.mouseDown) { mask.formUnion([.leftMouseDown, .rightMouseDown, .otherMouseDown]) }
         return mask
     }
 
@@ -42,6 +47,7 @@ final class LivePTTEventSource: PTTEventSource {
         case .flagsChanged: return PTTEvent(kind: .flagsChanged, keyCode: event.keyCode, flags: flags)
         case .keyDown: return PTTEvent(kind: .keyDown, keyCode: event.keyCode, flags: flags, isRepeat: event.isARepeat)
         case .keyUp: return PTTEvent(kind: .keyUp, keyCode: event.keyCode, flags: flags)
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown: return PTTEvent(kind: .mouseDown, keyCode: 0, flags: flags)
         default: return nil
         }
     }
@@ -59,7 +65,16 @@ final class LivePTTEventSource: PTTEventSource {
         }
     }
 
-    func remove(_ token: Any) { NSEvent.removeMonitor(token) }
+    func remove(_ token: Any) {
+        if let hotKey = token as? CarbonPTTHotKeys { hotKey.unregister() } else { NSEvent.removeMonitor(token) }
+    }
+
+    func registerHotKey(keyCode: UInt16, modifiers: NSEvent.ModifierFlags,
+                        onPressed: @escaping () -> Void, onReleased: @escaping () -> Void) -> Any? {
+        let hotKey = CarbonPTTHotKeys()
+        return hotKey.register(keyCode: keyCode, modifiers: modifiers, onPressed: onPressed, onReleased: onReleased)
+            ? hotKey : nil
+    }
 }
 
 final class PushToTalkMonitor {
@@ -69,6 +84,9 @@ final class PushToTalkMonitor {
     var onPressed: (() -> Void)?
     var onReleased: (() -> Void)?
     var onEscape: (() -> Void)?
+    /// A turn that had started was really a shortcut (Option held, then a key
+    /// or click). Drop it without delivering anything.
+    var onCancelled: (() -> Void)?
 
     private let source: PTTEventSource
     private let schedule: (TimeInterval, @escaping () -> Void) -> () -> Void
@@ -106,9 +124,32 @@ final class PushToTalkMonitor {
 
         guard config.isActive, let binding = config.binding else { return }
 
-        var kinds: Set<PTTEvent.Kind> = [.flagsChanged]
-        if !binding.isModifierOnly { kinds.formUnion([.keyDown, .keyUp]) }
+        switch binding {
+        case .modifier:
+            installFlagsMonitors()
+        case let .key(keyCode, modifiers):
+            // A system hot key sees only this combination, with press and
+            // release, and needs no keystroke monitor at all.
+            let hotKey = source.registerHotKey(
+                keyCode: keyCode, modifiers: modifiers,
+                onPressed: { [weak self] in
+                    self?.feed(PTTEvent(kind: .keyDown, keyCode: keyCode, flags: modifiers))
+                },
+                onReleased: { [weak self] in
+                    self?.feed(PTTEvent(kind: .keyUp, keyCode: keyCode, flags: modifiers))
+                })
+            if let hotKey {
+                keyTokens.append(hotKey)
+            } else {
+                // Taken by another app: fall back to the narrowest monitors that can work.
+                installFlagsMonitors(keys: true)
+            }
+        }
+    }
 
+    private func installFlagsMonitors(keys: Bool = false) {
+        var kinds: Set<PTTEvent.Kind> = [.flagsChanged]
+        if keys { kinds.formUnion([.keyDown, .keyUp]) }
         if let token = source.addGlobal(kinds, handler: { [weak self] in self?.feed($0) }) {
             keyTokens.append(token)
         }
@@ -164,10 +205,24 @@ final class PushToTalkMonitor {
             break
         case .press:
             endPending()
+            if engine.inGrace {
+                // Keep listening for a key or click for a moment: Option held,
+                // then a letter, is a shortcut and the turn must be dropped.
+                watchForShortcut()
+                cancelTimer = schedule(PushToTalkEngine.graceWindow) { [weak self] in
+                    guard let self else { return }
+                    self.cancelTimer = nil
+                    self.engine.graceElapsed()
+                    self.endPending()
+                }
+            }
             onPressed?()
         case .release:
             endPending()
             onReleased?()
+        case .cancelTurn:
+            endPending()
+            onCancelled?()
         case .startPending(let delay):
             watchForShortcut()
             cancelTimer = schedule(delay) { [weak self] in
@@ -180,13 +235,14 @@ final class PushToTalkMonitor {
         }
     }
 
-    /// Listens for ordinary keys only while a hold is pending, to spot Option+letter.
+    /// Listens for ordinary keys and clicks only while a hold is pending or has
+    /// just started, to spot Option+letter and Option+click.
     private func watchForShortcut() {
         guard watchTokens.isEmpty else { return }
-        if let token = source.addGlobal([.keyDown], handler: { [weak self] in self?.feed($0) }) {
+        if let token = source.addGlobal([.keyDown, .mouseDown], handler: { [weak self] in self?.feed($0) }) {
             watchTokens.append(token)
         }
-        if let token = source.addLocal([.keyDown], handler: { [weak self] event in
+        if let token = source.addLocal([.keyDown, .mouseDown], handler: { [weak self] event in
             self?.feed(event)
             return false
         }) {

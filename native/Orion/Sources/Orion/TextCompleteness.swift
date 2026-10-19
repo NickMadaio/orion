@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /*
@@ -28,6 +29,7 @@ enum TextCompleteness {
         if ",;:-\u{2013}\u{2014}/&(".contains(lastChar) { return false }
         // A quote, bracket, emphasis mark, emoji or a list item: complete unless the words themselves stop on a connective.
         let tail = trailingWord(of: stripDecoration(text))
+        if isListItem(lastLine(of: text)), listItemLooksCut(text, tail: tail) { return false }
         let decorated = lastChar != lastWordCharacter(of: text) || isListItem(lastLine(of: text))
         guard decorated else { return false }
         return !dangling.contains(tail.lowercased()) && !tail.isEmpty
@@ -67,6 +69,26 @@ enum TextCompleteness {
 
     private static func lastLine(of text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: true).last.map(String.init) ?? text
+    }
+
+    /// A final list item with no terminator is cut when its last word is not a
+    /// real word (stopped mid-word), or when the items above it end in full
+    /// stops and this one does not (a cut-off item in a punctuated list). A
+    /// complete short item ("- call the dentist") passes.
+    private static func listItemLooksCut(_ text: String, tail: String) -> Bool {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        let earlier = lines.dropLast().filter { isListItem($0) }
+        if !earlier.isEmpty, earlier.allSatisfy({ endsInTerminator($0.trimmingCharacters(in: .whitespacesAndNewlines)) }) {
+            return true
+        }
+        return isMisspelled(tail)
+    }
+
+    private static func isMisspelled(_ word: String) -> Bool {
+        guard word.count >= 3, word.allSatisfy({ $0.isLetter }) else { return false }
+        let range = NSSpellChecker.shared.checkSpelling(of: word, startingAt: 0, language: "en", wrap: false,
+                                                        inSpellDocumentWithTag: 0, wordCount: nil)
+        return range.location != NSNotFound
     }
 
     /// "- item", "* item", "\u{2022} item", "3. item", "2) item".

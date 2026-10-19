@@ -4,7 +4,7 @@ import Foundation
 /// One keyboard event, reduced to what push-to-talk needs, so the rules below
 /// run without an `NSEvent`.
 struct PTTEvent: Equatable {
-    enum Kind: Hashable { case flagsChanged, keyDown, keyUp }
+    enum Kind: Hashable { case flagsChanged, keyDown, keyUp, mouseDown }
 
     var kind: Kind
     var keyCode: UInt16
@@ -23,11 +23,20 @@ struct PushToTalkEngine {
         /// Start a timer; call `pendingElapsed()` when it fires.
         case startPending(TimeInterval)
         case cancelPending
+        /// A turn that already started turned out to be a shortcut (Option held
+        /// a moment, then a letter or click). Drop it silently, no result.
+        case cancelTurn
     }
+
+    /// How long after a turn starts a key or click still means "that was a
+    /// shortcut, not speech".
+    static let graceWindow: TimeInterval = 0.4
 
     private(set) var config: PushToTalkConfig
     private(set) var isHeld = false
     private(set) var isPending = false
+    /// True for `graceWindow` after a modifier-only turn starts.
+    private(set) var inGrace = false
     /// The key that started the current hold, so a different one cannot end it.
     private var activeKeyCode: UInt16?
     /// The previous flags event, so the global and local monitors reporting the
@@ -46,6 +55,7 @@ struct PushToTalkEngine {
         config = new
         isHeld = false
         isPending = false
+        inGrace = false
         activeKeyCode = nil
         lastFlags = nil
         if wasHeld { return .release }
@@ -67,15 +77,25 @@ struct PushToTalkEngine {
         guard isPending else { return .none }
         isPending = false
         isHeld = true
+        inGrace = true
         return .press
     }
+
+    /// The grace window closed; later keys and clicks are ordinary speech-time input.
+    mutating func graceElapsed() { inGrace = false }
 
     // MARK: Modifier alone
 
     private mutating func handleModifier(_ event: PTTEvent, flag: NSEvent.ModifierFlags,
                                          keyCodes: [UInt16]) -> Output {
         // Any ordinary key while waiting means a shortcut such as Option+letter.
-        if event.kind == .keyDown {
+        if event.kind == .keyDown || event.kind == .mouseDown {
+            if isHeld, inGrace {
+                // Held past the delay, then a letter or click: a shortcut after all.
+                isHeld = false
+                inGrace = false
+                return .cancelTurn
+            }
             return cancelPendingIfNeeded()
         }
         guard event.kind == .flagsChanged else { return .none }
@@ -103,11 +123,13 @@ struct PushToTalkEngine {
             return .startPending(delay)
         }
         isHeld = true
+        inGrace = true
         return .press
     }
 
     private mutating func endHold() -> Output {
         activeKeyCode = nil
+        inGrace = false
         if isHeld {
             isHeld = false
             return .release
@@ -146,6 +168,8 @@ struct PushToTalkEngine {
             guard !toggle, isHeld, event.keyCode == keyCode else { return .none }
             isHeld = false
             return .release
+        case .mouseDown:
+            return .none
         case .flagsChanged:
             // Letting go of the modifiers before the key ends a hold.
             guard !toggle, isHeld,

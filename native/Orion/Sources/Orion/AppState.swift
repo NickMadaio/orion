@@ -1903,6 +1903,18 @@ final class AppState: ObservableObject {
         endListening()
     }
 
+    /// Push-to-talk key turned out to be half of a shortcut (Option, then a
+    /// letter or click): drop the turn without sending or announcing anything.
+    func cancelListeningSilently() {
+        guard phase == .listening, speechInput.isRunning else { return }
+        OrionLog.write("[turn] dropped silently — push-to-talk key was part of a shortcut")
+        stopHandsFree()
+        speechInput.discardUtterance()
+        heard = ""
+        setPhase(.idle)
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
+    }
+
     func endListening() {
         guard speechInput.isRunning else { return }
         statusLine = "Thinking…"

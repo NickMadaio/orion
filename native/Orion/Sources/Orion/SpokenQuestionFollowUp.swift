@@ -65,15 +65,21 @@ struct SpokenQuestionFollowUp: Equatable {
         return out
     }
 
-    /// A brief, summary or any multi-paragraph / long output: a statement, however it ends. Never re-spoken.
+    /// A brief, summary or any long output: a statement, however it ends. Never re-spoken.
+    /// Newlines do not decide this: a short list followed by "Which one?" is still a question.
+    /// Length and sentence count keep briefs out.
     static func isNarrative(_ text: String) -> Bool {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.count > maxQuestionLength || clean.contains("\n") || sentences(clean).count > maxQuestionSentences
+        return clean.count > maxQuestionLength || sentences(clean).count > maxQuestionSentences
     }
 
     /// The last sentence that is a question: what is repeated, never the whole message.
+    /// Works line by line first, so list items above the question are not read out with it.
     static func finalQuestion(_ text: String) -> String? {
-        sentences(text).last(where: { isQuestion($0) })
+        for line in text.split(whereSeparator: \.isNewline).reversed() {
+            if let question = sentences(String(line)).last(where: { isQuestion($0) }) { return question }
+        }
+        return nil
     }
 
     /// True when the text, ignoring trailing quotes, emoji and spaces, ends in "?".

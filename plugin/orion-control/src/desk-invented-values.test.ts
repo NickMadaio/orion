@@ -58,6 +58,10 @@ describe("other flows: a desk- or extractor-invented value writes nothing", () =
     expect(plan).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
     const pills = await planReminder({ message: "remind me to take 2 pills", now: NIGHT, extract: async () => ({ time: "07:00", label: "take 2 pills" }), list: async () => [] });
     expect(pills).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
+    for (const said of ["remind me tonight to call mom", "remind me tomorrow to call mom", "remind me this morning to call mom"]) {
+      const day = await planReminder({ message: said, now: NIGHT, extract: async () => ({ time: "20:00", label: "call mom" }), list: async () => [] });
+      expect(day, said).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
+    }
     const named = await planReminder({ message: "remind me to take out the bins at 7am", now: NIGHT, extract: async () => ({ time: "07:00", label: "take out the bins" }), list: async () => [] });
     expect(named).toMatchObject({ kind: "call", action: "alarm_set" });
   });
@@ -75,6 +79,21 @@ describe("other flows: a desk- or extractor-invented value writes nothing", () =
     expect(writes).toEqual([]);
     expect(r).toMatchObject({ outcome: "say", kind: "ask" });
     expect((await schedule("move lunch to 1pm", "13:00")).writes).toEqual([["move", "lunch", "--to", "13:00"]]);
+  });
+
+  it("schedule: a course code is not a time; a desk add length is dropped for the default", async () => {
+    const { r, writes } = await schedule("move CS1800 review later", "07:00");
+    expect(writes).toEqual([]);
+    expect(r).toMatchObject({ outcome: "say", kind: "ask" });
+    const add = async (message: string) => {
+      const calls: string[][] = [];
+      await runScheduleFlow({ message, clock: "Mon 01:43", now: NIGHT,
+        exec: async (a) => { calls.push(a); return { stdout: a[0] === "show" ? JSON.stringify(day) : "Written to his calendar.", code: 0 }; },
+        ask: async () => ({ steps: [{ do: "add", what: "reading", minutes: 90 }] }) });
+      return calls.find((c) => c[0] === "add" && !c.includes("--dry-run"));
+    };
+    expect((await add("add reading please"))?.[2]).toBe("30");
+    expect((await add("add reading for 45 min"))?.[2]).toBe("90"); // his length is kept as the form gave it
   });
 
   it("session: a desk length is ignored, a desk task only when his words contain it", () => {

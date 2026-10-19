@@ -79,7 +79,7 @@ describe("a contradiction asks, and never touches a block he did not name (q098)
 
 // Review 2026-10-16: the guard refused real swaps and claimed an existing block was missing.
 describe("swaps are allowed; a refusal never says a block is missing when it is there (review MEDIUM)", () => {
-  for (const msg of ["skip lunch, i'll go for a walk instead", "cancel lunch and do a run at 6 instead", "not going to lunch, study instead", "skip lunch, count a walk instead"]) {
+  for (const msg of ["skip lunch, i'll go for a walk at 6 instead", "cancel lunch and do a run at 6 instead", "not going to lunch, study at 6 instead", "skip lunch, count a walk at 6 instead"]) {
     it(`"${msg}" may add`, async () => {
       const { writes } = await run(msg, [{ do: "drop", what: "B2" }, { do: "add", what: "walk", minutes: 20, to: "18:00" }]);
       expect(writes.map((w) => w[0])).toEqual(["drop", "add"]);
@@ -129,4 +129,19 @@ describe("skip-then-add of the same thing, a duration is not a time, an anchor i
     expect((await run("drop whatever's after lab", [{ do: "drop", what: "B4" }], n, day)).writes).toEqual([]);
     expect((await run("drop whatever's after lab", [{ do: "drop", what: "B2" }], n, day)).writes).toEqual([["drop", "DS Lab"]]);
   });
+});
+
+describe("a form value he never said writes nothing (2026-10-19)", () => {
+  for (const step of [
+    { do: "add", what: "walk", minutes: 20, to: "18:00" },
+    { do: "move", what: "B2", by: 45 },
+    { do: "resize", what: "B2", minutes: 10 },
+    { do: "late", minutes: 30 },
+  ] as Intent[]) {
+    it(`${step.do} with no time or length in "do something with lunch" asks and writes nothing`, async () => {
+      const { r, writes } = await run("do something with lunch", [step]);
+      expect(writes).toEqual([]);
+      expect(r).toMatchObject({ outcome: "say", kind: "ask" });
+    });
+  }
 });

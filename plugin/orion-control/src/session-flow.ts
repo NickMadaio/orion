@@ -93,7 +93,8 @@ function readApps(message: string): string[] {
 /** His request, or null. A front-desk start (hint.start) counts only when nothing in his words rules a start out. */
 export function parseSessionRequest(message: string, hint: SessionHint = {}): SessionRequest | null {
   if (!startsSession(message, hint)) return null;
-  const minutes = readMinutes(message); // a length only he said, never the front desk's hint.minutes
+  // A length only he said: the desk's hint.minutes counts only when that number is in his words ("lock in, 25").
+  const minutes = readMinutes(message) ?? (hint.minutes !== undefined && new RegExp(`(?<![\\d.])${hint.minutes}(?![\\d.])`).test(message) ? hint.minutes : undefined);
   const until = minutes === undefined ? readUntil(message) : undefined;
   const task = readTask(message);
   return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };

@@ -49,6 +49,7 @@
 import { calendarEvents, toBlocks, allDayTitles, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
 import { replan } from "./lib/life/replan.mjs";
 import { bumpAnchors, noRoomWhy } from "./lib/life/bump.mjs";
+import { cooldownOf, cooldownAsk } from "./lib/life/cooldown.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
@@ -73,7 +74,7 @@ import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 import { planLog, planDisplace, dueAnchors, clock as clockOf, slipRow } from "./lib/life/reality.mjs";
 import { weightOf } from "./lib/life/priority.mjs";
 import { sandbox } from "./lib/life/bridge-path.mjs";
-import { appendSlips, touchDirty } from "./lib/life/slips.mjs";
+import { appendSlips, readSlips, touchDirty } from "./lib/life/slips.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -594,10 +595,14 @@ if (command === "late") {
   const reminders = await bridge("list_incomplete_reminders", { list: config.todoList })
     .then((r) => JSON.parse(r.reminders_json ?? "[]")).catch((e) => fail(`orion-reschedule: could not read ${config.todoList}: ${e.message}`, 1));
   const onCalendar = blocks.filter((b) => b.end > nowMinute);
-  const skipped = [];
+  const skipped = []; const cooled = [];
+  const pastSlips = readSlips();
   for (const r of reminders) {
     const title = clean(r.title ?? "");
     if (!title) continue;
+    // Slipped or given up on 2+ times in the last 3 days: not planned again on its own; he is asked once, below.
+    const cool = cooldownOf(title, pastSlips, date);
+    if (cool) { cooled.push(cooldownAsk(title, cool)); skipped.push(`${title} (cooling down: slipped ${cool.slips} times lately)`); continue; }
     const dueDate = r.due ? localDate(new Date(r.due)) : null;
     if (dueDate && dueDate > date) { skipped.push(`${title} (due ${dueDate})`); continue; }
     // A to-do with a spread in its notes is orion-tasks's to plan, session by session.
@@ -618,6 +623,9 @@ if (command === "late") {
     add.push({ title, kind: todoKind, minutes: estimate.minutes,
       importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false });
   }
+  // Never dropped silently: the question goes out once (an automatic run sends it; otherwise the reply says it).
+  for (const q of cooled) console.log(`ASK: ${q}`);
+  if (cooled.length && !dry) tellNick(cooled.join(" "));
   // Keep time genuinely free (config.freeMinutesKept), as fill does: due first,
   // then his list order; what does not fit is named, not crammed in.
   const home = homeFrom(blocks, { commuteMinutes: config.commuteMinutes, wake: wakeMinute });

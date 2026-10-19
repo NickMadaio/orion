@@ -625,7 +625,7 @@ final class SpeechInput {
                         self.stopEngine()
                         self.isRunning = false
                         self.disarmStarvationWatchdog()
-                        self.onError?("Dictation stopped unexpectedly. Hold Right Option and try again.")
+                        self.onError?("Dictation stopped unexpectedly. Press your push-to-talk key and try again.")
                     }
                 }
             }

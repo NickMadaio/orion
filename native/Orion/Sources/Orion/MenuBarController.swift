@@ -16,7 +16,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let toggleItem = NSMenuItem(title: "Show Orion", action: nil, keyEquivalent: "o")
     private let gatewayItem = NSMenuItem(title: "Gateway: checking…", action: nil, keyEquivalent: "")
     private let voiceItem = NSMenuItem(title: "Voice: checking…", action: nil, keyEquivalent: "")
-    private let talkItem = NSMenuItem(title: "Push-to-talk: checking…", action: nil, keyEquivalent: "")
+    /// The on/off switch for push-to-talk. Titled with its state, like the rest of the menu.
+    private let talkItem = NSMenuItem(title: "Push to talk: on", action: nil, keyEquivalent: "")
+    /// Only visible when push-to-talk is on but Accessibility is missing.
+    private let talkFixItem = NSMenuItem(title: "Push to talk: grant Accessibility…", action: nil, keyEquivalent: "")
     /// The providers that are ACTUALLY serving, not the ones configured.
     private let providerItem = NSMenuItem(title: "Providers: checking…", action: nil, keyEquivalent: "")
     /// Hands-free listening. A checkbox rather than a status readout: this is
@@ -47,7 +50,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         menu.delegate = self
         // We drive enablement by hand; auto-enabling would fight the
-        // "Push-to-talk" row, which is only actionable when it is broken.
+        // "Push to talk" rows.
         menu.autoenablesItems = false
 
         toggleItem.target = self
@@ -64,8 +67,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(providerItem)
 
         talkItem.target = self
-        talkItem.action = #selector(fixPushToTalk)
+        talkItem.action = #selector(togglePushToTalk)
         menu.addItem(talkItem)
+        talkFixItem.target = self
+        talkFixItem.action = #selector(fixPushToTalk)
+        menu.addItem(talkFixItem)
 
         menu.addItem(.separator())
 
@@ -156,13 +162,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             ? "Voice: daemon reachable"
             : "Voice: daemon not running (built-in voice will be used)"
         providerItem.title = "Providers: \(state.voiceSummary)"
-        if state.accessibilityTrusted {
-            talkItem.title = "Push-to-talk: Right Option ready"
-            talkItem.isEnabled = false
-        } else {
-            talkItem.title = "Push-to-talk: grant Accessibility…"
-            talkItem.isEnabled = true
-        }
+        let talk = state.pushToTalk
+        talkItem.title = talk.enabled ? "Push to talk: on (\(talk.keyLabel))" : "Push to talk: off"
+        talkItem.state = talk.enabled ? .on : .off
+        talkItem.isEnabled = true
+        talkFixItem.isHidden = !(talk.enabled && !state.accessibilityTrusted)
         wakeItem.state = state.wakeWordEnabled ? .on : .off
         // Say the cost out loud, where the switch is. Hands-free means the
         // microphone session stays open, and on Bluetooth headphones an open
@@ -178,6 +182,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func togglePanel() {
         onTogglePanel()
+    }
+
+    @objc private func togglePushToTalk() {
+        var next = state.pushToTalk
+        next.enabled.toggle()
+        state.pushToTalk = next
+        refresh()
     }
 
     @objc private func fixPushToTalk() {

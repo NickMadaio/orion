@@ -127,12 +127,14 @@ struct PreferencesView: View {
             Divider()
 
             section("Permissions") {
-                permissionRow(
-                    title: "Accessibility",
-                    detail: "Lets Right Option work while any app is frontmost.",
-                    ok: state.accessibilityTrusted,
-                    action: { state.requestAccessibility() }
-                )
+                if state.pushToTalk.enabled {
+                    permissionRow(
+                        title: "Accessibility",
+                        detail: "Lets the push-to-talk key work while any app is frontmost.",
+                        ok: state.accessibilityTrusted,
+                        action: { state.requestAccessibility() }
+                    )
+                }
                 permissionRow(
                     title: "Microphone",
                     detail: "Captures your voice while push-to-talk is held.",

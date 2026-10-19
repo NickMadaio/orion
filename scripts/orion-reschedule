@@ -49,7 +49,7 @@
 import { calendarEvents, toBlocks, allDayTitles, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
 import { replan } from "./lib/life/replan.mjs";
 import { bumpAnchors, noRoomWhy } from "./lib/life/bump.mjs";
-import { cooldownOf, cooldownAsk } from "./lib/life/cooldown.mjs";
+import { cooldownOf, cooldownAsk, clearCooldown, readClears, norm as normTitle } from "./lib/life/cooldown.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
@@ -80,13 +80,13 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--where"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -596,14 +596,18 @@ if (command === "late") {
     .then((r) => JSON.parse(r.reminders_json ?? "[]")).catch((e) => fail(`orion-reschedule: could not read ${config.todoList}: ${e.message}`, 1));
   const onCalendar = blocks.filter((b) => b.end > nowMinute);
   const skipped = []; const cooled = [];
-  const pastSlips = readSlips();
+  const pastSlips = readSlips(); const clears = readClears(); const cooledCmd = [];
+  const includes = new Set(args.flatMap((a, i) => (a === "--include" && args[i + 1] ? [normTitle(args[i + 1])] : [])));
   for (const r of reminders) {
     const title = clean(r.title ?? "");
     if (!title) continue;
-    // Slipped or given up on 2+ times in the last 3 days: not planned again on its own; he is asked once, below.
-    const cool = cooldownOf(title, pastSlips, date);
-    if (cool) { cooled.push(cooldownAsk(title, cool)); skipped.push(`${title} (cooling down: slipped ${cool.slips} times lately)`); continue; }
     const dueDate = r.due ? localDate(new Date(r.due)) : null;
+    // He let it slip on 2+ different days lately: not planned again on its own; he is asked once, below. Due today or overdue
+    // is never cooled, and "today" from him (--include "<title>") plans it and clears the cooldown.
+    const cool = dueDate && dueDate <= date ? null : cooldownOf(title, pastSlips, date, { clears });
+    if (cool && includes.has(normTitle(title))) { if (!dry) clearCooldown(title, date, nowDate.toISOString()); }
+    else if (cool) { cooled.push(cooldownAsk(title, cool)); cooledCmd.push(`orion-reschedule day --todos --include "${title.replace(/"/g, "'")}"`);
+      skipped.push(`${title} (cooling down: slipped ${cool.days} days lately)`); continue; }
     if (dueDate && dueDate > date) { skipped.push(`${title} (due ${dueDate})`); continue; }
     // A to-do with a spread in its notes is orion-tasks's to plan, session by session.
     const blocker = waitsFor(r.notes, reminders.filter((x) => x !== r).map((x) => clean(x.title ?? "")));
@@ -624,7 +628,7 @@ if (command === "late") {
       importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false });
   }
   // Never dropped silently: the question goes out once (an automatic run sends it; otherwise the reply says it).
-  for (const q of cooled) console.log(`ASK: ${q}`);
+  cooled.forEach((q, i) => console.log(`ASK: ${q} If today, run: ${cooledCmd[i]}`));
   if (cooled.length && !dry) tellNick(cooled.join(" "));
   // Keep time genuinely free (config.freeMinutesKept), as fill does: due first,
   // then his list order; what does not fit is named, not crammed in.

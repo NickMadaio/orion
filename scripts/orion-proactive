@@ -202,14 +202,14 @@ for (const m of messages) {
   if (!dry && m.checkClaim && announced(DIR, localDate(now), m.claim)) { sent[m.key] = true; continue; }
   if (dry) { console.log(`DRY RUN would say (${m.key}): ${m.text}`); continue; }
   const r = reach([m.text, "--kind", m.kind, "--why", `proactive: ${m.key}`,
-    ...(m.urgent ? ["--urgent"] : []), ...(m.urgentKind ? ["--urgent-kind", m.urgentKind] : []), ...(m.loud ? ["--loud"] : []), ...(m.expires ? ["--no-queue"] : [])]);
+    ...(m.tier === "protected" ? ["--tier", "protected"] : []), ...(m.urgent ? ["--urgent"] : []), ...(m.urgentKind ? ["--urgent-kind", m.urgentKind] : []), ...(m.loud ? ["--loud"] : []), ...(m.expires ? ["--no-queue"] : [])]);
   // 2026-10-16 audit, finding 6: a key is "said" only when orion-reach really sent, held or already said it.
   // A refusal (exit 3) or a failed delivery (exit 4) stays unsaid so the next tick retries, and a failure is recorded.
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
   if (outcome.said && m.claim) markAnnounced(DIR, localDate(now), m.claim, "proactive");
   if (outcome.said) { sent[m.key] = true; for (const k of m.also ?? []) sent[k] = true; }
-  // dropped by a budget or the ceiling: handled for the day (orion-reach logged it with its cooldown), not retried every tick
-  else if (outcome.dropped) sent[m.key] = true;
+  // dropped by a budget or the ceiling: NOT marked said. orion-reach logged it with its cooldown (doubling) and gives it up after
+  // dropMaxPerDay, so the retry on later ticks is cheap and bounded, and a message the budget frees up later still goes.
   else if (outcome.failed) failures[m.key] = { at: now.toISOString(), attempts: (failures[m.key]?.attempts ?? 0) + 1 };
   process.stdout.write(r.stdout ?? "");
 }
@@ -244,10 +244,15 @@ if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && 
 // The nightly review of what actually happened: at 22:00, or 60 min before bedtime if that is earlier, and never after
 // midnight. It describes the day that is ending (dayKey is the evening's date until 6 AM, but a review is only ever sent
 // on that same calendar day), spoken if he is home, a text otherwise, once a night. A missed one is not sent next morning.
-if (!dry && reason === "tick" && dayOk && reviewDue({ minute, date: dayKey, today: localDate(now), bedtime: sleep.bedtime, config }) && !heldBack && !sleeping && !sent[`review-${dayKey}`]) {
-  const r = spawnSync(process.execPath, [join(here, "orion-day-review"), "--send", "--date", dayKey], { encoding: "utf8", timeout: 60000 });
-  if (r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout).trimStart())) { sent[`review-${dayKey}`] = true; closed.push("review"); }
-  process.stdout.write(r.stdout ?? "");
+if (!dry && reason === "tick" && dayOk && !sent[`review-${dayKey}`]) {
+  const base = { minute, date: dayKey, today: localDate(now), bedtime: sleep.bedtime, config };
+  const heldKey = `review-held-${dayKey}`;
+  if (reviewDue(base) && heldBack && !sent[heldKey]) { sent[heldKey] = true; closed.push("review-held"); }   // a session holds it: released when that ends
+  else if (reviewDue({ ...base, held: !!sent[heldKey] }) && !heldBack && !sleeping) {
+    const r = spawnSync(process.execPath, [join(here, "orion-day-review"), "--send", "--date", dayKey, ...(dayKey !== localDate(now) ? ["--late"] : [])], { encoding: "utf8", timeout: 60000 });
+    if (r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout).trimStart())) { sent[`review-${dayKey}`] = true; closed.push("review"); }
+    process.stdout.write(r.stdout ?? "");
+  }
 }
 if (!dry && closed.length) {
   mkdirSync(DIR, { recursive: true });

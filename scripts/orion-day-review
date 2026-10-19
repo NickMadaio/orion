@@ -48,7 +48,7 @@ else if (!args.includes("--send")) console.log(text);   // with --send, stdout i
 if (args.includes("--send")) {
   // The review describes the day that is ending. Once that day is over it is not sent: a missed review is not delivered the next
   // morning (2026-10-18's went out at 00:01 and described the new day).
-  if (date !== localDate(now)) { console.log(`Not sent: that review was for ${date} and it is now ${localDate(now)}.`); process.exit(0); }
+  if (date !== localDate(now) && !args.includes("--late")) { console.log(`Not sent: that review was for ${date} and it is now ${localDate(now)}.`); process.exit(0); }
   const aw = readAwareness({ dir: DIR, now });
   const home = aw.derived?.atHome === true;
   const bin = process.env.ORION_REACH_BIN || join(here, "orion-reach");

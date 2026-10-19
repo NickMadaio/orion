@@ -13,12 +13,15 @@ const TITLES = ["finish resume", "CS Lab", "Review spending", "DO MACRO TEST"];
 let n = 0;
 const rung = (title, block, when) => ({ id: `r${n++}`, at: when.toISOString(), text: `ping ${title}`, kind: "checkin", why: `plan: ${block}`, channel: "phone", ask: { type: "mismatch", title } });
 /** 10-17: four ladders of five rungs, 10:41 to 14:37. */
+const normal = (k) => ({ id: `n${n++}`, at: at(17, 9, k).toISOString(), text: `line ${k}`, kind: "info", why: `proactive: line-${k}`, channel: "phone" });
+/** The incident's 20 plus enough ordinary lines that the 20 backstop is really reached (a ladder block now counts once toward it). */
+const fullRows = () => [...incidentRows(), ...Array.from({ length: 16 }, (_, k) => normal(k))];
 const incidentRows = () => TITLES.flatMap((t, i) => Array.from({ length: 5 }, (_, k) => rung(t, `cal-${i}`, at(17, 10 + i * 1, 41 + i * 30 + k * 6))));
 const verdict = (history, over) => budgetVerdict({ history, date: "2026-10-17", localDate, limits: LIMITS, ...over });
 
 test("1: with 20 of 20 used by the ladders, the gym (a must) still goes; the same nudge as low-value is dropped by the backstop", () => {
-  const history = incidentRows();
-  assert.equal(history.length, 20);
+  const history = fullRows();
+  assert.equal(history.length, 36);
   assert.deepEqual(verdict(history, { why: "plan: cal-4-adf0e6", tier: "protected" }), { ok: true });
   const low = verdict(history, { why: "plan: cal-4-adf0e6", tier: "low", askTitle: "Gym" });
   assert.equal(low.ok, false); assert.equal(low.reason, "ceiling");
@@ -29,9 +32,9 @@ test("1: a reminder he set, a class rung and the day review are protected, whate
   assert.equal(tierOf({ why: "proactive: leave-late-540", urgentKind: "class" }), "protected");
   assert.equal(tierOf({ why: "curiosity: review-2026-10-17" }), "protected");
   assert.equal(tierOf({ why: "plan: cal-4-adf0e6" }), "low");
-  assert.equal(tierOf({ why: "plan: cal-4-adf0e6", tier: "protected" }), "protected");
+  assert.equal(tierOf({ why: "plan: cal-4-adf0e6", kind: "checkin", tier: "protected" }), "protected");
   assert.equal(tierOf({ why: "curiosity: fill-blank-2026-10-18", askType: "fill-blank" }), "blank");
-  assert.equal(verdict(incidentRows(), { why: "curiosity: review-2026-10-17", tier: "protected" }).ok, true);
+  assert.equal(verdict(fullRows(), { why: "curiosity: review-2026-10-17", tier: "protected" }).ok, true);
 });
 
 test("1: low-value nudges draw on their own budget, and every rung of one block counts as one", () => {
@@ -70,7 +73,7 @@ test("2: a dropped message is not retried every tick: cooldown that doubles, the
 
 test("2: orion-reach logs ONE dropped row for a message tried every 36 s, and the caller can tell it was dropped", () => {
   const w = world({ day: 17 });
-  w.appendOutreach(incidentRows());
+  w.appendOutreach(fullRows());
   const results = [];
   for (let k = 0; k < 6; k++) {
     const r = w.run("orion-reach", ["Time to start: Gym.", "--kind", "checkin", "--why", "plan: cal-4-adf0e6"], 17, 8, { extra: { ORION_REACH_NOW: new Date(at(17, 17, 8).getTime() + k * 36_000).toISOString() } });
@@ -86,12 +89,12 @@ test("2: orion-reach logs ONE dropped row for a message tried every 36 s, and th
 
 test("1: orion-reach delivers the gym at 20 of 20 when it is protected, and drops it when it is not", () => {
   const w = world({ day: 17 });
-  w.appendOutreach(incidentRows());
+  w.appendOutreach(fullRows());
   const gym = ["Time to start: Gym.", "--kind", "checkin", "--why", "plan: cal-4-adf0e6"];
   const sent = w.run("orion-reach", [...gym, "--tier", "protected"], 17, 8);
   assert.equal(sent.status, 0, sent.stdout + sent.stderr); assert.match(sent.stdout, /^Sent/);
   assert.equal(w.outreach().at(-1).tier, "protected");
-  const w2 = world({ day: 17 }); w2.appendOutreach(incidentRows());
+  const w2 = world({ day: 17 }); w2.appendOutreach(fullRows());
   assert.equal(w2.run("orion-reach", gym, 17, 8).status, 3);
 });
 

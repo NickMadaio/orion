@@ -18,6 +18,9 @@ import { join } from "node:path";
 import { appendTurn, askAnswered, outcomeFor, readTurns } from "./lib/curiosity/inbound.mjs";
 import { readLedger } from "./lib/curiosity/ledger.mjs";
 import { noteInboundText } from "./lib/awareness/declared.mjs";
+import { reviewNowOnGoodnight } from "./lib/reach/review-time.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -26,7 +29,21 @@ const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) 
 const replyTo = /^[A-Za-z0-9._:-]{1,80}$/.test(flag("--reply-to") ?? "") ? flag("--reply-to") : null;
 
 // First and on its own: a failure further down must never lose the declaration, and the declaration must not wait on them.
-try { noteInboundText({ dir: DIR, text: flag("--text"), now }); } catch { /* best effort */ }
+// Saying goodnight before the evening review went sends the review right then, BEFORE the declaration is written (asleep holds it).
+function sendReviewFirst() {
+  const date = now.toLocaleDateString("en-CA");
+  const key = new Date(now.getTime() - 6 * 3600000).toLocaleDateString("en-CA");
+  const file = join(DIR, "proactive-sent.json");
+  let state = {}; try { state = JSON.parse(readFileSync(file, "utf8")); } catch {}
+  if (state[key]?.[`review-${key}`] || !reviewNowOnGoodnight({ minute: now.getHours() * 60 + now.getMinutes(), date: key, today: date })) return;
+  const bin = process.env.ORION_DAY_REVIEW_BIN || join(import.meta.dirname, "orion-day-review");
+  const r = spawnSync(process.execPath, [bin, "--send", "--date", key], { encoding: "utf8", timeout: 45000, env: process.env });
+  if (r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout).trimStart())) {
+    try { state = JSON.parse(readFileSync(file, "utf8")); } catch {}
+    writeFileSync(`${file}.tmp`, JSON.stringify({ ...state, [key]: { ...(state[key] ?? {}), [`review-${key}`]: true } }, null, 2)); renameSync(`${file}.tmp`, file);
+  }
+}
+try { noteInboundText({ dir: DIR, text: flag("--text"), now, bedtime: loadConfig().bedtime, beforeDeclare: sendReviewFirst }); } catch { /* best effort */ }
 try {
   const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
   const ask = askAnswered({ asks: readLedger(DIR).asks, replyTo, turns: earlier, now: now.getTime() });

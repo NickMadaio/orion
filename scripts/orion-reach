@@ -26,7 +26,8 @@
    dropped, never queued: the loop re-decides it with fresh facts.
  --reason break|end|wake: with --drain-held, why it is being released (the gate still decides).
  --valid-until ISO: after this the message is pointless; a held copy is dropped, not released.
- --tier protected|low|blank|normal: the caller knows the block's rank (a must block, e.g. the gym, is protected).
+ --tier protected|low|blank|normal: the caller knows the block's rank. protected is honoured only for a reminder, a plan ladder
+   (--kind checkin, why plan:) or the review: any other kind asking for it is treated as an ordinary message.
  Delivery policy is one gate (lib/reach/gate.mjs, awareness spec 3.2): a break releases held messages, and the
  bubble always shows while speech needs him home or in headphones (3.4.4).
  Priority, not a flat ceiling (lib/reach/budget.mjs): a reminder he set, a class/leave rung, a must block (gym), the day
@@ -120,7 +121,7 @@ const bypass = bypassesQuiet({ urgentKind });
 // the rest draw on budgets, with the ceiling as a spam backstop. A drop is logged with a cooldown and given up after a few.
 const config = loadConfig();
 const reason = flag("--why") ?? "";
-const tier = tierOf({ why: reason, urgentKind, bypass, tier: flag("--tier"), askType: ask?.type ?? null });
+const tier = tierOf({ why: reason, urgentKind, bypass, tier: flag("--tier"), askType: ask?.type ?? null, kind });
 const today = localDate(now);
 const logDropped = (why_, extra = {}) => {
   if (dry) return;

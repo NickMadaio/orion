@@ -84,7 +84,7 @@ test("held merge wording: templates, 3 lines then +N, stale and asks left out", 
   assert.equal(out.text, null); assert.equal(out.stale.length, 2);
 });
 
-const reached = (h, n) => { for (let i = 0; i < n; i++) appendFileSync(join(h.dir, "outreach.jsonl"), `${JSON.stringify({ id: `r${i}`, at: new Date(2026, 9, 16, 0, 5 + i * 40).toISOString(), text: `nudge ${i}`, channel: "phone", why: "plan: b0" })}\n`); };
+const reached = (h, n) => { for (let i = 0; i < n; i++) appendFileSync(join(h.dir, "outreach.jsonl"), `${JSON.stringify({ id: `r${i}`, at: new Date(2026, 9, 16, 0, 5 + i * 40).toISOString(), text: `nudge ${i}`, channel: "phone", why: `plan: b${i}` })}\n`); };
 
 test("scenario 16: at the ceiling a mismatch nudge exits 3 as dropped, a reminder and a class rung still go", () => {
   const h = harness(); h.setAwareness({});

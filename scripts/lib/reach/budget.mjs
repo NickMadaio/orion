@@ -18,11 +18,15 @@ const MIN = 60_000;
 const why = (r) => String(r?.why ?? "");
 
 /** The tier of one message. An explicit tier (a caller that knows the block's rank) wins, but cannot lower a protected case. */
-export function tierOf({ why: reason = "", urgentKind = null, bypass = false, tier = null, askType = null } = {}) {
+/** `--tier protected` is not trusted from any caller: only these internal ones may ask for it (a reminder, a class/leave line, a must block's ladder, the review). */
+export const mayBeProtected = ({ kind = null, why: reason = "" } = {}) =>
+  kind === "reminder" || (kind === "checkin" && /^plan:/.test(String(reason))) || /^curiosity: review-/.test(String(reason));
+
+export function tierOf({ why: reason = "", urgentKind = null, bypass = false, tier = null, askType = null, kind = null } = {}) {
   const w = String(reason ?? "");
   if (bypass || urgentKind) return "protected";
   if (/^curiosity: review-/.test(w) || /^morning:/.test(w)) return "protected";
-  if (TIERS.includes(tier)) return tier;
+  if (TIERS.includes(tier) && (tier !== "protected" || mayBeProtected({ kind, why: w }))) return tier;
   if (/^plan:/.test(w)) return "low";
   if (/^curiosity:/.test(w)) return askType && !BLANK_TYPES.includes(askType) ? "low" : "blank";
   return "normal";
@@ -47,7 +51,10 @@ const subject = (r) => String(r?.ask?.title ?? why(r)).toLowerCase();
 export function budgetVerdict({ history, date, localDate, why: reason, tier, askTitle = null, limits }) {
   if (tier === "protected" || !COUNTED_WHY.test(String(reason ?? ""))) return { ok: true };
   const today = reachedToday(history, date, localDate).filter((r) => rowTier(r) !== "protected");
-  if (today.length >= limits.ceiling) return { ok: false, reason: "ceiling", detail: `already reached him ${limits.ceiling} times today` };
+  // a low-value block counts once toward the backstop however many rungs it sent (6 blocks x 5 rungs is 6, not 30)
+  const lowBlocks = new Set(today.filter((r) => rowTier(r) === "low").map(subject));
+  const counted = today.filter((r) => rowTier(r) !== "low").length + lowBlocks.size;
+  if (counted >= limits.ceiling) return { ok: false, reason: "ceiling", detail: `already reached him ${limits.ceiling} times today` };
   if (tier === "low") {
     const subjects = new Set(today.filter((r) => rowTier(r) === "low").map(subject));
     const mine = String(askTitle ?? reason).toLowerCase();

@@ -10,18 +10,39 @@ export const FILE = "sleep-declared.json";
 export const MAX_HOURS = 10;
 /** A message he sends this long after the declaration means he is up again. */
 export const STIR_MINUTES = 10;
+/** Real keyboard or mouse input this long after the declaration means he is not asleep (awareness mac facet). */
+export const INPUT_MINUTES = 15;
 /** A wake signal this soon after the declaration is the phone going on the charger, not him waking. */
 const SETTLE_MINUTES = 30;
 const MIN = 60_000;
 
-const BED = /\b(?:going|gonna|heading|headed|off|about)\s+(?:to\s+)?(?:go\s+)?(?:to\s+)?(?:bed|sleep)\b|\btime (?:for|to go to) (?:bed|sleep)\b|\bgood\s?night\b|\bnight night\b|\bnighty night\b|\b(?:hitting|hit) the (?:sack|hay)\b|\bcalling it a night\b|\bturning in\b|\bsleep(?:ing)? now\b|\bsigning off for the night\b/i;
 const NEGATED = /\b(?:not|never|n't|won't|can't|cannot|before|until|unless|if i|when i|should i|do i)\b/i;
+const SUBJECT = "(?:(?:i'?m|im|i am|i'?ll|ill|i will|we'?re)\\s+)?(?:just\\s+)?";
+// a clause that IS the declaration: a first-person (or implied: it starts the clause) bed/sleep phrase, or a bare goodnight
+const GOING = new RegExp(`^${SUBJECT}(?:(?:going|gonna|heading|headed|off|about)\\s+(?:to\\s+)?(?:go\\s+)?(?:to\\s+)?(?:bed|sleep)|(?:hitting|hit) the (?:sack|hay)|calling it a night|signing off for the night|time for bed)\\b(.*)$`, "i");
+const GOODNIGHT = /^(?:good\s?night|night night|nighty night|gn)(?:\s+[a-z]{2,12})?[\s!.]*$/i;
+// a nap, or "later": not going to sleep now
+const NOT_NOW = /\bfor\s+(?:(?:a|an|one|two|few|couple|\d+)\s+)?(?:\w+\s+)?(?:min|mins|minutes?|hours?|hrs?|nap|bit|while)\b|\b(?:after|once|when|later|soon|in a (?:bit|while|minute)|in \d+)\b/i;
+const FILLER = /^(?:ok(?:ay)?|so|well|alright|right|yeah|yep|now|anyway|aight)\s+/i;
 
-/** Is this message Nick saying he is going to sleep? Short statements only: a question or a long message that mentions bed is not. */
+/** Is this message Nick saying he is going to sleep now? A first-person statement only: not a question, a nap, "later", or a third person. */
 export function isBedtimeStatement(text) {
   const t = String(text ?? "").trim();
-  if (!t || t.length > 90 || t.includes("?")) return false;
-  return BED.test(t) && !NEGATED.test(t);
+  if (!t || t.length > 90 || t.includes("?") || NEGATED.test(t)) return false;
+  return t.split(/[,;.!\n]+|\s+(?:so|and|but)\s+/i).map((c) => c.trim().replace(FILLER, "").replace(FILLER, "")).filter(Boolean).some((c) => {
+    if (GOODNIGHT.test(c)) return true;
+    const m = GOING.exec(c);
+    return !!m && !NOT_NOW.test(m[1]);
+  });
+}
+
+/** Declaring sleep makes sense after 21:00, before 06:00, or within 3 hours of his bedtime: "going to bed" at 15:00 is a nap or a story. */
+export function plausibleBedtime(now, bedtime = "23:45") {
+  const minute = now.getHours() * 60 + now.getMinutes();
+  const [h, m] = String(bedtime).split(":").map(Number);
+  const bed = (Number.isFinite(h) ? h * 60 + (m || 0) : 1425);
+  const bedEvening = bed < 12 * 60 ? bed + 1440 : bed;
+  return minute >= 21 * 60 || minute < 6 * 60 || minute >= bedEvening - 180;
 }
 
 export function declareSleep(dir, now = new Date()) {
@@ -58,8 +79,11 @@ export function activeDeclaration({ dir, now = new Date() }) {
 }
 
 /** A message from Nick: a bedtime statement declares sleep; any other message a while after one means he is up. */
-export function noteInboundText({ dir, text, now = new Date() }) {
-  if (isBedtimeStatement(text)) { declareSleep(dir, now); return "declared"; }
+export function noteInboundText({ dir, text, now = new Date(), bedtime, beforeDeclare = null }) {
+  if (isBedtimeStatement(text) && plausibleBedtime(now, bedtime)) {
+    try { beforeDeclare?.(); } catch { /* e.g. the review: never blocks the declaration */ }
+    declareSleep(dir, now); return "declared";
+  }
   const d = readJson(join(dir, FILE));
   const at = Date.parse(d?.at);
   if (Number.isFinite(at) && now.getTime() - at >= STIR_MINUTES * MIN && String(text ?? "").trim()) { clearDeclared(dir); return "cleared"; }

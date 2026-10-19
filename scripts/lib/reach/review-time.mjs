@@ -18,4 +18,10 @@ export function reviewMinute({ bedtime, config = {} }) {
  * Is the review due now? `date` is the day the review is for; it is only due on that same calendar day, from the review
  * minute until midnight, so a late or missed one is never sent about a day that is over.
  */
-export const reviewDue = ({ minute, date, today, bedtime, config }) => date === today && minute >= reviewMinute({ bedtime, config });
+export const reviewDue = ({ minute, date, today, bedtime, config, held = false }) =>
+  (date === today && minute >= reviewMinute({ bedtime, config }))
+  // a review something held (a focus session across midnight) is released when that ends, if it is still the small hours and he is not asleep
+  || (held && date !== today && minute < 6 * 60);
+
+/** The review is sent "right then" when he says goodnight before it went: from 17:00 on the day it is about. */
+export const reviewNowOnGoodnight = ({ minute, date, today }) => date === today && minute >= FLOOR;

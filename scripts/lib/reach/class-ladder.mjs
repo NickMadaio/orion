@@ -77,6 +77,6 @@ function leaveLateOthers(ctx, say, moved) {
     const wall = (ctx.travel ?? []).find((w) => w.end >= dest.start - 1 && w.end <= dest.start + 1);
     if (!wall) continue;
     const toLeave = wall.start - ctx.minute;
-    if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${dest.start}`, `You should be out the door now - ${strip(dest.title)} is at ${hm(dest.start)}.`, "reminder", { level: 2 });
+    if (toLeave <= 0 && toLeave >= -10) say(`leave-late-${dest.start}`, `You should be out the door now - ${strip(dest.title)} is at ${hm(dest.start)}.`, "reminder", { level: 2, tier: "protected" });   // a fixed destination he must reach: never starved by the low-value budget
   }
 }

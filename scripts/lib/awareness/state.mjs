@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { LIMITS, UNKNOWN, derive, isFresh } from "./facets.mjs";
 import { readJson, writeJsonAtomic } from "./io.mjs";
-import { activeDeclaration } from "./declared.mjs";
+import { activeDeclaration, clearDeclared, INPUT_MINUTES } from "./declared.mjs";
 
 export const SCHEMA = "orion.awareness.v1";
 export const FILE = "awareness.json";
@@ -49,6 +49,8 @@ const finish = (aw) => ({ ...aw, derived: derive(aw) });
 /** He said he is going to sleep (orion-inbound-turn): asleep until he wakes, whatever the window or the Mac says. */
 const withDeclared = (aw, dir, now) => {
   const declared = activeDeclaration({ dir, now });
+  // real Mac input 15+ minutes after "going to bed" (the facet is only fresh for 90 s, and "active" is input in the last 5 min): he is up
+  if (declared && aw.mac?.state === "active" && now.getTime() - Date.parse(declared.at) >= INPUT_MINUTES * 60_000) { try { clearDeclared(dir); } catch {} return aw; }
   return declared ? finish({ ...aw, sleep: { ...aw.sleep, state: "asleep", source: "declared", declaredAt: declared.at, at: now.toISOString() } }) : aw;
 };
 

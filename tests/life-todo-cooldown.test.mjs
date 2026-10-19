@@ -56,7 +56,9 @@ test("day --todos: a cooled-down to-do is not planned, is asked about (never dro
   const r = w.run();
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(w.titles(), ["review CS lect 2"]);
-  assert.match(r.out, /ASK: Finish resume has slipped 2 days — want it today, or later this week\? If today, run: orion-reschedule day --todos --include "finish resume"/);
+  assert.match(r.out, /ASK: Finish resume has slipped 2 days — want it today, or later this week\?$/m);
+  assert.match(r.out, /^  \(for ORION only, never say it to him: if he answers "today", run `orion-reschedule day --todos --include "finish resume"`\)$/m);
+  assert.doesNotMatch(r.out.split("\n").find((l) => l.startsWith("ASK:")), /orion-reschedule/, "the question itself is plain words");
   assert.match(r.out, /Left out: .*finish resume \(cooling down/);
   assert.deepEqual(w.said(), [], "without --auto no message is sent: the reply says it");
 });
@@ -99,4 +101,16 @@ test("day --todos --include: his 'today' plans the cooled-down to-do and clears 
   assert.doesNotMatch(r.out, /ASK:/);
   const next = w.run();
   assert.doesNotMatch(next.out, /ASK:/, "cleared, not asked again");
+});
+
+test("planDisplace: a give-up that leaves no room is logged as gave-up (his doing), and only ORION's own removals are no-room", async () => {
+  const { planDisplace } = await import("../scripts/lib/life/reality.mjs");
+  const wall = { id: "w", title: "Dinner with Sam", kind: "other", start: 960, end: 1080, fixed: true, source: "nick" };
+  const block = { id: "b", title: "finish resume", kind: "study", start: 900, end: 960, fixed: false, source: "orion" };
+  const opts = { date: DATE, now: 930, window: { start: 480, end: 1080 }, config: { minimums: { "finish resume": 60 } }, buffer: 0, txn: "t", at: "2030-10-04T09:00:00Z" };
+  const gaveUp = planDisplace([wall, block], block, { ...opts, why: "gave-up" });
+  assert.equal(gaveUp.offToday.length, 1, "it really had no room to come back");
+  assert.equal(gaveUp.slips.at(-1).reason, "gave-up");
+  assert.equal(planDisplace([wall, block], block, { ...opts, why: "cancel" }).slips.at(-1).reason, "no-room", "ORION-caused stays no-room");
+  assert.deepEqual(cooldownOf("finish resume", [slip("2030-10-02", "finish resume", gaveUp.slips.at(-1).reason), slip("2030-10-03", "finish resume", "gave-up")], DATE), { days: 2 });
 });

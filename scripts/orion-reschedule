@@ -628,7 +628,10 @@ if (command === "late") {
       importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false });
   }
   // Never dropped silently: the question goes out once (an automatic run sends it; otherwise the reply says it).
-  cooled.forEach((q, i) => console.log(`ASK: ${q} If today, run: ${cooledCmd[i]}`));
+  cooled.forEach((q, i) => {
+    console.log(`ASK: ${q}`);
+    console.log(`  (for ORION only, never say it to him: if he answers "today", run \`${cooledCmd[i]}\`)`);
+  });
   if (cooled.length && !dry) tellNick(cooled.join(" "));
   // Keep time genuinely free (config.freeMinutesKept), as fill does: due first,
   // then his list order; what does not fit is named, not crammed in.

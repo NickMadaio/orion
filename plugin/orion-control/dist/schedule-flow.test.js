@@ -63,7 +63,7 @@ describe("schedule flow", () => {
         expect(calls[1]).toEqual(["move", "do cert courses", "--to", "12:35", "--until", "15:25"]);
         expect(await runScheduleFlow({ message: "x", clock: "Mon 08:00", exec, ask: async () => ({ steps: [{ do: "fill_between", what: "B4", after: "B9", before: "B3" }] }) })).toMatchObject({ outcome: "fallback" });
         expect(await runScheduleFlow({ message: "x", clock: "Mon 08:00", exec, ask: async () => ({ steps: [{ do: "cannot", text: "no room" }] }) })).toEqual({ outcome: "say", text: "no room", kind: "cannot" });
-        expect(await runScheduleFlow({ message: "move it tomorrow", clock: "Mon 08:00", now: new Date(2026, 9, 12, 8, 0), exec, ask: async () => ({ steps: [{ do: "move", what: "B4", to: "18:00" }] }) })).toMatchObject({ outcome: "done" });
+        expect(await runScheduleFlow({ message: "move it to 6pm tomorrow", clock: "Mon 08:00", now: new Date(2026, 9, 12, 8, 0), exec, ask: async () => ({ steps: [{ do: "move", what: "B4", to: "18:00" }] }) })).toMatchObject({ outcome: "done" });
         expect(calls.at(-1)).toEqual(["move", "do cert courses", "--to", "18:00", "--date", "tomorrow"]);
     });
     it("rejects block ids that do not exist, anchors used as the thing to place, and moving a class", () => {

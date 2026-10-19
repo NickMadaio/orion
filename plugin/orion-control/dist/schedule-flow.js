@@ -191,6 +191,14 @@ export function contradiction(message) {
         return undefined;
     return `You said to cancel ${/^(my|the)\b/i.test(obj) ? "" : "the "}${obj} and also to be there. Which do you want: drop it, or keep it (at the time you said)?`;
 }
+// A real time or length expression: a clock time, "at N", am/pm, "in N min/hours", "N min", "N hours", noon/midnight.
+// A bare number (a course code like CS1800) is not one.
+const NUM_WORD = "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve";
+const SAYS_TIME = new RegExp(String.raw `\b\d{1,2}\s*[-–]\s*\d{1,2}\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:at|to|until|till|from|since|by|before|after|around|for)\s+(?:\d{1,2}|${NUM_WORD})\b(?![\d-])|\b(?:\d+(?:\.\d+)?|${NUM_WORD}|an?|half an?)\s*(?:minutes?|mins?|hours?|hrs?)\b|\b(?:noon|midnight|midday|o'?clock|half past|quarter (?:past|to)|now|an? hour and a half|hour and a half)\b`, "i");
+// An add's length is his only when his words give one; otherwise it is dropped and the default length applies.
+const SAYS_LENGTH = new RegExp(String.raw `\b(?:\d+(?:\.\d+)?|${NUM_WORD}|an?|half an?)\s*(?:minutes?|mins?|hours?|hrs?|h)\b|\bhour and a half\b|\bfor\s+(?:\d+|${NUM_WORD})\b|:\d{2}\s*(?:-|–|to|until)`, "i");
+const DEFAULT_ADD_MINUTES = 30;
+const ownLength = (message, list) => list.map((st) => st.do === "add" && !(st.to && st.until) && Number.isFinite(st.minutes) && !SAYS_LENGTH.test(message) ? { ...st, minutes: DEFAULT_ADD_MINUTES } : st);
 /** Steps that would write something he did not ask for, as what to say instead. null = fine. */
 export function guardSteps(message, steps, day) {
     const obj = removalObject(message);
@@ -215,6 +223,14 @@ export function guardSteps(message, steps, day) {
         if (id && !messageNames(message, id, day))
             return { say: "cannot", text: gone };
     }
+    // A clock time the form wrote when his words hold none is the model's, not his: ask, write nothing (2026-10-19).
+    const clockTime = (t) => /^\d{1,2}:\d{2}$/.test(t ?? "");
+    const saysTime = SAYS_TIME.test(message);
+    // Every value that can cause a write: a clock time (to/until/from), a shift (by) or a length (minutes) on a step that writes. An add's own length is left to the scheduler's default sizing.
+    const writes = ["add", "move", "extend", "log", "resize", "late", "overrun"];
+    const invents = (s) => writes.includes(s.do) && ([s.to, s.until, s.from].some(clockTime) || (Number.isFinite(s.by) && s.by !== 0) || (s.do !== "add" && Number.isFinite(s.minutes)));
+    if (!saysTime && steps.some(invents))
+        return { say: "ask", text: "What time or how long do you mean? I haven't changed anything." };
     return null;
 }
 // ---- Anchored adds (r8, 2026-10-16 live): "throw something in before my class, just something small" booked
@@ -646,7 +662,7 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     if (clash)
         return takenBack({ outcome: "say", text: clash, kind: "ask" });
     // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
-    const build = (list) => list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) }));
+    const build = (rawList) => { const list = ownLength(message, rawList); return list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) })); };
     let steps;
     let compiled;
     let bad;

@@ -198,7 +198,7 @@ export declare function setPlaces(places: Record<string, number>): void;
 export declare function contradiction(message: string): string | undefined;
 /** Steps that would write something he did not ask for, as what to say instead. null = fine. */
 export declare function guardSteps(message: string, steps: Intent[], day: Day): {
-    say: "cannot";
+    say: "cannot" | "ask";
     text: string;
 } | null;
 /** "something", "small task", "a thing" — not a title (never booked as one). */

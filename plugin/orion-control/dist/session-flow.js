@@ -83,10 +83,11 @@ function readApps(message) {
 export function parseSessionRequest(message, hint = {}) {
     if (!startsSession(message, hint))
         return null;
-    const minutes = readMinutes(message) ?? hint.minutes;
+    // A length only he said: the desk's hint.minutes counts only when that number is in his words ("lock in, 25").
+    const minutes = readMinutes(message) ?? (hint.minutes !== undefined && new RegExp(`(?<![\\d.])${hint.minutes}(?![\\d.])`).test(message) ? hint.minutes : undefined);
     const until = minutes === undefined ? readUntil(message) : undefined;
     const task = readTask(message);
-    return { task: task === DEFAULT_TASK && hint.task ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
+    return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 const parse = (stdout) => {
     try {

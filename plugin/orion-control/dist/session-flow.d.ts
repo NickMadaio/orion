@@ -9,7 +9,7 @@ export type SessionRequest = {
     until?: string;
     apps: string[];
 };
-/** What the front desk read from his words: its session start, task and length (fills only what his words leave out). */
+/** What the front desk read: its start counts; its task only when his words contain it; its length never. */
 export type SessionHint = {
     start?: boolean;
     task?: string;

@@ -47,7 +47,9 @@ export function toolDirective(decision, message) {
     }
     if (tool === "supplements") {
         const name = typeof args.name === "string" ? args.name.trim() : "";
-        if (args.do === "take" && name && !SUPPLEMENT_QUESTION.test(message))
+        // The supplement must be one he named: a desk-invented name never logs a dose.
+        const named = name.toLowerCase().split(/\W+/).some((w) => w.length >= 3 && message.toLowerCase().includes(w));
+        if (args.do === "take" && name && named && !SUPPLEMENT_QUESTION.test(message))
             return call("supplement_take", { name }, "Then say it is logged, only if the result shows it.", `I didn't manage to log your ${name} — nothing was recorded. Can you say it again?`);
         if (["search", "read", "status"].includes(String(args.do ?? "")) || SUPPLEMENT_QUESTION.test(message)) {
             return call("supplement_status", {}, "This is a question: do not log a dose. Answer from the result only (yes with the time, or no).", "I couldn't read your supplement log just now.");

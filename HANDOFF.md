@@ -80,6 +80,22 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-19 (night) — CS Lab incident: blocks vanishing, "yes" to ORION's offer, crisis continuation (Claude)
+
+Write-up: `docs/audits/2026-10-19-cslab-incident.md`.
+- **Root cause of vanishing blocks**: ORION created its blocks in the default calendar, iCloud "School". That is a synced university feed, and its sync deletes them outside the undo journal.
+  - New `eventCalendar` setting (default "Calendar"). The bridge writes there.
+  - The **bridge must be rebuilt** (`swift build -c release` in native/OrionMacBridge) and reinstalled (`orion-remote-install`).
+  - Old blocks stay in School.
+- **Plugin**: `direct-add.ts` handles "yes" to ORION's own offer, "put X from now until T", spelled-out times and the evening reading of 10:30.
+  - The guard's fallback runs only on a restatement whose times and title are Nick's.
+- **Distress** (`distress.ts`): the halves are always rejoined, so the danger check is unchanged.
+  - Only a continuation that ran a concrete request gets its reply plus "Are you safe right now?…". Everything else keeps the crisis reply.
+- **Scheduler**: `log` writes `logged.jsonl`, which the review reads. Doing the planned activity isn't a slip. A past log never removes a future must.
+- Follow-ups:
+  - A missing "Calendar" silently falls back to the default; make it warn.
+  - The Mac app's EventComposer still defaults to School.
+
 ### 2026-10-19 — Live-audit fixes, gym auto-bump, push-to-talk settings (Claude)
 
 Live audits: `docs/audits/2026-10-19-live-{proactive,conversations}.md`. All of the following went through three Opus review rounds.

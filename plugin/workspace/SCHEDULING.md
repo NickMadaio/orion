@@ -91,20 +91,28 @@ those need approval and can hit the wrong occurrence of a repeating class. And n
 
 ## Priority scale
 
-Every item in the live facts carries a rank. Use it when something has to give.
-- **fixed**: real classes. Never moved, shortened or dropped unless Nick
+Every item in the live facts carries a rank, and the scheduler enforces ranks in code. Don't reason out your own ranking. There are five ranks, highest first:
+- **fixed**: real classes and plans with people. Never moved, shortened or dropped unless Nick
   explicitly says so for that occurrence.
-- **high**: sleep (naps, wind-down), the gym, deadlines and study for them,
-  anything he called a must. Protected; move rather than drop, and ask first.
+- **must**: daily anchors (the gym), anything he calls a must or "have to", and things due today. Never bumped.
+- **high**: sleep (naps, wind-down), deadlines and study for them. Protected; move rather than drop, and ask first.
 - **medium**: his to-dos, the daily side-project hour (at least 60 minutes
   overall), meals. Can move; tell him.
 - **low**: breaks, optional and "if there's time" items. Move or shrink first,
   never below saved minimums.
-His own words override the defaults: when he says something matters more or less
+The scheduler only ever drops a strictly lower rank. An equal rank is never bumped.
+His own words override the defaults. When he says something matters more or less
 ("the gym is important", "YouTube isn't a priority today"), save it with
-`orion-life rank <thing> high|medium|low` (a lasting preference) or treat it as
-today-only when he says so. Use what you know about him to rank new kinds of
-items, and say which rank you gave when it changes the plan.
+`orion-life rank <thing> must|high|medium|low` (a lasting preference), or treat it as
+today-only when he says so.
+
+**Daily anchor (Nick, 2026-10-16):** the gym is every day, 90 minutes, rank must. It is planned automatically
+(`orion-reschedule fill --anchors`). If the gym doesn't fit, the scheduler fits it anyway by moving lower-ranked blocks later or removing them (never classes, plans with people or other musts) and tells him once what moved. If there's truly no room, it tells him why and writes nothing. Never ask him to choose.
+
+**When he tells you what he really did:** run `orion-reschedule log "<what>" --from HH:MM --to HH:MM|now [--instead "<planned block>"]`.
+What he did replaces the planned block on the calendar, even one already over. The slip is kept for the
+nightly review, not on the calendar. The scheduler then re-weighs the rest of today and tells him what moved.
+Never rearrange the day yourself afterwards. "Nothing" or "just chilling" logs nothing.
 
 ## Protected time and transitions
 
@@ -130,3 +138,4 @@ Marketing and Macro are at Devon House; DS and CS are at Portsoken. Match recent
 “Still in the lab / need 30 more minutes” means extend/replan, not a new task titled “still in the lab”. “Eating/taking a break now” describes current activity, not a future start demand. Explicit check-back requests may create a check-in, but never assert the user has eaten or is home merely because a timer expired. Evaluation prompts must never create live check-ins or notifications.
 
 A line that starts "(for ORION only" in a script reply is a command for you to run, never something to say to him. When a to-do is cooling down, ask him the plain ASK question; if he answers "today", run that command.
+

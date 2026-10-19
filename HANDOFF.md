@@ -80,6 +80,30 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-19 — Live-audit fixes, gym auto-bump, push-to-talk settings (Claude)
+
+Live audits: `docs/audits/2026-10-19-live-{proactive,conversations}.md`. All of the following went through three Opus review rounds.
+- **Delivery** (`orion-reach`, `lib/reach/budget.mjs`): the ceiling no longer starves important things.
+  - Protected tiers are reminders he set, class/leave (including fixed-destination leaves), plan ladders, the review, and must blocks. Protection is decided by `--why` prefix.
+  - Low-value ladders get 6 blocks a day and blank asks get 3. Each block counts once toward the 20 backstop.
+  - A dropped message gets a cooldown and retry (30, then 60 min), then gives up.
+- **Stale replay**: loops carry their block's day and window. They're dropped once the block is over or the day has changed.
+- **Bedtime**: `orion-inbound-turn --source phone|mac` declares sleep on an immediate first-person bedtime statement (`lib/awareness/declared.mjs`).
+  - It writes the declaration first, then sends an unsent review detached.
+  - The review's `--gate-exempt` lifts only the declared-sleep hold. A phone goodnight sends the review as a text.
+  - Mac input 15+ min later clears the declaration.
+- **Day review**: sent at 22:00, or bed-60 if earlier. Never after midnight, except `--late` after a focus session.
+- **Wake grace**: no scolding nudge for 30 min after waking.
+- **Plugin**: flows never write a value only the front desk produced (`desk-invented-values.test.ts`). "going to bed" no longer moves the alarm. Day-part words aren't times. Course codes aren't times.
+- **Scheduler**: when the gym doesn't fit, it auto-bumps strictly lower ranks and sends one `--auto` message (`lib/life/bump.mjs`).
+  - To-dos that slip on 2+ days cool down (`lib/life/cooldown.mjs`), with `--include` to override. Due-today items are exempt.
+- **Mac app**:
+  - The spoken-question repeat says only "Nick?" plus the question, never for briefs.
+  - `TextCompleteness` decides when narrative text is complete.
+  - Push-to-talk settings: enable switch, key choice (Carbon hot key for combos and F-keys), hold/toggle, and a 0.28 s hold delay. Option+key or Option+click cancels.
+- Open: the phone has sent nothing since 10-16 17:14. Nick needs to install the new phone build and grant Always location.
+  A held review in real quiet hours is dropped rather than sent at goodnight.
+
 ### 2026-10-16 — Awareness and curiosity (integration of WP1-WP6) (Claude)
 
 Spec: `docs/design/2026-10-16-awareness-and-curiosity.md`. ORION now keeps one `awareness.json` (written only by

@@ -21,4 +21,12 @@ export type DirectAdd = {
  * His whole request as one add from now, or what to say instead. undefined = not this shape (the form decides).
  * `day.now` must be set: this is for today only.
  */
+/** Whether his words are exactly the "put X until T" shape (no day needed): the only kind of request that may follow a crisis reply. */
+export declare function directAddShape(message: string): boolean;
 export declare function parseDirectAdd(message: string, day: Day, ask?: AskContext): DirectAdd | undefined;
+/**
+ * Whether the worker's restated change is only what Nick himself asked: it states at least one time, every time it states is one he said
+ * (after spoken times are digits; am/pm is not compared, and a start within 10 minutes of now counts when he said "now"), and it shares a
+ * title word with his message. Anything else is the worker's own invention and is never run.
+ */
+export declare function restatementIsHis(restated: string, said: string, nowMinute: number): boolean;

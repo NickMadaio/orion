@@ -38,7 +38,8 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
-import { AFTER_CRISIS_NOTE, CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
+import { directAddShape, restatementIsHis } from "./direct-add.js";
+import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply } from "./late-flow.js";
@@ -558,7 +559,9 @@ export function registerLocalRouting(api, options) {
     /** The flow's second go for a turn whose worker was refused the scheduler: from the worker's restatement if it states a time, else an honest "nothing changed". */
     const heldChange = async (run, reply) => {
         const restated = reply.trim();
-        if (options.scheduleFlow && restated && RESTATES_TIME.test(restated) && !CANT_OR_CONFIRM.test(restated) && !isQuestion(restated)) {
+        // Only Nick's own request said back: the worker's sentence is never what the guards check ("move gym later" -> "Move Gym to 6 PM").
+        if (options.scheduleFlow && restated && RESTATES_TIME.test(restated) && !CANT_OR_CONFIRM.test(restated) && !isQuestion(restated)
+            && restatementIsHis(restated, run.message, nowMinutes(options.now))) {
             const flow = await options.scheduleFlow(restated, clock(), { undo: run.undo ?? [] }).catch(() => undefined);
             if (flow && flow.outcome !== "fallback")
                 return flow;
@@ -614,11 +617,11 @@ export function registerLocalRouting(api, options) {
         const said = userText(raw);
         const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
         const stitch = CONTINUING.test(said) && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
-        // 2026-10-19: when the first half already got the crisis reply and the rest has no danger words, the rest is read ALONE (its
-        // request is what he is asking now) and answered with one support line, not the same canned paragraph again.
         const continuation = stitch ? said.replace(CONTINUING, "") : undefined;
-        const afterCrisis = !!stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "");
-        const message = stitch ? (afterCrisis ? continuation : `${stitch.text} ${continuation}`) : said;
+        // 2026-10-19: the rest of a message whose first half got the crisis reply. Still joined to it (so more distress, even without the
+        // listed words, keeps CRISIS_REPLY); only a concrete request that code then runs gets its own reply (see crisisRest below).
+        const crisisRest = stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "") ? continuation : undefined;
+        const message = stitch ? `${stitch.text} ${continuation}` : said;
         const cutOff = SPOKEN.test(raw) && trailsOff(message);
         if (sessionKey)
             lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
@@ -631,7 +634,7 @@ export function registerLocalRouting(api, options) {
                 .then(() => decideImpl({ message, clock: clock() }))
                 .catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
         const askContext = parseAskContext(raw);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(afterCrisis ? { afterCrisis: true } : {}),
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -648,6 +651,16 @@ export function registerLocalRouting(api, options) {
             const answer = addTurn(sessionKey, message);
             if (answer && !cutOff)
                 run.addAnswer = answer;
+        }
+        // 2026-10-19: after a crisis reply, a continuation that is exactly "put X until T" runs, and its reply is the scheduler's plus a check-in
+        // line. Only when the flow really ran (done); a question, a refusal or anything else in it keeps the full crisis reply.
+        if (run.crisisRest && !cutOff && options.scheduleFlow && directAddShape(run.crisisRest)) {
+            const ran = await options.scheduleFlow(run.crisisRest, clock(), { undo: run.undo ?? [] }).catch(() => undefined);
+            if (ran?.outcome === "done") {
+                run.afterCrisis = true;
+                run.flow = ran;
+                settleSchedule(run);
+            }
         }
         const d = await decision;
         // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
@@ -674,7 +687,7 @@ export function registerLocalRouting(api, options) {
             traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
             const run = runFor(event, ctx);
             // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
-            if (run && isCrisis(run.message))
+            if (run && isCrisis(run.message) && !run.afterCrisis)
                 return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
             if (run && isOverwhelmed(run.message))
                 return undefined;
@@ -707,7 +720,7 @@ export function registerLocalRouting(api, options) {
             // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
             // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers
             // him itself, which is intended: the fixed reply exists to guard the small local models.
-            if (isCrisis(run.message))
+            if (isCrisis(run.message) && !run.afterCrisis)
                 run.flow = { outcome: "say", kind: "plain", text: CRISIS_REPLY };
             // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
             // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.
@@ -1045,9 +1058,8 @@ export function registerLocalRouting(api, options) {
                 ? `\n\nYou might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
             const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
             // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
-            const crisisNote = run.afterCrisis ? `\n\n${AFTER_CRISIS_NOTE}` : "";
-            const joinedNote = run.stitched && !run.afterCrisis ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}${crisisNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
+            const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
+            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
         });
     }
     // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at
@@ -1172,7 +1184,8 @@ export function registerLocalRouting(api, options) {
             }
             // 2026-10-19 backstop: the worker was refused `orion-reschedule <write>` and no flow acted. Its reply is never "I can't" or "I need you to
             // confirm" (he had confirmed): the sentence the guard asked it to write is read by the schedule flow (all its guards), else an honest line.
-            if (on && run.refusedWrite && (!run.flow || run.flow.outcome === "fallback") && !run.cutOff) {
+            if (on && run.refusedWrite && (!run.flow || run.flow.outcome === "fallback") && !run.cutOff
+                && (CHANGE_REQUEST.test(run.message) || (!!run.ask?.suggest && isYes(run.message.replace(/[.!?…]+$/, ""))))) {
                 run.flow = await heldChange(run, reply);
                 settleSchedule(run);
                 run.passes = Math.max(run.passes, 1); // code says it now: no revise round

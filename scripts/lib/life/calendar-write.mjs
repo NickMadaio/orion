@@ -9,6 +9,7 @@ import { readPins, savePins } from "./pins.mjs";
 import { weightOf } from "./priority.mjs";
 import { removeSlips, touchDirty } from "./slips.mjs";
 import { removeLogged } from "./logged.mjs";
+import { loadConfig } from "./config.mjs";
 
 export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
   || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}reschedule-undo.json`);
@@ -57,7 +58,7 @@ async function reverseSteps(steps) {
       done.push(`put ${step.title} back`);
     }
     if (step.op === "delete") {
-      const payload = { title: step.title, start: step.start, end: step.end };
+      const payload = { title: step.title, start: step.start, end: step.end, calendar: loadConfig().eventCalendar };
       if (step.orionKind) payload.orionKind = step.orionKind;
       if (step.orionTags) payload.orionTags = step.orionTags;
       const result = await bridge("create_calendar_event", payload);
@@ -87,7 +88,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
       undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
     }
     for (const c of created) {
-      const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end) };
+      const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end), calendar: config.eventCalendar ?? loadConfig().eventCalendar };
       if (!c.fixed) payload.orionKind = c.kind;   // Nick's own plans stay unmarked, so they never move
       const tags = c.fixed ? [] : tagsFor(c, config);
       if (tags.length) payload.orionTags = tags.join(",");

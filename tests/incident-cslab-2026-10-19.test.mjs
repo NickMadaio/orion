@@ -144,3 +144,22 @@ test("d: the blank ask never offers a to-do he already logged, and waits after a
   assert.equal(blankAsk(aw(fresh, over), { ...ctx, minute: m(21, 10), day: justNow, now: fresh.getTime() }), null);
   assert.ok(JUST_LOGGED_MINUTES >= 30);
 });
+
+test("a title match is by whole words: logging 'party' does not fulfil a planned 'Art', and 'lab' is not 'Study for quiz'", (t) => {
+  const party = { id: "p", title: "party", kind: "other", start: m(18), end: m(20), fixed: false, source: "orion", logged: true };
+  const a = actualDay({ blocks: [party], now: { date: DATE, minute: m(22) },
+    slips: [{ date: DATE, planned: { title: "Art", start: m(18), end: m(19), kind: "other", rank: "medium" }, missedMinutes: 60, replacedBy: "party", reason: "no-room" },
+            { date: DATE, planned: { title: "Study for quiz", start: m(20), end: m(21), kind: "study", rank: "high" }, missedMinutes: 60, replacedBy: "lab", reason: "no-room" }] });
+  assert.deepEqual(a.slipped.map((s) => s.title), ["Art", "Study for quiz"]);
+  const w = world(t, [{ title: "art", start: at(18), end: at(19), orion: "other", orionTags: "other" }]);
+  assert.equal(w.run([20, 0], "log", "party", "--from", "18:00", "--to", "now").code, 0);
+  assert.deepEqual(w.jsonl("slips.jsonl").map((s) => s.planned.title), ["art"], "art was displaced by party, not fulfilled by it");
+});
+
+test("ORION's blocks are written to the calendar named in his config, not the default one (the synced School feed removed them in 45 s)", (t) => {
+  const w = world(t, events);
+  assert.equal(w.run([21, 0], ...LOG).code, 0);
+  const made = w.cal().filter((e) => e.title === "cs lab" || e.title === "Gym");
+  assert.ok(made.length > 0);
+  for (const e of w.cal().filter((x) => x.title === "cs lab")) assert.equal(e.calendar, "Calendar");
+});

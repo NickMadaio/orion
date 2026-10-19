@@ -48,7 +48,7 @@ switch (request.action) {
     const identifier = `ev-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
     // [orion:kind] markers: orionTags = "kind,tag,..." (what the real bridge returns for [orion:kind][tag]...), read back by live-day.
     const tags = p.orionKind ? [p.orionKind, ...String(p.orionTags ?? "").split(",").filter(Boolean)].join(",") : null;
-    save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.orionKind ? { orion: p.orionKind, orionTags: tags } : {}) }]);
+    save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.calendar ? { calendar: p.calendar } : {}), ...(p.orionKind ? { orion: p.orionKind, orionTags: tags } : {}) }]);
     reply({ identifier }); break;
   }
   case "delete_calendar_event":

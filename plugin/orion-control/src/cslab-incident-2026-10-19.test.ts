@@ -109,6 +109,7 @@ describe("a time said without am/pm: the next time that clock shows", () => {
     expect(eveningTime("10:30", 21 * 60 + 54, "until 10:30 am")).toBe("10:30");
     expect(eveningTime("10:30", 9 * 60, "until 10:30")).toBe("10:30");
     expect(eveningTime("22:30", 21 * 60 + 54, "until 22:30")).toBe("22:30");
+    expect(eveningTime("10:30", 10 * 60 + 30, "until 10:30")).toBe("10:30");   // the same minute is not behind him
   });
   it("the form's own add at 10:30 is written at 22:30 in the evening", async () => {
     const r = await flow("schedule some reading at 10:30 for 30 minutes", { steps: [{ do: "add", what: "reading", minutes: 30, to: "10:30" }] });
@@ -153,7 +154,7 @@ function harness(flowFor: (message: string) => FlowResult = () => DONE) {
   const handlers = new Map<string, Handler[]>();
   const seen: Array<{ message: string; ask?: unknown }> = [];
   registerLocalRouting({ on: (name: string, fn: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) } as never, {
-    warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Mon 21:54",
+    warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Mon 21:54", now: () => new Date(2026, 9, 19, 21, 54),
     decideImpl: async (): Promise<Decision> => ({ move: "escalate", tier: "standard", say: "Checking your calendar." }),
     scheduleFlow: async (message, _clock, opts) => { seen.push({ message, ask: opts?.askContext }); return flowFor(message); } });
   const fire = async (name: string, event: Record<string, unknown>, ctx: Record<string, unknown>) => {
@@ -204,7 +205,7 @@ describe("f: the crisis reply", () => {
     expect(h.seen).toHaveLength(0);
   });
 
-  it("the continuation is not the same canned text twice: its request runs, with one short support line", async () => {
+  it("the continuation that is a concrete request which RAN is not the same canned text twice: its reply plus a gentle check-in", async () => {
     const h = harness();
     await h.turn(spoken(FIRST));
     const t = await h.turn(spoken(REST));
@@ -212,8 +213,36 @@ describe("f: the crisis reply", () => {
     expect(h.seen).toHaveLength(1);
     expect(h.seen[0]!.message).toBe("Pissing Okay. Okay. Yes. Yes. Put CS for right now until ten thirty.");   // read alone, not with the first half
     expect(t.prompt).not.toContain(CRISIS_REPLY);
+    expect(t.prompt).toContain("Done: CS Lab 9:55 PM");   // the add's own reply
     expect(t.prompt).toContain(SUPPORT_LINE);
-    expect(SUPPORT_LINE.length).toBeLessThan(80);                       // one short line
+    expect(SUPPORT_LINE).toMatch(/^Are you safe right now\?/);
+    expect(SUPPORT_LINE.length).toBeLessThan(90);
+  });
+
+  it("'…put CS lab until ten thirty' runs the add AND carries the check-in line", async () => {
+    const h = harness();
+    await h.turn(spoken(FIRST));
+    const t = await h.turn(spoken("(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) put CS lab until ten thirty"));
+    expect(h.seen).toHaveLength(1);
+    expect(t.reply).toBeUndefined();
+    expect(t.prompt).toContain(SUPPORT_LINE);
+  });
+
+  it("a continuation that elaborates distress without the listed words keeps the full crisis reply and runs nothing", async () => {
+    for (const more of ["I've got the pills here", "nobody would care", "I just don't see how this ends well. Put it all away."]) {
+      const h = harness();
+      await h.turn(spoken(FIRST));
+      const t = await h.turn(spoken(`(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) ${more}`));
+      expect(t.reply, more).toMatchObject({ handled: true, reply: { text: CRISIS_REPLY } });
+      expect(h.seen, more).toHaveLength(0);
+    }
+  });
+
+  it("a request-shaped continuation that did NOT run (the flow asked or refused) keeps the full crisis reply", async () => {
+    const h = harness(() => ({ outcome: "say", kind: "ask", text: "What time or how long do you mean?" }));
+    await h.turn(spoken(FIRST));
+    const t = await h.turn(spoken("(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) put CS lab until ten thirty"));
+    expect(t.reply).toMatchObject({ handled: true, reply: { text: CRISIS_REPLY } });
   });
 
   it("a continuation that itself signals danger still gets the full support reply", async () => {
@@ -245,7 +274,7 @@ describe("b: the worker's dead end", () => {
 
   it("refused and nothing acted: his reply is never 'I need you to confirm'; with no restated time, an honest 'nothing changed'", async () => {
     const h = harness(() => ({ outcome: "fallback", reason: "t" }));
-    const t = await h.turn(asked("tell the worker something odd"));
+    const t = await h.turn(asked("put cs lab on"));
     await h.fire("before_tool_call", { toolName: "exec", params: { command: SAID } }, t.ctx);
     const messages = [{ role: "user", content: "x" }, { role: "assistant", content: "CS Lab is not being added yet — I need to ask you to confirm the change first." }];
     await h.fire("before_agent_finalize", { runId: t.ctx.runId, lastAssistantMessage: messages[1]!.content, messages, hadDeterministicSideEffect: false }, t.ctx);
@@ -253,15 +282,37 @@ describe("b: the worker's dead end", () => {
     expect(REFUSED_NOTHING_CHANGED).not.toMatch(/confirm|can't add/i);
   });
 
-  it("refused, but the worker restated the exact change: the schedule flow runs it and its reply is the scheduler's", async () => {
-    const restated = "I'll put CS Lab on today's calendar from 9:55 PM to 10:30 PM.";
-    const h = harness((m) => (m === restated ? DONE : { outcome: "fallback", reason: "t" }));
-    const t = await h.turn(asked("tell the worker something odd"));
+  async function refused(said: string, restated: string, flowFor: (m: string) => FlowResult) {
+    const h = harness(flowFor);
+    const t = await h.turn(spoken(said));
     await h.fire("before_tool_call", { toolName: "exec", params: { command: SAID } }, t.ctx);
     const messages = [{ role: "user", content: "x" }, { role: "assistant", content: restated }];
     await h.fire("before_agent_finalize", { runId: t.ctx.runId, lastAssistantMessage: restated, messages, hadDeterministicSideEffect: false }, t.ctx);
-    expect(h.seen.at(-1)!.message).toBe(restated);
-    expect(String(messages[1]!.content)).toMatch(/CS Lab/);
-    expect(String(messages[1]!.content)).not.toMatch(/confirm/i);
+    return { h, out: String(messages[1]!.content) };
+  }
+
+  it("refused, and the worker said back what HE asked (his title, his times): the schedule flow runs it", async () => {
+    const restated = "I'll put CS Lab on today's calendar from 9:55 PM to 10:30 PM.";
+    const r = await refused("put CS lab from now until 10:30", restated, (m) => (m === restated ? DONE : { outcome: "fallback", reason: "t" }));
+    expect(r.h.seen.at(-1)!.message).toBe(restated);
+    expect(r.out).toMatch(/CS Lab/);
+    expect(r.out).not.toMatch(/confirm/i);
+  });
+
+  it("refused, and the worker invented a time ('move gym later' -> 'Move Gym to 6 PM'): nothing runs, honest line", async () => {
+    const r = await refused("move gym later", "Move Gym to 6 PM today.", (m) => (m === "Move Gym to 6 PM today." ? DONE : { outcome: "fallback", reason: "t" }));
+    expect(r.h.seen.map((x) => x.message)).not.toContain("Move Gym to 6 PM today.");
+    expect(r.out).toBe(REFUSED_NOTHING_CHANGED);
+  });
+
+  it("refused, and the worker's title is not his ('put cs lab until 10:30' -> 'Put Laundry until 10:30 PM')", async () => {
+    const r = await refused("put cs lab until 10:30", "Put Laundry from 9:55 PM until 10:30 PM.", (m) => (m.startsWith("Put Laundry") ? DONE : { outcome: "fallback", reason: "t" }));
+    expect(r.out).toBe(REFUSED_NOTHING_CHANGED);
+  });
+
+  it("a turn where Nick asked for no change is never touched by the backstop", async () => {
+    const r = await refused("how's my day looking", "Your day is quiet.", (m) => (m === "Your day is quiet." ? DONE : { outcome: "fallback", reason: "t" }));
+    expect(r.out).toBe("Your day is quiet.");
+    expect(r.h.seen.map((x) => x.message)).not.toContain("Your day is quiet.");
   });
 });

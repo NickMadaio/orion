@@ -86,6 +86,7 @@ if (command === "add") {
     title,
     start: stamp(begins),
     end: stamp(new Date(begins.getTime() + minutes * 60_000)),
+    calendar: loadConfig().eventCalendar,   // not the default calendar (a synced feed that removes ORION's events, 2026-10-19)
   });
   if (!created.identifier) fail("bridge created an event without an identifier", 1);
   const after = await ask("get_calendar_event", { identifier: created.identifier });

@@ -8,7 +8,7 @@ import { minimumFor } from "./lengths.mjs";
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 const norm = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 /** He did the very thing that was planned ("cs lab" over the planned "CS Lab"): fulfilled, not a slip and never re-entered (2026-10-19). */
-const sameActivity = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+const sameActivity = (a, b) => { const x = norm(a).split(" ").filter(Boolean), y = norm(b).split(" ").filter(Boolean); const [s, l] = x.length <= y.length ? [x, y] : [y, x]; return s.length > 0 && s.every((w) => l.includes(w)); };
 const isWall = (b) => b.fixed && !b.pinned;               // his own plans and classes; a pinned block is ORION's
 const MIN_PIECE = 5;
 

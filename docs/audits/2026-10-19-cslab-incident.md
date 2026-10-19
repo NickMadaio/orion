@@ -19,9 +19,10 @@ Times below are UTC; BST is +1.
 
 ## The calendar tonight (read-only checks)
 
+- **Cause found:** ORION's blocks were written to the default calendar, iCloud/School (a university feed). `orion-app.log` shows School 23 -> 24 at 21:00:39 (the log), then 24 -> 23 -> 22 at 21:01:19 and 21:01:22: the two ORION blocks were removed by sync 45 s later, outside the journal. The same feed dropped 19 events at 10:02 this morning. Fix: `eventCalendar` (default "Calendar") is passed to the bridge, which now writes there (bridge must be rebuilt and installed).
 - `get_calendar_event` for the `cs lab` block (4BF94D16…) and the Gym (7F6DE8F6…) both return `exists: false`, and the bridge lists
   **no** ORION-marked event in the next seven days. The write at 20:00:38 reported success and the undo journal still ends with that
-  group (no later undo). They were already missing at 20:53 (the blank ask's gap began at 17:00). **I did not find what removed them.**
+  group (no later undo). They were already missing at 20:53 (the blank ask's gap began at 17:00). 
   Nick should check Calendar. This is why tonight's review saw nothing, and why the fix below does not rely on the calendar alone.
 - The Mac bridge in use (`~/.openclaw/orion-remote/bin/orion-mac-bridge`, built 10-06) is older than the source: it writes only
   `[orion:kind]` and returns no `orionTags`, so the `logged` tag `log` writes is dropped on write and read. Even a surviving block would
@@ -58,7 +59,7 @@ Produced by the plugin only (`distress.ts` `CRISIS_REPLY`, used in `local-routin
 
 ## Not fixed
 
-- What removed the `cs lab` block and the Gym from the calendar tonight (not in any log I could read).
+- Rebuild/install of the bridge, which the calendar fix needs; until then blocks still go to School and disappear (the ledger keeps the review honest).
 - The deployed bridge is the 10-06 build (above): rebuild and install it.
 - The two bad slip rows from 20:00 (`CS Lab` and `Gym`, "no-room") are live data and were left alone; the review now hides the CS Lab one, the Gym one stays until the day rolls over.
 - Nick's CS Lab 21:55-22:30 was not put on the calendar by this work (no live changes were made).

@@ -211,7 +211,7 @@ export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {
   ];
   const evidenced = (b) => sessions.some((s) => s.start < b.end && s.end > b.start && (!s.task || titlesShare(b.title, s.task) || b.kind === "study"));
   // He did the planned thing itself (the planned "CS Lab" replaced by his logged "cs lab"): that is not a slip, whatever an older `log` wrote (2026-10-19).
-  const sameActivity = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+  const sameActivity = (a, b) => { const x = norm(a).split(" ").filter(Boolean), y = norm(b).split(" ").filter(Boolean); const [s, l] = x.length <= y.length ? [x, y] : [y, x]; return s.length > 0 && s.every((w) => l.includes(w)); };
   const slipRows = slips.filter((s) => s.date === now.date)
     .filter((s) => !(s.replacedBy && sameActivity(s.planned?.title, s.replacedBy)) && !(s.reason === "no-room" && done.some((d) => d.how === "logged" && sameActivity(d.title, s.planned?.title))))
     .map((s) => ({ title: s.planned?.title ?? "", why: s.reason, replacedBy: s.replacedBy ?? null, missedMinutes: s.missedMinutes ?? null }));

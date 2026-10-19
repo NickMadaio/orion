@@ -46,11 +46,10 @@ const OVERWHELMED = /\b(overwhelm\w*|stressed out|so stressed|burn(t|ed) out|fre
 // Nick lives in London: UK numbers. Fixed text, spoken in three short sentences.
 export const CRISIS_REPLY = "I'm really sorry it feels this heavy, Nick, and I'm glad you told me. Are you safe right now? If you might be in danger call 999, and you can call Samaritans free any time on 116 123 or NHS on 111 — I'm here too if you want to talk.";
 
-// 2026-10-19: when the rest of a cut-off message (a continuation) carries a plain request and no danger words of its own, the first
-// half has already had CRISIS_REPLY. Nick got the same canned paragraph twice and his request ("put CS lab until ten thirty") was
-// never read. The request is answered and this one short line stays, so support is still offered and never withdrawn.
-export const SUPPORT_LINE = "If things ever feel unsafe, call 999, or Samaritans free on 116 123.";
-export const AFTER_CRISIS_NOTE = `Nick was in distress a moment ago and the rest of his message is an ordinary request. Do the request. Then add exactly this one short line and nothing more about it: ${SUPPORT_LINE}`;
+// 2026-10-19: when the rest of a cut-off message (a continuation) is a concrete request that code then actually ran ("put CS lab until
+// ten thirty"), the first half has already had CRISIS_REPLY and he is not sent the same paragraph again: the request's own reply stays and
+// this check-in line follows it. Anything else in a continuation (more about how he feels, "i've got the pills here") keeps CRISIS_REPLY.
+export const SUPPORT_LINE = "Are you safe right now? If not, call 999, or Samaritans free on 116 123.";
 
 export const OVERWHELMED_NOTE = "Nick is feeling overwhelmed. Answer with warmth in two short spoken sentences: say you hear him, then suggest ONE small first step he could take in the next few minutes (a breath, water, writing down the one thing due first). Do not call any tools, do not look anything up, and do not read out his schedule.";
 

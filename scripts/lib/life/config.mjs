@@ -42,6 +42,9 @@ export const DEFAULTS = Object.freeze({
   minimums: {},
   // When the day overflows, low-priority blocks give up time before any is dropped.
   autoShrink: true,
+  // The calendar ORION's own blocks are written to. Not the default one: that was "School" (a synced university feed that removed them
+  // within a minute, 2026-10-19). A name that does not exist falls back to the default, so this is safe to leave as is.
+  eventCalendar: "Calendar",
 });
 
 /** True when ORION should act as if this calendar event did not exist. */

@@ -11,7 +11,8 @@ const slug = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").re
 /** The conditions every blank ask needs (spec 3.4.2). Returns the reason it may not be asked, or null. */
 // He just told ORION what he did (a `log`): asking "what are you up to?" over it, or offering the thing he logged, is the 2026-10-19 bug.
 export const JUST_LOGGED_MINUTES = 45;
-const sameTitle = (a, b) => { const x = String(a ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), y = String(b ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+const norm = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const sameTitle = (a, b) => { const x = norm(a).split(" ").filter(Boolean), y = norm(b).split(" ").filter(Boolean); const [s, l] = x.length <= y.length ? [x, y] : [y, x]; return s.length > 0 && s.every((w) => l.includes(w)); };
 export function blankBlocker(aw, { minute, ledger, turns = [], now, from = 9 * 60, to = 22 * 60, day = [] }) {
   if (day.some((b) => b.logged && b.start <= minute && b.end > minute - JUST_LOGGED_MINUTES)) return "just-logged";
   if (aw.sleep?.state !== "awake" || aw.sleep?.inWindow) return "sleep";

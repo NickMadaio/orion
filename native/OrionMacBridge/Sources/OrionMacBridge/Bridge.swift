@@ -432,7 +432,11 @@ enum OrionMacBridge {
         event.title = title
         event.startDate = start
         event.endDate = end
-        event.calendar = store.defaultCalendarForNewEvents
+        // 2026-10-19: the default calendar here was "School", a feed that syncs from the university: ORION's blocks written to it were
+        // removed again within a minute (the Gym and `cs lab` were gone 45 s after the write). The caller names a calendar of his own.
+        let wanted = payload["calendar"] ?? ""
+        event.calendar = store.calendars(for: .event).first { $0.title == wanted && $0.allowsContentModifications }
+            ?? store.defaultCalendarForNewEvents
         // Blocks ORION plans itself carry a marker, so the planner knows it may
         // move them later ("[orion:study]", "[orion:side_project]").
         if let kind = payload["orionKind"], kind.range(of: #"^[a-z_]{1,20}$"#, options: .regularExpression) != nil {

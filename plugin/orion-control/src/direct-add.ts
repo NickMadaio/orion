@@ -60,7 +60,7 @@ export function clockAfter(text: string, after: number): number | null {
 export function eveningTime(t: string | undefined, nowMinute: number, message: string): string | undefined {
   if (!t || !/^\d{1,2}:\d{2}$/.test(t) || /\b(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message)) return t;
   const m = toMin(t);
-  return m <= nowMinute && m + 720 > nowMinute && m + 720 < 1440 && m >= 60 && m < 720 ? hhmm(m + 720) : t;
+  return m < nowMinute && m + 720 > nowMinute && m + 720 < 1440 && m >= 60 && m < 720 ? hhmm(m + 720) : t;
 }
 
 export type DirectAdd = { args: string[]; title: string; minutes: number; at: string } | { say: "ask" | "cannot"; text: string };
@@ -95,6 +95,16 @@ const sentences = (text: string): string[] => text.split(/(?<=[.!?…])\s+/).map
  * His whole request as one add from now, or what to say instead. undefined = not this shape (the form decides).
  * `day.now` must be set: this is for today only.
  */
+/** Whether his words are exactly the "put X until T" shape (no day needed): the only kind of request that may follow a crisis reply. */
+export function directAddShape(message: string): boolean {
+  const heard = spokenTimesToDigits(message).replace(/\s+/g, " ").trim();
+  return sentences(heard).some((s) => {
+    const m = s.replace(LEAD, "").trim().match(COMMAND);
+    const said = m?.groups?.title?.replace(TITLE_TAIL, "").trim();
+    return !!said && !BAD_TITLE.test(said) && said.split(/\s+/).length <= 5;
+  });
+}
+
 export function parseDirectAdd(message: string, day: Day, ask?: AskContext): DirectAdd | undefined {
   if (!day.now) return undefined;
   const now = toMin(day.now);
@@ -133,4 +143,36 @@ export function parseDirectAdd(message: string, day: Day, ask?: AskContext): Dir
   // The same thing already logged or done earlier today is a new session, not a duplicate: `--again` says so to the scheduler.
   const earlier = day.blocks.some((b) => !b.fixed && toMin(b.start) <= now && norm(b.title) === norm(title!));
   return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : [])], title, minutes, at: hhmm(start) };
+}
+
+// ---- the worker's restatement is only ever Nick's own request said back (2026-10-19 review) ----
+const EXPLICIT_TIME = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?![\d:])(?!\s*(?:min|hour|hr))/gi;
+const TIME_WORD = /\b(?:at|until|till|til|to|from|by|before|after|around|since)\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?![\d:])(?!\s*(?:min|hour|hr))/gi;
+const RESTATE_STOP = new Set(["put", "add", "move", "schedule", "book", "calendar", "calendars", "today", "todays", "tonight", "will", "from", "until", "till", "the", "and", "for", "going", "block", "your", "then", "now", "minutes", "set", "plan", "ill", "that", "this", "with", "into", "onto", "have", "make", "made", "done"]);
+const wordsOf = (t: string): string[] => (t.toLowerCase().replace(/[’']/g, "").match(/[a-z]{3,}/g) ?? []).filter((w) => !RESTATE_STOP.has(w) && w !== "pm" && w !== "am");
+
+/** Minutes mod 12 hours for each clock a sentence states (colon or am/pm only; `loose` also takes a bare hour after a time word). */
+function clocksIn(text: string, loose: boolean): number[] {
+  const out: number[] = [];
+  const take = (m: RegExpMatchArray) => { const h = Number(m[1]); const min = Number(m[2] ?? 0); if (h <= 24 && min <= 59) out.push(((h % 12) * 60 + min) % 720); };
+  for (const m of text.matchAll(EXPLICIT_TIME)) if (m[2] !== undefined || m[3]) take(m);
+  if (loose) for (const m of text.matchAll(TIME_WORD)) take(m);
+  return out;
+}
+
+/**
+ * Whether the worker's restated change is only what Nick himself asked: it states at least one time, every time it states is one he said
+ * (after spoken times are digits; am/pm is not compared, and a start within 10 minutes of now counts when he said "now"), and it shares a
+ * title word with his message. Anything else is the worker's own invention and is never run.
+ */
+export function restatementIsHis(restated: string, said: string, nowMinute: number): boolean {
+  const his = spokenTimesToDigits(said);
+  const theirs = clocksIn(restated, false);
+  if (!theirs.length) return false;
+  const mine = clocksIn(his, true);
+  const saysNow = /\b(?:right\s+)?now\b/i.test(his);
+  const near = (c: number) => saysNow && [0, 720].some((add) => Math.abs((c + add) - nowMinute) <= 10 || Math.abs((c + add) - (nowMinute % 1440)) <= 10);
+  if (!theirs.every((c) => mine.includes(c) || near(c))) return false;
+  const hisWords = new Set(wordsOf(his));
+  return wordsOf(restated).some((w) => hisWords.has(w) || [...hisWords].some((h) => h.startsWith(w) || w.startsWith(h)));
 }

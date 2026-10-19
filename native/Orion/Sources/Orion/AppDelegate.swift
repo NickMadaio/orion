@@ -118,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // summoning it to the configured corner here would be a regression.
         pushToTalk.onPressed = { [weak self] in self?.state.beginListening() }
         pushToTalk.onReleased = { [weak self] in self?.state.endListening() }
+        pushToTalk.onCancelled = { [weak self] in self?.state.cancelListeningSilently() }
         pushToTalk.onEscape = { [weak self] in self?.handleEscape() }
         pushToTalk.apply(state.pushToTalk)
         state.onPushToTalkChanged = { [weak self] old, new in

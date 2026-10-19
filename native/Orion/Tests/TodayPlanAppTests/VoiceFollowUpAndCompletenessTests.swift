@@ -18,7 +18,10 @@ final class VoiceFollowUpAndCompletenessTests: XCTestCase {
         XCTAssertNil(p.armed)
         XCTAssertEqual(p.tick(now: t0.addingTimeInterval(60), idle: 1, locked: false), .none)
         var multi = SpokenQuestionFollowUp(); multi.arm(text: "Here is the list:\n- gym\n- class\nWhat should I move?", at: t0)
-        XCTAssertNil(multi.armed, "multi-line output is narrative")
+        XCTAssertNotNil(multi.armed, "a short list ending in a question is a question; only length and kind exclude briefs")
+        var longList = SpokenQuestionFollowUp()
+        longList.arm(text: "Today:\n" + String(repeating: "- a fairly long item about the day\n", count: 8) + "What should I move?", at: t0)
+        XCTAssertNil(longList.armed)
     }
 
     func testRepeatIsTheFinalQuestionSentenceOnly() {
@@ -127,6 +130,15 @@ final class VoiceFollowUpAndCompletenessTests: XCTestCase {
         p.arm(text: brief, reachID: "reach-1", at: t0)
         p.speechEnded(at: t0.addingTimeInterval(30))
         XCTAssertEqual(p.tick(now: t0.addingTimeInterval(51), idle: 0, locked: false), .none)
+    }
+
+    func testListItemCutMidWordIsRejectedAndCompleteShortItemAccepted() {
+        XCTAssertFalse(TextCompleteness.isComplete("Things to do:\n- call the dentis"))
+        XCTAssertFalse(TextCompleteness.isComplete("Things to do:\n- book the flight.\n- call the dent"))
+        XCTAssertFalse(TextCompleteness.isComplete("Things to do:\n- call the dentist and"))
+        XCTAssertTrue(TextCompleteness.isComplete("Things to do:\n- call the dentist"))
+        XCTAssertTrue(TextCompleteness.isComplete("- call the dentist"))
+        XCTAssertTrue(TextCompleteness.isComplete("- buy milk\n- call the dentist"))
     }
 }
 

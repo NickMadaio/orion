@@ -152,4 +152,24 @@ final class SpokenQuestionFollowUpTests: XCTestCase {
         XCTAssertEqual(cmd!.arguments[cmd!.arguments.firstIndex(of: "--ask")! + 1], "{\"type\":\"voice-repeat\"}")
         XCTAssertNil(SpokenQuestionDriver.phoneCommand(text: q, node: "/n", scriptsDir: "/s", exists: { $0 != "/s/orion-reach" }))
     }
+
+    func testShortListThenQuestionIsStillAQuestion() {
+        let text = "Options:\n- A\n- B\nWhich one?"
+        XCTAssertFalse(SpokenQuestionFollowUp.isNarrative(text))
+        XCTAssertEqual(SpokenQuestionFollowUp.finalQuestion(text), "Which one?")
+        var policy = SpokenQuestionFollowUp()
+        let start = Date()
+        policy.arm(text: text, at: start)
+        XCTAssertNotNil(policy.armed)
+        XCTAssertEqual(policy.tick(now: start.addingTimeInterval(21), idle: nil, locked: false), .repeatAloud("Which one?"))
+    }
+
+    func testBriefsStayExcludedByLengthAndKindNotNewlines() {
+        let brief = String(repeating: "Your day starts at nine with a long list of things to do. ", count: 6) + "\nReady?"
+        XCTAssertTrue(SpokenQuestionFollowUp.isNarrative(brief))
+        var policy = SpokenQuestionFollowUp()
+        policy.arm(text: brief, at: Date())
+        XCTAssertNil(policy.armed)
+        XCTAssertTrue(SpokenQuestionFollowUp.isNarrative("One. Two. Three. Four?"))
+    }
 }

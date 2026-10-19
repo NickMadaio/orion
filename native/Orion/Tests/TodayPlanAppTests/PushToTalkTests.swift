@@ -76,12 +76,26 @@ final class PushToTalkEngineTests: XCTestCase {
         XCTAssertEqual(e.handle(flagsEvent(61, flags(.option, .command))), .none)
     }
 
-    func testLetterTypedAfterTheHoldStartedDoesNotEndIt() {
+    func testLetterWithinGraceCancelsTheTurnButLaterOnesDoNot() {
         var e = engine()
         _ = e.handle(flagsEvent(61, .option))
         _ = e.pendingElapsed()
-        XCTAssertEqual(e.handle(keyEvent(.keyDown, 0, .option)), .none)
-        XCTAssertTrue(e.isHeld)
+        XCTAssertEqual(e.handle(keyEvent(.keyDown, 0, .option)), .cancelTurn)
+        XCTAssertFalse(e.isHeld)
+        XCTAssertEqual(e.handle(flagsEvent(61, [])), .none)
+
+        var late = engine()
+        _ = late.handle(flagsEvent(61, .option))
+        _ = late.pendingElapsed()
+        late.graceElapsed()
+        XCTAssertEqual(late.handle(keyEvent(.keyDown, 0, .option)), .none)
+        XCTAssertTrue(late.isHeld)
+    }
+
+    func testClickWithinGraceCancelsTheTurn() {
+        var e = engine { $0.holdDelayEnabled = false }
+        XCTAssertEqual(e.handle(flagsEvent(61, .option)), .press)
+        XCTAssertEqual(e.handle(PTTEvent(kind: .mouseDown, keyCode: 0, flags: .option)), .cancelTurn)
     }
 
     func testLeftOptionAlsoCountsForRightOptionChoiceAndOtherKeyCannotEndIt() {
@@ -319,7 +333,28 @@ private final class FakeSource: PTTEventSource {
         return next
     }
 
-    func remove(_ token: Any) { entries.removeAll { $0.id == token as? Int } }
+    func remove(_ token: Any) {
+        if let hot = token as? FakeHotKey { hotKeys.removeAll { $0 === hot } }
+        entries.removeAll { $0.id == token as? Int }
+    }
+
+    final class FakeHotKey {
+        let keyCode: UInt16; let modifiers: NSEvent.ModifierFlags
+        let pressed: () -> Void; let released: () -> Void
+        init(_ k: UInt16, _ m: NSEvent.ModifierFlags, _ p: @escaping () -> Void, _ r: @escaping () -> Void) {
+            keyCode = k; modifiers = m; pressed = p; released = r
+        }
+    }
+    private(set) var hotKeys: [FakeHotKey] = []
+    var refuseHotKeys = false
+
+    func registerHotKey(keyCode: UInt16, modifiers: NSEvent.ModifierFlags,
+                        onPressed: @escaping () -> Void, onReleased: @escaping () -> Void) -> Any? {
+        guard !refuseHotKeys else { return nil }
+        let hot = FakeHotKey(keyCode, modifiers, onPressed, onReleased)
+        hotKeys.append(hot)
+        return hot
+    }
 
     var flagsMonitors: Int { entries.filter { $0.kinds.contains(.flagsChanged) }.count }
     var globalMonitors: Int { entries.filter(\.global).count }
@@ -408,10 +443,12 @@ final class PushToTalkMonitorTests: XCTestCase {
         source.deliver(flagsEvent(61, .option))
         XCTAssertEqual(presses, 0)
         XCTAssertEqual(scheduled.last?.delay, PushToTalkConfig.defaultDelay)
-        XCTAssertTrue(source.entries.contains { $0.global && $0.kinds == [.keyDown] }, "watching for a shortcut while pending")
+        XCTAssertTrue(source.entries.contains { $0.global && $0.kinds == [.keyDown, .mouseDown] }, "watching for a shortcut while pending")
         fireTimer()
         XCTAssertEqual(presses, 1)
-        XCTAssertFalse(source.entries.contains { $0.global && $0.kinds == [.keyDown] }, "watch removed once talking")
+        XCTAssertTrue(source.entries.contains { $0.global && $0.kinds == [.keyDown, .mouseDown] }, "watch stays through the grace window")
+        fireTimer()
+        XCTAssertFalse(source.entries.contains { $0.global && $0.kinds.contains(.mouseDown) }, "watch removed after the grace window")
         source.deliver(flagsEvent(61, []))
         XCTAssertEqual(releases, 1)
     }
@@ -428,19 +465,116 @@ final class PushToTalkMonitorTests: XCTestCase {
         XCTAssertEqual(releases, 0)
     }
 
-    func testKeyChoiceInstallsKeyMonitorsAndSwitchesLive() {
+    func testKeyChoiceUsesHotKeyAndNoKeystrokeMonitor() {
         let monitor = makeMonitor()
         var config = PushToTalkConfig.default
         config.choice = .f16
         monitor.apply(config)
-        XCTAssertTrue(source.entries.contains { $0.global && $0.kinds.contains(.keyUp) })
+        XCTAssertTrue(monitor.isRunning)
+        XCTAssertEqual(source.hotKeys.count, 1)
+        XCTAssertEqual(source.hotKeys.first?.keyCode, 106)
+        XCTAssertFalse(source.entries.contains { $0.kinds.contains(.keyDown) && !$0.kinds.contains(.flagsChanged) && $0.global },
+                       "no global keyDown monitor")
+        XCTAssertEqual(source.flagsMonitors, 0)
+        source.hotKeys[0].pressed()
+        source.hotKeys[0].released()
+        XCTAssertEqual(presses, 1)
+        XCTAssertEqual(releases, 1)
+        monitor.apply(.default)
+        XCTAssertTrue(source.hotKeys.isEmpty, "old hot key unregistered on switching")
+    }
+
+    func testComboHotKeyCarriesItsModifiersAndDisableUnregisters() {
+        let monitor = makeMonitor()
+        var config = PushToTalkConfig.default
+        config.choice = .custom
+        config.custom = try! PTTCustomShortcut.make(keyCode: 49, flags: flags(.control, .option)).get()
+        monitor.apply(config)
+        XCTAssertEqual(source.hotKeys.first?.modifiers, flags(.control, .option))
+        source.hotKeys[0].pressed()
+        XCTAssertEqual(presses, 1)
+        config.enabled = false
+        monitor.apply(config)
+        XCTAssertEqual(releases, 1)
+        XCTAssertTrue(source.hotKeys.isEmpty)
+        XCTAssertEqual(source.globalMonitors, 0)
+    }
+
+    func testRefusedHotKeyFallsBackToNarrowMonitors() {
+        let monitor = makeMonitor()
+        source.refuseHotKeys = true
+        var config = PushToTalkConfig.default
+        config.choice = .f16
+        monitor.apply(config)
+        XCTAssertTrue(monitor.isRunning)
         source.deliver(keyEvent(.keyDown, 106))
         source.deliver(keyEvent(.keyUp, 106))
         XCTAssertEqual(presses, 1)
         XCTAssertEqual(releases, 1)
+    }
+
+    func testToggleThroughHotKey() {
+        let monitor = makeMonitor()
+        var config = PushToTalkConfig.default
+        config.choice = .f15
+        config.mode = .toggle
+        monitor.apply(config)
+        source.hotKeys[0].pressed(); source.hotKeys[0].released()
+        XCTAssertEqual(presses, 1)
+        XCTAssertEqual(releases, 0)
+        source.hotKeys[0].pressed(); source.hotKeys[0].released()
+        XCTAssertEqual(releases, 1)
+    }
+
+    func testLetterAfterTheTurnStartedCancelsItSilently() {
+        let monitor = makeMonitor()
+        var cancelled = 0
+        monitor.onCancelled = { cancelled += 1 }
         monitor.apply(.default)
-        source.deliver(keyEvent(.keyDown, 106))
-        XCTAssertEqual(presses, 1, "old key no longer listened for")
+        source.deliver(flagsEvent(61, .option))
+        fireTimer()                       // hold delay elapsed: turn starts
+        XCTAssertEqual(presses, 1)
+        source.deliver(keyEvent(.keyDown, 0, .option))
+        XCTAssertEqual(cancelled, 1)
+        source.deliver(flagsEvent(61, []))
+        XCTAssertEqual(releases, 0, "a cancelled turn is not also released")
+        XCTAssertFalse(source.entries.contains { $0.kinds.contains(.mouseDown) })
+    }
+
+    func testOptionClickAfterTheTurnStartedCancelsIt() {
+        let monitor = makeMonitor()
+        var cancelled = 0
+        monitor.onCancelled = { cancelled += 1 }
+        monitor.apply(.default)
+        source.deliver(flagsEvent(61, .option))
+        fireTimer()
+        source.deliver(PTTEvent(kind: .mouseDown, keyCode: 0, flags: .option))
+        XCTAssertEqual(cancelled, 1)
+    }
+
+    func testOptionClickWhilePendingNeverStarts() {
+        let monitor = makeMonitor()
+        monitor.apply(.default)
+        source.deliver(flagsEvent(61, .option))
+        source.deliver(PTTEvent(kind: .mouseDown, keyCode: 0, flags: .option))
+        fireTimer()
+        XCTAssertEqual(presses, 0)
+    }
+
+    func testKeysAfterTheGraceWindowDoNotCancel() {
+        let monitor = makeMonitor()
+        var cancelled = 0
+        monitor.onCancelled = { cancelled += 1 }
+        monitor.apply(.default)
+        source.deliver(flagsEvent(61, .option))
+        fireTimer()
+        XCTAssertEqual(scheduled.last?.delay, PushToTalkEngine.graceWindow)
+        fireTimer()                       // grace window closes
+        source.deliver(keyEvent(.keyDown, 0, .option))
+        XCTAssertEqual(cancelled, 0)
+        source.deliver(flagsEvent(61, []))
+        XCTAssertEqual(releases, 1)
+        XCTAssertFalse(source.entries.contains { $0.kinds.contains(.keyDown) && $0.global })
     }
 
     func testEscapeStillWorksLocallyWhenDisabled() {

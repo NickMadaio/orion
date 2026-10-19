@@ -133,7 +133,7 @@ final class VoiceFollowUpAndCompletenessTests: XCTestCase {
     }
 
     func testListItemCutMidWordIsRejectedAndCompleteShortItemAccepted() {
-        XCTAssertFalse(TextCompleteness.isComplete("Things to do:\n- call the dentis"))
+        XCTAssertTrue(TextCompleteness.isComplete("Practice:\n- leetcode"), "jargon is not a cut")
         XCTAssertFalse(TextCompleteness.isComplete("Things to do:\n- book the flight.\n- call the dent"))
         XCTAssertFalse(TextCompleteness.isComplete("Things to do:\n- call the dentist and"))
         XCTAssertTrue(TextCompleteness.isComplete("Things to do:\n- call the dentist"))

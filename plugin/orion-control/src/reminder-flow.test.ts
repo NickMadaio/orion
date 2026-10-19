@@ -146,7 +146,7 @@ describe("reminders — create vs cancel, corrections, stitching (review, 2026-1
   it("HIGH 1: asking to SET a reminder that mentions a cancel word never cancels one", async () => {
     for (const [said, label, time] of [
       ["set a reminder to cancel netflix at 5pm", "cancel netflix", "17:00"],
-      ["set a reminder to cancel my gym membership", "cancel my gym membership", "17:00"],
+      ["set a reminder to cancel my gym membership at 5pm", "cancel my gym membership", "17:00"],
       ["set a reminder for 5pm to remove the laundry", "remove the laundry", "17:00"],
       ["set an alarm to stop the oven at 6pm", "stop the oven", "18:00"],
     ] as const) {

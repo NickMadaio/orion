@@ -20,7 +20,7 @@ import type { FlowResult } from "./schedule-flow.js";
 
 export type SessionExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type SessionRequest = { task: string; minutes?: number; until?: string; apps: string[] };
-/** What the front desk read from his words: its session start, task and length (fills only what his words leave out). */
+/** What the front desk read: its start counts; its task only when his words contain it; its length never. */
 export type SessionHint = { start?: boolean; task?: string; minutes?: number };
 
 export const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
@@ -93,10 +93,10 @@ function readApps(message: string): string[] {
 /** His request, or null. A front-desk start (hint.start) counts only when nothing in his words rules a start out. */
 export function parseSessionRequest(message: string, hint: SessionHint = {}): SessionRequest | null {
   if (!startsSession(message, hint)) return null;
-  const minutes = readMinutes(message) ?? hint.minutes;
+  const minutes = readMinutes(message); // a length only he said, never the front desk's hint.minutes
   const until = minutes === undefined ? readUntil(message) : undefined;
   const task = readTask(message);
-  return { task: task === DEFAULT_TASK && hint.task ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
+  return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 
 const parse = (stdout: string): Record<string, unknown> | null => {

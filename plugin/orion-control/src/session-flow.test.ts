@@ -154,7 +154,7 @@ describe("session flow — the sweep's missed starts (q051, q054)", () => {
 
   it("takes the front desk's task and length when his words name none, and its start only when nothing rules it out", async () => {
     expect(parseSessionRequest("focus mode on for an hour, leetcode", { task: "leetcode", minutes: 90 })).toMatchObject({ task: "leetcode", minutes: 60 });
-    expect(parseSessionRequest("lock in, 25", { start: true, task: "leetcode", minutes: 25 })).toMatchObject({ task: "leetcode", minutes: 25 });
+    expect(parseSessionRequest("lock in, 25", { start: true, task: "leetcode", minutes: 25 })).toEqual({ task: "Focus", apps: [] });
     expect(parseSessionRequest("resume my session", { start: true })).toBeNull();
     expect(parseSessionRequest("put a focus block on my calendar at 3", { start: true })).toBeNull();
     const s = fakeSession();

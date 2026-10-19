@@ -203,7 +203,7 @@ export function contradiction(message: string): string | undefined {
 }
 
 /** Steps that would write something he did not ask for, as what to say instead. null = fine. */
-export function guardSteps(message: string, steps: Intent[], day: Day): { say: "cannot"; text: string } | null {
+export function guardSteps(message: string, steps: Intent[], day: Day): { say: "cannot" | "ask"; text: string } | null {
   const obj = removalObject(message);
   // Never claim a block is missing when it is on the day (review, 2026-10-16).
   const onDay = obj ? day.blocks.some((b) => messageNames(obj, b)) : false;
@@ -222,6 +222,10 @@ export function guardSteps(message: string, steps: Intent[], day: Day): { say: "
     const id = s.what && /^B\d+$/.test(s.what) ? day.blocks[Number(s.what.slice(1)) - 1] : day.blocks.find((b) => s.what && normTitle(b.title).includes(normTitle(s.what)));
     if (id && !messageNames(message, id, day)) return { say: "cannot", text: gone };
   }
+  // A clock time the form wrote when his words hold none is the model's, not his: ask, write nothing (2026-10-19).
+  const clockTime = (t?: string) => /^\d{1,2}:\d{2}$/.test(t ?? "");
+  const saysTime = /\d|\b(?:noon|midnight|midday|o'?clock|half past|quarter (?:past|to)|now)\b|\b(?:at|by|to|until|till|from)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i.test(message);
+  if (!saysTime && steps.some((s) => ["move", "extend", "log"].includes(s.do) && [s.to, s.until, s.from].some(clockTime))) return { say: "ask", text: "What time do you mean? I haven't changed anything." };
   return null;
 }
 

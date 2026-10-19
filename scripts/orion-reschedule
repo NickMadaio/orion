@@ -75,6 +75,7 @@ import { planLog, planDisplace, dueAnchors, clock as clockOf, slipRow } from "./
 import { weightOf } from "./lib/life/priority.mjs";
 import { sandbox } from "./lib/life/bridge-path.mjs";
 import { appendSlips, readSlips, touchDirty } from "./lib/life/slips.mjs";
+import { appendLogged } from "./lib/life/logged.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -848,7 +849,9 @@ if (command === "late") {
   const checkFrom = command === "log" ? Math.min(minute(flag("--from")), nowMinute) : nowMinute;
   refuseIfBroken(projectDay(blocks, { moves: plan.moves, created: plan.created, removed: plan.removed }), checkFrom, "this change");
   if (!dry) {
-    await applyPlan({ date, moves: plan.moves, created: plan.created, removed: plan.removed, blocksById: byId, group: txn, config }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+    const written = await applyPlan({ date, moves: plan.moves, created: plan.created, removed: plan.removed, blocksById: byId, group: txn, config }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+    // What he said he did goes in logged.jsonl too: the calendar can lose the tag (old bridge) or the block, the review must not (2026-10-19).
+    if (command === "log") appendLogged(plan.created.filter((c) => c.tags?.includes("logged")).map((c) => ({ date, txn, identifier: written?.createdIds?.[c.id] ?? null, title: c.title, kind: c.kind, start: c.start, end: c.end })));
     appendSlips(plan.slips);
     touchDirty();
     await verifyWritten(date, checkFrom);

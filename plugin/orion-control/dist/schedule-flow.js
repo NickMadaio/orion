@@ -13,6 +13,7 @@
 */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { eveningTime, parseDirectAdd, spokenTimesToDigits } from "./direct-add.js";
 const toMin = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 const hhmm = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 const BUFFER = 5; // his rule: five minutes between activities
@@ -31,8 +32,12 @@ export function parseAskContext(prompt) {
     const mismatch = label.match(/\(([^()]+?), planned (\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2}), not started\)/i);
     if (!window && !mismatch)
         return undefined;
+    const said = label.match(/"([^"]+)"/)?.[1];
+    const suggest = said?.match(/\bI could put (.+?) (?:there|in there)\b/i)?.[1]?.trim();
+    const till = said?.match(/\bNothing (?:else )?planned (?:till|until) (\d{1,2}(?::\d{2})?)\b/i)?.[1];
     return { ...(window ? { start: hm(window[1]), end: window[2].toLowerCase() === "now" ? "now" : hm(window[2]) } : {}),
-        ...(mismatch ? { block: { title: mismatch[1].trim(), start: hm(mismatch[2]), end: hm(mismatch[3]) } } : {}) };
+        ...(mismatch ? { block: { title: mismatch[1].trim(), start: hm(mismatch[2]), end: hm(mismatch[3]) } } : {}),
+        ...(said ? { text: said } : {}), ...(suggest ? { suggest } : {}), ...(till ? { till } : {}) };
 }
 /** "nothing", "nothing really", "just chilling": his answer to a blank ask that logs nothing. */
 export const NOTHING_REPLY = /^\s*(?:(?:um+|uh+|well|oh|nah|nope|no)[,.\s]+)?(?:nothing(?: much| really| special)?|not much|just (?:chilling|relaxing|resting|hanging out)|(?:i was )?(?:just )?chilling)\s*[.!]*\s*$/i;
@@ -314,6 +319,11 @@ function hasRoom(day, now, after, beforeMinute, need) {
 /** One step → orion-reschedule arguments (argv, no shell), or what to tell him. */
 export function compile(input, day, message, opts = {}) {
     let step = input;
+    // A clock he said with no am/pm, in the evening, is the evening ("until 10:30" at 21:55 is 22:30, not this morning).
+    if (day.now && message && ["add", "move", "extend"].includes(step.do)) {
+        const n = toMin(day.now);
+        step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message) } : {}) };
+    }
     const byId = (id) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
     const now = day.now ? toMin(day.now) : 0;
     if (step.what && /^B\d+$/.test(step.what) && !byId(step.what))
@@ -437,8 +447,12 @@ export function compile(input, day, message, opts = {}) {
                 return { say: "ask", text, ...(anchor?.before || anchor?.after ? { pending: { kind: "title", ask: text, ...(Number.isFinite(step.minutes) ? { minutes: step.minutes } : {}), ...(anchor.before ? { before: anchor.before } : {}), ...(anchor.after ? { afterTitle: anchor.after.title } : {}) } } : {}) };
             }
             const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-            if (day.blocks.some((b) => norm(b.title).includes(norm(step.what)) || norm(step.what).includes(norm(b.title))))
+            // A block that already happened (logged, or over) is not a duplicate: he is asking for another session (`--again`).
+            const sameTitle = (b) => norm(b.title).includes(norm(step.what)) || norm(step.what).includes(norm(b.title));
+            const started = (b) => !!day.now && toMin(b.start) <= now;
+            if (day.blocks.some((b) => sameTitle(b) && !started(b)))
                 return { error: `"${step.what}" is already on his day — move it instead of adding it again` };
+            const again = day.blocks.some((b) => !b.fixed && sameTitle(b) && started(b));
             // "from 12:45 to 1:45": code works out the length, never the model.
             const span = time(step.to) && time(step.until) ? toMin(time(step.until)) - toMin(time(step.to)) : undefined;
             if (span !== undefined && span < 5)
@@ -451,7 +465,7 @@ export function compile(input, day, message, opts = {}) {
                 return { error: "add needs at least 5 minutes" };
             const at = stated ? ["--at", time(step.to)] : anchor?.after ? ["--after", anchor.after.title] : [];
             const end = !stated && anchor?.before ? ["--before", hhmm(anchor.before.minute)] : [];
-            return { args: ["add", step.what, String(Math.round(minutes)), ...at, ...end] };
+            return { args: ["add", step.what, String(Math.round(minutes)), ...at, ...end, ...(again ? ["--again"] : [])] };
         }
         case "drop": return what && !what.fixed ? { args: ["drop", what.title] } : { error: "drop needs a movable block id" };
         // "skip" is for a class or plan with people; for his own block it means drop ("ditch the macro stuff").
@@ -631,6 +645,8 @@ async function execute(argvs, { exec, undoTop, when, undone }) {
 export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext }) {
     if (pending?.kind === "push")
         return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
+    // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).
+    message = spokenTimesToDigits(message);
     const titled = pending?.kind === "title" ? pending : undefined;
     let undone = 0;
     const takenBackWhat = [];
@@ -661,6 +677,14 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     const clash = titled ? undefined : contradiction(message);
     if (clash)
         return takenBack({ outcome: "say", text: clash, kind: "ask" });
+    // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).
+    if (!titled) {
+        const direct = parseDirectAdd(message, day, askContext);
+        if (direct && "say" in direct)
+            return takenBack({ outcome: "say", text: direct.text, kind: direct.say });
+        if (direct)
+            return execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
+    }
     // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
     const build = (rawList) => { const list = ownLength(message, rawList); return list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) })); };
     let steps;

@@ -37,7 +37,7 @@ describe("review 7: an open ask forces the schedule flow only for a reply that p
         expect(h.seen).toEqual([]);
         await h.turn(`${BLANK}at the gym since 2`);
         expect(h.seen.length).toBe(1);
-        expect(h.seen[0]?.askContext).toEqual({ start: "14:00", end: "now" });
+        expect(h.seen[0]?.askContext).toMatchObject({ start: "14:00", end: "now" });
     });
     it("a not-started ask carries the block title through to the flow", async () => {
         const h = harness();

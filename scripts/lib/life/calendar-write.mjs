@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { readPins, savePins } from "./pins.mjs";
 import { weightOf } from "./priority.mjs";
 import { removeSlips, touchDirty } from "./slips.mjs";
+import { removeLogged } from "./logged.mjs";
 
 export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
   || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}reschedule-undo.json`);
@@ -68,7 +69,7 @@ async function reverseSteps(steps) {
 }
 
 export async function applyPlan({ date, moves, created, removed = [], blocksById, group = null, pinIds = [], pinCreated = [], config = {} }) {
-  const undo = []; const priorPins = readPins(); const addedPins = [];
+  const undo = []; const priorPins = readPins(); const addedPins = []; const createdIds = {};
   try {
     for (const block of removed) {
       if (!block?.calendarId) continue;
@@ -92,6 +93,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
       if (tags.length) payload.orionTags = tags.join(",");
       const result = await bridge("create_calendar_event", payload);
       if (pinCreated.includes(c.id)) addedPins.push(result.identifier);
+      createdIds[c.id] = result.identifier;
       undo.push({ op: "create", identifier: result.identifier, title: payload.title });
     }
   } catch (error) {
@@ -103,7 +105,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
   for (const b of removed) ids.delete(b.calendarId);
   for (const id of [...pinIds, ...addedPins]) if (id) ids.add(id);
   savePins({ ...priorPins, [date]: [...ids] });
-  if (!undo.length) return;
+  if (!undo.length) return { createdIds };
   touchDirty();   // awareness refreshes after any calendar write
   mkdirSync(dirname(UNDO_FILE), { recursive: true });
   const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
@@ -113,6 +115,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
     : [...history, { pinsBefore: priorPins, at: new Date().toISOString(), ...(group ? { group } : {}), steps: undo }];
   writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-10), null, 2));
   renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
+  return { createdIds };
 }
 
 export async function undoLast() {
@@ -124,7 +127,7 @@ export async function undoLast() {
   const { done, restored } = await reverseSteps(last.steps);
   if (last.pinsBefore) savePins(Object.fromEntries(Object.entries(last.pinsBefore).map(([date, ids]) => [date, ids.map(id => restored.get(id) ?? id)])));
   writeFileSync(UNDO_FILE, JSON.stringify(history, null, 2));
-  if (last.group?.startsWith("log-")) removeSlips(last.group);
+  if (last.group?.startsWith("log-")) { removeSlips(last.group); removeLogged(last.group); }
   touchDirty();
   return done;
 }

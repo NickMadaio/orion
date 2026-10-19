@@ -38,7 +38,7 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
-import { CRISIS_REPLY, OVERWHELMED_NOTE, isCrisis, isOverwhelmed } from "./distress.js";
+import { AFTER_CRISIS_NOTE, CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
@@ -48,7 +48,7 @@ import { mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
-import { answerPending, ADD_DECLINED, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
+import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -147,6 +147,10 @@ type Run = {
   /** q029 (2026-10-16 r8): a "running late" turn code owns: the fixed "how late?" question, the stitched minutes answer, or the go-ahead. */
   /** r8 review 3 H1 (2026-10-16): his answer to the add flow's own question (go ahead / the title / no). */
   addAnswer?: PendingAnswer;
+  /** 2026-10-19: the rest of a cut-off message whose first half got the crisis reply, and which has no danger words itself: its request is answered, with one support line. */
+  afterCrisis?: boolean;
+  /** 2026-10-19: the worker tried `orion-reschedule <write>` by name (refused by the guard); code gets one more go at it from the worker's restatement. */
+  refusedWrite?: string;
   late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string; asked?: boolean } };
 };
 
@@ -250,9 +254,11 @@ const WHEN_OR_HOW_LONG = /\bat \d{1,2}(:\d{2})?\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*
 // What he says in answer to "what are you up to?": a short statement of what he is doing, or "nothing really".
 const ACTIVITY_REPLY = /^(?:i'?m|i am|i was|i'?ve been|i have been|was|been|just|doing|did|still|at|in|on|with|working|studying|reading|coding|writing|cooking|cleaning|watching|playing|napping|nap|gym|lab|lunch|dinner|class)\b/i;
 /** An open ask forces the schedule flow only for a reply that plausibly answers it, not for any message in the next 90 minutes. */
-export function answersAsk(message: string): boolean {
+export function answersAsk(message: string, ask?: AskContext): boolean {
   const m = message.trim();
-  return m.length > 0 && m.length <= 160 && (NOTHING_REPLY.test(m) || LOGGING.test(m) || WHEN_OR_HOW_LONG.test(m) || ACTIVITY_REPLY.test(m));
+  // 2026-10-19: "yes" / "yes, put cs lab until 10:30" answers ORION's own "I could put CS Lab there"; a bare yes means nothing without an offer.
+  const accepts = !!ask?.suggest && (isYes(m.replace(/[.!?…]+$/, "")) || /^(?:yes|yeah|yea|yep|yup|ok(?:ay)?|sure|alright)\b[,\s]/i.test(m));
+  return m.length > 0 && m.length <= 160 && (accepts || NOTHING_REPLY.test(m) || LOGGING.test(m) || WHEN_OR_HOW_LONG.test(m) || ACTIVITY_REPLY.test(m));
 }
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
 export function isCalendarTurn(message: string, settled: Decision, askOpen = false): boolean {
@@ -358,8 +364,13 @@ const defaultBrainSearch = (query: string): Promise<string> => new Promise((reso
 // (review, 2026-10-16) "when" only as "when is|does|do|am|will": "when i get home i'll do laundry" is a plan.
 // "do"/"does" only before a pronoun ("do my laundry at 6" is a plan); "how about" / "what if" suggest.
 const QUESTION_OPENER = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait)[,\s]+)*(?:(?!how about|what if)(?:what|whats|what's|when(?=\s+(?:is|does|do|am|will|are|was|can|should|could|would)\b)|whens|when's|how|is|are|which|who)|do(?:es)?\s+(?:i|we|my|he|she|they))\b/i;
-export const isQuestion = (message: string): boolean =>
-  /\?\s*$/.test(message.trim()) || (QUESTION_OPENER.test(message.trim()) && !CHANGE_REQUEST.test(message.replace(/\b(my|the|his|your) schedule\b/gi, "")));
+// 2026-10-19: "Can you please put CS lab from now until ten thirty?" is a request that ends in "?", not a question: it was read as
+// one and answered "I can't add that to your calendar right now". Judged on the LAST sentence ("I'm fine. … Can you please put …?").
+const POLITE_REQUEST = /^(?:(?:uh+|um+|so|ok(?:ay)?|hey|orion|and|but|wait|alright|yes|yeah|please|pls)[,.…\s]+)*(?:(?:can|could|would|will)\s+(?:you|u)|(?:can|could|would) you)\s+(?:(?:please|pls|just)\s+)*(?:put|add|schedule|book|move|push|pull|swap|extend|shorten|resize|clear|cancel|drop|skip|log|reschedule|fit)\b/i;
+const lastSentence = (message: string): string => message.trim().split(/(?<=[.!?…])\s+/).filter(Boolean).at(-1) ?? message;
+export const isPoliteRequest = (message: string): boolean => POLITE_REQUEST.test(lastSentence(message));
+export const isQuestion = (message: string): boolean => !isPoliteRequest(message) && (
+  /\?\s*$/.test(message.trim()) || (QUESTION_OPENER.test(message.trim()) && !CHANGE_REQUEST.test(message.replace(/\b(my|the|his|your) schedule\b/gi, ""))));
 // The day read has no window rule of its own: "tomorrow morning" listed afternoon classes (q014).
 const DAY_QUESTION_NOTE = "Morning means before 12:00, afternoon 12:00 to 17:00, evening after 17:00: list only what falls in the window he names. \"Next\" means the first block that has not already happened. For \"how long until\", count from Now. If nothing in the list matches, say so and name what is there.";
 
@@ -395,6 +406,15 @@ export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: 
     } catch { return null; }
   },
 });
+
+const RESTATES_TIME = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b\d{1,2}:\d{2}\b/i;
+const CANT_OR_CONFIRM = /\b(?:can'?t|cannot|unable|not (?:being )?(?:added|able)|(?:need|have) to (?:ask|confirm)|confirm)\b/i;
+export const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
+/** exactReply for a run: after a crisis reply the support line stays, one short line, so it is never withdrawn (2026-10-19). */
+const exactFor = (run: { flow?: FlowResult; afterCrisis?: boolean }): string => {
+  const text = run.flow ? exactReply(run.flow) : "";
+  return run.afterCrisis && text ? `${text} ${SUPPORT_LINE}` : text;
+};
 
 /** What Nick must hear after the scheduling flow: the scheduler's own lines, or its "can't"/question. */
 function exactReply(flow: FlowResult): string {
@@ -591,6 +611,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
     if (flow.marks?.length) recordChange(run.sessionKey, flow.marks);
   };
+  /** The flow's second go for a turn whose worker was refused the scheduler: from the worker's restatement if it states a time, else an honest "nothing changed". */
+  const heldChange = async (run: Run, reply: string): Promise<FlowResult> => {
+    const restated = reply.trim();
+    if (options.scheduleFlow && restated && RESTATES_TIME.test(restated) && !CANT_OR_CONFIRM.test(restated) && !isQuestion(restated)) {
+      const flow = await options.scheduleFlow(restated, clock(), { undo: run.undo ?? [] }).catch(() => undefined);
+      if (flow && flow.outcome !== "fallback") return flow;
+    }
+    return { outcome: "say", kind: "plain", text: REFUSED_NOTHING_CHANGED };
+  };
   const lastLate = new Map<string, { minutes: number; at: number; changed: boolean; reply: string; asked?: boolean }>();
   /** Whether this turn is the late flow's: "running late" with no minutes, the short answer to our question, or the go-ahead after it. Consumes the pending question. */
   const lateTurn = (key: string, message: string): Run["late"] => {
@@ -633,7 +662,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const said = userText(raw);
     const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
     const stitch = CONTINUING.test(said) && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
-    const message = stitch ? `${stitch.text} ${said.replace(CONTINUING, "")}` : said;
+    // 2026-10-19: when the first half already got the crisis reply and the rest has no danger words, the rest is read ALONE (its
+    // request is what he is asking now) and answered with one support line, not the same canned paragraph again.
+    const continuation = stitch ? said.replace(CONTINUING, "") : undefined;
+    const afterCrisis = !!stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "");
+    const message = stitch ? (afterCrisis ? continuation! : `${stitch.text} ${continuation}`) : said;
     const cutOff = SPOKEN.test(raw) && trailsOff(message);
     if (sessionKey) lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
     // Text owed by an earlier turn in this session is never delivered on this one (review, 2026-10-16).
@@ -644,7 +677,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then(() => decideImpl({ message, clock: clock() }))
         .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(afterCrisis ? { afterCrisis: true } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -914,7 +947,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // fills one form, code runs the exact command; the worker only phrases the result.
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
-      const openAsk = run.ask && answersAsk(run.message) ? run.ask : undefined;
+      const openAsk = run.ask && answersAsk(run.message, run.ask) ? run.ask : undefined;
       if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled, !!openAsk)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
@@ -951,12 +984,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // The reply is built by code from the scheduler's lines; the worker repeats it (left to phrase it,
         // it said "before you head to the spit" for a plan that starts there, 2026-10-12). It goes in the
         // LATEST message too: from the system prompt alone the 9B paraphrased old turns (live gauntlet).
-        const exact = exactReply(run.flow);
+        const exact = exactFor(run);
         return { systemPrompt: `You already made this change. ${EXACT_REPLY_PROMPT}\n${exact}`,
           appendContext: `[ORION scheduler — already done. Your whole reply must be exactly: ${exact}]` };
       }
       if (run.flow?.outcome === "say") {
-        const exact = exactReply(run.flow);
+        const exact = exactFor(run);
         return { systemPrompt: `${EXACT_REPLY_PROMPT}\n${exact}`,
           appendContext: `[ORION scheduler — nothing was changed. Your whole reply must be exactly: ${exact}]` };
       }
@@ -983,8 +1016,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         ? `\n\nYou might need to ask: "${run.settled.answer}". Ask only if no tool can tell you; otherwise do the job.` : "";
       const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
       // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
-      const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
+      const crisisNote = run.afterCrisis ? `\n\n${AFTER_CRISIS_NOTE}` : "";
+      const joinedNote = run.stitched && !run.afterCrisis ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}${crisisNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
     });
   }
 
@@ -1026,6 +1060,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const expected = run?.directive ?? run?.reminder;
     if (!run || !toolName || !expected || !expected.action) return undefined;
     return guardTaskRun(toolName, event.params, { action: expected.action, args: expected.args });
+  });
+
+  // 2026-10-19 backstop: the worker reached for `orion-reschedule <write>` by name (the tool guard refuses it). The run remembers it, so
+  // the reply is never "I can't" / "I need you to confirm" after he already asked: see heldChange in before_agent_finalize.
+  if (on) api.on("before_tool_call", (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const command = (str((event.params as Record<string, unknown> | undefined)?.command) ?? "").trim();
+    const run = runFor(event, ctx);
+    if (run && /^orion-reschedule\s+(?!show\b|undo\b)[a-z]/.test(command)) run.refusedWrite = command;
+    return undefined;
   });
 
   api.on("after_tool_call", (event, ctx) => {
@@ -1083,8 +1127,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         }
         if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?" : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
       }
+      // 2026-10-19 backstop: the worker was refused `orion-reschedule <write>` and no flow acted. Its reply is never "I can't" or "I need you to
+      // confirm" (he had confirmed): the sentence the guard asked it to write is read by the schedule flow (all its guards), else an honest line.
+      if (on && run.refusedWrite && (!run.flow || run.flow.outcome === "fallback") && !run.cutOff) {
+        run.flow = await heldChange(run, reply);
+        settleSchedule(run);
+        run.passes = Math.max(run.passes, 1);   // code says it now: no revise round
+        markRead(run, "day");
+      }
       if (on && (run.flow?.outcome === "done" || run.flow?.outcome === "say")) {
-        const expected = exactReply(run.flow);
+        const expected = exactFor(run);
         owed = expected;
         remember([runId, sessionKeyNow], expected);
         const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");

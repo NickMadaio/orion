@@ -9,7 +9,11 @@ const dwellMinutes = (loc, now) => (Date.parse(loc?.since) ? Math.floor((now - D
 const slug = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 /** The conditions every blank ask needs (spec 3.4.2). Returns the reason it may not be asked, or null. */
-export function blankBlocker(aw, { minute, ledger, turns = [], now, from = 9 * 60, to = 22 * 60 }) {
+// He just told ORION what he did (a `log`): asking "what are you up to?" over it, or offering the thing he logged, is the 2026-10-19 bug.
+export const JUST_LOGGED_MINUTES = 45;
+const sameTitle = (a, b) => { const x = String(a ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), y = String(b ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+export function blankBlocker(aw, { minute, ledger, turns = [], now, from = 9 * 60, to = 22 * 60, day = [] }) {
+  if (day.some((b) => b.logged && b.start <= minute && b.end > minute - JUST_LOGGED_MINUTES)) return "just-logged";
   if (aw.sleep?.state !== "awake" || aw.sleep?.inWindow) return "sleep";
   if (!["none", "unknown"].includes(aw.session?.state)) return "session";
   if (aw.calendar?.state !== "ok") return "calendar-unknown";
@@ -31,7 +35,7 @@ export function blankAsk(aw, ctx) {
   const { minute, date, day = [], todos = [], travel = [], ledger, turns = [], now } = ctx;
   const loc = aw.location ?? {};
   const atHome = aw.derived?.atHome;
-  const blocker = blankBlocker(aw, { minute, ledger, turns, now });
+  const blocker = blankBlocker(aw, { minute, ledger, turns, now, day });
   const dwell = dwellMinutes(loc, now);
   const away = loc.state === "elsewhere" || loc.state === "known";
   const make = (type, key, text, extra = {}) => ({ key, type, text, ask: { type, window: { date, start: extra.from ?? minute, end: null }, place: loc.placeId ?? null, cell: loc.cell ?? null } });
@@ -54,7 +58,8 @@ export function blankAsk(aw, ctx) {
     const from = gapStart(day, minute);
     const key = `home-gap-${date}-${from}`;
     if (hasAsked(ledger, key)) return null;
-    const todo = topTodo(todos, date);
+    // never offered: a to-do he already logged doing today ("I could put CS Lab there" an hour after `log "cs lab"`)
+    const todo = topTodo(todos.filter((t) => !day.some((b) => b.logged && sameTitle(b.title, t.title))), date);
     return make("home-gap", key, words.homeGap({ until: free, todo }), { from });
   }
   if (away && dwell !== null && dwell >= AWAY_DWELL) {

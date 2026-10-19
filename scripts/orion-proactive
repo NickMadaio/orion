@@ -28,7 +28,7 @@ import { fillBlankAsk } from "./lib/curiosity/decide.mjs";
 import { readLedger, updateLedger, recordAsk, closeAsk, markAnswered } from "./lib/curiosity/ledger.mjs";
 import { blanks } from "./lib/life/day-review.mjs";
 import { randomUUID } from "node:crypto";
-import { liveDay, localDate } from "./lib/life/live-day.mjs";
+import { liveDayWithLogged, liveDay, localDate } from "./lib/life/live-day.mjs";
 import { focusToday, formatFocusToday } from "./lib/focus/day-total.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
@@ -108,7 +108,7 @@ if ((!session || !["running", "paused"].includes(session.status)) && last?.ended
 let sleep = {};
 try { sleep = JSON.parse(run("orion-now", ["--json"])).sleep ?? {}; } catch {}
 let day = [], dayOk = false;
-try { day = await liveDay(localDate(now)); dayOk = true; } catch {}
+try { day = await liveDayWithLogged(localDate(now)); dayOk = true; } catch {}
 const total = focusToday(history, { dayKey: localDate(now) });
 const config = loadConfig();
 const travel = (() => { try { return commuteWalls(day, config); } catch { return []; } })();

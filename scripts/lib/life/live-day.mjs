@@ -6,6 +6,7 @@ import { ignoredEvent } from "./config.mjs";
 // The bridge (and, during a schedule evaluation, the sandbox calendar) lives in bridge-path.
 import { bridgeRequest } from "./bridge-path.mjs";
 import { isSkipped } from "./skips.mjs";
+import { markLoggedEvents, withLoggedLedger } from "./logged.mjs";
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -79,9 +80,15 @@ export function allDayTitles(events, date) {
 
 export async function calendarEvents() {
   const result = await bridgeRequest("list_upcoming_calendar_events", { from: "today" });
-  return JSON.parse(result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title) && !isSkipped(e));
+  // The ledger of what `log` wrote marks its blocks logged even when the bridge drops the tag (the 10-06 build did).
+  return markLoggedEvents(JSON.parse(result.events_json ?? "[]").filter((e) => !ignoredEvent(e.title) && !isSkipped(e)));
 }
 
 export async function liveDay(date) {
   return toBlocks(await calendarEvents(), date);
+}
+
+/** The day as the review and the blank asks read it: the calendar plus what he logged that the calendar no longer shows. */
+export async function liveDayWithLogged(date) {
+  return withLoggedLedger(await liveDay(date), date);
 }

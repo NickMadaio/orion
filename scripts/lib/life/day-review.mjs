@@ -177,6 +177,7 @@ export function blanks(day, { now, minMinutes = 30 } = {}) {
   return gaps.filter((g) => g.end - g.start > minMinutes);
 }
 
+const norm = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const titlesShare = (a, b) => sharesWord(getLongWords(String(a ?? "")), getLongWords(String(b ?? "")));
 const minuteOfIso = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? null : d.getHours() * 60 + d.getMinutes(); };
 
@@ -209,7 +210,11 @@ export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {
     ...blocks.filter((b) => !b.logged && b.source !== "orion" && attendance[b.id] === "attended").map((b) => ({ title: b.title, start: b.start, end: b.end, how: "attended" })),
   ];
   const evidenced = (b) => sessions.some((s) => s.start < b.end && s.end > b.start && (!s.task || titlesShare(b.title, s.task) || b.kind === "study"));
-  const slipRows = slips.filter((s) => s.date === now.date).map((s) => ({ title: s.planned?.title ?? "", why: s.reason, replacedBy: s.replacedBy ?? null, missedMinutes: s.missedMinutes ?? null }));
+  // He did the planned thing itself (the planned "CS Lab" replaced by his logged "cs lab"): that is not a slip, whatever an older `log` wrote (2026-10-19).
+  const sameActivity = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+  const slipRows = slips.filter((s) => s.date === now.date)
+    .filter((s) => !(s.replacedBy && sameActivity(s.planned?.title, s.replacedBy)) && !(s.reason === "no-room" && done.some((d) => d.how === "logged" && sameActivity(d.title, s.planned?.title))))
+    .map((s) => ({ title: s.planned?.title ?? "", why: s.reason, replacedBy: s.replacedBy ?? null, missedMinutes: s.missedMinutes ?? null }));
   const stillPlanned = blocks.filter((b) => b.source === "orion" && !b.fixed && !b.logged && b.end <= now.minute && !["rest", "sleep", "commute"].includes(b.kind)
     && !/^(wind down|break)$/i.test(b.title) && !evidenced(b) && !slipRows.some((s) => titlesShare(b.title, s.title) || s.title === b.title))
     .map((b) => ({ title: b.title, why: "no-evidence", replacedBy: null, missedMinutes: b.end - b.start }));

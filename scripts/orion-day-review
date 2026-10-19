@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { actualDay, actualText } from "./lib/life/day-review.mjs";
-import { liveDay, localDate } from "./lib/life/live-day.mjs";
+import { liveDayWithLogged, localDate } from "./lib/life/live-day.mjs";
 import { readLedger } from "./lib/curiosity/ledger.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
@@ -32,7 +32,7 @@ const jsonl = (f) => (existsSync(join(DIR, f)) ? readFileSync(join(DIR, f), "utf
 const readJson = (f) => { try { return JSON.parse(readFileSync(join(DIR, f), "utf8")); } catch { return null; } };
 
 let blocks = [];
-try { blocks = await liveDay(date); } catch { /* an unreadable calendar: the review then says what it can */ }
+try { blocks = await liveDayWithLogged(date); } catch { /* an unreadable calendar: the review then says what it can */ }
 const health = readJson("health-log.json") ?? {};
 const phone = phoneMinutes(health.phoneSignals, date);
 const evidence = { nights: readJson("sleep-actual.json")?.nights ?? [], sleepLog: health.sleepLog ?? [], phoneSignals: health.phoneSignals ?? [], now };

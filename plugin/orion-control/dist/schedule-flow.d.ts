@@ -45,6 +45,10 @@ export type AskContext = {
         start: string;
         end: string;
     };
+    /** What ORION itself said, what it offered ("I could put CS Lab there") and where the free stretch ends ("Nothing planned till 10:30"): a "yes" accepts the offer. */
+    text?: string;
+    suggest?: string;
+    till?: string;
 };
 /** Reads `[ORION context: ... (blank ask about 14:00-now ...)]` or `(finish resume, planned 14:00-16:00, not started)`; undefined when no ask is open. */
 export declare function parseAskContext(prompt: string): AskContext | undefined;

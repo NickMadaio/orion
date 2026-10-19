@@ -80,7 +80,7 @@ export declare const UNDO_NOTHING_TO_UNDO = "I haven't changed your calendar in 
 /** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
 export declare const isBareUndo: (message: string) => boolean;
 /** An open ask forces the schedule flow only for a reply that plausibly answers it, not for any message in the next 90 minutes. */
-export declare function answersAsk(message: string): boolean;
+export declare function answersAsk(message: string, ask?: AskContext): boolean;
 /** Whether this turn is a change to his calendar at all, whatever words it shares with one. */
 export declare function isCalendarTurn(message: string, settled: Decision, askOpen?: boolean): boolean;
 /** The front desk's session start, task and length (sweep 2026-10-15, q051: it read "focus mode on for an
@@ -101,6 +101,7 @@ export declare function instructionsFor(decision: Decision | undefined, message:
 export declare const LOOK_IT_UP = "Your manual and his memory live in his brain; you only see a small part of it here. When you need something that is not in front of you \u2014 how a script works, a scheduling rule, dates, his routines, people, preferences, what was decided before \u2014 look it up first with exec: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain search \"<words>\", or read \"ORION Manual - Index\" for the list of manual sections, then read \"<title>\". Never guess a fact about Nick or a command's syntax that you could look up.";
 /** Brain search for the message, trimmed to the best few matches (pre-fetched while the front desk decides). */
 export declare function brainSnippets(output: string, maxChars?: number): string;
+export declare const isPoliteRequest: (message: string) => boolean;
 export declare const isQuestion: (message: string) => boolean;
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
 export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;
@@ -113,6 +114,7 @@ export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     pending?: PendingRun;
     askContext?: AskContext;
 }) => Promise<FlowResult>;
+export declare const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export declare const liveExtractReminder: (message: string, clock?: string) => Promise<{
     time: string | null;

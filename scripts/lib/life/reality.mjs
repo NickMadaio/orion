@@ -6,6 +6,9 @@ import { weightOf } from "./priority.mjs";
 import { minimumFor } from "./lengths.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
+const norm = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** He did the very thing that was planned ("cs lab" over the planned "CS Lab"): fulfilled, not a slip and never re-entered (2026-10-19). */
+const sameActivity = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
 const isWall = (b) => b.fixed && !b.pinned;               // his own plans and classes; a pinned block is ORION's
 const MIN_PIECE = 5;
 
@@ -40,7 +43,9 @@ const slipRow = ({ date, at, block, missed, replacedBy, reason, txn, config }) =
  * @returns { result, entries } where entries tell each displaced item's fate
  */
 function reweigh({ blocks, displaced, now, window, soft, config, buffer, walls = [] }) {
-  const reenter = displaced.filter((d) => weightOf(d.block, config).rank !== "low");   // a missed break is not re-entered
+  // A missed break is not re-entered; neither is a block with a piece still ahead (`keeps`): that piece stays where it is, so the
+  // elapsed part of a must (the gym he was late to) can never knock the rest of it out of the day (2026-10-19, Gym "no room").
+  const reenter = displaced.filter((d) => weightOf(d.block, config).rank !== "low" && !d.keeps);
   const result = replan([...blocks, ...walls], { now, window, soft, add: [], rebuild: true, buffer, keepFree: 0, displaced: reenter, config });
   return { result, reenter };
 }
@@ -69,8 +74,8 @@ export function planLog(blocks, interval, opts) {
   for (const b of targets) {
     const inside = Math.max(0, Math.min(b.end, to) - Math.max(b.start, from));
     const missed = Math.min(b.end - b.start, Math.max(inside || b.end - b.start, minimumFor(b.title, config.minimums ?? {})));
-    displaced.push({ block: b, minutes: missed });
     const left = overlaps(b, span) ? leftovers(b, from, to) : [];
+    if (!sameActivity(b.title, title)) displaced.push({ block: b, minutes: missed, keeps: left.length > 0 });
     if (!left.length) { removed.push(b); continue; }
     const [first, ...others] = left;
     moves.push({ id: b.id, title: b.title, from: b.start, to: first.start, toEnd: first.end });
@@ -86,7 +91,8 @@ export function planLog(blocks, interval, opts) {
 
   const slips = []; const lines = []; const bumped = []; const placedAgain = []; const offToday = [];
   let allCreated = [...created, ...extra]; let allMoves = moves; let allRemoved = removed;
-  if (reweighDay && displaced.length) {
+  // Nothing to put back (a block with a piece still ahead keeps it): the day is not re-laid, so nothing future is touched by a past log.
+  if (reweighDay && displaced.some((d) => !d.keeps)) {
     const { result } = reweigh({ blocks: kept, displaced, now, window, soft, config, buffer, walls });
     const byId = new Map(kept.map((b) => [b.id, b]));
     // Where each surviving block ends up, compared with the calendar as it was before this log.
@@ -109,7 +115,7 @@ export function planLog(blocks, interval, opts) {
     slips.push(slipRow({ date, at, block: d.block, missed: d.minutes, replacedBy: title, reason: off ? "no-room" : "reality", txn, config }));
   }
   return { created: allCreated, moves: allMoves, removed: allRemoved, slips, bumped, placedAgain, offToday, displaced, interval,
-    summary: logSummary({ title, segments, placedAgain, bumped, offToday, displaced }), lines };
+    summary: logSummary({ title, segments, placedAgain, bumped, offToday, displaced, shortened: allMoves.filter((m) => displaced.some((d) => d.keeps && d.block.id === m.id && m.toEnd !== undefined)) }), lines };
 }
 
 function displacedTags(created, displaced) {
@@ -142,9 +148,10 @@ const sayRange = (s, e) => `${say(s)}-${say(e)}`;
 const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 const list = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 
-function logSummary({ title, segments, placedAgain, bumped, offToday, displaced }) {
+function logSummary({ title, segments, placedAgain, bumped, offToday, displaced, shortened = [] }) {
   const first = `Logged ${title} ${segments.map((s) => sayRange(s.start, s.end)).join(", ")}.`;
   const parts = [
+    ...shortened.map((m) => `${cap(m.title)} is now ${sayRange(m.to, m.toEnd)}`),
     ...placedAgain.map((c) => `${cap(c.title)} moved to ${sayRange(c.start, c.end)}`),
     ...offToday.map((u) => `${cap(u.title)} has no room today`),
     ...bumped.map((b) => `${b.title} is off today`),

@@ -119,8 +119,13 @@ function guardExec(toolName, params, deps) {
             return block(OPERATOR_REASON);
         // The scheduler's writes belong to the schedule flow and its guards, so the bare name is only a read.
         if (head === "orion-reschedule" && !/^show(\s|$)/.test(rest)) {
-            return block("Do not run orion-reschedule yourself to change the calendar. Describe the change in words to Nick " +
-                "(for example: say what you would move and ask him to confirm), and ORION's scheduler makes it.");
+            // 2026-10-19: the old text ("say what you would move and ask him to confirm") made the worker tell Nick "I need to ask you to
+            // confirm" right after he had said yes. A change he asked for is already confirmed: restate it exactly so code can run it.
+            return block("Do not run orion-reschedule yourself to change the calendar: ORION's scheduler makes the change from words. " +
+                "If Nick already asked for this change, he has confirmed it. Never tell him you can't, and never ask him to confirm again. " +
+                "Put the change in words, in one plain sentence with the block's name, the day, and the start and end times with AM or PM " +
+                "(for example: \"Put CS Lab on today's calendar from 9:55 PM to 10:30 PM.\"), and ORION's scheduler runs it from that sentence. " +
+                "Only if he has not asked for a change yet, ask what he wants.");
         }
         abs = `${SCRIPTS_DIR}/${head}`;
         name = head;

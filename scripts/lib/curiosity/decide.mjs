@@ -88,7 +88,7 @@ function blankBlockerIgnoringSpacing(aw, { minute, ledger, now }) {
 export function fillBlankAsk(aw, { minute, date, bed, blanks, ledger, turns = [], now }) {
   if (minute < 20 * 60 || minute > bed - 30) return null;
   const reason = blankBlocker(aw, { minute, ledger, turns, now, from: 0, to: 24 * 60 });
-  if (reason && reason !== "busy" || ledger.asks.some((a) => a.type === "fill-blank" && a.window?.date === date)) return null;
+  if (reason && reason !== "busy" || ledger.asks.some((a) => a.type === "fill-blank" && a.window?.date === date && !a.dropped)) return null;
   const big = [...blanks].filter((b) => b.end - b.start > 45).sort((a, b) => (b.end - b.start) - (a.end - a.start))[0];
   if (!big) return null;
   return { key: `fill-blank-${date}`, type: "fill-blank", text: words.fillBlank({ from: big.start, to: big.end }),

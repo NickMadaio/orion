@@ -12,7 +12,14 @@ export const DEFAULTS = Object.freeze({
   sideProjectMinutes: 60, sideProjectLabel: "Side project (YouTube)",
   gymDays: [1, 3, 5], gymMinutes: 60,   // legacy form of `anchors`; the live default is DEFAULT_ANCHORS (below)
   // Most messages ORION sends him in a day before only reminders he set and class rungs go out.
-  dailyReachCeiling: 20,
+  dailyReachCeiling: 20,   // a spam backstop only: reminders he set, class/leave and must blocks (gym) are never blocked by it
+  // Low-value nudges (a ladder for a block that is not a must) draw on a smaller budget; every rung of one block counts once.
+  dailyLowValueBudget: 6,
+  dailyBlankAskBudget: 3,    // "what are you up to?" and the evening fill-blank ask
+  dropCooldownMinutes: 30,   // a message dropped by a budget is not tried again for this long (doubles), and given up after dropMaxPerDay
+  dropMaxPerDay: 3,
+  wakeGraceMinutes: 30,      // after he wakes: no scolding nudges (class and leave reminders still go)
+  reviewAt: "22:00", reviewBeforeBedMinutes: 60,   // the day review: 22:00, or 60 min before bed if earlier, never after midnight
   bedtime: "00:00", usualWake: "09:00", sleepHours: 8,
   studyMinutes: 60, dinner: true, windDownMinutes: 30, freeMinutesKept: 60,
   commuteMinutes: 30,

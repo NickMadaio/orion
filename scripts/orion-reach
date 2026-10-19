@@ -26,16 +26,23 @@
    dropped, never queued: the loop re-decides it with fresh facts.
  --reason break|end|wake: with --drain-held, why it is being released (the gate still decides).
  --valid-until ISO: after this the message is pointless; a held copy is dropped, not released.
+ --tier protected|low|blank|normal: the caller knows the block's rank (a must block, e.g. the gym, is protected).
  Delivery policy is one gate (lib/reach/gate.mjs, awareness spec 3.2): a break releases held messages, and the
- bubble always shows while speech needs him home or in headphones (3.4.4). Daily ceiling: dailyReachCeiling (20)
- counts proactive:/plan:/curiosity: messages, never a reminder he set or a class nudge (exit 3, reason ceiling).
+ bubble always shows while speech needs him home or in headphones (3.4.4).
+ Priority, not a flat ceiling (lib/reach/budget.mjs): a reminder he set, a class/leave rung, a must block (gym), the day
+ review and the morning brief are never blocked. Low-value ladders (every rung of one block counts once) draw on
+ dailyLowValueBudget, blank asks on dailyBlankAskBudget; dailyReachCeiling (20) is only a spam backstop for the rest.
+ A message dropped by a budget is logged once with a cooldown (dropCooldownMinutes, doubling) and given up after
+ dropMaxPerDay: exit 3 "NOT SENT: ceiling|budget|blank-budget|dropped", and the caller must not retry it every tick.
 */
 import { appendFileSync, readFileSync, existsSync, mkdirSync, statSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { allowed, chooseChannel, speakOnMac, countedToday } from "./lib/reach/route.mjs";
+import { allowed, chooseChannel, speakOnMac } from "./lib/reach/route.mjs";
+import { tierOf, budgetVerdict, dropGuard, COUNTED_WHY } from "./lib/reach/budget.mjs";
+import { clearDeclared } from "./lib/awareness/declared.mjs";
 import { gate, resolveAwareness, audienceOf } from "./lib/reach/gate.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { localDate } from "./lib/life/live-day.mjs";
@@ -47,7 +54,7 @@ import { refuseDuringEval } from "./lib/eval-mode.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until"];
+const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until", "--tier"];
 const drain = args.includes("--drain-held");
 const fail = (m, c = 2) => { console.error(m); process.exit(c); };
 
@@ -109,14 +116,37 @@ if (!burst.ok && burst.duplicate) { console.log(`Already said: ${burst.reason}.`
 const urgent = args.includes("--urgent");
 const genuinelyUrgent = isUrgentNotification({ urgent, urgentKind });
 const bypass = bypassesQuiet({ urgentKind });
-// The daily ceiling is a runaway guard (3.4.3): the loop's own messages stop at it, dropped not held. A reminder he set
-// and a class nudge are neither counted nor blocked.
-const ceiling = Number(loadConfig().dailyReachCeiling ?? 20);
-const ceilingHit = !bypass && /^(proactive|plan|curiosity):/.test(flag("--why") ?? "") && countedToday(history, localDate(now), localDate) >= ceiling;
-if (ceilingHit) {
-  if (!dry) { try { appendFileSync(LOG, `${JSON.stringify({ id: `reach-${now.getTime()}-ceiling`, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: "hold", status: "dropped", reason: "ceiling" })}\n`); } catch {} }
-  console.log(`NOT SENT: ceiling - already reached him ${ceiling} times today.`);
+// Priority, not a flat ceiling: protected messages (a reminder he set, a class nudge, a must block, the review) always go;
+// the rest draw on budgets, with the ceiling as a spam backstop. A drop is logged with a cooldown and given up after a few.
+const config = loadConfig();
+const reason = flag("--why") ?? "";
+const tier = tierOf({ why: reason, urgentKind, bypass, tier: flag("--tier"), askType: ask?.type ?? null });
+const today = localDate(now);
+const logDropped = (why_, extra = {}) => {
+  if (dry) return;
+  try { appendFileSync(LOG, `${JSON.stringify({ id: `reach-${now.getTime()}-${why_}`, at: now.toISOString(), text: text.trim(), kind, why: reason || null, tier, channel: "hold", status: "dropped", reason: why_, ...extra })}\n`); } catch {}
+};
+// A message about a moment that has passed is pointless (a nudge for a block that ended, yesterday's ladder at midnight).
+if (validUntil && !drain && now.getTime() > Date.parse(validUntil)) {
+  logDropped("expired");
+  console.log(`NOT SENT: expired - it was only worth saying until ${validUntil}.`);
   process.exit(3);
+}
+if (COUNTED_WHY.test(reason) && tier !== "protected") {
+  const guard = dropGuard({ history, date: today, localDate, why: reason, now: now.getTime(),
+    cooldownMinutes: Number(config.dropCooldownMinutes ?? 30), maxDrops: Number(config.dropMaxPerDay ?? 3) });
+  if (guard.skip) {
+    // already recorded: no new row, no new retry storm
+    console.log(`NOT SENT: dropped - ${guard.why === "gave-up" ? "given up for today after it was dropped" : "dropped a moment ago, not tried again until the cooldown ends"}.`);
+    process.exit(3);
+  }
+  const verdict = budgetVerdict({ history, date: today, localDate, why: reason, tier, askTitle: ask?.title ?? null,
+    limits: { ceiling: Number(config.dailyReachCeiling ?? 20), lowValue: Number(config.dailyLowValueBudget ?? 6), blank: Number(config.dailyBlankAskBudget ?? 3) } });
+  if (!verdict.ok) {
+    logDropped(verdict.reason, { drops: guard.drops + 1 });
+    console.log(`NOT SENT: ${verdict.reason} - ${verdict.detail}.`);
+    process.exit(3);
+  }
 }
 // 2026-10-16: a refusal is not "said". Exit 3 so a caller (orion-proactive) does not mark its key done.
 if (!burst.ok) { console.log(`NOT SENT: ${burst.reason}.`); process.exit(3); }
@@ -124,6 +154,8 @@ if (!burst.ok) { console.log(`NOT SENT: ${burst.reason}.`); process.exit(3); }
 const here = await presence(now, { dir: DIR, facts: givenFacts });
 // --awake: the caller has proof he is up (the morning brief runs on his wake signal), so quiet hours do not apply.
 if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
+// --awake is proof he is up: a bedtime he declared earlier is over.
+if (args.includes("--awake") && !dry) { try { clearDeclared(DIR); } catch {} }
 const aw = resolveAwareness({ dir: DIR, now, env: process.env, legacy: here, probe: !dry });
 if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: "awake", source: "caller" };
 let verdict = gate(aw, { kind, urgentKind, now });
@@ -143,7 +175,7 @@ let decision = forced === "phone" ? { channel: "phone", reason: "asked for the p
 if (verdict.action === "hold") decision = { channel: "hold", reason: verdict.reason, heldFor: verdict.heldFor };
 if (args.includes("--silent") && decision.channel === "mac-voice") decision = { channel: "mac-bubble", reason: `${decision.reason}; silent was asked for` };
 const id = `reach-${now.getTime()}-${randomUUID().slice(0, 6)}`;
-const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, channel: decision.channel, reason: decision.reason, urgent, urgentKind, headphones,
+const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("--why") ?? null, tier, channel: decision.channel, reason: decision.reason, urgent, urgentKind, headphones,
   loud: args.includes("--loud") && !headphones, listen: args.includes("--listen"),
   ...(ask ? { ask, askId: ask.askId ?? id, category: ask.type ?? null } : {}), ...(validUntil ? { validUntil } : {}) };
 

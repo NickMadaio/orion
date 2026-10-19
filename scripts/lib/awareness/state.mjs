@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { LIMITS, UNKNOWN, derive, isFresh } from "./facets.mjs";
 import { readJson, writeJsonAtomic } from "./io.mjs";
+import { activeDeclaration } from "./declared.mjs";
 
 export const SCHEMA = "orion.awareness.v1";
 export const FILE = "awareness.json";
@@ -25,11 +26,11 @@ const emptyFacets = (at = null) => ({
  */
 export function readAwareness({ dir = controlledDir(), now = new Date(), maxAgeMs = Infinity } = {}) {
   const file = readJson(join(dir, FILE));
-  if (!file || file.schema !== SCHEMA) return finish({ schema: SCHEMA, at: null, ...emptyFacets(), meta: {} });
+  if (!file || file.schema !== SCHEMA) return withDeclared(finish({ schema: SCHEMA, at: null, ...emptyFacets(), meta: {} }), dir, now);
   const ok = (name, facet, limit = limitFor(name, facet)) => facet && typeof facet === "object" && isFresh(facet.at, Math.min(limit, maxAgeMs), now);
   const pick = (name, facet, unknown) => (ok(name, facet) ? facet : { ...unknown(facet?.at ?? null) });
   const audio = file.audio ?? {};
-  return finish({
+  return withDeclared(finish({
     schema: SCHEMA, at: file.at ?? null,
     session: pick("session", file.session, UNKNOWN.session),
     calendar: pick("calendar", file.calendar, UNKNOWN.calendar),
@@ -40,10 +41,16 @@ export function readAwareness({ dir = controlledDir(), now = new Date(), maxAgeM
              phone: ok("audioPhone", audio.phone) ? audio.phone : UNKNOWN.audio(audio.phone?.at ?? null) },
     sleep: pick("sleep", file.sleep, UNKNOWN.sleep),
     meta: file.meta ?? {},
-  });
+  }), dir, now);
 }
 
 const finish = (aw) => ({ ...aw, derived: derive(aw) });
+
+/** He said he is going to sleep (orion-inbound-turn): asleep until he wakes, whatever the window or the Mac says. */
+const withDeclared = (aw, dir, now) => {
+  const declared = activeDeclaration({ dir, now });
+  return declared ? finish({ ...aw, sleep: { ...aw.sleep, state: "asleep", source: "declared", declaredAt: declared.at, at: now.toISOString() } }) : aw;
+};
 
 export function writeAwareness(dir, aw) {
   const { derived: _drop, ...facets } = aw;

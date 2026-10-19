@@ -171,7 +171,7 @@ export function blanks(day, { now, minMinutes = 30 } = {}) {
   const until = typeof now === "object" ? now.minute : now;
   const covered = merge([...(day.blocks ?? []), ...(day.sessions ?? []), ...(day.answered ?? [])].map((x) => ({ start: x.start, end: Math.min(x.end, until) })));
   const gaps = [];
-  let cursor = DAY_START;
+  let cursor = Math.max(DAY_START, Number.isFinite(day.from) ? day.from : 0);   // nobody is "blank" before he woke
   for (const c of covered) { if (c.start > cursor) gaps.push({ start: cursor, end: Math.min(c.start, until) }); cursor = Math.max(cursor, c.end); }
   if (cursor < until) gaps.push({ start: cursor, end: until });
   return gaps.filter((g) => g.end - g.start > minMinutes);

@@ -32,7 +32,7 @@ export function appendTurn(dir, now) {
  * @param turns times (ms) of his earlier messages, not counting this one
  */
 export function askAnswered({ asks, replyTo = null, turns = [], now = Date.now() }) {
-  const open = asks.filter((a) => !a.answeredAt);
+  const open = asks.filter((a) => !a.answeredAt && !a.dropped);   // a dropped ask never reached him: nothing to answer
   if (replyTo) return open.find((a) => a.askId === replyTo || a.reachId === replyTo) ?? null;
   const newest = open.reduce((best, a) => (!best || Date.parse(a.at) > Date.parse(best.at) ? a : best), null);
   if (!newest) return null;

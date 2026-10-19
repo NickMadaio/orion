@@ -62,6 +62,7 @@ export function markAnswered(ledger, { logged = [], date, now = Date.now() } = {
 /** Ignored: an open blank ask older than 45 min with no inbound turn in the 45 min after it. */
 export function isIgnored(ask, { turns = [], now = Date.now() } = {}) {
   if (!BACKOFF.has(ask.type) || ask.answeredAt || ask.outcome) return false;
+  if (ask.dropped) return true;   // dropped by a budget: it never reached him, so it backs off like an ignored ask (60, 120, 240)
   const at = Date.parse(ask.at);
   if (now - at < IGNORED_AFTER * MIN) return false;
   return !turns.some((t) => t > at && t <= at + IGNORED_AFTER * MIN);

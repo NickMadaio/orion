@@ -36,6 +36,8 @@ import { commuteWalls } from "./lib/life/commute.mjs";
 import { actualWake } from "./lib/life/night.mjs";
 import { phoneMinutes, leftAt } from "./lib/life/attendance.mjs";
 import { waitsFor } from "./lib/life/task-spread.mjs";
+import { inWakeGrace } from "./lib/awareness/wake.mjs";
+import { reviewDue, bedOnEvening } from "./lib/reach/review-time.mjs";
 
 const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const STATE = join(DIR, "proactive-sent.json");
@@ -133,7 +135,7 @@ try { tomorrowDay = tomorrowIsToday ? day : await liveDay(tomorrow); } catch {}
 const lastReachId = (key) => { try { return readFileSync(join(DIR, "outreach.jsonl"), "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }).filter((r) => r.why === `curiosity: ${key}`).at(-1)?.id ?? null; } catch { return null; } };
 // The calendar this script just read vouches for itself when awareness has none (or an old one).
 if (dayOk && aw.calendar?.state !== "ok") aw = { ...aw, calendar: calendarFacet(day, travel, now) };
-const bedMin = (() => { const [h, m] = String(sleep.bedtime ?? "23:45").split(":").map(Number); return h * 60 + m; })();
+const bedMin = bedOnEvening(sleep.bedtime);   // a 00:30 bed is 1470 on this evening's clock
 const checkinFile = process.env.ORION_CHECKIN_FILE || join(DIR, "checkins.json");
 const checkins = readJson(checkinFile)?.checkins ?? [];
 // Inbound turns (any reply, Mac or phone) are how an ignored blank ask is told from an answered one.
@@ -143,9 +145,10 @@ const ctxBase = { minute, day, tomorrowDay: tomorrowDay ?? [], tomorrowIsToday, 
   bed: sleep.bedtime, wake: sleep.wake, focusToday: total.focusSeconds >= 60 ? formatFocusToday(total).replace(/^Focused today: /, "").replace(/ \(latest.*$/, "") : null, sent };
 
 // The loop first (a ladder rung always wins), then the lines that are not about the plan (session end, due tomorrow, bedtime).
-const actions = dayOk ? planVsReality(aw, { day, checkins, ledger, sent, todos, travel, signals, out: p.out, turns, now }) : [];
+const wakeGrace = inWakeGrace({ dir: DIR, now, minutes: Number(config.wakeGraceMinutes ?? 30) });
+const actions = dayOk ? planVsReality(aw, { day, checkins, ledger, sent, todos, travel, signals, out: p.out, turns, now, wakeGrace }) : [];
 const evening = dayOk && !actions.some((a) => a.action === "ask") ? fillBlankAsk(aw, { minute, date: localDate(now), bed: bedMin, ledger, turns, now: now.getTime(),
-  blanks: blanks({ blocks: day, sessions: [], answered: ledger.asks.filter((a) => a.window?.date === localDate(now) && a.outcome === "nothing").map((a) => ({ start: a.window.start, end: a.window.end ?? minute })) }, { now: minute, minMinutes: 45 }) }) : null;
+  blanks: blanks({ blocks: day, sessions: [], from: signals.wokeAt ?? undefined, answered: ledger.asks.filter((a) => a.window?.date === localDate(now) && a.outcome === "nothing").map((a) => ({ start: a.window.start, end: a.window.end ?? minute })) }, { now: minute, minMinutes: 45 }) }) : null;
 if (evening && !sent[evening.key]) actions.push({ ...evening, action: "ask", kind: "question" });
 const said = actions.filter((a) => a.action === "say");
 const messages = [...said, ...decide({ ...ctxBase, skipLadder: true })];
@@ -155,7 +158,9 @@ const closed = [];
 if (!dry) for (const a of actions.filter((x) => x.action === "close")) run("orion-checkin", ["started", a.checkinId]);
 for (const a of actions.filter((x) => x.action === "checkin")) {
   if (dry) { console.log(`DRY RUN would start a plan check-in (${a.key}): ${a.text}`); continue; }
-  const r = spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "0", a.title, "--by", "orion", "--block", a.blockId], { encoding: "utf8", timeout: 15000, env: process.env });
+  // the block's own day and window go with the loop: it is dropped once the block is over, and a must block (gym) is protected from the budget
+  const r = spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "0", a.title, "--by", "orion", "--block", a.blockId,
+    ...(a.window ? ["--day", a.window.date, "--start", String(a.window.start), "--end", String(a.window.end)] : []), ...(a.tier === "protected" ? ["--tier", "protected"] : [])], { encoding: "utf8", timeout: 15000, env: process.env });
   if (r.status === 0) { sent[a.key] = true; closed.push(a.key); process.stdout.write(r.stdout ?? ""); }
 }
 const newAsks = [];   // what this tick adds to the ledger; merged into the file as it is at the end, not written over it
@@ -165,6 +170,14 @@ for (const a of actions.filter((x) => x.action === "ask")) {
   const r = reach([a.text, "--kind", "question", "--why", `curiosity: ${a.key}`, "--ask", JSON.stringify({ ...a.ask, askId })]);
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
   process.stdout.write(r.stdout ?? "");
+  if (outcome.dropped) {
+    // Dropped by the blank budget or the ceiling: recorded as dropped, so the ask backs off (60, 120, 240 min) instead of being
+    // generated again on the next tick (2026-10-18: the same blank ask, 25 times).
+    if (["blank", "fill-blank", "home-gap", "away-gap", "unknown-place"].includes(a.blankType ?? a.type)) {
+      newAsks.push({ askId, reachId: null, type: a.blankType ?? a.type, key: a.key, window: a.ask?.window ?? null, cell: a.ask?.cell ?? null, at: now.toISOString(), dropped: true });
+    }
+    continue;
+  }
   if (!outcome.said) continue;
   sent[a.key] = true; closed.push(a.key);
   const reachId = lastReachId(a.key);
@@ -172,7 +185,8 @@ for (const a of actions.filter((x) => x.action === "ask")) {
   ledger = recordAsk(ledger, record);
   newAsks.push(record);
   // an off-plan ask is followed up through the same check-in loop as a block not started
-  if (a.type === "off-plan") spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "10", day.find((b) => b.id === a.blockId)?.title ?? "the plan", "--by", "orion", "--block", a.blockId], { encoding: "utf8", timeout: 15000, env: process.env });
+  if (a.type === "off-plan") spawnSync(process.execPath, [join(here, "orion-checkin"), "add", "10", day.find((b) => b.id === a.blockId)?.title ?? "the plan", "--by", "orion", "--block", a.blockId,
+    ...(a.ask?.window ? ["--day", a.ask.window.date, "--start", String(a.ask.window.start), "--end", String(a.ask.window.end)] : [])], { encoding: "utf8", timeout: 15000, env: process.env });
 }
 if (!dry) {
   try {
@@ -194,6 +208,8 @@ for (const m of messages) {
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
   if (outcome.said && m.claim) markAnnounced(DIR, localDate(now), m.claim, "proactive");
   if (outcome.said) { sent[m.key] = true; for (const k of m.also ?? []) sent[k] = true; }
+  // dropped by a budget or the ceiling: handled for the day (orion-reach logged it with its cooldown), not retried every tick
+  else if (outcome.dropped) sent[m.key] = true;
   else if (outcome.failed) failures[m.key] = { at: now.toISOString(), attempts: (failures[m.key]?.attempts ?? 0) + 1 };
   process.stdout.write(r.stdout ?? "");
 }
@@ -228,9 +244,10 @@ if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && 
     if (deliveryOutcome({ status: asked.status, stdout: asked.stdout }).said) { sent[`anchors-${dayKey}`] = true; sent[`anchors-ask-${dayKey}`] = true; closed.push("anchors"); }
   }
 }
-// Bedtime minus 30: the nightly review of what actually happened, spoken if he is home, a text otherwise (once a night).
-const toBedMin = ((bedMin - minute) % 1440 + 1440) % 1440, sinceBed = ((minute - bedMin) % 1440 + 1440) % 1440;
-if (!dry && reason === "tick" && dayOk && (toBedMin <= 30 || sinceBed <= 120) && !heldBack && !sleeping && !sent[`review-${dayKey}`]) {
+// The nightly review of what actually happened: at 22:00, or 60 min before bedtime if that is earlier, and never after
+// midnight. It describes the day that is ending (dayKey is the evening's date until 6 AM, but a review is only ever sent
+// on that same calendar day), spoken if he is home, a text otherwise, once a night. A missed one is not sent next morning.
+if (!dry && reason === "tick" && dayOk && reviewDue({ minute, date: dayKey, today: localDate(now), bedtime: sleep.bedtime, config }) && !heldBack && !sleeping && !sent[`review-${dayKey}`]) {
   const r = spawnSync(process.execPath, [join(here, "orion-day-review"), "--send", "--date", dayKey], { encoding: "utf8", timeout: 60000 });
   if (r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout).trimStart())) { sent[`review-${dayKey}`] = true; closed.push("review"); }
   process.stdout.write(r.stdout ?? "");

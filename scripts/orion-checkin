@@ -7,6 +7,9 @@
 //   orion-checkin add <minutes> "<what>" [--because "<reason>"]   schedule a check-in
 //       [--by orion --block <blockId> [--window HH:MM-HH:MM]]      a plan loop (awareness C9): 5 alerts at most, sent
 //                                                                  through orion-reach; on give-up or cancel the day is re-weighed
+//       [--day YYYY-MM-DD --start <min> --end <min>]               the block's own day and window (minutes after midnight): the loop is
+//                                                                  dropped once the block is over or the day has changed, and its "it's been N min"
+//                                                                  counts from that start. [--tier protected] for a must block (the gym).
 //   orion-checkin started|done [id]                                 he began / finished
 //   orion-checkin started "<what>"                                  he began something with no check-in
 //   orion-checkin defer <minutes> [id] [--because "<reason>"]       a real pause
@@ -30,6 +33,9 @@ import { classify } from "./lib/life/live-day.mjs";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { spawnSync } from "node:child_process";
 import { isClassAttendanceCheckin } from "./lib/life/checkin-class.mjs";
+import { windowOf, validUntilOf, elapsedSince, staleReason } from "./lib/reach/block-window.mjs";
+import { inWakeGrace } from "./lib/awareness/wake.mjs";
+import { loadConfig } from "./lib/life/config.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
 const evaluating = evalMode();
@@ -38,7 +44,10 @@ const MAX_ALERTS = 8;
 const PLAN_MAX_ALERTS = 5;   // a plan loop is ORION's own; it stops sooner than one he set (spec 3.4.3)
 const HERE = import.meta.dirname;
 const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
-const nowMinute = () => Math.floor(Date.now() / 60000);
+// Test seam: ORION_CHECKIN_NOW is the clock (never set in production).
+const NOW_MS = process.env.ORION_CHECKIN_NOW ? Date.parse(process.env.ORION_CHECKIN_NOW) : Date.now();
+const nowMinute = () => Math.floor(NOW_MS / 60000);
+const MAX_DROPS = 3, DROP_COOLDOWN_MIN = 30;
 const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };
 const save = (state) => {
   mkdirSync(dirname(FILE), { recursive: true });
@@ -72,7 +81,8 @@ function pick(state, id) {
 
 /** What ORION says when a check-in comes due, by level. Plain, not motivational. */
 export function message(c, now) {
-  const late = Math.max(0, now - c.dueAt);
+  // from the block's own start today when it is known (2026-10-19: "508 min" counted from yesterday's start)
+  const late = elapsedSince(c.blockWindow, now * 60000) ?? Math.max(0, now - c.dueAt);
   const w = c.what;
   const W = w.charAt(0).toUpperCase() + w.slice(1);
   if (c.loop.level <= 1 && c.returning) return `You asked me to check back about ${w}. Ready to start?`;
@@ -91,14 +101,18 @@ function displace(c, why) {
   try { spawnSync(process.env.ORION_RESCHEDULE_BIN || join(HERE, "orion-reschedule"), ["displace", c.what, "--why", why], { encoding: "utf8", timeout: 30_000, env: process.env }); } catch { /* the next tick of the day review still lists the slip */ }
 }
 
-/** A plan alert goes through orion-reach (gate, the bubble/voice rule and the ceiling apply), not the phone's alerts outbox. */
-/** @returns true only when orion-reach actually delivered it (sent, or already said): a hold, refusal or failure is not an alert. */
+/** A plan alert goes through orion-reach (gate, the bubble/voice rule and the budgets apply), not the phone's alerts outbox. */
+/** @returns { reached, dropped }: reached only when orion-reach actually delivered it (sent, or already said); dropped when a budget,
+ *  the ceiling or an earlier drop's cooldown stopped it (not to be tried every tick); a hold, refusal or failure is neither. */
 function sendPlan(c, level, text) {
-  const ask = { type: "mismatch", blockId: c.block, title: c.what, window: c.window ?? null, level };
+  const ask = { type: "mismatch", blockId: c.block, title: c.what, window: c.blockWindow ?? null, level };
+  const until = validUntilOf(c.blockWindow);   // a rung is pointless once the block is over
   try {
-    const r = spawnSync(process.env.ORION_REACH_BIN || join(HERE, "orion-reach"), [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--ask", JSON.stringify(ask)], { encoding: "utf8", timeout: 30_000, env: process.env });
-    return r.status === 0 && /^(Sent|Already said)/.test(String(r.stdout ?? "").trimStart());
-  } catch { return false; }
+    const r = spawnSync(process.env.ORION_REACH_BIN || join(HERE, "orion-reach"), [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--ask", JSON.stringify(ask),
+      ...(c.tier === "protected" ? ["--tier", "protected"] : []), ...(until ? ["--valid-until", until] : [])], { encoding: "utf8", timeout: 30_000, env: process.env });
+    const out = String(r.stdout ?? "").trimStart();
+    return { reached: r.status === 0 && /^(Sent|Already said)/.test(out), dropped: r.status === 3 && /^NOT SENT: (ceiling|budget|blank-budget|dropped|expired)/.test(out) };
+  } catch { return { reached: false, dropped: false }; }
 }
 
 const state = load();
@@ -110,15 +124,17 @@ switch (command) {
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720 || !what || what.length > 120) fail('usage: orion-checkin add <0-720 minutes> "<what>"');
     // A block that was moved and re-entered gets a new calendar id: the same title on the same day is the same block, and
     // does not start a second not-started loop.
-    const today = new Date().toLocaleDateString("en-CA");
+    const today = new Date(NOW_MS).toLocaleDateString("en-CA");
     if (flag("--block") && state.checkins.some((x) => x.block && x.what === what && x.loop?.phase !== "cancelled"
         && new Date(x.createdAt).toLocaleDateString("en-CA") === today)) {
       console.log(`Already following "${what}" today.`); break;
     }
     const id = `ci-${randomBytes(3).toString("hex")}`;
     const because = flag("--because");
-    const c = { id, what, dueAt: now + minutes, createdAt: new Date().toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
-                ...(flag("--block") ? { block: String(flag("--block")).slice(0, 80), window: flag("--window") ?? null } : {}),
+    const c = { id, what, dueAt: now + minutes, createdAt: new Date(NOW_MS).toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
+                ...(flag("--block") ? { block: String(flag("--block")).slice(0, 80), window: flag("--window") ?? null,
+                    blockWindow: windowOf({ date: flag("--day"), start: flag("--start"), end: flag("--end") }),
+                    ...(flag("--tier") === "protected" ? { tier: "protected" } : {}) } : {}),
                 returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
                 loop: startLoop({ id, start: now + minutes }, now) };
     state.checkins = [...state.checkins.filter(open), c].slice(-20);
@@ -134,7 +150,7 @@ switch (command) {
       const what = rest.join(" ").trim() || "what you started";
       const id = `ci-${randomBytes(3).toString("hex")}`;
       const loop = step(startLoop({ id, start: now }, now), { type: "started" }, now);
-      state.checkins = [...openOnes, { id, what, dueAt: now, createdAt: new Date().toISOString(), alerts: 0, returning: null, loop }].slice(-20);
+      state.checkins = [...openOnes, { id, what, dueAt: now, createdAt: new Date(NOW_MS).toISOString(), alerts: 0, returning: null, loop }].slice(-20);
       save(state);
       console.log(`Noted: ${what} started. I'll check in ~25 min that it's still going.`);
       break;
@@ -186,12 +202,22 @@ switch (command) {
     // One gate for every sender (awareness 3.2): a check-in HE set counts as a reminder and fires through focus and class;
     // one ORION generated waits for a break. Quiet hours hold both (G10). A held check-in is not stepped, so its level does
     // not climb while he cannot act, and it is due again at the first tick after the gate opens.
-    const aw = resolveAwareness({ dir: CONTROLLED, now: Date.now(), env: process.env });
-    const held = (c) => gate(aw, { kind: "checkin", urgentKind: c.by !== "orion" && aw.sleep?.state !== "asleep" ? "reminder" : null, now: Date.now() }).action === "hold";
+    const aw = resolveAwareness({ dir: CONTROLLED, now: NOW_MS, env: process.env });
+    const held = (c) => gate(aw, { kind: "checkin", urgentKind: c.by !== "orion" && aw.sleep?.state !== "asleep" ? "reminder" : null, now: NOW_MS }).action === "hold";
     const alerts = [];
     let duringClass = false, classes = [];
-    try { const blocks = toBlocks(await calendarEvents(), localDate(new Date())); classes = realClasses(blocks); duringClass = inClass(blocks, new Date().getHours()*60+new Date().getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
+    try { const blocks = toBlocks(await calendarEvents(), localDate(new Date(NOW_MS))); classes = realClasses(blocks); duringClass = inClass(blocks, new Date(NOW_MS).getHours()*60+new Date(NOW_MS).getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
+    // Just after he wakes ORION does not scold: its own plan nudges wait (leave and class reminders are not loops, they still go).
+    const grace = inWakeGrace({ dir: CONTROLLED, now: new Date(NOW_MS), minutes: Number(loadConfig().wakeGraceMinutes ?? 30) });
     for (const c of state.checkins.filter(open)) {
+      // A nudge is about one block on one day: once the block is over, or it is a new day, drop it silently. Never send a
+      // not-started nudge for a block that ended hours ago, never into the next day (2026-10-19 audit).
+      if (c.block) {
+        const stale = staleReason({ window: c.blockWindow, createdAt: c.createdAt }, NOW_MS);
+        if (stale) { c.loop = { ...c.loop, phase: "given_up", nextCheckAt: null, history: [...(c.loop.history ?? []), { at: now, event: "expired", phase: "given_up" }] }; c.expired = stale; continue; }
+        if (c.retryAfter && now < c.retryAfter) continue;   // dropped by a budget a moment ago: not every tick
+        if (grace && c.by === "orion") continue;
+      }
       // A calendar class is self-timed; lack of a Started/Done tap isn't
       // evidence of avoidance. Ordinary start nags wait until class is over.
       // 2026-10-16 audit, finding 12: the old rule was a regex on course words (its \b were literal backspace bytes, so it
@@ -216,8 +242,16 @@ switch (command) {
       if (c.block) {
         // Only an alert that reached him counts, and a loop only gives up (and re-weighs the day) after one did.
         const finalStep = c.alerts + 1 >= PLAN_MAX_ALERTS;
-        const reached = sendPlan(c, finalStep ? 5 : after.level, finalStep ? `I'll stop pinging about ${c.what} - I've moved what I could.` : message(c, now));
-        if (!reached) { c.loop = before; continue; }   // held, refused or failed: nothing counted, the same step is tried next tick
+        const sent = sendPlan(c, finalStep ? 5 : after.level, finalStep ? `I'll stop pinging about ${c.what} - I've moved what I could.` : message(c, now));
+        if (sent.dropped) {
+          // Dropped by a budget or the ceiling: recorded on the loop with a cooldown (doubling), and given up after a few. Not a retry every tick.
+          c.drops = (c.drops ?? 0) + 1;
+          c.loop = c.drops >= MAX_DROPS ? { ...before, phase: "given_up", nextCheckAt: null } : before;
+          c.retryAfter = now + DROP_COOLDOWN_MIN * 2 ** (c.drops - 1);
+          continue;
+        }
+        if (!sent.reached) { c.loop = before; continue; }   // held, refused or failed: nothing counted, the same step is tried next tick
+        c.drops = 0; c.retryAfter = null;
         c.alerts += 1;
         c.returning = null;
         if (finalStep) {

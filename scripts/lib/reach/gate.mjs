@@ -68,7 +68,8 @@ export function resolveAwareness({ dir, now = Date.now(), env = process.env, leg
   const session = live && (live.state !== "unknown" || aw.session.state === "unknown") ? live : aw.session;
   // The file's `asleep` can be minutes old; presence() (live Mac facts, orion-reach only) sees him at the Mac inside his
   // window sooner, and that wins. It only ever loosens, and only on live evidence of him being up.
-  const upNow = aw.sleep.state === "asleep" && legacy?.inWindow === true && legacy.lateAwake === true;
+  // A bedtime he declared is not loosened by the Mac being awake: he was typing at it when he said so.
+  const upNow = aw.sleep.state === "asleep" && aw.sleep.source !== "declared" && legacy?.inWindow === true && legacy.lateAwake === true;
   const sleep = upNow ? { ...aw.sleep, state: "late-awake", source: "live" }
     : aw.sleep.state !== "unknown" || !legacy ? aw.sleep
     : { state: legacy.quiet ? "asleep" : legacy.lateAwake ? "late-awake" : "awake", source: "window" };

@@ -15,6 +15,9 @@ const SCORE = { fixed: 0, must: 1, high: 2, medium: 3, low: 4 };
 const KIND_RANK = { sleep: "high", gym: "high", deadline: "high", study: "high", class: "high", rest: "low", commute: "low", wind: "low" };
 const OPEN_PHASES = ["waiting", "reminded", "intervening", "deferred"];
 const rankOf = (b) => b.rank ?? KIND_RANK[b.kind] ?? "medium";
+/** A must block (the gym, an anchor) is never starved by the low-value budget: its nudges are protected (reach --tier). */
+const protectedBlock = (b) => b.rank === "must" || b.kind === "gym" || b.anchor === true;
+const windowOf = (b, date) => ({ date, start: b.start, end: b.end });
 const words4 = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w) => w.length >= 4);
 const sharesWord = (a, b) => { const set = new Set(words4(b)); return words4(a).some((w) => set.has(w)); };
 
@@ -61,7 +64,7 @@ function offPlan(aw, b, now) {
  * @returns [{ key, type: "should-leave"|"not-started"|"off-plan"|"blank"|"close", action: "say"|"checkin"|"ask"|"close", ... }]
  */
 export function planVsReality(aw, ctx) {
-  const { day = [], checkins = [], ledger, sent = {}, todos = [], travel = [], signals = {}, out, turns = [], now } = ctx;
+  const { day = [], checkins = [], ledger, sent = {}, todos = [], travel = [], signals = {}, out, turns = [], now, wakeGrace = false } = ctx;
   const minute = now.getHours() * 60 + now.getMinutes();
   const date = now.toLocaleDateString("en-CA");
   if (aw.calendar?.state !== "ok") return [];                         // an unreadable calendar is not a blank, nor a plan
@@ -80,7 +83,8 @@ export function planVsReality(aw, ctx) {
     if (b && evidenceOfStart(aw, b, { day, checkin: null, minute })) actions.push({ key: `close-${c.id}`, type: "close", action: "close", checkinId: c.id, blockId: b.id });
   }
 
-  const wait = deferral(aw, now);
+  // Just after he wakes: no scolding (a block not started, an off-plan question). Class and leave rungs above are untouched.
+  const wait = deferral(aw, now) ?? (wakeGrace ? "wake-grace" : null);
   if (wait) return actions;
 
   const mismatches = [];
@@ -98,7 +102,7 @@ export function planVsReality(aw, ctx) {
     if (["elsewhere", "known"].includes(aw.location?.state) && !blockPlace(b)) continue;   // away from a home block: off-plan's call
     if (evidenceOfStart(aw, b, { day, checkin, minute })) continue;
     const key = `mismatch-not-started-${b.id}-1`;
-    if (!sent[key]) mismatches.push({ key, type: "not-started", action: "checkin", blockId: b.id, title: b.title, rank: rankOf(b), kind: "checkin", text: words.notStarted({ title: b.title, start: b.start }) });
+    if (!sent[key]) mismatches.push({ key, type: "not-started", action: "checkin", blockId: b.id, title: b.title, rank: rankOf(b), tier: protectedBlock(b) ? "protected" : "low", window: windowOf(b, date), kind: "checkin", text: words.notStarted({ title: b.title, start: b.start }) });
   }
   const first = mismatches.sort((a, b) => SCORE[a.rank] - SCORE[b.rank])[0];
   if (first) return [...actions, first];

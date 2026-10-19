@@ -3,7 +3,9 @@
  orion-inbound-turn — Nick sent a message (awareness spec 3.5). Called by both paths: the phone (orion-remote) and the Mac
  app (GatewayClient). It
    1. appends { at } to inbound-turns.jsonl in the controlled dir (so an ask he ignored differs from one he answered), and
-   2. when the message answers an open curiosity ask (it carries --reply-to, or it is the first message after the newest ask
+   2. a bedtime statement ("going to bed", "goodnight") declares sleep in awareness (sleep-declared.json): everything but a
+      reminder he set or a class he is about to miss is held until he wakes; any later message ends it (lib/awareness/declared.mjs), and
+   3. when the message answers an open curiosity ask (it carries --reply-to, or it is the first message after the newest ask
       within 90 min), runs `orion-proactive ask-outcome <askId> answered`, or `nothing` for "nothing really".
 
    orion-inbound-turn [--reply-to <askId|outreach id>] [--text "<his message>"]
@@ -15,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { appendTurn, askAnswered, outcomeFor, readTurns } from "./lib/curiosity/inbound.mjs";
 import { readLedger } from "./lib/curiosity/ledger.mjs";
+import { noteInboundText } from "./lib/awareness/declared.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -22,6 +25,8 @@ const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion
 const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
 const replyTo = /^[A-Za-z0-9._:-]{1,80}$/.test(flag("--reply-to") ?? "") ? flag("--reply-to") : null;
 
+// First and on its own: a failure further down must never lose the declaration, and the declaration must not wait on them.
+try { noteInboundText({ dir: DIR, text: flag("--text"), now }); } catch { /* best effort */ }
 try {
   const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
   const ask = askAnswered({ asks: readLedger(DIR).asks, replyTo, turns: earlier, now: now.getTime() });

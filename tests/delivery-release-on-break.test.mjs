@@ -96,7 +96,8 @@ test("scenario 16: at the ceiling a mismatch nudge exits 3 as dropped, a reminde
   assert.equal(h.run("orion-reach", ["Call mom.", "--kind", "reminder", "--urgent", "--why", "proactive:call"]).status, 0);
   assert.equal(h.run("orion-reach", ["Leave now for CS1800.", "--kind", "reminder", "--urgent-kind", "class", "--why", "proactive:leave-late"]).status, 0);
   writeFileSync(join(h.home, "config.json"), JSON.stringify({ bedtime: "23:59", usualWake: "00:01", dailyReachCeiling: 25 }));
-  assert.equal(h.run("orion-reach", ["Time to start: resume.", "--kind", "checkin", "--why", "plan: b1"]).status, 0, "the ceiling is configurable");
+  const later = { ORION_REACH_NOW: new Date(NOW.getTime() + 31 * 60_000).toISOString() };   // past the drop's cooldown: a dropped message is not retried at once
+  assert.equal(h.run("orion-reach", ["Time to start: resume.", "--kind", "checkin", "--why", "plan: b1"], later).status, 0, "the ceiling is configurable");
 });
 
 test("under the ceiling a nudge goes; held and failed rows never count", () => {

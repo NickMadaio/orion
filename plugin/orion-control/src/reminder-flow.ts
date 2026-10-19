@@ -89,6 +89,9 @@ export function relativeTime(message: string, now: Date): Date | undefined {
   return new Date(now.getTime() + Math.round(minutes) * 60_000);
 }
 
+/** Whether his words state a clock time at all; the extractor's time is used only when they do (2026-10-19). */
+const STATES_TIME = /\d|\b(?:noon|midnight|midday|o'?clock|half past|quarter (?:past|to))\b|\b(?:at|by|for|around)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i;
+
 /** The clock time he named ("3pm", "15:00") as HH:MM, if any. */
 function namedClock(message: string): string | undefined {
   const m = CLOCK.exec(message);
@@ -155,7 +158,8 @@ export async function planReminder(input: ReminderInput): Promise<ReminderPlan |
   if (!got) return undefined;
   const label = correcting && last ? last.label : got.label.trim();
   if (!label || VAGUE_LABEL.test(label)) return { kind: "say", text: "What should I remind you about, and when?", pending: true, askLabel: true };
-  const due = dueFor(message, got.time, now, correcting && last ? last.at.slice(0, 10) : undefined);
+  // The extractor's time counts only when his words state one (or a relative time, which code works out): never a time it invented.
+  const due = dueFor(message, STATES_TIME.test(message) ? got.time : null, now, correcting && last ? last.at.slice(0, 10) : undefined);
   if (!due) return { kind: "say", text: correcting ? "What time should I move it to?" : "What time should I remind you?", pending: !correcting };
   if ("past" in due) return { kind: "say", text: `It's already past ${ampm12(due.past)} today, so nothing was set. Want it tomorrow instead?` };
   const old = correcting && last ? (await list().catch(() => [])).find((r) => r.label === last.label && r.dueAt > now.getTime()) : undefined;

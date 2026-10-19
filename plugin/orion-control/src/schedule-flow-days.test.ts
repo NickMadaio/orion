@@ -41,7 +41,7 @@ describe("schedule flow — past gaps and blocks that are not there (sweep 2026-
 describe("schedule flow — a weekday he names is that day (q027)", () => {
   const thu = new Date(2026, 9, 15, 22, 25);
   it("'friday' reads and changes Friday, not today", () => {
-    expect(dayArgsFor("i gotta leave early friday, cut the last block off", thu)).toEqual({ args: ["--date", "friday"], label: "Friday" });
+    expect(dayArgsFor("i gotta leave early friday, cut the last block to 20 min", thu)).toEqual({ args: ["--date", "friday"], label: "Friday" });
     expect(dayArgsFor("on mon push gym back an hour", thu)).toEqual({ args: ["--date", "monday"], label: "Monday" });
     expect(dayArgsFor("next tuesday drop the gym", thu)).toEqual({ args: ["--date", "tuesday"], label: "Tuesday" });
   });
@@ -55,7 +55,7 @@ describe("schedule flow — a weekday he names is that day (q027)", () => {
     const calls: string[][] = []; let asked = "";
     const friday: Day = { date: "2026-10-16", now: null, blocks: [{ title: "MKTG2201 Lecture", start: "13:30", end: "15:00", fixed: true }, { title: "Review spending", start: "15:10", end: "16:00", fixed: false }] };
     const exec = async (args: string[]) => { calls.push(args); return args[0] === "show" ? { stdout: JSON.stringify(friday), code: 0 } : { stdout: "Changed Friday 2026-10-16:\n  Review spending is now 20 min: 15:10–15:30 (was 50 min)\nWritten to his calendar.", code: 0 }; };
-    const result = await runScheduleFlow({ message: "i gotta leave early friday, cut the last block off", clock: "Thu 22:25", now: new Date(2026, 9, 15, 22, 25), exec,
+    const result = await runScheduleFlow({ message: "i gotta leave early friday, cut the last block to 20 min", clock: "Thu 22:25", now: new Date(2026, 9, 15, 22, 25), exec,
       ask: async (_s, user) => { asked = user; return { steps: [{ do: "resize", what: "B2", minutes: 20 }] }; } });
     expect(calls[0]).toEqual(["show", "--json", "--date", "friday"]);
     expect(calls[1]).toEqual(["resize", "Review spending", "20", "--date", "friday"]);

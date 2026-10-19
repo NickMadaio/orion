@@ -56,6 +56,8 @@ describe("other flows: a desk- or extractor-invented value writes nothing", () =
   it("reminder: an extractor time with none in his words asks instead of setting", async () => {
     const plan = await planReminder({ message: "remind me to take out the bins", now: NIGHT, extract: async () => ({ time: "07:00", label: "take out the bins" }), list: async () => [] });
     expect(plan).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
+    const pills = await planReminder({ message: "remind me to take 2 pills", now: NIGHT, extract: async () => ({ time: "07:00", label: "take 2 pills" }), list: async () => [] });
+    expect(pills).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
     const named = await planReminder({ message: "remind me to take out the bins at 7am", now: NIGHT, extract: async () => ({ time: "07:00", label: "take out the bins" }), list: async () => [] });
     expect(named).toMatchObject({ kind: "call", action: "alarm_set" });
   });

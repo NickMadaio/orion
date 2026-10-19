@@ -224,8 +224,11 @@ export function guardSteps(message: string, steps: Intent[], day: Day): { say: "
   }
   // A clock time the form wrote when his words hold none is the model's, not his: ask, write nothing (2026-10-19).
   const clockTime = (t?: string) => /^\d{1,2}:\d{2}$/.test(t ?? "");
-  const saysTime = /\d|\b(?:noon|midnight|midday|o'?clock|half past|quarter (?:past|to)|now)\b|\b(?:at|by|to|until|till|from)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i.test(message);
-  if (!saysTime && steps.some((s) => ["move", "extend", "log"].includes(s.do) && [s.to, s.until, s.from].some(clockTime))) return { say: "ask", text: "What time do you mean? I haven't changed anything." };
+  const saysTime = /\d|\b(?:noon|midnight|midday|o'?clock|half past|quarter (?:past|to)|now|an? hour|half an? hour|an? half|hour and a half)\b|\b(?:at|by|to|until|till|from|for)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i.test(message);
+  // Every value that can cause a write: a clock time (to/until/from), a shift (by) or a length (minutes) on a step that writes. An add's own length is left to the scheduler's default sizing.
+  const writes = ["add", "move", "extend", "log", "resize", "late", "overrun"];
+  const invents = (s: Intent) => writes.includes(s.do) && ([s.to, s.until, s.from].some(clockTime) || (Number.isFinite(s.by) && s.by !== 0) || (s.do !== "add" && Number.isFinite(s.minutes)));
+  if (!saysTime && steps.some(invents)) return { say: "ask", text: "What time or how long do you mean? I haven't changed anything." };
   return null;
 }
 

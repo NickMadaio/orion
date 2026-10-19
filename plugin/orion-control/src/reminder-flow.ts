@@ -90,7 +90,7 @@ export function relativeTime(message: string, now: Date): Date | undefined {
 }
 
 /** Whether his words state a clock time at all; the extractor's time is used only when they do (2026-10-19). */
-const STATES_TIME = /\d|\b(?:noon|midnight|midday|o'?clock|half past|quarter (?:past|to))\b|\b(?:at|by|for|around)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i;
+const STATES_TIME = /\b(?:it|that)\s+(?:to\s+)?\d{1,2}\b(?!\s*(?:pills?|times?))|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:at|by|around|@)\s*\d{1,2}\b|\b(?:in|like|about|around)\s+(?:(?:like|about|around|~)\s*)?(?:\d+|an?|one|half an?)\s*(?:minutes?|mins?|hours?|hrs?)\b|\b(?:noon|midnight|midday|tonight|o'?clock|half past|quarter (?:past|to)|this (?:morning|afternoon|evening)|tomorrow(?:\s+(?:morning|afternoon|evening))?)\b|\b(?:at|by|for|around)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i;
 
 /** The clock time he named ("3pm", "15:00") as HH:MM, if any. */
 function namedClock(message: string): string | undefined {

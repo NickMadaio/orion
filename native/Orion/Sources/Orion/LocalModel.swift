@@ -190,11 +190,8 @@ enum LocalModel {
         // A completion that ran out of budget stops mid-word. Half a sentence
         // reads as a bug in the app rather than as a limit in the model, and
         // every caller here would rather show nothing.
-        guard !requireSentenceEnding else {
-            guard let last = trimmed.last, ".!?\"".contains(last) else {
-                throw LocalModelError.truncated
-            }
-            return trimmed
+        guard !requireSentenceEnding || TextCompleteness.isComplete(trimmed) else {
+            throw LocalModelError.truncated
         }
         return trimmed
     }

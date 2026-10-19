@@ -34,12 +34,47 @@ struct SpokenQuestionFollowUp: Equatable {
         var text: String
         var reachID: String?
         var due: Date
+        /// orion-reach already put this on his phone (channel "phone"): never send it there again.
+        var onPhone: Bool = false
     }
 
     private(set) var armed: Armed?
     /// The question already repeated: its repeat ("Nick? ...") ends in "?" too
     /// and must not arm a second round.
     private(set) var spentText: String?
+
+    /// Longest text still treated as a question rather than narrative. The 10-19 morning brief was 359 characters.
+    static let maxQuestionLength = 200
+    static let maxQuestionSentences = 3
+    /// Reach kinds that are never a question, whatever they end with.
+    static let narrativeKinds: Set<String> = ["info", "update", "reminder", "warning", "brief", "summary", "briefing", "narrative"]
+
+    /// Sentences, each keeping its own terminal punctuation.
+    static func sentences(_ text: String) -> [String] {
+        var out: [String] = [], current = ""
+        for ch in text {
+            current.append(ch)
+            if ".!?".contains(ch) {
+                let piece = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !piece.isEmpty { out.append(piece) }
+                current = ""
+            }
+        }
+        let rest = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rest.isEmpty { out.append(rest) }
+        return out
+    }
+
+    /// A brief, summary or any multi-paragraph / long output: a statement, however it ends. Never re-spoken.
+    static func isNarrative(_ text: String) -> Bool {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.count > maxQuestionLength || clean.contains("\n") || sentences(clean).count > maxQuestionSentences
+    }
+
+    /// The last sentence that is a question: what is repeated, never the whole message.
+    static func finalQuestion(_ text: String) -> String? {
+        sentences(text).last(where: { isQuestion($0) })
+    }
 
     /// True when the text, ignoring trailing quotes, emoji and spaces, ends in "?".
     static func isQuestion(_ text: String) -> Bool {
@@ -60,7 +95,7 @@ struct SpokenQuestionFollowUp: Equatable {
     /// A question ORION is waiting on (what to add, which one, when): worth asking twice. A chatty or rhetorical one
     /// ("Anything else?", "Does that help?") is not, and an ordinary reply that merely ends in "?" is not either.
     static func needsAnswer(_ text: String) -> Bool {
-        guard isQuestion(text) else { return false }
+        guard isQuestion(text), !isNarrative(text) else { return false }
         let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let range = NSRange(sentence.startIndex..., in: sentence)
         // the last sentence is the one asked
@@ -71,13 +106,14 @@ struct SpokenQuestionFollowUp: Equatable {
     }
 
     /// Start (or restart) the clock for a question ORION just asked.
-    mutating func arm(text: String, reachID: String? = nil, at now: Date) {
+    /// Briefs, summaries and long output are refused here, so no caller can arm one.
+    mutating func arm(text: String, reachID: String? = nil, onPhone: Bool = false, at now: Date) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
+        guard !clean.isEmpty, Self.isQuestion(clean), !Self.isNarrative(clean) else { return }
         if let spent = spentText, clean.contains(spent) { return }
         // The same question armed twice (reach, then speech) keeps its id.
         let id = (armed?.text == clean ? armed?.reachID : nil) ?? reachID
-        armed = Armed(text: clean, reachID: id, due: now.addingTimeInterval(Self.deadline))
+        armed = Armed(text: clean, reachID: id, due: now.addingTimeInterval(Self.deadline), onPhone: onPhone || (armed?.text == clean && armed?.onPhone == true))
     }
 
     /// The speech ended: the 20 s run from here, not from when it began.
@@ -98,9 +134,11 @@ struct SpokenQuestionFollowUp: Equatable {
     mutating func tick(now: Date, idle: TimeInterval?, locked: Bool, displayAsleep: Bool = false, atHome: Bool? = nil) -> Action {
         guard let current = armed, now >= current.due else { return .none }
         armed = nil
-        spentText = current.text
+        let question = Self.finalQuestion(current.text) ?? current.text
+        spentText = question
         let away = locked || displayAsleep || atHome == false
-        return away ? .sendToPhone(current.text) : .repeatAloud(current.text)
+        if away { return current.onPhone ? .none : .sendToPhone(question) }
+        return .repeatAloud(question)
     }
 }
 
@@ -174,8 +212,8 @@ final class SpokenQuestionDriver {
         self.onRepeatAloud = onRepeatAloud; self.onSendToPhone = onSendToPhone
     }
 
-    func arm(text: String, reachID: String? = nil) {
-        policy.arm(text: text, reachID: reachID, at: now())
+    func arm(text: String, reachID: String? = nil, onPhone: Bool = false) {
+        policy.arm(text: text, reachID: reachID, onPhone: onPhone, at: now())
         reschedule(after: SpokenQuestionFollowUp.deadline)
     }
 

@@ -80,6 +80,17 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-20 — "Done early" button and sticky home location (Claude)
+
+- **Done early** replaces "I'm out early" on both the Mac and the phone (`lib/life/done-early.mjs`, `todo-match.mjs`, MobileCore `DoneEarly.swift`).
+  - It finishes the current block: a class works as before; a task ends now and ticks its to-do (by `todo-<key>` link, or by exact title only); check-ins close; a focus session on that task ends.
+  - It logs the block as done for the review, then re-plans.
+  - A check-in's Done sends `done:<check-in id>` and acts only on that block.
+  - One undo reverses it, and says so when check-ins or a session weren't restored.
+- **Location** (`lib/awareness/facets.mjs`): a home fix holds for 4 h. Mac-home evidence (AC + external display, or the home SSID) extends the hold to a 6 h cap.
+  - Any newer sample showing movement or `leftAt` ends it. The class ladder honours `leftAt` that is newer than the home fix.
+  - TrackingLog skips duplicate rows.
+
 ### 2026-10-19 (night) — CS Lab incident: blocks vanishing, "yes" to ORION's offer, crisis continuation (Claude)
 
 Write-up: `docs/audits/2026-10-19-cslab-incident.md`.

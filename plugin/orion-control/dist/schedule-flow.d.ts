@@ -2,6 +2,8 @@ import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { type ReplanAsk } from "./day-replan.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
+import { nothingWritten, spokenFailure, spokenReply, summarize } from "./schedule-reply.js";
+export { nothingWritten, spokenFailure, spokenReply, summarize };
 export type DayBlock = {
     title: string;
     start: string;
@@ -215,14 +217,6 @@ export declare function compile(input: Intent, day: Day, message?: string, opts?
     anchor?: Anchor;
     askContext?: AskContext;
 }): Compiled;
-/** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
- *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
-export declare function spokenFailure(line: string): string;
-/** What to tell Nick, from the scheduler's own output only. */
-export declare function summarize(outputs: string[], said: string[]): {
-    reply: string;
-    changed: boolean;
-};
 /** "tomorrow" as he types it ("tmrw" read today's calendar, 2026-10-12). */
 export declare const TOMORROW: RegExp;
 /** Before 5 AM he is still up: "tomorrow" means the coming daytime — today's date (2026-10-13: a reminder
@@ -238,6 +232,8 @@ export declare function dayArgsFor(message: string, now?: Date): {
     ask?: string;
 };
 export declare const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
+/** A request he took back at the end ("…, nvm"): said back, nothing guessed from it. */
+export declare const TOOK_BACK = "Okay, you took that back, so I've left your day as it is.";
 export type FlowResult = 
 /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
 /** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
@@ -257,7 +253,8 @@ export type FlowResult =
     kind: "cannot" | "ask" | "plain";
     calls?: string[];
     outputs?: string[];
-    pending?: PendingAdd;
+    pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */
+    replan?: ReplanAsk;
 } | {
     outcome: "fallback";
     reason: string;
@@ -292,5 +289,3 @@ export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, no
     /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
     replanContext?: ReplanAsk;
 }): Promise<FlowResult>;
-/** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
-export declare function spokenReply(outputs: string[], when?: string): string;

@@ -40,7 +40,9 @@ import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-que
 import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
-import { parseReplanRequest, parseReorder, type ReplanAsk } from "./day-replan.js";
+import { type ReplanAsk } from "./day-replan.js";
+import { readIntent } from "./calendar-intent.js";
+import { runsFirst } from "./intent-run.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -136,6 +138,9 @@ type Run = {
   sessionKey?: string;
   /** Spoken and trailing off mid-sentence: nothing is done until the rest arrives. */
   cutOff?: boolean;
+  /** 2026-10-20: the calendar intent layer read this as a change code carries out by itself (calendar-intent.ts): the desk was not asked. */
+  codeFirst?: boolean;
+  scheduleTried?: boolean;
   /** Tools the HOST ran this turn (after_tool_call), as opposed to the reads code pushed into `tools` itself (H4, r8 review 1, 2026-10-16). */
   hostTools?: number;
   /** An open outreach question (his prompt's ORION context line): the blank or the planned block it asked about. */
@@ -644,6 +649,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const settleSchedule = (run: Run): void => {
     const flow = run.flow;
     if (flow?.outcome === "say" && flow.pending && run.sessionKey) addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
+    // A reschedule he asked for that code answered without writing ("Resume isn't on your day tomorrow…") is remembered too, so "actually do resume before gym" is still its follow-up.
+    if (flow?.outcome === "say" && flow.replan && run.sessionKey) replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
     if (flow?.outcome !== "done") return;
     flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
     const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
@@ -783,7 +790,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (sessionKey) finalText.delete(`session:${sessionKey}`);
     // 2026-10-20: "reschedule my day after my class, gym first" is code's whole job (day-replan.ts): the 4B is not asked, so a slow or
     // failing desk can neither delay it by 8 s nor send it down the worker path.
-    const codeFirst = on && !cutOff && !!options.scheduleFlow && (!!parseReplanRequest(message) || (!!sessionKey && (() => { const c = recentReplan(sessionKey); return !!c && !!parseReorder(message, c); })()));
+    // The calendar intent layer (calendar-intent.ts): a replan, a follow-up to one, an add at a time or "until T", or a request he took back at the end.
+    const intentRead = on && !cutOff && options.scheduleFlow ? readIntent(message, { now: (options.now ?? (() => new Date()))(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
+    // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
+    const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
+    const codeFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : codeFirst ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
@@ -792,7 +803,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(codeFirst ? { codeFirst } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -874,6 +885,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         && !(Date.now() - (lastReminder.get(run.sessionKey ?? "")?.set ?? 0) < CORRECTION_WINDOW_MS) && !reminderAsk.has(run.sessionKey ?? "")) {
         const other = recentOther(run.sessionKey);
         run.flow = { outcome: "say", kind: "ask", text: other ? OTHER_ASKS[other] : UNDO_NOTHING_TO_UNDO };
+      }
+      // 2026-10-20 re-run: a change the intent layer read is the schedule flow's before any other flow looks at it ("resume" is not a focus-session resume).
+      if (!run.flow && !run.cutOff && run.codeFirst && options.scheduleFlow) {
+        const flow = await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], deadlineAt: flowDeadline(run.started), ...(run.ask ? { askContext: run.ask } : {}) })
+          .catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (flow.outcome !== "fallback") { run.flow = flow; markRead(run, /--date/.test("calls" in flow ? (flow.calls ?? []).join(" ") : "") || meansTomorrow(run.message) ? "day-tomorrow" : "day"); settleSchedule(run); }
+        else run.scheduleTried = true;   // the flow (and its form) already had this message: not run a second time below
       }
       // q029 (2026-10-16 r8): "im running late" → code asks "how late?", the short answer is stitched to it, and
       // "yeah push everything after it" is the same late move, never a free exec for the 9B (it ran late 15, got
@@ -1071,7 +1089,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
       const openAsk = run.ask && answersAsk(run.message, run.ask) ? run.ask : undefined;
-      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !run.flow && isCalendarTurn(run.message, run.settled, !!openAsk)) {
+      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
@@ -1275,7 +1293,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         await record({ revised: true });
         return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
       }
-      const flowActed = run.flow?.outcome === "done";
+      // 2026-10-20 re-run: a line code wrote (flow "say") is final, like a change code made. The claims check read "…and I'll put it in" in code's own
+      // "Piano practice isn't on your day" as a false claim and swapped it for the generic "didn't manage" line.
+      // A worker that still ran tools under a code "say" is checked as before.
+      const flowActed = run.flow?.outcome === "done" || (run.flow?.outcome === "say" && !(run.hostTools ?? 0));
       // q029 (2026-10-16 r8): a revise is ignored once a tool ran (the 9B's exec of `late 15` printed NOTHING WAS BOOKED and
       // "Your schedule has been adjusted" went out, though the check had found it). With a tool already run, the honest
       // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.

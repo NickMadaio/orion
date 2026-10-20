@@ -1,4 +1,6 @@
 import type { Day, DayBlock } from "./schedule-flow.js";
+import { fixTypos, startsAsRequest } from "./intent-gate.js";
+export { fixTypos, startsAsRequest };
 /** What the scheduler hands code about the day it plans (`show --json`'s `plan`): the trip home, the gap between blocks, the daily anchors. */
 export type DayPlanFacts = {
     commuteMinutes: number;
@@ -15,13 +17,15 @@ export type ReplanAsk = {
     home: boolean;
     explicit: boolean; /** a follow-up reorder: a thing already done today is booked again, as he asked */
     again?: boolean;
+    /** lengths he said, by normalised item name ("resume for an hour" -> { resume: 60 }) */ lengths?: Record<string, number>;
+    /** remembered for a follow-up: the day it was for, and its date */ day?: "today" | "tomorrow";
+    date?: string;
 };
-export declare const startsAsRequest: (text: string) => boolean;
-/** Common typos in a request's key words, fixed by an alias list and a small edit distance against the words the parser reads. */
-export declare function fixTypos(text: string): string;
 /** The order and the anchor in his words, or undefined when this is not a reschedule with an order. */
 export declare function parseReplanRequest(message: string): ReplanAsk | undefined;
 export declare function parseReorder(message: string, context: ReplanAsk): ReplanAsk | undefined;
+/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS"). */
+export declare function blocksNamed(phrase: string, day: Day): DayBlock[];
 type Item = {
     title: string;
     minutes: number;
@@ -44,8 +48,9 @@ export type DayReplan = {
 };
 /** His reschedule with an order as one `orion-reschedule day` call, what to say instead, or undefined (not this shape: the form decides). */
 export declare function planDayReplan(message: string, day: Day, context?: ReplanAsk): DayReplan | undefined;
+/** A request already read (calendar-intent.ts) planned against the day: the argv, what to say instead, or undefined (the form decides). */
+export declare function planReplan(ask: ReplanAsk, day: Day, words?: string): DayReplan | undefined;
 /** What he is told: the movable blocks from his first thing onward, in order, with times, read back from the day as it now stands, then what did not go as asked. */
 export declare function replanReply(day: Day, plan: Extract<DayReplan, {
     args: string[];
-}>, outputs?: string[]): string;
-export {};
+}>, outputs?: string[], when?: string): string;

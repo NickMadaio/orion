@@ -127,8 +127,11 @@ describe("planDayReplan", () => {
   it("leaves a plan he states ('after class do laundry then gym') to the form when it cannot place a name", () => {
     expect(planDayReplan("after class do laundry then gym", day())).toBeUndefined();
   });
-  it("another day with no anchor is the form's: there is no 'now' to start from", () => {
-    expect(planDayReplan("replan my evening, gym first", day({ now: null }))).toBeUndefined();
+  it("another day (tomorrow) has no 'now': an evening starts after its last class and the trip home, anything else after its first class (re-run 2026-10-20)", () => {
+    expect(planDayReplan("replan my evening, gym first", day({ now: null }))).toMatchObject({ start: "17:50", via: "after your last class and the trip home" });
+    expect(planDayReplan("reschedule my day, gym first", day({ now: null }))).toMatchObject({ start: "11:20", via: "after your first class" });
+    const noClasses = day({ now: null }); noClasses.blocks = noClasses.blocks.filter((b) => b.kind !== "class");
+    expect(planDayReplan("reschedule my day, gym first", noClasses)).toBeUndefined();   // nothing to start from: the form decides
   });
   it("commas in a title never split the --plan", () => {
     const d = day(); d.blocks[3] = { ...d.blocks[3]!, title: "email Dr. Smith, then call" };

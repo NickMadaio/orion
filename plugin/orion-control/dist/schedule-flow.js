@@ -13,11 +13,15 @@
 */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { eveningTime, parseDirectAdd, spokenTimesToDigits } from "./direct-add.js";
+import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
-import { planDayReplan, replanReply } from "./day-replan.js";
+import { replanReply } from "./day-replan.js";
+import { readIntent } from "./calendar-intent.js";
+import { planIntent } from "./intent-run.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
+import { FAILED, nothingWritten, spokenFailure, spokenReply, summarize } from "./schedule-reply.js";
+export { nothingWritten, spokenFailure, spokenReply, summarize };
 const toMin = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 const hhmm = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 const BUFFER = 5; // his rule: five minutes between activities
@@ -485,48 +489,6 @@ function compileLog(step, day, ctx) {
     const place = step.where && /^[a-z0-9_-]{1,40}$/.test(step.where) ? ["--where", step.where] : [];
     return { args: ["log", title, "--from", from, "--to", to ?? "now", ...(planned ? ["--instead", planned.title] : []), ...place] };
 }
-const FAILED = /NOT BOOKED|NOTHING WAS|did not fit|usage:|not a real block|is in the past|no block called|Error/i;
-/** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
- *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
-export function spokenFailure(line) {
-    const l = line.trim().replace(/^orion-reschedule:\s*/, "")
-        .replace(/^(?:MUST-HAVE )?(?:NOTHING WAS|NOT) (?:CHANGED|BOOKED|DROPPED)\b(?: on \w+day)?(?: \(\d{4}-\d{2}-\d{2}\))?[:.]?\s*/i, "")
-        // Notes to the operator, and lists of his whole day, are not for Nick.
-        .replace(/(?:[.;]\s+|\s+—\s+|^)(?:Tell him|Do not|Don't|If he|ask whether|Run |Use |To set|See the header|Options:|Blocks today|Fixed today|Movable blocks|Classes today|Never |swap only|skip is only)[\s\S]*$/i, "")
-        .replace(/ \((?:\w+day )?\d{4}-\d{2}-\d{2}\)/g, "").trim();
-    if (/^usage:|^Error\b|has no .* option|one command per call|does not take/i.test(l))
-        return "I couldn't make that change";
-    if (!l)
-        return "nothing could be booked";
-    const rules = [
-        [/^(.+?) (is|are) already over today/i, (_, what, verb) => `${what} ${verb === "is" ? "has" : "have"} already ended today`],
-        [/^no block called "?(.+?)"? on /i, (_, what) => `there's no block called ${what}`],
-        [/^no class or fixed plan called "?(.+?)"? left/i, (_, what) => `there's no class called ${what} left today`],
-        [/^no "(.+?)" on .* to put it after/i, (_, what) => `there's no ${what} to put it after`],
-        [/^"?(.+?)"? is one of his own calendar events/i, (_, what) => `${what} is a class or a plan with people, so it doesn't move`],
-        [/^(.+?) \(\d+ min\) (?:no longer fits|did not fit)/i, (_, what) => `${what} didn't fit`],
-        [/^must-haves could not fit: (.+?)\.?$/i, (_, what) => `${what} didn't fit`],
-        [/^no movable block matches/i, () => "there's no movable block by that name"],
-        [/^(.+?) is on \d{4}-\d{2}-\d{2}/i, (_, what) => `${what} is on another day`],
-        [/is in the past/i, () => "that day is already over"],
-    ];
-    const hit = rules.map(([re, say]) => { const m = l.match(re); return m ? say(...m) : null; }).find((t) => t !== null);
-    const said = hit ?? l;
-    return said.replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t)).replace(/\.$/, "");
-}
-/** What to tell Nick, from the scheduler's own output only. */
-export function summarize(outputs, said) {
-    const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
-    const changes = lines.filter((l) => /moved|planned|added|cleared|is now|skipped|resized|extended|swapped|separated|booked|logged/i.test(l) && !FAILED.test(l) && !/^Changed|^Would change|^Written/.test(l));
-    const failed = lines.filter((l) => FAILED.test(l));
-    const parts = [];
-    if (changes.length)
-        parts.push(changes.slice(0, 4).join("; "));
-    if (failed.length)
-        parts.push(`Not done: ${spokenFailure(failed[0])}`);
-    parts.push(...said.filter(Boolean));
-    return { reply: parts.join(". ").replace(/^(Not done: .*[^.])$/, "$1.") || "Nothing changed.", changed: changes.length > 0 };
-}
 /** "tomorrow" as he types it ("tmrw" read today's calendar, 2026-10-12). */
 export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 /** Before 5 AM he is still up: "tomorrow" means the coming daytime — today's date (2026-10-13: a reminder
@@ -575,6 +537,8 @@ export function dayArgsFor(message, now = new Date()) {
     return { args: ["--date", name], label: name[0].toUpperCase() + name.slice(1) };
 }
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
+/** A request he took back at the end ("…, nvm"): said back, nothing guessed from it. */
+export const TOOK_BACK = "Okay, you took that back, so I've left your day as it is.";
 /** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
 async function execute(argvs, { exec, undoTop, when, undone }) {
     const calls = [];
@@ -593,7 +557,10 @@ async function execute(argvs, { exec, undoTop, when, undone }) {
     }
     // The scheduler refused and nothing was written: that is not "done" — "done" told the worker "You
     // already made this change" and skipped the work check (sweep 2026-10-16, q043/q051/q093).
-    if (outputs.some((o) => FAILED.test(o)) && !marks.length && !undone && !summarize(outputs, []).changed) {
+    // "NOTHING WAS CHANGED: …" heads a run that wrote nothing, even when it lists the plan it tried ("planned CS Lab …", "cleared 1 prior schedule block: Gym"):
+    // that list is never said as done (2026-10-20 re-run review: "Done: cleared Gym; CS Lab 9:55 PM" for a calendar left as it was).
+    const wroteNothing = outputs.length > 0 && outputs.every(nothingWritten) && !marks.length;
+    if ((wroteNothing || (outputs.some((o) => FAILED.test(o)) && !marks.length && !summarize(outputs, []).changed)) && !undone) {
         return { outcome: "say", kind: "plain", text: spokenReply(outputs, when), calls, outputs };
     }
     return { outcome: "done", calls, outputs, marks, undone, ...(when ? { reply: spokenReply(outputs, when) } : {}) };
@@ -638,7 +605,16 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     }
     // r8 review 4 MEDIUM-4 (2026-10-16): when this turn took the earlier half back and then only asks or fails, Nick is told.
     const takenBack = (r) => undone > 0 ? { ...r, text: `I took back the earlier change${takenBackWhat.length ? ` (${takenBackWhat.join("; ")})` : ""} first. ${r.text}` } : r;
-    const { args: dateArgs, label: when, ask: whichDay } = titled ? { args: titled.dateArgs, label: titled.when } : dayArgsFor(message, now);
+    // The calendar intent layer (calendar-intent.ts) reads his sentence first: a change it can read is carried out in code, on the day it names.
+    const read = titled ? undefined : readIntent(message, { now, ...(replanContext ? { last: replanContext } : {}), ...(askContext ? { ask: askContext } : {}) });
+    if (read && "refused" in read && read.tookBack)
+        return takenBack({ outcome: "say", kind: "plain", text: TOOK_BACK });
+    const intent = read && "intent" in read ? read.intent : undefined;
+    const dated = titled ? { args: titled.dateArgs, label: titled.when } : intent
+        ? { args: intent.date ? ["--date", intent.date] : intent.day === "tomorrow" ? ["--date", "tomorrow"] : [], label: intent.day === "tomorrow" ? "tomorrow" : undefined }
+        : dayArgsFor(message, now);
+    const { args: dateArgs, label: when } = dated;
+    const whichDay = "ask" in dated ? dated.ask : undefined;
     if (whichDay)
         return takenBack({ outcome: "say", text: whichDay, kind: "ask" });
     let day;
@@ -654,36 +630,33 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     const clash = titled ? undefined : contradiction(message);
     if (clash)
         return takenBack({ outcome: "say", text: clash, kind: "ask" });
-    // "reschedule my day after my class, gym first" / "after class do gym then resume": his order, read by code, one `day` re-plan (2026-10-20).
-    if (!titled) {
-        const replan = planDayReplan(message, day, replanContext);
-        if (replan && "say" in replan)
-            return takenBack({ outcome: "say", text: replan.text, kind: replan.say });
-        if (replan) {
+    // One code-run change (intent-run.ts): "reschedule my day after my class, gym first", "put X from now until T", "put a 45 min walk tomorrow at 5" (2026-10-19/20).
+    if (intent) {
+        // The scheduler's clock is the one that counts: the times are read again against the day's own "now" (they agree on the live route).
+        const dayNow = day.now ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), ...day.now.split(":").map(Number)) : now;
+        const again = readIntent(message, { now: dayNow, ...(replanContext ? { last: replanContext } : {}), ...(askContext ? { ask: askContext } : {}) });
+        const settled = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
+        const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}) });
+        // An "outside" follow-up ("dinner then gym") changes nothing and keeps the request it followed as the one remembered.
+        const replan = intent.replan && !intent.outside?.length ? { ...intent.replan, day: intent.day, date: day.date } : undefined;
+        const remember = replan ? { replan } : {};
+        if (planned?.kind === "say")
+            return takenBack({ outcome: "say", text: planned.text, kind: planned.say, ...remember });
+        if (planned) {
             if (left() <= 0)
                 return tooSlow;
-            const ran = await execute([[...replan.args, ...dateArgs]], { exec, undoTop, when, undone });
-            if (ran.outcome !== "done")
-                return ran;
-            const after = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout), () => undefined);
-            return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when), replan: replan.ask };
-        }
-    }
-    // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).
-    if (!titled) {
-        const direct = parseDirectAdd(message, day, askContext);
-        if (direct && "say" in direct)
-            return takenBack({ outcome: "say", text: direct.text, kind: direct.say });
-        if (direct) {
-            if (left() <= 0)
-                return tooSlow;
-            const ran = await execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
-            // Said plainly: an earlier one today already happened (this is a second session), and a must (the Gym) is never cut to make room, so a change that
-            // would need that is refused and he is asked (2026-10-20 live test).
+            const ran = await execute([[...planned.argv, ...dateArgs]], { exec, undoTop, when, undone });
+            if (planned.replan) {
+                if (ran.outcome !== "done")
+                    return ran.outcome === "say" ? { ...ran, ...remember } : ran;
+                const after = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout), () => undefined);
+                return { ...ran, reply: (after && replanReply(after, planned.replan, ran.outputs, when)) || spokenReply(ran.outputs, when), ...remember };
+            }
+            // A must (the Gym) is never cut to make room: a change that would need that is refused, and he is asked (2026-10-20 live test).
             if (ran.outcome === "say" && /didn't fit/i.test(ran.text))
-                return { ...ran, text: `${ran.text} I won't cut it short to fit, so nothing was changed. Tell me if ${direct.title} should end earlier, or whether it should wait.` };
-            if (ran.outcome === "done" && direct.earlier) {
-                const e = direct.earlier;
+                return { ...ran, text: `${ran.text} I won't cut it short to fit, so nothing was changed. Tell me if ${planned.title} should end earlier, or whether it should wait.` };
+            const e = planned.direct?.earlier;
+            if (ran.outcome === "done" && e) {
                 const was = e.end <= (day.now ?? "00:00") ? "already over" : "already started";
                 return { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} Your earlier ${e.title} (${ampm(e.start)}–${ampm(e.end)}) is ${was}, so this is a second one.` };
             }
@@ -816,65 +789,3 @@ function effectPhrase(effects) {
     return joinNames(parts);
 }
 const ampm = (t) => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
-/** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
-export function spokenReply(outputs, when) {
-    const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
-    const said = [];
-    const cut = [];
-    const followed = [];
-    let logged = "";
-    for (const l of lines) {
-        // The block he was in, cut short for a time he stated; the blocks that slid after a change.
-        let c = l.match(/^(.+?) now ends at (\d{2}:\d{2})$/);
-        if (c) {
-            cut.push(`${c[1]} ends at ${ampm(c[2])}`);
-            continue;
-        }
-        c = l.match(/^moved (.+?): \d{2}:\d{2} → (\d{2}:\d{2})$/);
-        if (c) {
-            followed.push(`${c[1]} now ${ampm(c[2])}`);
-            continue;
-        }
-        let m = l.match(/^planned (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
-        if (m) {
-            said.push(`${m[1]} ${ampm(m[2])}–${ampm(m[3])}`);
-            continue;
-        }
-        m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
-        if (m) {
-            said.push(`${m[1]} now ${ampm(m[2])}–${ampm(m[3])}`);
-            continue;
-        }
-        m = l.match(/^(.+?) is now (\d+) min: (\d{2}:\d{2})–(\d{2}:\d{2})/);
-        if (m) {
-            said.push(`${m[1]} is now ${m[2]} minutes, ${ampm(m[3])}–${ampm(m[4])}`);
-            continue;
-        }
-        m = l.match(/^cleared \d+ prior schedule blocks?: (.+)$/i) ?? l.match(/^removed (.+)$/i);
-        if (m) {
-            said.push(`cleared ${m[1]}`);
-            continue;
-        }
-        if (/^Logged .+/.test(l)) {
-            logged = l;
-            continue;
-        }
-        m = l.match(/^(?:Undone: )?skipped (.+?)(?: today|$)/i);
-        if (m) {
-            said.push(`${m[1]} is off today`);
-            continue;
-        }
-    }
-    // The header "NOTHING WAS BOOKED …" says nothing by itself; the NOT BOOKED line under it says what (review 3, 2026-10-16).
-    const failures = lines.filter((l) => FAILED.test(l));
-    const failed = failures.find((l) => spokenFailure(l) !== "nothing could be booked") ?? failures[0];
-    // Spoken: three moved blocks can be named; more is a count ("4 other blocks moved to follow it").
-    const rest = followed.length > 3 ? [`${followed.length} other blocks moved to follow it`] : followed;
-    const all = said.length ? [...said, ...cut, ...rest] : [];
-    // when: the day it was for ("Done: resume work 5:50 PM" for tomorrow sounded like today, q020).
-    const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
-    // A log carries its own one-line summary (what was logged, what moved, what is off today).
-    if (logged)
-        return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");
-    return parts.join(" ") || "Nothing on your day changed.";
-}

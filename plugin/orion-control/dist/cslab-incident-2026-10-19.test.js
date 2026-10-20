@@ -84,7 +84,7 @@ describe("a: 'yes' / 'put X until T' run as an add from now, never the form", ()
     it("an end time already past is refused with a reason, nothing booked", async () => {
         const r = await flow("put cs lab until 9:30 pm");
         expect(r.adds).toEqual([]);
-        expect(r.result).toMatchObject({ outcome: "say", text: expect.stringMatching(/too close to now/) });
+        expect(r.result).toMatchObject({ outcome: "say", text: expect.stringMatching(/9:30 PM has already passed \(it's 9:54 PM\)/) });
     });
     it("another day is not this shape: the form decides", async () => {
         expect(parseDirectAdd("put cs lab until ten thirty tomorrow", { ...day(), now: null })).toBeUndefined();
@@ -105,8 +105,15 @@ describe("a time said without am/pm: the next time that clock shows", () => {
         expect(eveningTime("10:30", 10 * 60 + 30, "until 10:30")).toBe("10:30"); // the same minute is not behind him
     });
     it("the form's own add at 10:30 is written at 22:30 in the evening", async () => {
-        const r = await flow("schedule some reading at 10:30 for 30 minutes", { steps: [{ do: "add", what: "reading", minutes: 30, to: "10:30" }] });
+        // (a sentence the intent layer leaves to the form: a comma and a condition)
+        const r = await flow("schedule some reading at 10:30 for 30 minutes, if there's room", { steps: [{ do: "add", what: "reading", minutes: 30, to: "10:30" }] });
         expect(r.adds).toEqual([["add", "reading", "30", "--at", "22:30"]]);
+    });
+    it("read by code (calendar-intent.ts) it is 22:30 too, and Annika at 22:30 is said, not booked over (re-run 2026-10-20)", async () => {
+        const r = await flow("schedule some reading at 10:30 for 30 minutes", { steps: [{ do: "add", what: "reading", minutes: 30, to: "10:30" }] });
+        expect(r.formAsked).toBe(0);
+        expect(r.adds).toEqual([]);
+        expect(r.result).toMatchObject({ outcome: "say", text: "Annika is 10:30–11:30 PM, so reading can't go at 10:30 PM. I haven't booked it. Tell me another time." });
     });
 });
 describe("spelled-out times are recognised", () => {

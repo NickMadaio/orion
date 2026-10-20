@@ -19,7 +19,7 @@ import type { AskContext } from "./schedule-flow.js";
 
 export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend";
 /** A clock that cannot be used as said: already behind him today, or 9 tomorrow with no am/pm. */
-export type TimeIssue = { kind: "passed"; at: string; field: "start" | "end" } | { kind: "ambiguous"; choices: [string, string] } | { kind: "from-now-not-today" };
+export type TimeIssue = { kind: "passed"; at: string; field: "start" | "end" } | { kind: "past-midnight"; at: string } | { kind: "ambiguous"; choices: [string, string] } | { kind: "from-now-not-today" };
 /** endSaid: an extend's end as he said it ("9"), read against the block's own start when the day is known. */
 export type IntentItem = { name: string; start?: string; end?: string; minutes?: number; fromNow?: boolean; by?: number; endSaid?: string; issue?: TimeIssue };
 export type IntentAnchor = { kind: "block"; name: string } | { kind: "home" } | { kind: "now" } | { kind: "first-class" };
@@ -171,7 +171,8 @@ function readUntil(raw: string, day: DayWord, now: number | null, ask?: AskConte
   const endSaid = endText ? parseClock(endText) : null;
   const end = endSaid ? resolveEnd(endSaid, start, { day, now }) : undefined;
   const item: IntentItem = { name, fromNow, start: hhmm(start), ...(end && "at" in end ? { end: hhmm(end.at), minutes: end.at - start } : {}),
-    ...(end && "passed" in end ? { issue: { kind: "passed" as const, at: hhmm(end.passed), field: "end" as const } } : {}) };
+    ...(end && "passed" in end ? { issue: { kind: "passed" as const, at: hhmm(end.passed), field: "end" as const } } : {}),
+    ...(end && "pastMidnight" in end ? { issue: { kind: "past-midnight" as const, at: hhmm(end.pastMidnight - 1440) } } : {}) };
   return { verb: "add", items: [item], day, until: true, anchor: { kind: "now" } };
 }
 
@@ -193,7 +194,7 @@ function readFollowUp(text: string, last: IntentMemory, now: Date): CalendarInte
   const date = last.date ? { date: last.date } : {};
   const reorder = parseReorder(text, { order: last.order, ...(last.anchor ? { anchor: last.anchor } : {}), home: last.home, explicit: last.explicit, ...(last.lengths ? { lengths: last.lengths } : {}) });
   if (reorder) return { ...fromReplan({ ...reorder, ...(last.lengths ? { lengths: last.lengths } : {}) }, day, date), verb: "reorder" };
-  if (refusalOf(text, { lenient: true })) return undefined;
+  if (refusalOf(text, { lenient: true, followUp: true })) return undefined;
   const m = fixTypos(text).replace(FOLLOW_LEAD, "").match(FOLLOW);
   const [x, y] = [m?.groups?.x?.trim(), m?.groups?.y?.trim()];
   if (!x || !y || [x, y].some((n) => n.split(/\s+/).length > 4 || !cleanName(n))) return undefined;

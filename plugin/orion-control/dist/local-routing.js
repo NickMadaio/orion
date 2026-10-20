@@ -592,8 +592,9 @@ export function registerLocalRouting(api, options) {
         const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
         if (turn && run.sessionKey)
             lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
-        if (flow.marks?.length)
-            recordChange(run.sessionKey, flow.marks);
+        // An unknown outcome may have written: "undo" is allowed for it.
+        if (flow.marks?.length || flow.uncertain)
+            recordChange(run.sessionKey, flow.marks ?? []);
         // Any other write forgets the last request; a reschedule remembers itself AFTER that.
         if (!flow.replan)
             forgetReplan(run.sessionKey);

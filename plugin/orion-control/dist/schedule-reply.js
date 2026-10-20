@@ -1,7 +1,5 @@
-/*
- What Nick hears after a scheduler run, built only from the scheduler's own lines (moved out of schedule-flow.ts, 2026-10-20).
- A run headed "NOTHING WAS CHANGED/BOOKED" wrote nothing: the plan it lists is never said as done.
-*/
+/** What the exec wrapper hands back when the scheduler died without a word. */
+export const UNKNOWN_OUTCOME = "OUTCOME UNKNOWN: the scheduler stopped before it reported back.";
 const ampm = (t) => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
 export const FAILED = /NOT BOOKED|NOTHING WAS|did not fit|usage:|not a real block|is in the past|no block called|Error/i;
 /** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
@@ -109,4 +107,36 @@ export function spokenReply(outputs, when) {
     if (logged)
         return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");
     return parts.join(" ") || "Nothing on your day changed.";
+}
+const spanOf = (b) => `${ampm(b.start)}–${ampm(b.end)}`;
+/** What differs between two reads of the same day, in plain words: added, removed, moved. */
+export function dayDiff(before, after) {
+    const key = (b) => `${b.title}|${b.start}|${b.end}`;
+    const was = new Set(before.blocks.map(key));
+    const is = new Set(after.blocks.map(key));
+    const gone = before.blocks.filter((b) => !is.has(key(b)));
+    const added = after.blocks.filter((b) => !was.has(key(b)));
+    const out = [];
+    for (const b of added) {
+        const old = gone.find((g) => g.title === b.title);
+        if (old) {
+            gone.splice(gone.indexOf(old), 1);
+            out.push(`${b.title} moved from ${spanOf(old)} to ${spanOf(b)}`);
+        }
+        else
+            out.push(`${b.title} added at ${spanOf(b)}`);
+    }
+    for (const b of gone)
+        out.push(`${b.title} (${spanOf(b)}) is gone`);
+    return out;
+}
+/** After a crash or an unknown outcome: what the calendar reads now against before, or that it cannot be known. Never "nothing changed". */
+export function uncertainReply(before, after, when) {
+    const lead = "The scheduler stopped before it reported back.";
+    if (!before || !after)
+        return `${lead} I couldn't compare your calendar${when ? ` for ${when}` : ""} with how it was, so it may have changed. Check it, and say "undo" to put the last change back.`;
+    const diff = dayDiff(before, after);
+    if (diff.length)
+        return `${lead} Your calendar${when ? ` for ${when}` : ""} now differs from before: ${diff.slice(0, 5).join("; ")}. Say "undo" to put it back.`;
+    return `${lead} Your calendar${when ? ` for ${when}` : ""} reads the same as before, but I can't be sure the change didn't go through. Say "undo" if anything looks wrong.`;
 }

@@ -99,7 +99,7 @@ export function parseDirectAdd(message: string, day: Day, ask?: AskContext): Dir
     if (!end || "ambiguous" in end) return { say: "ask", text: "What time should it end? I haven't changed anything." };
     // A time already behind him today is said to have passed; it is never read as tomorrow morning (re-run 2026-10-20, 22:42).
     if ("passed" in end) return { say: "cannot", text: `${ampm(end.passed)} has already passed (it's ${ampm(now)}), so I haven't booked ${title}. Tell me a later end time.` };
-    if ("pastMidnight" in end) return { say: "cannot", text: `${ampm(end.pastMidnight)} is past midnight, so I haven't booked it. Tell me an earlier end time.` };
+    if ("pastMidnight" in end) return { say: "cannot", text: `${ampm(end.pastMidnight)} is after midnight, and a block can't run into tomorrow, so I haven't booked ${title}. Say "until 11:55 PM" to book it until then.` };
     if ("before" in end) return { say: "cannot", text: `${ampm(end.before)} is before it would start (${ampm(start)}), so I haven't booked ${title}.` };
     const until = end.at;
     minutes = until - start;

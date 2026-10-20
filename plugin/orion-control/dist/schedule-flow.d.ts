@@ -243,7 +243,8 @@ export type FlowResult =
     outputs: string[];
     marks?: string[];
     undone?: number;
-    reply?: string; /** the reschedule request this change carried out, remembered for a follow-up reorder */
+    reply?: string; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */
+    uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */
     replan?: ReplanAsk;
 }
 /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */

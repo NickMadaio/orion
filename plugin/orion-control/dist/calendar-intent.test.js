@@ -126,7 +126,7 @@ describe("follow-ups to the remembered request (live-as-nick.test.ts §3)", () =
     it.each(["dinner then gym", "ok dinner then gym", "nah dinner before gym", "actually do dinner before gym", "put dinner first, then gym"])("%j names something new: read as such, never a reorder", (message) => {
         expect(read(message, { now: at(20, 57), last: LAST_TODAY })).toMatchObject({ intent: { verb: "reorder", outside: ["dinner"] } });
     });
-    it.each([["actually do resume before gym?", "question"], ["actually nah, resume before gym maybe", "second-thoughts"], ["she said do resume before gym", "hearsay"]])("%j is not a reorder (%s)", (message, reason) => {
+    it.each([["actually do resume before gym?", "question"], ["actually nah, resume before gym maybe", "doubt"], ["she said do resume before gym", "hearsay"]])("%j is not a reorder (%s)", (message, reason) => {
         expect(read(message, { now: at(20, 57), last: LAST_TODAY })).toMatchObject({ refused: reason });
     });
 });

@@ -32,6 +32,7 @@ function blockFor(name: string, day: Day): DayBlock | "ambiguous" | undefined {
 function issueText(issue: TimeIssue, item: IntentItem, intent: CalendarIntent, day: Day, what: string): string {
   if (issue.kind === "from-now-not-today") return `"From now" only works for today, so I haven't booked ${item.name} ${intent.day}. Tell me when it should start.`;
   if (issue.kind === "ambiguous") return `Do you mean ${ampm(toMin(issue.choices[0]))} or ${ampm(toMin(issue.choices[1]))} ${intent.day}? I haven't ${what} ${item.name} yet.`;
+  if (issue.kind === "past-midnight") return `${ampm(toMin(issue.at))} is after midnight, and a block can't run into tomorrow, so I haven't ${what} ${item.name}. Say "until 11:55 PM" to book it until then.`;
   const now = nowOf(day);
   return `${ampm(toMin(issue.at))} has already passed${now !== null ? ` (it's ${ampm(now)})` : ""}, so I haven't ${what} ${item.name}. Tell me a later time${issue.field === "start" && intent.day === "today" ? ", or say tomorrow" : ""}.`;
 }
@@ -42,7 +43,7 @@ const clashWith = (start: number, minutes: number, day: Day): DayBlock | undefin
 
 function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?: AskContext): IntentPlan | undefined {
   const item = intent.items[0]!;
-  if (item.issue && (item.issue.kind !== "passed" || !intent.until)) return { kind: "say", say: item.issue.kind === "ambiguous" ? "ask" : "cannot", text: issueText(item.issue, item, intent, day, "booked") };
+  if (item.issue && (!["passed", "past-midnight"].includes(item.issue.kind) || !intent.until)) return { kind: "say", say: item.issue.kind === "ambiguous" ? "ask" : "cannot", text: issueText(item.issue, item, intent, day, "booked") };
   if (intent.until) {
     // "put X [from now] until T": direct-add.ts reads it against the day (the title ORION uses, --again for a second session, the same clock rules).
     const direct = parseDirectAdd(message, day, askContext);

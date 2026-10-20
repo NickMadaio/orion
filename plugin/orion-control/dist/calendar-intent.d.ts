@@ -9,6 +9,9 @@ export type TimeIssue = {
     at: string;
     field: "start" | "end";
 } | {
+    kind: "past-midnight";
+    at: string;
+} | {
     kind: "ambiguous";
     choices: [string, string];
 } | {

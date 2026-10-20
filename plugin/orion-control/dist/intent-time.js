@@ -90,6 +90,13 @@ export function resolveStart(said, ctx) {
     const pm = am + 720;
     if (ctx.part === "morning")
         return passed(am); // "tomorrow morning at 6" is 6 AM
+    // Still up before 5 AM: "a walk at 5" at 2 AM is 5 AM, not tomorrow afternoon; a small hour further off is asked about.
+    if (today && ctx.now < 5 * 60 && ctx.part !== "evening" && am > ctx.now) {
+        if (am - ctx.now <= 180)
+            return { at: am };
+        if (said.h <= 6)
+            return { ambiguous: [am, pm] };
+    }
     if (ctx.part === "evening" || said.h <= 6)
         return passed(pm); // "at 5" while awake is 5 PM
     if (!today)
@@ -101,6 +108,9 @@ export function resolveEnd(said, start, ctx) {
     const today = ctx.day === "today" && ctx.now !== null;
     if (said.exact || said.h === 12) {
         const min = said.exact ? exactMinute(said) : 720 + said.m;
+        // "from now until 2am" at 23:00 is 2 AM tonight, after midnight: not "2:00 AM has already passed".
+        if (min < start && start >= 18 * 60 && min < 6 * 60)
+            return { pastMidnight: min + 1440 };
         if (today && min <= ctx.now)
             return { passed: min };
         return min > start ? { at: min } : { before: min };

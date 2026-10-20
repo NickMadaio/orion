@@ -168,7 +168,8 @@ function readUntil(raw, day, now, ask) {
     const endSaid = endText ? parseClock(endText) : null;
     const end = endSaid ? resolveEnd(endSaid, start, { day, now }) : undefined;
     const item = { name, fromNow, start: hhmm(start), ...(end && "at" in end ? { end: hhmm(end.at), minutes: end.at - start } : {}),
-        ...(end && "passed" in end ? { issue: { kind: "passed", at: hhmm(end.passed), field: "end" } } : {}) };
+        ...(end && "passed" in end ? { issue: { kind: "passed", at: hhmm(end.passed), field: "end" } } : {}),
+        ...(end && "pastMidnight" in end ? { issue: { kind: "past-midnight", at: hhmm(end.pastMidnight - 1440) } } : {}) };
     return { verb: "add", items: [item], day, until: true, anchor: { kind: "now" } };
 }
 /** Replan in his words: the items in his order, the anchor, the day. */
@@ -190,7 +191,7 @@ function readFollowUp(text, last, now) {
     const reorder = parseReorder(text, { order: last.order, ...(last.anchor ? { anchor: last.anchor } : {}), home: last.home, explicit: last.explicit, ...(last.lengths ? { lengths: last.lengths } : {}) });
     if (reorder)
         return { ...fromReplan({ ...reorder, ...(last.lengths ? { lengths: last.lengths } : {}) }, day, date), verb: "reorder" };
-    if (refusalOf(text, { lenient: true }))
+    if (refusalOf(text, { lenient: true, followUp: true }))
         return undefined;
     const m = fixTypos(text).replace(FOLLOW_LEAD, "").match(FOLLOW);
     const [x, y] = [m?.groups?.x?.trim(), m?.groups?.y?.trim()];

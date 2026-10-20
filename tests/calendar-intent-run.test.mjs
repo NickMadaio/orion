@@ -145,3 +145,25 @@ test("today, earlier in the day: move and extend are one call each, and one undo
   assert.equal(e.outcome, "done", JSON.stringify(e));
   assert.ok(w.day().includes("Gym 3 18:00-20:00"), w.day().join("\n"));
 });
+
+test("follow-up 3: the scheduler writes, then its output is lost (a crash): the reply reads the day back and says what is now there, with undo", async (t) => {
+  const w = world(t, [22, 46]);
+  const lost = async (args) => { const r = await w.exec(args); return args[0] === "show" ? r : { stdout: "", code: 1 }; };
+  const r = await runScheduleFlow({ message: "can u put a 45 min walk tomorrow at 5", clock: "Thu 22:46", now: new Date(2030, 9, 3, 22, 46), exec: lost,
+    ask: async () => { throw new Error("the form must not be asked"); } });
+  assert.equal(r.outcome, "done");
+  assert.equal(r.uncertain, true);
+  assert.equal(r.reply, "The scheduler stopped before it reported back. Your calendar for tomorrow now differs from before: walk added at 5:00 PM–5:45 PM. Say \"undo\" to put it back.");
+});
+
+test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (nothing booked); a walk at 5 at 2 AM is 5 AM", async (t) => {
+  const late = world(t, [23, 0]);
+  const before = late.day();
+  const a = await late.say("put cs lab from now until 2am");
+  assert.match(a.text, /^2:00 AM is after midnight, and a block can't run into tomorrow/);
+  assert.deepEqual(late.day(), before);
+  const early = world(t, [2, 0]);
+  const b = await early.say("put a walk at 5");
+  assert.deepEqual(early.writes, [["add", "walk", "30", "--at", "05:00"]]);
+  assert.equal(b.outcome, "done", JSON.stringify(b));
+});

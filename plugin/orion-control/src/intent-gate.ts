@@ -41,13 +41,17 @@ export const COURTESY = /^(?:(?:ok(?:ay)?|so|yo|hey|please|pls|orion|can u|can y
 const IMPERATIVE = /^(?:re-?schedule|re-?do|re-?plan|re-?arrange|re-?organi[sz]e|re-?work|move|push|put|shift|do|have|start)\b|^(?:after|when|once)\b[^,.;]*?[,\s]+(?:do|put|have|start with)\b/i;
 export const TAKEN_BACK = /(?:\bjk+|\bj\/k|just kidding|\bkidd?in[g']?|\bjkjk|\bn(?:ever|evr|vr)\s*-?\s*m(?:i|y)?n?d\b|\bnevermnd|\bnvm+|\blo+l+z*|\blm+a+o+|\bro+fl|\bha(?:ha)+h?|\bor not|\bscratch that|\bforget (?:it|that)|\bi dunno|\bdunno|\bidc|\bi don'?t care|\bwhatever|\bidk|\bgot nothing)\W*$/i;
 // Doubt in the middle of the message: "gym first or whatever, idc".
-export const DOUBT = /\b(?:or whatever|dunno|idc|i don'?t care|not sure|no idea|who knows|or something|i guess|meh)\b/i;
+// Trailing hedges too ("gym first ish", "… kinda?", "idk tho"): a hedge at the end is not an order (review 2026-10-21). "im kinda tired tho" mid-sentence is not one.
+export const DOUBT = /\b(?:or whatever|dunno|idc|idek|idk|i don'?t care|not sure|no idea|who knows|or something|or smth|or sth|or smthn|or somethin|i guess|meh)\b|\b(?:ish|kinda|sorta|maybe|probably|prob|idk tho|i think)\W*$/i;
 /** The replan gate: the message starts with the request and does not take it back at the end. */
 export const startsAsRequest = (text: string): boolean => { const rest = text.replace(COURTESY, ""); return IMPERATIVE.test(rest) && !TAKEN_BACK.test(text); };
 // Second thoughts, doubt and hearsay anywhere in the message: not an order (review round 3, 2026-10-20).
 export const SECOND_THOUGHTS = /\b(?:actually|wait|no|nah|nope|forget|hmm+|idk|or is that|or not|on second thought|scratch that|ugh)\b/i;
 export const HEARSAY = /\b(?:she|he|they|someone|mom|mum|dad|my \w+)\s+(?:\w+\s+)?(?:told|tld|said|sayd|sed|sez|says|tells|asked|wants)\b|\b(?:told|tld|said|sayd|sed|asked) me\b/i;
 export const POLITE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion)[,\s]+)*(?:can|could|would|will)\s+(?:you|u)\b/i;
+
+/** A report of what already happened ("we did resume then gym", "i went to the gym first"): never a follow-up order. */
+export const PAST_REPORT = /\b(?:we|i|he|she|they)\s+(?:already\s+|just\s+)?(?:did|went|had|finished|was|were|got|started|ended|ran|left)\b|\b(?:did|went|finished|was|were|happened)\b/i;
 
 export type Refusal = "question" | "take-back" | "doubt" | "hearsay" | "second-thoughts" | "not-a-request";
 
@@ -59,13 +63,14 @@ export const isQuestionText = (text: string): boolean => text.includes("?") && !
  * `lenient`: second thoughts and the negation list are not checked (a follow-up "actually do resume before gym", or an add
  * after "I'm fine… I'm just annoyed"), but take-backs, doubt, hearsay and questions always are.
  */
-export function refusalOf(raw: string, opts: { lenient?: boolean } = {}): Refusal | undefined {
+export function refusalOf(raw: string, opts: { lenient?: boolean; followUp?: boolean } = {}): Refusal | undefined {
   const fixed = fixTypos(raw);
   const both = [raw, fixed];
+  if (both.some((t) => DOUBT.test(t))) return "doubt";   // first: "gym first kinda?" is a hedge, as well as a question
   if (isQuestionText(fixed)) return "question";
   if (both.some((t) => TAKEN_BACK.test(t))) return "take-back";
   if (both.some((t) => HEARSAY.test(t))) return "hearsay";
-  if (both.some((t) => DOUBT.test(t))) return "doubt";
+  if (opts.lenient && opts.followUp && both.some((t) => PAST_REPORT.test(t))) return "not-a-request";
   if (opts.lenient) return both.some((t) => /\b(?:don'?t|do not|maybe|should|what if|or is that|unless|if it|decide later)\b/i.test(t)) ? "not-a-request" : undefined;
   if (both.some((t) => SECOND_THOUGHTS.test(t))) return "second-thoughts";
   if (both.some((t) => NOT_A_REQUEST.test(t))) return "not-a-request";

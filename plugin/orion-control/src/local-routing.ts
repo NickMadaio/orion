@@ -569,9 +569,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const building = new AsyncLocalStorage<Run>();
   // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
   const marked = <A extends unknown[], R>(f: ((...a: A) => Promise<R>) | undefined) => f && ((...a: A) =>
-    startWrite(building.getStore(), () => f(...a), { outcome: "fallback", reason: "too slow" } as unknown as R));
+    startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" } as unknown as R));
   /** Per session: his last reschedule request that was carried out, for a follow-up reorder ("actually do resume before gym"), for 15 minutes. */
   const replanMemory = new Map<string, { ask: ReplanAsk; at: number }>();
+  const forgetReplan = (key: string | undefined) => { if (key) replanMemory.delete(key); };
   const recentReplan = (key: string | undefined): ReplanAsk | undefined => { const m = key ? replanMemory.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m.ask : undefined; };
   const schedule = options.scheduleFlow;
   options = { ...options,
@@ -612,12 +613,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const sessionChanges = new Map<string, { at: number; marks: string[] }>();
   const recordChange = (sessionKey: string | undefined, marks: string[]) => {
     if (!sessionKey) return;
+    forgetReplan(sessionKey);
     sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
   };
   /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
   const dayMemory = new Map<string, { at: number; memory: DayMemory }>();
   const otherChanges = new Map<string, { at: number; kind: keyof typeof OTHER_ASKS }>();
-  const recordOther = (sessionKey: string | undefined, kind: keyof typeof OTHER_ASKS) => { if (sessionKey) otherChanges.set(sessionKey, { at: Date.now(), kind }); };
+  const recordOther = (sessionKey: string | undefined, kind: keyof typeof OTHER_ASKS) => { if (sessionKey) { forgetReplan(sessionKey); otherChanges.set(sessionKey, { at: Date.now(), kind }); } };
   const recentOther = (sessionKey: string | undefined) => {
     const c = sessionKey ? otherChanges.get(sessionKey) : undefined;
     return c && Date.now() - c.at < SESSION_CHANGE_WINDOW_MS ? c.kind : undefined;
@@ -643,11 +645,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const flow = run.flow;
     if (flow?.outcome === "say" && flow.pending && run.sessionKey) addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
     if (flow?.outcome !== "done") return;
-    if (flow.replan && run.sessionKey) replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
     flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
     const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
     if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
     if (flow.marks?.length) recordChange(run.sessionKey, flow.marks);
+    // Any other write forgets the last request; a reschedule remembers itself AFTER that.
+    if (!flow.replan) forgetReplan(run.sessionKey);
+    else if (run.sessionKey) replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
   };
   /** The flow's second go for a turn whose worker was refused the scheduler: from the worker's restatement if it states a time, else an honest "nothing changed". */
   const heldChange = async (run: Run, reply: string): Promise<FlowResult> => {
@@ -1197,6 +1201,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (toolName === "exec" && run.sessionKey) {
       const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
       if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output))) recordChange(run.sessionKey, []);
+      if (UNDO_COMMAND.test(command)) forgetReplan(run.sessionKey);   // an undo ends the last reschedule request
     }
     run.hostTools = (run.hostTools ?? 0) + 1;
     run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });

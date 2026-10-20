@@ -496,9 +496,11 @@ export function registerLocalRouting(api, options) {
     // Which run a flow belongs to, so a flow that is running when the prompt hook gives up can be stopped and its writes known (review, 2026-10-20).
     const building = new AsyncLocalStorage();
     // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
-    const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => f(...a), { outcome: "fallback", reason: "too slow" }));
+    const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
     /** Per session: his last reschedule request that was carried out, for a follow-up reorder ("actually do resume before gym"), for 15 minutes. */
     const replanMemory = new Map();
+    const forgetReplan = (key) => { if (key)
+        replanMemory.delete(key); };
     const recentReplan = (key) => { const m = key ? replanMemory.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m.ask : undefined; };
     const schedule = options.scheduleFlow;
     options = { ...options,
@@ -544,13 +546,16 @@ export function registerLocalRouting(api, options) {
     const recordChange = (sessionKey, marks) => {
         if (!sessionKey)
             return;
+        forgetReplan(sessionKey);
         sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
     };
     /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
     const dayMemory = new Map();
     const otherChanges = new Map();
-    const recordOther = (sessionKey, kind) => { if (sessionKey)
-        otherChanges.set(sessionKey, { at: Date.now(), kind }); };
+    const recordOther = (sessionKey, kind) => { if (sessionKey) {
+        forgetReplan(sessionKey);
+        otherChanges.set(sessionKey, { at: Date.now(), kind });
+    } };
     const recentOther = (sessionKey) => {
         const c = sessionKey ? otherChanges.get(sessionKey) : undefined;
         return c && Date.now() - c.at < SESSION_CHANGE_WINDOW_MS ? c.kind : undefined;
@@ -579,14 +584,17 @@ export function registerLocalRouting(api, options) {
             addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
         if (flow?.outcome !== "done")
             return;
-        if (flow.replan && run.sessionKey)
-            replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
         flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
         const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
         if (turn && run.sessionKey)
             lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
         if (flow.marks?.length)
             recordChange(run.sessionKey, flow.marks);
+        // Any other write forgets the last request; a reschedule remembers itself AFTER that.
+        if (!flow.replan)
+            forgetReplan(run.sessionKey);
+        else if (run.sessionKey)
+            replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
     };
     /** The flow's second go for a turn whose worker was refused the scheduler: from the worker's restatement if it states a time, else an honest "nothing changed". */
     const heldChange = async (run, reply) => {
@@ -1257,6 +1265,8 @@ export function registerLocalRouting(api, options) {
             const command = str(event.params?.command) ?? "";
             if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output)))
                 recordChange(run.sessionKey, []);
+            if (UNDO_COMMAND.test(command))
+                forgetReplan(run.sessionKey); // an undo ends the last reschedule request
         }
         run.hostTools = (run.hostTools ?? 0) + 1;
         run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });

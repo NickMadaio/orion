@@ -15,7 +15,7 @@
 //             out when not everything fits; it never reorders the day.
 // What cannot fit is reported, never silently dropped.
 import { freeGaps } from "./gaps.mjs";
-import { importanceOf, priorityOf, weightOf, wholeMinutes } from "./priority.mjs";
+import { importanceOf, priorityOf, weightOf } from "./priority.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
@@ -140,7 +140,7 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   // 3. Flexible work: displaced blocks go back at or after where they were;
   //    new items at or after where he wanted them, in the order he listed them.
   const flexible = [
-    ...[...interrupted, ...movable.filter((b) => b.start >= floor && !stays.includes(b))].map((b, k) => ({ block: b, minutes: wholeMinutes(b, config),
+    ...[...interrupted, ...movable.filter((b) => b.start >= floor && !stays.includes(b))].map((b, k) => ({ block: b, minutes: b.end - b.start,
       after: Math.max(floor, b.start, /\bdinner\b/i.test(b.title) ? 18 * 60 + 30 : 0), before: end, seq: -1000 + k, fresh: false, pref: true })),
     ...displaced.map(({ block, minutes }, k) => ({ block: { ...block, id: `displaced-${k}`, fixed: false, source: "orion", date, calendarId: null },
       minutes: Math.max(5, minutes ?? block.end - block.start), after: floor, before: end, seq: -500 + k, fresh: false, displaced: true, pref: false })),

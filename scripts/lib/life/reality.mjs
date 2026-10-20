@@ -2,7 +2,7 @@
 // Pure planning: given the day and what he really did, say what to write on the calendar, which
 // slips to record and how the rest of today is re-weighed. orion-reschedule does the writing.
 import { replan } from "./replan.mjs";
-import { weightOf, wholeMinutes } from "./priority.mjs";
+import { weightOf } from "./priority.mjs";
 import { minimumFor } from "./lengths.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
@@ -128,9 +128,9 @@ function displacedTags(created, displaced) {
 export function planDisplace(blocks, block, opts) {
   const { date, now, window, soft = [], config = {}, buffer = 0, why, txn, at } = opts;
   const missed = Math.min(block.end - block.start, Math.max(block.end - Math.max(block.start, now), minimumFor(block.title, config.minimums ?? {})));
-  // A must (the Gym) goes back WHOLE, at its anchor's length: only what is left of it is "missed", but it is not trimmed to that (2026-10-20: gave-up Gym came back 50 min).
+  // A must (the Gym) goes back WHOLE, at the length its block had: only what is left of it is "missed", but the scheduler does not trim it to that (2026-10-20: gave-up Gym came back 50 min).
   const must = weightOf(block, config).rank === "must";
-  const displaced = [{ block, minutes: must ? wholeMinutes(block, config) : Math.max(MIN_PIECE, missed) }];
+  const displaced = [{ block, minutes: must ? block.end - block.start : Math.max(MIN_PIECE, missed) }];
   const kept = blocks.filter((b) => b.id !== block.id);
   const { result } = reweigh({ blocks: kept, displaced, now, window, soft, config, buffer });
   const byId = new Map(kept.map((b) => [b.id, b]));

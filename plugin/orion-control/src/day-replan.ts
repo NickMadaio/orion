@@ -38,11 +38,13 @@ const NOT_A_REQUEST = /\b(?:don'?t|do not|dont|doesn'?t|never ?mind|nvm|no need|
 // Anything else goes the normal way, never to code-first (review round 2, 2026-10-20).
 const COURTESY = /^(?:(?:ok(?:ay)?|so|yo|hey|please|pls|orion|can u|can you|could you|would you|will you|just)[,.\s]+)*/i;
 const IMPERATIVE = /^(?:re-?schedule|re-?do|re-?plan|re-?arrange|re-?organi[sz]e|re-?work|move|push|put|shift|do|have|start)\b|^(?:after|when|once)\b[^,.;]*?[,\s]+(?:do|put|have|start with)\b/i;
-const TAKEN_BACK = /(?:\bjk|\bj\/k|just kidding|\bkidding|\bnever ?mind|\bnvm|\blol|\blmao|\bhaha+|\bor not|\bscratch that|\bforget (?:it|that))\W*$/i;
+const TAKEN_BACK = /(?:\bjk+|\bj\/k|just kidding|\bkidding|\bn(?:ever|evr|vr)\s*-?\s*m(?:i|y)?n?d\b|\bnevermnd|\bnvm+|\blo+l+z*|\blm+a+o+|\bro+fl|\bha(?:ha)+h?|\bor not|\bscratch that|\bforget (?:it|that)|\bi dunno|\bdunno|\bidc|\bi don'?t care|\bwhatever|\bidk|\bgot nothing)\W*$/i;
+// Doubt in the middle of the message: "gym first or whatever, idc".
+const DOUBT = /\b(?:or whatever|dunno|idc|i don'?t care|not sure|no idea|who knows|or something)\b/i;
 export const startsAsRequest = (text: string): boolean => { const rest = text.replace(COURTESY, ""); return IMPERATIVE.test(rest) && !TAKEN_BACK.test(text); };
 // Second thoughts, doubt and hearsay anywhere in the message: not an order (review round 3, 2026-10-20).
 const SECOND_THOUGHTS = /\b(?:actually|wait|no|nah|nope|forget|hmm+|idk|or is that|or not|on second thought|scratch that|ugh)\b/i;
-const HEARSAY = /\b(?:she|he|they|someone|mom|mum|dad|my \w+)\s+(?:\w+\s+)?(?:told|said|says|tells|asked|wants)\b|\b(?:told|said|asked) me\b/i;
+const HEARSAY = /\b(?:she|he|they|someone|mom|mum|dad|my \w+)\s+(?:\w+\s+)?(?:told|tld|said|sayd|sed|sez|says|tells|asked|wants)\b|\b(?:told|tld|said|sayd|sed|asked) me\b/i;
 const POLITE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion)[,\s]+)*(?:can|could|would|will)\s+(?:you|u)\b/i;
 const FIRST_PUT = /\b(?:put|make|do|have|schedule|plan|start(?:\s+off)?\s+with)\s+(?:my\s+|the\s+|a\s+)?(?<y>[a-z][a-z' -]{0,40}?)\s+(?:as\s+)?(?:the\s+)?first(?:\s+(?:event|thing|item|block|activity|task|one))?\b(?!\s+(?:thing\s+)?(?:in the morning|tomorrow|today))/i;
 const FIRST_END = /\s(?<y>[a-z]+)\s+first\s*[.!]*$/i;   // "reschedule my day after marketing gym first": one word, no comma
@@ -85,11 +87,14 @@ const cleanTitle = (t: string): string => {
 
 /** The order and the anchor in his words, or undefined when this is not a reschedule with an order. */
 export function parseReplanRequest(message: string): ReplanAsk | undefined {
-  const text = fixTypos(message.replace(/\s+/g, " ").trim());
+  const raw = message.replace(/\s+/g, " ").trim();
+  const text = fixTypos(raw);
   // A question is not an order ("what is first after class?"), but "can you reschedule my day, gym first?" is a polite one.
   // A "?" is only allowed as the end of a polite request ("can u … ?") where the whole message is the request.
   const question = text.includes("?") && !(POLITE.test(text) && text.indexOf("?") === text.length - 1);
-  if (!text || question || SECOND_THOUGHTS.test(text) || HEARSAY.test(text) || !startsAsRequest(text) || NOT_A_REQUEST.test(text) || !CONTEXT.test(text)) return undefined;
+  // The take-back, doubt and hearsay checks run on what he typed AND on the typo-fixed text ("nvrmind", "lmaoo", "my coach sayd" are not requests either).
+  const refused = [raw, text].some((t) => SECOND_THOUGHTS.test(t) || HEARSAY.test(t) || TAKEN_BACK.test(t) || DOUBT.test(t) || NOT_A_REQUEST.test(t));
+  if (!text || question || refused || !startsAsRequest(text) || !CONTEXT.test(text)) return undefined;
   const order: string[] = [];
   const add = (t: string | undefined) => { const c = t ? cleanTitle(t) : ""; if (c && !REST_OF_DAY.test(c) && !order.some((o) => norm(o) === norm(c))) order.push(c); };
   const loose = text.match(FIRST_ANY);
@@ -118,11 +123,15 @@ export function parseReplanRequest(message: string): ReplanAsk | undefined {
 const REORDER_LEAD = /^(?:(?:actually|no|nah|wait|ok(?:ay)?|hmm+|so|but|and|uh|um|you can|can you|can u|could you|please|pls|just)[,.\s]+)*(?:(?:do|put|have|make|start with|let'?s do|lets do)\s+)?/i;
 const REORDER = /^(?:my\s+|the\s+)?(?<x>[a-z][a-z' -]{0,30}?)\s+(?:before|ahead of|first,?\s+then|then)\s+(?:my\s+|the\s+)?(?<y>[a-z][a-z' -]{0,30}?)\s*[.!]*$/i;
 export function parseReorder(message: string, context: ReplanAsk): ReplanAsk | undefined {
-  const text = fixTypos(message.replace(/\s+/g, " ").trim());
-  if (!text || text.includes("?") || HEARSAY.test(text) || TAKEN_BACK.test(text) || /\b(?:don'?t|do not|never ?mind|nvm|maybe|should|what if|idk|or is that)\b/i.test(text)) return undefined;
+  const raw = message.replace(/\s+/g, " ").trim();
+  const text = fixTypos(raw);
+  if (!text || text.includes("?") || [raw, text].some((t) => HEARSAY.test(t) || TAKEN_BACK.test(t) || DOUBT.test(t) || /\b(?:don'?t|do not|maybe|should|what if|or is that)\b/i.test(t))) return undefined;
   const m = text.replace(REORDER_LEAD, "").match(REORDER);
   const [x, y] = [m?.groups?.x?.trim(), m?.groups?.y?.trim()];
   if (!x || !y || x.split(/\s+/).length > 4 || y.split(/\s+/).length > 4 || /\d/.test(`${x}${y}`)) return undefined;
+  // Only things the remembered request named are reordered; anything new ("dinner then gym") is a different request and goes the normal way.
+  const named = (n: string) => context.order.some((o) => norm(n) === norm(o) || wordsOf(n).some((w) => wordsOf(o).some((v) => sameWord(w, v))));
+  if (!named(x) || !named(y) || norm(x) === norm(y)) return undefined;
   const rest = context.order.filter((o) => ![x, y].some((n) => norm(n) === norm(o) || wordsOf(n).some((w) => wordsOf(o).some((v) => sameWord(w, v)))));
   return { order: [x, y, ...rest], ...(context.anchor ? { anchor: context.anchor } : {}), home: context.home, explicit: true, again: true };
 }
@@ -199,12 +208,13 @@ export function planDayReplan(message: string, day: Day, context?: ReplanAsk): D
   if (!ask) return undefined;
   const facts = day.plan ?? DEFAULT_FACTS;
   const now = day.now ? toMin(day.now) : null;
-  const items: Item[] = []; const over: DayBlock[] = [];
+  const items: Item[] = []; const over: DayBlock[] = []; let again = false;   // again: a named item is really already over, so it is booked a second time
   for (const name of ask.order) {
     const r = resolveItem(name, day, facts);
     if ("say" in r) return ask.explicit ? r : undefined;
     // A thing of his that is already over today: said plainly, and left out unless he is reordering ("do resume before gym" books it again).
     if (r.over && !ask.again) { over.push(r.over); continue; }
+    if (r.over) again = true;
     if (!items.some((i) => norm(i.title) === norm(r.item.title))) items.push(r.item);
   }
   if (!items.length) return over.length ? { say: "ask", text: `${over.map((b) => `${b.title} was ${span(toMin(b.start), toMin(b.end))}`).join(" and ")}, already done? I haven't changed anything. Say "add ${over[0]!.title}" and when, if you want another one.` } : undefined;
@@ -228,7 +238,7 @@ export function planDayReplan(message: string, day: Day, context?: ReplanAsk): D
   // Every thing he ordered gets its own time (the one before it ends + the gap), so nothing else on the day can slip in between them.
   let at = start;
   const plans = items.flatMap((it) => { const arg = ["--plan", `${it.title}, ${it.minutes}, ${hhmm(at)}`]; at += it.minutes + facts.bufferMinutes; return arg; });
-  return { args: ["day", ...plans, ...(ask.again ? ["--again"] : [])], start: hhmm(start), items, via, ask, over, ...(because ? { pushed: { wanted: hhmm(wanted), because } } : {}) };
+  return { args: ["day", ...plans, ...(again ? ["--again"] : [])], start: hhmm(start), items, via, ask, over, ...(because ? { pushed: { wanted: hhmm(wanted), because } } : {}) };
 }
 
 const span = (a: number, b: number): string => {

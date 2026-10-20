@@ -35,7 +35,7 @@ function world(t, config = {}) {
     return { code: r.status, out: `${r.stdout}${r.stderr}` };
   };
   const day = () => JSON.parse(readFileSync(calendar, "utf8")).map((e) => `${e.title} ${clock(e.start)}-${clock(e.end)}`);
-  return { run, day };
+  return { run, day, calendarFile: calendar };
 }
 
 test("'put cs lab from now until ten thirty' at 20:55 never cuts the Gym that is under way: refused with the reason when the Gym cannot fit after it", (t) => {
@@ -74,4 +74,16 @@ test("a Gym given up on that cannot be put back whole is dropped with a message,
   assert.ok(!w.day().some((l) => /^Gym/.test(l) && !/^Gym 2[0-9]:[0-9]{2}-2[0-9]:[0-9]{2}$/.test(l)));
   assert.doesNotMatch(w.day().join("\n"), /Gym 20:55-21:45/);
   assert.match(r.out, /no room today|Gym moved/);
+});
+
+test("a Gym he trimmed to 45 minutes keeps its 45 when an unrelated change moves it", (t) => {
+  const w = world(t);
+  // trim the Gym to 20:55-21:40 (45 min) by hand, then add something that pushes it
+  const cal = JSON.parse(readFileSync(w.calendarFile, "utf8")).map((e) => (e.title === "Gym" ? { ...e, start: at(20, 55), end: at(21, 40) } : e));
+  writeFileSync(w.calendarFile, JSON.stringify(cal));
+  const r = w.run([20, 30], "add", "Stretch", "30", "--at", "20:50");
+  assert.equal(r.code, 0, r.out);
+  const gym = w.day().find((l) => l.startsWith("Gym"));
+  const [s, e] = gym.split(" ").at(-1).split("-").map((x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3)));
+  assert.equal(e - s, 45, gym);
 });

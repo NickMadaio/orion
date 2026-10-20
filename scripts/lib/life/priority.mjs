@@ -100,21 +100,3 @@ export function weightOf(block, config = {}) {
 export function rankOf(block, { ranks = {}, anchors = [] } = {}) {
   return weightOf(block, { ranks, anchors }).rank;
 }
-
-/**
- * The length a daily anchor keeps (the Gym is 90 minutes) when the block is one: a must is moved whole, never cut to what was left of it
- * (2026-10-20: a Gym given up on at 20:55 came back as 8:55-9:45, 50 minutes; and "put cs lab from now" cut the running Gym to 5).
- * null when the block is not an anchor.
- */
-export function anchorMinutes(block, config = {}) {
-  const title = String(block.title ?? "").toLowerCase();
-  const anchor = (config.anchors ?? []).find((a) => a && ((a.title && title === String(a.title).toLowerCase()) || (!a.title && a.kind === block.kind)));
-  return anchor && Number.isInteger(anchor.minutes) ? anchor.minutes : null;
-}
-
-/** The minutes a block needs when it is put somewhere again: a must keeps at least its anchor length (or its own), anything else what it asks. */
-export function wholeMinutes(block, config = {}, asked = null) {
-  const own = block.end - block.start;
-  if (weightOf(block, config).rank !== "must") return asked ?? own;
-  return Math.max(own, anchorMinutes(block, config) ?? 0, asked ?? 0);
-}

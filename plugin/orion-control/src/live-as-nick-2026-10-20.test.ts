@@ -3,7 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseReplanRequest, planDayReplan, replanReply, type ReplanAsk } from "./day-replan.js";
+import { parseReplanRequest, parseReorder, planDayReplan, replanReply, type ReplanAsk } from "./day-replan.js";
+const parseReorderFor = parseReorder;
 import { runScheduleFlow, type Day, type FlowResult } from "./schedule-flow.js";
 import { registerLocalRouting } from "./local-routing.js";
 
@@ -59,10 +60,19 @@ describe("2. 'can u redo my evening, gym first then resume' when finish resume i
 });
 
 describe("3. 'actually do resume before gym' reorders the last request", () => {
-  const last: ReplanAsk = { order: ["gym"], home: false, explicit: true };
+  const last: ReplanAsk = { order: ["gym", "resume"], home: false, explicit: true };
   it("books resume (again) first, then the gym at its 90 minutes, from the same start", () => {
     const p = plan("actually do resume before gym", last) as Args;
     expect(p.args).toEqual(["day", "--plan", "finish resume, 90, 20:55", "--plan", "Gym, 90, 22:30", "--again"]);
+  });
+  it("--again only when a named item is really already over", () => {
+    const upcoming: Day = { ...day("16:00"), blocks: day("16:00").blocks.filter((b) => b.title !== "Gym").concat([{ title: "Gym", start: "20:15", end: "21:45", fixed: false, kind: "gym" }]) };
+    const p = planDayReplan("actually do resume before gym", upcoming, last) as Args;
+    expect(p.args).not.toContain("--again");   // finish resume ended at 19:20 but it is only 16:00: it is not over
+  });
+  it.each(["dinner then gym", "ok dinner then gym", "nah dinner before gym", "actually do dinner before gym", "put dinner first, then gym"])("%j names something the request did not: the normal path, never a rewrite", (m) => {
+    expect(plan(m, last)).toBeUndefined();
+    expect(parseReorderFor(m, last)).toBeUndefined();
   });
   it("without a request on record it is not read at all", () => {
     expect(plan("actually do resume before gym")).toBeUndefined();
@@ -70,13 +80,40 @@ describe("3. 'actually do resume before gym' reorders the last request", () => {
   it.each(["actually do resume before gym?", "actually nah, resume before gym maybe", "she said do resume before gym"])("%j is not a reorder", (m) => {
     expect(plan(m, last)).toBeUndefined();
   });
+  it("an undo, or any other write, forgets the request: the follow-up is no longer code's", async () => {
+    for (const forget of ["undo", "another change"] as const) {
+      let desk = 0;
+      const handlers = new Map<string, Array<(e: Record<string, unknown>, c: Record<string, unknown>) => unknown>>();
+      const api = { on: (n: string, f: (e: Record<string, unknown>, c: Record<string, unknown>) => unknown) => handlers.set(n, [...(handlers.get(n) ?? []), f]) };
+      registerLocalRouting(api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lan-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Wed 20:55",
+        decideImpl: async () => { desk += 1; return { move: "escalate" }; },
+        scheduleFlow: async (m): Promise<FlowResult> => (/reschedule/.test(m) ? { outcome: "done", calls: ["x"], outputs: ["y"], reply: "Done.", replan: { order: ["gym", "resume"], home: false, explicit: true } } : /move gym/.test(m) ? { outcome: "done", calls: ["x"], outputs: ["y"], reply: "Moved.", marks: ["m1"] } : { outcome: "fallback", reason: "x" }),
+        lateFlow: async () => ({ outcome: "done", calls: ["x"], outputs: ["y"], reply: "Moved." }) });
+      const fire = async (n: string, e: Record<string, unknown>, c: Record<string, unknown>) => { for (const f of handlers.get(n) ?? []) await f(e, c); };
+      const sk = `agent:main:orion-chat-${forget}`; const c1 = { runId: `a${forget}`, sessionKey: sk };
+      await fire("before_model_resolve", { prompt: "reschedule the rest of my day, gym first then resume" }, c1);
+      await fire("before_prompt_build", { prompt: "reschedule the rest of my day, gym first then resume", messages: [] }, c1);
+      await fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done.", model: "m", messages: [] }, c1);
+      if (forget === "undo") {   // a later turn of his: "undo that", which the worker runs as orion-reschedule undo
+        const cu = { runId: "bundo", sessionKey: sk };
+        await fire("before_model_resolve", { prompt: "undo that" }, cu);
+        await fire("after_tool_call", { toolName: "exec", params: { command: "/scripts/orion-reschedule undo" }, result: "Undone: put Gym back." }, cu);
+        await fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Undone.", model: "m", messages: [] }, cu);
+        desk = 0;
+      }
+      else { const c = { runId: "bmove", sessionKey: sk }; await fire("before_model_resolve", { prompt: "move gym to 8" }, c); await fire("before_prompt_build", { prompt: "move gym to 8", messages: [] }, c); await fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "ok", model: "m", messages: [] }, c); desk = 0; }
+      const c2 = { runId: `b${forget}`, sessionKey: sk };
+      await fire("before_model_resolve", { prompt: "actually do resume before gym" }, c2);
+      expect(desk).toBe(1);   // the desk is asked again: not code-first
+    }
+  });
   it("end to end: the first turn is remembered, the follow-up skips the desk and carries the context", async () => {
     const contexts: Array<ReplanAsk | undefined> = []; let desk = 0;
     const handlers = new Map<string, Array<(e: Record<string, unknown>, c: Record<string, unknown>) => unknown>>();
     const api = { on: (n: string, f: (e: Record<string, unknown>, c: Record<string, unknown>) => unknown) => handlers.set(n, [...(handlers.get(n) ?? []), f]) };
     registerLocalRouting(api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lan-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Wed 20:55",
       decideImpl: async () => { desk += 1; return { move: "tool", tool: "session", args: { do: "resume" } }; },
-      scheduleFlow: async (_m, _c, o): Promise<FlowResult> => { contexts.push(o?.replanContext); return { outcome: "done", calls: ["x"], outputs: ["y"], reply: "Done.", replan: { order: ["gym"], home: false, explicit: true } }; } });
+      scheduleFlow: async (_m, _c, o): Promise<FlowResult> => { contexts.push(o?.replanContext); return { outcome: "done", calls: ["x"], outputs: ["y"], reply: "Done.", replan: { order: ["gym", "resume"], home: false, explicit: true } }; } });
     const fire = async (n: string, e: Record<string, unknown>, c: Record<string, unknown>) => { for (const f of handlers.get(n) ?? []) await f(e, c); };
     const c1 = { runId: "a", sessionKey: "agent:main:orion-chat-x" }; const c2 = { runId: "b", sessionKey: "agent:main:orion-chat-x" };
     await fire("before_model_resolve", { prompt: "reschedule the rest of my day, gym first" }, c1);
@@ -86,7 +123,7 @@ describe("3. 'actually do resume before gym' reorders the last request", () => {
     await fire("before_model_resolve", { prompt: "actually do resume before gym" }, c2);
     await fire("before_prompt_build", { prompt: "actually do resume before gym", messages: [] }, c2);
     expect(desk).toBe(0);   // the desk read "resume" as a focus-session resume last time: it is not asked
-    expect(contexts).toEqual([undefined, { order: ["gym"], home: false, explicit: true }]);
+    expect(contexts).toEqual([undefined, { order: ["gym", "resume"], home: false, explicit: true }]);
   });
 });
 
@@ -109,6 +146,15 @@ describe("4. typos and run-ons are still requests; the allow-list rules are unch
     "should i resched my day gim first",
     "resched my day? gym first",
     "she said resched my day, gym first",
+    "resched my day, gim frist, nvrmind",
+    "resched my day, gim frist lmaoo",
+    "resched my day, gim frist, my coach sayd",
+    "reschedule my day, gym first, i dunno",
+    "reschedule my day, gym first or whatever, idc",
+    "reschedule my day, gym first nevermnd",
+    "reschedule my day, gym first, nvm",
+    "reschedule my day, gym first lol",
+    "reschedule my day, gym first, whatever",
   ])("%j still fires nothing", (m) => { expect(parseReplanRequest(m)).toBeUndefined(); });
 });
 

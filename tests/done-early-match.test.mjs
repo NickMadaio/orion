@@ -18,7 +18,6 @@ test("a link whose to-do is already done matches nothing (never falls back to a 
 
 test("title match: the same title, or a whole title inside the other (two words at least); never a guess between two", () => {
   assert.equal(matchTodo(todos, block({ title: "finish RESUME" })).todo.identifier, "A1B2-C3D4");
-  assert.equal(matchTodo(todos, block({ title: "Study for macro quiz — ch 4" })).todo.identifier, "E5");
   assert.deepEqual(matchTodo(todos, block({ title: "Study" })), { none: true });
   assert.equal(matchTodo(todos, block({ title: "Study for quiz" })).ambiguous.length, 2);
 });
@@ -37,7 +36,7 @@ test("what is current: a task, an activity, a class, a pinned block; never a log
   assert.equal(findCurrent(day, { now: 1220 }).kind, "none");
   assert.equal(findCurrent(day, { now: 1320 }).block.id, "p");
   assert.equal(findCurrent([{ ...day[1], logged: true }], { now: 880 }).kind, "none");
-  assert.equal(findCurrent(day, { now: 840 }).kind, "none", "pressed the minute it starts: nothing has been done yet");
+  assert.equal(findCurrent(day, { now: 839 }).kind, "none");
   assert.deepEqual(checkContext(findCurrent(day, { now: 880 })), { kind: "block", id: "t", title: "Finish resume", blockKind: "task" });
 });
 
@@ -48,4 +47,24 @@ test("the one line", () => {
   assert.match(summaryLine({ title: "Study", tickFailed: true, next: null }), /couldn't check off the to-do/);
   assert.match(nothingLine({ title: "CS Lab", start: 1090 }), /^Nothing is on right now\. Next up: CS Lab at 6:10 PM/);
   assert.match(classLine({ title: "DS", now: 600, freeFrom: 645, next: null }), /45 min reserved to get home/);
+});
+
+test("no link: only an exact title ticks a to-do; a lookalike never does (one-character words count)", () => {
+  const list = [{ identifier: "p4", title: "Problem set 4" }, { identifier: "c5", title: "Read chapter 5" }, { identifier: "mq", title: "Macro quiz" }];
+  assert.deepEqual(matchTodo(list, block({ title: "Problem set 3" })).ambiguous.map((t) => t.title), ["Problem set 4"]);
+  assert.deepEqual(matchTodo(list, block({ title: "Read chapter 4" })).ambiguous.map((t) => t.title), ["Read chapter 5"]);
+  assert.ok(matchTodo([...list, { identifier: "x", title: "Study for macro quiz" }], block({ title: "Study for macro quiz" })).todo, "exact still ticks");
+  assert.equal(matchTodo(list, block({ title: "Study for macro quiz" })).todo, undefined);
+  assert.equal(matchTodo(list, block({ title: "Problem set 4" })).todo.identifier, "p4");
+});
+
+test("pressing in a block's first minute finds it", () => {
+  assert.equal(findCurrent([block({ start: 840, end: 900 })], { now: 840 }).kind, "task");
+});
+
+test("a block hint never ends a class", () => {
+  const day = [{ id: "c", title: "CS1802 Lecture", kind: "class", start: 540, end: 630, fixed: true, source: "calendar" }, block({ id: "e", title: "Essay", start: 500, end: 700 })];
+  assert.equal(findCurrent(day, { now: 600, only: "block" }).block.id, "e");
+  assert.equal(findCurrent([day[0]], { now: 600, only: "block" }).kind, "none");
+  assert.equal(findCurrent(day, { now: 600, only: "class" }).kind, "class");
 });

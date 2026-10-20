@@ -43,6 +43,7 @@ export function tagsFor(block, config = {}) {
 */
 async function reverseSteps(steps) {
   const done = []; const restored = new Map();
+  Object.defineProperty(done, "notes", { value: [], enumerable: false });   // what undo cannot bring back (kept off the list of what it did)
   for (const step of [...steps].reverse()) {
     if (step.op === "move") {
       await bridge("move_calendar_event", { identifier: step.identifier, start: step.start, end: step.end });
@@ -57,6 +58,7 @@ async function reverseSteps(steps) {
       removeSkip(step.title, step.start);
       done.push(`put ${step.title} back`);
     }
+    if (step.op === "not-restored") done.notes.push(step.what);
     if (step.op === "reopen-todo") {
       // The to-do "Done early" ticked off: reopened the way the sweep harness does it (complete_reminder, completed: "false").
       try {

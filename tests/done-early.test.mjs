@@ -231,3 +231,43 @@ test("day --todos links each block to its to-do (a todo-<key> tag), and that lin
   assert.equal(r.code, 0, r.out);
   assert.equal(w.reminders()[0].completed, true, r.out);
 });
+
+test("a lookalike to-do is not ticked: Problem set 3 never ticks Problem set 4", (t) => {
+  const w = world(t, { events: [{ title: "Problem set 3", start: at(14), end: at(15), orion: "study" }], reminders: [{ identifier: "rem-0", title: "Problem set 4", list: "Orion" }] });
+  const r = w.run("early", "--now", "14:20");
+  assert.equal(r.code, 0, r.out);
+  assert.equal(w.reminders()[0].completed, undefined);
+  assert.match(firstLine(r.out), /Problem set 3 is done, but I didn't check anything off.*Problem set 4/);
+});
+
+test("the check-in's Done (early block) during a class acts on the block, not the class", (t) => {
+  const w = world(t, { events: [{ title: "CS1802 Lecture", start: at(9), end: at(10, 30) }, { title: "Essay", start: at(9, 30), end: at(11), orion: "study" }] });
+  const r = w.run("early", "block", "--now", "10:00");
+  assert.equal(r.code, 0, r.out);
+  const d = w.day();
+  assert.equal(d.find((e) => e.title === "CS1802 Lecture").end, hm(10, 30));
+  assert.equal(d.find((e) => e.title === "Essay").end, hm(10));
+  const none = world(t, { events: [{ title: "CS1802 Lecture", start: at(9), end: at(10, 30) }] });
+  const n = none.run("early", "block", "--now", "10:00");
+  assert.equal(n.code, 0, n.out);
+  assert.equal(none.day()[0].end, hm(10, 30));
+});
+
+test("pressing in the first minute of a block ends it five minutes in (a block is never shorter) and counts", (t) => {
+  const w = world(t, { events: resumeDay });
+  const r = w.run("early", "--now", "14:00");
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /Nothing is on/);
+  assert.equal(w.day().find((e) => e.title === "Finish resume").end, hm(14, 5));
+});
+
+test("undo says plainly what it cannot bring back", (t) => {
+  const w = world(t, { events: resumeDay, reminders: [resumeTodo], sessionTask: "finish resume" });
+  assert.equal(w.checkin("add", "10", "Finish resume").code, 0);
+  assert.equal(w.run("early", "--now", "14:40").code, 0);
+  const u = w.run("undo");
+  assert.match(u.out, /Your focus session and check-ins weren't restored\./);
+  const plain = world(t, { events: resumeDay });
+  plain.run("early", "--now", "14:40");
+  assert.doesNotMatch(plain.run("undo").out, /weren't restored/);
+});

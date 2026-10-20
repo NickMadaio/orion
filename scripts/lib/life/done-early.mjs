@@ -14,11 +14,14 @@ const wordsOf = (t) => normTitle(t).split(" ").filter((w) => w.length >= 2);
  * What is happening now on today's plan.
  * @returns { kind: "class", block, context } | { kind: "task" | "activity", block } | { kind: "none" }
  */
-export function findCurrent(blocks, { now, commuteMinutes = 45 }) {
+export function findCurrent(blocks, { now, commuteMinutes = 45, only = null }) {
+  // `only`: a hint from an older button. "block" never ends a class (a check-in's Done during class is about its own block);
+  // "class" only acts on a class.
   const ctx = earlyContext(blocks, { now, commuteMinutes });
-  if (ctx.kind === "after-class") return { kind: "class", block: blocks.find((b) => b.id === ctx.classId), context: ctx };
+  if (only === "class" && ctx.kind !== "after-class") return { kind: "none" };
+  if (only !== "block" && ctx.kind === "after-class") return { kind: "class", block: blocks.find((b) => b.id === ctx.classId), context: ctx };
   // Movable (or pinned: his stated time, ORION's block) and really under way; never one already logged as done.
-  const block = blocks.filter((b) => (b.fixed === false || b.pinned) && !b.logged && b.start < now && now < b.end)
+  const block = blocks.filter((b) => (b.fixed === false || b.pinned) && !b.logged && b.start <= now && now < b.end)
     .sort((a, b) => b.start - a.start)[0];
   if (!block) return { kind: "none" };
   return { kind: ACTIVITY_KINDS.has(block.kind) ? "activity" : "task", block };
@@ -35,9 +38,9 @@ export function checkContext(current) {
 export const linkOf = (block) => (block.tags ?? []).find((t) => /^todo-[a-z0-9]{1,14}$/.test(t))?.slice(5) ?? null;
 
 /**
- * The open to-do this block is. The block's own link first; else a title match, only when it is unambiguous.
- * Title match: the same title, or one title wholly inside the other when the shorter has two or more words
- * ("Study" never stands for "Study for macro quiz").
+ * The open to-do this block is. The block's own link first; else ONLY an exact (normalised) title match.
+ * Anything looser ("Problem set 3" vs "Problem set 4", "Study for macro quiz" vs "Macro quiz") ticks nothing:
+ * the to-dos it could be come back as `ambiguous` so he can be told.
  * @returns { todo } | { ambiguous: [todo…] } | { none: true, linked?: true }
  */
 export function matchTodo(reminders, block) {
@@ -49,15 +52,14 @@ export function matchTodo(reminders, block) {
   const exact = reminders.filter((r) => normTitle(r.title) === normTitle(block.title));
   if (exact.length === 1) return { todo: exact[0], by: "title" };
   if (exact.length > 1) return { ambiguous: exact };
-  const mine = wordsOf(block.title);
-  const loose = reminders.filter((r) => {
-    const theirs = wordsOf(r.title);
+  const mine = normTitle(block.title).split(" ").filter(Boolean);
+  const similar = reminders.filter((r) => {
+    const theirs = normTitle(r.title).split(" ").filter(Boolean);
     const [short, long] = mine.length <= theirs.length ? [mine, theirs] : [theirs, mine];
-    return short.length >= 2 && short.every((w) => long.includes(w));
+    const shared = short.filter((w) => long.includes(w)).length;
+    return short.length >= 2 && shared >= short.length - 1 && shared >= 1;
   });
-  if (loose.length === 1) return { todo: loose[0], by: "title" };
-  if (loose.length > 1) return { ambiguous: loose };
-  return { none: true };
+  return similar.length ? { ambiguous: similar } : { none: true };
 }
 
 /** Does the block's activity read as the focus session's task ("Finish resume" / "finish the resume")? Whole words, one inside the other. */

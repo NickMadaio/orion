@@ -193,7 +193,8 @@ if (!dry) {
 
 if (command === "undo") {
   const done = await undoLast().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
-  console.log(done.length ? `Undone: ${done.join("; ")}.` : "Nothing to undo.");
+  const notes = done.notes?.length ? ` Your ${done.notes.join(" and ")} weren't restored.` : "";
+  console.log(done.length || notes ? `Undone${done.length ? `: ${done.join("; ")}` : ""}.${notes}` : "Nothing to undo.");
   process.exit(0);
 }
 
@@ -695,9 +696,9 @@ if (command === "late") {
   if (modeArg && !["block", "out-of-class", "auto"].includes(modeArg)) fail(`usage: orion-reschedule early [auto|block|out-of-class]`, 2);
   const nowFlag = minute(flag("--now"));
   // Resolve "now": --now flag, or ORION_RESCHEDULE_NOW env, or real clock
-  const effectiveNow = nowFlag !== null ? nowFlag : today ? nowMinute : 0;
+  let effectiveNow = nowFlag !== null ? nowFlag : today ? nowMinute : 0;
   // What is under way decides the mode; a hint from an older button is only a hint.
-  const current = findCurrent(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes });
+  const current = findCurrent(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes, only: modeArg === "block" ? "block" : modeArg === "out-of-class" ? "class" : null });
 
   // --check: print context JSON and exit
   if (args.includes("--check")) { console.log(JSON.stringify(checkContext(current))); process.exit(0); }
@@ -708,6 +709,8 @@ if (command === "late") {
   }
   const mode = current.kind === "class" ? "out-of-class" : "block";
   const target = current.block;
+  // Pressed in a block's first minutes: a block is never under 5 minutes (day rules), so it ends 5 minutes in.
+  if (mode === "block" && effectiveNow < target.start + 5) effectiveNow = Math.min(target.start + 5, target.end);
 
   // The block he finished is his own to end now, even when he fixed its time (a pinned block).
   const planBlocks = mode === "block" ? blocks.map((b) => (b.id === target.id ? { ...b, fixed: false, pinned: false } : b)) : blocks;
@@ -733,13 +736,14 @@ if (command === "late") {
   if (plan.clipped) {
     dayWithClip = dayWithClip.map((b) => b.id === plan.clipped.id ? { ...b, end: effectiveNow } : b);
   }
+  const endAt = effectiveNow;
   if (shortened) {
-    dayWithClip = dayWithClip.map((b) => b.id === shortened.id ? { ...b, end: effectiveNow } : b);
+    dayWithClip = dayWithClip.map((b) => b.id === shortened.id ? { ...b, end: endAt } : b);
   }
 
   // Add the shortened block as a move if it exists
   if (shortened) {
-    moves.push({ id: shortened.id, title: shortened.title, from: blocks.find((b) => b.id === shortened.id).start, to: blocks.find((b) => b.id === shortened.id).start, toEnd: effectiveNow });
+    moves.push({ id: shortened.id, title: shortened.title, from: blocks.find((b) => b.id === shortened.id).start, to: blocks.find((b) => b.id === shortened.id).start, toEnd: endAt });
   }
 
   // Persist the actual class end, not just the in-memory planning clip.
@@ -790,7 +794,7 @@ if (command === "late") {
     await applyPlan({ date, moves, created, removed: [], blocksById: byId, group: txn, config }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
     if (mode === "block") {
       // Recorded as done (logged.jsonl marks the shortened block logged: the nightly review counts it as finished early, never a slip).
-      appendLogged([{ date, txn, identifier: target.calendarId ?? null, title: target.title, kind: target.kind, start: target.start, end: effectiveNow, early: true, plannedEnd: target.end }]);
+      appendLogged([{ date, txn, identifier: target.calendarId ?? null, title: target.title, kind: target.kind, start: target.start, end: endAt, early: true, plannedEnd: target.end }]);
       if (todo) {
         try {
           await bridge("complete_reminder", { identifier: todo.identifier });
@@ -803,6 +807,9 @@ if (command === "late") {
       if (!evaluating()) {
         loopsClosed = closeLoops(titles, { checkinBin: process.env.ORION_CHECKIN_BIN || joinPath(HERE_DIR, "orion-checkin") });
         focusEnded = endFocusSession(titles, { sessionBin: process.env.ORION_SESSION_BIN || joinPath(HERE_DIR, "orion-session") });
+        // Undo cannot bring these back: it says so (the journal carries the fact).
+        const gone = [focusEnded ? "focus session" : null, loopsClosed ? "check-ins" : null].filter(Boolean);
+        if (gone.length) appendUndoSteps(txn, [{ op: "not-restored", what: gone.join(" and ") }]);
       }
     }
     touchDirty();

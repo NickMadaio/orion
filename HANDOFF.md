@@ -80,6 +80,21 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-20 — Reschedule incident: code-run day replan, turn budget, safe writes (Claude)
+
+Write-up: `docs/audits/2026-10-20-reschedule-incident.md`.
+- **The 4-minute turn**: the host cut `before_prompt_build` at 15 s while slow form calls ran, then dropped the slim prompt (17.7k tokens instead of about 1.6–4.9k).
+  - The hook is now registered with `timeoutMs` 55 s, which the host honours (`resolveTypedHookTimeoutMs`), plus its own timer.
+  - After 40 s, a change request gets an honest line.
+- **`day-replan.ts`**: "reschedule my day after X, gym first after I get home" runs `orion-reschedule day --plan` in code, keeping gym at 90 min and adding the commute.
+  - It is allow-only: the message must start with an imperative request.
+  - It refuses questions, second thoughts and reported speech.
+- **Desk**: the desk is skipped for these sentences. After a failure, it gets a 2.5 s budget, with one full-budget probe per 3 min.
+  - Desk failures and unfinished turns write shadow rows.
+- **Writes**: once a write starts it is never killed. `applyPlan` runs create → move → delete, journals each step, and holds SIGTERM.
+  - A write the hook gave up on is reported on the next message.
+  - All flows share a write point that refuses to start after an abort.
+
 ### 2026-10-20 (evening) — "reschedule my day, gym first" took 4m40 and changed nothing: fixed (Claude)
 
 Branch `fix/reschedule-day-1020` (not pushed, not deployed). Full note: `docs/audits/2026-10-20-reschedule-incident.md`.

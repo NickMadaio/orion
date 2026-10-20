@@ -106,6 +106,13 @@ final class TrackingLogTests: XCTestCase {
         XCTAssertThrowsError(try log.apply(.signal(at: "2026-09-29T02:40:00Z", motion: "teleporting", charging: false, latitude: nil, longitude: nil), now: now))
     }
 
+    func testARepeatedPhoneSampleIsStoredOnce() throws {
+        let log = TrackingLog(file: file)
+        for _ in 0..<2 { _ = try log.apply(.signal(at: "2026-10-20T08:21:26Z", motion: "unknown", charging: false, latitude: 51.528, longitude: -0.087), now: now) }
+        _ = try log.apply(.signal(at: "2026-10-20T09:06:00Z", motion: "unknown", charging: false, latitude: 51.528, longitude: -0.087), now: now)
+        XCTAssertEqual((try json()["phoneSignals"] as? [[String: Any]])?.count, 2)
+    }
+
     func testOutOfRangeEntriesAreRefusedNotClamped() {
         let log = TrackingLog(file: file)
         XCTAssertThrowsError(try log.apply(.water(delta: 40), now: now))

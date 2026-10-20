@@ -82,7 +82,7 @@ async function refresh({ session } = {}) {
   }
   const signal = (log.phoneSignals ?? []).at(-1) ?? null;
   const events = log.placeEvents ?? [];
-  const location = locationFacet(log.phoneSignals, events, places, now);
+  const location = locationFacet(log.phoneSignals, events, places, now, { mac: macF });
   const newestEvent = events.map((e) => e.at).sort().at(-1) ?? null;
   const aw = {
     schema: "orion.awareness.v1", at: now.toISOString(),

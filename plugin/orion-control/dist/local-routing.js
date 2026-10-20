@@ -39,6 +39,8 @@ import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-que
 import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
+import { parseReplanRequest } from "./day-replan.js";
+import { DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -320,12 +322,13 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
+    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}),
     exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
-    ask: async (system, user, schema) => {
+    ask: async (system, user, schema, budgetMs) => {
         try {
             const res = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "content-type": "application/json" },
                 body: JSON.stringify({ model: WORKER_MODEL, stream: false, think: false, format: schema, options: FORM_OPTIONS, keep_alive: "24h",
-                    messages: [{ role: "system", content: system }, { role: "user", content: user }] }), signal: AbortSignal.timeout(30000) });
+                    messages: [{ role: "system", content: system }, { role: "user", content: user }] }), signal: AbortSignal.timeout(budgetMs ?? 30000) });
             const body = (await res.json());
             return JSON.parse(body.message?.content ?? "");
         }
@@ -489,7 +492,9 @@ export function registerLocalRouting(api, options) {
         const verdict = acceptanceVerdict(options.acceptancePath);
         api.logger?.warn?.(`[orion-control] localRouting "on" (local always). Acceptance report: ${verdict.ok ? "passing" : "not passing"} — ${verdict.why}.`);
     }
-    const { logPath, decideImpl = (input) => decide(input), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
+    // The front desk is asked with a timeout that depends on how it did last time (turn-budget.ts): after a failure it gets 2.5 s, not 8 s again.
+    const deskHealth = new DeskHealth();
+    const { logPath, decideImpl = (input) => decide(input, { timeoutMs: deskHealth.timeoutMs() }), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
     // Both local models stay loaded, at the context each is called with, checked every 5 minutes
     // (2026-10-14: the 9B was never warmed; a terminal run or another num_ctx unloaded them).
     if (options.warm !== false) {
@@ -606,6 +611,53 @@ export function registerLocalRouting(api, options) {
         const timeout = new Promise((resolve) => setTimeout(() => resolve({ error: "front desk still running" }), finalizeWaitMs));
         return Promise.race([run.decision, timeout]);
     };
+    /** The run, swapped for a copy that the (late) original build can no longer change: what Nick is told is fixed once the hook gives up. */
+    const freezeRun = (old, flow) => {
+        const next = { ...old, flow, provided: false, directive: undefined, reminder: undefined };
+        for (const [k, v] of runs)
+            if (v === old)
+                runs.set(k, next);
+        return next;
+    };
+    const fixedReply = (text) => ({ systemPrompt: `${EXACT_REPLY_PROMPT}\n${text}`, appendContext: `[ORION scheduler — nothing was changed. Your whole reply must be exactly: ${text}]` });
+    /**
+     * 2026-10-20 incident: the host cuts before_prompt_build off at 15 s and then runs the FULL workspace prompt (17.7k tokens, 3 min 1 s on battery) —
+     * silently, with no error anywhere. The hook now (1) is registered with a longer timeout, (2) bounds its own work so that it answers first,
+     * (3) never throws into the host's default prompt, and (4) does not hand a change request that already took SLOW_TURN_MS a multi-minute tool loop.
+     */
+    const guardedPrompt = (inner) => async (event, ctx) => {
+        const run = runFor(event, ctx);
+        if (!run?.settled || run.cloud)
+            return undefined;
+        traceLine("before_prompt_build", event, ctx, { sinceStartMs: Date.now() - run.started });
+        let timer;
+        const cut = new Promise((resolve) => { timer = setTimeout(() => resolve("cut"), HOOK_TIMEOUT_MS - 5_000); timer.unref?.(); });
+        try {
+            const built = await Promise.race([Promise.resolve(inner(event, ctx)), cut]);
+            if (built === "cut") {
+                traceLine("before_prompt_build_cut", event, ctx, { sinceStartMs: Date.now() - run.started });
+                freezeRun(run, { outcome: "say", kind: "plain", text: SLOW_FLOW_LINE });
+                return fixedReply(SLOW_FLOW_LINE);
+            }
+            const now = runFor(event, ctx) ?? run;
+            const stillWorker = !now.flow || now.flow.outcome === "fallback";
+            if (stillWorker && !now.directive && !now.reminder && !now.noTools && !now.provided && Date.now() - now.started > SLOW_TURN_MS
+                && CHANGE_REQUEST.test(now.message) && SCHEDULING.test(now.message) && !isQuestion(now.message)) {
+                now.flow = { outcome: "say", kind: "plain", text: SLOW_TURN_LINE };
+                traceLine("slow_turn", event, ctx, { sinceStartMs: Date.now() - now.started });
+                return fixedReply(SLOW_TURN_LINE);
+            }
+            return built;
+        }
+        catch (error) {
+            api.logger?.warn?.(`[orion-control] before_prompt_build failed, using the slim prompt: ${error instanceof Error ? error.message : String(error)}`);
+            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}\n\nNow: ${clock()} (Europe/London). ${dateLine()}` };
+        }
+        finally {
+            if (timer)
+                clearTimeout(timer);
+        }
+    };
     api.on("before_model_resolve", async (event, ctx) => {
         const runId = pick(event, ctx, "runId");
         const sessionKey = pick(event, ctx, "sessionKey") ?? "";
@@ -628,11 +680,16 @@ export function registerLocalRouting(api, options) {
         // Text owed by an earlier turn in this session is never delivered on this one (review, 2026-10-16).
         if (sessionKey)
             finalText.delete(`session:${sessionKey}`);
+        // 2026-10-20: "reschedule my day after my class, gym first" is code's whole job (day-replan.ts): the 4B is not asked, so a slow or
+        // failing desk can neither delay it by 8 s nor send it down the worker path.
+        const codeFirst = on && !cutOff && !!options.scheduleFlow && !!parseReplanRequest(message);
         const decision = cutOff
             ? Promise.resolve({ move: "ask", answer: GO_ON })
-            : Promise.resolve()
-                .then(() => decideImpl({ message, clock: clock() }))
-                .catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
+            : codeFirst ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })
+                : Promise.resolve()
+                    .then(() => decideImpl({ message, clock: clock() }))
+                    .then((d) => { deskHealth.record(d); return d; })
+                    .catch((error) => { deskHealth.record({ error: "threw" }); return { error: error instanceof Error ? error.message : String(error) }; });
         const askContext = parseAskContext(raw);
         const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
@@ -663,6 +720,9 @@ export function registerLocalRouting(api, options) {
             }
         }
         const d = await decision;
+        // 2026-10-20: a row the moment the desk fails (it was only written when the turn ended, 4m40 later, and never if it did not end).
+        if ("error" in d || (d.fallback && d.fallback !== "code-first"))
+            log({ stage: "decision", runId, message, decision: "error" in d ? { move: "escalate", fallback: d.error } : d });
         // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
         if ("error" in d) {
             run.settled = { move: "escalate", fallback: d.error };
@@ -705,7 +765,7 @@ export function registerLocalRouting(api, options) {
                 return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
             return undefined;
         });
-        api.on("before_prompt_build", async (event, ctx) => {
+        api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
             const run = runFor(event, ctx);
             if (!run?.settled || run.cloud)
                 return undefined;
@@ -959,7 +1019,7 @@ export function registerLocalRouting(api, options) {
                     run.flow = { outcome: "say", kind: "ask", text: a.pending.ask, pending: a.pending };
                 else {
                     run.flow = options.scheduleFlow
-                        ? await options.scheduleFlow(run.message, clock(), { pending: a.run }).catch((e) => ({ outcome: "fallback", reason: String(e) }))
+                        ? await options.scheduleFlow(run.message, clock(), { pending: a.run, deadlineAt: flowDeadline(run.started) }).catch((e) => ({ outcome: "fallback", reason: String(e) }))
                         : { outcome: "fallback", reason: "no scheduling flow wired" };
                     if (run.flow.outcome === "fallback")
                         run.flow = { outcome: "say", kind: "plain", text: "I couldn't finish that add. Tell me what to put on your day and when." };
@@ -978,7 +1038,7 @@ export function registerLocalRouting(api, options) {
                 // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
                 let flowRan = false;
                 run.flow = options.scheduleFlow
-                    ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], ...(openAsk ? { askContext: openAsk } : {}) }).then((r) => { flowRan = true; return r; }, (e) => ({ outcome: "fallback", reason: String(e) }))
+                    ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], deadlineAt: flowDeadline(run.started), ...(openAsk ? { askContext: openAsk } : {}) }).then((r) => { flowRan = true; return r; }, (e) => ({ outcome: "fallback", reason: String(e) }))
                     : { outcome: "fallback", reason: "no scheduling flow wired" };
                 if (flowRan)
                     markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
@@ -1060,7 +1120,7 @@ export function registerLocalRouting(api, options) {
             // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
             const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
             return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
-        });
+        }), { timeoutMs: HOOK_TIMEOUT_MS });
     }
     // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at
     // delivery: the 9B paraphrased it from session history ("Done: grind leetcode 6:15…" after a clear).
@@ -1290,6 +1350,21 @@ export function registerLocalRouting(api, options) {
             api.logger?.warn?.(`[orion-control] local routing finalize failed: ${error instanceof Error ? error.message : String(error)}`);
             done();
         }
+        return undefined;
+    });
+    // 2026-10-20: a turn that ends in an error, an abort or a host timeout never reaches before_agent_finalize, so it left no row at all (the
+    // front desk's failure was only written when the turn ended). A run still open at agent_end is logged here, with how it ended.
+    api.on("agent_end", (event, ctx) => {
+        const run = runFor(event, ctx);
+        if (!run)
+            return undefined;
+        const runId = pick(event, ctx, "runId") ?? "";
+        const flow = run.flow;
+        log({ stage: "agent_end", runId, message: run.message, decision: run.settled ?? { move: "escalate", fallback: "unsettled" },
+            flow: flow ? { outcome: flow.outcome, ..."reason" in flow ? { reason: flow.reason } : {} } : null, success: event.success !== false, error: str(event.error) ?? null,
+            tools: run.tools.length, cloud: run.cloud ?? false, turnMs: typeof event.durationMs === "number" ? event.durationMs : Date.now() - run.started });
+        runs.delete(runId);
+        runs.delete(`session:${pick(event, ctx, "sessionKey") ?? run.sessionKey ?? ""}`);
         return undefined;
     });
 }

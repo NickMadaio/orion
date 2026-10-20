@@ -14,6 +14,10 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { eveningTime, parseDirectAdd, spokenTimesToDigits } from "./direct-add.js";
+import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
+import { planDayReplan, replanReply } from "./day-replan.js";
+import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
+export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 const toMin = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 const hhmm = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 const BUFFER = 5; // his rule: five minutes between activities
@@ -66,49 +70,6 @@ export function intentSchema(day) {
 // num_predict caps the form (a real one is <200 tokens): at temperature 0 a list can loop forever —
 // one call generated 14k tokens for 5 minutes (2026-10-12).
 export const FORM_OPTIONS = { temperature: 0, top_p: 1, top_k: 20, presence_penalty: 0, repeat_penalty: 1.05, num_predict: 500, num_ctx: 32768 };
-export const FORM_PROMPT = `You fill in a form for ORION's scheduler. You get the time now, Nick's day as numbered blocks (B1, B2…; FIXED = a class or plan with people) and what he says. Choose the steps that do exactly what he asked; the scheduler does the times and slides other blocks.
-
-Steps:
-- fill_between: put "what" (a block id, or a new title) in all the time between block "after" and block "before" ("between DS and my lab", "the entire time between the two classes")
-- plan: after block "after" he goes somewhere and does several things there (the list itself is read separately — just give "after")
-- clear_after: remove everything planned after block "after" ("clear my schedule after the lab", "I'm going home after X, clear the rest") — classes and plans with people stay
-- move: block "what" to start at "to" (HH:MM), or end at "until", or shift it "by" minutes ("push it back half an hour" = by 30, "an hour earlier" = by -60 — never work out the clock time yourself)
-- resize: block "what" lasts "minutes" in total
-- extend: block "what" (running long) ends at "until"; "N more minutes" = now + N
-- add: a new block titled "what", "minutes" long, at "to" or right after block "after"
-- drop: remove block "what" (movable only) · skip: he is not going to class "what" today
-- swap: block "what" with block "with" · tidy: separate overlaps
-- late: he is running "minutes" late right now ("I'm running 15 late") — everything not yet done slides back
-- overrun: class "what" runs "minutes" over, or he is late to it and wants what comes after it pushed back by "minutes"
-- log: he says what he did or is doing, which may be over a planned block ("i'm at the gym", "was at the library since 2", "gym 2-4", "did gym instead of resume"): "what" is his own short title, "from" when he started (24-hour HH:MM), "to" when it ended (HH:MM) or "now" if he is still at it, "instead" the block id it replaced if he says so. A time he does not give is left out — code fills it in. "nothing", "nothing really", "just chilling" is NOT a log: answer
-- cannot: it cannot be done — say why in "text" · ask: only if no block tells you — question in "text" · answer: he only asked a question — reply in "text"
-
-Examples, for this SAMPLE day only (his real day below has its own ids — never copy these ids):
-  B1 11:00–12:30 Discrete Structures (FIXED) · B2 15:30–17:00 Lab (FIXED) · B3 17:50–21:50 cert courses
-- "stay in the building between DS and my lab, schedule cert courses the entire time between the two classes" → {"steps":[{"do":"fill_between","what":"B3","after":"B1","before":"B2"}]}
-- "put gym between my two classes" (gym is not on the day) → {"steps":[{"do":"fill_between","what":"gym","after":"B1","before":"B2"}]}
-- "after my lab I'll go to the library, 10 min walk, then do my essay and call mom" → {"steps":[{"do":"plan","after":"B2"}]}
-- "going back to my dorm after the lab, clear my schedule after it, I'll tell you the plan later" → {"steps":[{"do":"clear_after","after":"B2"}]}
-- "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
-- "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
-- "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
-- "running 15 min behind, push everything" → {"steps":[{"do":"late","minutes":15}]}   ("I'm running late" with no number → ask how late)
-- "DS is going 20 over" → {"steps":[{"do":"overrun","what":"B1","minutes":20}]}
-- "add a 15 minute stretch block tomorrow at 7:30 am" → {"steps":[{"do":"add","what":"stretch","minutes":15,"to":"07:30"}]}   (a time he says goes in "to", 24-hour — never leave it out; "tomorrow" is the day shown, not part of the step)
-- "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)
-- "I'm in a time block but I don't need it. I'm gonna meal prep — put it from 12:45 to 1:45 and push everything else to follow" → {"steps":[{"do":"add","what":"meal prep","to":"12:45","until":"13:45"}]}   (one step: the scheduler cuts short the block he is in and slides everything after it — never move the blocks after it yourself)
-
-- "i'm at the gym" → {"steps":[{"do":"log","what":"gym"}]}   (no times said: leave from and to out)
-- "was at the library since 2" → {"steps":[{"do":"log","what":"library","from":"14:00","to":"now"}]}
-- "gym 2-4" → {"steps":[{"do":"log","what":"gym","from":"14:00","to":"16:00"}]}
-- "did gym instead of resume" → {"steps":[{"do":"log","what":"gym","instead":"B3"}]}   (B3 = the resume block on that day)
-- "nothing really" → {"steps":[{"do":"answer","text":"Okay, nothing logged."}]}
-
-Never drop a block and add it again — move it (or fill_between). Name blocks by their id. Classes he mentions by name or nickname ("DS" = Discrete Structures, "my lab", "program design") are the matching blocks. Only what he asked for.
-Output JSON only: {"steps":[...]}`;
-export const EXTRACT_PROMPT = `From what Nick says, list where he is going, how many minutes it takes to get there (0 if he does not say), and the things he will do there, in his order. When he lists what he will do, the general reason for going ("to study", "to work") is not a separate thing. Each thing: a short title in his words, and minutes — his number if he gives one, otherwise an honest estimate (15 for a quick errand or a look-up, 45 for a task or prep, 60 for practice or study). Output JSON only: {"where":"","travel":0,"items":[{"title":"","minutes":45}]}`;
-export const EXTRACT_SCHEMA = { type: "object", properties: { where: { type: "string", maxLength: 40 }, travel: { type: "number" },
-        items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title", "minutes"] } } }, required: ["where", "travel", "items"] };
 /** Travel minutes to places he goes, from ~/.openclaw/orion-controlled/places.json ({"spitalfields": 15, …}). */
 let placesCache = null;
 export function setPlaces(places) { placesCache = places; }
@@ -642,7 +603,9 @@ async function execute(argvs, { exec, undoTop, when, undone }) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext }) {
+export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt }) {
+    const left = () => (deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
+    const tooSlow = { outcome: "fallback", reason: "too slow" };
     if (pending?.kind === "push")
         return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
     // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).
@@ -677,13 +640,28 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     const clash = titled ? undefined : contradiction(message);
     if (clash)
         return takenBack({ outcome: "say", text: clash, kind: "ask" });
+    // "reschedule my day after my class, gym first" / "after class do gym then resume": his order, read by code, one `day` re-plan (2026-10-20).
+    if (!titled) {
+        const replan = planDayReplan(message, day);
+        if (replan && "say" in replan)
+            return takenBack({ outcome: "say", text: replan.text, kind: replan.say });
+        if (replan) {
+            if (left() <= 0)
+                return tooSlow;
+            const ran = await execute([[...replan.args, ...dateArgs]], { exec, undoTop, when, undone });
+            if (ran.outcome !== "done")
+                return ran;
+            const after = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout), () => undefined);
+            return { ...ran, reply: (after && replanReply(after, replan)) || spokenReply(ran.outputs, when) };
+        }
+    }
     // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).
     if (!titled) {
         const direct = parseDirectAdd(message, day, askContext);
         if (direct && "say" in direct)
             return takenBack({ outcome: "say", text: direct.text, kind: direct.say });
         if (direct)
-            return execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
+            return left() <= 0 ? tooSlow : execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
     }
     // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
     const build = (rawList) => { const list = ownLength(message, rawList); return list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) })); };
@@ -699,20 +677,22 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     }
     else {
         const user = `Now: ${clock}.\n\nHis day${when ? ` (${when})` : ""}:\n${blockList(day)}\n\nNick: ${message}`;
-        let out = await ask(FORM_PROMPT, user, intentSchema(day));
+        if (formCallMs(left()) === 0)
+            return tooSlow;
+        let out = await ask(FORM_PROMPT, user, intentSchema(day), formCallMs(left()));
         compiled = build(out?.steps ?? []);
         bad = compiled.find((c) => "error" in c);
-        // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model).
-        if (bad && "error" in bad) {
-            out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day));
+        // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model). Only with time to spare.
+        if (bad && "error" in bad && left() >= FORM_RETRY_MIN_MS) {
+            out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day), formCallMs(left()));
             compiled = build(out?.steps ?? []);
             bad = compiled.find((c) => "error" in c);
         }
         // A plan's list is read by its own small call — extraction only, no block ids (Nick: break it
         // into smaller tasks; one form doing both made the 9B unsure, 2026-10-12).
         steps = out?.steps ?? [];
-        if (steps.some((st) => st.do === "plan" && !(st.items ?? []).length)) {
-            const list = await ask(EXTRACT_PROMPT, `Nick: ${message}`, EXTRACT_SCHEMA);
+        if (steps.some((st) => st.do === "plan" && !(st.items ?? []).length) && formCallMs(left()) > 0) {
+            const list = await ask(EXTRACT_PROMPT, `Nick: ${message}`, EXTRACT_SCHEMA, formCallMs(left()));
             const merged = steps.map((st) => (st.do === "plan" && !(st.items ?? []).length ? { ...st, where: list?.where ?? st.where, travel: list?.travel ?? st.travel, items: list?.items ?? [] } : st));
             compiled = build(merged);
             bad = compiled.find((c) => "error" in c);
@@ -751,6 +731,8 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     const previewed = [];
     const previewCalls = [];
     const effects = [];
+    if (left() <= 0)
+        return tooSlow;
     for (const argv of argvs.filter((a) => a[0] === "add" && !a.includes("--at"))) {
         const preview = (await exec([...argv, "--dry-run"])).stdout;
         previewCalls.push(`exec orion-reschedule ${argv.join(" ")} --dry-run`);
@@ -763,7 +745,7 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
     }
     if (effects.length)
         return takenBack({ outcome: "say", kind: "ask", text: `That would ${effectPhrase(effects)} — go ahead?`, pending: { kind: "push", argvs: runs.map((c) => [...c.args, "--date", day.date]), displaced: [...new Set(effects.map((e) => e.name))], ...(when ? { when } : {}) } });
-    return execute(argvs, { exec, undoTop, when, undone });
+    return left() <= 0 ? tooSlow : execute(argvs, { exec, undoTop, when, undone });
 }
 /** Blocks a scheduler run would move, cut or remove, by name and by what happens to them, from its own output (M2). */
 function displaced(out, title = "") {

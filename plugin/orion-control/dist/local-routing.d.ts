@@ -9,7 +9,10 @@ import { type AskContext, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 type HookApi = {
-    on: (name: string, fn: Handler) => unknown;
+    on: (name: string, fn: Handler, opts?: {
+        priority?: number;
+        timeoutMs?: number;
+    }) => unknown;
     logger?: {
         warn?: (m: string) => void;
     };
@@ -35,6 +38,7 @@ export type LocalRoutingOptions = {
         undo?: string[];
         pending?: PendingRun;
         askContext?: AskContext;
+        deadlineAt?: number;
     }) => Promise<FlowResult>;
     /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
     lateFlow?: (minutes: number) => Promise<FlowResult>;
@@ -113,6 +117,7 @@ export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     undo?: string[];
     pending?: PendingRun;
     askContext?: AskContext;
+    deadlineAt?: number;
 }) => Promise<FlowResult>;
 export declare const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */

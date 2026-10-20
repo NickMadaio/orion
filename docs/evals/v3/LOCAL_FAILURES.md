@@ -36,6 +36,8 @@ courses the entire time between the two classes."* The right answer is one comma
 | 10 | **Claude API out of credit** since 2026-10-11 19:23 ("credit balance too low", "usage limits … regain access 2026-11-01"): every Haiku turn failed, the gateway fell back to the 9B with the full prompt | timeouts blamed on the wrong layer | Top up credits / raise limit (Nick); account-health alert built in another session, awaiting deploy | Nick |
 | 11 | **Eval ≠ production**: sandbox scripts by bare name, fixture tools, small prompts; eval scores overstated live quality | 89–100% eval vs 0/3 live | Gate: "on" needs a passing real-route acceptance (`local-acceptance.mjs`; ≥85%, ≤20 s, ≤14 days) or a deliberate `localRoutingTestingUntil` window | done |
 | 12 | **GPU contention**: evaluation runs, the 4B, the 9B and brain embeddings at once | first model call timed out | Never run eval jobs while Nick is testing live; keep the two models warm | process rule |
+| 13 | **The slim prompt silently lost**: the host cuts `before_prompt_build` off at 15 s, and a schedule flow with 9B form calls ran 22 s + 30 s inside it, so the host sent the full 17.7k-token workspace prompt (3 min 1 s on battery) | 4 min 40 s, nothing changed (2026-10-20) | Hook registered with its own timeout and bounded by a turn budget (`turn-budget.ts`); nothing written after the deadline; a change request still unanswered at 40 s gets an honest line | fixed + test |
+| 14 | **"Reschedule my day, gym first after I get home" had no code owner**: the worker wrote resume-before-gym, gym 60 min, no trip home | same turn | `day-replan.ts` reads the order and the anchor; the existing `orion-reschedule day --plan` places it | fixed + test |
 
 ## Experiments (practice J3, 25 cases, qwen3.5:9b)
 

@@ -80,6 +80,18 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-20 (evening) — "reschedule my day, gym first" took 4m40 and changed nothing: fixed (Claude)
+
+Branch `fix/reschedule-day-1020` (not pushed, not deployed). Full note: `docs/audits/2026-10-20-reschedule-incident.md`.
+
+- **Cause:** the host cuts `before_prompt_build` off at 15 s; the schedule flow's 9B form calls (22 s + 30 s abort, on battery) ran inside it, so the host dropped ORION's slim
+  prompt and sent the full 17,715-token workspace prompt (3 min 1 s). Nothing in the logs said so.
+- **Code owns the sentence now:** `day-replan.ts` (order "Y first" / "then Z", anchor = a named block or "home" = class end + trip home + gap) → `orion-reschedule day --plan
+  "Gym, 90, 17:50" --plan "finish resume, 60, 19:25"`; one-line reply read back from the day. `show --json` carries `plan` (commute, buffer, anchors).
+- **Budgets** (`turn-budget.ts`): desk 8 s then 2.5 s while degraded; the flow stops writing at 40 s from the turn's start; form calls 25 s; `before_prompt_build` registered with `timeoutMs 55000`
+  and cut by its own timer; a change request still unanswered at 40 s gets an honest line, not a tool loop. Rows: `stage: "decision"` on a desk failure, `stage: "agent_end"` for a run that never finalized.
+- **Nick's steps:** install the rebuilt `plugin/orion-control/dist` and the scheduler; consider `agents.defaults.timeoutSeconds` (600) for local runs and Low Power Mode (see the note).
+
 ### 2026-10-20 — "Done early" button and sticky home location (Claude)
 
 - **Done early** replaces "I'm out early" on both the Mac and the phone (`lib/life/done-early.mjs`, `todo-match.mjs`, MobileCore `DoneEarly.swift`).

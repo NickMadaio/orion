@@ -80,6 +80,23 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-21 — Calendar intent layer (Claude, Opus worker)
+
+The patchwork of schedule parsers is replaced with one layer in `plugin/orion-control/src`:
+- `intent-gate.ts`: shared allow-only gate.
+- `calendar-intent.ts`: verb, items, times, anchor, day.
+- `intent-time.ts`: time rules ("at 5" = 17:00 in waking hours; evening 10:30 = 22:30; tomorrow anchors to the first class; "from now" today only).
+- `intent-run.ts`: makes one scheduler call, or gives a specific reply.
+
+Code replies are final. "Done" is never said for a refused run.
+Tests: 172 phrasings from the 10-19/10-20 audits (`calendar-intent` table test).
+Follow-ups:
+- exact after-midnight end times ("until 2am" at 23:00);
+- "a walk at 5" asked at 2 AM;
+- the reply when the scheduler crashes with no output (read the day back);
+- the "idek" and "or smth" holes;
+- the "we did X then Y" follow-up wording.
+
 ### 2026-10-20 (late) — Fixes from the live "as Nick" test (Claude)
 
 Results are in `docs/audits/2026-10-20-live-as-nick.md`.

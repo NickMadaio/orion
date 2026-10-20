@@ -77,9 +77,10 @@ test("single early tap persists class end, protects commute and undo restores it
   assert.equal(run("undo").code,0);
   assert.deepEqual(day(),before);
 });
-test("past classes cannot be ended again; already-home route is removed", (t) => {
+test("past classes cannot be ended again (nothing under way is answered, not an error); already-home route is removed", (t) => {
   const {run,day}=world(t,afternoonEvents); const before=day();
-  assert.equal(run("early","--now","11:00").code,1);
+  const idle=run("early","--now","11:00");   // nothing is under way: an answer, never an error
+  assert.equal(idle.code,0,idle.out); assert.match(idle.out,/Nothing is on right now/);
   assert.equal(run("early","home","--now","10:00").code,2);
   assert.deepEqual(day(),before);
 });

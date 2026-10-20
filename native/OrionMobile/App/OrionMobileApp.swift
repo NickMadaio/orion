@@ -458,9 +458,7 @@ struct PhoneRootView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     PhoneHeader(eyebrow: planEyebrow, title: "Plan")
                     connectionNotice
-                    if let context = remote.snapshot?.earlyFinish {
-                        FinishEarlyButton(context: context.kind == "block" ? .block(title: context.title ?? "Current block") : context.kind == "after-class" ? .afterClass(classTitle: context.classTitle ?? "Class") : .none, onChoose: remote.finishEarly)
-                    }
+                    FinishEarlyButton(context: remote.snapshot?.earlyFinish, feedback: remote.earlyFeedback, onPress: remote.finishEarly)
                     if planner.access == .granted {
                         dayBar
                         Picker("View", selection: $planMode) {

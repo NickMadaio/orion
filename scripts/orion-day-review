@@ -38,7 +38,7 @@ const phone = phoneMinutes(health.phoneSignals, date);
 const evidence = { nights: readJson("sleep-actual.json")?.nights ?? [], sleepLog: health.sleepLog ?? [], phoneSignals: health.phoneSignals ?? [], now };
 const wokeAt = actualWake(date, evidence)?.minute ?? null;
 const attendance = Object.fromEntries(blocks.filter((b) => b.kind === "class" && b.fixed && b.source !== "orion").map((b) => [b.id, classAttendance(b, { wokeAt, phone })]));
-const actual = actualDay({ blocks, focusHistory: jsonl("focus-history.jsonl"), attendance, slips: jsonl("slips.jsonl"),
+const actual = actualDay({ blocks, focusHistory: jsonl("focus-history.jsonl"), attendance, slips: jsonl("slips.jsonl"), early: jsonl("logged.jsonl").filter((r) => r.early && r.date === date),
   asks: readLedger(DIR).asks, now: { date, minute } });
 const text = actualText(actual);
 

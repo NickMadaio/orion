@@ -6,6 +6,7 @@
 
 import Foundation
 import SessionDomain
+import MobileCore
 
 enum QuickCommands {
 
@@ -94,9 +95,9 @@ enum QuickCommands {
             ConsoleCommand(id: "chat", title: "Open chat", hint: "your conversations with ORION",
                            symbol: "bubble.left.and.text.bubble.right", section: .orion, tier: .auto, kind: .openChat,
                            keywords: "messages history"),
-            ConsoleCommand(id: "early", title: "Finished early", hint: "pull the rest of your day forward",
-                           symbol: "forward", section: .orion, tier: .auto, kind: .finishEarly,
-                           keywords: "done schedule reschedule"),
+            ConsoleCommand(id: "early", title: DoneEarly.label, hint: "finish what's on now and pull the rest of your day forward",
+                           symbol: DoneEarly.symbol, section: .orion, tier: .auto, kind: .finishEarly,
+                           keywords: "done finished out early schedule reschedule"),
             ConsoleCommand(id: "mute", title: muted ? "Unmute the microphone" : "Mute the microphone",
                            hint: muted ? "ORION can hear you again" : "ORION stops listening for you",
                            symbol: muted ? "mic" : "mic.slash", section: .orion, tier: .auto, kind: .toggleMute),

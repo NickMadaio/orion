@@ -19,6 +19,8 @@ final class RemoteStore: ObservableObject {
     @Published private(set) var conversation: [CloudLink.Message] = []
     /// The latest answer to a Control button, shown in place.
     @Published var notice: String?
+    /// The Mac's one-line answer to the "Done early" button.
+    @Published var earlyFeedback: String?
     @Published private(set) var now = Date()
     @Published private(set) var iCloudReady = false
 
@@ -613,8 +615,16 @@ struct ProgressStrip: View {
 
 
 extension RemoteStore {
-    func finishEarly(_ choice: FinishEarlyChoice) {
-        guard let text = try? LinkLog.checkin(action: "early-" + choice.rawValue).encoded() else { return }
-        Task { _ = await link.send(text, kind: .log) }
+    /// "Done early": the Mac decides what is current and answers; its first line is shown under the button.
+    func finishEarly() {
+        guard let text = try? LinkLog.checkin(action: DoneEarly.linkAction).encoded() else { return }
+        earlyFeedback = nil
+        Task {
+            guard let id = await link.send(text, kind: .log) else { earlyFeedback = link.problem ?? "Could not reach your Mac."; return }
+            for _ in 0..<40 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if let reply = link.messages.first(where: { $0.id == id })?.reply { earlyFeedback = DoneEarly.summary(from: reply); return }
+            }
+        }
     }
 }

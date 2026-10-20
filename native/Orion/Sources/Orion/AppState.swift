@@ -89,10 +89,12 @@ final class AppState: ObservableObject {
         }
     }
     func finishEarly(_ mode: String) {
-        guard !earlyBusy, ["auto", "block", "out-of-class"].contains(mode) else { return }; earlyBusy = true
+        guard !earlyBusy, let arguments = DoneEarly.rescheduleArguments(mode: mode) else { return }; earlyBusy = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Self.runSchedule(mode == "auto" ? ["early"] : ["early", mode])
-            DispatchQueue.main.async { guard let self else { return }; self.earlyBusy = false; self.earlyFeedback = result.1; self.append(.system, result.1); self.refreshEarlyContext() }
+            let result = Self.runSchedule(arguments)
+            // One short line: the planner's first line says what happened; the rest is detail for its log.
+            let line = DoneEarly.summary(from: result.1)
+            DispatchQueue.main.async { guard let self else { return }; self.earlyBusy = false; self.earlyFeedback = line; self.append(.system, line); self.refreshEarlyContext() }
         }
     }
     private static func runSchedule(_ args: [String]) -> (Bool, String) {

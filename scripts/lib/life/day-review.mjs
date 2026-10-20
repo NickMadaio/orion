@@ -194,11 +194,12 @@ function sessionsOf(history, date) {
  * @param focusHistory focus-history.jsonl rows
  * @param attendance   { [blockId]: "attended"|"missed"|"unknown" } for real calendar blocks
  * @param slips        slips.jsonl rows for the day (C10)
+ * @param early        logged.jsonl rows with `early: true` ("Done early"): those blocks read "done early"
  * @param asks         curiosity ledger asks
  * @param now          { date, minute }
  * @returns { done: [{ title, start, end, how }], slipped: [{ title, why }], free: [{ start, end }], blank: [{ start, end }], focusMinutes }
  */
-export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], now }) {
+export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], early = [], now }) {
   // `logged` comes from WP6's live-day (tags / logged); accept either spelling of the marker
   const blocks = rawBlocks.map((b) => (b.logged || !b.tags?.includes("logged") ? b : { ...b, logged: true }));
   const sessions = sessionsOf(focusHistory, now.date);
@@ -206,7 +207,9 @@ export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {
   const answered = dayAsks.filter((a) => a.outcome === "nothing").map((a) => ({ start: a.window.start, end: a.window.end ?? now.minute }));
   const upto = (b) => b.end <= now.minute || b.start < now.minute;
   const done = [
-    ...blocks.filter((b) => b.logged && upto(b)).map((b) => ({ title: b.title, start: b.start, end: Math.min(b.end, now.minute), how: "logged" })),
+    // `early`: the logged rows "Done early" wrote. He finished it before its planned end: counted as done, never as a slip.
+    ...blocks.filter((b) => b.logged && upto(b)).map((b) => ({ title: b.title, start: b.start, end: Math.min(b.end, now.minute), how: "logged",
+      ...(early.some((r) => (r.identifier && r.identifier === b.calendarId) || (r.title === b.title && r.start === b.start)) ? { early: true } : {}) })),
     ...blocks.filter((b) => !b.logged && b.source !== "orion" && attendance[b.id] === "attended").map((b) => ({ title: b.title, start: b.start, end: b.end, how: "attended" })),
   ];
   const evidenced = (b) => sessions.some((s) => s.start < b.end && s.end > b.start && (!s.task || titlesShare(b.title, s.task) || b.kind === "study"));
@@ -237,7 +240,7 @@ const minutesText = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? String(m
 export function actualText(actual, { tomorrowFirst } = {}) {
   const items = actual.done.map((d) => {
     const slip = d.how === "logged" ? actual.slipped.find((s) => s.why === "reality" && s.replacedBy && (titlesShare(s.replacedBy, d.title) || s.replacedBy === d.title)) : null;
-    return d.how === "logged" ? `${d.title.toLowerCase()} ${range(d.start, d.end)}${slip ? ` (instead of ${slip.title.toLowerCase()})` : ""}` : lower(d.title);
+    return d.how === "logged" ? `${d.title.toLowerCase()} ${range(d.start, d.end)}${slip ? ` (instead of ${slip.title.toLowerCase()})` : ""}${d.early ? " (done early)" : ""}` : lower(d.title);
   });
   if (actual.focusMinutes >= 5) items.push(`${minutesText(actual.focusMinutes)} focus`);
   const parts = [items.length ? `Today: ${items.join(", ")}.` : "Nothing logged today."];

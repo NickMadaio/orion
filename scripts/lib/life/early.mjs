@@ -48,7 +48,7 @@ export function earlyContext(blocks, { now, commuteMinutes = 45 }) {
  * @param {object|null} clippedClass — the class block being clipped, or null
  * @returns {{ start: number, end: number }[]}
  */
-function buildWalls(effectiveBlocks, mode, commuteMinutes, clippedClass) {
+function buildWalls(effectiveBlocks, mode, commuteMinutes, clippedClass, homeGapMinutes = 150) {
   const walls = [];
 
   // Every fixed block and every sleep-title block is a wall
@@ -60,7 +60,7 @@ function buildWalls(effectiveBlocks, mode, commuteMinutes, clippedClass) {
 
   // Keep the return journey after the shortened final class. If another
   // class is ahead, stay on campus; its later return journey remains a wall.
-  for (const w of commuteWalls(effectiveBlocks, { commuteMinutes })) walls.push({ start: w.start, end: w.end });
+  for (const w of commuteWalls(effectiveBlocks, { commuteMinutes, homeGapMinutes })) walls.push({ start: w.start, end: w.end });
 
   return walls;
 }
@@ -72,10 +72,10 @@ function intervalsOverlap(aStart, aEnd, bStart, bEnd) {
 
 /**
  * @param {object[]} blocks
- * @param {{ now: number, mode: string, commuteMinutes?: number, buffer?: number, dayEnd?: number }} opts
+ * @param {{ now: number, mode: string, commuteMinutes?: number, homeGapMinutes?: number, buffer?: number, dayEnd?: number }} opts
  * @returns {{ mode: string, freeFrom: number, shortened: object|null, clipped: object|null, moves: Array<{id,title,from,to}>, unchanged: string[] }}
  */
-export function finishEarly(blocks, { now, mode, commuteMinutes = 45, buffer = 5, dayEnd = 1440 }) {
+export function finishEarly(blocks, { now, mode, commuteMinutes = 45, homeGapMinutes = 150, buffer = 5, dayEnd = 1440 }) {
   if (!Array.isArray(blocks)) throw new TypeError("blocks must be an array");
   if (!Number.isInteger(now) || now < 0 || now > 1439) throw new TypeError("now must be an integer 0..1439");
   if (mode !== "block" && mode !== "out-of-class") {
@@ -109,7 +109,8 @@ export function finishEarly(blocks, { now, mode, commuteMinutes = 45, buffer = 5
     cls = blocks.find((b) => b.id === ctx.classId);
     if (!cls) throw new Error("class block not found in blocks");
 
-    const laterClass = blocks.some(b => isRealClass(b) && b.id !== cls.id && b.start >= now);
+    // He stays on campus only when his next class is under homeGapMinutes (2.5 h) away; otherwise the trip home is reserved.
+    const laterClass = blocks.some(b => isRealClass(b) && b.id !== cls.id && b.start >= now && b.start - now < homeGapMinutes);
     freeFrom = laterClass ? now : now + commuteMinutes;
 
     // If that class's end > now, set clipped
@@ -134,7 +135,7 @@ export function finishEarly(blocks, { now, mode, commuteMinutes = 45, buffer = 5
   if (cls) {
     answeredClassForWalls = effectiveBlocks.find((b) => b.id === cls.id);
   }
-  const walls = buildWalls(effectiveBlocks, mode, commuteMinutes, answeredClassForWalls);
+  const walls = buildWalls(effectiveBlocks, mode, commuteMinutes, answeredClassForWalls, homeGapMinutes);
 
   // Decision 6: Candidates — movable blocks (fixed === false, not a wall/sleep) with start >= now
   // In block mode also excluding the shortened one

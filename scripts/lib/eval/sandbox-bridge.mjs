@@ -19,7 +19,7 @@ const find = (id) => events.find((e) => e.identifier === id);
 switch (request.action) {
   case "list_upcoming_calendar_events": reply({ events_json: JSON.stringify(events) }); break;
   case "list_deadlines": reply({ events_json: "[]" }); break;
-  case "list_incomplete_reminders": reply({ reminders_json: JSON.stringify(state.reminders ?? []) }); break;
+  case "list_incomplete_reminders": reply({ reminders_json: JSON.stringify((state.reminders ?? []).filter((r) => !r.completed)) }); break;
   case "create_calendar_event": {
     const identifier = `sb-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
     save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.orionKind ? { orion: p.orionKind } : {}) }]);
@@ -39,5 +39,8 @@ switch (request.action) {
   case "update_reminder":
     if (!reminders.some((r) => r.identifier === p.identifier)) { refuse("no such reminder"); break; }
     save(events, reminders.map((r) => (r.identifier === p.identifier ? { ...r, ...p } : r))); reply({ updated: true }); break;
+  case "complete_reminder":   // payload.completed "false" reopens it
+    if (!reminders.some((r) => r.identifier === p.identifier)) { refuse("no such reminder"); break; }
+    save(events, reminders.map((r) => (r.identifier === p.identifier ? { ...r, completed: p.completed !== "false" } : r))); reply({ status: p.completed === "false" ? "reopened" : "completed" }); break;
   default: refuse(`unsupported in the evaluation sandbox: ${request.action}`);
 }

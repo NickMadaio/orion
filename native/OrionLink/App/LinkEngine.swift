@@ -530,11 +530,14 @@ final class LinkEngine: ObservableObject {
         let process = Process()
         process.executableURL = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
         let script = home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-checkin").path
-        switch action {
-        case "started": process.arguments = [script, "started"]
-        case "done": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", "block"]
-        case "early-block", "early-out-of-class": process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path, "early", String(action.dropFirst(6))]
-        default: process.arguments = [script, "defer", "10", "--snooze", "--because", "asked for ten more minutes from the phone"]
+        // "Done early" (and the check-in's Done): the planner works out what is current; see DoneEarly in MobileCore.
+        let early = DoneEarly.rescheduleArguments(forLinkAction: action)
+        if let early {
+            process.arguments = [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reschedule").path] + early
+        } else if action == "started" {
+            process.arguments = [script, "started"]
+        } else {
+            process.arguments = [script, "defer", "10", "--snooze", "--because", "asked for ten more minutes from the phone"]
         }
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -543,13 +546,14 @@ final class LinkEngine: ObservableObject {
         let output = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         let out = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        if process.terminationStatus == 0 && (action == "done" || action == "early-block") {
+        // The check-in's own Done also closes that check-in; "Done early" closes the loops about what it ended itself.
+        if process.terminationStatus == 0 && action == "done" {
             let close = Process(); close.executableURL = process.executableURL
             close.arguments = [script, "done"]
             close.standardOutput = FileHandle.nullDevice; close.standardError = FileHandle.nullDevice
             if (try? close.run()) != nil { close.waitUntilExit() }
         }
-        return .init(ok: process.terminationStatus == 0, reply: out.isEmpty ? "Noted." : String(out.prefix(300)))
+        return .init(ok: process.terminationStatus == 0, reply: out.isEmpty ? "Noted." : early != nil ? DoneEarly.summary(from: out) : String(out.prefix(300)))
     }
 
     private func focusListsDirective() -> [String]? {

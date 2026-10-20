@@ -68,12 +68,14 @@ struct TasksTab: View {
                     VStack(alignment: .leading, spacing: 12) {
                         dayHeader
                         Button { state.finishEarly("auto"); refreshPlanSources() } label: {
-                            Label("I'm out early", systemImage: "arrow.right")
+                            Label(DoneEarly.label, systemImage: DoneEarly.symbol)
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(OrionTheme.textSoft)
                                 .padding(.horizontal, 12).padding(.vertical, 8)
                                 .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
-                        }.buttonStyle(.plain).disabled(state.earlyBusy || state.earlyFinish?.kind == "none" || state.earlyFinish == nil)
+                        }.buttonStyle(.plain).disabled(state.earlyBusy)   // with nothing on it still works: ORION says so and offers what is next
+                            .accessibilityLabel(DoneEarly.accessibilityLabel(for: state.earlyFinish))
+                            .accessibilityHint(DoneEarly.accessibilityHint(for: state.earlyFinish))
                         if let feedback = state.earlyFeedback { Text(feedback).font(.caption).foregroundStyle(OrionTheme.textSoft) }
                     }.onAppear { state.refreshEarlyContext() }.frame(maxWidth: .infinity, alignment: .topLeading)
                 }

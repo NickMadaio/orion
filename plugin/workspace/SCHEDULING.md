@@ -53,10 +53,10 @@ class and this file said "stay on campus" between classes.)
 When Nick says to shrink, cut, lengthen or move something, just do it
 (`resize`, `move`, `extend`) — even a block he set the time of. ORION never shrinks
 his blocks on its own except breaks, side projects and optional items when the day
-overflows. "I'm done with X early" / the "I'm out early" button → `orion-reschedule
+overflows. "I'm done with X early" / the "Done early" button → `orion-reschedule
 early`: X ends now, a 15-minute break goes in if he worked an hour or more, the freed
 time goes to whatever later is short of time (below its minimum, or the side project
-under its hour), and the rest of the day moves up. Tell him what it did.
+under its hour), and the rest of the day moves up. Tell him what it did (see "Done early").
 
 ## Removing things
 
@@ -123,9 +123,17 @@ Never rearrange the day yourself afterwards. "Nothing" or "just chilling" logs n
 - Naps are at least 75 minutes. Protect at least one hour of side-project time daily. Keep sleep/rest and real fixed commitments; shrink lower-priority work only within saved minimums.
 - Machine-enforced values live in life-config.json: bufferMinutes=5, commuteMinutes=45, homeGapMinutes=150, ranks (orion-life rank), minimums.nap=75, minimums.side project=60. Native planning must read the same values. A prose memory alone is not enforcement.
 
-## I'm out early
+## Done early
 
-One general button reports that the current class or task ended now. No “already home” option. If in a real class, shorten that occurrence to the reported exit time. Reserve 45 minutes from exit for getting home unless his next class is less than 2.5 hours away (then he stays on campus); the trip back before that next class stays. Never ask Nick to re-confirm being home, or shorten future classes. Keep the change undoable.
+One general button, "Done early", tells ORION that what is happening right now is finished. It works on whatever is current, and there is no "already home" option. It runs `orion-reschedule early`; its first line of output is what to tell him, in one short line (for example "Nice — Finish resume is done and checked off. Next: CS Lab at 6:10 PM.").
+
+- Class (a real class under way): shorten that occurrence to now. Reserve 45 minutes from exit for getting home unless his next class is less than 2.5 hours away (then he stays on campus); the trip back before that next class stays. Never ask Nick to re-confirm being home, and never shorten future classes.
+- Task, study or to-do block: the block ends now. If it is linked to a to-do (its own link first, else a title match only when it is unambiguous), that to-do is ticked off (`orion-tasks done` does the same through the bridge's `complete_reminder`). Any open check-in or not-started loop for it is closed so ORION stops nudging, and a focus session running on it is finished as completed. It is recorded as done, not as a slip: the nightly review counts it as finished early.
+- Gym or other activity: the block ends now and is marked done.
+- Freed time: the rest of today is re-weighed by the existing scheduler (a 15-minute break if he worked an hour or more, a short block topped up, the next items pulled earlier).
+- Nothing on right now: say so and offer the next item. Never an error.
+
+Everything one press changes is one undo group: `orion-reschedule undo` puts the calendar back and reopens the to-do (`complete_reminder` with completed "false"). Keep it undoable.
 
 ## Class reminders and presence
 

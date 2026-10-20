@@ -14,6 +14,8 @@
 //   orion-checkin started "<what>"                                  he began something with no check-in
 //   orion-checkin defer <minutes> [id] [--because "<reason>"]       a real pause
 //   orion-checkin cancel [id] [--because "<reason>"]                 plans changed — no scolding
+//   orion-checkin close "<what>"                                      he finished that thing ("Done early"): every open check-in and
+//                                                                  not-started loop about it is closed as done, so ORION stops nudging
 //   orion-checkin list                                               what is pending
 //   orion-checkin tick [--json]                                      advance due loops; print alerts
 //
@@ -180,6 +182,20 @@ switch (command) {
       : `That reads as putting it off (${verdict.kind}). Not deferring — the check-in stays on and gets firmer.`);
     break;
   }
+  case "close": {
+    // "Done early": he said he finished <what>. Close every open loop about it (a plan loop, a not-started nudge, an active
+    // "still going?" check). Done, not cancelled: nothing is re-weighed and nobody is scolded. Never an error when none is open.
+    const what = rest.join(" ").trim();
+    if (!what) fail('usage: orion-checkin close "<what>"');
+    const words = (t) => String(t).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length >= 2);
+    const said = words(what);
+    const about = (c) => { const x = words(c.what); const [short, long] = x.length <= said.length ? [x, said] : [said, x]; return short.length > 0 && short.every((w) => long.includes(w)); };
+    const hit = state.checkins.filter((c) => open(c) && about(c));
+    for (const c of hit) c.loop = step(c.loop, { type: "done" }, now);
+    if (hit.length) save(state);
+    console.log(hit.length ? `Closed ${hit.length} check-in${hit.length > 1 ? "s" : ""} about ${what}.` : `No open check-in about ${what}.`);
+    break;
+  }
   case "cancel": {
     const c = pick(state, rest[0]);
     c.loop = step(c.loop, { type: "cancelled", reason: flag("--because") ?? "" }, now);
@@ -274,5 +290,5 @@ switch (command) {
     break;
   }
   default:
-    fail('usage: orion-checkin add|started|done|defer|cancel|list|tick  (see the header of this file)');
+    fail('usage: orion-checkin add|started|done|defer|cancel|close|list|tick  (see the header of this file)');
 }

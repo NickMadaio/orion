@@ -57,6 +57,15 @@ async function reverseSteps(steps) {
       removeSkip(step.title, step.start);
       done.push(`put ${step.title} back`);
     }
+    if (step.op === "reopen-todo") {
+      // The to-do "Done early" ticked off: reopened the way the sweep harness does it (complete_reminder, completed: "false").
+      try {
+        await bridge("complete_reminder", { identifier: step.identifier, completed: "false" });
+        done.push(`reopened the to-do ${step.title}`);
+      } catch (error) {
+        done.push(`could not reopen the to-do ${step.title} (${error.message}); untick it in Reminders`);
+      }
+    }
     if (step.op === "delete") {
       const payload = { title: step.title, start: step.start, end: step.end, calendar: loadConfig().eventCalendar };
       if (step.orionKind) payload.orionKind = step.orionKind;
@@ -128,7 +137,7 @@ export async function undoLast() {
   const { done, restored } = await reverseSteps(last.steps);
   if (last.pinsBefore) savePins(Object.fromEntries(Object.entries(last.pinsBefore).map(([date, ids]) => [date, ids.map(id => restored.get(id) ?? id)])));
   writeFileSync(UNDO_FILE, JSON.stringify(history, null, 2));
-  if (last.group?.startsWith("log-")) { removeSlips(last.group); removeLogged(last.group); }
+  if (/^(log|early)-/.test(last.group ?? "")) { removeSlips(last.group); removeLogged(last.group); }
   touchDirty();
   return done;
 }
@@ -139,5 +148,21 @@ export function recordUndo(steps) {
   mkdirSync(dirname(UNDO_FILE), { recursive: true });
   const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
   writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify([...history, { at: new Date().toISOString(), steps }].slice(-10), null, 2));
+  renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
+}
+
+/**
+ * Steps made outside applyPlan that belong to one command's undo group (a to-do ticked off by "Done early"):
+ * merged into that group's entry when applyPlan already wrote one, else an entry of their own. One "undo" reverses both.
+ */
+export function appendUndoSteps(group, steps) {
+  if (!steps.length) return;
+  mkdirSync(dirname(UNDO_FILE), { recursive: true });
+  const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
+  const last = history.at(-1);
+  const next = group && last?.group === group
+    ? [...history.slice(0, -1), { ...last, steps: [...last.steps, ...steps] }]
+    : [...history, { at: new Date().toISOString(), ...(group ? { group } : {}), steps }];
+  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-10), null, 2));
   renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
 }

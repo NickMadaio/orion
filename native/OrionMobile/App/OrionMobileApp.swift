@@ -76,7 +76,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         switch action {
         case "orion.checkin.started": await CloudLink.sendNow(.checkin(action: "started")); await MainActor.run { FocusLock.shared.release() }
         case "orion.checkin.snooze": await CloudLink.sendNow(.checkin(action: "snooze"))
-        case "orion.checkin.done": await CloudLink.sendNow(.checkin(action: "done")); await MainActor.run { FocusLock.shared.release() }
+        case "orion.checkin.done": await CloudLink.sendNow(.checkin(action: DoneEarly.checkinDone(id: GlanceWriter.url.flatMap { GlanceFile.read($0) }?.checkin?.id))); await MainActor.run { FocusLock.shared.release() }
         default: break
         }
         if action.hasPrefix("orion.checkin.") {

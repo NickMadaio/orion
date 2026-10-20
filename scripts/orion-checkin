@@ -16,6 +16,7 @@
 //   orion-checkin cancel [id] [--because "<reason>"]                 plans changed — no scolding
 //   orion-checkin close "<what>"                                      he finished that thing ("Done early"): every open check-in and
 //                                                                  not-started loop about it is closed as done, so ORION stops nudging
+//   orion-checkin show <id|latest>                                  one open check-in as JSON: { id, what, block, blockWindow } (what "Done early" reads)
 //   orion-checkin list                                               what is pending
 //   orion-checkin tick [--json]                                      advance due loops; print alerts
 //
@@ -182,6 +183,13 @@ switch (command) {
       : `That reads as putting it off (${verdict.kind}). Not deferring — the check-in stays on and gets firmer.`);
     break;
   }
+  case "show": {
+    // The open check-in a Done is about, with the block it follows. Never an error: { "open": false } when it is gone.
+    const list = state.checkins.filter(open);
+    const c = rest[0] && rest[0] !== "latest" ? list.find((x) => x.id === rest[0]) : list[list.length - 1];
+    console.log(JSON.stringify(c ? { open: true, id: c.id, what: c.what, block: c.block ?? null, blockWindow: c.blockWindow ?? null } : { open: false }));
+    break;
+  }
   case "close": {
     // "Done early": he said he finished <what>. Close every open loop about it (a plan loop, a not-started nudge, an active
     // "still going?" check). Done, not cancelled: nothing is re-weighed and nobody is scolded. Never an error when none is open.
@@ -290,5 +298,5 @@ switch (command) {
     break;
   }
   default:
-    fail('usage: orion-checkin add|started|done|defer|cancel|close|list|tick  (see the header of this file)');
+    fail('usage: orion-checkin add|started|done|defer|cancel|close|show|list|tick  (see the header of this file)');
 }

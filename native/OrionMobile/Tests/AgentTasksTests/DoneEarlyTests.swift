@@ -21,7 +21,7 @@ final class DoneEarlyTests: XCTestCase {
 
     func testEveryLinkActionRunsTheOneEarlyCommand() {
         XCTAssertEqual(DoneEarly.rescheduleArguments(forLinkAction: DoneEarly.linkAction), ["early"], "the planner decides what is current")
-        XCTAssertEqual(DoneEarly.rescheduleArguments(forLinkAction: "done"), ["early", "block"])
+        XCTAssertEqual(DoneEarly.rescheduleArguments(forLinkAction: "done"), ["early", "block", "--checkin", "latest"])
         XCTAssertEqual(DoneEarly.rescheduleArguments(forLinkAction: "early-block"), ["early", "block"])
         XCTAssertEqual(DoneEarly.rescheduleArguments(forLinkAction: "early-out-of-class"), ["early", "out-of-class"])
         XCTAssertNil(DoneEarly.rescheduleArguments(forLinkAction: "snooze"))
@@ -53,5 +53,20 @@ final class DoneEarlyTests: XCTestCase {
         XCTAssertEqual(old, EarlyFinishContext(kind: "block", title: "Study"))
         let new = try JSONDecoder().decode(EarlyFinishContext.self, from: Data(#"{"kind":"block","id":"b","title":"Gym","blockKind":"activity"}"#.utf8))
         XCTAssertEqual(new.blockKind, "activity")
+    }
+
+    func testACheckinsDoneCarriesItsOwnIDAndActsOnThatBlockOnly() throws {
+        XCTAssertEqual(DoneEarly.checkinDone(id: "ci-a1b2c3"), "done:ci-a1b2c3")
+        XCTAssertEqual(DoneEarly.checkinDone(id: nil), "done")
+        XCTAssertEqual(DoneEarly.checkinDone(id: "ci-a1b2c3; rm -rf"), "done", "an id of any other shape is never sent")
+        XCTAssertEqual(DoneEarly.rescheduleArguments(forLinkAction: "done:ci-a1b2c3"), ["early", "block", "--checkin", "ci-a1b2c3"])
+        XCTAssertEqual(DoneEarly.checkinID(fromLinkAction: "done:ci-a1b2c3"), "ci-a1b2c3")
+        XCTAssertNil(DoneEarly.checkinID(fromLinkAction: "done:../x"))
+        XCTAssertNil(DoneEarly.rescheduleArguments(forLinkAction: "done:../x"))
+        XCTAssertNoThrow(try LinkLog.checkin(action: "done:ci-a1b2c3").validated())
+        XCTAssertThrowsError(try LinkLog.checkin(action: "done:evil").validated())
+        for arguments in [DoneEarly.rescheduleArguments(forLinkAction: "done"), DoneEarly.rescheduleArguments(forLinkAction: "done:ci-a1b2c3")] {
+            XCTAssertTrue(arguments?.contains("--checkin") == true, "a check-in's Done is never 'whatever is current'")
+        }
     }
 }

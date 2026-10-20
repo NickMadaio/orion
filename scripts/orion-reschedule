@@ -75,7 +75,7 @@ import { clockNow } from "./lib/life/bridge-path.mjs";
 import { pinBlocks } from "./lib/life/pins.mjs";
 import { minimumFor } from "./lib/life/lengths.mjs";
 import { finishEarly } from "./lib/life/early.mjs";
-import { findCurrent, checkContext, linkOf, matchTodo, closeLoops, endFocusSession, nextItem, summaryLine, nothingLine, classLine } from "./lib/life/done-early.mjs";
+import { findCurrent, findOwn, checkContext, linkOf, matchTodo, closeLoops, endFocusSession, nextItem, summaryLine, nothingLine, classLine } from "./lib/life/done-early.mjs";
 import { evalMode } from "./lib/eval-mode.mjs";
 import { todoTag } from "./lib/life/todo-match.mjs";
 import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
@@ -89,13 +89,13 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
   "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -698,7 +698,19 @@ if (command === "late") {
   // Resolve "now": --now flag, or ORION_RESCHEDULE_NOW env, or real clock
   let effectiveNow = nowFlag !== null ? nowFlag : today ? nowMinute : 0;
   // What is under way decides the mode; a hint from an older button is only a hint.
-  const current = findCurrent(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes, only: modeArg === "block" ? "block" : modeArg === "out-of-class" ? "class" : null });
+  // A check-in's Done (--checkin <id|latest>) is about that check-in's OWN block, never whatever else is current.
+  const checkinId = flag("--checkin");
+  let own = null;
+  if (checkinId && !args.includes("--check")) {
+    const shown = spawnSync(process.execPath, [process.env.ORION_CHECKIN_BIN || joinPath(HERE_DIR, "orion-checkin"), "show", checkinId], { encoding: "utf8", timeout: 20000, env: process.env });
+    let checkin = { open: false }; try { checkin = JSON.parse(shown.stdout); } catch { /* unreadable: treated as gone */ }
+    own = !checkin.open ? { kind: "gone", why: "That check-in is no longer open" } : findOwn(blocks, checkin, { now: effectiveNow, commuteMinutes: config.commuteMinutes });
+    const title = checkin.what ?? "that block";
+    if (own.kind === "gone") { console.log(`${own.why ?? `${title} is no longer on today's plan`}, so nothing was changed.`); process.exit(0); }
+    if (own.kind === "ambiguous") { console.log(`More than one block is called ${title} today, so nothing was changed. Say which one.`); process.exit(0); }
+    if (own.kind === "not-now") { console.log(`${own.block.title} isn't under way right now, so nothing was changed.`); process.exit(0); }
+  }
+  const current = own ?? findCurrent(blocks, { now: effectiveNow, commuteMinutes: config.commuteMinutes, only: modeArg === "block" ? "block" : modeArg === "out-of-class" ? "class" : null });
 
   // --check: print context JSON and exit
   if (args.includes("--check")) { console.log(JSON.stringify(checkContext(current))); process.exit(0); }

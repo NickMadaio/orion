@@ -32,10 +32,33 @@ public enum DoneEarly {
         }
     }
 
-    /// The `orion-reschedule` arguments for a phone link action ("done" is the check-in notification's Done button).
+    /// A check-in's own id (`ci-` and hex), the only shape a Done may carry.
+    public static func isCheckinID(_ id: String) -> Bool {
+        id.hasPrefix("ci-") && (4...16).contains(id.count) && id.dropFirst(3).allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    /// The link action for a check-in's Done: "done:<id>" when the check-in is known, else plain "done".
+    public static func checkinDone(id: String?) -> String {
+        if let id, isCheckinID(id) { return "done:\(id)" }
+        return "done"
+    }
+
+    /// The check-in a "done:<id>" action is about.
+    public static func checkinID(fromLinkAction action: String) -> String? {
+        guard action.hasPrefix("done:") else { return nil }
+        let id = String(action.dropFirst(5))
+        return isCheckinID(id) ? id : nil
+    }
+
+    /// Is this a check-in Done (with or without its check-in's id)?
+    public static func isCheckinDone(_ action: String) -> Bool { action == "done" || checkinID(fromLinkAction: action) != nil }
+
+    /// The `orion-reschedule` arguments for a phone link action. A check-in's Done acts on THAT check-in's own block
+    /// (`--checkin <id>`, or the latest open one when the surface did not know the id), never on whatever is current.
     public static func rescheduleArguments(forLinkAction action: String) -> [String]? {
+        if isCheckinDone(action) { return ["early", "block", "--checkin", checkinID(fromLinkAction: action) ?? "latest"] }
         switch action {
-        case "done", "early-block": return ["early", "block"]
+        case "early-block": return ["early", "block"]
         case "early-out-of-class": return ["early", "out-of-class"]
         case linkAction: return ["early"]
         default: return nil

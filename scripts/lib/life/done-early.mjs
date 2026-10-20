@@ -134,3 +134,25 @@ export function classLine({ title, now, freeFrom, next }) {
   const trip = freeFrom > now ? `${freeFrom - now} min reserved to get home` : "staying on campus for your next class";
   return `Out of ${title} at ${clock12(now)} — ${trip}.${next ? ` Next: ${next.title} at ${clock12(next.start)}.` : ""}`;
 }
+
+/**
+ * The block a check-in follows, and whether it can be ended now. A Done from a check-in acts on THAT block only.
+ * Found by the block id the loop recorded, else the exact title (and its recorded start); two matches is no match.
+ * @returns { kind: "gone" } | { kind: "ambiguous" } | { kind: "not-now", block } | the findCurrent shape for that block.
+ */
+export function findOwn(blocks, checkin, { now, commuteMinutes = 45 }) {
+  const window = checkin.blockWindow;
+  const sameDay = (b) => !window?.date || !b.date || b.date === window.date;
+  let hits = blocks.filter((b) => sameDay(b) && checkin.block && b.id === checkin.block);
+  if (!hits.length) {
+    hits = blocks.filter((b) => sameDay(b) && normTitle(b.title) === normTitle(checkin.what) && (!Number.isFinite(window?.start) || b.start === window.start));
+  }
+  if (!hits.length) return { kind: "gone" };
+  if (hits.length > 1) return { kind: "ambiguous" };
+  const [block] = hits;
+  if (!(block.start <= now && now < block.end) || block.logged) return { kind: "not-now", block };
+  const ctx = earlyContext(blocks, { now, commuteMinutes });
+  if (ctx.kind === "after-class" && ctx.classId === block.id) return { kind: "class", block, context: ctx };
+  if (!(block.fixed === false || block.pinned)) return { kind: "not-now", block };
+  return { kind: ACTIVITY_KINDS.has(block.kind) ? "activity" : "task", block };
+}

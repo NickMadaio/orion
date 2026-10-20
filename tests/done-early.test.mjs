@@ -271,3 +271,42 @@ test("undo says plainly what it cannot bring back", (t) => {
   plain.run("early", "--now", "14:40");
   assert.doesNotMatch(plain.run("undo").out, /weren't restored/);
 });
+
+const addCheckin = (w, what, start, end) => w.checkin("add", "10", what, "--by", "orion", "--block", `cal-${what}`, "--day", DATE, "--start", String(start), "--end", String(end));
+
+test("a check-in's Done acts on that check-in's own block: Essay's Done never ends the Problem set under way", (t) => {
+  const events = [{ title: "Problem set", start: at(14), end: at(15), orion: "study" }, { title: "Essay", start: at(15, 10), end: at(16), orion: "study" }];
+  const w = world(t, { events });
+  assert.equal(addCheckin(w, "Essay", hm(15, 10), hm(16)).code, 0);
+  const before = w.day();
+  const r = w.run("early", "block", "--checkin", "latest", "--now", "14:30");
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /Essay isn't under way right now, so nothing was changed/);
+  assert.deepEqual(w.day(), before);
+  assert.deepEqual(w.logged(), []);
+});
+
+test("a check-in's Done ends its own block when that block is under way, found by id or by exact title and start", (t) => {
+  const w = world(t, { events: [{ title: "Essay", start: at(14), end: at(16), orion: "study" }, { title: "Problem set", start: at(16, 10), end: at(17), orion: "study" }] });
+  assert.equal(addCheckin(w, "Essay", hm(14), hm(16)).code, 0);
+  const id = JSON.parse(w.checkin("show", "latest").out).id;
+  const r = w.run("early", "block", "--checkin", id, "--now", "14:40");
+  assert.equal(r.code, 0, r.out);
+  assert.equal(w.day().find((e) => e.title === "Essay").end, hm(14, 40));
+  const ps = w.day().find((e) => e.title === "Problem set");
+  assert.equal(ps.end - ps.start, 50, "the other block is only pulled forward, never shortened");
+  assert.match(w.checkin("list").out, /No open check-ins/);
+});
+
+test("a check-in whose block is gone, or already closed, says so and changes nothing", (t) => {
+  const w = world(t, { events: [{ title: "Problem set", start: at(14), end: at(15), orion: "study" }] });
+  assert.equal(addCheckin(w, "Essay", hm(14), hm(15)).code, 0);
+  const before = w.day();
+  const gone = w.run("early", "block", "--checkin", "latest", "--now", "14:30");
+  assert.equal(gone.code, 0, gone.out);
+  assert.match(gone.out, /Essay is no longer on today's plan, so nothing was changed/);
+  assert.deepEqual(w.day(), before);
+  const closed = w.run("early", "block", "--checkin", "ci-nothere", "--now", "14:30");
+  assert.match(closed.out, /no longer open, so nothing was changed/);
+  assert.deepEqual(w.day(), before);
+});

@@ -312,7 +312,9 @@ final class LinkEngine: ObservableObject {
         let requests = WidgetRequests(file: directory.appendingPathComponent(GlanceFile.requestsName)).take()
         guard !requests.isEmpty else { return }
         for request in requests {
-            guard let text = try? request.action.entry.encoded() else { continue }
+            // A Done acts on the check-in he was looking at: its id travels with the press.
+            let entry = request.action == .checkinDone ? LinkLog.checkin(action: DoneEarly.checkinDone(id: reader.checkin(now: Date())?.id)) : request.action.entry
+            guard let text = try? entry.encoded() else { continue }
             let result = request.action == .water ? Self.logTracking(text, at: request.at) : Self.answerCheckin(text)
             lastCommand = "widget: \(request.action.rawValue) — \(result.reply)"
         }
@@ -547,9 +549,9 @@ final class LinkEngine: ObservableObject {
         process.waitUntilExit()
         let out = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         // The check-in's own Done also closes that check-in; "Done early" closes the loops about what it ended itself.
-        if process.terminationStatus == 0 && action == "done" {
+        if process.terminationStatus == 0 && DoneEarly.isCheckinDone(action) {
             let close = Process(); close.executableURL = process.executableURL
-            close.arguments = [script, "done"]
+            close.arguments = [script, "done"] + (DoneEarly.checkinID(fromLinkAction: action).map { [$0] } ?? [])
             close.standardOutput = FileHandle.nullDevice; close.standardError = FileHandle.nullDevice
             if (try? close.run()) != nil { close.waitUntilExit() }
         }

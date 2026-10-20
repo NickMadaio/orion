@@ -80,6 +80,15 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-20 (late) — Fixes from the live "as Nick" test (Claude)
+
+Results are in `docs/audits/2026-10-20-live-as-nick.md`.
+- **Must blocks are never clipped.** A "from now" add or a replan moves a must whole, keeping its own length. A scheduler gave-up re-enters a must at its block length.
+- **Clearer replies.** An already-over named block is said plainly, and another block is offered. A missing block is named.
+- **Follow-up reorders** ("actually do resume before gym") only reorder items from the remembered request. The memory clears on undo or on any write.
+- **Typo tolerance** (resched/gim/frist). Take-back, doubt and hearsay checks run on both the raw and the corrected text.
+- **Follow-up:** add refusals for conditionals ("unless", "if it"), "decide later", "kiddin"/"jkjk" and "i guess"/"meh".
+
 ### 2026-10-20 — Reschedule incident: code-run day replan, turn budget, safe writes (Claude)
 
 Write-up: `docs/audits/2026-10-20-reschedule-incident.md`.

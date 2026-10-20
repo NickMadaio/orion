@@ -15,6 +15,7 @@ export type ReplanAsk = {
     home: boolean;
     explicit: boolean;
 };
+export declare const startsAsRequest: (text: string) => boolean;
 /** The order and the anchor in his words, or undefined when this is not a reschedule with an order. */
 export declare function parseReplanRequest(message: string): ReplanAsk | undefined;
 type Item = {

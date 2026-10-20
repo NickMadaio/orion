@@ -12,8 +12,10 @@ export declare const HOOK_TIMEOUT_MS = 55000;
 export declare const SLOW_TURN_MS = 40000;
 export declare const SLOW_TURN_LINE = "I'm running slowly right now, so I didn't get to that and nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
 export declare const SLOW_FLOW_LINE = "That took longer than I can wait on right now, so nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
-/** The hook gave up after a write had started: it was stopped, but it may already have changed his day. */
-export declare const SLOW_FLOW_MAYBE_WROTE_LINE = "That took longer than I can wait on, and a change to your day may already have gone through. Check your calendar; if it looks wrong, say \"undo\" and I'll put the last change back.";
+/** The hook gave up after a write had started: the write is NOT stopped (a half-applied day is worse than a late one); he hears how it ended with his next message. */
+export declare const SLOW_FLOW_MAYBE_WROTE_LINE = "That's taking longer than I can wait on. The change to your day is already being made and I'm letting it finish, so I'll tell you how it went with your next message. If your calendar looks wrong, say \"undo\" and I'll put the last change back.";
+/** What he is told when the change that was left to finish did not report. */
+export declare const LATE_UNKNOWN_LINE = "The change I was making stopped before it reported back, so check your calendar. Say \"undo\" if it looks wrong and I'll put the last change back.";
 /**
  * The front desk's recent health. After a failure it is "degraded": calls get the short timeout (waiting 8 s again only repeats the wait), except one probe
  * per DESK_DEGRADED_WINDOW_MS with the normal budget. A short call that times out proves nothing, so only a probe can end (or extend) the degradation.

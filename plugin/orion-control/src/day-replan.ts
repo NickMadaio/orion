@@ -34,14 +34,21 @@ const CONTEXT = /\b(?:re-?schedul\w*|re-?plan\w*|re-?arrang\w*|re-?organi[sz]\w*
 // Only an imperative request fires this, so a hypothetical, a question, a negation, a past event or a plan he is only thinking about does not
 // rewrite his day (review, 2026-10-20). The front desk is skipped for these messages, so this is the only gate.
 const NOT_A_REQUEST = /\b(?:don'?t|do not|dont|doesn'?t|never ?mind|nvm|no need|not|n'?t|rescheduled|replanned|rearranged|reorgani[sz]ed|did|had|already|was going to|were going to|used to|going to|gonna|should|shall|what if|what about|how about|thinking|wondering|maybe|perhaps|might|could i|can i|may i|whether|if i|if we|would it|would i|why|supposed to)\b/i;
+// ALLOW, not block: the message must START with the request (after only a courtesy word), with an imperative verb, and must not take it back at the end.
+// Anything else goes the normal way, never to code-first (review round 2, 2026-10-20).
+const COURTESY = /^(?:(?:ok(?:ay)?|so|yo|hey|please|pls|orion|can u|can you|could you|would you|will you|just)[,.\s]+)*/i;
+const IMPERATIVE = /^(?:re-?schedule|re-?do|re-?plan|re-?arrange|re-?organi[sz]e|re-?work|move|push|put|shift|do|have|start)\b|^(?:after|when|once)\b[^,.;]*?[,\s]+(?:do|put|have|start with)\b/i;
+const TAKEN_BACK = /(?:\bjk|\bj\/k|just kidding|\bkidding|\bnever ?mind|\bnvm|\blol|\blmao|\bhaha+|\bor not|\bscratch that|\bforget (?:it|that))\W*$/i;
+export const startsAsRequest = (text: string): boolean => { const rest = text.replace(COURTESY, ""); return IMPERATIVE.test(rest) && !TAKEN_BACK.test(text); };
 const POLITE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion)[,\s]+)*(?:can|could|would|will)\s+(?:you|u)\b/i;
 const FIRST_PUT = /\b(?:put|make|do|have|schedule|plan|start(?:\s+off)?\s+with)\s+(?:my\s+|the\s+|a\s+)?(?<y>[a-z][a-z' -]{0,40}?)\s+(?:as\s+)?(?:the\s+)?first(?:\s+(?:event|thing|item|block|activity|task|one))?\b(?!\s+(?:thing\s+)?(?:in the morning|tomorrow|today))/i;
+const FIRST_END = /\s(?<y>[a-z]+)\s+first\s*[.!]*$/i;   // "reschedule my day after marketing gym first": one word, no comma
 const FIRST_BARE = /(?:^|[,;:]\s*|\band\s+|\bbut\s+)(?:(?:put|do|have)\s+)?(?:my\s+|the\s+)?(?<y>[a-z][a-z' -]{0,30}?)\s+first\b(?!\s+(?:thing\s+)?(?:in the morning|tomorrow|today|class|lecture))/i;
 const SEQUENCE = /\b(?:do|put|have|schedule|start with|then do)\s+(?:my\s+|the\s+)?(?<seq>[a-z][^,.;]*?\bthen\b[^.;]*)/i;
 const THEN = /(?:,\s*)?\b(?:and\s+)?then\s+(?:do\s+|put\s+|have\s+)?(?:my\s+|the\s+)?(?<z>[^,.;]+?)(?=\s+(?:and\s+)?then\b|[,.;]|$)/gi;
 const TITLE_TAIL = /\s+(?:please|pls|today|tonight|now|for me|after\b.*|before\b.*|when\b.*|once\b.*|at\b.*|first)$/i;
 const HOME = /\b(?:back\s+home|get(?:ting)?\s+home|got\s+home|(?:i'?m|im|i am)\s+(?:back|home)|(?:i\s+)?(?:get|got|come|came)\s+back|arriv\w*\s+home|walk in)\b|\bhome\b/i;
-const AFTER = /\bafter\s+(?:my\s+|the\s+|our\s+)?(?<p>[^,.;]+?)(?=\s+(?:but|and|then|so|put|do|make|have|start|schedule|plan|move|lets|let's)\b|[,.;]|$)/gi;
+const AFTER = /\bafter\s+(?:my\s+|the\s+|our\s+)?(?<p>[^,.;]+?)(?=\s+(?:after|but|and|then|so|put|do|make|have|start|schedule|plan|move|lets|let's)\b|[,.;]|$)/gi;
 
 const cleanTitle = (t: string): string => {
   let out = t.trim();
@@ -53,10 +60,11 @@ const cleanTitle = (t: string): string => {
 export function parseReplanRequest(message: string): ReplanAsk | undefined {
   const text = message.replace(/\s+/g, " ").trim();
   // A question is not an order ("what is first after class?"), but "can you reschedule my day, gym first?" is a polite one.
-  if (!text || NOT_A_REQUEST.test(text) || !CONTEXT.test(text) || (/\?\s*$/.test(text) && !POLITE.test(text))) return undefined;
+  if (!text || !startsAsRequest(text) || NOT_A_REQUEST.test(text) || !CONTEXT.test(text) || (/\?\s*$/.test(text) && !POLITE.test(text))) return undefined;
   const order: string[] = [];
   const add = (t: string | undefined) => { const c = t ? cleanTitle(t) : ""; if (c && !order.some((o) => norm(o) === norm(c))) order.push(c); };
-  const first = text.match(FIRST_PUT)?.groups?.y ?? text.match(FIRST_BARE)?.groups?.y;
+  const firstMatch = text.match(FIRST_PUT) ?? text.match(FIRST_BARE) ?? text.match(FIRST_END);
+  const first = firstMatch?.groups?.y;
   if (first) add(first);
   const seq = first ? undefined : text.match(SEQUENCE)?.groups?.seq;
   if (seq) { const [head, ...rest] = seq.split(/\bthen\b/i); add(head?.replace(/[,\s]+$/, "").replace(/\s+and$/i, "")); rest.forEach((r) => add(r.replace(/^\s*(?:do|put|have)\s+/i, "").replace(/[,\s]+$/, ""))); }
@@ -65,7 +73,9 @@ export function parseReplanRequest(message: string): ReplanAsk | undefined {
   // A time or a length in the title ("gym at 6") means he is dictating the clock: not this shape.
   if (order.some((t) => /\d/.test(t) || t.split(/\s+/).length > 5)) return undefined;
   let anchor: string | undefined; let home = false;
-  for (const m of text.matchAll(AFTER)) {
+  // The order he named is not part of the anchor ("after marketing gym first").
+  const rest = firstMatch ? text.replace(firstMatch[0], ", ") : text;
+  for (const m of rest.matchAll(AFTER)) {
     const phrase = m.groups!.p!.trim();
     if (/^(?:i|i'?m|im)\b/i.test(phrase) && HOME.test(phrase) || /^(?:i\s+)?(?:get|got|come|came)\s+back\b/i.test(phrase) || /^(?:getting\s+)?home\b/i.test(phrase)) { home = true; continue; }
     anchor ??= phrase;

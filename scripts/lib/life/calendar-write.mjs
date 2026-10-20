@@ -80,54 +80,78 @@ async function reverseSteps(steps) {
   return { done, restored };
 }
 
+/*
+ A write that is stopped partway must never leave his day with holes and no way back (2026-10-20 review; the old order deleted first, created
+ after, and wrote the undo record last):
+   - every step is in the undo journal as soon as it is done, and a move or delete BEFORE it is sent, so a kill (even SIGKILL) at any point
+     leaves an entry "undo" can reverse, including for a request already in flight;
+   - creates come first, then moves, then deletes: a stop partway leaves his old blocks standing (a duplicate at worst, never a hole);
+   - SIGTERM / SIGINT / SIGHUP during the write are held until it has finished, then re-raised: the write completes and is recorded.
+*/
+const HELD = ["SIGTERM", "SIGINT", "SIGHUP"];
+
 export async function applyPlan({ date, moves, created, removed = [], blocksById, group = null, pinIds = [], pinCreated = [], config = {} }) {
   const undo = []; const priorPins = readPins(); const addedPins = []; const createdIds = {};
+  const readHistory = () => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } };
+  const base = readHistory();
+  const startedAt = new Date().toISOString();
+  const save = (list) => { mkdirSync(dirname(UNDO_FILE), { recursive: true }); writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(list.slice(-10), null, 2)); renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE); };
+  const journal = () => {
+    const last = base.at(-1);
+    save(group && last?.group === group
+      ? [...base.slice(0, -1), { ...last, steps: [...last.steps, ...undo] }]
+      : [...base, { pinsBefore: priorPins, at: startedAt, ...(group ? { group } : {}), steps: undo }]);
+  };
+  let signalled = null; const hold = (name) => { signalled = name; };
+  for (const name of HELD) process.on(name, hold);
   try {
-    for (const block of removed) {
-      if (!block?.calendarId) continue;
-      await bridge("delete_calendar_event", { identifier: block.calendarId });
-      undo.push({ op: "delete", identifier: block.calendarId, title: block.title, start: iso(date, block.start), end: iso(date, block.end),
-        ...(block.source === "orion" ? { orionKind: block.kind } : {}),
-        ...(block.source === "orion" && block.tags?.length ? { orionTags: block.tags.join(",") } : {}) });
+    try {
+      for (const c of created) {
+        const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end), calendar: config.eventCalendar ?? loadConfig().eventCalendar };
+        if (!c.fixed) payload.orionKind = c.kind;   // Nick's own plans stay unmarked, so they never move
+        const tags = c.fixed ? [] : tagsFor(c, config);
+        if (tags.length) payload.orionTags = tags.join(",");
+        const result = await bridge("create_calendar_event", payload);
+        if (pinCreated.includes(c.id)) addedPins.push(result.identifier);
+        createdIds[c.id] = result.identifier;
+        undo.push({ op: "create", identifier: result.identifier, title: payload.title });
+        journal();
+      }
+      for (const m of moves) {
+        const block = blocksById.get(m.id);
+        if (!block?.calendarId) continue;
+        // A move may also change the length (extend, resize, shrink to fit): `toEnd`.
+        const end = Number.isInteger(m.toEnd) ? m.toEnd : m.to + (block.end - block.start);
+        undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
+        journal();
+        try { await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, end) }); }
+        catch (e) { undo.pop(); journal(); throw e; }
+      }
+      for (const block of removed) {
+        if (!block?.calendarId) continue;
+        undo.push({ op: "delete", identifier: block.calendarId, title: block.title, start: iso(date, block.start), end: iso(date, block.end),
+          ...(block.source === "orion" ? { orionKind: block.kind } : {}),
+          ...(block.source === "orion" && block.tags?.length ? { orionTags: block.tags.join(",") } : {}) });
+        journal();
+        try { await bridge("delete_calendar_event", { identifier: block.calendarId }); }
+        catch (e) { undo.pop(); journal(); throw e; }
+      }
+    } catch (error) {
+      try { await reverseSteps(undo); }
+      catch (rollbackError) { throw new Error(`${error.message}; rollback also failed: ${rollbackError.message}`); }
+      if (undo.length) save(base);   // rolled back: the journal is what it was
+      throw error;
     }
-    for (const m of moves) {
-      const block = blocksById.get(m.id);
-      if (!block?.calendarId) continue;
-      // A move may also change the length (extend, resize, shrink to fit): `toEnd`.
-      const end = Number.isInteger(m.toEnd) ? m.toEnd : m.to + (block.end - block.start);
-      await bridge("move_calendar_event", { identifier: block.calendarId, start: iso(date, m.to), end: iso(date, end) });
-      undo.push({ op: "move", identifier: block.calendarId, start: iso(date, block.start), end: iso(date, block.end), title: block.title });
-    }
-    for (const c of created) {
-      const payload = { title: clean(c.title), start: iso(date, c.start), end: iso(date, c.end), calendar: config.eventCalendar ?? loadConfig().eventCalendar };
-      if (!c.fixed) payload.orionKind = c.kind;   // Nick's own plans stay unmarked, so they never move
-      const tags = c.fixed ? [] : tagsFor(c, config);
-      if (tags.length) payload.orionTags = tags.join(",");
-      const result = await bridge("create_calendar_event", payload);
-      if (pinCreated.includes(c.id)) addedPins.push(result.identifier);
-      createdIds[c.id] = result.identifier;
-      undo.push({ op: "create", identifier: result.identifier, title: payload.title });
-    }
-  } catch (error) {
-    try { await reverseSteps(undo); }
-    catch (rollbackError) { throw new Error(`${error.message}; rollback also failed: ${rollbackError.message}`); }
-    throw error;
+    const ids = new Set(priorPins[date] ?? []);
+    for (const b of removed) ids.delete(b.calendarId);
+    for (const id of [...pinIds, ...addedPins]) if (id) ids.add(id);
+    savePins({ ...priorPins, [date]: [...ids] });
+    if (undo.length) touchDirty();   // awareness refreshes after any calendar write
+    return { createdIds };
+  } finally {
+    for (const name of HELD) process.off(name, hold);
+    if (signalled) process.kill(process.pid, signalled);   // the write is finished and recorded: now it may stop
   }
-  const ids = new Set(priorPins[date] ?? []);
-  for (const b of removed) ids.delete(b.calendarId);
-  for (const id of [...pinIds, ...addedPins]) if (id) ids.add(id);
-  savePins({ ...priorPins, [date]: [...ids] });
-  if (!undo.length) return { createdIds };
-  touchDirty();   // awareness refreshes after any calendar write
-  mkdirSync(dirname(UNDO_FILE), { recursive: true });
-  const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
-  const last = history.at(-1);
-  const next = group && last?.group === group
-    ? [...history.slice(0, -1), { ...last, steps: [...last.steps, ...undo] }]
-    : [...history, { pinsBefore: priorPins, at: new Date().toISOString(), ...(group ? { group } : {}), steps: undo }];
-  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-10), null, 2));
-  renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
-  return { createdIds };
 }
 
 export async function undoLast() {

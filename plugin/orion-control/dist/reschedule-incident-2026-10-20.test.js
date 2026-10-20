@@ -171,13 +171,46 @@ describe("a cut flow is stopped, and the line says what is true", () => {
         expect(sig?.aborted).toBe(true);
         expect(built.systemPrompt).toContain(SLOW_FLOW_LINE);
     });
-    it("a write started: it is aborted too, but the line says it may have changed and offers undo", async () => {
-        const { built, sig } = await hang(true);
-        expect(sig?.aborted).toBe(true);
+    it("a write started: it is NOT stopped, the line says it is still being made, and the next message tells him how it ended", async () => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+        vi.setSystemTime(new Date(2030, 9, 3, 16, 16, 0));
+        let sig;
+        let finish;
+        const r = rig({ decideImpl: async () => DESK_DOWN, scheduleFlow: (m, _c, o) => {
+                if (m.startsWith("what"))
+                    return Promise.resolve({ outcome: "fallback", reason: "x" });
+                sig = o.signal;
+                o.onWriteStart?.();
+                return new Promise((resolve) => { finish = resolve; });
+            } });
+        const message = "move gym to 7 and push the resume back";
+        await r.fire("before_model_resolve", { prompt: message }, ctx);
+        const pending = r.fire("before_prompt_build", { prompt: message, messages: [] }, ctx);
+        await vi.advanceTimersByTimeAsync(HOOK_TIMEOUT_MS);
+        const [built] = (await pending);
+        expect(sig?.aborted).toBe(false);
         expect(built.systemPrompt).toContain(SLOW_FLOW_MAYBE_WROTE_LINE);
         expect(built.systemPrompt).not.toContain(SLOW_FLOW_LINE);
-        expect(SLOW_FLOW_MAYBE_WROTE_LINE).toMatch(/may already have/);
+        expect(SLOW_FLOW_MAYBE_WROTE_LINE).toMatch(/letting it finish/);
         expect(SLOW_FLOW_MAYBE_WROTE_LINE).toMatch(/undo/);
+        finish?.(done("Done: Gym 7–8:30 PM; finish resume now 8:35 PM.")); // the write completes after the cut
+        await vi.advanceTimersByTimeAsync(10);
+        const next = "what did I decide about my thesis topic";
+        await r.fire("before_model_resolve", { prompt: next }, { ...ctx, runId: "r-next" });
+        const [after] = (await r.fire("before_prompt_build", { prompt: next, messages: [] }, { ...ctx, runId: "r-next" }));
+        expect(`${after.systemPrompt}\n${after.appendContext ?? ""}`).toContain("Earlier: Done: Gym 7–8:30 PM; finish resume now 8:35 PM.");
+    });
+    it("a write is never handed the abort signal; a read is", async () => {
+        const ac = new AbortController();
+        const seen = [];
+        await runScheduleFlow({ message: SENTENCE, clock: "Tue 16:16", now: new Date(2030, 9, 3, 16, 16), signal: ac.signal, ask: async () => null,
+            exec: async (args, signal) => { seen.push([args[0], signal !== undefined]); return { stdout: args[0] === "show" ? JSON.stringify(DAY) : "Changed:\n  planned Gym: 17:50–19:20", code: 0 }; } });
+        expect(seen).toEqual([["show", true], ["day", false], ["show", true]]);
+    });
+    it("a scheduler that dies without a word is reported as a change that may have happened", async () => {
+        const res = await runScheduleFlow({ message: SENTENCE, clock: "Tue 16:16", now: new Date(2030, 9, 3, 16, 16), ask: async () => null,
+            exec: async (args) => (args[0] === "show" ? { stdout: JSON.stringify(DAY), code: 0 } : { stdout: "", code: 1 }) });
+        expect(JSON.stringify(res)).toMatch(/may have changed/);
     });
     it("the flow itself starts nothing once aborted, and tells the hook when a write begins", async () => {
         const ac = new AbortController();

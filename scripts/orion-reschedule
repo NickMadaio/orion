@@ -177,14 +177,20 @@ async function verifyWritten(date, from) {
 
 // One change at a time: two runs started together would each plan from the
 // same old calendar and write on top of each other (found in a scenario run).
-import { mkdirSync as mkLock, rmSync as rmLock, statSync as statLock } from "node:fs";
+import { mkdirSync as mkLock, rmSync as rmLock, statSync as statLock, writeFileSync as writeLock, readFileSync as readLock } from "node:fs";
 import { join as joinPath } from "node:path";
 import { homedir as home } from "node:os";
 const LOCK = joinPath(home(), ".openclaw/orion-controlled/reschedule.lock");
 if (!dry) {
   const deadline = Date.now() + 30000;
   for (;;) {
-    try { mkLock(LOCK); break; } catch {
+    try { mkLock(LOCK); writeLock(joinPath(LOCK, "pid"), String(process.pid)); break; } catch {
+      // A lock whose owner is gone (killed, or stopped by a signal after its write) is stale at once; otherwise after 60 s.
+      try {
+        const owner = Number(readLock(joinPath(LOCK, "pid"), "utf8"));
+        let alive = true; try { process.kill(owner, 0); } catch (e) { alive = e.code === "EPERM"; }
+        if (!alive) rmLock(LOCK, { recursive: true, force: true });
+      } catch {}
       try { if (Date.now() - statLock(LOCK).mtimeMs > 60000) rmLock(LOCK, { recursive: true, force: true }); } catch {}
       if (Date.now() > deadline) fail("another change to his day is still running; try again", 1);
       await new Promise((r) => setTimeout(r, 200));

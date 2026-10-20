@@ -99,3 +99,9 @@ or interim-message call (hooks return a prompt or one reply), so there is no way
 - The reply names NOT BOOKED, skipped, shifted, shrunk and squeezed-off blocks, and says when gym could not be first and why.
 - Desk backoff: 2.5 s while degraded with one normal-budget probe per 3 minutes; only a probe ends or extends it.
 - OpenClaw does honour `timeoutMs` in `api.on` (`registry-B8eQDFB4.js` `resolveTypedHookTimeoutMs`: config `hooks.timeouts[hook]`, then config `hooks.timeoutMs`, then the opts value). Nick's config sets neither, so 55 s applies; a config value would override it.
+
+## Review round 2
+
+- The parser is an ALLOW pattern: the message must start with the request (after only ok/so/yo/please/can u/can you/could you/pls), use an imperative verb (reschedule, redo, replan, rearrange, move, push, put, shift; or "after/when X, do/put …"), and not take it back at the end (jk, just kidding, never mind, nvm, lol). "reschedule my day after marketing gym first" (no comma) works.
+- A write is never killed once it starts: the abort signal reaches reads only. If the hook gives up mid-write, the line says it is being finished, and how it ended is told with his next message ("Earlier: …"). A scheduler that dies silent is reported as a change that may have happened.
+- `applyPlan` creates first, then moves, then deletes; every step is journaled as done (moves and deletes before they are sent); SIGTERM/SIGINT/SIGHUP are held until the write is complete, then re-raised. A SIGKILL can leave one extra block from a create already in flight, never a hole. A stale lock whose owner is dead is cleared at once. Test: `tests/reschedule-write-interrupted.test.mjs`.

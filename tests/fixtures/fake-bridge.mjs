@@ -11,6 +11,9 @@ const save = (list) => writeFileSync(file, JSON.stringify(list, null, 2));
 const reply = (result) => process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
 const find = (id) => events.find((e) => e.identifier === id);
 
+// $FAKE_DELAY_MS: every calendar write takes this long (a test kills the planner partway through a write).
+if (process.env.FAKE_DELAY_MS && /^(create|delete|move)_calendar_event$/.test(request.action)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.FAKE_DELAY_MS));
+
 switch (request.action) {
   case "list_upcoming_calendar_events": reply({ events_json: JSON.stringify(events) }); break;
   case "list_deadlines": reply({ events_json: "[]" }); break;

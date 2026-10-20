@@ -593,9 +593,16 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   onWriteStart?: () => void;
 }): Promise<FlowResult> {
   const left = (): number => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
-  const exec = (args: string[]) => {
-    if (args[0] !== "show" && !args.includes("--dry-run")) onWriteStart?.();
-    return execRaw(args, signal);
+  // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
+  // has not begun is refused when the hook has given up (review round 2, 2026-10-20: a killed write could delete blocks and never create them).
+  const exec = async (args: string[]): Promise<{ stdout: string; code: number }> => {
+    if (args[0] === "show" || args.includes("--dry-run")) return execRaw(args, signal);
+    if (signal?.aborted) return { stdout: "NOTHING WAS CHANGED: stopped before it started (too slow).", code: 1 };
+    onWriteStart?.();
+    const out = await execRaw(args);
+    // The scheduler died without a word (killed, or its own timeout): his day may have changed.
+    if (out.code !== 0 && !out.stdout.trim()) return { stdout: "The scheduler stopped before it reported back, so your day may have changed. Check your calendar; say \"undo\" to put the last change back.", code: 1 };
+    return out;
   };
   const tooSlow: FlowResult = { outcome: "fallback", reason: "too slow" };
   if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });

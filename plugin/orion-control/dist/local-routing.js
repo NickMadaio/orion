@@ -41,7 +41,7 @@ import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { parseReplanRequest } from "./day-replan.js";
-import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
+import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -638,6 +638,28 @@ export function registerLocalRouting(api, options) {
      * silently, with no error anywhere. The hook now (1) is registered with a longer timeout, (2) bounds its own work so that it answers first,
      * (3) never throws into the host's default prompt, and (4) does not hand a change request that already took SLOW_TURN_MS a multi-minute tool loop.
      */
+    /** Per session: how a change the prompt hook left to finish ended, told with the next message. */
+    const lateReports = new Map();
+    const deliverLate = (run, built) => {
+        const key = run.sessionKey;
+        const late = key ? lateReports.get(key) : undefined;
+        if (!key || !late || !built || typeof built !== "object" || Date.now() - late.at > 60 * 60_000)
+            return built;
+        lateReports.delete(key);
+        const said = `Earlier: ${late.text}`;
+        const flow = run.flow;
+        if (flow?.outcome === "done") {
+            run.flow = { ...flow, reply: `${said} ${exactFor(run)}` };
+            const exact = exactFor(run);
+            return { systemPrompt: `You already made this change. ${EXACT_REPLY_PROMPT}\n${exact}`, appendContext: `[ORION scheduler — already done. Your whole reply must be exactly: ${exact}]` };
+        }
+        if (flow?.outcome === "say") {
+            run.flow = { ...flow, text: `${said} ${exactFor(run)}`, kind: "plain" };
+            return fixedReply(exactFor(run));
+        }
+        const b = built;
+        return { ...b, appendContext: `${b.appendContext ? `${b.appendContext}\n` : ""}[ORION: begin your reply with exactly this, then answer him: "${said}"]` };
+    };
     const guardedPrompt = (inner) => async (event, ctx) => {
         const run = runFor(event, ctx);
         if (!run?.settled || run.cloud)
@@ -648,16 +670,28 @@ export function registerLocalRouting(api, options) {
         run.writeStarted = false;
         const cut = new Promise((resolve) => { timer = setTimeout(() => resolve("cut"), HOOK_TIMEOUT_MS - 5_000); timer.unref?.(); });
         try {
-            const built = await Promise.race([building.run(run, () => Promise.resolve(inner(event, ctx))), cut]);
+            const working = building.run(run, () => Promise.resolve(inner(event, ctx)));
+            const built = await Promise.race([working, cut]);
             if (built === "cut") {
-                traceLine("before_prompt_build_cut", event, ctx, { sinceStartMs: Date.now() - run.started });
-                run.abort?.abort();
-                // "Nothing changed" is only said when no write ever started; otherwise he is told it may have, and "undo" is allowed to take it back.
-                const line = run.writeStarted ? SLOW_FLOW_MAYBE_WROTE_LINE : SLOW_FLOW_LINE;
-                if (run.writeStarted)
+                traceLine("before_prompt_build_cut", event, ctx, { sinceStartMs: Date.now() - run.started, writeStarted: !!run.writeStarted });
+                if (run.writeStarted) {
+                    // A write that has begun is left to finish; he is told how it went with his next message.
                     recordChange(run.sessionKey, []);
+                    void working.then(() => {
+                        const flow = run.flow;
+                        if (flow?.outcome === "done")
+                            settleSchedule(run);
+                        const text = flow?.outcome === "done" || flow?.outcome === "say" ? exactReply(flow) : LATE_UNKNOWN_LINE;
+                        if (run.sessionKey)
+                            lateReports.set(run.sessionKey, { text: text || LATE_UNKNOWN_LINE, at: Date.now() });
+                    }, () => { if (run.sessionKey)
+                        lateReports.set(run.sessionKey, { text: LATE_UNKNOWN_LINE, at: Date.now() }); });
+                }
+                else
+                    run.abort?.abort(); // nothing was written: stop the reads and the model calls, and say so
+                const line = run.writeStarted ? SLOW_FLOW_MAYBE_WROTE_LINE : SLOW_FLOW_LINE;
                 freezeRun(run, { outcome: "say", kind: "plain", text: line });
-                return fixedReply(line, run.writeStarted ? "a change may have been made" : "nothing was changed");
+                return fixedReply(line, run.writeStarted ? "a change is being made and is not stopped" : "nothing was changed");
             }
             const now = runFor(event, ctx) ?? run;
             const stillWorker = !now.flow || now.flow.outcome === "fallback";
@@ -667,7 +701,7 @@ export function registerLocalRouting(api, options) {
                 traceLine("slow_turn", event, ctx, { sinceStartMs: Date.now() - now.started });
                 return fixedReply(SLOW_TURN_LINE);
             }
-            return built;
+            return deliverLate(runFor(event, ctx) ?? run, built);
         }
         catch (error) {
             api.logger?.warn?.(`[orion-control] before_prompt_build failed, using the slim prompt: ${error instanceof Error ? error.message : String(error)}`);

@@ -21,19 +21,24 @@ type Item = {
     title: string;
     minutes: number;
 };
+/** pushed: where he asked for the first thing to go, and what is in the way, when it could not go there. */
 export type DayReplan = {
     args: string[];
     start: string;
     items: Item[];
     via: string;
+    pushed?: {
+        wanted: string;
+        because: string;
+    };
 } | {
     say: "ask" | "cannot";
     text: string;
 };
 /** His reschedule with an order as one `orion-reschedule day` call, what to say instead, or undefined (not this shape: the form decides). */
 export declare function planDayReplan(message: string, day: Day): DayReplan | undefined;
-/** One line: the movable blocks from his first thing onward, in order, with times, read back from the day as it now stands. */
+/** What he is told: the movable blocks from his first thing onward, in order, with times, read back from the day as it now stands, then what did not go as asked. */
 export declare function replanReply(day: Day, plan: Extract<DayReplan, {
     args: string[];
-}>): string;
+}>, outputs?: string[]): string;
 export {};

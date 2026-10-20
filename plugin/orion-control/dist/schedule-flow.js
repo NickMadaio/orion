@@ -603,8 +603,13 @@ async function execute(argvs, { exec, undoTop, when, undone }) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt }) {
-    const left = () => (deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart }) {
+    const left = () => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
+    const exec = (args) => {
+        if (args[0] !== "show" && !args.includes("--dry-run"))
+            onWriteStart?.();
+        return execRaw(args, signal);
+    };
     const tooSlow = { outcome: "fallback", reason: "too slow" };
     if (pending?.kind === "push")
         return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
@@ -652,7 +657,7 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
             if (ran.outcome !== "done")
                 return ran;
             const after = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout), () => undefined);
-            return { ...ran, reply: (after && replanReply(after, replan)) || spokenReply(ran.outputs, when) };
+            return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when) };
         }
     }
     // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).

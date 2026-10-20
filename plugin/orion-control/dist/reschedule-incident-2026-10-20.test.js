@@ -8,10 +8,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerLocalRouting, EXACT_REPLY_PROMPT, PRODUCTION_NOTES } from "./local-routing.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS } from "./job-instructions.js";
-import { DeskHealth, DESK_DEGRADED_TIMEOUT_MS, DESK_TIMEOUT_MS, FLOW_BUDGET_MS, HOOK_TIMEOUT_MS, MIN_FLOW_MS, SLOW_FLOW_LINE, SLOW_TURN_LINE, flowDeadline, formCallMs } from "./turn-budget.js";
+import { runScheduleFlow } from "./schedule-flow.js";
+import { DeskHealth, DESK_DEGRADED_TIMEOUT_MS, DESK_TIMEOUT_MS, FLOW_BUDGET_MS, HOOK_TIMEOUT_MS, MIN_FLOW_MS, SLOW_FLOW_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, flowDeadline, formCallMs } from "./turn-budget.js";
 const SENTENCE = "reschedule my day after my marketing class, but put gym as the first event after i get back home";
 const DESK_DOWN = { move: "escalate", fallback: "timeout", ms: 8013 };
 const REPLY = "Done, after your marketing class and the trip home: Gym 5:50–7:20 PM, then finish resume 7:25–8:25 PM.";
+const DAY = { date: "2030-10-03", now: "16:16", plan: { commuteMinutes: 45, bufferMinutes: 5, anchors: [{ title: "Gym", minutes: 90 }] }, blocks: [
+        { title: "MKTG2201 Introduction to Marketing — Lecture", start: "15:30", end: "17:00", fixed: true, kind: "class" },
+        { title: "finish resume", start: "17:50", end: "18:50", fixed: false, kind: "study" }, { title: "Gym", start: "20:15", end: "21:45", fixed: false, kind: "gym" }
+    ] };
 const done = (reply) => ({ outcome: "done", reply, calls: ["exec orion-reschedule day --plan x"], outputs: ["ok"] });
 function rig(extra = {}) {
     const handlers = new Map();
@@ -118,6 +123,78 @@ describe("the shadow log has a row for every turn, however it ends", () => {
         expect(r.stages()).toEqual(["before_model_resolve", "before_prompt_build"]);
     });
 });
+describe("only an imperative request is read as one (review, 2026-10-20)", () => {
+    it.each([
+        "should I do gym first after class",
+        "what if I put gym first after class",
+        "don't put gym first after my class",
+        "I rescheduled my day, gym first",
+        "do not reschedule my day, gym first is fine",
+        "I was going to reschedule my day, gym first, but never mind",
+    ])("%j: the desk is asked, and the real flow writes nothing", async (message) => {
+        let desk = 0;
+        const writes = [];
+        const flow = (m, c, o) => runScheduleFlow({ message: m, clock: c, now: new Date(2030, 9, 3, 16, 16), ...(o ?? {}),
+            exec: async (args) => { if (args[0] !== "show")
+                writes.push(args); return { stdout: JSON.stringify(DAY), code: 0 }; }, ask: async () => ({ steps: [{ do: "answer", text: "ok" }] }) });
+        const r = rig({ decideImpl: async () => { desk += 1; return { move: "escalate" }; }, scheduleFlow: flow });
+        await turn(r, message);
+        expect(desk).toBe(1);
+        expect(writes).toEqual([]);
+    });
+    it("Nick's sentence and a casual variant still run as code", async () => {
+        for (const m of [SENTENCE, "can u reschedule my day after marketing, gym first"]) {
+            const calls = [];
+            const res = await runScheduleFlow({ message: m, clock: "Tue 16:16", now: new Date(2030, 9, 3, 16, 16),
+                exec: async (args) => { calls.push(args); return { stdout: args[0] === "show" ? JSON.stringify(DAY) : "Changed:\n  planned Gym: 17:50–19:20", code: 0 }; }, ask: async () => { throw new Error("no form"); } });
+            expect(calls.some((c) => c[0] === "day")).toBe(true);
+            expect(res.outcome).toBe("done");
+        }
+    });
+});
+describe("a cut flow is stopped, and the line says what is true", () => {
+    const hang = async (writes) => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+        vi.setSystemTime(new Date(2030, 9, 3, 16, 16, 0));
+        let sig;
+        const r = rig({ decideImpl: async () => DESK_DOWN, scheduleFlow: (_m, _c, o) => { sig = o.signal; if (writes)
+                o.onWriteStart?.(); return new Promise(() => { }); } });
+        const message = "move gym to 7 and push the resume back";
+        await r.fire("before_model_resolve", { prompt: message }, ctx);
+        const pending = r.fire("before_prompt_build", { prompt: message, messages: [] }, ctx);
+        await vi.advanceTimersByTimeAsync(HOOK_TIMEOUT_MS);
+        const [built] = (await pending);
+        return { built, sig };
+    };
+    it("no write started: the process is aborted and it is safe to say nothing changed", async () => {
+        const { built, sig } = await hang(false);
+        expect(sig?.aborted).toBe(true);
+        expect(built.systemPrompt).toContain(SLOW_FLOW_LINE);
+    });
+    it("a write started: it is aborted too, but the line says it may have changed and offers undo", async () => {
+        const { built, sig } = await hang(true);
+        expect(sig?.aborted).toBe(true);
+        expect(built.systemPrompt).toContain(SLOW_FLOW_MAYBE_WROTE_LINE);
+        expect(built.systemPrompt).not.toContain(SLOW_FLOW_LINE);
+        expect(SLOW_FLOW_MAYBE_WROTE_LINE).toMatch(/may already have/);
+        expect(SLOW_FLOW_MAYBE_WROTE_LINE).toMatch(/undo/);
+    });
+    it("the flow itself starts nothing once aborted, and tells the hook when a write begins", async () => {
+        const ac = new AbortController();
+        const writes = [];
+        let started = 0;
+        const base = { message: SENTENCE, clock: "Tue 16:16", now: new Date(2030, 9, 3, 16, 16), ask: async () => null,
+            exec: async (args) => { if (args[0] !== "show")
+                writes.push(args); return { stdout: JSON.stringify(DAY), code: 0 }; } };
+        await runScheduleFlow({ ...base, signal: ac.signal, onWriteStart: () => { started += 1; } });
+        expect(started).toBe(1);
+        writes.length = 0;
+        ac.abort();
+        expect(await runScheduleFlow({ ...base, signal: ac.signal, onWriteStart: () => { started += 1; } })).toEqual({ outcome: "fallback", reason: "too slow" });
+        expect(writes).toEqual([]);
+        expect(started).toBe(1);
+    });
+});
 describe("the prompt hook is registered with room to finish, and always answers first", () => {
     it("asks the host for more than its 15 s default", () => {
         const r = rig({ decideImpl: async () => ({ move: "escalate" }) });
@@ -185,20 +262,28 @@ describe("what a local turn carries (the incident's call was 17,715 tokens; the 
     });
 });
 describe("turn budgets", () => {
-    it("the desk is given 8 s, then 2.5 s for 3 minutes after it failed, then 8 s again; a good answer resets it", () => {
+    it("the desk gets 8 s; once degraded 2.5 s, with ONE normal probe per 3 minutes, and only a probe can end the degradation", () => {
         let t = 0;
         const health = new DeskHealth(() => t);
-        expect(health.timeoutMs()).toBe(DESK_TIMEOUT_MS);
+        expect(health.begin()).toEqual({ timeoutMs: DESK_TIMEOUT_MS, probe: false });
         health.record({ fallback: "timeout" });
-        expect(health.timeoutMs()).toBe(DESK_DEGRADED_TIMEOUT_MS);
+        expect(health.begin()).toEqual({ timeoutMs: DESK_DEGRADED_TIMEOUT_MS, probe: false });
+        health.record({ fallback: "timeout" }, { probe: false }); // a 2.5 s timeout is not new evidence
         t = 179_000;
-        expect(health.timeoutMs()).toBe(DESK_DEGRADED_TIMEOUT_MS);
+        expect(health.begin().timeoutMs).toBe(DESK_DEGRADED_TIMEOUT_MS);
         t = 181_000;
-        expect(health.timeoutMs()).toBe(DESK_TIMEOUT_MS);
-        health.record({ error: "boom" });
-        expect(health.degraded()).toBe(true);
-        health.record({});
+        const probe = health.begin(); // the probe has the normal budget...
+        expect(probe).toEqual({ timeoutMs: DESK_TIMEOUT_MS, probe: true });
+        expect(health.begin().timeoutMs).toBe(DESK_DEGRADED_TIMEOUT_MS); // ...and only one per window
+        health.record({ fallback: "timeout" }, probe);
+        t = 300_000;
+        expect(health.begin().timeoutMs).toBe(DESK_DEGRADED_TIMEOUT_MS);
+        t = 362_000;
+        const again = health.begin();
+        expect(again.probe).toBe(true);
+        health.record({ move: "answer" }, again); // the probe answered: healthy again
         expect(health.degraded()).toBe(false);
+        expect(health.begin().timeoutMs).toBe(DESK_TIMEOUT_MS);
     });
     it("the flow's deadline is the turn's 40 s, but never less than 12 s from now", () => {
         expect(flowDeadline(1_000_000, 1_005_000)).toBe(1_000_000 + FLOW_BUDGET_MS);

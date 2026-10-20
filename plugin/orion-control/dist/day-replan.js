@@ -6,6 +6,9 @@ const DEFAULT_FACTS = { commuteMinutes: 30, bufferMinutes: 5, anchors: [] };
 const EXPLICIT = /\b(?:re-?schedul\w*|re-?plan\w*|re-?arrang\w*|re-?organi[sz]\w*|re-?do|re-?work\w*|re-?jig\w*|shuffle\w*|move (?:everything|all|the rest)|push (?:everything|all|the rest))\b/i;
 // A request to lay the day out again, or an "after X" he is working from. Without one of these a bare "gym first" is not a reschedule.
 const CONTEXT = /\b(?:re-?schedul\w*|re-?plan\w*|re-?arrang\w*|re-?organi[sz]\w*|re-?do|re-?work\w*|re-?jig\w*|shuffle\w*|sort (?:out )?(?:my|the)|move (?:everything|all|the rest)|push (?:everything|all|the rest)|everything after|the rest of (?:my|the) (?:day|evening|afternoon|night)|my (?:day|evening|afternoon|night)|after (?:my |the |our )?[a-z0-9 ]{1,30}?(?:class|lecture|lab|seminar|tutorial)|after (?:my |the |our )?(?:class|lecture|lab|seminar|tutorial)|(?:after|when) i(?:'m| am| get| got)\b)/i;
+// Only an imperative request fires this, so a hypothetical, a question, a negation, a past event or a plan he is only thinking about does not
+// rewrite his day (review, 2026-10-20). The front desk is skipped for these messages, so this is the only gate.
+const NOT_A_REQUEST = /\b(?:don'?t|do not|dont|doesn'?t|never ?mind|nvm|no need|not|n'?t|rescheduled|replanned|rearranged|reorgani[sz]ed|did|had|already|was going to|were going to|used to|going to|gonna|should|shall|what if|what about|how about|thinking|wondering|maybe|perhaps|might|could i|can i|may i|whether|if i|if we|would it|would i|why|supposed to)\b/i;
 const POLITE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion)[,\s]+)*(?:can|could|would|will)\s+(?:you|u)\b/i;
 const FIRST_PUT = /\b(?:put|make|do|have|schedule|plan|start(?:\s+off)?\s+with)\s+(?:my\s+|the\s+|a\s+)?(?<y>[a-z][a-z' -]{0,40}?)\s+(?:as\s+)?(?:the\s+)?first(?:\s+(?:event|thing|item|block|activity|task|one))?\b(?!\s+(?:thing\s+)?(?:in the morning|tomorrow|today))/i;
 const FIRST_BARE = /(?:^|[,;:]\s*|\band\s+|\bbut\s+)(?:(?:put|do|have)\s+)?(?:my\s+|the\s+)?(?<y>[a-z][a-z' -]{0,30}?)\s+first\b(?!\s+(?:thing\s+)?(?:in the morning|tomorrow|today|class|lecture))/i;
@@ -24,7 +27,7 @@ const cleanTitle = (t) => {
 export function parseReplanRequest(message) {
     const text = message.replace(/\s+/g, " ").trim();
     // A question is not an order ("what is first after class?"), but "can you reschedule my day, gym first?" is a polite one.
-    if (!text || !CONTEXT.test(text) || (/\?\s*$/.test(text) && !POLITE.test(text)))
+    if (!text || NOT_A_REQUEST.test(text) || !CONTEXT.test(text) || (/\?\s*$/.test(text) && !POLITE.test(text)))
         return undefined;
     const order = [];
     const add = (t) => { const c = t ? cleanTitle(t) : ""; if (c && !order.some((o) => norm(o) === norm(c)))
@@ -74,7 +77,7 @@ function blocksNamed(phrase, day) {
     const long = said.filter((w) => w.length >= WORD_LEN); // "dr" is not evidence of a block; "ds" alone is (its initials)
     return day.blocks.filter((b) => { const t = wordsOf(b.title); return (long.length > 0 && long.every((w) => t.some((x) => sameWord(w, x)))) || (said.length === 1 && said[0].length >= 2 && initials(b.title) === said[0]); });
 }
-const isClass = (b) => b.kind === "class" || (b.fixed && b.kind === undefined);
+const isClass = (b) => b.kind === "class";
 /** The block his "after <phrase>" means: one still going or still ahead, the earliest; else the last that already ended. */
 function anchorBlock(phrase, day) {
     const generic = !norm(phrase).split(" ").some((w) => w && !GENERIC.has(w));
@@ -99,10 +102,11 @@ function resolveItem(name, day, facts) {
         return { say: "ask", text: `${title} is ${minutes} minutes on your day, which I won't place by myself. Tell me how long it should be. I haven't changed anything.` };
     return { item: { title: title.replace(/,/g, " ").replace(/\s+/g, " ").trim(), minutes } };
 }
-/** The first start at or after `from` where `minutes` clear every class and plan with people (the last class's trip home included). */
+/** The first start at or after `from` where `minutes` clear every class and plan with people (the last class's trip home included), and the first thing that pushed it. */
 function fitAround(from, minutes, day, facts) {
     const fixed = day.blocks.filter((b) => b.fixed).sort((a, b) => toMin(a.start) - toMin(b.start));
     let t = from;
+    let because;
     for (let moved = true; moved;) {
         moved = false;
         for (const f of fixed) {
@@ -110,10 +114,11 @@ function fitAround(from, minutes, day, facts) {
                 continue;
             const lastClass = isClass(f) && !fixed.some((o) => isClass(o) && toMin(o.start) >= toMin(f.end));
             t = toMin(f.end) + facts.bufferMinutes + (lastClass ? facts.commuteMinutes : 0);
+            because ??= f.title.replace(/\s+—.*$/, "");
             moved = true;
         }
     }
-    return t;
+    return { start: t, ...(because ? { because } : {}) };
 }
 const ampm = (m) => { const h = Math.floor(m / 60) % 24; return `${(h + 11) % 12 + 1}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
 /** His reschedule with an order as one `orion-reschedule day` call, what to say instead, or undefined (not this shape: the form decides). */
@@ -149,25 +154,61 @@ export function planDayReplan(message, day) {
         earliest = 0;
     if (now === null && anchorEnd === undefined)
         return undefined;
-    const start = fitAround(Math.max(earliest, now !== null ? ceil5(now) : 0), items[0].minutes, day, facts);
+    const wanted = Math.max(earliest, now !== null ? ceil5(now) : 0);
+    const { start, because } = fitAround(wanted, items[0].minutes, day, facts);
     if (start + items[0].minutes > 1440)
         return { say: "cannot", text: `${items[0].title} wouldn't finish before midnight if it came first at ${ampm(start)}, so I haven't changed anything.` };
     const via = named ? `after your ${norm(ask.anchor ?? "").replace(/\b(?:my|the|our)\s+/g, "") || "class"}${trip ? " and the trip home" : ""}` : trip ? "after the trip home" : "from now";
     // Every thing he ordered gets its own time (the one before it ends + the gap), so nothing else on the day can slip in between them.
     let at = start;
     const plans = items.flatMap((it) => { const arg = ["--plan", `${it.title}, ${it.minutes}, ${hhmm(at)}`]; at += it.minutes + facts.bufferMinutes; return arg; });
-    return { args: ["day", ...plans], start: hhmm(start), items, via };
+    return { args: ["day", ...plans], start: hhmm(start), items, via, ...(because ? { pushed: { wanted: hhmm(wanted), because } } : {}) };
 }
 const span = (a, b) => {
     const [x, y] = [ampm(a), ampm(b)];
     return x.slice(-2) === y.slice(-2) ? `${x.slice(0, -3)}–${y}` : `${x}–${y}`;
 };
-/** One line: the movable blocks from his first thing onward, in order, with times, read back from the day as it now stands. */
-export function replanReply(day, plan) {
+const clockWords = (t) => ampm(toMin(t));
+/** What the scheduler said that Nick must hear, in plain words (a block that did not fit, was skipped, shrunk, shifted or came off). */
+function notesFrom(outputs, after, plan) {
+    const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()));
+    const notes = [];
+    let m;
+    const onDay = (title) => after.blocks.some((b) => norm(b.title) === norm(title));
+    for (const l of lines) {
+        if ((m = l.match(/^SHIFTED: (.+?) could not go at (\d\d:\d\d) \((.+?) is there\) — booked (\d\d:\d\d) instead/)))
+            notes.push(`${m[1]} couldn't go at ${clockWords(m[2])} because ${m[3]} is there, so it's at ${clockWords(m[4])}`);
+        else if ((m = l.match(/^(?:MUST-HAVE )?NOT BOOKED: (.+?) \(\d+ min\)/)))
+            notes.push(`${m[1]} didn't fit and is not booked`);
+        else if ((m = l.match(/^SKIPPED OPTIONAL: (.+?) \(\d+ min\)/)))
+            notes.push(`${m[1]} was skipped, there was no room`);
+        else if ((m = l.match(/^DROPPED \(.*?\): (.+)$/)))
+            notes.push(`${m[1]} came off your day`);
+        else if ((m = l.match(/^SHRUNK to fit: (.+?) (\d+) → (\d+) min/)))
+            notes.push(`${m[1]} is shorter now, ${m[3]} minutes instead of ${m[2]}`);
+        else if ((m = l.match(/^CLASH: (.+?) — /)))
+            notes.push(`${m[1]}, so check it`);
+        else if ((m = l.match(/^cleared \d+ prior schedule blocks?: (.+)$/))) {
+            const gone = m[1].split(", ").filter((t) => !onDay(t) && !plan.items.some((i) => norm(i.title) === norm(t)));
+            if (gone.length)
+                notes.push(`${gone.join(", ")} came off your day`);
+        }
+    }
+    return [...new Set(notes)];
+}
+/** What he is told: the movable blocks from his first thing onward, in order, with times, read back from the day as it now stands, then what did not go as asked. */
+export function replanReply(day, plan, outputs = []) {
     const from = toMin(plan.start);
     const list = day.blocks.filter((b) => !b.fixed && toMin(b.start) >= from).sort((a, b) => toMin(a.start) - toMin(b.start));
     if (!list.length)
         return "";
+    const first = plan.items[0].title;
     const parts = list.slice(0, 6).map((b, i) => `${i === 0 ? "" : "then "}${b.title} ${span(toMin(b.start), toMin(b.end))}`);
-    return `Done, ${plan.via}: ${parts.join(", ")}.`;
+    const placed = list.find((b) => norm(b.title) === norm(first));
+    const notes = [
+        ...(plan.pushed ? [`${first} couldn't go first at ${clockWords(plan.pushed.wanted)} because ${plan.pushed.because} is in the way, so it's the first thing after that`] : []),
+        ...(placed && !plan.pushed && toMin(placed.start) !== from ? [`${first} didn't land first at ${clockWords(plan.start)}, it's at ${ampm(toMin(placed.start))}`] : []),
+        ...notesFrom(outputs, day, plan).filter((n) => !(plan.pushed && n.startsWith(`${first} couldn't go`))),
+    ];
+    return `${plan.pushed ? "Done, but not as asked" : "Done"}, ${plan.via}: ${parts.join(", ")}.${notes.length ? ` ${notes.map((n) => n.replace(/^./, (c) => c.toUpperCase())).join(". ")}.` : ""}`;
 }

@@ -91,3 +91,11 @@ or interim-message call (hooks return a prompt or one reply), so there is no way
 - The plugin could read Low Power Mode (`pmset -g`) and tighten the budgets; or Nick can keep ORION on AC. In LPM the same prefill ran about 4x slower than the 10-16 numbers.
 - A `turn-status.json` the app polls (stage, seconds) would let "Still working" say what for. Needs a Swift change.
 - The plugin `dist/` was rebuilt in this branch; installing it and the scheduler change is the deploy, which was not done.
+
+## Review fixes (same day)
+
+- Only an imperative request fires the parser: negation, past tense, should / what if / thinking / maybe / could I / whether are refused, with or without "?" (`day-replan.test.ts`).
+- A cut hook aborts the scheduler process (AbortSignal); "nothing changed" is said only if no write started, otherwise "may already have gone through, say undo" and undo is allowed.
+- The reply names NOT BOOKED, skipped, shifted, shrunk and squeezed-off blocks, and says when gym could not be first and why.
+- Desk backoff: 2.5 s while degraded with one normal-budget probe per 3 minutes; only a probe ends or extends it.
+- OpenClaw does honour `timeoutMs` in `api.on` (`registry-B8eQDFB4.js` `resolveTypedHookTimeoutMs`: config `hooks.timeouts[hook]`, then config `hooks.timeoutMs`, then the opts value). Nick's config sets neither, so 55 s applies; a config value would override it.

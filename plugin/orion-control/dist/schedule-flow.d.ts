@@ -265,12 +265,12 @@ export type FlowResult =
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export declare function runScheduleFlow({ message, clock, exec, ask, now, undo, undoTop, pending, askContext, deadlineAt }: {
+export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart }: {
     message: string;
     clock: string;
     now?: Date;
     askContext?: AskContext;
-    exec: (args: string[]) => Promise<{
+    exec: (args: string[], signal?: AbortSignal) => Promise<{
         stdout: string;
         code: number;
     }>;
@@ -283,6 +283,10 @@ export declare function runScheduleFlow({ message, clock, exec, ask, now, undo, 
     pending?: PendingRun;
     /** The instant after which nothing is written (a flow that is still thinking then is the worker's, with the slim prompt). */
     deadlineAt?: number;
+    /** Aborted when the hook gives up: the scheduler process is killed, and nothing more starts. */
+    signal?: AbortSignal;
+    /** Called just before anything that can WRITE is run, so the caller knows whether a write ever started. */
+    onWriteStart?: () => void;
 }): Promise<FlowResult>;
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export declare function spokenReply(outputs: string[], when?: string): string;

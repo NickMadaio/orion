@@ -27,22 +27,42 @@ export const HOOK_TIMEOUT_MS = 55_000;
 export const SLOW_TURN_MS = 40_000;
 export const SLOW_TURN_LINE = "I'm running slowly right now, so I didn't get to that and nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
 export const SLOW_FLOW_LINE = "That took longer than I can wait on right now, so nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
-/** The front desk's recent health: after a failure it is given a short timeout, because waiting the full one again only repeats the wait. */
+/** The hook gave up after a write had started: it was stopped, but it may already have changed his day. */
+export const SLOW_FLOW_MAYBE_WROTE_LINE = "That took longer than I can wait on, and a change to your day may already have gone through. Check your calendar; if it looks wrong, say \"undo\" and I'll put the last change back.";
+/**
+ * The front desk's recent health. After a failure it is "degraded": calls get the short timeout (waiting 8 s again only repeats the wait), except one probe
+ * per DESK_DEGRADED_WINDOW_MS with the normal budget. A short call that times out proves nothing, so only a probe can end (or extend) the degradation.
+ */
 export class DeskHealth {
     now;
-    failedAt;
+    degradedSince;
+    lastProbeAt = 0;
     constructor(now = Date.now) {
         this.now = now;
     }
-    /** Records how a front-desk call ended (`fallback` is set when it failed or timed out). */
-    record(decision) {
-        if ("error" in decision || decision.fallback)
-            this.failedAt = this.now();
-        else
-            this.failedAt = undefined;
+    degraded() { return this.degradedSince !== undefined; }
+    /** The timeout for the next call, and whether it is the probe. Call once per desk call. */
+    begin() {
+        if (this.degradedSince === undefined)
+            return { timeoutMs: DESK_TIMEOUT_MS, probe: false };
+        if (this.now() - this.lastProbeAt >= DESK_DEGRADED_WINDOW_MS) {
+            this.lastProbeAt = this.now();
+            return { timeoutMs: DESK_TIMEOUT_MS, probe: true };
+        }
+        return { timeoutMs: DESK_DEGRADED_TIMEOUT_MS, probe: false };
     }
-    degraded() { return this.failedAt !== undefined && this.now() - this.failedAt < DESK_DEGRADED_WINDOW_MS; }
-    timeoutMs() { return this.degraded() ? DESK_DEGRADED_TIMEOUT_MS : DESK_TIMEOUT_MS; }
+    /** Records how a call ended (`fallback` / `error` when it failed or timed out). */
+    record(decision, call = { probe: false }) {
+        const failed = "error" in decision || !!decision.fallback;
+        if (!failed) {
+            this.degradedSince = undefined;
+            return;
+        }
+        if (this.degradedSince === undefined) {
+            this.degradedSince = this.now();
+            this.lastProbeAt = this.now();
+        }
+    }
 }
 /** The instant after which the flow writes nothing: what is left of the turn's budget, but never less than MIN_FLOW_MS from now. */
 export const flowDeadline = (turnStartedAt, now = Date.now()) => Math.max(turnStartedAt + FLOW_BUDGET_MS, now + MIN_FLOW_MS);

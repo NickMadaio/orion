@@ -27,6 +27,7 @@
 */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js";
@@ -40,7 +41,7 @@ import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { parseReplanRequest } from "./day-replan.js";
-import { DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
+import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -61,7 +62,7 @@ type HookApi = { on: (name: string, fn: Handler, opts?: { priority?: number; tim
 export type LocalRoutingOptions = {
   mode: LocalRoutingMode;
   logPath: string;
-  decideImpl?: (input: { message: string; clock: string }) => Promise<Decision>;
+  decideImpl?: (input: { message: string; clock: string; timeoutMs?: number }) => Promise<Decision>;
   clock?: () => string;
   finalizeWaitMs?: number;
   workerProvider?: string;
@@ -72,7 +73,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number }) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void }) => Promise<FlowResult>;
   /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
   lateFlow?: (minutes: number) => Promise<FlowResult>;
   /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
@@ -156,6 +157,10 @@ type Run = {
   crisisRest?: string;
   /** 2026-10-19: the worker tried `orion-reschedule <write>` by name (refused by the guard); code gets one more go at it from the worker's restatement. */
   refusedWrite?: string;
+  /** Aborted when before_prompt_build gives up: the scheduler process is killed and nothing more starts. */
+  abort?: AbortController;
+  /** A write may have started (the schedule flow says exactly; the other flows count from the moment they are called). */
+  writeStarted?: boolean;
   late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string; asked?: boolean } };
 };
 
@@ -397,16 +402,16 @@ export function undoJournalTop(home = homedir(), now = Date.now()): string | nul
 }
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number } = {}): Promise<FlowResult> => runScheduleFlow({
+export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void } = {}): Promise<FlowResult> => runScheduleFlow({
   message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}),
-  exec: (args) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout, stderr) =>
+  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}),
+  exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema, budgetMs) => {
     try {
       const res = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ model: WORKER_MODEL, stream: false, think: false, format: schema, options: FORM_OPTIONS, keep_alive: "24h",
-          messages: [{ role: "system", content: system }, { role: "user", content: user }] }), signal: AbortSignal.timeout(budgetMs ?? 30000) });
+          messages: [{ role: "system", content: system }, { role: "user", content: user }] }), signal: opts.signal ? AbortSignal.any([AbortSignal.timeout(budgetMs ?? 30000), opts.signal]) : AbortSignal.timeout(budgetMs ?? 30000) });
       const body = (await res.json()) as { message?: { content?: string } };
       return JSON.parse(body.message?.content ?? "");
     } catch { return null; }
@@ -553,6 +558,17 @@ export function acceptanceVerdict(path: string, now = Date.now()): { ok: boolean
 
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
   if (options.mode === "off") return;
+  // Which run a flow belongs to, so a flow that is running when the prompt hook gives up can be stopped and its writes known (review, 2026-10-20).
+  const building = new AsyncLocalStorage<Run>();
+  const marked = <A extends unknown[], R>(f: ((...a: A) => Promise<R>) | undefined) => f && ((...a: A) => { const r = building.getStore(); if (r) r.writeStarted = true; return f(...a); });
+  const schedule = options.scheduleFlow;
+  options = { ...options,
+    ...(schedule ? { scheduleFlow: (m: string, c: string, o: Parameters<NonNullable<LocalRoutingOptions["scheduleFlow"]>>[2] = {}) => {
+      const r = building.getStore();
+      return schedule(m, c, r?.abort ? { ...o, signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : o);
+    } } : {}),
+    ...(options.lateFlow ? { lateFlow: marked(options.lateFlow)! } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow)! } : {}),
+    ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}) };
   const on = options.mode === "on";
   // 2026-10-16, Nick: "i dont want to EVER have to use the cloud model unless necessary". "on" no longer needs
   // an acceptance pass or a 48 h testing window: both assumed the cloud model was a safe fallback, and with
@@ -563,7 +579,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   }
   // The front desk is asked with a timeout that depends on how it did last time (turn-budget.ts): after a failure it gets 2.5 s, not 8 s again.
   const deskHealth = new DeskHealth();
-  const { logPath, decideImpl = (input) => decide(input, { timeoutMs: deskHealth.timeoutMs() }), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
+  const { logPath, decideImpl = (input) => decide(input, { timeoutMs: input.timeoutMs ?? DESK_TIMEOUT_MS }), clock = () => localClock(), finalizeWaitMs = 5000, workerProvider = "ollama", workerModel = WORKER_MODEL } = options;
   // Both local models stay loaded, at the context each is called with, checked every 5 minutes
   // (2026-10-14: the 9B was never warmed; a terminal run or another num_ctx unloaded them).
   if (options.warm !== false) {
@@ -668,7 +684,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     for (const [k, v] of runs) if (v === old) runs.set(k, next);
     return next;
   };
-  const fixedReply = (text: string) => ({ systemPrompt: `${EXACT_REPLY_PROMPT}\n${text}`, appendContext: `[ORION scheduler — nothing was changed. Your whole reply must be exactly: ${text}]` });
+  const fixedReply = (text: string, state = "nothing was changed") => ({ systemPrompt: `${EXACT_REPLY_PROMPT}\n${text}`, appendContext: `[ORION scheduler — ${state}. Your whole reply must be exactly: ${text}]` });
   /**
    * 2026-10-20 incident: the host cuts before_prompt_build off at 15 s and then runs the FULL workspace prompt (17.7k tokens, 3 min 1 s on battery) —
    * silently, with no error anywhere. The hook now (1) is registered with a longer timeout, (2) bounds its own work so that it answers first,
@@ -679,13 +695,18 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!run?.settled || run.cloud) return undefined;
     traceLine("before_prompt_build", event, ctx, { sinceStartMs: Date.now() - run.started });
     let timer: ReturnType<typeof setTimeout> | undefined;
+    run.abort = new AbortController(); run.writeStarted = false;
     const cut = new Promise<"cut">((resolve) => { timer = setTimeout(() => resolve("cut"), HOOK_TIMEOUT_MS - 5_000); timer.unref?.(); });
     try {
-      const built = await Promise.race([Promise.resolve(inner(event, ctx)), cut]);
+      const built = await Promise.race([building.run(run, () => Promise.resolve(inner(event, ctx))), cut]);
       if (built === "cut") {
         traceLine("before_prompt_build_cut", event, ctx, { sinceStartMs: Date.now() - run.started });
-        freezeRun(run, { outcome: "say", kind: "plain", text: SLOW_FLOW_LINE });
-        return fixedReply(SLOW_FLOW_LINE);
+        run.abort?.abort();
+        // "Nothing changed" is only said when no write ever started; otherwise he is told it may have, and "undo" is allowed to take it back.
+        const line = run.writeStarted ? SLOW_FLOW_MAYBE_WROTE_LINE : SLOW_FLOW_LINE;
+        if (run.writeStarted) recordChange(run.sessionKey, []);
+        freezeRun(run, { outcome: "say", kind: "plain", text: line });
+        return fixedReply(line, run.writeStarted ? "a change may have been made" : "nothing was changed");
       }
       const now = runFor(event, ctx) ?? run;
       const stillWorker = !now.flow || now.flow.outcome === "fallback";
@@ -727,10 +748,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : codeFirst ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
-      : Promise.resolve()
-        .then(() => decideImpl({ message, clock: clock() }))
-        .then((d) => { deskHealth.record(d); return d; })
-        .catch((error: unknown) => { deskHealth.record({ error: "threw" }); return { error: error instanceof Error ? error.message : String(error) }; });
+      : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
+        .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs }))
+        .then((d) => { deskHealth.record(d, call); return d; })
+        .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
     const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };

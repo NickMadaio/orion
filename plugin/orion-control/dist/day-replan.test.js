@@ -43,6 +43,35 @@ describe("parseReplanRequest", () => {
         expect(parseReplanRequest(message)).toBeUndefined();
     });
 });
+describe("only an imperative request rewrites his day", () => {
+    it.each([
+        "should I do gym first after class",
+        "what if I put gym first after class",
+        "don't put gym first after my class",
+        "I rescheduled my day, gym first",
+        "do not reschedule my day, gym first is fine",
+        "I was going to reschedule my day, gym first, but never mind",
+        "should I do gym first after class?",
+        "I'm thinking of rescheduling my day, gym first",
+        "maybe replan my evening, gym first",
+        "could I reschedule my day after class with gym first",
+        "I wonder whether to replan my evening, gym first",
+        "nvm, reschedule my day, gym first",
+        "did you reschedule my day, gym first?",
+    ])("%j fires nothing", (message) => {
+        expect(parseReplanRequest(message)).toBeUndefined();
+        expect(planDayReplan(message, day())).toBeUndefined();
+    });
+    it.each([
+        SENTENCE,
+        "can u reschedule my day after marketing, gym first",
+        "Orion, can you reschedule my day after my marketing class, gym first after I get home?",
+        "replan my evening, gym first",
+        "reschedule my day, put gym first",
+    ])("%j still fires", (message) => {
+        expect(planDayReplan(message, day())).toMatchObject({ args: expect.arrayContaining(["--plan", "Gym, 90, 17:50"]) });
+    });
+});
 describe("planDayReplan", () => {
     it("puts the gym first at class end + the 45 min trip home + the 5 min gap, 90 minutes, then the rest in order", () => {
         const plan = planDayReplan(SENTENCE, day());
@@ -94,6 +123,28 @@ describe("replanReply", () => {
         const reply = replanReply(after, plan);
         expect(reply).toBe("Done, after your marketing class and the trip home: Gym 5:50–7:20 PM, then finish resume 7:25–8:25 PM.");
         expect(reply.split("\n")).toHaveLength(1);
+    });
+});
+describe("the reply says what the scheduler did not do as asked", () => {
+    const annika = () => { const d = day(); d.blocks.splice(4, 0, { title: "Annika", start: "19:00", end: "20:30", fixed: true }); return d; };
+    it("gym cannot be first when Annika is at 19:00: says so, where gym went, and why", () => {
+        const plan = planDayReplan(SENTENCE, annika());
+        expect(plan).toMatchObject({ start: "20:35", pushed: { wanted: "17:50", because: "Annika" } });
+        const after = { ...annika(), blocks: [...annika().blocks.slice(0, 3), annika().blocks[4], { title: "Gym", start: "20:35", end: "22:05", fixed: false, kind: "gym" }, { title: "finish resume", start: "17:50", end: "18:50", fixed: false, kind: "study" }] };
+        const reply = replanReply(after, plan, []);
+        expect(reply).toMatch(/^Done, but not as asked/);
+        expect(reply).toContain("Gym couldn't go first at 5:50 PM because Annika is in the way");
+        expect(reply).toContain("Gym 8:35–10:05 PM");
+    });
+    it("NOT BOOKED, skipped, shifted and squeezed-off blocks are named in plain words", () => {
+        const plan = planDayReplan(SENTENCE, day());
+        const after = { ...day(), blocks: [...day().blocks.slice(0, 3), { title: "Gym", start: "17:50", end: "19:20", fixed: false, kind: "gym" }] };
+        const reply = replanReply(after, plan, ["Changed:\n  cleared 3 prior schedule blocks: finish resume, Gym, Dinner\n  NOT BOOKED: laundry (45 min) did not fit on Thursday\n  SKIPPED OPTIONAL: stretch (15 min) did not fit\n  SHIFTED: dinner could not go at 19:00 (Annika is there) — booked 20:35 instead; tell him\n  SHRUNK to fit: nap 90 → 75 min (low priority; tell him)"]);
+        expect(reply.toLowerCase()).toContain("laundry didn't fit and is not booked");
+        expect(reply.toLowerCase()).toContain("stretch was skipped, there was no room");
+        expect(reply.toLowerCase()).toContain("dinner couldn't go at 7:00 pm because annika is there, so it's at 8:35 pm");
+        expect(reply.toLowerCase()).toContain("nap is shorter now, 75 minutes instead of 90");
+        expect(reply).toContain("Finish resume, Dinner came off your day");
     });
 });
 describe("the flow runs it with no model at all", () => {

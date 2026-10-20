@@ -12,19 +12,31 @@ export declare const HOOK_TIMEOUT_MS = 55000;
 export declare const SLOW_TURN_MS = 40000;
 export declare const SLOW_TURN_LINE = "I'm running slowly right now, so I didn't get to that and nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
 export declare const SLOW_FLOW_LINE = "That took longer than I can wait on right now, so nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
-/** The front desk's recent health: after a failure it is given a short timeout, because waiting the full one again only repeats the wait. */
+/** The hook gave up after a write had started: it was stopped, but it may already have changed his day. */
+export declare const SLOW_FLOW_MAYBE_WROTE_LINE = "That took longer than I can wait on, and a change to your day may already have gone through. Check your calendar; if it looks wrong, say \"undo\" and I'll put the last change back.";
+/**
+ * The front desk's recent health. After a failure it is "degraded": calls get the short timeout (waiting 8 s again only repeats the wait), except one probe
+ * per DESK_DEGRADED_WINDOW_MS with the normal budget. A short call that times out proves nothing, so only a probe can end (or extend) the degradation.
+ */
 export declare class DeskHealth {
     private readonly now;
-    private failedAt;
+    private degradedSince;
+    private lastProbeAt;
     constructor(now?: () => number);
-    /** Records how a front-desk call ended (`fallback` is set when it failed or timed out). */
+    degraded(): boolean;
+    /** The timeout for the next call, and whether it is the probe. Call once per desk call. */
+    begin(): {
+        timeoutMs: number;
+        probe: boolean;
+    };
+    /** Records how a call ended (`fallback` / `error` when it failed or timed out). */
     record(decision: {
         fallback?: string;
     } | {
         error: string;
+    }, call?: {
+        probe: boolean;
     }): void;
-    degraded(): boolean;
-    timeoutMs(): number;
 }
 /** The instant after which the flow writes nothing: what is left of the turn's budget, but never less than MIN_FLOW_MS from now. */
 export declare const flowDeadline: (turnStartedAt: number, now?: number) => number;

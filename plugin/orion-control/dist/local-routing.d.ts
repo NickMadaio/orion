@@ -23,6 +23,7 @@ export type LocalRoutingOptions = {
     decideImpl?: (input: {
         message: string;
         clock: string;
+        timeoutMs?: number;
     }) => Promise<Decision>;
     clock?: () => string;
     finalizeWaitMs?: number;
@@ -39,6 +40,8 @@ export type LocalRoutingOptions = {
         pending?: PendingRun;
         askContext?: AskContext;
         deadlineAt?: number;
+        signal?: AbortSignal;
+        onWriteStart?: () => void;
     }) => Promise<FlowResult>;
     /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
     lateFlow?: (minutes: number) => Promise<FlowResult>;
@@ -118,6 +121,8 @@ export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     pending?: PendingRun;
     askContext?: AskContext;
     deadlineAt?: number;
+    signal?: AbortSignal;
+    onWriteStart?: () => void;
 }) => Promise<FlowResult>;
 export declare const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */

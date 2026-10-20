@@ -579,16 +579,24 @@ async function execute(argvs: string[][], { exec, undoTop, when, undone }: {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt }: {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart }: {
   message: string; clock: string; now?: Date; askContext?: AskContext;
-  exec: (args: string[]) => Promise<{ stdout: string; code: number }>;
+  exec: (args: string[], signal?: AbortSignal) => Promise<{ stdout: string; code: number }>;
   /** budgetMs: how long this one call may take (turn-budget.ts); a model call past it is abandoned and answers null. */
   ask: (system: string, user: string, schema: object, budgetMs?: number) => Promise<{ steps?: Intent[] } | null>;
   undo?: string[]; undoTop?: () => string | null; pending?: PendingRun;
   /** The instant after which nothing is written (a flow that is still thinking then is the worker's, with the slim prompt). */
   deadlineAt?: number;
+  /** Aborted when the hook gives up: the scheduler process is killed, and nothing more starts. */
+  signal?: AbortSignal;
+  /** Called just before anything that can WRITE is run, so the caller knows whether a write ever started. */
+  onWriteStart?: () => void;
 }): Promise<FlowResult> {
-  const left = (): number => (deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
+  const left = (): number => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
+  const exec = (args: string[]) => {
+    if (args[0] !== "show" && !args.includes("--dry-run")) onWriteStart?.();
+    return execRaw(args, signal);
+  };
   const tooSlow: FlowResult = { outcome: "fallback", reason: "too slow" };
   if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
   // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).
@@ -622,7 +630,7 @@ export async function runScheduleFlow({ message, clock, exec, ask, now = new Dat
       const ran = await execute([[...replan.args, ...dateArgs]], { exec, undoTop, when, undone });
       if (ran.outcome !== "done") return ran;
       const after: Day | undefined = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout) as Day, () => undefined);
-      return { ...ran, reply: (after && replanReply(after, replan)) || spokenReply(ran.outputs, when) };
+      return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when) };
     }
   }
   // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).

@@ -141,7 +141,9 @@ const checkins = readJson(checkinFile)?.checkins ?? [];
 // Inbound turns (any reply, Mac or phone) are how an ignored blank ask is told from an answered one.
 const turns = (() => { const f = join(DIR, "inbound-turns.jsonl"); return existsSync(f) ? readFileSync(f, "utf8").split("\n").flatMap((l) => { try { const t = Date.parse(JSON.parse(l).at); return Number.isNaN(t) ? [] : [t]; } catch { return []; } }) : []; })();
 let ledger = markAnswered(readLedger(DIR), { logged: day.filter((b) => b.logged), date: localDate(now), now: now.getTime() });
-const ctxBase = { minute, day, tomorrowDay: tomorrowDay ?? [], tomorrowIsToday, signals, session, sessionState, atHome, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
+const homeFixAt = aw.location?.state === "home" ? new Date(aw.location.at) : null;
+const homeFixMinute = homeFixAt && !Number.isNaN(homeFixAt.getTime()) && localDate(homeFixAt) === localDate(now) ? homeFixAt.getHours() * 60 + homeFixAt.getMinutes() : homeFixAt ? -1 : null;
+const ctxBase = { minute, homeFixMinute, day, tomorrowDay: tomorrowDay ?? [], tomorrowIsToday, signals, session, sessionState, atHome, travel, todos, today: localDate(now), tomorrow, out: p.out, where: p.where, idleSeconds: p.idleSeconds,
   bed: sleep.bedtime, wake: sleep.wake, focusToday: total.focusSeconds >= 60 ? formatFocusToday(total).replace(/^Focused today: /, "").replace(/ \(latest.*$/, "") : null, sent };
 
 // The loop first (a ladder rung always wins), then the lines that are not about the plan (session end, due tomorrow, bedtime).

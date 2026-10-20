@@ -11,6 +11,23 @@ export const parseIdleSeconds = (ioreg) => {
 };
 export const parseLocked = (ioreg) => /"CGSSessionScreenIsLocked"=Yes/.test(String(ioreg));
 export const parsePluggedIn = (pmset) => /'AC Power'/.test(String(pmset));
+/** `networksetup -getairportnetwork`: the Wi-Fi name, or null (not joined, or macOS withholds it). */
+export const parseSsid = (out) => /Current Wi-Fi Network: (.+)/.exec(String(out))?.[1]?.trim() ?? null;
+/** `system_profiler SPDisplaysDataType -json`: true when a display other than the built-in one is attached. */
+export function parseExternalDisplay(json) {
+  try {
+    const walk = (v) => Array.isArray(v) ? v.flatMap(walk) : v && typeof v === "object"
+      ? [...(Object.keys(v).some((k) => /connection_type/.test(k)) ? [v] : []), ...Object.values(v).flatMap(walk)] : [];
+    return walk(JSON.parse(json)).some((d) => !/internal|builtin/i.test(Object.entries(d).filter(([k]) => /connection_type/.test(k)).map(([, x]) => x).join(" ")));
+  } catch { return false; }
+}
+/** Is this Mac itself at `place`? Home Wi-Fi (place.ssid), else on AC power with an external display. Seam: ORION_REACH_FACTS.homeEvidence. */
+export function macHomeEvidence(place, env = process.env) {
+  const seam = seamFacts(env);
+  if (typeof seam?.homeEvidence === "boolean") return seam.homeEvidence;
+  if (place?.ssid && parseSsid(sh("/usr/sbin/networksetup", ["-getairportnetwork", "en0"])) === place.ssid) return true;
+  return parsePluggedIn(sh("/usr/bin/pmset", ["-g", "batt"])) && parseExternalDisplay(sh("/usr/sbin/system_profiler", ["SPDisplaysDataType", "-json"]));
+}
 /** True when the default output device is Bluetooth or other external headphones. AirPlay is a speaker, not headphones (spec 3.1). */
 export function parseHeadphones(profilerJson) {
   try {

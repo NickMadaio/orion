@@ -21,6 +21,7 @@ import { existsSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { readAwareness, writeAwareness, controlledDir } from "./lib/awareness/state.mjs";
 import { sessionFacet, sessionFromHook, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, isFresh, LIMITS } from "./lib/awareness/facets.mjs";
+import { macHomeEvidence } from "./lib/reach/facts.mjs";
 import { readJson, updateJson } from "./lib/awareness/io.mjs";
 import { readKnownPlaces, writeKnownPlaces, learnHome, reconcileHome, matchPlace, isNickConfirmed } from "./lib/awareness/places.mjs";
 import { gather, seamFacts } from "./lib/reach/facts.mjs";
@@ -82,7 +83,7 @@ async function refresh({ session } = {}) {
   }
   const signal = (log.phoneSignals ?? []).at(-1) ?? null;
   const events = log.placeEvents ?? [];
-  const location = locationFacet(log.phoneSignals, events, places, now, { mac: macF });
+  const location = locationFacet(log.phoneSignals, events, places, now, { mac: macF, macHome: () => macHomeEvidence(places.find((p) => p.id === "home")) });
   const newestEvent = events.map((e) => e.at).sort().at(-1) ?? null;
   const aw = {
     schema: "orion.awareness.v1", at: now.toISOString(),

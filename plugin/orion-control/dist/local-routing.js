@@ -482,13 +482,21 @@ export function acceptanceVerdict(path, now = Date.now()) {
         return { ok: false, why: `acceptance median ${Math.round(medianMs / 1000)} s (max ${ACCEPTANCE.maxMedianMs / 1000} s)` };
     return { ok: true, why: `acceptance ${pass}/${n}, median ${Math.round(medianMs / 1000)} s` };
 }
+/** Starts a flow that may write: refused (`refused`) once the prompt hook has aborted its run, else marked as a write that has begun. */
+export function startWrite(run, start, refused) {
+    if (run?.abort?.signal.aborted)
+        return Promise.resolve(refused);
+    if (run)
+        run.writeStarted = true;
+    return start();
+}
 export function registerLocalRouting(api, options) {
     if (options.mode === "off")
         return;
     // Which run a flow belongs to, so a flow that is running when the prompt hook gives up can be stopped and its writes known (review, 2026-10-20).
     const building = new AsyncLocalStorage();
-    const marked = (f) => f && ((...a) => { const r = building.getStore(); if (r)
-        r.writeStarted = true; return f(...a); });
+    // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
+    const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => f(...a), { outcome: "fallback", reason: "too slow" }));
     const schedule = options.scheduleFlow;
     options = { ...options,
         ...(schedule ? { scheduleFlow: (m, c, o = {}) => {

@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerLocalRouting, EXACT_REPLY_PROMPT, PRODUCTION_NOTES } from "./local-routing.js";
+import { registerLocalRouting, startWrite, EXACT_REPLY_PROMPT, PRODUCTION_NOTES } from "./local-routing.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS } from "./job-instructions.js";
 import type { Decision } from "./front-desk.js";
 import { runScheduleFlow, type Day, type FlowResult } from "./schedule-flow.js";
@@ -218,6 +218,20 @@ describe("a cut flow is stopped, and the line says what is true", () => {
     writes.length = 0; ac.abort();
     expect(await runScheduleFlow({ ...base, signal: ac.signal, onWriteStart: () => { started += 1; } })).toEqual({ outcome: "fallback", reason: "too slow" });
     expect(writes).toEqual([]); expect(started).toBe(1);
+  });
+});
+
+describe("once the hook has given up with nothing written, no other flow starts a write", () => {
+  it("startWrite (the late, session, wake and to-do flows' write point) refuses an aborted run and marks a live one", async () => {
+    const ac = new AbortController(); const run: { abort: AbortController; writeStarted?: boolean } = { abort: ac };
+    let started = 0; const flow = async () => { started += 1; return "ran"; };
+    expect(await startWrite(run, flow, "refused")).toBe("ran");
+    expect(run.writeStarted).toBe(true);
+    const stopped: { abort: AbortController; writeStarted?: boolean } = { abort: new AbortController() }; stopped.abort.abort();
+    expect(await startWrite(stopped, flow, "refused")).toBe("refused");
+    expect(stopped.writeStarted).toBeUndefined();
+    expect(started).toBe(1);
+    expect(await startWrite(undefined, flow, "refused")).toBe("ran");   // no run (a flow outside the hook) is unchanged
   });
 });
 

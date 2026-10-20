@@ -67,6 +67,14 @@ describe("only an imperative request rewrites his day", () => {
     "imagine i reschedule my day after class, gym first",
     "rescheduling my day after class, gym first, was a mistake yesterday",
     "reschedule my day, gym first lol",
+    "reschedule my day after class, gym first. actually no",
+    "reschedule my day after class, gym first, ugh no forget about it",
+    "reschedule my day after class, gym first? or is that dumb",
+    "reschedule my day? nah, gym first is fine as is",
+    "put gym first after class, she told me",
+    "reschedule my day after class, gym first, hmm",
+    "reschedule my day after class, gym first idk",
+    "he said reschedule my day after class, gym first",
     "nvm, reschedule my day, gym first",
     "did you reschedule my day, gym first?",
   ])("%j fires nothing", (message) => {
@@ -81,6 +89,7 @@ describe("only an imperative request rewrites his day", () => {
     "reschedule my day, put gym first",
     "reschedule my day after marketing gym first",
     "ok so please can you replan my evening, gym first",
+    "can you reschedule my day after class, gym first?",
   ])("%j still fires", (message) => {
     expect(planDayReplan(message, day())).toMatchObject({ args: expect.arrayContaining(["--plan", "Gym, 90, 17:50"]) });
   });

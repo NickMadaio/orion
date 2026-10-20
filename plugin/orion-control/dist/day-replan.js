@@ -15,6 +15,9 @@ const COURTESY = /^(?:(?:ok(?:ay)?|so|yo|hey|please|pls|orion|can u|can you|coul
 const IMPERATIVE = /^(?:re-?schedule|re-?do|re-?plan|re-?arrange|re-?organi[sz]e|re-?work|move|push|put|shift|do|have|start)\b|^(?:after|when|once)\b[^,.;]*?[,\s]+(?:do|put|have|start with)\b/i;
 const TAKEN_BACK = /(?:\bjk|\bj\/k|just kidding|\bkidding|\bnever ?mind|\bnvm|\blol|\blmao|\bhaha+|\bor not|\bscratch that|\bforget (?:it|that))\W*$/i;
 export const startsAsRequest = (text) => { const rest = text.replace(COURTESY, ""); return IMPERATIVE.test(rest) && !TAKEN_BACK.test(text); };
+// Second thoughts, doubt and hearsay anywhere in the message: not an order (review round 3, 2026-10-20).
+const SECOND_THOUGHTS = /\b(?:actually|wait|no|nah|nope|forget|hmm+|idk|or is that|or not|on second thought|scratch that|ugh)\b/i;
+const HEARSAY = /\b(?:she|he|they|someone|mom|mum|dad|my \w+)\s+(?:\w+\s+)?(?:told|said|says|tells|asked|wants)\b|\b(?:told|said|asked) me\b/i;
 const POLITE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|orion)[,\s]+)*(?:can|could|would|will)\s+(?:you|u)\b/i;
 const FIRST_PUT = /\b(?:put|make|do|have|schedule|plan|start(?:\s+off)?\s+with)\s+(?:my\s+|the\s+|a\s+)?(?<y>[a-z][a-z' -]{0,40}?)\s+(?:as\s+)?(?:the\s+)?first(?:\s+(?:event|thing|item|block|activity|task|one))?\b(?!\s+(?:thing\s+)?(?:in the morning|tomorrow|today))/i;
 const FIRST_END = /\s(?<y>[a-z]+)\s+first\s*[.!]*$/i; // "reschedule my day after marketing gym first": one word, no comma
@@ -34,7 +37,9 @@ const cleanTitle = (t) => {
 export function parseReplanRequest(message) {
     const text = message.replace(/\s+/g, " ").trim();
     // A question is not an order ("what is first after class?"), but "can you reschedule my day, gym first?" is a polite one.
-    if (!text || !startsAsRequest(text) || NOT_A_REQUEST.test(text) || !CONTEXT.test(text) || (/\?\s*$/.test(text) && !POLITE.test(text)))
+    // A "?" is only allowed as the end of a polite request ("can u … ?") where the whole message is the request.
+    const question = text.includes("?") && !(POLITE.test(text) && text.indexOf("?") === text.length - 1);
+    if (!text || question || SECOND_THOUGHTS.test(text) || HEARSAY.test(text) || !startsAsRequest(text) || NOT_A_REQUEST.test(text) || !CONTEXT.test(text))
         return undefined;
     const order = [];
     const add = (t) => { const c = t ? cleanTitle(t) : ""; if (c && !order.some((o) => norm(o) === norm(c)))

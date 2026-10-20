@@ -556,11 +556,20 @@ export function acceptanceVerdict(path: string, now = Date.now()): { ok: boolean
   return { ok: true, why: `acceptance ${pass}/${n}, median ${Math.round(medianMs / 1000)} s` };
 }
 
+/** Starts a flow that may write: refused (`refused`) once the prompt hook has aborted its run, else marked as a write that has begun. */
+export function startWrite<R>(run: { abort?: AbortController; writeStarted?: boolean } | undefined, start: () => Promise<R>, refused: R): Promise<R> {
+  if (run?.abort?.signal.aborted) return Promise.resolve(refused);
+  if (run) run.writeStarted = true;
+  return start();
+}
+
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
   if (options.mode === "off") return;
   // Which run a flow belongs to, so a flow that is running when the prompt hook gives up can be stopped and its writes known (review, 2026-10-20).
   const building = new AsyncLocalStorage<Run>();
-  const marked = <A extends unknown[], R>(f: ((...a: A) => Promise<R>) | undefined) => f && ((...a: A) => { const r = building.getStore(); if (r) r.writeStarted = true; return f(...a); });
+  // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
+  const marked = <A extends unknown[], R>(f: ((...a: A) => Promise<R>) | undefined) => f && ((...a: A) =>
+    startWrite(building.getStore(), () => f(...a), { outcome: "fallback", reason: "too slow" } as unknown as R));
   const schedule = options.scheduleFlow;
   options = { ...options,
     ...(schedule ? { scheduleFlow: (m: string, c: string, o: Parameters<NonNullable<LocalRoutingOptions["scheduleFlow"]>>[2] = {}) => {

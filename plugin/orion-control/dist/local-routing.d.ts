@@ -164,5 +164,10 @@ export declare function acceptanceVerdict(path: string, now?: number): {
     ok: boolean;
     why: string;
 };
+/** Starts a flow that may write: refused (`refused`) once the prompt hook has aborted its run, else marked as a write that has begun. */
+export declare function startWrite<R>(run: {
+    abort?: AbortController;
+    writeStarted?: boolean;
+} | undefined, start: () => Promise<R>, refused: R): Promise<R>;
 export declare function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void;
 export {};

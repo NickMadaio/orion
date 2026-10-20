@@ -59,13 +59,13 @@ test("mac: fresh activity is active or idle; a stale file is unknown", () => {
   assert.equal(macFacet(null, null, now).state, "unknown");
 });
 
-test("phone: a 2-hour-old sample is not now", () => {
+test("phone: a 3-hour-old sample is not now", () => {
   assert.equal(phoneFacet({ phoneSignals: [{ at: ago(60), charging: true, motion: "still" }] }, now).state, "charging");
   assert.equal(phoneFacet({ phoneSignals: [{ at: ago(60), charging: false, motion: "walking" }] }, now).state, "moving");
-  const old = phoneFacet({ phoneSignals: [{ at: ago(7200), charging: true, motion: "walking" }] }, now);
+  const old = phoneFacet({ phoneSignals: [{ at: ago(10800), charging: true, motion: "walking" }] }, now);
   assert.equal(old.state, "unknown");
   assert.equal(old.charging, null);
-  assert.equal(phoneFacet({ phoneSignals: [{ at: ago(7200), charging: true }], phoneScreen: { at: ago(30), locked: false } }, now).state, "in-use");
+  assert.equal(phoneFacet({ phoneSignals: [{ at: ago(10800), charging: true }], phoneScreen: { at: ago(30), locked: false } }, now).state, "in-use");
 });
 
 test("audio.mac comes from focus-activity.json and goes unknown after 90 s", () => {
@@ -102,7 +102,7 @@ test("location: a fix at home, away, moving; stale is unknown; no home means atH
   assert.equal(away.state, "elsewhere");
   assert.equal(away.since, ago(900));
   assert.equal(locationFacet([fix(60, 51.6, -0.2, { motion: "walking" })], [], places, now).state, "moving");
-  assert.equal(locationFacet([fix(1500, 51.528, -0.087)], [], places, now).state, "unknown");
+  assert.equal(locationFacet([fix(1500, 51.6, -0.2)], [], places, now).state, "unknown", "away goes stale after 20 min");
   const none = locationFacet([fix(60, 51.6, -0.2)], [], [], now);
   assert.equal(derive({ ...base(), location: none }).atHome, null);
 });
@@ -164,4 +164,58 @@ test("an invalid or missing idle time is unknown: it does not make him late-awak
   }
   assert.equal(sleepFacet({ now: night, config, mac: { idleSeconds: 5, locked: false, displayAsleep: false } }).state, "late-awake");
   assert.equal(quietFacts({ now: night, dir: "x", config, facts: { idleSeconds: null, locked: false } }).quiet, true);
+});
+
+// Rows as the phone sent them on 2026-10-20 (each arrived twice); the refresh ran at 09:57Z.
+const row = (at, extra = {}) => ({ at, charging: false, latitude: 51.528, longitude: -0.087, motion: "unknown", ...extra });
+const live = [row("2026-10-20T07:35:00Z"), row("2026-10-20T07:35:00Z"), row("2026-10-20T08:21:26Z"), row("2026-10-20T08:21:26Z")];
+const at0957 = new Date("2026-10-20T09:57:00Z");
+const macActive = { state: "active" };
+
+test("location: the 08:21Z home fix still means home at the 09:57Z refresh, source sample, duplicates ignored", () => {
+  const loc = locationFacet(live, [], [SEEDED_HOME], at0957);
+  assert.equal(loc.state, "home");
+  assert.equal(loc.source, "sample");
+  assert.equal(loc.since, "2026-10-20T07:35:00Z");
+  assert.equal(derive({ ...base(), location: loc }).atHome, true);
+});
+
+test("location: an away sample, an exit event, or a 4 h gap ends 'home'", () => {
+  const away = row("2026-10-20T09:45:00Z", { latitude: 51.6, longitude: -0.2 });
+  assert.equal(locationFacet([...live, away], [], [SEEDED_HOME], at0957).state, "elsewhere");
+  assert.equal(locationFacet([...live, away], [], [SEEDED_HOME], new Date("2026-10-20T10:10:00Z")).state, "unknown", "20 min limit for away");
+  const exit = { at: "2026-10-20T09:00:00Z", event: "exit", placeId: "home" };
+  assert.equal(locationFacet(live, [exit], [SEEDED_HOME], at0957).state, "elsewhere");
+  assert.equal(locationFacet(live, [{ ...exit, at: "2026-10-20T08:00:00Z" }], [SEEDED_HOME], at0957).state, "home", "a later fix beats an older exit");
+  const gap = new Date("2026-10-20T12:30:00Z"); // 4 h 9 min after the last fix
+  assert.equal(locationFacet(live, [], [SEEDED_HOME], gap).state, "unknown", "no Mac activity: lapsed");
+  assert.equal(locationFacet(live, [], [SEEDED_HOME], gap, { mac: macActive }).state, "unknown", "Mac activity alone is not evidence the Mac is home");
+  assert.equal(locationFacet(live, [], [SEEDED_HOME], gap, { mac: macActive, macHome: true }).state, "home", "Mac activity plus Mac-home evidence holds it");
+  const moved = [...live, row("2026-10-20T08:30:00Z", { motion: "walking" })];
+  assert.equal(locationFacet(moved, [], [SEEDED_HOME], gap, { mac: macActive, macHome: true }).state, "unknown", "he was moving: Mac activity does not hold it");
+  assert.equal(locationFacet(live, [], [SEEDED_HOME], new Date("2026-10-20T14:30:00Z"), { mac: macActive, macHome: true }).state, "unknown", "6 h cap without a new phone sample");
+  let asked = 0;
+  locationFacet(live, [], [SEEDED_HOME], at0957, { mac: macActive, macHome: () => { asked++; return true; } });
+  assert.equal(asked, 0, "evidence is only gathered once the 4 h base hold has lapsed");
+});
+
+test("phone: a 96-minute-old sample (45 min cadence) is still the phone's state", () => {
+  const p = phoneFacet({ phoneSignals: live }, at0957);
+  assert.equal(p.state, "still");
+  assert.equal(p.lastSampleAt, "2026-10-20T08:21:26Z");
+  assert.equal(phoneFacet({ phoneSignals: live }, new Date("2026-10-20T10:30:00Z")).state, "unknown");
+});
+
+test("location: a newer sample without a fix that shows him walking or leftAt ends the home hold", () => {
+  const home = [row("2026-10-20T08:00:00Z")];
+  const t = new Date("2026-10-20T08:30:00Z");
+  const walk = { at: "2026-10-20T08:25:00Z", charging: false, motion: "walking" };
+  for (const m of ["walking", "running", "automotive"]) {
+    const loc = locationFacet([...home, { ...walk, motion: m }], [], [SEEDED_HOME], t);
+    assert.equal(loc.state, "moving", m);
+    assert.equal(derive({ ...base(), location: loc }).atHome, false);
+  }
+  assert.equal(locationFacet([...home, { at: "2026-10-20T08:25:00Z", motion: "still", charging: false }], [], [SEEDED_HOME], t).state, "home", "still does not end it");
+  assert.equal(locationFacet([...home, { at: "2026-10-20T08:25:00Z", leftAt: 505 }], [], [SEEDED_HOME], t).state, "moving");
+  assert.equal(locationFacet([{ ...walk, at: "2026-10-20T07:50:00Z" }, ...home], [], [SEEDED_HOME], t).state, "home", "an older walk sample does not");
 });

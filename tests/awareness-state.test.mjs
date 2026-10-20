@@ -49,7 +49,7 @@ test("each facet goes unknown past its own limit, and derived follows", () => {
   assert.equal(old.calendar.state, "unknown");
   assert.equal(old.location.state, "unknown");
   assert.equal(old.derived.atHome, null);
-  assert.equal(old.phone.state, "unknown");
+  assert.notEqual(old.phone.state, "unknown", "phone samples arrive every ~45 min: 25 min is fresh");
   assert.equal(old.derived.activity, "unknown");
 });
 

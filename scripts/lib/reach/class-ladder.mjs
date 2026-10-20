@@ -23,8 +23,10 @@ export function classLadder(ctx, say) {
   // Away / left: awareness location when it is known (atHome true or false), else the calendar-derived `out` and the
   // phone's leftAt, as before. Unknown is never "left".
   const located = typeof ctx.atHome === "boolean";
-  const away = located ? !ctx.atHome : ctx.out;
-  const moved = located ? !ctx.atHome : signals.leftAt != null;
+  // a home answer older than the phone's leftAt is stale: he left after it (homeFixMinute: when that answer was last confirmed)
+  const leftSince = ctx.atHome === true && signals.leftAt != null && ctx.homeFixMinute != null && signals.leftAt > ctx.homeFixMinute;
+  const away = located ? !ctx.atHome || leftSince : ctx.out;
+  const moved = located ? !ctx.atHome || leftSince : signals.leftAt != null;
   // Leave soon: travel starts in 5-15 minutes, for any fixed destination.
   for (const w of ctx.travel ?? []) {
     const inMin = w.start - ctx.minute;

@@ -6,7 +6,7 @@ import { matchPlace } from "./places.mjs";
 const MIN = 60_000;
 export const LIMITS = Object.freeze({
   session: 90_000, calendar: 10 * MIN, locationSample: 20 * MIN, locationRegion: 12 * 3600_000,
-  mac: 90_000, phone: 20 * MIN, audioMac: 90_000, audioPhone: 20 * MIN, sleep: 10 * MIN,
+  mac: 90_000, phone: 2 * 3600_000, locationPlace: 4 * 3600_000, locationMacHold: 6 * 3600_000, audioMac: 90_000, audioPhone: 20 * MIN, sleep: 10 * MIN,
 });
 const MOVING = ["walking", "running", "cycling", "vehicle", "automotive"];
 
@@ -131,41 +131,62 @@ const toPlace = (places, id) => places.find((p) => p.id === id);
 const fromPlace = (p, at, source, since) => ({
   state: p.kind === "home" || p.id === "home" ? "home" : "known", placeId: p.id, cell: null, since, at, source });
 
+/** The phone sends each sample twice (and a retry can repeat one): one fix per instant and place. */
+const uniqueFixes = (fixes) => { const seen = new Set(); return fixes.filter((s) => { const k = `${s.at}|${s.latitude}|${s.longitude}`; return !seen.has(k) && seen.add(k); }); };
+
+/** A newer sample, with or without a fix, that shows him walking/running/driving or carries `leftAt`: he has left. */
+function leavingSince(samples, fix) {
+  const after = (samples ?? []).filter((s) => ms(s?.at) !== null && (!fix || ms(s.at) > ms(fix.at)));
+  const rows = after.filter((s) => MOVING.includes(s.motion) || s.leftAt != null);
+  return rows.sort((a, b) => ms(a.at) - ms(b.at)).at(-1) ?? null;
+}
+
 /**
- * Where he is: the newer of the last region event (up to 12 h) and the last sample with a fix (20 min).
- * `homeKnown` says whether any home place exists; without one `atHome` stays null.
+ * Where he is. A fix inside a known place means "at that place" until evidence says otherwise: a later fix outside it, an
+ * exit event, or a gap of 4 h (`locationPlace`) in which the phone moved or the Mac showed no activity. Past 4 h, Mac activity
+ * keeps it alive only when the Mac itself shows it is home (`macHome`: home Wi-Fi, or AC power plus an external display; a
+ * boolean or a function, called only then), and never past 6 h without a new phone sample. A newer sample showing him moving ends it. Away/unknown-place fixes stay
+ * fresh for 20 min only. A region event stands for up to 12 h; a newer fix, even a stale one, supersedes an older event.
+ * `expiresAt` says when this reading lapses, so a reader of the stored file need not guess. `homeKnown`: any home place exists.
  */
-export function locationFacet(samples, placeEvents, knownPlaces, now) {
+export function locationFacet(samples, placeEvents, knownPlaces, now, { mac = null, macHome = false } = {}) {
   const places = knownPlaces ?? [];
   const homeKnown = places.some((p) => p.id === "home");
-  const fixes = (samples ?? []).filter((s) => Number.isFinite(Number(s.latitude)) && Number.isFinite(Number(s.longitude)) && ms(s.at) !== null);
-  const sample = fixes.at(-1);
+  const fixes = uniqueFixes((samples ?? []).filter((s) => Number.isFinite(Number(s.latitude)) && Number.isFinite(Number(s.longitude)) && ms(s.at) !== null));
+  let sample = fixes.at(-1);
+  const leaving = leavingSince(samples, sample);
   const event = (placeEvents ?? []).filter((e) => ms(e.at) !== null).sort((a, b) => ms(a.at) - ms(b.at)).at(-1);
-  const sampleOk = sample && isFresh(sample.at, LIMITS.locationSample, now);
-  const eventOk = event && isFresh(event.at, LIMITS.locationRegion, now);
-  const newest = (a, b) => ms(a) >= ms(b);
-  if (sampleOk && !(eventOk && newest(event.at, sample.at))) return fromSample(fixes, places, homeKnown, now);
-  if (eventOk) {
+  const eventNewer = event && (!sample || ms(event.at) >= ms(sample.at));
+  if (leaving && !(event && ms(event.at) >= ms(leaving.at))) return { state: "moving", placeId: null, cell: null, since: leaving.at, at: leaving.at, source: "sample", homeKnown, expiresAt: iso(ms(leaving.at) + LIMITS.locationSample) };
+  if (sample && !eventNewer) return fromSample(fixes, places, homeKnown, now, mac, macHome) ?? { ...UNKNOWN.location(sample.at), homeKnown };
+  if (eventNewer && isFresh(event.at, LIMITS.locationRegion, now)) {
     const p = toPlace(places, event.placeId);
     const base = event.event === "enter" && p ? fromPlace(p, event.at, "region", event.at)
       : { state: "elsewhere", placeId: null, cell: null, since: event.at, at: event.at, source: "region" };
-    return { ...base, homeKnown };
+    return { ...base, homeKnown, expiresAt: iso(ms(event.at) + LIMITS.locationRegion) };
   }
   return { ...UNKNOWN.location(sample?.at ?? event?.at ?? null), homeKnown };
 }
 
-function fromSample(fixes, places, homeKnown, now) {
+/** The reading from the newest fix, or null when it has lapsed. */
+function fromSample(fixes, places, homeKnown, now, mac, macHome) {
   const sample = fixes.at(-1);
   const point = (s) => ({ lat: Number(s.latitude), lon: Number(s.longitude) });
   const here = matchPlace(point(sample), places);
+  const moving = MOVING.includes(sample.motion);
+  const age = now.getTime() - ms(sample.at);
+  // at a place and not moving: held 4 h; beyond that only Mac activity (not moving) holds it, to the region limit
+  const placeHeld = !!here && !moving && (age <= LIMITS.locationPlace || (age <= LIMITS.locationMacHold && mac?.state === "active" && (typeof macHome === "function" ? macHome() : macHome) === true));
+  const limit = placeHeld ? LIMITS.locationMacHold : LIMITS.locationSample;
+  if (!placeHeld && age > limit) return null;
   const cell = cellOf(point(sample).lat, point(sample).lon);
   // dwell: walk back through consecutive samples that were in the same place (or the same cell, away from every place)
   const same = (s) => { const m = matchPlace(point(s), places); return here ? m?.id === here.id : !m && cellOf(point(s).lat, point(s).lon) === cell; };
   let since = sample.at;
   for (let i = fixes.length - 1; i >= 0 && same(fixes[i]); i--) since = fixes[i].at;
-  const moving = MOVING.includes(sample.motion);
   const state = moving ? "moving" : here ? (here.kind === "home" || here.id === "home" ? "home" : "known") : "elsewhere";
-  return { state, placeId: here?.id ?? null, cell, since, at: sample.at, source: "sample", homeKnown };
+  const expiresAt = iso(ms(sample.at) + (placeHeld ? (age > LIMITS.locationPlace ? LIMITS.locationMacHold : LIMITS.locationPlace) : LIMITS.locationSample));
+  return { state, placeId: here?.id ?? null, cell, since, at: sample.at, source: "sample", homeKnown, expiresAt };
 }
 
 /** `phoneSignals` rows with an optional `audio: { route, headphones }`. */

@@ -148,3 +148,11 @@ test("end to end: at leave time + 5 with no sign of him, the urgent class messag
   // the shared key: orion-watch and orion-standing now stay quiet about this class
   assert.equal(JSON.parse(readFileSync(join(t.dir, "announced.json"), "utf8"))["2026-10-15"]["class-540"], "proactive");
 });
+
+test("ladder: a home answer older than leftAt is stale; a home answer newer than it is not", () => {
+  const stale = { ...base, atHome: true, homeFixMinute: m(8, 0), signals: { leftAt: m(8, 10) } };
+  assert.deepEqual(decide({ ...stale, minute: m(8, 20) }), [], "left after the home fix: no 'out the door'");
+  assert.deepEqual(decide({ ...stale, minute: m(8, 50) }), []);
+  const fresh = { ...stale, homeFixMinute: m(8, 15) };
+  assert.equal(decide({ ...fresh, minute: m(8, 20), sent: { [`leave-${m(9)}`]: true } })[0].key, `leave-late-${m(9)}`, "he came back: still at home");
+});

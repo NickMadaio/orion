@@ -34,7 +34,7 @@ export function readAwareness({ dir = controlledDir(), now = new Date(), maxAgeM
     schema: SCHEMA, at: file.at ?? null,
     session: pick("session", file.session, UNKNOWN.session),
     calendar: pick("calendar", file.calendar, UNKNOWN.calendar),
-    location: ok("location", file.location) ? file.location : { ...UNKNOWN.location(file.location?.at ?? null), homeKnown: !!file.location?.homeKnown },
+    location: locationOk(file.location, ok, now) ? file.location : { ...UNKNOWN.location(file.location?.at ?? null), homeKnown: !!file.location?.homeKnown },
     mac: pick("mac", file.mac, UNKNOWN.mac),
     phone: pick("phone", file.phone, UNKNOWN.phone),
     audio: { mac: ok("audioMac", audio.mac) ? audio.mac : UNKNOWN.audio(audio.mac?.at ?? null),
@@ -43,6 +43,12 @@ export function readAwareness({ dir = controlledDir(), now = new Date(), maxAgeM
     meta: file.meta ?? {},
   }), dir, now);
 }
+
+/** A location facet that carries `expiresAt` lapses then; an older one falls back to its source's age limit. */
+const locationOk = (facet, ok, now) => {
+  const until = Date.parse(facet?.expiresAt);
+  return !Number.isNaN(until) && facet?.state !== "unknown" ? now.getTime() <= until && ok("location", facet, LIMITS.locationRegion) : ok("location", facet);
+};
 
 const finish = (aw) => ({ ...aw, derived: derive(aw) });
 

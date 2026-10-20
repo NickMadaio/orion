@@ -125,7 +125,9 @@ public struct TrackingLog {
                 var sample: [String: Any] = ["at": at, "motion": motion, "charging": charging]
                 if let latitude, let longitude { sample["latitude"] = latitude; sample["longitude"] = longitude }
                 if let audio { sample["audio"] = audio }
-                signals.append(sample)
+                // The phone can deliver one sample twice (a queued retry after a slow send): one row per instant.
+                let repeated = signals.suffix(20).contains { $0["at"] as? String == at && $0["motion"] as? String == motion }
+                if !repeated { signals.append(sample) }
                 log["phoneSignals"] = Array(signals.suffix(2000))
                 reply = "Noted."
             case let .place(event, placeId, at, latitude, longitude):

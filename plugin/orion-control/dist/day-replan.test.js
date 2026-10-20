@@ -117,7 +117,7 @@ describe("planDayReplan", () => {
         expect(planDayReplan(SENTENCE, d)).toMatchObject({ args: ["day", "--plan", "Gym, 90, 17:50"] });
     });
     it("asks, and writes nothing, when he names a thing it cannot place (a reschedule he asked for)", () => {
-        expect(planDayReplan("replan my evening, laundry first", day())).toMatchObject({ say: "ask", text: expect.stringMatching(/laundry.*how many minutes.*haven't changed/i) });
+        expect(planDayReplan("replan my evening, laundry first", day())).toMatchObject({ say: "ask", text: expect.stringMatching(/laundry isn't on your day.*haven't changed.*how many minutes/i) });
         expect(planDayReplan("replan my evening, marketing first", day())).toMatchObject({ say: "cannot", text: expect.stringMatching(/class.*doesn't move/i) });
         expect(planDayReplan("reschedule my day after yoga, gym first", day())).toMatchObject({ say: "ask", text: expect.stringMatching(/don't see "yoga"/i) });
     });

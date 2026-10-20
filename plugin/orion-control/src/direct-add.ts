@@ -63,7 +63,7 @@ export function eveningTime(t: string | undefined, nowMinute: number, message: s
   return m < nowMinute && m + 720 > nowMinute && m + 720 < 1440 && m >= 60 && m < 720 ? hhmm(m + 720) : t;
 }
 
-export type DirectAdd = { args: string[]; title: string; minutes: number; at: string } | { say: "ask" | "cannot"; text: string };
+export type DirectAdd = { args: string[]; title: string; minutes: number; at: string; earlier?: { title: string; start: string; end: string } } | { say: "ask" | "cannot"; text: string };
 
 const LEAD = /^(?:(?:yes|yeah|yea|yep|yup|ok(?:ay)?|sure|alright|please|pls|orion|hey|and|so|then|um+|uh+|actually|can you|could you|would you|will you|can u|just|i'?m fine|i'?m ok(?:ay)?)[,.…\s]*)*/i;
 const VERB = String.raw`(?:put|add|schedule|book|block(?:\s+(?:off|out))?|set(?:\s+up)?|pencil in|slot in)`;
@@ -141,8 +141,9 @@ export function parseDirectAdd(message: string, day: Day, ask?: AskContext): Dir
     if (minutes > 480) return { say: "ask", text: `Until ${ampm(until)} is ${Math.round(minutes / 60)} hours — is that right? I haven't changed anything.` };
   }
   // The same thing already logged or done earlier today is a new session, not a duplicate: `--again` says so to the scheduler.
-  const earlier = day.blocks.some((b) => !b.fixed && toMin(b.start) <= now && norm(b.title) === norm(title!));
-  return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : [])], title, minutes, at: hhmm(start) };
+  const earlier = day.blocks.find((b) => !b.fixed && toMin(b.start) <= now && norm(b.title) === norm(title!));
+  return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : [])], title, minutes, at: hhmm(start),
+    ...(earlier ? { earlier: { title: earlier.title, start: earlier.start, end: earlier.end } } : {}) };
 }
 
 // ---- the worker's restatement is only ever Nick's own request said back (2026-10-19 review) ----

@@ -2,7 +2,7 @@
 // Pure planning: given the day and what he really did, say what to write on the calendar, which
 // slips to record and how the rest of today is re-weighed. orion-reschedule does the writing.
 import { replan } from "./replan.mjs";
-import { weightOf } from "./priority.mjs";
+import { weightOf, wholeMinutes } from "./priority.mjs";
 import { minimumFor } from "./lengths.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
@@ -128,7 +128,9 @@ function displacedTags(created, displaced) {
 export function planDisplace(blocks, block, opts) {
   const { date, now, window, soft = [], config = {}, buffer = 0, why, txn, at } = opts;
   const missed = Math.min(block.end - block.start, Math.max(block.end - Math.max(block.start, now), minimumFor(block.title, config.minimums ?? {})));
-  const displaced = [{ block, minutes: Math.max(MIN_PIECE, missed) }];
+  // A must (the Gym) goes back WHOLE, at its anchor's length: only what is left of it is "missed", but it is not trimmed to that (2026-10-20: gave-up Gym came back 50 min).
+  const must = weightOf(block, config).rank === "must";
+  const displaced = [{ block, minutes: must ? wholeMinutes(block, config) : Math.max(MIN_PIECE, missed) }];
   const kept = blocks.filter((b) => b.id !== block.id);
   const { result } = reweigh({ blocks: kept, displaced, now, window, soft, config, buffer });
   const byId = new Map(kept.map((b) => [b.id, b]));
@@ -136,7 +138,7 @@ export function planDisplace(blocks, block, opts) {
   const bumped = result.unplaced.filter((u) => !u.displaced && byId.has(u.id)).map((u) => byId.get(u.id));
   const off = result.unplaced.some((u) => u.displaced);
   const slips = [...bumped.map((b) => slipRow({ date, at, block: b, missed: b.end - b.start, replacedBy: block.title, reason: `bumped:${block.title}`, txn, config })),
-    slipRow({ date, at, block, missed: displaced[0].minutes, replacedBy: null, reason: why === "gave-up" ? "gave-up" : off ? "no-room" : why, txn, config })];
+    slipRow({ date, at, block, missed: Math.max(MIN_PIECE, missed), replacedBy: null, reason: why === "gave-up" ? "gave-up" : off ? "no-room" : why, txn, config })];
   return { created: back, moves: result.moves.filter((m) => byId.has(m.id)), removed: [block, ...bumped], slips, bumped, placedAgain: back, offToday: off ? [block] : [],
     summary: displaceSummary({ block, back, bumped, off, why }) };
 }

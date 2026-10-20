@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
 import { eveningTime, parseDirectAdd, spokenTimesToDigits } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
-import { planDayReplan, replanReply } from "./day-replan.js";
+import { planDayReplan, replanReply, type ReplanAsk } from "./day-replan.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 
@@ -547,7 +547,7 @@ export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-resched
 export type FlowResult =
   /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
   /** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
-  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string }
+  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
   /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */
   | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[]; pending?: PendingAdd }
   | { outcome: "fallback"; reason: string };
@@ -579,7 +579,7 @@ async function execute(argvs: string[][], { exec, undoTop, when, undone }: {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart }: {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext }: {
   message: string; clock: string; now?: Date; askContext?: AskContext;
   exec: (args: string[], signal?: AbortSignal) => Promise<{ stdout: string; code: number }>;
   /** budgetMs: how long this one call may take (turn-budget.ts); a model call past it is abandoned and answers null. */
@@ -591,6 +591,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   signal?: AbortSignal;
   /** Called just before anything that can WRITE is run, so the caller knows whether a write ever started. */
   onWriteStart?: () => void;
+  /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
+  replanContext?: ReplanAsk;
 }): Promise<FlowResult> {
   const left = (): number => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
   // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
@@ -630,21 +632,33 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   if (clash) return takenBack({ outcome: "say", text: clash, kind: "ask" });
   // "reschedule my day after my class, gym first" / "after class do gym then resume": his order, read by code, one `day` re-plan (2026-10-20).
   if (!titled) {
-    const replan = planDayReplan(message, day);
+    const replan = planDayReplan(message, day, replanContext);
     if (replan && "say" in replan) return takenBack({ outcome: "say", text: replan.text, kind: replan.say });
     if (replan) {
       if (left() <= 0) return tooSlow;
       const ran = await execute([[...replan.args, ...dateArgs]], { exec, undoTop, when, undone });
       if (ran.outcome !== "done") return ran;
       const after: Day | undefined = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout) as Day, () => undefined);
-      return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when) };
+      return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when), replan: replan.ask };
     }
   }
   // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).
   if (!titled) {
     const direct = parseDirectAdd(message, day, askContext);
     if (direct && "say" in direct) return takenBack({ outcome: "say", text: direct.text, kind: direct.say });
-    if (direct) return left() <= 0 ? tooSlow : execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
+    if (direct) {
+      if (left() <= 0) return tooSlow;
+      const ran = await execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
+      // Said plainly: an earlier one today already happened (this is a second session), and a must (the Gym) is never cut to make room, so a change that
+      // would need that is refused and he is asked (2026-10-20 live test).
+      if (ran.outcome === "say" && /didn't fit/i.test(ran.text)) return { ...ran, text: `${ran.text} I won't cut it short to fit, so nothing was changed. Tell me if ${direct.title} should end earlier, or whether it should wait.` };
+      if (ran.outcome === "done" && direct.earlier) {
+        const e = direct.earlier;
+        const was = e.end <= (day.now ?? "00:00") ? "already over" : "already started";
+        return { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} Your earlier ${e.title} (${ampm(e.start)}–${ampm(e.end)}) is ${was}, so this is a second one.` };
+      }
+      return ran;
+    }
   }
   // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
   const build = (rawList: Intent[]) => { const list = ownLength(message, rawList); return list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) })); };

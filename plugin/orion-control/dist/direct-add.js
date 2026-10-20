@@ -134,8 +134,9 @@ export function parseDirectAdd(message, day, ask) {
             return { say: "ask", text: `Until ${ampm(until)} is ${Math.round(minutes / 60)} hours — is that right? I haven't changed anything.` };
     }
     // The same thing already logged or done earlier today is a new session, not a duplicate: `--again` says so to the scheduler.
-    const earlier = day.blocks.some((b) => !b.fixed && toMin(b.start) <= now && norm(b.title) === norm(title));
-    return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : [])], title, minutes, at: hhmm(start) };
+    const earlier = day.blocks.find((b) => !b.fixed && toMin(b.start) <= now && norm(b.title) === norm(title));
+    return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : [])], title, minutes, at: hhmm(start),
+        ...(earlier ? { earlier: { title: earlier.title, start: earlier.start, end: earlier.end } } : {}) };
 }
 // ---- the worker's restatement is only ever Nick's own request said back (2026-10-19 review) ----
 const EXPLICIT_TIME = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?![\d:])(?!\s*(?:min|hour|hr))/gi;

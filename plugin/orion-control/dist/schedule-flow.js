@@ -603,7 +603,7 @@ async function execute(argvs, { exec, undoTop, when, undone }) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart }) {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext }) {
     const left = () => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
     // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
     // has not begun is refused when the hook has given up (review round 2, 2026-10-20: a killed write could delete blocks and never create them).
@@ -656,7 +656,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
         return takenBack({ outcome: "say", text: clash, kind: "ask" });
     // "reschedule my day after my class, gym first" / "after class do gym then resume": his order, read by code, one `day` re-plan (2026-10-20).
     if (!titled) {
-        const replan = planDayReplan(message, day);
+        const replan = planDayReplan(message, day, replanContext);
         if (replan && "say" in replan)
             return takenBack({ outcome: "say", text: replan.text, kind: replan.say });
         if (replan) {
@@ -666,7 +666,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
             if (ran.outcome !== "done")
                 return ran;
             const after = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout), () => undefined);
-            return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when) };
+            return { ...ran, reply: (after && replanReply(after, replan, ran.outputs)) || spokenReply(ran.outputs, when), replan: replan.ask };
         }
     }
     // "put X until T" / a yes to ORION's own "I could put X there": one exact add from now, read by code, never the form (2026-10-19).
@@ -674,8 +674,21 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
         const direct = parseDirectAdd(message, day, askContext);
         if (direct && "say" in direct)
             return takenBack({ outcome: "say", text: direct.text, kind: direct.say });
-        if (direct)
-            return left() <= 0 ? tooSlow : execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
+        if (direct) {
+            if (left() <= 0)
+                return tooSlow;
+            const ran = await execute([[...direct.args, ...dateArgs]], { exec, undoTop, when, undone });
+            // Said plainly: an earlier one today already happened (this is a second session), and a must (the Gym) is never cut to make room, so a change that
+            // would need that is refused and he is asked (2026-10-20 live test).
+            if (ran.outcome === "say" && /didn't fit/i.test(ran.text))
+                return { ...ran, text: `${ran.text} I won't cut it short to fit, so nothing was changed. Tell me if ${direct.title} should end earlier, or whether it should wait.` };
+            if (ran.outcome === "done" && direct.earlier) {
+                const e = direct.earlier;
+                const was = e.end <= (day.now ?? "00:00") ? "already over" : "already started";
+                return { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} Your earlier ${e.title} (${ampm(e.start)}–${ampm(e.end)}) is ${was}, so this is a second one.` };
+            }
+            return ran;
+        }
     }
     // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
     const build = (rawList) => { const list = ownLength(message, rawList); return list.map((st) => compile(st, day, message, { single: list.filter((x) => x.do === "add").length <= 1, ...(askContext ? { askContext } : {}) })); };

@@ -1,5 +1,6 @@
 import { type Decision } from "./front-desk.js";
 import { type SessionHint } from "./session-flow.js";
+import { type ReplanAsk } from "./day-replan.js";
 import { type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
@@ -42,6 +43,7 @@ export type LocalRoutingOptions = {
         deadlineAt?: number;
         signal?: AbortSignal;
         onWriteStart?: () => void;
+        replanContext?: ReplanAsk;
     }) => Promise<FlowResult>;
     /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
     lateFlow?: (minutes: number) => Promise<FlowResult>;
@@ -123,6 +125,7 @@ export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     deadlineAt?: number;
     signal?: AbortSignal;
     onWriteStart?: () => void;
+    replanContext?: ReplanAsk;
 }) => Promise<FlowResult>;
 export declare const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */

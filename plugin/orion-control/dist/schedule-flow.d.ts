@@ -1,5 +1,6 @@
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
+import { type ReplanAsk } from "./day-replan.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 export type DayBlock = {
     title: string;
@@ -246,7 +247,8 @@ export type FlowResult =
     outputs: string[];
     marks?: string[];
     undone?: number;
-    reply?: string;
+    reply?: string; /** the reschedule request this change carried out, remembered for a follow-up reorder */
+    replan?: ReplanAsk;
 }
 /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */
  | {
@@ -265,7 +267,7 @@ export type FlowResult =
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart }: {
+export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext }: {
     message: string;
     clock: string;
     now?: Date;
@@ -287,6 +289,8 @@ export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, no
     signal?: AbortSignal;
     /** Called just before anything that can WRITE is run, so the caller knows whether a write ever started. */
     onWriteStart?: () => void;
+    /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
+    replanContext?: ReplanAsk;
 }): Promise<FlowResult>;
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export declare function spokenReply(outputs: string[], when?: string): string;

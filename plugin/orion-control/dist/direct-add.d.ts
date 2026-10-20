@@ -13,6 +13,11 @@ export type DirectAdd = {
     title: string;
     minutes: number;
     at: string;
+    earlier?: {
+        title: string;
+        start: string;
+        end: string;
+    };
 } | {
     say: "ask" | "cannot";
     text: string;

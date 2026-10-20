@@ -15,7 +15,7 @@
 //             out when not everything fits; it never reorders the day.
 // What cannot fit is reported, never silently dropped.
 import { freeGaps } from "./gaps.mjs";
-import { importanceOf, priorityOf, weightOf } from "./priority.mjs";
+import { importanceOf, priorityOf, weightOf, wholeMinutes } from "./priority.mjs";
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
@@ -81,7 +81,13 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   // (2026-10-15: meal prep was booked 13:00 because "finish resume" ran to 12:50).
   const statedAt = add.filter((a) => !a.fixed && Number.isInteger(a.at) && a.at >= floor);
   const clips = [];
-  const runningNow = movable.filter((b) => b.start < floor && b.end > floor).map((b) => {
+  // A must under way (the Gym) is never cut short for a time he states: it is moved later whole (below), or the change is refused when it cannot be (2026-10-20: it was cut to 5 minutes).
+  const mustCut = [];
+  const runningNow = movable.filter((b) => b.start < floor && b.end > floor).filter((b) => {
+    const hit = weightOf(b, config).rank === "must" && statedAt.some((a) => overlaps(b, { start: a.at - buffer, end: a.at + a.minutes }));
+    if (hit) mustCut.push(b);
+    return !hit;
+  }).map((b) => {
     const cut = statedAt.find((a) => overlaps(b, { start: a.at - buffer, end: a.at + a.minutes }));
     if (!cut) return b;
     const clipped = { ...b, end: Math.max(floor, cut.at - buffer) };
@@ -89,7 +95,7 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
     return clipped;
   }).sort((a, b) => a.start - b.start || a.end - b.end);
   const past = [...finished];
-  const interrupted = [];
+  const interrupted = [...mustCut];
   for (const b of runningNow) {
     if (b.end <= floor) { past.push(b); continue; } // cut short to now: it is over
     const rest = { start: floor, end: b.end };
@@ -134,7 +140,7 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   // 3. Flexible work: displaced blocks go back at or after where they were;
   //    new items at or after where he wanted them, in the order he listed them.
   const flexible = [
-    ...[...interrupted, ...movable.filter((b) => b.start >= floor && !stays.includes(b))].map((b, k) => ({ block: b, minutes: b.end - b.start,
+    ...[...interrupted, ...movable.filter((b) => b.start >= floor && !stays.includes(b))].map((b, k) => ({ block: b, minutes: wholeMinutes(b, config),
       after: Math.max(floor, b.start, /\bdinner\b/i.test(b.title) ? 18 * 60 + 30 : 0), before: end, seq: -1000 + k, fresh: false, pref: true })),
     ...displaced.map(({ block, minutes }, k) => ({ block: { ...block, id: `displaced-${k}`, fixed: false, source: "orion", date, calendarId: null },
       minutes: Math.max(5, minutes ?? block.end - block.start), after: floor, before: end, seq: -500 + k, fresh: false, displaced: true, pref: false })),
@@ -171,7 +177,8 @@ export function replan(blocks, { now, window, blocked = [], soft = [], add = [],
   const { placed } = layout(chosen, fixedTaken, { floor, end, buffer });
 
   const moves = [...clips, ...placed.filter(({ item, block }) => !item.fresh && !item.displaced && block.start !== item.block.start)
-    .map(({ item, block }) => ({ id: item.block.id, title: item.block.title, from: item.block.start, to: block.start }))];
+    .map(({ item, block }) => ({ id: item.block.id, title: item.block.title, from: item.block.start, to: block.start,
+      ...(block.end - block.start !== item.block.end - item.block.start ? { toEnd: block.end } : {}) }))];   // a must put back at its anchor's length says so
   const placedNew = placed.filter(({ item }) => item.fresh || item.displaced).map(({ block }) => block);
   for (const { a, i, because } of lostTime) {
     const got = placedNew.find((block) => block.id === `new-${i}`);

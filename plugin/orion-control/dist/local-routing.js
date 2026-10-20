@@ -40,7 +40,7 @@ import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-que
 import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
-import { parseReplanRequest } from "./day-replan.js";
+import { parseReplanRequest, parseReorder } from "./day-replan.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -323,7 +323,7 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}),
+    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}),
     exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
     ask: async (system, user, schema, budgetMs) => {
         try {
@@ -497,11 +497,15 @@ export function registerLocalRouting(api, options) {
     const building = new AsyncLocalStorage();
     // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
     const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => f(...a), { outcome: "fallback", reason: "too slow" }));
+    /** Per session: his last reschedule request that was carried out, for a follow-up reorder ("actually do resume before gym"), for 15 minutes. */
+    const replanMemory = new Map();
+    const recentReplan = (key) => { const m = key ? replanMemory.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m.ask : undefined; };
     const schedule = options.scheduleFlow;
     options = { ...options,
         ...(schedule ? { scheduleFlow: (m, c, o = {}) => {
                 const r = building.getStore();
-                return schedule(m, c, r?.abort ? { ...o, signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : o);
+                const context = recentReplan(r?.sessionKey);
+                return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
             } } : {}),
         ...(options.lateFlow ? { lateFlow: marked(options.lateFlow) } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow) } : {}),
         ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow) } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow) } : {}) };
@@ -575,6 +579,8 @@ export function registerLocalRouting(api, options) {
             addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
         if (flow?.outcome !== "done")
             return;
+        if (flow.replan && run.sessionKey)
+            replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
         flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
         const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
         if (turn && run.sessionKey)
@@ -744,7 +750,7 @@ export function registerLocalRouting(api, options) {
             finalText.delete(`session:${sessionKey}`);
         // 2026-10-20: "reschedule my day after my class, gym first" is code's whole job (day-replan.ts): the 4B is not asked, so a slow or
         // failing desk can neither delay it by 8 s nor send it down the worker path.
-        const codeFirst = on && !cutOff && !!options.scheduleFlow && !!parseReplanRequest(message);
+        const codeFirst = on && !cutOff && !!options.scheduleFlow && (!!parseReplanRequest(message) || (!!sessionKey && (() => { const c = recentReplan(sessionKey); return !!c && !!parseReorder(message, c); })()));
         const decision = cutOff
             ? Promise.resolve({ move: "ask", answer: GO_ON })
             : codeFirst ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })

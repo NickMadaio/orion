@@ -40,7 +40,7 @@ import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-que
 import { parseTodoDone } from "./todo-done-flow.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
-import { parseReplanRequest } from "./day-replan.js";
+import { parseReplanRequest, parseReorder, type ReplanAsk } from "./day-replan.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -73,7 +73,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void }) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk }) => Promise<FlowResult>;
   /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
   lateFlow?: (minutes: number) => Promise<FlowResult>;
   /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
@@ -402,9 +402,9 @@ export function undoJournalTop(home = homedir(), now = Date.now()): string | nul
 }
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void } = {}): Promise<FlowResult> => runScheduleFlow({
+export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk } = {}): Promise<FlowResult> => runScheduleFlow({
   message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}),
+  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}),
   exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema, budgetMs) => {
@@ -570,11 +570,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
   const marked = <A extends unknown[], R>(f: ((...a: A) => Promise<R>) | undefined) => f && ((...a: A) =>
     startWrite(building.getStore(), () => f(...a), { outcome: "fallback", reason: "too slow" } as unknown as R));
+  /** Per session: his last reschedule request that was carried out, for a follow-up reorder ("actually do resume before gym"), for 15 minutes. */
+  const replanMemory = new Map<string, { ask: ReplanAsk; at: number }>();
+  const recentReplan = (key: string | undefined): ReplanAsk | undefined => { const m = key ? replanMemory.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m.ask : undefined; };
   const schedule = options.scheduleFlow;
   options = { ...options,
     ...(schedule ? { scheduleFlow: (m: string, c: string, o: Parameters<NonNullable<LocalRoutingOptions["scheduleFlow"]>>[2] = {}) => {
       const r = building.getStore();
-      return schedule(m, c, r?.abort ? { ...o, signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : o);
+      const context = recentReplan(r?.sessionKey);
+      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
     } } : {}),
     ...(options.lateFlow ? { lateFlow: marked(options.lateFlow)! } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow)! } : {}),
     ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}) };
@@ -639,6 +643,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const flow = run.flow;
     if (flow?.outcome === "say" && flow.pending && run.sessionKey) addPending.set(run.sessionKey, { pending: flow.pending, at: Date.now() });
     if (flow?.outcome !== "done") return;
+    if (flow.replan && run.sessionKey) replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
     flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
     const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
     if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
@@ -774,7 +779,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (sessionKey) finalText.delete(`session:${sessionKey}`);
     // 2026-10-20: "reschedule my day after my class, gym first" is code's whole job (day-replan.ts): the 4B is not asked, so a slow or
     // failing desk can neither delay it by 8 s nor send it down the worker path.
-    const codeFirst = on && !cutOff && !!options.scheduleFlow && !!parseReplanRequest(message);
+    const codeFirst = on && !cutOff && !!options.scheduleFlow && (!!parseReplanRequest(message) || (!!sessionKey && (() => { const c = recentReplan(sessionKey); return !!c && !!parseReorder(message, c); })()));
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : codeFirst ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })

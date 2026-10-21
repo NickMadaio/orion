@@ -32,6 +32,8 @@ export type CalendarIntent = {
   outside?: string[];
   /** add: "yes" to ORION's own offer, or the "put X [from now] until T" sentence (direct-add.ts reads it against the day). */
   until?: true;
+  /** move / edit: the block ORION last made or changed in this chat ("it", or a name not on the day it was said for), by title and start */
+  target?: { title: string; start?: string; dateArgs: string[] };
   /** move: "push everything 30 min" — every block of his still ahead today, by the same minutes */
   all?: true;
   /** the remembered request's date, when a follow-up acts on it */
@@ -57,7 +59,7 @@ function dayOf(text: string, now: Date): DayWord | "other" {
 
 // ---- titles: a short name in his words, never a placeholder, a reminder or a list ----
 const NOT_A_NAME = /\b(?:and|then|or|but|if|so|with|because|after|before|between|until|till|from|instead|every|each|daily|weekly|something|anything|stuff|thing|things|reminder|remind|alarm|wake|timer|todo|to-do|task|tasks|table|flight|train|hotel|uber|taxi|cab|ride|ticket|tickets|text|email|message|lights?|music|everything|all|it|that|this|them|those|rest|ish|now|case|just|in|on|next|maybe|later|soon|sometime|today|tonight|tomorrow)\b/i;
-const FILLER = /\b(?:please|pls|for me|on my calendar|to my calendar|in my calendar|on my day|to my day|in there|real quick|tho|though|today|tonight|tomorrow|this (?:morning|afternoon|evening)|morning|afternoon|evening|night)\b/gi;
+const FILLER = /\b(?:(?:tomorrow|today|tonight)['’]s|please|pls|for me|on my calendar|to my calendar|in my calendar|on my day|to my day|in there|real quick|tho|though|today|tonight|tomorrow|this (?:morning|afternoon|evening)|morning|afternoon|evening|night)\b/gi;
 function cleanName(t: string): string | undefined {
   const name = t.replace(FILLER, " ").replace(/^\s*(?:in|down|me in|me down|me for|for|out for|off for|aside for|time for)\s+/i, "").replace(/\s+/g, " ").trim()
     .replace(/^(?:(?:a|an|some|my|the|another|one|quick|short|little)\s+)+/i, "").replace(/\s+(?:in|for|on)$/i, "").trim();
@@ -91,7 +93,7 @@ function readTimedAdd(text: string, day: DayWord, now: number | null): CalendarI
   return { verb: "add", items: [item], day };
 }
 
-const MOVE = new RegExp(String.raw`^(?:move|push|shift|bump)\s+(?:my\s+|the\s+)?(?<x>[a-z][a-z' &-]{0,40}?)\s+(?:(?:to|at)\s+(?<t>${CLOCK})|(?<dir1>back|later|forward|earlier)\s+(?:by\s+)?(?<len1>.+?)|(?:by\s+)?(?<len2>.+?)\s+(?<dir2>later|earlier|back|forward))\s*$`, "i");
+const MOVE = new RegExp(String.raw`^(?:move|push|shift|bump)\s+(?:my\s+|the\s+)?(?<x>[a-z][a-z' &-]{0,40}?)\s+(?:(?:to|at)\s+(?<t>${CLOCK})|(?<dir1>back|later|forward|earlier)\s+(?:by\s+)?(?<len1>.+?)|(?:by\s+)?(?<len2>.+?)\s+(?<dir2>later|earlier|back|forward)|(?:by\s+)?(?<len3>(?:\d{1,3}|an?|half an?)\s*(?:-\s*)?(?:min(?:ute)?s?|m|hours?|hrs?|h)))\s*$`, "i");
 // Live run 4 (2026-10-21): "45 min walk today at 5pm", "lunch 45 min today at 1pm", "need to do laundry, 1 hr, today at 6pm" have no verb but
 // are nothing else: a thing, a length or a day, and a clock. Read as an add (never a focus session); a statement about a block is not one.
 const BARE_LEAD = /^(?:(?:i\s+)?(?:need|have|got|want)\s+to\s+(?:do\s+)?|gotta\s+(?:do\s+)?|(?:i'?ll|ill|i will)\s+do\s+)/i;
@@ -110,14 +112,16 @@ const MOVE_FROM = new RegExp(String.raw`^(?:move|push|shift|bump)\s+(?:my\s+|the
 /** "move gym to 7", "move gym from 7 to 8", "push dinner back 30 min", "push gym 30 min later": one block, one new time. */
 function readMove(text: string, day: DayWord, now: number | null): CalendarIntent | undefined {
   const body = text.replace(COURTESY, "").replace(FILLER, " ").replace(/\s+/g, " ").replace(/[.!]+$/, "").trim();
+  // "it", "that", "this": the block ORION last made or changed here (schedule-flow.ts resolves it; run 5: "push it 15 min").
+  const nameOf = (x: string): string | undefined => (/^(?:it|that|this|that one|this one)$/i.test(x.trim()) ? "it" : cleanName(x));
   const from = body.match(MOVE_FROM);
   if (from?.groups) {
-    const name = cleanName(from.groups.x!);
+    const name = nameOf(from.groups.x!);
     return name && parseClock(from.groups.f!) && parseClock(from.groups.t!) ? { verb: "move", items: [{ name, fromSaid: from.groups.f!, toSaid: from.groups.t! }], day } : undefined;
   }
   const m = body.match(MOVE);
   if (!m?.groups) return undefined;
-  const name = cleanName(m.groups.x!);
+  const name = nameOf(m.groups.x!);
   if (!name) return undefined;
   if (m.groups.t) {
     const said = parseClock(m.groups.t);
@@ -131,7 +135,9 @@ function readMove(text: string, day: DayWord, now: number | null): CalendarInten
     else item.issue = { kind: "ambiguous", choices: [hhmm(r.ambiguous[0]), hhmm(r.ambiguous[1])] };
     return { verb: "move", items: [item], day };
   }
-  const len = takeLength(m.groups.len1 ?? m.groups.len2 ?? "");
+  // "push it 15 min" with no direction is later; only push/bump/shift say that ("move it 15 min" is not read).
+  if (m.groups.len3 && !/^(?:push|bump|shift)\b/i.test(body)) return undefined;
+  const len = takeLength(m.groups.len1 ?? m.groups.len2 ?? m.groups.len3 ?? "");
   if (!len.minutes || len.rest) return undefined;
   const earlier = /^(?:forward|earlier)$/i.test(m.groups.dir1 ?? m.groups.dir2 ?? "");
   return { verb: "move", items: [{ name, by: earlier ? -len.minutes : len.minutes }], day };

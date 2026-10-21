@@ -6,6 +6,8 @@ const cap = (t) => t.replace(/^./, (c) => c.toUpperCase());
 const label = (b) => b.title.replace(/\s+—.*$/, "");
 const onWhat = (intent) => (intent.day === "tomorrow" ? "your day tomorrow" : "your day");
 const isFixed = (b) => b.fixed || b.kind === "class";
+/** For a command he gives by name (move, extend, remove): his own events count, unless a class or a plan with people (review of 6fc2b13). */
+const namedFixed = (b) => isFixed(b) && !(b.nameable && b.kind !== "class");
 const nowOf = (day) => (day.now ? toMin(day.now) : null);
 /** The block on the day his name means: one still to come first, else the latest. Two different blocks by that name: "ambiguous" (never a guess). */
 function blockFor(name, day) {
@@ -26,7 +28,7 @@ function issueText(issue, item, intent, day, what) {
     return `${ampm(toMin(issue.at))} has already passed${now !== null ? ` (it's ${ampm(now)})` : ""}, so I haven't ${what} ${item.name}. Tell me a later time${issue.field === "start" && intent.day === "today" ? ", or say tomorrow" : ""}.`;
 }
 /** The fixed block (a class, a plan with people) a block at [start, start+minutes) would sit on. */
-const clashWith = (start, minutes, day) => day.blocks.filter(isFixed).find((b) => toMin(b.start) < start + minutes && toMin(b.end) > start);
+const clashWith = (start, minutes, day, self) => day.blocks.filter((b) => isFixed(b) && b !== self).find((b) => toMin(b.start) < start + minutes && toMin(b.end) > start);
 function planAdd(intent, day, message, askContext) {
     const item = intent.items[0];
     if (item.issue && (!["passed", "past-midnight"].includes(item.issue.kind) || !intent.until))
@@ -60,12 +62,24 @@ function planAdd(intent, day, message, askContext) {
 /** The block a move, extend or remove is about, or the line that says why there is none. */
 function target(intent, day, what) {
     const item = intent.items[0];
+    // The block ORION last made here, by title and the start it was written at (schedule-flow.ts set intent.target).
+    if (intent.target) {
+        const t = intent.target;
+        const named = day.blocks.filter((x) => x.title.toLowerCase() === t.title.toLowerCase());
+        const hit = t.start ? named.find((x) => x.start === t.start) : named.length === 1 ? named[0] : undefined;
+        if (hit)
+            return { block: hit };
+        if (item.name === "it")
+            return { kind: "say", say: "plain", text: `I can't find the ${t.title} I just ${intent.verb === "move" ? "booked" : "changed"} on ${onWhat(intent)} any more, so I haven't ${what} anything.` };
+    }
+    if (item.name === "it")
+        return { kind: "say", say: "ask", text: `Which block should I ${intent.verb === "move" ? "move" : "change"}? I haven't changed anything.` };
     const b = blockFor(item.name, day);
     if (b === "ambiguous")
         return undefined; // "lab" = the CS Lab study block or the lab class: the normal path asks
     if (!b)
         return { kind: "say", say: "cannot", text: `There's no ${item.name} on ${onWhat(intent)}, so I haven't ${what} anything.` };
-    if (isFixed(b))
+    if (namedFixed(b))
         return intent.verb === "move" ? { kind: "say", say: "cannot", text: `${cap(label(b))} is a class or a plan with people, so it doesn't move. I haven't changed anything.` } : undefined;
     return { block: b };
 }
@@ -116,7 +130,7 @@ function planMove(intent, day) {
         return { kind: "say", say: "cannot", text: `That would start ${label(b)} at ${ampm(to)}, which has already passed, so I haven't moved it.` };
     if (to + (toMin(b.end) - toMin(b.start)) > 1440)
         return { kind: "say", say: "cannot", text: `${cap(label(b))} would run past midnight from ${ampm(to)}, so I haven't moved it.` };
-    const clash = clashWith(to, toMin(b.end) - toMin(b.start), day);
+    const clash = clashWith(to, toMin(b.end) - toMin(b.start), day, b); // his own named block is never in its own way
     if (clash)
         return { kind: "say", say: "cannot", text: `${cap(label(clash))} is ${span(toMin(clash.start), toMin(clash.end))}${intent.day === "tomorrow" ? " tomorrow" : ""}, so ${label(b)} can't go at ${ampm(to)}. I haven't moved it. Tell me another time.` };
     return { kind: "run", argv: ["move", b.title, "--to", hhmm(to)], title: b.title };
@@ -183,4 +197,4 @@ export function planIntent(intent, day, ctx) {
     }
 }
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
-export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid)) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid || intent.items[0]?.name === "it")) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

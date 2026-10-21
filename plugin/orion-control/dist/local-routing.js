@@ -326,7 +326,7 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}),
+    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget } : {}),
     exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
     ask: async (system, user, schema, budgetMs) => {
         try {
@@ -515,7 +515,8 @@ export function registerLocalRouting(api, options) {
         ...(schedule ? { scheduleFlow: (m, c, o = {}) => {
                 const r = building.getStore();
                 const context = recentReplan(r?.sessionKey);
-                return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
+                const made = recentMade(r?.sessionKey);
+                return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
             } } : {}),
         ...(options.lateFlow ? { lateFlow: marked(options.lateFlow) } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow) } : {}),
         ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow) } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow) } : {}) };

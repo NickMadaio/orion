@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { replan } from "../scripts/lib/life/replan.mjs";
-import { isSocial, movable as movableTitle, toBlocks } from "../scripts/lib/life/live-day.mjs";
+import { aloneActivity, isSocial, movable as movableTitle, toBlocks } from "../scripts/lib/life/live-day.mjs";
 
 const b = (id, kind, start, end, fixed = false, title = id) => ({ id, title, kind, date: "2026-09-29", start, end, fixed, source: "calendar" });
 const win = { start: 480, end: 1380 };
@@ -78,10 +78,14 @@ test("a rebuild never moves work that is already in progress", () => {
 test("titles decide what may move", () => {
   assert.equal(isSocial("Ministry of Sound"), true);
   assert.equal(isSocial("meal prep with Sam"), true);
-  assert.equal(movableTitle("groceries"), true);
-  assert.equal(movableTitle("Dinner with Sam"), false);
-  assert.equal(movableTitle("Dentist"), false);
-  assert.equal(movableTitle("Anything", "study"), true, "ORION's own blocks always may move");
+  // A plan he states may still move when it is something he does alone (aloneActivity); an EXISTING event moves only on hard evidence that
+  // ORION made it (its marker or the ledger), never by its title (review of 7d5f393).
+  assert.equal(aloneActivity("groceries"), true);
+  assert.equal(aloneActivity("Dinner with Sam"), false);
+  assert.equal(aloneActivity("Dentist"), false);
+  assert.equal(movableTitle("study", "x", new Set()), true, "ORION's own blocks always may move");
+  assert.equal(movableTitle(null, "x", new Set(["x"])), true, "an id in the ledger is ORION's");
+  assert.equal(movableTitle(null, "y", new Set(["x"])), false, "anything else is his");
   const blocks = toBlocks([{ title: "CS1800 Lecture", start: "2026-09-29T09:00:00", end: "2026-09-29T10:30:00" },
                            { title: "Study", start: "2026-09-29T15:00:00", end: "2026-09-29T16:00:00", orion: "study" }], "2026-09-29");
   assert.deepEqual(blocks.map((x) => x.fixed), [true, false]);

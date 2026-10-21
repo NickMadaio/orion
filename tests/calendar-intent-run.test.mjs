@@ -219,3 +219,21 @@ test("edit follow-up: 'lunch 45 min today at 6pm' then 'make it an hour' resizes
   assert.deepEqual(w.writes.at(-1), ["resize", "lunch", "60"]);
   assert.ok(w.day().includes("lunch 3 18:00-19:00"), w.day().join("\n"));
 });
+
+test("live run 5 #3b/#8b on the real scheduler: the block just made tomorrow is the one 'move gym from 7 to 8' and 'push it 15 min' change", async (t) => {
+  const { blockTarget } = await import("../plugin/orion-control/dist/edit-followup.js");
+  const w = world(t, [22, 45]);
+  const target = (r) => { const b = blockTarget(r.calls, r.outputs, Date.now()); return { title: b.title, start: b.start, dateArgs: b.dateArgs }; };
+  const a = await w.say("add gym tomorrow at 7pm");
+  assert.equal(a.outcome, "done", JSON.stringify(a));
+  const b = await w.say("move gym from 7 to 8", { lastTarget: target(a) });
+  assert.equal(b.outcome, "done", JSON.stringify(b));
+  assert.deepEqual(w.writes.at(-1), ["move", "Gym", "--to", "20:00", "--date", "tomorrow"]);
+  assert.ok(w.day().includes("Gym 4 20:00-21:30"), w.day().join("\n"));
+  const c = await w.say("add reading tomorrow at 8pm");
+  const t2 = target(c);   // where the scheduler really put it (the Gym now sits at 20:00)
+  const d = await w.say("push it 15 min", { lastTarget: t2 });
+  assert.equal(d.outcome, "done", JSON.stringify(d));
+  const [h, m] = t2.start.split(":").map(Number); const to = h * 60 + m + 15;
+  assert.deepEqual(w.writes.at(-1), ["move", "reading", "--to", `${String(Math.floor(to / 60)).padStart(2, "0")}:${String(to % 60).padStart(2, "0")}`, "--date", "tomorrow"]);
+});

@@ -74,7 +74,9 @@ describe("schedule flow", () => {
     expect(calls[1]).toEqual(["move", "do cert courses", "--to", "12:35", "--until", "15:25"]);
     expect(await runScheduleFlow({ message: "x", clock: "Mon 08:00", exec, ask: async () => ({ steps: [{ do: "fill_between", what: "B4", after: "B9", before: "B3" }] }) })).toMatchObject({ outcome: "fallback" });
     expect(await runScheduleFlow({ message: "x", clock: "Mon 08:00", exec, ask: async () => ({ steps: [{ do: "cannot", text: "no room" }] }) })).toEqual({ outcome: "say", text: "no room", kind: "cannot" });
-    expect(await runScheduleFlow({ message: "move it to 6pm tomorrow", clock: "Mon 08:00", now: new Date(2026, 9, 12, 8, 0), exec, ask: async () => ({ steps: [{ do: "move", what: "B4", to: "18:00" }] }) })).toMatchObject({ outcome: "done" });
+    // Live run 5: "it" is the block ORION last made here; with none on record it is asked, never the form's guess.
+    expect(await runScheduleFlow({ message: "move it to 6pm tomorrow", clock: "Mon 08:00", now: new Date(2026, 9, 12, 8, 0), exec, ask: async () => ({ steps: [{ do: "move", what: "B4", to: "18:00" }] }) })).toMatchObject({ outcome: "say", text: "Which block should I move? I haven't changed anything." });
+    expect(await runScheduleFlow({ message: "move cert courses to 6pm tomorrow", clock: "Mon 08:00", now: new Date(2026, 9, 12, 8, 0), exec, ask: async () => ({ steps: [{ do: "move", what: "B4", to: "18:00" }] }) })).toMatchObject({ outcome: "done" });
     expect(calls.at(-1)).toEqual(["move", "do cert courses", "--to", "18:00", "--date", "tomorrow"]);
   });
 

@@ -45,6 +45,11 @@ export type LocalRoutingOptions = {
         signal?: AbortSignal;
         onWriteStart?: () => void;
         replanContext?: ReplanAsk;
+        lastTarget?: {
+            title: string;
+            start?: string;
+            dateArgs: string[];
+        };
         edit?: {
             target: Extract<EditTarget, {
                 kind: "block";
@@ -133,6 +138,11 @@ export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     signal?: AbortSignal;
     onWriteStart?: () => void;
     replanContext?: ReplanAsk;
+    lastTarget?: {
+        title: string;
+        start?: string;
+        dateArgs: string[];
+    };
     edit?: {
         target: Extract<EditTarget, {
             kind: "block";

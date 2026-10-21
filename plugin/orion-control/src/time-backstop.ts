@@ -89,8 +89,24 @@ export function timeMismatch(message: string, argvs: string[][], ctx: { day: Day
   if (!missing) return undefined;
   const title = writes[0]![0] === "day" ? (writes[0]![2] ?? "").split(",")[0]!.trim() : writes[0]![1] ?? "it";
   const said = missing.map(ampm).join(" or ");
+  // Live run 5: "add stretching, call mom at 5" — the 5 is in another item's clause. Ask which it belongs to, plainly.
+  const other = otherClauseItem(message, title);
+  if (other) return `Want ${title} at ${other.time} too, or just the ${other.item}? What time for ${title}?`;
   const would = written.length ? `at ${written.map(ampm).join(", ")}` : "wherever there was room, not at that time";
   return `You said ${said}, but the change I worked out would have put ${title} ${would}, so I haven't changed anything. Say it again with the time, like "put ${title} at ${ampm(missing[missing.length - 1]!).replace(":00", "")}".`;
+}
+
+/** The other item a stated time belongs to ("call" in "add stretching, call mom at 5"), when the time sits in a clause without this title. */
+function otherClauseItem(message: string, title: string): { item: string; time: string } | undefined {
+  const words = title.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  const clauses = spokenTimesToDigits(message).split(/[,;.!?]|\b(?:and|then|but|also|plus)\b/i).map((c) => c.trim()).filter(Boolean);
+  const timed = clauses.filter((c) => new RegExp(String.raw`\b(?:at|from)\s+${CLOCK}(?![\w:])`, "i").test(c));
+  const mentions = (c: string) => words.some((w) => new RegExp(`\\b${w}`, "i").test(c));
+  if (timed.length !== 1 || mentions(timed[0]!) || !clauses.some(mentions)) return undefined;
+  const lead = timed[0]!.replace(new RegExp(String.raw`\b(?:at|from)\s+${CLOCK}[\s\S]*$`, "i"), "").replace(/^(?:(?:add|put|schedule|book|and|also|a|an|the|my)\s+)+/i, "").trim();
+  const item = lead.split(/\s+/)[0]?.toLowerCase();
+  const time = timed[0]!.match(new RegExp(String.raw`\b(?:at|from)\s+(${CLOCK})(?![\w:])`, "i"))?.[1]?.trim();
+  return item && time ? { item, time } : undefined;
 }
 
 /** A shell command line's words, quotes kept together. */

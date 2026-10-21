@@ -7,6 +7,7 @@ import { ignoredEvent } from "./config.mjs";
 import { bridgeRequest } from "./bridge-path.mjs";
 import { isSkipped } from "./skips.mjs";
 import { markLoggedEvents, withLoggedLedger } from "./logged.mjs";
+import { writtenIdentifiers } from "./written.mjs";
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -34,10 +35,18 @@ export function isSocial(title) {
 /** Things he does alone that ORION may move when the day changes. */
 const MOVABLE_ALONE = /\b(study|revise|revision|homework|reading|gym|workout|run|nap|rest|break|relax|chill|gam(e|es|ing)|play|grocer(y|ies)|shopping|errands?|clean(ing)?|laundry|chores?|tidy|side project|youtube|edit(ing)?|content|video|lunch|dinner|breakfast|meal prep|cook(ing)?|sleep)\b/i;
 
-export function movable(title, orionKind) {
-  if (orionKind) return true;                 // ORION planned it itself
-  if (isSocial(title)) return false;
-  return MOVABLE_ALONE.test(title);
+/** A plan he STATES (`day --plan "clean, 30, 18:00, fixed"`) that he does alone: it may still move. Never used to decide an existing event. */
+export function aloneActivity(title) {
+  return !isSocial(title) && MOVABLE_ALONE.test(title);
+}
+
+/**
+ * Whether an event on his calendar is ORION's own and so may move (review of 7d5f393): ONLY hard evidence — the [orion:kind] marker ORION
+ * writes into its notes, or its id in orion-written.json (every block ORION creates, and `orion-reschedule ledger backfill` for older
+ * ones). No title rule: "Fix car — Kwik Fit 10am" or "Prep cook" are his and never move.
+ */
+export function movable(orionKind, identifier, written = writtenIdentifiers()) {
+  return !!orionKind || (!!identifier && written.has(identifier));
 }
 
 /** Tags after the kind marker: the bridge returns every [orion:x] marker as orionTags (array or comma list). */
@@ -48,7 +57,7 @@ export function tagsOf(e) {
 }
 
 /** Calendar events as blocks. Fixed unless ORION planned it or it is something he does alone. */
-export function toBlocks(events, date) {
+export function toBlocks(events, date, written = writtenIdentifiers()) {
   return events
     .filter((e) => e.allDay !== "true" && localDate(new Date(e.start)) === date)
     .map((e, i) => {
@@ -62,10 +71,15 @@ export function toBlocks(events, date) {
       // was filed as a class and pinned in place over his lunch (2026-10-01).
       const tags = tagsOf(e);
       const rank = (tags.find((t) => /^rank-(must|high|medium|low)$/.test(t)) ?? "").slice(5) || undefined;
-      const fixed = e.orion ? false : kind === "class" || kind === "deadline" || !movable(title, null);
+      // ORION's own block (its marker, or its id in orion-written.json) moves whatever calendar it is in (live run 5).
+      const ours = movable(e.orion, e.identifier, written);
+      const fixed = !ours;
+      // nameable: he may still move it himself by name ("move gym to 7"), unless it is a class, a deadline or a plan with people. Automatic
+      // changes (re-plans, bumps, fill, push everything) never touch it: it stays fixed for them (review of 6fc2b13).
+      const nameable = ours || (kind !== "class" && kind !== "deadline" && !isSocial(title));
       return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
-               end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: e.orion ? "orion" : "calendar",
+               end: Math.max(minuteOf(start) + 1, endMinute), fixed, nameable, source: ours ? "orion" : "calendar",
                calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}) };
     })
     .sort((a, b) => a.start - b.start);

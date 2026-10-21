@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
-import { replanReply } from "./day-replan.js";
+import { blocksNamed, replanReply } from "./day-replan.js";
 import { editLength } from "./edit-followup.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
@@ -583,7 +583,7 @@ async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit }) {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }) {
     const left = () => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
     // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
     // has not begun is refused when the hook has given up (review round 2, 2026-10-20: a killed write could delete blocks and never create them).
@@ -630,7 +630,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     const dated = titled ? { args: titled.dateArgs, label: titled.when } : intent
         ? { args: intent.date ? ["--date", intent.date] : intent.day === "tomorrow" ? ["--date", "tomorrow"] : [], label: intent.day === "tomorrow" ? "tomorrow" : undefined }
         : dayArgsFor(message, now);
-    const { args: dateArgs, label: when } = dated;
+    let { args: dateArgs, label: when } = dated;
     const whichDay = "ask" in dated ? dated.ask : undefined;
     if (whichDay)
         return takenBack({ outcome: "say", text: whichDay, kind: "ask" });
@@ -640,6 +640,32 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     }
     catch {
         return { outcome: "fallback", reason: "could not read the day" };
+    }
+    // Live run 5: "move gym from 7 to 8" right after "add gym tomorrow at 7pm", and "push it 15 min" after "add reading tomorrow at 8pm":
+    // "it", or a name that is not on the day he named, is the block ORION last made here, on ITS day, by title and start.
+    let target;
+    if (intent?.verb === "move" && !intent.all && lastTarget) {
+        const name = intent.items[0].name;
+        const same = name === "it" || blocksNamed(name, { ...day, blocks: [{ title: lastTarget.title, start: "00:00", end: "00:00", fixed: false }] }).length > 0;
+        const daySaid = /\b(?:today|tonight|tomorrow|tmrw)\b/i.test(message);
+        // "Not on today" includes one that is already over today (a finished Gym is not the one he wants moved to 8 PM).
+        const nowMin = day.now ? toMin(day.now) : -1;
+        const aheadToday = blocksNamed(name, day).filter((x) => toMin(x.end) > nowMin);
+        if (same && (name === "it" || (!aheadToday.length && !daySaid))) {
+            target = lastTarget;
+            if (lastTarget.dateArgs.join(" ") !== dateArgs.join(" ")) {
+                try {
+                    day = JSON.parse((await exec(["show", "--json", ...lastTarget.dateArgs])).stdout);
+                }
+                catch {
+                    return { outcome: "fallback", reason: "could not read the day" };
+                }
+                dateArgs = lastTarget.dateArgs;
+                when = lastTarget.dateArgs.includes("tomorrow") ? "tomorrow" : undefined;
+            }
+        }
+        else if (same && daySaid)
+            target = lastTarget;
     }
     // The backstop's day: a time he said must be the start every write uses (time-backstop.ts, live run 3).
     const clockCtx = { day: (day.now ? "today" : "tomorrow"), now: day.now ? Number(day.now.slice(0, 2)) * 60 + Number(day.now.slice(3, 5)) : null };
@@ -657,7 +683,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
         // The scheduler's clock is the one that counts: the times are read again against the day's own "now" (they agree on the live route).
         const dayNow = day.now ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), ...day.now.split(":").map(Number)) : now;
         const again = readIntent(message, { now: dayNow, ...(replanContext ? { last: replanContext } : {}), ...(askContext ? { ask: askContext } : {}) });
-        const settled = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
+        const read2 = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
+        const settled = target ? { ...read2, target, day: (day.now ? "today" : "tomorrow") } : read2;
         const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}) });
         // An "outside" follow-up ("dinner then gym") changes nothing and keeps the request it followed as the one remembered.
         const replan = intent.replan && !intent.outside?.length ? { ...intent.replan, day: intent.day, date: day.date } : undefined;
